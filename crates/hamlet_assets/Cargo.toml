@@ -1,0 +1,18 @@
+[package]
+name = "hamlet_assets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The files under assets/, embedded in the app and loaded as Bevy assets"
+
+[lints]
+workspace = true
+
+[dependencies]
+bevy.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[features]
+# Watches the files under assets/ and reads a saved change again.
+hot-reload = ["bevy/embedded_watcher"]

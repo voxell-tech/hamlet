@@ -1,0 +1,120 @@
+// A flag in the wind: cloth that hangs from its hoist at x = 0 and is
+// blown along x. UV.x is how far a point is along the cloth, 0 at the hoist
+// and 1 at the fly. The same shader places it for the depth and shadow
+// passes, so its shadow waves with it.
+
+#import bevy_pbr::{
+    mesh_functions,
+    view_transformations::position_world_to_clip,
+}
+
+#ifdef PREPASS_PIPELINE
+#import bevy_pbr::prepass_io::{Vertex, VertexOutput}
+#else
+#import bevy_pbr::forward_io::{Vertex, VertexOutput}
+#endif
+
+struct Flag {
+    // x: time in seconds. y: how fast the waves run. z: how far the fly
+    // end swings, as a share of the cloth's length. w: waves along it.
+    wave: vec4<f32>,
+    // x: the cloth's length. The rest is unused.
+    shape: vec4<f32>,
+}
+
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> flag: Flag;
+
+// Where a point of the cloth is blown to, and the slope of the cloth
+// there across the wind.
+fn blown(at: vec3<f32>, u: f32, own: f32) -> vec4<f32> {
+    let long = max(flag.shape.x, 0.001);
+    let swing = flag.wave.z * long;
+    let turn = 6.2832 * flag.wave.w;
+    let a = turn * u - flag.wave.y * flag.wave.x + own;
+    let b = a * 1.7 + 1.3;
+    // The hoist is held; the cloth is freer the further along it is.
+    let z = swing * u * (sin(a) + 0.35 * sin(b));
+    let slope = swing / long
+        * (sin(a) + 0.35 * sin(b)
+            + u * turn * (cos(a) + 0.35 * 1.7 * cos(b)));
+    var p = at;
+    p.z += z;
+    // It lifts and shortens a little as it swings out.
+    p.y += swing * 0.22 * u * cos(a * 0.5);
+    p.x -= swing * 0.35 * u * u * (1.0 - cos(a)) * 0.5;
+    return vec4<f32>(p, slope);
+}
+
+@vertex
+fn vertex(vertex: Vertex) -> VertexOutput {
+    var out: VertexOutput;
+    let world_from_local =
+        mesh_functions::get_world_from_local(vertex.instance_index);
+    // Flags in different places are at different moments of their wave.
+    let own = world_from_local[3].x * 0.37 + world_from_local[3].z * 0.23;
+#ifdef VERTEX_UVS_A
+    let u = vertex.uv.x;
+#else
+    let u = 0.0;
+#endif
+    let moved = blown(vertex.position, u, own);
+
+    out.world_position = mesh_functions::mesh_position_local_to_world(
+        world_from_local,
+        vec4<f32>(moved.xyz, 1.0),
+    );
+    out.position = position_world_to_clip(out.world_position.xyz);
+
+#ifdef VERTEX_UVS_A
+    out.uv = vertex.uv;
+#endif
+#ifdef VERTEX_UVS_B
+    out.uv_b = vertex.uv_b;
+#endif
+#ifdef VERTEX_COLORS
+    out.color = vertex.color;
+#endif
+
+#ifdef PREPASS_PIPELINE
+#ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
+    out.unclipped_depth = out.position.z;
+    out.position.z = min(out.position.z, 1.0);
+#endif
+#ifdef NORMAL_PREPASS_OR_DEFERRED_PREPASS
+#ifdef VERTEX_NORMALS
+    out.world_normal = mesh_functions::mesh_normal_local_to_world(
+        normalize(vec3<f32>(-moved.w, 0.0, 1.0)) * sign(vertex.normal.z),
+        vertex.instance_index,
+    );
+#endif
+#endif
+#ifdef MOTION_VECTOR_PREPASS
+    out.previous_world_position =
+        mesh_functions::mesh_position_local_to_world(
+            mesh_functions::get_previous_world_from_local(
+                vertex.instance_index,
+            ),
+            vec4<f32>(moved.xyz, 1.0),
+        );
+#endif
+#else
+#ifdef VERTEX_NORMALS
+    out.world_normal = mesh_functions::mesh_normal_local_to_world(
+        normalize(vec3<f32>(-moved.w, 0.0, 1.0)) * sign(vertex.normal.z),
+        vertex.instance_index,
+    );
+#endif
+#endif
+
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    out.instance_index = vertex.instance_index;
+#endif
+#ifdef VISIBILITY_RANGE_DITHER
+    out.visibility_range_dither =
+        mesh_functions::get_visibility_range_dither_level(
+            vertex.instance_index,
+            world_from_local[3],
+        );
+#endif
+    return out;
+}

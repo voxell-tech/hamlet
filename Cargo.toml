@@ -1,0 +1,124 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# The vendored fynix workspace is its own workspace.
+exclude = ["vendor"]
+# `cargo build`, `cargo test` and `cargo clippy` at the root cover every
+# crate, so the checks in AGENTS.md need no flags.
+default-members = [".", "crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+hamlet_sandbox = { path = "crates/hamlet_sandbox" }
+hamlet_model = { path = "crates/hamlet_model" }
+hamlet_home = { path = "crates/hamlet_home" }
+hamlet_rules = { path = "crates/hamlet_rules" }
+hamlet_core = { path = "crates/hamlet_core" }
+hamlet_assets = { path = "crates/hamlet_assets" }
+hamlet_vfx = { path = "crates/hamlet_vfx" }
+hamlet_world = { path = "crates/hamlet_world" }
+hamlet_ui = { path = "crates/hamlet_ui" }
+hamlet_testing = { path = "crates/hamlet_testing" }
+
+anyhow = "1"
+bevy_app = { version = "0.19", default-features = false, features = ["std"] }
+bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
+bevy = { version = "0.19", default-features = false, features = ["2d", "3d", "ui", "mesh_picking", "default_platform", "bevy_audio", "bevy_dev_tools", "debug", "serialize"] }
+bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
+bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+futures = "0.3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+interprocess = "2"
+keyring = "4"
+libc = "0.2"
+process-wrap = { version = "10.0.1", features = ["tokio1"] }
+pulldown-cmark = { version = "0.13", default-features = false }
+regex = "1"
+rfd = "0.17"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+objc2 = "0.5"
+objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
+objc2-foundation = { version = "0.2", default-features = false, features = ["std", "NSData"] }
+winit = { version = "0.30", default-features = false }
+toml = "1"
+
+[workspace.lints.clippy]
+# Bevy systems take many parameters and long query types by nature.
+too_many_arguments = "allow"
+type_complexity = "allow"
+
+# The usual Bevy profile: our own code builds fast, the engine and the
+# other dependencies run fast.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[package]
+name = "hamlet"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The hamlet binary and the examples that draw the world and the panels"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Named for the `hot-reload` feature; only the examples use it.
+hamlet_assets.workspace = true
+hamlet_sandbox.workspace = true
+hamlet_model.workspace = true
+hamlet_home.workspace = true
+hamlet_core.workspace = true
+hamlet_ui.workspace = true
+anyhow.workspace = true
+bevy_app.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+hamlet_rules.workspace = true
+hamlet_vfx.workspace = true
+hamlet_world.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true
+serde_json.workspace = true
+
+[features]
+# Tests that reach a real model server or the internet. Off unless asked
+# for: `cargo test --features live-tests`.
+live-tests = ["hamlet_core/live-tests"]
+# A saved change to a file under assets/ reaches the running app:
+# `cargo run --features hot-reload`.
+hot-reload = ["hamlet_assets/hot-reload"]
+
+[[example]]
+name = "style_test"
+
+[[example]]
+name = "town_gen"
+
+[[example]]
+name = "far_lands"
+
+[[example]]
+name = "ui_gallery"
+
+[[example]]
+name = "cursor_sheet"
+
+[[example]]
+name = "sound_sheet"
+
+[[example]]
+name = "chief_sheet"

@@ -1,0 +1,211 @@
+//! The agent the chat is with, and the ways to point it at another.
+
+use bevy::app::App;
+use bevy::ecs::entity::Entity;
+use bevy::ecs::lifecycle::RemovedComponents;
+use bevy::ecs::name::Name;
+use bevy::ecs::query::{Added, Changed, Or, With};
+use bevy::ecs::resource::Resource;
+use bevy::ecs::system::Query;
+use bevy::ecs::world::World;
+use hamlet_core::agents::{self, Citizen, Mayor};
+use hamlet_core::session::{self, SessionKey};
+use hamlet_rules::hamlet::HOME;
+use hamlet_world::pick::{Selected, Thing, select};
+
+use crate::dock::show_tab;
+
+/// The chat session this window shows and sends to.
+#[derive(Resource)]
+pub struct Me {
+    pub session: Entity,
+    pub key: SessionKey,
+    pub user: String,
+    /// The session with the mayor, whoever the chat is with.
+    pub mayor: Entity,
+    /// The agent the chat is with.
+    pub agent: Entity,
+    /// That agent's name. `None` for the mayor.
+    pub with: Option<String>,
+}
+
+/// The session a chat with `agent` is kept under, and the agent's
+/// name. `None` for the name of a mayor, and nothing at all for an
+/// agent that is not there.
+fn address(
+    world: &World,
+    agent: Entity,
+) -> Option<(SessionKey, Option<String>)> {
+    let name = world.get::<Name>(agent)?;
+    let with = world
+        .get::<Mayor>(agent)
+        .is_none()
+        .then(|| name.as_str().to_string());
+    let me = world.resource::<Me>();
+    let key = match &with {
+        Some(name) => SessionKey::with_agent("app", &me.user, name),
+        None => SessionKey::with_mayor(
+            "app",
+            &me.user,
+            agents::hamlet_of(world, agent).unwrap_or(HOME),
+        ),
+    };
+    Some((key, with))
+}
+
+/// Makes `agent` who the chat is with. False when it is not there.
+pub(crate) fn seat(world: &mut World, agent: Entity) -> bool {
+    let Some((key, with)) = address(world, agent) else {
+        return false;
+    };
+    let session = session::ensure(world, &key);
+    // Its letters to and from other agents are part of its chat.
+    session::gather(world, agent);
+    let mut me = world.resource_mut::<Me>();
+    me.session = session;
+    me.key = key;
+    me.agent = agent;
+    me.with = with;
+    true
+}
+
+/// Points the chat at one of the hamlet's agents, and selects it in
+/// the world.
+pub(crate) fn talk_to(world: &mut World, agent: Entity) {
+    if !seat(world, agent) {
+        return;
+    }
+    let mayor = agents::mayor(world) == Some(agent);
+    let selected =
+        world.get_resource::<Selected>().map(|selected| selected.0);
+    let same = match selected {
+        Some(Some(Thing::Keeper | Thing::Cottage)) => mayor,
+        Some(Some(
+            Thing::Resident(of) | Thing::ResidentHouse(of),
+        )) => of == agent,
+        Some(_) => false,
+        // Nothing can be selected where there is no world.
+        None => true,
+    };
+    if !same {
+        let thing = if mayor {
+            Thing::Keeper
+        } else {
+            Thing::Resident(agent)
+        };
+        select(world, Some(thing));
+    }
+    show_tab(world, "agent");
+}
+
+/// Points the chat back at the mayor.
+pub(crate) fn talk_to_mayor(world: &mut World) {
+    if let Some(mayor) = agents::mayor(world) {
+        talk_to(world, mayor);
+    }
+}
+
+/// Points the chat at whoever is mayor of `hamlet`.
+pub(crate) fn talk_to_mayor_of(world: &mut World, hamlet: &str) {
+    if let Some(mayor) = agents::mayor_of(world, hamlet) {
+        talk_to(world, mayor);
+    }
+}
+
+/// An agent went, an office changed hands or a name changed.
+pub(crate) fn roster_moved(
+    named: Query<
+        (),
+        (With<Citizen>, Or<(Added<Mayor>, Changed<Name>)>),
+    >,
+    mut gone: RemovedComponents<Citizen>,
+    mut unseated: RemovedComponents<Mayor>,
+) -> bool {
+    let removed = gone.read().count() + unseated.read().count();
+    removed > 0 || !named.is_empty()
+}
+
+/// Keeps [`Me`] true to the agent the chat is with, and to the first
+/// mayor once that agent is gone.
+pub(crate) fn reseat(world: &mut World) {
+    let me = world.resource::<Me>();
+    let agent = me.agent;
+    match address(world, agent) {
+        Some((key, with)) => {
+            if me.key != key || me.with != with {
+                seat(world, agent);
+            }
+        }
+        None => {
+            if let Some(mayor) = agents::mayor(world) {
+                seat(world, mayor);
+            }
+        }
+    }
+    // An agent that is gone from the world cannot stay selected.
+    let gone = match world.get_resource::<Selected>().map(|s| s.0) {
+        Some(Some(
+            Thing::Resident(agent)
+            | Thing::ResidentHouse(agent)
+            | Thing::Ruin(agent),
+        )) => world.get_entity(agent).is_err(),
+        _ => false,
+    };
+    if gone {
+        select(world, None);
+    }
+}
+
+/// The name of this window's chief: `HAMLET_USER`, then `USER`.
+pub(crate) fn user() -> String {
+    std::env::var("HAMLET_USER")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "user".into())
+}
+
+/// Opens the chat with the first mayor.
+pub(crate) fn plugin(app: &mut App) {
+    let user = user();
+    let key = SessionKey {
+        channel: "app".into(),
+        chat: user.clone(),
+        thread: "main".into(),
+    };
+    let session = session::ensure(app.world_mut(), &key);
+    let mayor =
+        agents::mayor(app.world_mut()).unwrap_or(Entity::PLACEHOLDER);
+    session::gather(app.world_mut(), mayor);
+    app.insert_resource(Me {
+        session,
+        key,
+        user,
+        mayor: session,
+        agent: mayor,
+        with: None,
+    });
+}
+
+#[cfg(test)]
+impl Me {
+    /// The chat of `user` with `agent`, kept in `session`: with the
+    /// mayor unless `with` names the agent.
+    pub(crate) fn of(
+        session: Entity,
+        agent: Entity,
+        user: &str,
+        with: Option<&str>,
+    ) -> Me {
+        let key = match with {
+            Some(name) => SessionKey::with_agent("app", user, name),
+            None => SessionKey::with_mayor("app", user, HOME),
+        };
+        Me {
+            session,
+            key,
+            user: user.into(),
+            mayor: session,
+            agent,
+            with: with.map(str::to_string),
+        }
+    }
+}

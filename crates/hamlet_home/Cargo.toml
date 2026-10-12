@@ -1,0 +1,20 @@
+[package]
+name = "hamlet_home"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A home's layout and system prompt, the chief's limits, the starter skills and the single-instance lock"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+interprocess.workspace = true
+serde.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+hamlet_testing.workspace = true

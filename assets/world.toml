@@ -1,0 +1,463 @@
+# Every tuning value of the world: sizes, speeds, timings and lights.
+# What each one means is written beside its field, in the module its
+# section tunes (crates/hamlet_world/src/settings.rs names them). A colour
+# is "#rrggbb" or its parts.
+
+[looks]
+strip_share = 0.4
+trace_half_life = 6.0
+
+[looks.day]
+sun = "#fff1d6"
+sun_lux = 7200.0
+sun_dir = [0.72, -0.62, -0.32]
+fill = "#8fa4c8"
+fill_lux = 1300.0
+ambient = "#8fa4c8"
+ambient_nits = 520.0
+haze = "#dceaf2"
+saturation = 1.06
+exposure = 0.0
+lantern_lumens = 9000.0
+candle = 0.0
+wash = 0.0
+inlay_gain = 2.4
+
+[looks.night]
+sun = "#9db4ff"
+sun_lux = 900.0
+sun_dir = [0.6, -0.64, -0.48]
+fill = "#2b3a8c"
+fill_lux = 260.0
+ambient = "#2b3a8c"
+ambient_nits = 420.0
+haze = "#16205a"
+saturation = 0.92
+exposure = 0.0
+lantern_lumens = 9000.0
+candle = 1.0
+wash = 0.3
+inlay_gain = 1.0
+
+[sky]
+moving = true
+sunrise = 6.0
+sunset = 19.0
+twilight = 2.4
+glow_spread = 0.6
+horizon = 0.14
+lowest = 0.2
+door_lumens = 30000.0
+door_reach = 9.0
+shafts = false
+shaft_density = 0.004
+shaft_strength = 12.0
+shaft_steps = 32
+occlusion = false
+atmosphere = false
+
+[sky.glow]
+sun = "#ff9e5c"
+sun_lux = 9000.0
+sun_dir = [0.0, -1.0, 0.0]
+fill = "#8c7fc0"
+fill_lux = 900.0
+ambient = "#e6b4a6"
+ambient_nits = 620.0
+haze = "#ffb98a"
+saturation = 1.14
+exposure = 0.0
+lantern_lumens = 9000.0
+candle = 0.75
+wash = 0.2
+inlay_gain = 1.6
+
+[camera]
+fov = 25.0
+near = 2.0
+far = 4000.0
+shadow_map = 4096
+distance = 72.0
+spread_distance = 3.4
+pitch = 40.0
+pitch_limits = [14.0, 40.0]
+zoom = [0.07, 16.0]
+reach = 1150.0
+pan = 600.0
+turn_rate = 0.006
+tilt_rate = 0.004
+tilt = [-0.35, 0.0]
+slide_tilt = 1.5
+glide = 9.0
+level = 3.5
+focus_zoom = 0.4
+slide = 30.0
+scroll_rate = 0.08
+scroll_line = 40.0
+click_slop = 4.0
+fog_start = 1.2
+fog_end = [2.6, 150.0]
+shadow_range = [0.45, 1.25, 2.4]
+blur_within = 130.0
+blur_stop = 8.400001
+blur_stop_min = 0.1
+blur_circle = 6.0
+
+[detail]
+town_far = 330.0
+robots_far = 170.0
+robot_sight = 5.0
+ground_reach = 0.9
+tile_levels = 6
+tile_split = 3.0
+tile_keep = 1.15
+river_split = 2.0
+town_split = 4.0
+tile_sink = [0.15, 1.2]
+stale_sink = 0.4
+bed = 1.2
+tree_levels = 2
+crown_levels = 3
+tile_tasks = 32
+trees_per_frame = 600
+builds_per_frame = 24
+
+[carry]
+lift = 0.35
+glow = 4.0
+beads = 64
+bead = 0.4
+band = 0.07
+beam = [0.16, 14.0]
+pad = 0.08
+word_at = [18.0, 14.0]
+word_size = 12.0
+word_back = [0.004, 0.039, 0.075, 0.86]
+
+[motion]
+walk_speed = 0.8
+stride = 0.62
+get_going = 0.45
+corner = 0.3
+amble = 1.0
+turn_rate = 12.0
+roll_above = 1.6
+roll_ease = 0.3
+
+[house_motion]
+rise = 0.6
+overshoot = 0.12
+squash = 0.12
+props_after = 0.3
+prop_gap = 0.1
+prop = 0.35
+clear = 0.25
+shudder = 0.35
+tilt = 0.035
+shake = 11.0
+fall = 0.4
+rest_after = 0.45
+move_after = 0.55
+move_gap = 0.03
+
+[pick]
+robot_box = [0.9, 1.6, 0.9]
+house = [3.4, 5.2]
+common = [6.0, 2.6]
+ring_lift = 0.12
+ring_slack = 2.5
+signs_far = 210.0
+
+[tags]
+paper = "#1b1510"
+ink = "#f2e7d0"
+needs_you = "#f2b35a"
+margin = 8.0
+glyph = 48
+line = 48
+width = 420.0
+lift = 30.0
+
+[bubbles]
+width = 220.0
+size = 13.0
+round = 6.0
+most = 120
+most_thought = 56
+lift = 0.35
+far = 170.0
+linger = 6.0
+linger_busy = 40.0
+hold = 10.0
+arrive = 0.22
+leave = 0.18
+paper = "#1b1510"
+ink = "#f2e7d0"
+edge = "#7c5d2f"
+paper_thought = "#120e0aee"
+ink_thought = "#ab9f8b"
+edge_thought = "#2c231b"
+shade = [0.02, 0.012, 0.005, 0.55]
+
+[chief]
+size = 0.8
+out_time = 0.42
+dark_time = 0.1
+in_time = 0.55
+rune_radius = 1.5
+rune_lift = 0.07
+rune_light = 2.4
+motes = 18
+mote_time = 0.9
+mote_rise = 2.2
+mote_spread = 1.4
+mote_size = 0.1
+wick_light = 2.0
+lamp = 12000.0
+lamp_range = 6.0
+flare = 4.0
+orb_light = 2.6
+waystone_light = 1.2
+lantern_light = 4.0
+beside = 1.0
+before = 0.25
+slack = 0.6
+restep = 6.0
+afoot = 60.0
+cheat = 0.7
+stroll = [4.9, 7.0]
+walk_speed = 2.2
+turn_rate = 7.0
+blend = 0.3
+linger = [5.0, 11.0]
+grounds = 8.5
+mascot_box = [0.8, 1.5, 0.8]
+house = [3.6, 6.9]
+
+[play]
+poke_gap = 0.45
+annoy_pokes = 4
+annoy_window = 9.0
+pat_hold = 1.6
+pat_still = 6.0
+pat_rest = 12.0
+stroke_length = 130.0
+stroke_turns = 2
+stroke_time = 1.4
+stroke_rest = 3.0
+lift_height = 1.3
+lift_follow = 14.0
+lift_lean = 0.09
+fall = 16.0
+greet_gap = 1.05
+scurry = 2.6
+scurry_longest = 5.0
+scurry_fastest = 6.5
+look_near = 6.5
+look_turn = 1.1
+look_lift = 0.3
+look_rate = 7.0
+wave_near = 2.6
+wave_chance = 0.34
+wave_rest = 25.0
+cheer_window = 30.0
+cheer_reach = 20.0
+cheer_lag = 0.06
+nudge_pin = 6.0
+nudge_room = 2.6
+letter_wait = 3.0
+gift_at = [0.75, 0.5]
+meter_at = [-1.45, 0.3]
+meter_size = 0.6
+meter_glow = 3.0
+meter_lumens = 26000.0
+meter_reach = 5.0
+meter_blink = 1.6
+meter_read_far = 120.0
+heart_height = 1.75
+heart_rise = 0.7
+heart_size = 0.16
+heart_time = 1.3
+drop_height = 3.2
+drop_time = 0.6
+gift_stays = 30.0
+
+[sound]
+muted = false
+music_on = true
+volume = 0.6
+sound_level = 1.0
+music_level = 1.0
+ambience = 0.5
+birds = 0.55
+steps = 0.22
+work = 0.7
+doors = 0.8
+alerts = 0.6
+interface = 0.35
+hand = 1.0
+magic = 0.6
+talk = 0.4
+lives = 0.6
+answers = 0.5
+music = 0.4
+reach = 14.0
+earshot = 110.0
+hand_far = 8.0
+listener = 0.25
+furthest = 400.0
+ears = 6.0
+voices = 16
+vary = 0.07
+vary_tuned = 0.004
+sway = 0.12
+alert_gap = 5.0
+alerts_everywhere = true
+fade = 4.0
+close = 22.0
+music_fade = 3.0
+music_night = 0.75
+busy_full = 4.0
+music_rest = 0.0
+phrase_gap = 9.0
+phrase_after = 1.6
+
+[sound.limits.steps]
+most = 4
+gap = 0.06
+
+[sound.limits.work]
+most = 8
+gap = 0.0
+
+[sound.limits.doors]
+most = 4
+gap = 0.05
+
+[sound.limits.alerts]
+most = 1
+gap = 0.0
+
+[sound.limits.interface]
+most = 4
+gap = 0.04
+
+[sound.limits.hand]
+most = 3
+gap = 0.08
+
+[sound.limits.magic]
+most = 5
+gap = 0.12
+
+[sound.limits.talk]
+most = 2
+gap = 0.6
+
+[sound.limits.lives]
+most = 3
+gap = 0.25
+
+[sound.limits.answers]
+most = 2
+gap = 0.2
+
+[debug]
+shown = false
+key = "F3"
+hit_boxes = true
+routes = true
+plots = true
+stations = true
+frame_time = true
+layer = 7
+line_width = 1.5
+lift = 0.2
+mark = 0.12
+text_size = 13.0
+text = "#ffffff"
+hit = "#35e06a"
+hovered = "#ffe14a"
+selected = "#ffffff"
+route = "#39c5ff"
+plot = "#b58cff"
+unused = "#6e6a80"
+station = "#ff8a3c"
+path = "#ff5c8a"
+
+[generator.land]
+water_y = -0.42
+site_y = 1.3
+site_spacing = 60.0
+site_rings = 3
+chunk = 32.0
+tile_cells = [20, 32]
+plain_y = 1.5
+hills = [0.011, 2.4]
+grain = [0.06, 0.22]
+plains = 228.0
+ranges = [-0.02, 0.3]
+edge = [0.006, 34.0]
+range_scale = 0.0017
+ridge_warp = [0.013, 14.0]
+peaks = [0.0085, 9.0, 66.0]
+river_gap = 640.0
+bends = [0.0042, 58.0]
+kinks = [0.015, 13.0]
+drift_scale = 0.0011
+river_drift = 150.0
+wilds = 0.45
+heath = 0.55
+tree_cell = 4.2
+tree_origin = -352.0
+
+[generator.town]
+radius = 27.0
+gate_radius = 29.0
+plots = 37
+plaza_radius = 5.4
+plaza_lift = 0.1
+hall_out = 5.2
+first_ring = 10.5
+plot_area = 46.0
+door_out = 2.3
+house_radius = 2.45
+road_clearance = 0.75
+robot_clearance = 0.55
+well = [[0.2, 2.3], 1.0]
+tree = [[3.5, 1.2], 0.55]
+board = [[-3.3, 0.9], 0.6]
+lamp = [-3.2, 1.75, 0.0]
+keep_apart = 56.0
+
+[generator.house]
+base = 0.42
+eave = 0.3
+removed = "Bare"
+merged = "Bare"
+
+[generator.yard]
+terrace = 0.12
+along = [-1.6, 1.5]
+depth = 1.34
+beat_from = -1.15
+desk = [0.55, 0.0]
+rack = [0.5, -0.42]
+boiler = [0.73, -0.1]
+wheel = [0.61, 0.56, 0.3]
+stack = 1.34
+
+[generator.road]
+bridge_from = 0.08
+bridge_half = 0.95
+deck = 0.95
+half_width = [0.5, 0.72, 0.98, 0.98]
+flags_half = 0.62
+groove_width = 0.2
+walk_speed = 2.2
+ride_speed = 26.0
+ride_ramp = 9.0
+cart_bed = 0.17
+ride_time = 14.0
+climb = 3.0
+search = 6000

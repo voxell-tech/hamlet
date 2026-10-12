@@ -1,0 +1,8 @@
+/target
+.DS_Store
+
+# Worktrees of agents working in parallel.
+.claude/worktrees/
+
+# The stills an example draws, wherever the examples live.
+**/examples/*/out/

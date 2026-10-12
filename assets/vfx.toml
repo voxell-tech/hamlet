@@ -1,0 +1,65 @@
+# The tuning of the effects: the particles, the small magic, the wind and
+# the flags. What each
+# value means is written beside its field in crates/hamlet_vfx/src/.
+
+[sparks]
+embers = 260
+ember_life = 1.9
+ember_speed = 3.2
+ember_size = 0.11
+ember_light = 6.0
+firefly_light = 5.0
+fireflies = 14.0
+firefly_life = 6.0
+firefly_reach = 26.0
+firefly_height = 2.6
+firefly_speed = 0.5
+firefly_size = 0.07
+
+[magic]
+radius = 3.4
+lift = 0.06
+rune_time = 1.1
+rune_light = 4.0
+embers = 22
+ember_spread = 0.5
+ember_time = 1.6
+ember_rise = 4.5
+ember_sway = 0.5
+ember_size = 0.14
+ember_light = 5.0
+move_motes = 8
+move_time = 0.9
+move_arc = 0.12
+motes = 28
+flight_time = 1.5
+flight_arc = 5.0
+flight_spread = 1.4
+flight_height = 2.0
+mote_size = 0.16
+musing_height = 5.2
+musing_size = 0.2
+musing_light = 4.0
+musing_bob = 0.15
+musing_rate = 1.6
+musing_in = 0.4
+
+[wind]
+gap = [0.5, 1.6]
+heading = 70.0
+veer = 18.0
+length = 17.0
+width = 0.42
+height = [1.8, 5.5]
+time = 2.4
+dash = 0.5
+curl = 0.08
+light = 0.9
+night = 0.35
+
+[flag]
+speed = 5.0
+swing = 0.11
+waves = 1.15
+stripes = 4
+taper = 0.35

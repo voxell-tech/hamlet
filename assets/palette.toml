@@ -1,0 +1,111 @@
+# The colours the world is made of. Each is "#rrggbb", or its parts as
+# numbers. The fields are in crates/hamlet_world/src/palette.rs.
+
+limestone = "#c9b98f"
+limestone_shade = "#8f8468"
+plaster = "#ebd9a8"
+plaster_worn = "#b9c08a"
+whitewash = "#f1eadb"
+ochre = "#e2b45a"
+timber = "#7a5638"
+timber_dark = "#5c3f28"
+log = "#8e6a46"
+terracotta = "#b5553c"
+tile_drift = "#c97a4a"
+moss = "#7d8f5a"
+slate_roof = "#5e7480"
+dirt = "#d9b983"
+dirt_shade = "#b8975f"
+mud = "#55543f"
+gravel = "#8c8474"
+grass = "#7fa650"
+grass_shade = "#4e7a45"
+grass_sun = "#9bbb5c"
+grass_tip = "#a9c96a"
+grass_high = "#8e9a6c"
+foliage = "#8db360"
+foliage_shade = "#5b8a4c"
+autumn = "#e8a45c"
+autumn_shade = "#c9713a"
+conifer = "#35604a"
+conifer_snow = "#e4ebec"
+bark = "#6b5540"
+rock = "#9a9a86"
+rock_dark = "#6e7064"
+rock_warm = "#a89f8c"
+snow = "#eef1f2"
+water = "#4f8fa3"
+water_shade = "#2f5f78"
+bed = "#3a3f46"
+rune = "#3fd8e8"
+ember = "#ff9a3c"
+firefly = "#d9f27a"
+wind = "#fff8e6"
+pewter = "#6b7178"
+brass = "#b08d4a"
+steel = "#6b7178"
+steel_bright = "#a9b0b6"
+parchment = "#efe2c0"
+ink = "#2a2118"
+wax = "#a8480a"
+mantle = "#efe4c8"
+seat = "#c9a46e"
+leather = "#6b3a2e"
+page = "#f6f2e6"
+kite = "#7a5470"
+flowers = ["#7b5bb5", "#6f8fd8", "#f4f0e2", "#e8c24a", "#d98ba8"]
+livery = ["#5e7480", "#4e7a45", "#8a3b45", "#c99a2e", "#34486b", "#8b7bb5", "#efe2c0", "#3f7f7a"]
+paints = ["#8a623e", "#6f8a4e", "#6f8aa6", "#86587f", "#4e4a48", "#a9b79a", "#3f4c74"]
+meter = ["#e23a2a", "#f5822a", "#f2cf3a", "#6cc24a"]
+cloaks = ["#3f7fa3", "#c2513a", "#5f8a4e", "#7a4e86", "#d9a63a", "#d98ba8", "#4a5560", "#efe4c8"]
+wicks = ["#ffb45a", "#3fd8e8", "#ff8fb0", "#b8f06a", "#cfe0ff"]
+face = "#f3dfc0"
+blush = "#e8a08c"
+hair = "#5c3f28"
+pane_dark = [0.2, 0.22, 0.24]
+pane_lit = [0.5, 0.42, 0.3]
+glass_dark = [0.16, 0.15, 0.14]
+glass_lit = [0.5, 0.46, 0.38]
+river = [0.2, 0.42, 0.52]
+place_fits = "#ffb24a"
+place_unfit = "#e0452f"
+
+[[towns]]
+roof = "#b5553c"
+drift = "#c97a4a"
+banner = "#f4f0e2"
+
+[[towns]]
+roof = "#5e7480"
+drift = "#7b93a0"
+banner = "#34486b"
+
+[[towns]]
+roof = "#c9a85a"
+drift = "#ddbf72"
+banner = "#7a5470"
+
+[[towns]]
+roof = "#7a5470"
+drift = "#94708a"
+banner = "#efe2c0"
+
+[[towns]]
+roof = "#3f6f6a"
+drift = "#5a8a82"
+banner = "#ebd9a8"
+
+[[towns]]
+roof = "#4a4a52"
+drift = "#676772"
+banner = "#d98ba8"
+
+[[towns]]
+roof = "#8a5a3a"
+drift = "#a87550"
+banner = "#5b8a4c"
+
+[[towns]]
+roof = "#8fa3b0"
+drift = "#a9bbc6"
+banner = "#8a3b45"

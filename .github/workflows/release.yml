@@ -1,0 +1,102 @@
+# Release builds of Hamlet for macOS, Windows and Linux.
+#
+# Runs when a version tag is pushed (v0.1.0) and when started by hand
+# from the Actions tab, and at no other time. A tag publishes a GitHub
+# release with the three archives. A run by hand only keeps them as
+# the run's artifacts.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple Silicon)
+            os: macos-14
+            target: aarch64-apple-darwin
+          - name: Windows (x64)
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: Linux (x64)
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # vendor/fynix is a submodule.
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install what Bevy links against
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            pkg-config libasound2-dev libudev-dev \
+            libwayland-dev libxkbcommon-dev
+
+      - name: Build
+        run: cargo build --release --locked -p hamlet --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: .github/scripts/package.sh "${{ matrix.target }}" "${{ github.ref_type == 'tag' && github.ref_name || github.sha }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hamlet-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # A release made by hand before the tag was built is added to,
+      # and a file it already holds is replaced.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --repo "$REPO" --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --repo "$REPO" \
+              --title "Hamlet $TAG" \
+              --generate-notes
+          fi
