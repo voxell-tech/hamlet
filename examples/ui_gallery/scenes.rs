@@ -169,6 +169,7 @@ impl Plugin for GalleryPlugin {
             settings::plugin,
             feel::plugin,
             hamlet_ui::tuning::plugin,
+            hamlet_ui::tabs::plugin,
         ));
     }
 }

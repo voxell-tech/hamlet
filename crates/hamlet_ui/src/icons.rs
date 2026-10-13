@@ -112,6 +112,8 @@ pub enum Glyph {
     Into,
     /// Three dots: the rest of what can be done.
     More,
+    /// Three lines: a list folded away.
+    Menu,
     Folder,
 }
 
@@ -141,7 +143,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 45] = [
+    pub const ALL: [Glyph; 46] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -186,6 +188,7 @@ impl Glyph {
         Glyph::Chevron,
         Glyph::Into,
         Glyph::More,
+        Glyph::Menu,
         Glyph::Folder,
     ];
 
@@ -509,6 +512,11 @@ impl Glyph {
                 Dot(3.5, 8.0, 1.25),
                 Dot(8.0, 8.0, 1.25),
                 Dot(12.5, 8.0, 1.25),
+            ],
+            Glyph::Menu => &[
+                Line(3.0, 4.5, 13.0, 4.5),
+                Line(3.0, 8.0, 13.0, 8.0),
+                Line(3.0, 11.5, 13.0, 11.5),
             ],
             Glyph::Folder => &[Loop(&[
                 [2.0, 3.5],

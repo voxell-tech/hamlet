@@ -140,6 +140,7 @@ impl Plugin for UiPlugin {
             ),
             (
                 tuning::plugin,
+                tabs::plugin,
                 platform::plugin,
                 icons::plugin,
                 feel::plugin,

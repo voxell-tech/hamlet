@@ -1,24 +1,32 @@
 //! Tabs within a panel: lettering that shares the width over a
-//! hairline, the one shown lit and underlined.
+//! hairline, the one shown lit and underlined. Where the panel is
+//! too narrow for them, only the one shown stays, beside a button
+//! that lists them all.
 
+use bevy::app::{App, Update};
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::query::Has;
+use bevy::ecs::hierarchy::Children;
+use bevy::ecs::query::{Has, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
-use bevy::ui::{BackgroundColor, UiRect, px};
+use bevy::ui::{
+    AlignItems, BackgroundColor, ComputedNode, Display, Node, UiRect,
+    px,
+};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, frame, label, row,
+    BehaviorExt, FrameProps, button, column, frame, label,
+    menu_button, row,
 };
 use bevy_fynix::{Bevy, ScopedExt, View, ViewExt, style};
 
 use crate::feel::FootLight;
 use crate::icons::Glyph;
-use crate::looks::{hairline, headed};
-use crate::platform::DisplayText;
+use crate::looks::{ICON, hairline, headed};
+use crate::platform::{DisplayText, show};
 use crate::theme::{BRASS_3, BRASS_6, Lamplight};
 use crate::{Build, Ui};
 
@@ -33,6 +41,17 @@ pub struct Underline<R>(R);
 /// On the tab that is shown.
 #[derive(Component)]
 pub struct Shown;
+
+/// On the row of a strip: the width its tabs need side by side, in
+/// logical pixels, while the row is narrower than that and they are
+/// folded into a list.
+#[derive(Component, Default)]
+pub struct Folds(Option<f32>);
+
+/// On the button of a strip that lists its tabs while they are
+/// folded.
+#[derive(Component)]
+pub struct Listed;
 
 /// A tab: lettering alone, bright on the one shown.
 pub fn tab_look(cx: &mut Build) {
@@ -73,6 +92,17 @@ pub fn strip<R: Resource + Copy>(
     tabs: &[(R, Glyph, &'static str)],
     choose: fn(&mut World, R),
 ) -> Ui {
+    let values = tabs.iter().map(|tab| tab.0).collect::<Vec<_>>();
+    let list = row((menu_button(
+        "",
+        tabs.iter().map(|tab| tab.2),
+        move |world, at| choose(world, values[at]),
+    )
+    .icon(Glyph::Menu.image(ICON)),))
+    .align(AlignItems::Center)
+    .display(Display::None)
+    .tagged(Listed)
+    .boxed();
     let tabs = tabs
         .iter()
         .map(|&(of, which, name)| {
@@ -91,10 +121,64 @@ pub fn strip<R: Resource + Copy>(
             .gap(0.0)
             .boxed()
         })
+        .chain([list])
         .collect::<Vec<_>>();
-    column((row(tabs).gap(0.0), hairline(BRASS_6)))
-        .gap(0.0)
-        .boxed()
+    column((
+        row(tabs).gap(0.0).tagged(Folds::default()),
+        hairline(BRASS_6),
+    ))
+    .gap(0.0)
+    .boxed()
+}
+
+/// Folds the tabs of a strip too narrow for them into a list beside
+/// the one shown, and sets them side by side again when there is
+/// room.
+pub fn fit(
+    mut strips: Query<(&mut Folds, &ComputedNode, &Children)>,
+    mut parts: Query<(
+        &mut Node,
+        &ComputedNode,
+        Option<&Children>,
+        Has<Listed>,
+    )>,
+    shown: Query<(), With<Shown>>,
+) {
+    for (mut folds, strip, children) in &mut strips {
+        let scale = strip.inverse_scale_factor();
+        let room = strip.size().x * scale;
+        match folds.0 {
+            Some(needed) if room >= needed => folds.0 = None,
+            Some(_) => {}
+            None => {
+                let needed = children
+                    .iter()
+                    .filter_map(|part| parts.get(*part).ok())
+                    .filter(|(.., listed)| !listed)
+                    .map(|(_, tab, ..)| tab.size().x * scale)
+                    .sum::<f32>();
+                // Half a pixel, for the rounding of the layout.
+                if needed > room + 0.5 {
+                    folds.0 = Some(needed);
+                }
+            }
+        }
+        let folded = folds.0.is_some();
+        for part in children.iter() {
+            let Ok((mut node, _, within, listed)) =
+                parts.get_mut(*part)
+            else {
+                continue;
+            };
+            let lit = within.is_some_and(|within| {
+                within.iter().any(|tab| shown.contains(*tab))
+            });
+            show(
+                &mut node,
+                if listed { folded } else { !folded || lit },
+            );
+        }
+    }
 }
 
 /// Marks the tab of the value of `R`, holds its light and draws its
@@ -122,4 +206,8 @@ pub fn mark<R: Resource + Copy + PartialEq>(
             fill.0 = want;
         }
     }
+}
+
+pub fn plugin(app: &mut App) {
+    app.add_systems(Update, fit);
 }
