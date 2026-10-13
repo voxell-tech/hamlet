@@ -20,6 +20,7 @@ use crate::needs::TagSettings;
 use crate::pick::PickSettings;
 use crate::sky::{CameraSettings, Looks, SkySettings};
 use crate::sound::SoundSettings;
+use crate::works::WorksSettings;
 
 /// Every tuning value of the world, as `assets/world.toml` has them.
 #[derive(Asset, TypePath, Clone, Debug, serde::Deserialize)]
@@ -37,6 +38,7 @@ pub(crate) struct WorldTuning {
     pub bubbles: BubbleSettings,
     pub chief: ChiefSettings,
     pub play: PlaySettings,
+    pub works: WorksSettings,
     pub sound: SoundSettings,
     pub debug: DebugSettings,
     pub generator: GenSettings,
@@ -60,6 +62,7 @@ impl Tuning for WorldTuning {
         follow(world, &was.bubbles, &self.bubbles);
         follow(world, &was.chief, &self.chief);
         follow(world, &was.play, &self.play);
+        follow(world, &was.works, &self.works);
         follow(world, &was.sound, &self.sound);
         follow(world, &was.debug, &self.debug);
     }
@@ -78,6 +81,7 @@ designed!(WorldTuning {
     BubbleSettings => bubbles,
     ChiefSettings => chief,
     PlaySettings => play,
+    WorksSettings => works,
     SoundSettings => sound,
     DebugSettings => debug,
     GenSettings => generator,

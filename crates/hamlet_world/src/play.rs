@@ -34,6 +34,8 @@ pub enum Play {
     /// where it was going.
     WickOut,
     WickIn,
+    /// A hamlet's lever was thrown.
+    Lever,
 }
 
 /// A thing done by hand, and where in the world.

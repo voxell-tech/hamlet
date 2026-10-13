@@ -15,6 +15,7 @@ use hamlet_rules::budget::{AgentBudget, Report};
 use hamlet_rules::hamlet::{HOME, Hamlet, RoadUse};
 use hamlet_rules::library::Library;
 use hamlet_rules::realm::Realm;
+use hamlet_rules::work::Work;
 
 pub use self::activity::{Activity, Doing, Paper, Saying};
 pub(crate) use self::roster::ask;
@@ -70,6 +71,11 @@ pub(crate) fn limits(world: &World) -> anyhow::Result<Limits> {
         },
     }
 }
+
+/// A hamlet's folder and mode, as its record last says.
+#[derive(Component, Clone, PartialEq, Eq, Debug, Default)]
+#[component(immutable)]
+pub struct Works(pub Work);
 
 /// The place a hamlet's chief set its town down, as x and z. None
 /// while it stands where the world first put it.

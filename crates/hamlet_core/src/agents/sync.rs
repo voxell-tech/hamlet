@@ -17,7 +17,7 @@ use super::roster::settlements;
 use super::{
     Account, Activity, Busy, Carried, Charter, Citizen, First, Left,
     Lived, LivesIn, Mayor, MergedInto, Purpose, Road, Settlement,
-    Spot, Synced, Traffic, Treasury,
+    Spot, Synced, Traffic, Treasury, Works,
 };
 use crate::core::Settings;
 
@@ -175,6 +175,10 @@ pub fn sync(world: &mut World) {
         // seen as growth next time.
         let seen = Seen::read(&settlement);
         let census = settlement.record().census();
+        let works = Works(settlement.record().work());
+        if world.get::<Works>(hamlet) != Some(&works) {
+            world.entity_mut(hamlet).insert(works);
+        }
         let told = std::iter::once(Told {
             number: census.mayor.id,
             name: census.mayor.name.clone(),

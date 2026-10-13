@@ -209,6 +209,31 @@ fn wick_in() -> Vec<f32> {
     finish(out, 0.22, false)
 }
 
+/// A lever thrown: its pawl over three teeth, then the arm home in
+/// its stop.
+fn lever() -> Vec<f32> {
+    let mut out = empty(0.5);
+    let mut hiss = Hiss(271);
+    let mut low = Low::new(700.0);
+    for k in 0..3 {
+        knock(&mut out, k as f32 * 0.035, 1500.0, 0.22);
+    }
+    strike(
+        &mut out,
+        0.13,
+        1.0,
+        &[
+            (110.0, 1.0, 0.07),
+            (320.0, 0.6, 0.04),
+            (1250.0, 0.25, 0.03),
+        ],
+    );
+    burst(&mut out, &mut hiss, 0.13, 0.5, (0.002, 0.03), |x, _| {
+        low.run(x) * 3.0
+    });
+    finish(out, 0.3, false)
+}
+
 /// The samples of a sound of the hand.
 pub(super) fn make(sound: Sound) -> Option<Vec<f32>> {
     Some(match sound {
@@ -228,6 +253,7 @@ pub(super) fn make(sound: Sound) -> Option<Vec<f32>> {
         Sound::Gift => gift(),
         Sound::WickOut => wick_out(),
         Sound::WickIn => wick_in(),
+        Sound::Lever => lever(),
         _ => return None,
     })
 }

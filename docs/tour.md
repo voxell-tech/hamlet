@@ -94,6 +94,7 @@ Paths are under `crates/`.
 | What needs the chief's approval | `hamlet_core/src/oversight/danger.rs` |
 | What an agent's commands may touch | `hamlet_sandbox/src/`; [`sandbox.md`](sandbox.md) |
 | The folder a hamlet works on | `hamlet_rules/src/work.rs` keeps it; `Tools::work_on` in `hamlet_core/src/tools.rs` applies it |
+| The lever and the arch on a common | `hamlet_world/src/works.rs` |
 | The library of shared skills | `hamlet_rules/src/library.rs` |
 | Spending and limits | `hamlet_rules/src/budget/`, `hamlet_home/src/limits.rs` |
 | Models, their prices and who may run them | `hamlet_model/src/catalogue.rs`, `hamlet_rules/src/models.rs` |

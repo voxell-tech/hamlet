@@ -72,6 +72,7 @@ fn everything_done_by_hand_has_a_sound_of_its_own() {
         Play::Gift,
         Play::WickOut,
         Play::WickIn,
+        Play::Lever,
     ];
     let sounds = plays.map(Sound::played);
     for (i, sound) in sounds.iter().enumerate() {

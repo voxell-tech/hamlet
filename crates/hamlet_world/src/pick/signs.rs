@@ -11,6 +11,10 @@ use crate::label::{self, Lens};
 #[derive(Component)]
 pub struct Named;
 
+/// The words on the sign of a `Named` thing, in place of its name.
+#[derive(Component, Clone, PartialEq, Eq, Debug)]
+pub struct Reads(pub String);
+
 /// The name shown over a `Named` thing.
 #[derive(Component)]
 #[relationship(relationship_target = Signed)]
@@ -42,7 +46,13 @@ pub(super) fn plugin(app: &mut App) {
             name_tag,
             signs,
             write_signs.run_if(
-                any_match_filter::<Or<(Changed<Name>, Changed<Thing>)>>,
+                any_match_filter::<
+                    Or<(
+                        Changed<Name>,
+                        Changed<Thing>,
+                        Changed<Reads>,
+                    )>,
+                >,
             ),
         )
             .before(UiSystems::Layout),
@@ -78,7 +88,10 @@ fn signs(
     names: Query<&Name>,
     lens: Lens,
     pick: Res<PickSettings>,
-    new: Query<(Entity, &Thing), (With<Named>, Without<Signed>)>,
+    new: Query<
+        (Entity, &Thing, Option<&Reads>),
+        (With<Named>, Without<Signed>),
+    >,
     named: Query<(&Footprint, &GlobalTransform), With<Named>>,
     mut signs: Query<(
         &Sign,
@@ -87,7 +100,7 @@ fn signs(
         &ComputedNode,
     )>,
 ) {
-    for (thing, what) in &new {
+    for (thing, what, reads) in &new {
         commands.spawn((
             Sign(thing),
             Node {
@@ -102,7 +115,7 @@ fn signs(
             Visibility::Hidden,
             children![(
                 SignText,
-                Text::new(what.sign(&names).to_uppercase()),
+                Text::new(words(*what, reads, &names)),
                 TextFont::from_font_size(11.0),
                 TextColor(Color::srgb_u8(0xcd, 0xbe, 0x91)),
                 Pickable::IGNORE,
@@ -138,23 +151,37 @@ fn signs(
     }
 }
 
+/// The words of the sign of `thing`.
+fn words(
+    thing: Thing,
+    reads: Option<&Reads>,
+    names: &Query<&Name>,
+) -> String {
+    match reads {
+        Some(reads) => reads.0.clone(),
+        None => thing.sign(names).to_uppercase(),
+    }
+}
+
 /// Writes on each sign the name it shows.
 fn write_signs(
     names: Query<&Name>,
     renamed: Query<(), Changed<Name>>,
-    named: Query<(Ref<Thing>, &Signed)>,
+    named: Query<(Ref<Thing>, &Signed, Option<Ref<Reads>>)>,
     signs: Query<&Children, With<Sign>>,
     mut texts: Query<&mut Text, With<SignText>>,
 ) {
     let every = !renamed.is_empty();
-    for (thing, signed) in &named {
-        if !every && !thing.is_changed() {
+    for (thing, signed, reads) in &named {
+        let rewritten =
+            reads.as_ref().is_some_and(|reads| reads.is_changed());
+        if !every && !thing.is_changed() && !rewritten {
             continue;
         }
         let Ok(parts) = signs.get(signed.0) else {
             continue;
         };
-        let name = thing.sign(&names).to_uppercase();
+        let name = words(*thing, reads.as_deref(), &names);
         for part in parts.iter() {
             if let Ok(mut text) = texts.get_mut(part)
                 && text.0 != name

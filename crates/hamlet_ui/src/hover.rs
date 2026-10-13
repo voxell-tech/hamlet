@@ -30,9 +30,10 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, resource};
 use hamlet_core::agents::{
     Account, Activity, Busy, Citizen, Left, LivesIn, Mayor,
-    MergedInto, Purpose, Roster, Treasury,
+    MergedInto, Purpose, Roster, Treasury, Works,
 };
 use hamlet_core::oversight::Waiting;
+use hamlet_rules::work::Mode;
 use hamlet_world::chief::{Beside, Look};
 use hamlet_world::hand::Proud;
 use hamlet_world::pick::{Following, Hovered, Thing};
@@ -118,6 +119,7 @@ pub(crate) struct Told<'w, 's> {
     >,
     waits: Query<'w, 's, &'static Waiting>,
     spent: Query<'w, 's, &'static Treasury>,
+    works: Query<'w, 's, &'static Works>,
     chiefs: Query<'w, 's, (Ref<'static, Look>, Ref<'static, Beside>)>,
     following: Res<'w, Following>,
 }
@@ -143,7 +145,9 @@ impl Told<'_, '_> {
             Thing::Common(_)
             | Thing::Chief(_)
             | Thing::ChiefPlace(_)
-            | Thing::Library => None,
+            | Thing::Library
+            | Thing::Lever(_)
+            | Thing::Arch(_) => None,
         }
     }
 
@@ -201,6 +205,78 @@ impl Told<'_, '_> {
                 .map(|t| t.0.summary())
                 .unwrap_or_default(),
             hint: "Click its hall to talk to the mayor".to_string(),
+        }
+    }
+
+    /// The card of a hamlet's lever.
+    fn of_lever(&self, hamlet: Entity) -> Card {
+        let mode = self
+            .works
+            .get(hamlet)
+            .ok()
+            .filter(|works| works.0.folder.is_some())
+            .map(|works| works.0.mode);
+        let (state, tone, purpose, hint) = match mode {
+            None => (
+                "No folder",
+                Tone::Dim,
+                "It sets how the agents work, once this hamlet \
+                 works on a folder.",
+                "Click for the hamlet's page",
+            ),
+            Some(Mode::Manual) => (
+                "Manual",
+                Tone::Body,
+                Mode::Manual.says(),
+                "Click to switch to auto",
+            ),
+            Some(Mode::Auto) => (
+                "Auto",
+                Tone::Accent,
+                Mode::Auto.says(),
+                "Click to switch to manual",
+            ),
+        };
+        Card {
+            shown: true,
+            title: format!("LEVER OF {}", self.name(hamlet))
+                .to_uppercase(),
+            state: state.to_string(),
+            tone,
+            purpose: purpose.to_string(),
+            account: String::new(),
+            hint: hint.to_string(),
+        }
+    }
+
+    /// The card of a hamlet's arch.
+    fn of_arch(&self, hamlet: Entity) -> Card {
+        let folder = self
+            .works
+            .get(hamlet)
+            .ok()
+            .and_then(|works| works.0.folder.as_deref());
+        let (state, tone, purpose) = match folder {
+            Some(folder) => (
+                folder.display().to_string(),
+                Tone::Body,
+                "The folder this hamlet works on.",
+            ),
+            None => (
+                "No folder".to_string(),
+                Tone::Dim,
+                "It lights when this hamlet works on a folder.",
+            ),
+        };
+        Card {
+            shown: true,
+            title: format!("ARCH OF {}", self.name(hamlet))
+                .to_uppercase(),
+            state,
+            tone,
+            purpose: purpose.to_string(),
+            account: String::new(),
+            hint: "Click for the hamlet's page".to_string(),
         }
     }
 
@@ -307,6 +383,8 @@ impl Told<'_, '_> {
     fn card(&self, thing: Thing) -> Option<Card> {
         match thing {
             Thing::Common(hamlet) => Some(self.of_hamlet(hamlet)),
+            Thing::Lever(hamlet) => Some(self.of_lever(hamlet)),
+            Thing::Arch(hamlet) => Some(self.of_arch(hamlet)),
             Thing::Chief(chief) => self.of_chief(chief, false),
             Thing::ChiefPlace(chief) => self.of_chief(chief, true),
             Thing::Keeper

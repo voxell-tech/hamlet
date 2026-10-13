@@ -29,9 +29,12 @@ pub use self::camera::{
     focus_on,
 };
 pub use self::reach::{Reach, aim};
-pub use self::signs::{NameTag, Named, NoNameTag, Sign, Signed};
+pub use self::signs::{
+    NameTag, Named, NoNameTag, Reads, Sign, Signed,
+};
 use crate::play::Played;
 use crate::sky::CameraSettings;
+use crate::works::Pulled;
 use crate::{WorldCamera, WorldSystems};
 
 /// The room each thing takes for the pointer, its ring and its name.
@@ -79,6 +82,10 @@ pub enum Thing {
     ChiefPlace(Entity),
     /// The library every agent shares.
     Library,
+    /// The lever on a hamlet's common, which sets its mode.
+    Lever(Entity),
+    /// The arch on a hamlet's common, which stands for its folder.
+    Arch(Entity),
 }
 
 impl Thing {
@@ -109,6 +116,12 @@ impl Thing {
                 format!("{}'s Hearth", resident(chief))
             }
             Thing::Library => "The Library".into(),
+            Thing::Lever(hamlet) => {
+                format!("The Lever of {}", resident(hamlet))
+            }
+            Thing::Arch(hamlet) => {
+                format!("The Arch of {}", resident(hamlet))
+            }
         }
     }
 }
@@ -117,6 +130,16 @@ impl Thing {
     /// True when it is an agent.
     fn agent(self) -> bool {
         matches!(self, Thing::Keeper | Thing::Resident(_))
+    }
+
+    /// The thing a click on it chooses.
+    fn chosen(self) -> Thing {
+        match self {
+            Thing::Lever(hamlet) | Thing::Arch(hamlet) => {
+                Thing::Common(hamlet)
+            }
+            other => other,
+        }
     }
 
     /// The few words shown over it all the time, when it is `Named`.
@@ -359,6 +382,7 @@ fn click(
     mut selected: ResMut<Selected>,
     mut also: ResMut<Also>,
     mut asked: ResMut<Asked>,
+    mut commands: Commands,
 ) {
     let Ok(thing) = things.get(click.event_target()).copied() else {
         return;
@@ -375,6 +399,13 @@ fn click(
     let shift = keys.is_some_and(|keys| {
         keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
     });
+    if let (Thing::Lever(hamlet), PointerButton::Primary, false) =
+        (thing, click.button, shift)
+    {
+        commands.trigger(Pulled { hamlet });
+        return;
+    }
+    let thing = thing.chosen();
     match click.button {
         PointerButton::Primary if shift => {
             // Shift on the second thing again lets it go.

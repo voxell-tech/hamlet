@@ -109,6 +109,8 @@ fn in_step(app: &mut App, hamlet: &Hamlet) {
     let treasury =
         world.query::<&Treasury>().single(world).unwrap().0.clone();
     assert_eq!(treasury.hamlet, report.hamlet);
+    let works = world.query::<&Works>().single(world).unwrap();
+    assert_eq!(works.0, hamlet.work());
 }
 
 #[test]
@@ -197,6 +199,13 @@ fn entities_follow_the_record_through_every_kind_of_change() {
     hamlet.set_mayor(FOUNDER, "chief:alice", "test").unwrap();
     step(&mut app);
     assert_eq!(mayor(app.world_mut()), Some(first));
+
+    let project = Scratch::new("agents-step-project");
+    hamlet.work_on(Some(&project), "test").unwrap();
+    hamlet
+        .set_mode(hamlet_rules::work::Mode::Auto, "test")
+        .unwrap();
+    step(&mut app);
 
     // A restart reads the same hamlet.
     let mut again = self::app(&home);

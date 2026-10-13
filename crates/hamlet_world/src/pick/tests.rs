@@ -152,3 +152,58 @@ fn a_drag_slides_the_ground_unless_it_was_taken() {
     assert_eq!(pull(&mut app), slid);
     assert_eq!(app.world().resource::<Travel>().0, 40.0);
 }
+
+#[test]
+fn a_click_pulls_a_lever_and_chooses_the_hamlet_of_an_arch() {
+    #[derive(Resource, Default)]
+    struct Pulls(Vec<Entity>);
+
+    let mut app = App::new();
+    app.init_resource::<Hovered>()
+        .init_resource::<Travel>()
+        .init_resource::<Taken>()
+        .init_resource::<CameraSettings>()
+        .init_resource::<Selected>()
+        .init_resource::<Also>()
+        .init_resource::<Asked>()
+        .init_resource::<Pulls>()
+        .add_observer(click)
+        .add_observer(
+            |pulled: On<Pulled>, mut pulls: ResMut<Pulls>| {
+                pulls.0.push(pulled.hamlet);
+            },
+        );
+    let world = app.world_mut();
+    let hamlet = world.spawn_empty().id();
+    let lever = world.spawn(Thing::Lever(hamlet)).id();
+    let arch = world.spawn(Thing::Arch(hamlet)).id();
+    let mut press = |on: Entity| {
+        let at = Location {
+            target: NormalizedRenderTarget::None {
+                width: 1,
+                height: 1,
+            },
+            position: Vec2::ZERO,
+        };
+        let event = Click {
+            button: PointerButton::Primary,
+            hit: HitData::new(on, 0.0, None, None),
+            duration: std::time::Duration::ZERO,
+            count: 1,
+        };
+        app.world_mut().trigger(Pointer::new(
+            PointerId::Mouse,
+            at,
+            event,
+            on,
+        ));
+        app.world_mut().flush();
+    };
+    press(lever);
+    press(arch);
+    assert_eq!(app.world().resource::<Pulls>().0, [hamlet]);
+    assert_eq!(
+        app.world().resource::<Selected>().0,
+        Some(Thing::Common(hamlet))
+    );
+}

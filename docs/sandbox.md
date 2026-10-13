@@ -31,5 +31,12 @@ can read the rest of the machine, so the project's own tools run, but it
 cannot read Hamlet's home, and it can never write `.git/hooks` or
 `.git/config`.
 
+Both are seen on the hamlet's common. An arch stands for the folder: it is
+bare stone with none, and filled with light and named for the folder when
+there is one. A click on it shows the hamlet's page. Beside it a lever
+shows the mode: it leans to its orange plate under an orange lamp for
+manual, to its blue plate under a blue lamp for auto, and stands upright
+and dark with no folder. A click on the lever switches the mode.
+
 [`tour.md`](tour.md) names the code for each of these under "The folder a
 hamlet works on".

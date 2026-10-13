@@ -19,6 +19,7 @@ pub mod play;
 pub mod settings;
 pub mod sky;
 pub mod sound;
+pub mod works;
 
 mod label;
 mod stage;

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
+use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, NonSendMarker, Res, ResMut};
 use bevy::ecs::world::World;
@@ -14,9 +15,11 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, segmented,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
-use hamlet_core::agents::Settlement;
+use hamlet_core::agents::{Settlement, Works};
 use hamlet_core::core::Tokio;
 use hamlet_rules::work::{Mode, Work};
+use hamlet_world::pick::{Thing, select};
+use hamlet_world::works::Pulled;
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
@@ -60,7 +63,29 @@ impl Default for Picker {
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Picker>()
+        .add_observer(pulled)
         .add_systems(Update, (open, take));
+}
+
+/// A press on a hamlet's lever switches its mode. With no folder it
+/// shows the hamlet's page, where one is chosen.
+fn pulled(pulled: On<Pulled>, mut commands: Commands) {
+    let hamlet = pulled.hamlet;
+    commands.queue(move |world: &mut World| {
+        let Some(work) = world.get::<Works>(hamlet).map(|w| &w.0)
+        else {
+            return;
+        };
+        if work.folder.is_none() {
+            select(world, Some(Thing::Common(hamlet)));
+            return;
+        }
+        let to = match work.mode {
+            Mode::Manual => Mode::Auto,
+            Mode::Auto => Mode::Manual,
+        };
+        tell(world, hamlet, format!("/mode {}", to.name()));
+    });
 }
 
 /// Opens the system's folder dialog for the hamlet that asked. The

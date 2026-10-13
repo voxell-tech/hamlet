@@ -145,7 +145,9 @@ impl Chosen {
             }
             Thing::Chief(_) => Chosen::Chief,
             Thing::ChiefPlace(_) => Chosen::Hearth,
-            Thing::Library => return None,
+            Thing::Library | Thing::Lever(_) | Thing::Arch(_) => {
+                return None;
+            }
         })
     }
 

@@ -21,7 +21,7 @@ use crate::generator::society::{AgentId, Pair, Society, TownId};
 use crate::sky::CameraSettings;
 use crate::{
     WorldSystems, bubble, chief, hand, lantern, library, moving,
-    needs, pick,
+    needs, pick, works,
 };
 
 /// Draws the hamlets' agents and roads as a generated world. Add it
@@ -41,6 +41,7 @@ impl Plugin for HamletPlugin {
             library::plugin,
             moving::plugin,
             pointing::plugin,
+            works::plugin,
         ))
         // A chief takes its site before any town is founded, and
         // the library takes one after the chiefs.
