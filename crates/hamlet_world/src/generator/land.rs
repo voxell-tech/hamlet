@@ -33,7 +33,10 @@ pub struct LandSettings {
     /// Side of one tile of ground at its finest.
     pub chunk: f32,
     /// Cells along the side of a tile, and of one a river runs
-    /// through. Everything stands on the ground these draw.
+    /// through. Everything stands on the ground these draw. The
+    /// second is a multiple of the first, so that where the two
+    /// kinds of tile touch, every point of the coarser edge is one
+    /// of the finer.
     pub tile_cells: (usize, usize),
     /// The height the plains lie about.
     pub plain_y: f32,

@@ -7,6 +7,9 @@ mod sod;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashSet;
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use bevy::prelude::*;
 
 pub use self::grove::{Grove, Stand, grove};
@@ -117,11 +120,73 @@ impl Tile {
         (other.x >> shift, other.z >> shift) == (self.x, self.z)
     }
 
+    /// The tile of `drawn`, of this size or larger, that covers the
+    /// place `by` tiles of this size away. None where finer tiles
+    /// lie there, or nothing does.
+    pub(crate) fn beside(
+        self,
+        drawn: &HashSet<Tile>,
+        top: u8,
+        by: (i32, i32),
+    ) -> Option<Tile> {
+        let mut tile = Tile {
+            level: self.level,
+            x: self.x + by.0,
+            z: self.z + by.1,
+        };
+        loop {
+            if drawn.contains(&tile) {
+                return Some(tile);
+            }
+            if tile.level >= top {
+                return None;
+            }
+            tile = tile.over();
+        }
+    }
+
     /// Distance over the ground from `p` to the tile.
     fn away(self, chunk: f32, p: Vec2) -> f32 {
         let (lo, side) = (self.corner(chunk), self.side(chunk));
         (p - p.clamp(lo, lo + side)).length()
     }
+}
+
+/// The places about a tile: across each edge and each corner.
+const ABOUT: [(i32, i32); 8] = [
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+    (-1, 0),
+    (1, 0),
+    (-1, 1),
+    (0, 1),
+    (1, 1),
+];
+
+/// A number that changes when the tiles of `drawn` that the rim of
+/// `tile` is cut to do: those about it that are no smaller, and
+/// those about each of them that is larger. `top` is the largest
+/// size there is. A tile built for one number is right for as long
+/// as the number holds.
+pub fn rim_key(drawn: &HashSet<Tile>, top: u8, tile: Tile) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    let mut open = vec![tile];
+    let mut at = 0;
+    while let Some(&of) = open.get(at) {
+        at += 1;
+        for by in ABOUT {
+            let beside = of.beside(drawn, top, by);
+            beside.hash(&mut hasher);
+            if let Some(beside) = beside
+                && beside.level > of.level
+                && !open.contains(&beside)
+            {
+                open.push(beside);
+            }
+        }
+    }
+    hasher.finish()
 }
 
 /// The camera's sight of the ground.

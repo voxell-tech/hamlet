@@ -152,8 +152,18 @@ pub(in crate::generator) fn stream(
     });
     if looked || changed {
         let views = (&sight, &going);
-        loading.ground.choose(&land, &detail, views, true);
-        loading.groves.choose(&land, &detail, views, false);
+        let top = detail.tile_levels.max(1) - 1;
+        // A tile of ground is cut to the tiles drawn beside it.
+        loading.ground.choose(
+            &land,
+            &detail,
+            views,
+            true,
+            |drawn, tile| ground::rim_key(drawn, top, tile),
+        );
+        loading
+            .groves
+            .choose(&land, &detail, views, false, |_, _| 0);
         loading.sight = Some((sight, going));
     }
 
@@ -232,17 +242,19 @@ pub(in crate::generator) fn stream(
         chunk,
         going.centre,
         detail.tile_tasks,
-        |tile| {
+        |tile, drawn| {
             let recipe = Recipe::of(&land, &detail, tile);
-            let land = land.clone();
-            pool.spawn(async move { ground::sod(&land, recipe) })
+            let (land, drawn) = (land.clone(), drawn.clone());
+            pool.spawn(
+                async move { ground::sod(&land, recipe, &drawn) },
+            )
         },
     );
     loading.groves.build(
         chunk,
         going.centre,
         detail.tile_tasks,
-        |tile| {
+        |tile, _| {
             let stand = Stand::of(&detail, tile);
             let land = land.clone();
             pool.spawn(

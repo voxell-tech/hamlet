@@ -336,12 +336,14 @@ mod tests {
                 ground::wanted(&land, &detail, &sight, true, |_| {
                     false
                 });
+            let drawn = tiles.iter().copied().collect();
             let ground = tiles
                 .iter()
                 .map(|tile| {
                     let recipe =
                         ground::Recipe::of(&land, &detail, *tile);
-                    mesh_bytes(&ground::sod(&land, recipe).mesh)
+                    let sod = ground::sod(&land, recipe, &drawn);
+                    mesh_bytes(&sod.mesh)
                 })
                 .sum::<usize>();
             let woods =

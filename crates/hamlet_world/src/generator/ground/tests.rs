@@ -70,7 +70,11 @@ fn a_river_does_not_spread_into_a_coarse_tile_beside_it() {
                     land.height(p) < water + 0.15
                 })
             });
-            assert_eq!(sod(&land, recipe).wet, truly, "{tile:?}");
+            assert_eq!(
+                sod(&land, recipe, &HashSet::new()).wet,
+                truly,
+                "{tile:?}"
+            );
         }
     }
     assert!(beside > 5, "{beside} tiles beside a river");
@@ -111,7 +115,10 @@ fn a_tile_is_the_same_whatever_was_looked_at_before() {
     };
     let recipe = Recipe::of(&land, &detail, tile);
     let stand = Stand::of(&detail, tile);
-    let first = (sod(&land, recipe).mesh, grove(&land, tile, stand));
+    let first = (
+        sod(&land, recipe, &HashSet::new()).mesh,
+        grove(&land, tile, stand),
+    );
     // Other ground is built in between, far and near.
     for other in [(0, 0, 0), (3, -9, 4), (0, 81, -154)] {
         let other = Tile {
@@ -119,10 +126,17 @@ fn a_tile_is_the_same_whatever_was_looked_at_before() {
             x: other.1,
             z: other.2,
         };
-        sod(&land, Recipe::of(&land, &detail, other));
+        sod(
+            &land,
+            Recipe::of(&land, &detail, other),
+            &HashSet::new(),
+        );
         grove(&land, other, Stand::of(&detail, other));
     }
-    let again = (sod(&land, recipe).mesh, grove(&land, tile, stand));
+    let again = (
+        sod(&land, recipe, &HashSet::new()).mesh,
+        grove(&land, tile, stand),
+    );
     let points = |mesh: &Mesh| {
         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
             .and_then(|a| a.as_float3())
@@ -218,7 +232,12 @@ fn tiles_that_are_drawn_stay_while_the_view_wavers() {
 }
 
 /// The height of a tile's mesh over `p`.
-fn drawn(land: &Land, recipe: Recipe, mesh: &Mesh, p: Vec2) -> f32 {
+fn drawn_at(
+    land: &Land,
+    recipe: Recipe,
+    mesh: &Mesh,
+    p: Vec2,
+) -> f32 {
     use bevy::mesh::VertexAttributeValues;
     let Some(VertexAttributeValues::Float32x3(at)) =
         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -243,6 +262,63 @@ fn drawn(land: &Land, recipe: Recipe, mesh: &Mesh, p: Vec2) -> f32 {
     }
 }
 
+/// The stretch of edge two tiles share, as its start and its length
+/// along each axis. None for two that touch at a corner or not at
+/// all.
+fn shared(chunk: f32, a: Tile, b: Tile) -> Option<(Vec2, Vec2)> {
+    let lo = a.corner(chunk).max(b.corner(chunk));
+    let hi = (a.corner(chunk) + a.side(chunk))
+        .min(b.corner(chunk) + b.side(chunk));
+    let size = hi - lo;
+    (size.min_element().abs() < 1e-3 && size.max_element() > 1.0)
+        .then_some((lo, size))
+}
+
+#[test]
+fn tiles_drawn_together_meet_at_one_height_in_the_ranges() {
+    let land = land();
+    let detail = DetailSettings::default();
+    let chunk = land.set.land.chunk;
+    // Ranges with rivers through them, where a coarse tile lies
+    // furthest from the ground and tiles of both grains meet.
+    let sight = sight(Vec2::new(-4000.0, -300.0), 600.0);
+    assert!(land.mountain(sight.centre) > 0.9);
+    let tiles = wanted(&land, &detail, &sight, true, |_| false);
+    let drawn = tiles.iter().copied().collect::<HashSet<_>>();
+    let built = tiles
+        .iter()
+        .map(|tile| {
+            let recipe = Recipe::of(&land, &detail, *tile);
+            (recipe, sod(&land, recipe, &drawn).mesh)
+        })
+        .collect::<Vec<_>>();
+    let (mut sizes, mut grains) = (0, 0);
+    for (i, (a, mesh_a)) in built.iter().enumerate() {
+        for (b, mesh_b) in &built[i + 1..] {
+            let Some((lo, size)) = shared(chunk, a.tile, b.tile)
+            else {
+                continue;
+            };
+            sizes += usize::from(a.tile.level != b.tile.level);
+            grains += usize::from(
+                a.tile.level == b.tile.level && a.cells != b.cells,
+            );
+            for k in 0..=64 {
+                let p = lo + size * (k as f32 / 64.0);
+                let step = drawn_at(&land, *a, mesh_a, p)
+                    - drawn_at(&land, *b, mesh_b, p);
+                assert!(
+                    step.abs() < 0.1,
+                    "a step of {step} at {p} between {:?} and {:?}",
+                    a.tile,
+                    b.tile
+                );
+            }
+        }
+    }
+    assert!(sizes > 100 && grains > 20, "{sizes} {grains}");
+}
+
 #[test]
 fn no_gap_shows_between_tiles_of_different_sizes() {
     let land = land();
@@ -260,7 +336,7 @@ fn no_gap_shows_between_tiles_of_different_sizes() {
             .iter()
             .map(|tile| {
                 let recipe = Recipe::of(&land, &detail, *tile);
-                (recipe, sod(&land, recipe).mesh)
+                (recipe, sod(&land, recipe, &HashSet::new()).mesh)
             })
             .collect::<Vec<_>>();
         for (i, (a, mesh_a)) in built.iter().enumerate() {
@@ -268,24 +344,17 @@ fn no_gap_shows_between_tiles_of_different_sizes() {
                 if a.tile.level == b.tile.level {
                     continue;
                 }
-                let (la, sa) =
-                    (a.tile.corner(chunk), a.tile.side(chunk));
-                let (lb, sb) =
-                    (b.tile.corner(chunk), b.tile.side(chunk));
-                let lo = la.max(lb);
-                let hi = (la + sa).min(lb + sb);
-                let size = hi - lo;
-                // They share a stretch of edge, not a corner.
-                let touch = size.min_element().abs() < 1e-3
-                    && size.max_element() > 1.0;
-                if !touch {
+                let (sa, sb) =
+                    (a.tile.side(chunk), b.tile.side(chunk));
+                let Some((lo, size)) = shared(chunk, a.tile, b.tile)
+                else {
                     continue;
-                }
+                };
                 seams += 1;
                 for k in 0..=64 {
                     let p = lo + size * (k as f32 / 64.0);
-                    let ya = drawn(&land, *a, mesh_a, p);
-                    let yb = drawn(&land, *b, mesh_b, p);
+                    let ya = drawn_at(&land, *a, mesh_a, p);
+                    let yb = drawn_at(&land, *b, mesh_b, p);
                     // The higher edge hangs a skirt down
                     // past the lower one.
                     let hem = if ya > yb {
@@ -318,7 +387,7 @@ fn far_ground_never_covers_what_stands_on_the_near() {
         for (x, z) in [(0, 0), (2, -1), (-3, 1)] {
             let tile = Tile { level, x, z };
             let recipe = Recipe::of(&land, &detail, tile);
-            let sod = sod(&land, recipe);
+            let sod = sod(&land, recipe, &HashSet::new());
             let side = tile.side(chunk);
             for k in 0..900 {
                 let p = tile.corner(chunk)
@@ -328,7 +397,8 @@ fn far_ground_never_covers_what_stands_on_the_near() {
                     ) * side
                         / 30.0;
                 let stood = land.surface(p);
-                let over = drawn(&land, recipe, &sod.mesh, p) - stood;
+                let over =
+                    drawn_at(&land, recipe, &sod.mesh, p) - stood;
                 if level == 0 {
                     // The near ground is what things stand on.
                     assert!(over.abs() < 1e-3, "{tile:?} {over}");

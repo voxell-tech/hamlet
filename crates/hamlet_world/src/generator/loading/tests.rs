@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use bevy::platform::collections::HashMap;
@@ -8,7 +9,7 @@ use super::lanes::Lanes;
 use super::stream::stream;
 use super::{Ground, Loading, Standing};
 use crate::WorldCamera;
-use crate::generator::ground::Tile;
+use crate::generator::ground::{Tile, rim_key};
 use crate::generator::land::Land;
 use crate::generator::{
     Ahead, DetailSettings, GenView, Tally, testing,
@@ -227,7 +228,13 @@ fn ground_a_town_comes_to_or_leaves_is_built_anew() {
     };
     assert!(after.keys().any(|t| near(t, from) && anew(t)));
     assert!(after.keys().any(|t| near(t, to) && anew(t)));
-    // Ground far from both is the ground that was there.
+    // Ground far from both, beside tiles of the sizes they were, is
+    // the ground that was there.
+    let top = DetailSettings::default().tile_levels - 1;
+    let tiles = |drawn: &HashMap<Tile, Entity>| {
+        drawn.keys().copied().collect::<HashSet<_>>()
+    };
+    let (was, is) = (tiles(&before), tiles(&after));
     let kept = after
         .keys()
         .filter(|t| {
@@ -235,6 +242,7 @@ fn ground_a_town_comes_to_or_leaves_is_built_anew() {
             before.contains_key(*t)
                 && mid.distance(from) > t.side(32.0) + 60.0
                 && mid.distance(to) > t.side(32.0) + 60.0
+                && rim_key(&was, top, **t) == rim_key(&is, top, **t)
         })
         .collect::<Vec<_>>();
     assert!(kept.len() > 50);

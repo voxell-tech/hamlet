@@ -25,7 +25,11 @@ function of the seed and the sites.
 
 **No seam, no hole.**
 
-- Tiles of different sizes meet with a skirt.
+- Where two tiles of different grain touch, the finer takes the height of
+  its edge from the coarser, so the two meet with no step. A tile is built
+  for the sizes of the tiles about it (`ground::rim_key`) and built anew
+  when one of them is split or joined.
+- A skirt under every edge covers what is left while that happens.
 - A tile is kept until what replaces it is drawn.
 - Under everything lies a plain green sheet, which shows where no tile is
   drawn yet.
@@ -36,15 +40,17 @@ the height of the finest tiles' flat triangles. Roads, robots, houses and
 the chief's place take their height from `surface`, never from the smooth
 `height`, so none of them dips under a triangle. A coarser tile is built
 as a lower bound of the finest, so nothing that stands on the near ground
-is covered by a tile seen from far.
+is covered by a tile seen from far. Each of its points drops only by as
+much as its triangles would rise over the ground between their corners,
+so a far slope keeps its height.
 
 **Trees** are cut into tiles of their own. Near the camera every tree
 stands as itself, further off a tile's trees are one mesh of plain crowns,
 and beyond that they are specks. Trees keep off the roads between towns.
 
 **The same every time.** A tile's mesh and trees follow from the seed, the
-sites and the tile's own place, whatever was built before it. Tests hold
-it to that.
+sites, the tile's own place and, for the edge of the mesh, the sizes of
+the tiles about it, whatever was built before it. Tests hold it to that.
 
 ## Always room for one more town
 

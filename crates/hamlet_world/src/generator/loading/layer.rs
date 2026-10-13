@@ -2,6 +2,7 @@
 //! tasks and kept in step with the view.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -26,6 +27,9 @@ pub(super) struct Patch<B> {
     sunk: bool,
     /// Bytes of mesh data in what is drawn of it.
     pub(super) bytes: usize,
+    /// What it was built for, besides the land: the layer's key
+    /// for its tile at that time.
+    key: u64,
 }
 
 impl<B> Default for Patch<B> {
@@ -37,6 +41,7 @@ impl<B> Default for Patch<B> {
             old: false,
             sunk: false,
             bytes: 0,
+            key: 0,
         }
     }
 }
@@ -46,7 +51,9 @@ impl<B> Default for Patch<B> {
 /// still drawn from the view before.
 pub(super) struct Layer<B> {
     patches: HashMap<Tile, Patch<B>>,
-    wanted: HashSet<Tile>,
+    wanted: Arc<HashSet<Tile>>,
+    /// What each wanted tile is to be built for, besides the land.
+    keys: HashMap<Tile, u64>,
     /// The tiles that were coming for a tile whose land changed
     /// under it.
     dropped: Vec<Entity>,
@@ -62,7 +69,8 @@ impl<B> Default for Layer<B> {
     fn default() -> Self {
         Self {
             patches: HashMap::default(),
-            wanted: HashSet::default(),
+            wanted: Arc::default(),
+            keys: HashMap::default(),
             dropped: Vec::new(),
             building: 0,
             stirred: false,
@@ -101,13 +109,16 @@ impl<B: Send + 'static> Layer<B> {
 
     /// Takes as the tiles to draw those of the view the camera is
     /// being taken to, and of the view it has now where the first
-    /// has none, so that no two lie one over the other.
+    /// has none, so that no two lie one over the other. A tile
+    /// depends on the tiles drawn with it by its `key`: one whose
+    /// key is no longer what it was built for is built anew.
     pub(super) fn choose(
         &mut self,
         land: &Land,
         detail: &DetailSettings,
         (here, there): (&Sight, &Sight),
         finer: bool,
+        key: impl Fn(&HashSet<Tile>, Tile) -> u64,
     ) {
         let patches = &self.patches;
         let tiles = |sight: &Sight| {
@@ -150,7 +161,27 @@ impl<B: Send + 'static> Layer<B> {
                 .collect::<Vec<_>>();
             wanted.extend(fill);
         }
-        self.wanted = wanted;
+        if *self.wanted != wanted {
+            self.keys = wanted
+                .iter()
+                .map(|tile| (*tile, key(&wanted, *tile)))
+                .collect();
+            for (tile, patch) in &mut self.patches {
+                let Some(key) = self.keys.get(tile) else {
+                    continue;
+                };
+                if patch.key == *key {
+                    continue;
+                }
+                patch.key = *key;
+                patch.old = patch.drawn.is_some();
+                if patch.task.take().is_some() {
+                    self.building -= 1;
+                }
+                self.dropped.extend(patch.coming.take());
+            }
+            self.wanted = Arc::new(wanted);
+        }
         self.stirred = true;
     }
 
@@ -197,6 +228,7 @@ impl<B: Send + 'static> Layer<B> {
                 *patch = Patch {
                     drawn: Some(entity),
                     bytes,
+                    key: patch.key,
                     ..default()
                 };
             } else {
@@ -249,7 +281,7 @@ impl<B: Send + 'static> Layer<B> {
         for gone in self.dropped.drain(..) {
             commands.entity(gone).try_despawn();
         }
-        let wanted = &self.wanted;
+        let wanted = &*self.wanted;
         let building = &mut self.building;
         let ready = self
             .patches
@@ -310,13 +342,14 @@ impl<B: Send + 'static> Layer<B> {
 
     /// Starts building the tiles that are missing, those nearest
     /// `centre` first, with at most `most` being built at a time.
+    /// `start` is given the tile and all that are wanted with it.
     /// It rests once none is missing, until something changes.
     pub(super) fn build(
         &mut self,
         chunk: f32,
         centre: Vec2,
         most: usize,
-        start: impl Fn(Tile) -> Task<B>,
+        start: impl Fn(Tile, &Arc<HashSet<Tile>>) -> Task<B>,
     ) {
         if !self.stirred {
             return;
@@ -346,8 +379,9 @@ impl<B: Send + 'static> Layer<B> {
         });
         self.stirred = missing.len() > room;
         for tile in missing.into_iter().take(room) {
-            self.patches.entry(tile).or_default().task =
-                Some(start(tile));
+            let patch = self.patches.entry(tile).or_default();
+            patch.task = Some(start(tile, &self.wanted));
+            patch.key = self.keys.get(&tile).copied().unwrap_or(0);
             self.building += 1;
         }
     }
