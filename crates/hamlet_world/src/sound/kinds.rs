@@ -158,8 +158,8 @@ pub enum Sound {
     /// A chief's mascot going out by Wickstep, and lit again.
     WickOut,
     WickIn,
-    /// A hamlet's lever thrown.
-    Lever,
+    /// A hamlet's clockwork switched.
+    Clockwork,
     /// A house standing up, and coming to rest.
     HouseRise,
     HouseSettle,
@@ -251,7 +251,7 @@ impl Sound {
         Self::Gift,
         Self::WickOut,
         Self::WickIn,
-        Self::Lever,
+        Self::Clockwork,
         Self::HouseRise,
         Self::HouseSettle,
         Self::HouseShudder,
@@ -332,7 +332,7 @@ impl Sound {
             | Self::Gift
             | Self::WickOut
             | Self::WickIn
-            | Self::Lever => Family::Hand,
+            | Self::Clockwork => Family::Hand,
             Self::HouseRise
             | Self::HouseSettle
             | Self::HouseShudder
@@ -399,7 +399,7 @@ impl Sound {
             Play::Gift => Self::Gift,
             Play::WickOut => Self::WickOut,
             Play::WickIn => Self::WickIn,
-            Play::Lever => Self::Lever,
+            Play::Clockwork => Self::Clockwork,
         }
     }
 
@@ -435,7 +435,7 @@ impl Sound {
             | Self::Card
             | Self::Grab
             | Self::Dock
-            | Self::Lever => &[],
+            | Self::Clockwork => &[],
             // Each of these is a note or two of the pentatonic
             // scale, and its moves put it on other notes of that
             // scale: from the keynote or the fifth,
@@ -487,7 +487,7 @@ impl Sound {
             Self::Gift => "gift",
             Self::WickOut => "wick-out",
             Self::WickIn => "wick-in",
-            Self::Lever => "lever",
+            Self::Clockwork => "clockwork",
             Self::HouseRise => "house-rise",
             Self::HouseSettle => "house-settle",
             Self::HouseShudder => "house-shudder",

@@ -154,9 +154,9 @@ fn a_drag_slides_the_ground_unless_it_was_taken() {
 }
 
 #[test]
-fn a_click_pulls_a_lever_and_chooses_the_hamlet_of_an_arch() {
+fn a_click_switches_clockwork_and_chooses_the_hamlet_of_a_bench() {
     #[derive(Resource, Default)]
-    struct Pulls(Vec<Entity>);
+    struct Switches(Vec<Entity>);
 
     let mut app = App::new();
     app.init_resource::<Hovered>()
@@ -166,17 +166,17 @@ fn a_click_pulls_a_lever_and_chooses_the_hamlet_of_an_arch() {
         .init_resource::<Selected>()
         .init_resource::<Also>()
         .init_resource::<Asked>()
-        .init_resource::<Pulls>()
+        .init_resource::<Switches>()
         .add_observer(click)
         .add_observer(
-            |pulled: On<Pulled>, mut pulls: ResMut<Pulls>| {
-                pulls.0.push(pulled.hamlet);
+            |switched: On<Switched>, mut all: ResMut<Switches>| {
+                all.0.push(switched.hamlet);
             },
         );
     let world = app.world_mut();
     let hamlet = world.spawn_empty().id();
-    let lever = world.spawn(Thing::Lever(hamlet)).id();
-    let arch = world.spawn(Thing::Arch(hamlet)).id();
+    let train = world.spawn(Thing::Clockwork(hamlet)).id();
+    let bench = world.spawn(Thing::Workbench(hamlet)).id();
     let mut press = |on: Entity| {
         let at = Location {
             target: NormalizedRenderTarget::None {
@@ -199,9 +199,9 @@ fn a_click_pulls_a_lever_and_chooses_the_hamlet_of_an_arch() {
         ));
         app.world_mut().flush();
     };
-    press(lever);
-    press(arch);
-    assert_eq!(app.world().resource::<Pulls>().0, [hamlet]);
+    press(train);
+    press(bench);
+    assert_eq!(app.world().resource::<Switches>().0, [hamlet]);
     assert_eq!(
         app.world().resource::<Selected>().0,
         Some(Thing::Common(hamlet))

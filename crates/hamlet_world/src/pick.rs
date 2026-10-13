@@ -34,7 +34,7 @@ pub use self::signs::{
 };
 use crate::play::Played;
 use crate::sky::CameraSettings;
-use crate::works::Pulled;
+use crate::works::Switched;
 use crate::{WorldCamera, WorldSystems};
 
 /// The room each thing takes for the pointer, its ring and its name.
@@ -82,10 +82,11 @@ pub enum Thing {
     ChiefPlace(Entity),
     /// The library every agent shares.
     Library,
-    /// The lever on a hamlet's common, which sets its mode.
-    Lever(Entity),
-    /// The arch on a hamlet's common, which stands for its folder.
-    Arch(Entity),
+    /// The clockwork on a hamlet's workbench, which sets its mode.
+    Clockwork(Entity),
+    /// The workbench on a hamlet's common, which stands for its
+    /// folder.
+    Workbench(Entity),
 }
 
 impl Thing {
@@ -116,11 +117,11 @@ impl Thing {
                 format!("{}'s Hearth", resident(chief))
             }
             Thing::Library => "The Library".into(),
-            Thing::Lever(hamlet) => {
-                format!("The Lever of {}", resident(hamlet))
+            Thing::Clockwork(hamlet) => {
+                format!("The Clockwork of {}", resident(hamlet))
             }
-            Thing::Arch(hamlet) => {
-                format!("The Arch of {}", resident(hamlet))
+            Thing::Workbench(hamlet) => {
+                format!("The Workbench of {}", resident(hamlet))
             }
         }
     }
@@ -135,7 +136,7 @@ impl Thing {
     /// The thing a click on it chooses.
     fn chosen(self) -> Thing {
         match self {
-            Thing::Lever(hamlet) | Thing::Arch(hamlet) => {
+            Thing::Clockwork(hamlet) | Thing::Workbench(hamlet) => {
                 Thing::Common(hamlet)
             }
             other => other,
@@ -399,10 +400,10 @@ fn click(
     let shift = keys.is_some_and(|keys| {
         keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
     });
-    if let (Thing::Lever(hamlet), PointerButton::Primary, false) =
+    if let (Thing::Clockwork(hamlet), PointerButton::Primary, false) =
         (thing, click.button, shift)
     {
-        commands.trigger(Pulled { hamlet });
+        commands.trigger(Switched { hamlet });
         return;
     }
     let thing = thing.chosen();

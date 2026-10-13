@@ -65,8 +65,8 @@ fn showing(world: &World) -> Showing {
             | Thing::Ruin(_)
             | Thing::Chief(_)
             | Thing::ChiefPlace(_)
-            | Thing::Lever(_)
-            | Thing::Arch(_),
+            | Thing::Clockwork(_)
+            | Thing::Workbench(_),
         ) => Showing::Overview,
         Some(_) => Showing::Agent,
     }

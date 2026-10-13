@@ -209,9 +209,9 @@ fn wick_in() -> Vec<f32> {
     finish(out, 0.22, false)
 }
 
-/// A lever thrown: its pawl over three teeth, then the arm home in
-/// its stop.
-fn lever() -> Vec<f32> {
+/// Clockwork switched: its pawl over three teeth, then the train
+/// caught.
+fn clockwork() -> Vec<f32> {
     let mut out = empty(0.5);
     let mut hiss = Hiss(271);
     let mut low = Low::new(700.0);
@@ -253,7 +253,7 @@ pub(super) fn make(sound: Sound) -> Option<Vec<f32>> {
         Sound::Gift => gift(),
         Sound::WickOut => wick_out(),
         Sound::WickIn => wick_in(),
-        Sound::Lever => lever(),
+        Sound::Clockwork => clockwork(),
         _ => return None,
     })
 }

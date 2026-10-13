@@ -38,10 +38,9 @@ pub struct TownSettings {
     /// Room a robot crossing open ground keeps from whatever it goes
     /// round.
     pub robot_clearance: f32,
-    /// The well, the tree and the board on the common, in the town's
+    /// The workbench and the board on the common, in the town's
     /// frame, each with the radius roads keep clear.
-    pub well: (Vec2, f32),
-    pub tree: (Vec2, f32),
+    pub bench: (Vec2, f32),
     pub board: (Vec2, f32),
     /// The place the common's lantern hangs at, in the town's frame.
     pub lamp: Vec3,
@@ -131,14 +130,14 @@ pub fn plot(land: &Land, site: usize, k: u32) -> Plot {
     }
 }
 
-/// Things on the common that roads go round: the well, the tree and
-/// the board, each with its radius.
+/// Things on the common that roads go round: the workbench and the
+/// board, each with its radius.
 pub(crate) fn common_fixtures(
     land: &Land,
     site: usize,
-) -> [(Vec2, f32); 3] {
+) -> [(Vec2, f32); 2] {
     let town = &land.set.town;
-    [town.well, town.tree, town.board]
+    [town.bench, town.board]
         .map(|(at, radius)| (in_town(land, site, at), radius))
 }
 

@@ -146,8 +146,8 @@ impl Told<'_, '_> {
             | Thing::Chief(_)
             | Thing::ChiefPlace(_)
             | Thing::Library
-            | Thing::Lever(_)
-            | Thing::Arch(_) => None,
+            | Thing::Clockwork(_)
+            | Thing::Workbench(_) => None,
         }
     }
 
@@ -208,8 +208,8 @@ impl Told<'_, '_> {
         }
     }
 
-    /// The card of a hamlet's lever.
-    fn of_lever(&self, hamlet: Entity) -> Card {
+    /// The card of a hamlet's clockwork.
+    fn of_clockwork(&self, hamlet: Entity) -> Card {
         let mode = self
             .works
             .get(hamlet)
@@ -220,8 +220,8 @@ impl Told<'_, '_> {
             None => (
                 "No folder",
                 Tone::Dim,
-                "It sets how the agents work, once this hamlet \
-                 works on a folder.",
+                "It turns by itself in auto, once this hamlet works \
+                 on a folder.",
                 "Click for the hamlet's page",
             ),
             Some(Mode::Manual) => (
@@ -239,7 +239,7 @@ impl Told<'_, '_> {
         };
         Card {
             shown: true,
-            title: format!("LEVER OF {}", self.name(hamlet))
+            title: format!("CLOCKWORK OF {}", self.name(hamlet))
                 .to_uppercase(),
             state: state.to_string(),
             tone,
@@ -249,8 +249,8 @@ impl Told<'_, '_> {
         }
     }
 
-    /// The card of a hamlet's arch.
-    fn of_arch(&self, hamlet: Entity) -> Card {
+    /// The card of a hamlet's workbench.
+    fn of_workbench(&self, hamlet: Entity) -> Card {
         let folder = self
             .works
             .get(hamlet)
@@ -265,12 +265,13 @@ impl Told<'_, '_> {
             None => (
                 "No folder".to_string(),
                 Tone::Dim,
-                "It lights when this hamlet works on a folder.",
+                "Its work is laid out when this hamlet works on a \
+                 folder.",
             ),
         };
         Card {
             shown: true,
-            title: format!("ARCH OF {}", self.name(hamlet))
+            title: format!("WORKBENCH OF {}", self.name(hamlet))
                 .to_uppercase(),
             state,
             tone,
@@ -383,8 +384,12 @@ impl Told<'_, '_> {
     fn card(&self, thing: Thing) -> Option<Card> {
         match thing {
             Thing::Common(hamlet) => Some(self.of_hamlet(hamlet)),
-            Thing::Lever(hamlet) => Some(self.of_lever(hamlet)),
-            Thing::Arch(hamlet) => Some(self.of_arch(hamlet)),
+            Thing::Clockwork(hamlet) => {
+                Some(self.of_clockwork(hamlet))
+            }
+            Thing::Workbench(hamlet) => {
+                Some(self.of_workbench(hamlet))
+            }
             Thing::Chief(chief) => self.of_chief(chief, false),
             Thing::ChiefPlace(chief) => self.of_chief(chief, true),
             Thing::Keeper

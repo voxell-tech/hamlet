@@ -128,27 +128,15 @@ impl Pass<'_, '_, '_> {
                     frame(town.site),
                     Visibility::Inherited,
                     ChildOf(near),
-                    children![
-                        (
-                            Mesh3d(kit.lamp_glass.clone()),
-                            MeshMaterial3d(kit.lamps[0].clone()),
-                            Transform::from_translation(
-                                land.set.town.lamp
-                            ),
-                            NotShadowCaster,
-                            children![Spill::bundle(sky)],
+                    children![(
+                        Mesh3d(kit.lamp_glass.clone()),
+                        MeshMaterial3d(kit.lamps[0].clone()),
+                        Transform::from_translation(
+                            land.set.town.lamp
                         ),
-                        (
-                            Mesh3d(kit.trees[0].clone()),
-                            MeshMaterial3d(kit.matte.clone()),
-                            Transform::from_xyz(
-                                land.set.town.tree.0.x,
-                                0.0,
-                                land.set.town.tree.0.y
-                            )
-                            .with_scale(Vec3::splat(1.35)),
-                        ),
-                    ],
+                        NotShadowCaster,
+                        children![Spill::bundle(sky)],
+                    ),],
                 ))
                 .id();
             self.builds.common(land, town.site, common);

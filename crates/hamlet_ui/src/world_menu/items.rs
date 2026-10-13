@@ -292,7 +292,7 @@ pub(super) fn items(
             for_resident(world, thing, agent, at)
         }
         Thing::Common(hamlet) => for_common(world, thing, hamlet, at),
-        Thing::Lever(hamlet) | Thing::Arch(hamlet) => {
+        Thing::Clockwork(hamlet) | Thing::Workbench(hamlet) => {
             for_common(world, Thing::Common(hamlet), hamlet, at)
         }
         Thing::Chief(chief) | Thing::ChiefPlace(chief) => {

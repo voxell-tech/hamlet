@@ -1,11 +1,11 @@
-//! A hamlet's work where it can be seen: on each common a lever for
-//! its mode and an arch for its folder.
+//! A hamlet's work where it can be seen: a workbench in the middle of
+//! each common for its folder, and clockwork on the bench for its
+//! mode.
 
-use std::f32::consts::PI;
+use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::render_resource::Face;
 use bevy::window::RequestRedraw;
 use hamlet_core::agents::Works;
 use hamlet_rules::work::Mode;
@@ -15,102 +15,96 @@ use crate::generator::Common;
 use crate::generator::land::Land;
 use crate::hamlet::Sited;
 use crate::lantern::{lantern_frame, lantern_glass};
-use crate::meshes::{Mb, Rng};
+use crate::meshes::Mb;
 use crate::palette::Palette;
-use crate::pick::{self, Named, Reads, Thing, hit_box};
+use crate::pick::{self, Footprint, Named, Reads, Thing, hit_box};
 use crate::play::{Play, Played};
 use crate::{Sky, Stock, WorldSystems, adopt};
 
-/// The lever and the arch of a common.
+/// The workbench of a common.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorksSettings {
-    /// The places of the lever and of the arch on the common, in the
-    /// town's frame. Each faces the middle.
-    pub lever_at: Vec2,
-    pub arch_at: Vec2,
-    pub lever_size: f32,
-    /// Radians the lever leans from upright in either mode, and the
-    /// rate it is thrown at.
-    pub throw: f32,
-    pub throw_rate: f32,
-    /// Brightness of the lamp and of the veil.
+    pub size: f32,
+    /// Radians a second the clockwork's largest wheel turns in auto.
+    pub spin: f32,
+    /// Brightness of the lamp, the light it throws after dark, and
+    /// how far.
     pub lamp_glow: f32,
-    pub veil_glow: f32,
-    /// The share of what stands behind the veil that it hides.
-    pub veil_cover: f32,
-    /// The light the lamp throws after dark, and how far.
     pub lumens: f32,
     pub reach: f32,
 }
 
-/// The chief pressed the lever of `hamlet`.
+/// The chief pressed the clockwork of `hamlet`.
 #[derive(Event, Clone, Copy, Debug)]
-pub struct Pulled {
+pub struct Switched {
     pub hamlet: Entity,
 }
 
-/// On a common that has its lever and its arch.
+/// On a common that has its workbench.
 #[derive(Component)]
 struct Fitted;
 
-/// The arm of a hamlet's lever.
+/// A wheel of a hamlet's clockwork.
 #[derive(Component)]
-struct Lever {
+struct Wheel {
     hamlet: Entity,
-    /// Radians it leans from upright now.
-    lean: f32,
+    /// Turns it makes for one of the largest wheel. Its sign is the
+    /// way it turns.
+    ratio: f32,
+    /// Radians the largest wheel had turned when this was last
+    /// placed.
+    turned: f32,
 }
 
-/// The lamp over a hamlet's lever.
+/// The lamp of a hamlet's workbench.
 #[derive(Component)]
 struct Beacon {
     hamlet: Entity,
 }
 
-/// The light in a hamlet's arch.
+/// The work laid out on a hamlet's workbench.
 #[derive(Component)]
-struct Veil {
+struct Laid {
     hamlet: Entity,
 }
 
-/// The part of a hamlet's arch that answers the pointer and is named
-/// for the folder.
+/// The part of a hamlet's workbench that answers the pointer and is
+/// named for the folder.
 #[derive(Component)]
-struct Doorway {
+struct Top {
     hamlet: Entity,
 }
 
-/// The meshes and lights of the levers and the arches.
+/// The meshes and lights of the workbenches.
 #[derive(Resource)]
 struct Fittings {
-    stand: Handle<Mesh>,
-    arm: Handle<Mesh>,
+    bench: Handle<Mesh>,
+    work: Handle<Mesh>,
+    /// The wheels of the clockwork, the largest first.
+    wheels: [Handle<Mesh>; 3],
     glass: Handle<Mesh>,
-    arch: Handle<Mesh>,
-    veil: Handle<Mesh>,
     /// The lamp's glass with no folder.
     dark: Handle<StandardMaterial>,
-    /// The lamp's glass and the veil in each mode, manual first.
+    /// The lamp's glass in each mode, manual first.
     lamps: [Handle<StandardMaterial>; 2],
-    veils: [Handle<StandardMaterial>; 2],
     matte: Handle<StandardMaterial>,
     brass: Handle<StandardMaterial>,
 }
 
-/// Height of the arm's pivot above the paving, and the length of the
-/// arm.
-const PIVOT: f32 = 0.62;
-const ARM: f32 = 0.82;
+/// Height of the bench's top above the paving.
+const TOP: f32 = 0.91;
 
-/// The middle of the lamp's glass, in the stand's frame.
-const LAMP: Vec3 = Vec3::new(0.0, 1.78, -0.3);
+/// The middle of the lamp's glass, in the bench's frame.
+const LAMP: Vec3 = Vec3::new(-0.85, 1.8, 0.36);
 
-/// Height at which the arch springs from its piers, the radius of
-/// its ring of stones, and half the width of its opening.
-const SPRING: f32 = 1.4;
-const RING: f32 = 0.8;
-const OPENING: f32 = 0.6;
+/// The wheels of the clockwork, the largest first: the hub of each in
+/// the bench's frame, its radius and the number of its teeth.
+const WHEELS: [(Vec3, f32, usize); 3] = [
+    (Vec3::new(0.36, 1.2, -0.15), 0.19, 16),
+    (Vec3::new(0.677, 1.348, -0.15), 0.12, 10),
+    (Vec3::new(0.614, 1.022, -0.15), 0.08, 7),
+];
 
 const MODES: [Mode; 2] = [Mode::Manual, Mode::Auto];
 
@@ -132,201 +126,248 @@ fn mode(works: Option<&Works>) -> Option<Mode> {
     works.filter(|w| w.0.folder.is_some()).map(|w| w.0.mode)
 }
 
-/// Radians the lever leans for `mode`: toward its orange plate for
-/// manual, toward its blue one for auto, upright with no folder.
-fn lean(mode: Option<Mode>, throw: f32) -> f32 {
-    match mode {
-        None => 0.0,
-        Some(Mode::Manual) => throw,
-        Some(Mode::Auto) => -throw,
-    }
-}
-
-/// The lever's stand: a stone foot, a box for the pivot with a plate
-/// of each mode's colour at the end the arm leans to, and a lantern
-/// on a post behind.
-fn stand(pal: &Palette) -> Mesh {
+/// The bench: a plank top on four legs with a shelf under it, a
+/// lantern on a post at one corner, and the plate the clockwork is
+/// mounted on at the other end.
+fn bench(pal: &Palette) -> Mesh {
     let mut mb = Mb::new();
-    mb.lathe(
-        Vec3::ZERO,
-        &[
-            (0.0, 0.0),
-            (0.5, 0.0),
-            (0.5, 0.12),
-            (0.4, 0.16),
-            (0.4, 0.3),
-            (0.0, 0.3),
-        ],
-        12,
-        |r, _| {
-            if r < 2 {
-                pal.limestone_shade
-            } else {
-                pal.limestone
-            }
-        },
-    );
     mb.rbox(
-        Vec3::Y * 0.5,
-        Vec3::new(0.3, 0.2, 0.11),
-        0.03,
+        Vec3::Y * (TOP - 0.045),
+        Vec3::new(1.0, 0.045, 0.48),
+        0.015,
         Quat::IDENTITY,
-        pal.timber_dark,
+        pal.log,
+        0.1,
+    );
+    for (x, z) in
+        [(-1.0f32, -1.0f32), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0)]
+    {
+        mb.rbox(
+            Vec3::new(x * 0.88, (TOP - 0.09) * 0.5, z * 0.38),
+            Vec3::new(0.06, (TOP - 0.09) * 0.5, 0.06),
+            0.015,
+            Quat::IDENTITY,
+            pal.timber_dark,
+            0.3,
+        );
+    }
+    mb.rbox(
+        Vec3::Y * 0.26,
+        Vec3::new(0.86, 0.025, 0.36),
+        0.01,
+        Quat::IDENTITY,
+        pal.timber,
         0.2,
     );
-    for side in [-1.0f32, 1.0] {
-        mb.rbox(
-            Vec3::new(0.0, 0.56, side * 0.12),
-            Vec3::new(0.33, 0.1, 0.015),
-            0.008,
-            Quat::IDENTITY,
-            pal.brass,
-            0.1,
-        );
-    }
-    mb.tube(
-        Vec3::new(0.0, PIVOT, -0.17),
-        Vec3::new(0.0, PIVOT, 0.17),
-        0.055,
-        0.055,
-        8,
-        pal.brass * 1.2,
-        true,
-    );
-    // Dulled, so that only the lamp is lit.
-    for (side, mode) in [(-1.0f32, Mode::Manual), (1.0, Mode::Auto)] {
-        mb.rbox(
-            Vec3::new(side * 0.37, 0.72, 0.0),
-            Vec3::new(0.035, 0.1, 0.1),
-            0.015,
-            Quat::from_rotation_z(-side * 0.5),
-            hue(mode) * 0.45,
-            0.0,
-        );
-    }
-    let foot = Vec3::new(LAMP.x, 0.3, LAMP.z);
+    let foot = Vec3::new(LAMP.x, TOP, LAMP.z);
     mb.tube(
         foot,
-        LAMP - Vec3::Y * 0.16,
+        LAMP - Vec3::Y * 0.15,
         0.03,
         0.022,
         6,
         pal.bed,
         false,
     );
-    lantern_frame(&mut mb, LAMP, 0.11, 0.26, pal.brass);
-    mb.build()
-}
-
-/// The lever's arm with its knob, from the pivot up.
-fn arm(pal: &Palette) -> Mesh {
-    let mut mb = Mb::new();
-    mb.tube(
-        Vec3::ZERO,
-        Vec3::Y * ARM,
-        0.04,
-        0.03,
-        8,
-        pal.brass,
-        false,
-    );
-    mb.blob(
-        Vec3::Y * (ARM + 0.06),
-        Vec3::splat(0.11),
-        6,
-        0.0,
-        0.0,
-        |_| pal.brass * 1.3,
-    );
-    mb.build()
-}
-
-/// The arch: two piers of three blocks, a ring of stones over them
-/// with a brass roundel on the keystone, and a threshold.
-fn arch(pal: &Palette) -> Mesh {
-    let mut mb = Mb::new();
-    let mut rng = Rng::seeded("arch");
-    let stone = |rng: &mut Rng| {
-        pal.limestone.lerp(pal.limestone_shade, rng.f() * 0.5)
-            * rng.value(0.05)
-    };
+    lantern_frame(&mut mb, LAMP, 0.1, 0.24, pal.brass);
     mb.rbox(
-        Vec3::Y * 0.03,
-        Vec3::new(1.15, 0.04, 0.38),
-        0.02,
+        Vec3::new(0.52, TOP + 0.3, -0.22),
+        Vec3::new(0.44, 0.3, 0.025),
+        0.012,
         Quat::IDENTITY,
-        pal.limestone_shade,
-        0.3,
+        pal.timber_dark,
+        0.1,
     );
-    let block = SPRING / 3.0;
-    for side in [-1.0f32, 1.0] {
-        for row in 0..3 {
-            let col = stone(&mut rng);
-            mb.rbox(
-                Vec3::new(
-                    side * RING + rng.sym(0.015),
-                    block * (row as f32 + 0.5),
-                    0.0,
-                ),
-                Vec3::new(0.21, block * 0.5 - 0.008, 0.26),
-                0.03,
-                rng.wobble(1.0),
-                col,
-                if row == 0 { 0.3 } else { 0.05 },
-            );
-        }
-    }
-    let stones = 7;
-    for k in 0..stones {
-        let around = PI * (k as f32 + 0.5) / stones as f32;
-        let key = k == stones / 2;
-        let (out, deep) = if key { (0.26, 0.3) } else { (0.2, 0.27) };
-        let col = if key { pal.limestone } else { stone(&mut rng) };
-        mb.rbox(
-            Vec3::new(
-                around.cos() * (RING + out - 0.2),
-                SPRING + around.sin() * (RING + out - 0.2),
-                0.0,
-            ),
-            Vec3::new(out, RING * PI / stones as f32 * 0.5, deep),
-            0.03,
-            Quat::from_rotation_z(around),
-            col,
-            0.05,
+    for (hub, ..) in WHEELS {
+        mb.tube(
+            Vec3::new(hub.x, hub.y, -0.2),
+            Vec3::new(hub.x, hub.y, hub.z - 0.03),
+            0.025,
+            0.025,
+            6,
+            pal.bed,
+            false,
         );
     }
-    for side in [-1.0f32, 1.0] {
+    mb.build()
+}
+
+/// The work a hamlet with a folder has on its bench: a drawing
+/// unrolled, a mallet, an inkpot with its quill, and two books.
+fn work(pal: &Palette) -> Mesh {
+    let mut mb = Mb::new();
+    let turn = Quat::from_rotation_y(0.12);
+    let sheet = Vec3::new(-0.35, TOP + 0.008, 0.08);
+    mb.rbox(
+        sheet,
+        Vec3::new(0.36, 0.006, 0.27),
+        0.003,
+        turn,
+        pal.parchment,
+        0.0,
+    );
+    for line in 0..4 {
+        let along = 0.3 - line as f32 * 0.07;
+        let down = -0.2 + line as f32 * 0.12;
         mb.rbox(
-            Vec3::new(0.0, SPRING + RING + 0.06, side * 0.3),
-            Vec3::new(0.09, 0.09, 0.015),
+            sheet + turn * Vec3::new(-0.04, 0.008, down),
+            Vec3::new(along, 0.002, 0.008),
+            0.001,
+            turn,
+            pal.bed,
+            0.0,
+        );
+    }
+    mb.tube(
+        sheet + turn * Vec3::new(-0.38, 0.03, -0.28),
+        sheet + turn * Vec3::new(-0.38, 0.03, 0.28),
+        0.035,
+        0.035,
+        8,
+        pal.parchment * 0.88,
+        true,
+    );
+    mb.tube(
+        Vec3::new(-0.1, TOP + 0.025, 0.4),
+        Vec3::new(0.14, TOP + 0.025, 0.33),
+        0.02,
+        0.02,
+        6,
+        pal.timber,
+        true,
+    );
+    mb.rbox(
+        Vec3::new(0.16, TOP + 0.045, 0.325),
+        Vec3::new(0.045, 0.045, 0.085),
+        0.012,
+        Quat::from_rotation_y(0.28),
+        pal.timber_dark,
+        0.0,
+    );
+    let pot = Vec3::new(0.05, TOP, -0.3);
+    mb.lathe(
+        pot,
+        &[
+            (0.0, 0.0),
+            (0.05, 0.0),
+            (0.06, 0.05),
+            (0.035, 0.08),
+            (0.0, 0.08),
+        ],
+        8,
+        |_, _| pal.bed,
+    );
+    mb.tube(
+        pot + Vec3::Y * 0.06,
+        pot + Vec3::new(0.09, 0.3, -0.05),
+        0.006,
+        0.018,
+        5,
+        pal.whitewash,
+        true,
+    );
+    for (lift, half, colour, yaw) in [
+        (0.03, Vec3::new(0.14, 0.03, 0.1), pal.terracotta, 0.0),
+        (0.085, Vec3::new(0.12, 0.025, 0.085), pal.ochre, 0.25),
+    ] {
+        mb.rbox(
+            Vec3::new(-0.45, TOP + lift, -0.3),
+            half,
             0.008,
-            Quat::from_rotation_z(PI * 0.25),
-            pal.brass * 1.2,
+            Quat::from_rotation_y(yaw),
+            colour,
             0.0,
         );
     }
     mb.build()
 }
 
-/// The light that fills the arch's opening, seen from both sides.
-fn veil() -> Mesh {
+/// A wheel of the clockwork about its hub, lying flat: its teeth, and
+/// three dark holes in its face so its turning shows. With `crank`
+/// it has the handle it is turned by hand with.
+fn wheel(
+    pal: &Palette,
+    radius: f32,
+    teeth: usize,
+    crank: bool,
+) -> Mesh {
     let mut mb = Mb::new();
-    let at = |x: f32, y: f32| Vec3::new(x, y, 0.0);
-    let turns = 12;
-    let mut rim = vec![at(-OPENING, 0.07), at(OPENING, 0.07)];
-    rim.extend((0..=turns).map(|k| {
-        let around = PI * k as f32 / turns as f32;
-        at(around.cos() * OPENING, SPRING + around.sin() * OPENING)
-    }));
-    let rim = rim
-        .into_iter()
-        .map(|p| mb.v(p, Vec3::Z, Vec3::ONE))
-        .collect::<Vec<_>>();
-    let middle = mb.v(at(0.0, SPRING * 0.6), Vec3::Z, Vec3::ONE);
-    for k in 0..rim.len() {
-        mb.tri(middle, rim[k], rim[(k + 1) % rim.len()]);
+    let thick = 0.03;
+    let disc =
+        |mb: &mut Mb, at: Vec3, r: f32, tall: f32, col: Vec3| {
+            mb.lathe(
+                at,
+                &[(0.0, 0.0), (r, 0.0), (r, tall), (0.0, tall)],
+                teeth * 2,
+                |_, _| col,
+            );
+        };
+    disc(&mut mb, Vec3::Y * -thick, radius, thick * 2.0, pal.brass);
+    for tooth in 0..teeth {
+        let around = tooth as f32 / teeth as f32 * TAU;
+        mb.rbox(
+            Vec3::new(around.cos(), 0.0, around.sin())
+                * (radius + 0.012),
+            Vec3::new(
+                0.03,
+                thick * 0.9,
+                radius * PI / teeth as f32 * 0.5,
+            ),
+            0.005,
+            Quat::from_rotation_y(-around),
+            pal.brass * 1.15,
+            0.0,
+        );
+    }
+    for hole in 0..3 {
+        let around = hole as f32 / 3.0 * TAU + 0.5;
+        disc(
+            &mut mb,
+            Vec3::new(around.cos(), 0.0, around.sin()) * radius * 0.6
+                + Vec3::Y * thick,
+            radius * 0.18,
+            0.003,
+            pal.bed,
+        );
+    }
+    disc(
+        &mut mb,
+        Vec3::Y * thick,
+        radius * 0.28,
+        0.02,
+        pal.brass * 1.3,
+    );
+    if crank {
+        let out = radius * 0.8;
+        mb.rbox(
+            Vec3::new(out * 0.5, thick + 0.035, 0.0),
+            Vec3::new(out * 0.5 + 0.02, 0.012, 0.022),
+            0.006,
+            Quat::IDENTITY,
+            pal.bed,
+            0.0,
+        );
+        mb.tube(
+            Vec3::new(out, thick + 0.04, 0.0),
+            Vec3::new(out, thick + 0.2, 0.0),
+            0.028,
+            0.028,
+            8,
+            pal.timber,
+            true,
+        );
     }
     mb.build()
+}
+
+/// The place of a wheel whose largest fellow has turned `turned`
+/// radians. It stands on its edge, with its face to the bench's
+/// front.
+fn turn(hub: Vec3, ratio: f32, turned: f32) -> Transform {
+    Transform::from_translation(hub).with_rotation(
+        Quat::from_rotation_x(FRAC_PI_2)
+            * Quat::from_rotation_y(turned * ratio),
+    )
 }
 
 fn prepare(
@@ -348,39 +389,28 @@ fn prepare(
             ..default()
         })
     });
-    let veils = MODES.map(|mode| {
-        let glow = hue(mode);
-        materials.add(StandardMaterial {
-            base_color: Color::LinearRgba(
-                LinearRgba::from_vec3(glow)
-                    .with_alpha(set.veil_cover),
-            ),
-            emissive: LinearRgba::from_vec3(glow * set.veil_glow),
-            alpha_mode: AlphaMode::Blend,
-            double_sided: true,
-            cull_mode: None::<Face>,
-            ..default()
-        })
+    let mut first = true;
+    let wheels = WHEELS.map(|(_, radius, teeth)| {
+        let crank = std::mem::take(&mut first);
+        meshes.add(wheel(&pal, radius, teeth, crank))
     });
     commands.insert_resource(Fittings {
-        stand: meshes.add(stand(&pal)),
-        arm: meshes.add(arm(&pal)),
-        glass: meshes.add(lantern_glass(0.1, 0.24)),
-        arch: meshes.add(arch(&pal)),
-        veil: meshes.add(veil()),
+        bench: meshes.add(bench(&pal)),
+        work: meshes.add(work(&pal)),
+        wheels,
+        glass: meshes.add(lantern_glass(0.09, 0.22)),
         dark: materials.add(StandardMaterial {
             base_color: pal.glass_dark,
             perceptual_roughness: 0.4,
             ..default()
         }),
         lamps,
-        veils,
         matte: stock.matte.clone(),
         brass: stock.brass.clone(),
     });
 }
 
-/// Stands a lever and an arch on every new common.
+/// Stands a workbench on every new common.
 fn fit(
     mut commands: Commands,
     fittings: Option<Res<Fittings>>,
@@ -388,46 +418,32 @@ fn fit(
     land: Res<Land>,
     mut meshes: ResMut<Assets<Mesh>>,
     commons: Query<(Entity, &Common), Without<Fitted>>,
-    hamlets: Query<(Entity, &Sited, Option<&Works>)>,
+    hamlets: Query<(Entity, &Sited)>,
 ) {
     let Some(fittings) = fittings else {
         return;
     };
-    let lift = land.set.town.plaza_lift;
-    // Turned so that its front looks at the middle of the common.
-    let place = |at: Vec2| {
-        Transform::from_xyz(at.x, lift, at.y).with_rotation(
-            Quat::from_rotation_y((-at.x).atan2(-at.y)),
-        )
-    };
+    let town = &land.set.town;
+    let at = town.bench.0;
     for (common, of) in &commons {
-        let Some((hamlet, _, works)) =
-            hamlets.iter().find(|(_, sited, _)| sited.0 == of.town)
+        let Some((hamlet, _)) =
+            hamlets.iter().find(|(_, sited)| sited.0 == of.town)
         else {
             continue;
         };
-        let now = mode(works);
-        // As it stands already, so that only a change is seen thrown.
-        let leans = lean(now, set.throw);
-        let stand = commands
+        let bench = commands
             .spawn((
-                Mesh3d(fittings.stand.clone()),
+                Mesh3d(fittings.bench.clone()),
                 MeshMaterial3d(fittings.matte.clone()),
-                place(set.lever_at)
-                    .with_scale(Vec3::splat(set.lever_size)),
+                Transform::from_xyz(at.x, town.plaza_lift, at.y)
+                    .with_scale(Vec3::splat(set.size)),
                 ChildOf(common),
                 children![
                     (
-                        Lever {
-                            hamlet,
-                            lean: leans,
-                        },
-                        Mesh3d(fittings.arm.clone()),
-                        MeshMaterial3d(fittings.brass.clone()),
-                        Transform::from_xyz(0.0, PIVOT, 0.0)
-                            .with_rotation(Quat::from_rotation_z(
-                                leans
-                            )),
+                        Laid { hamlet },
+                        Mesh3d(fittings.work.clone()),
+                        MeshMaterial3d(fittings.matte.clone()),
+                        Visibility::Hidden,
                     ),
                     (
                         Beacon { hamlet },
@@ -445,90 +461,86 @@ fn fit(
                 ],
             ))
             .id();
-        let arch = commands
+        let largest = WHEELS[0].2 as f32;
+        for (k, (hub, _, teeth)) in WHEELS.into_iter().enumerate() {
+            // Each is turned by the largest, the other way round.
+            let ratio =
+                if k == 0 { 1.0 } else { -largest / teeth as f32 };
+            commands.spawn((
+                Wheel {
+                    hamlet,
+                    ratio,
+                    turned: 0.0,
+                },
+                Mesh3d(fittings.wheels[k].clone()),
+                MeshMaterial3d(fittings.brass.clone()),
+                turn(hub, ratio, 0.0),
+                ChildOf(bench),
+            ));
+        }
+        let top = commands
             .spawn((
-                Mesh3d(fittings.arch.clone()),
-                MeshMaterial3d(fittings.matte.clone()),
-                place(set.arch_at),
-                ChildOf(common),
-                children![(
-                    Veil { hamlet },
-                    Mesh3d(fittings.veil.clone()),
-                    MeshMaterial3d(fittings.veils[0].clone()),
-                    Visibility::Hidden,
-                    NotShadowCaster,
-                )],
-            ))
-            .id();
-        let handle = commands
-            .spawn(hit_box(
-                Thing::Lever(hamlet),
-                Vec3::new(1.1, 2.0, 0.9),
-                Vec3::new(0.0, 1.0, -0.1),
-                &mut meshes,
-            ))
-            .id();
-        let top = SPRING + RING + 0.3;
-        let doorway = commands
-            .spawn((
-                Doorway { hamlet },
+                Top { hamlet },
                 hit_box(
-                    Thing::Arch(hamlet),
-                    Vec3::new(2.3, top, 0.8),
-                    Vec3::Y * top * 0.5,
+                    Thing::Workbench(hamlet),
+                    Vec3::new(2.1, TOP + 0.1, 1.1),
+                    Vec3::Y * (TOP + 0.1) * 0.5,
                     &mut meshes,
                 ),
             ))
             .id();
-        for (parent, boxed) in [(stand, handle), (arch, doorway)] {
-            adopt(&mut commands, parent, boxed);
+        // The folder's name stands just over the clockwork, under
+        // the hamlet's own.
+        commands.entity(top).try_insert(Footprint {
+            radius: 1.2 * set.size,
+            height: (TOP + 0.7) * set.size,
+            lift: (TOP + 0.1) * 0.5 * set.size,
+        });
+        let train = commands
+            .spawn(hit_box(
+                Thing::Clockwork(hamlet),
+                Vec3::new(0.95, 0.7, 0.45),
+                Vec3::new(0.52, TOP + 0.36, -0.1),
+                &mut meshes,
+            ))
+            .id();
+        for boxed in [top, train] {
+            adopt(&mut commands, bench, boxed);
             pick::watch(&mut commands, boxed);
         }
         commands.entity(common).try_insert(Fitted);
     }
 }
 
-/// Keeps each lever, its lamp and the veil of its arch as its hamlet
-/// works now.
+/// Keeps each bench as its hamlet works now: its work laid out, its
+/// lamp in the mode's colour, and its clockwork turning in auto.
 fn show(
     time: Res<Time>,
     set: Res<WorksSettings>,
     sky: Res<Sky>,
     fittings: Option<Res<Fittings>>,
     hamlets: Query<&Works>,
-    mut levers: Query<(&mut Lever, &mut Transform)>,
+    mut wheels: Query<(&mut Wheel, &mut Transform)>,
     mut beacons: Query<(
         &Beacon,
         &mut MeshMaterial3d<StandardMaterial>,
         &mut PointLight,
     )>,
-    mut veils: Query<
-        (
-            &Veil,
-            &mut MeshMaterial3d<StandardMaterial>,
-            &mut Visibility,
-        ),
-        Without<Beacon>,
-    >,
+    mut laid: Query<(&Laid, &mut Visibility)>,
     mut redraw: Option<ResMut<Messages<RequestRedraw>>>,
 ) {
     let Some(fittings) = fittings else {
         return;
     };
     let now = |hamlet: Entity| mode(hamlets.get(hamlet).ok());
-    let near = 1.0 - (-set.throw_rate * time.delta_secs()).exp();
-    for (mut lever, mut at) in &mut levers {
-        let want = lean(now(lever.hamlet), set.throw);
-        if lever.lean == want {
+    let step = set.spin * time.delta_secs();
+    for (mut wheel, mut at) in &mut wheels {
+        if now(wheel.hamlet) != Some(Mode::Auto) || step == 0.0 {
             continue;
         }
-        let next = lever.lean + (want - lever.lean) * near;
-        lever.lean = if (want - next).abs() < 0.004 {
-            want
-        } else {
-            next
-        };
-        at.rotation = Quat::from_rotation_z(lever.lean);
+        wheel.turned += step;
+        at.rotation =
+            turn(Vec3::ZERO, wheel.ratio, wheel.turned).rotation;
         if let Some(redraw) = &mut redraw {
             redraw.write(RequestRedraw);
         }
@@ -555,29 +567,25 @@ fn show(
             }
         }
     }
-    for (veil, mut light, mut seen) in &mut veils {
-        let Some(mode) = now(veil.hamlet) else {
-            seen.set_if_neq(Visibility::Hidden);
-            continue;
+    for (laid, mut seen) in &mut laid {
+        let want = match now(laid.hamlet) {
+            Some(_) => Visibility::Inherited,
+            None => Visibility::Hidden,
         };
-        seen.set_if_neq(Visibility::Inherited);
-        let want = &fittings.veils[index(mode)];
-        if light.0 != *want {
-            light.0 = want.clone();
-        }
+        seen.set_if_neq(want);
     }
 }
 
-/// Names each arch for the folder its hamlet works on, and takes the
+/// Names each bench for the folder its hamlet works on, and takes the
 /// name off one whose hamlet works on none.
 fn title(
     mut commands: Commands,
     hamlets: Query<&Works>,
-    doorways: Query<(Entity, &Doorway, Option<&Reads>, Has<Named>)>,
+    tops: Query<(Entity, &Top, Option<&Reads>, Has<Named>)>,
 ) {
-    for (entity, doorway, reads, named) in &doorways {
+    for (entity, top, reads, named) in &tops {
         let folder = hamlets
-            .get(doorway.hamlet)
+            .get(top.hamlet)
             .ok()
             .and_then(|works| works.0.folder.as_deref())
             .map(|folder| {
@@ -602,20 +610,20 @@ fn title(
     }
 }
 
-/// A lever that has a mode to change is heard thrown.
-fn clunk(
-    pulled: On<Pulled>,
+/// Clockwork that has a mode to change is heard switched.
+fn click(
+    switched: On<Switched>,
     hamlets: Query<&Works>,
-    levers: Query<(&Lever, &GlobalTransform)>,
+    beacons: Query<(&Beacon, &GlobalTransform)>,
     mut played: MessageWriter<Played>,
 ) {
-    if mode(hamlets.get(pulled.hamlet).ok()).is_none() {
+    if mode(hamlets.get(switched.hamlet).ok()).is_none() {
         return;
     }
-    for (lever, at) in &levers {
-        if lever.hamlet == pulled.hamlet {
+    for (beacon, at) in &beacons {
+        if beacon.hamlet == switched.hamlet {
             played.write(Played {
-                what: Play::Lever,
+                what: Play::Clockwork,
                 at: at.translation(),
             });
         }
@@ -624,7 +632,7 @@ fn clunk(
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<WorksSettings>()
-        .add_observer(clunk)
+        .add_observer(click)
         .add_systems(Startup, prepare)
         .add_systems(
             Update,
@@ -633,7 +641,7 @@ pub(crate) fn plugin(app: &mut App) {
                 show,
                 title.run_if(
                     any_match_filter::<
-                        Or<(Changed<Works>, Added<Doorway>)>,
+                        Or<(Changed<Works>, Added<Top>)>,
                     >,
                 ),
             )

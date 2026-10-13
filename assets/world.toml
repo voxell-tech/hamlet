@@ -163,7 +163,7 @@ move_gap = 0.03
 [pick]
 robot_box = [0.9, 1.6, 0.9]
 house = [3.4, 5.2]
-common = [6.0, 2.6]
+common = [6.0, 3.6]
 ring_lift = 0.12
 ring_slack = 2.5
 signs_far = 210.0
@@ -267,7 +267,7 @@ nudge_pin = 6.0
 nudge_room = 2.6
 letter_wait = 3.0
 gift_at = [0.75, 0.5]
-meter_at = [-1.45, 0.3]
+meter_at = [3.4, 1.4]
 meter_size = 0.6
 meter_glow = 3.0
 meter_lumens = 26000.0
@@ -283,14 +283,9 @@ drop_time = 0.6
 gift_stays = 30.0
 
 [works]
-lever_at = [1.8, -2.6]
-lever_size = 1.3
-arch_at = [3.2, -2.6]
-throw = 0.6
-throw_rate = 9.0
+size = 1.2
+spin = 1.1
 lamp_glow = 3.0
-veil_glow = 1.6
-veil_cover = 0.45
 lumens = 22000.0
 reach = 5.0
 
@@ -436,8 +431,7 @@ door_out = 2.3
 house_radius = 2.45
 road_clearance = 0.75
 robot_clearance = 0.55
-well = [[0.2, 2.3], 1.0]
-tree = [[3.5, 1.2], 0.55]
+bench = [[0.0, 0.0], 1.4]
 board = [[-3.3, 0.9], 0.6]
 lamp = [-3.2, 1.75, 0.0]
 keep_apart = 56.0

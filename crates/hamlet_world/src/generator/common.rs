@@ -1,6 +1,6 @@
-//! The common: a town's shared ground, as a paved round with a well
-//! and a notice board. Built about the town's centre in its own
-//! frame.
+//! The common: a town's shared ground, as a paved round with a
+//! notice board and a lantern. Built about the town's centre in its
+//! own frame.
 
 use std::f32::consts::TAU;
 
@@ -145,62 +145,6 @@ pub fn mesh(land: &Land, site: usize, style: &TownStyle) -> Mb {
         );
     }
 
-    // The well: a stone ring under a small tiled roof.
-    let well = Vec3::new(town.well.0.x, lift, town.well.0.y);
-    let (stone, shade) = (pal.limestone, pal.limestone_shade);
-    let water = pal.water_shade;
-    mb.lathe(
-        well,
-        &[
-            (0.72, 0.0),
-            (0.7, 0.52),
-            (0.62, 0.58),
-            (0.5, 0.58),
-            (0.5, 0.2),
-            (0.0, 0.2),
-        ],
-        12,
-        |r, s| {
-            if r >= 4 {
-                water
-            } else {
-                stone.lerp(shade, ((r * 5 + s * 3) % 4) as f32 * 0.12)
-            }
-        },
-    );
-    for side in [-1.0f32, 1.0] {
-        mb.rbox(
-            well + Vec3::new(side * 0.62, 0.95, 0.0),
-            Vec3::new(0.055, 0.95, 0.055),
-            0.02,
-            rng.wobble(1.5),
-            pal.timber * rng.value(0.08),
-            0.2,
-        );
-    }
-    mb.tube(
-        well + Vec3::new(-0.62, 1.5, 0.0),
-        well + Vec3::new(0.62, 1.5, 0.0),
-        0.05,
-        0.05,
-        6,
-        pal.timber_dark,
-        true,
-    );
-    for side in [-1.0f32, 1.0] {
-        let col = style.roof.lerp(style.drift, rng.f());
-        mb.face(
-            [
-                well + Vec3::new(-0.9, 1.75, side * 0.62),
-                well + Vec3::new(0.9, 1.75, side * 0.62),
-                well + Vec3::new(0.9, 2.22, 0.0),
-                well + Vec3::new(-0.9, 2.22, 0.0),
-            ],
-            Vec3::new(0.0, 1.0, side),
-            col,
-        );
-    }
-
     // The board the town's notes are pinned to.
     let board = Vec3::new(town.board.0.x, lift, town.board.0.y);
     let turn = Quat::from_rotation_y(1.1);
@@ -248,27 +192,7 @@ pub fn mesh(land: &Land, site: usize, style: &TownStyle) -> Mb {
         style.roof,
     );
 
-    // A bench facing the well, and the lantern post.
-    let bench = Vec3::new(3.0, lift, 2.3);
-    let yaw = Quat::from_rotation_y(-0.5);
-    mb.rbox(
-        bench + Vec3::Y * 0.4,
-        Vec3::new(0.6, 0.035, 0.17),
-        0.02,
-        yaw,
-        pal.log,
-        0.2,
-    );
-    for side in [-1.0f32, 1.0] {
-        mb.rbox(
-            bench + yaw * Vec3::new(side * 0.45, 0.19, 0.0),
-            Vec3::new(0.04, 0.19, 0.14),
-            0.02,
-            yaw,
-            pal.timber_dark,
-            0.3,
-        );
-    }
+    // The lantern post.
     let foot = Vec3::new(lamp.x - 0.3, lift, lamp.z);
     mb.rbox(
         foot + Vec3::Y * 1.0,

@@ -1,5 +1,4 @@
-//! The budget where it can be seen: a light meter by the well of each
-//! common.
+//! The budget where it can be seen: a light meter on each common.
 
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
@@ -161,7 +160,7 @@ fn blinks(clock: &Clock, set: &PlaySettings) -> bool {
     clock.frozen || (clock.t * set.meter_blink).fract() < 0.5
 }
 
-/// Stands a meter by the well of every new common, and keeps each
+/// Stands a meter on every new common, and keeps each
 /// showing its hamlet's budget.
 pub(super) fn meters(
     mut commands: Commands,
@@ -196,7 +195,7 @@ pub(super) fn meters(
             continue;
         };
         let town = &land.set.town;
-        let at = town.well.0 + set.meter_at;
+        let at = set.meter_at;
         commands.entity(common).try_insert(Metered).with_child((
             Meter { hamlet },
             Mesh3d(gauge.meter.clone()),

@@ -97,8 +97,8 @@ pub struct PlaySettings {
     /// The place of a gift, from its robot's place at rest: to its
     /// side and out from the house.
     pub gift_at: Vec2,
-    /// The place of a hamlet's meter from the common's well, and its
-    /// size.
+    /// The place of a hamlet's meter on the common, in the town's
+    /// frame, and its size.
     pub meter_at: Vec2,
     pub meter_size: f32,
     /// Brightness of a meter's light, the blinks a second of an
