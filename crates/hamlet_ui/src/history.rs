@@ -8,6 +8,8 @@ use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_equals;
 use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
@@ -20,13 +22,10 @@ use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, each, keyed, resource, style,
 };
 use hamlet_core::core::RefreshLists;
-use hamlet_core::session::{
-    self, Entry, JobFinished, Transcript, Usage,
-};
-use hamlet_model::log;
+use hamlet_core::session::archive::{self, Past, pasts};
+use hamlet_core::session::{self, Entry, JobFinished, Transcript};
 use hamlet_rules::budget::format_tokens;
 use hamlet_rules::commands::RESUME;
-use hamlet_rules::vote::BALLOTS;
 
 use crate::dock::show_tab;
 use crate::feel::Mood;
@@ -49,28 +48,14 @@ pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<History>()
         .add_observer(stale_on_refresh)
         .add_observer(stale_on_job)
-        .add_systems(Update, refresh);
+        .add_systems(
+            Update,
+            refresh
+                .run_if(resource_equals(inspector::Section::History)),
+        );
 }
 
 /// A session's log.
-#[derive(Clone, PartialEq, Debug)]
-pub struct Past {
-    pub path: PathBuf,
-    /// First line said in it.
-    pub title: String,
-    /// The user who said it.
-    pub by: String,
-    pub modified: SystemTime,
-    /// The number it was archived under. `None` for a log in use.
-    pub number: Option<String>,
-    /// The chat shown can resume it.
-    pub ours: bool,
-    pub messages: usize,
-    pub tokens: u64,
-    /// Its text in lowercase, for the search.
-    pub said: String,
-}
-
 /// The session open in the reader.
 pub struct Reading {
     pub path: PathBuf,
@@ -125,134 +110,34 @@ fn since(t: SystemTime) -> String {
     }
 }
 
-/// The digits between an archived log's name and `.jsonl`.
-fn number(path: &Path) -> Option<String> {
-    let stem = path.file_name()?.to_str()?.strip_suffix(".jsonl")?;
-    let (_, number) = stem.rsplit_once('.')?;
-    (!number.is_empty() && number.chars().all(|c| c.is_ascii_digit()))
-        .then(|| number.to_string())
-}
-
-/// Summary of a log. `None` if nothing was said in it.
-fn past(path: &Path, live: Option<&Path>) -> Option<Past> {
-    let events = log::read_events(path).ok()?;
-    // What was spent on a part since rewound was spent all the same.
-    let tokens = Usage::from_log(&events).tokens();
-    let events = log::standing(events);
-    let mut title = None;
-    let mut said = String::new();
-    let mut messages = 0;
-    for e in &events {
-        let text = match e["type"].as_str() {
-            // The hamlet's own prompts are not talk.
-            Some("user") if e["user"] != "hamlet" => {
-                let text = e["content"].as_str().unwrap_or_default();
-                title.get_or_insert_with(|| {
-                    let by = e["user"].as_str().unwrap_or_default();
-                    (text.to_string(), by.to_string())
-                });
-                text
-            }
-            Some("assistant") => {
-                e["message"]["content"].as_str().unwrap_or_default()
-            }
-            _ => continue,
-        };
-        if text.trim().is_empty() {
-            continue;
-        }
-        messages += 1;
-        said.push_str(&text.to_lowercase());
-        said.push('\n');
-    }
-    let (title, by) = title?;
-    let line = title.lines().find(|l| !l.trim().is_empty())?.trim();
+/// `title`, cut to what a row shows.
+fn shortened(title: &str) -> String {
     let mut shown =
-        line.chars().take(TITLE_SHOWN).collect::<String>();
-    if line.chars().count() > TITLE_SHOWN {
+        title.chars().take(TITLE_SHOWN).collect::<String>();
+    if title.chars().count() > TITLE_SHOWN {
         shown.push_str("...");
     }
-    let number = number(path);
-    let ours = number.as_ref().is_some_and(|number| {
-        live.is_some_and(|live| {
-            live.with_extension(format!("{number}.jsonl")) == path
-        })
-    });
-    Some(Past {
-        path: path.to_path_buf(),
-        title: shown,
-        by,
-        modified: std::fs::metadata(path)
-            .and_then(|m| m.modified())
-            .unwrap_or(SystemTime::UNIX_EPOCH),
-        number,
-        ours,
-        messages,
-        tokens,
-        said,
-    })
+    shown
 }
 
-/// The sessions in `dir`, newest first. `live` is the log of the
-/// chat shown.
-fn pasts(dir: &Path, live: Option<&Path>) -> Vec<Past> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
+/// The detail line of a past session's row.
+fn detail(past: &Past) -> String {
+    let count = match past.messages {
+        1 => "1 message".to_string(),
+        n => format!("{n} messages"),
     };
-    let mut pasts = entries
-        .flatten()
-        .map(|e| e.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(
-                    // A ballot is not a session.
-                    |name| {
-                        name.ends_with(".jsonl")
-                            && !name.starts_with(BALLOTS)
-                    },
-                )
-        })
-        .filter_map(|path| past(&path, live))
-        .collect::<Vec<_>>();
-    pasts.sort_by(|a, b| {
-        b.modified
-            .cmp(&a.modified)
-            .then_with(|| b.path.cmp(&a.path))
-    });
-    pasts
-}
-
-impl Past {
-    /// Every word of `query` is in it.
-    fn matches(&self, query: &str) -> bool {
-        query.to_lowercase().split_whitespace().all(|word| {
-            self.said.contains(word)
-                || self.title.to_lowercase().contains(word)
-        })
+    let mut detail = match past.number {
+        Some(_) => since(past.modified),
+        None => "In use now".to_string(),
+    };
+    detail.push_str(&format!(", {count}"));
+    if past.tokens > 0 {
+        detail.push_str(&format!(", {}", format_tokens(past.tokens)));
     }
-
-    fn detail(&self) -> String {
-        let count = match self.messages {
-            1 => "1 message".to_string(),
-            n => format!("{n} messages"),
-        };
-        let mut detail = match self.number {
-            Some(_) => since(self.modified),
-            None => "In use now".to_string(),
-        };
-        detail.push_str(&format!(", {count}"));
-        if self.tokens > 0 {
-            detail.push_str(&format!(
-                ", {}",
-                format_tokens(self.tokens)
-            ));
-        }
-        if !self.by.is_empty() {
-            detail.push_str(&format!(", begun by {}", self.by));
-        }
-        detail
+    if !past.by.is_empty() {
+        detail.push_str(&format!(", begun by {}", past.by));
     }
+    detail
 }
 
 impl History {
@@ -262,8 +147,8 @@ impl History {
             .filter(|past| past.matches(&self.query))
             .map(|past| Line {
                 path: past.path.clone(),
-                title: past.title.clone(),
-                detail: past.detail(),
+                title: shortened(&past.title),
+                detail: detail(past),
                 live: past.number.is_none(),
                 ours: past.ours,
             })
@@ -318,8 +203,7 @@ pub fn said(transcript: &Transcript) -> Vec<u64> {
 /// Opens the log at `path` in the reader.
 fn open(world: &mut World, path: PathBuf) {
     close(world);
-    let events = log::read_standing(&path).unwrap_or_default();
-    let transcript = Transcript::from_log(&events);
+    let transcript = archive::read(&path);
     let said = said(&transcript);
     let holder = world.spawn(transcript).id();
     let mut history = world.resource_mut::<History>();
@@ -358,7 +242,7 @@ fn delete(world: &mut World) {
     let Some(past) = past.filter(|past| past.number.is_some()) else {
         return;
     };
-    let failed = std::fs::remove_file(&past.path)
+    let failed = archive::delete(&past.path)
         .err()
         .map(|e| format!("Could not delete that session: {e}"));
     let mut history = world.resource_mut::<History>();
@@ -368,11 +252,6 @@ fn delete(world: &mut World) {
 
 /// Keeps `pasts` in step with the disk while the page is open.
 pub(crate) fn refresh(world: &mut World) {
-    if *world.resource::<inspector::Section>()
-        != inspector::Section::History
-    {
-        return;
-    }
     let session = world.resource::<Me>().session;
     let history = world.resource::<History>();
     let moved = history.of != Some(session);
@@ -602,8 +481,8 @@ fn reader() -> AnyView {
         let past = history.read().cloned();
         let (title, detail, resumable, kept) = match &past {
             Some(past) => (
-                past.title.clone(),
-                past.detail(),
+                shortened(&past.title),
+                detail(past),
                 past.ours,
                 past.number.is_some(),
             ),

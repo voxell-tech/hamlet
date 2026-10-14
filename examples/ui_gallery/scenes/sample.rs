@@ -18,13 +18,14 @@ use hamlet_core::agents::{
 use hamlet_core::core::HomeDir;
 use hamlet_core::oversight::danger::Danger;
 use hamlet_core::oversight::{Kind, Waiting};
+use hamlet_core::session::archive::Past;
 use hamlet_core::session::{
     ASKED, MAIL, SessionKey, TalksTo, Transcript,
 };
 use hamlet_home::Home;
 use hamlet_rules::budget::{AgentBudget, Amount};
 use hamlet_rules::chief::rulings::Choice;
-use hamlet_ui::history::{History, Past, Reading};
+use hamlet_ui::history::{History, Reading};
 use hamlet_ui::links::{Aimed, Roots};
 use hamlet_ui::{
     Me, chat, history, inspector, menu, overview, welcome,

@@ -2,6 +2,7 @@
 //! and a worker that owns its agent. Channels send a `UserMessage`
 //! and observe `SessionOutput`.
 
+pub mod archive;
 mod deliver;
 mod gate;
 mod key;
