@@ -14,7 +14,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     FrameProps, TooltipExt, column, frame, icon, label, row,
 };
-use bevy_fynix::{Bevy, View, ViewExt, keyed, resource};
+use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_core::agents::{Settlement, Treasury};
 use hamlet_core::core::{Link, Sandboxing, Settings};
 use hamlet_core::session::{Status, Usage};
@@ -25,9 +25,9 @@ use crate::links::Aimed;
 use crate::looks::{hairline, note};
 use crate::me::Me;
 use crate::needs::Queue;
-use crate::theme::{HamletTheme, paint};
+use crate::theme::paint;
 use crate::window::Layout;
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx, View};
 
 /// The side of an icon in the bar.
 const MARK: f32 = 12.0;
@@ -164,9 +164,9 @@ pub(crate) fn ago(since: Instant) -> String {
 
 /// An icon and the words it stands before.
 fn pair(
-    mark: impl View<Bevy, HamletTheme> + 'static,
-    words: impl View<Bevy, HamletTheme> + 'static,
-) -> impl View<Bevy, HamletTheme> + 'static {
+    mark: impl View + 'static,
+    words: impl View + 'static,
+) -> impl View + 'static {
     row((mark, words)).gap(5.0).align(AlignItems::Center)
 }
 
@@ -177,7 +177,7 @@ fn fact(
     which: Glyph,
     text: fn(&Bar) -> String,
     tip: &'static str,
-) -> Ui {
+) -> AnyView {
     keyed(
         resource::<Bar, _>(move |bar| text(bar).is_empty()),
         move |empty| {
@@ -198,7 +198,7 @@ fn fact(
 
 /// The number that wait for the chief, behind a bell. Nothing while
 /// none does.
-fn waiting() -> Ui {
+fn waiting() -> impl View {
     keyed(resource::<Queue, _>(Queue::len), |waiting| match waiting {
         0 => frame().boxed(),
         n => pair(
@@ -211,12 +211,11 @@ fn waiting() -> Ui {
         .boxed(),
     })
     .within(row(()).gap(0.0))
-    .boxed()
 }
 
 /// The place the link under the pointer leads, in the room between
 /// the bar's two ends.
-fn aimed() -> Ui {
+fn aimed() -> impl View {
     row((label(resource::<Aimed, _>(|aimed| aimed.address.clone()))
         .size(12.0)
         .wrap(false)
@@ -224,12 +223,11 @@ fn aimed() -> Ui {
     .grow(1.0)
     .min_width(px(0.0))
     .overflow(Overflow::clip())
-    .boxed()
 }
 
 /// The bar along the foot of the window.
-pub fn status_bar() -> Ui {
-    Ui::new(|cx: &mut Cx| {
+pub fn status_bar() -> AnyView {
+    AnyView::new(|cx: &mut Cx| {
         let sandbox = cx.world.resource::<Sandboxing>().0.name();
         cx.build(
             column((

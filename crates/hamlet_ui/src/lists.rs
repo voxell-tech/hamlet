@@ -7,7 +7,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, row,
 };
 use bevy_fynix::{
-    Bevy, ScopedExt, StateExt, View, ViewExt, each, keyed, resource,
+    ScopedExt, StateExt, ViewExt, each, keyed, resource,
 };
 use hamlet_core::core::Skills;
 
@@ -15,9 +15,9 @@ use crate::dock::show_tab;
 use crate::icons::Glyph;
 use crate::looks::{Fills, action, away, bad_action};
 use crate::platform::DisplayText;
-use crate::theme::{HamletTheme, paint, themed};
+use crate::theme::{paint, themed};
 use crate::world_menu::{self, Deed};
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx, View};
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct SkillRow {
@@ -40,7 +40,7 @@ fn skill_rows(skills: &Skills) -> Vec<SkillRow> {
 fn empty_state<R: Resource>(
     is_empty: fn(&R) -> bool,
     hint: &'static str,
-) -> impl View<Bevy, HamletTheme> {
+) -> impl View {
     keyed(resource::<R, _>(is_empty), move |empty| {
         if *empty {
             column((
@@ -62,7 +62,7 @@ fn empty_state<R: Resource>(
 
 /// The library's skills, each with the press that takes it out.
 /// Whoever shows them scrolls them.
-pub(crate) fn skills() -> Ui {
+pub(crate) fn skills() -> impl View {
     column((
         empty_state(
             |l: &Skills| l.0.is_empty(),
@@ -98,11 +98,10 @@ pub(crate) fn skills() -> Ui {
         .within(column(()).gap(8.0)),
     ))
     .gap(0.0)
-    .boxed()
 }
 
 /// One card: a title over a dim line.
-pub fn item(title: String, detail: String, tone: Tone) -> Ui {
+pub fn item(title: String, detail: String, tone: Tone) -> AnyView {
     card(title, detail, tone, None)
 }
 
@@ -113,9 +112,9 @@ pub fn card(
     title: String,
     detail: String,
     tone: Tone,
-    beside: Option<Ui>,
-) -> Ui {
-    Ui::new(move |cx: &mut Cx| {
+    beside: Option<AnyView>,
+) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
         let name = row((label(title)
             .size(13.0)
             .bold(true)

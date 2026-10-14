@@ -52,7 +52,7 @@ use bevy::window::{
     ExitCondition, Window, WindowPlugin, WindowResolution,
 };
 use bevy_fynix::dock::DockPlugin;
-use bevy_fynix::{AnyView, Bevy, FynixPlugin};
+use bevy_fynix::{Bevy, FynixPlugin};
 use hamlet_core::agents::WatchEvery;
 use hamlet_core::core::HomeDir;
 use hamlet_world::hamlet::HamletPlugin;
@@ -73,7 +73,16 @@ pub use self::window::ShowRequests;
 pub type Cx<'a> = bevy_fynix::Cx<'a, Bevy, HamletTheme>;
 
 /// A view of the window, its type erased.
-pub(crate) type Ui = AnyView<Bevy, HamletTheme>;
+pub(crate) type AnyView = bevy_fynix::AnyView<Bevy, HamletTheme>;
+
+/// A view of the window. A trait of its own until Rust has trait
+/// aliases.
+pub trait View:
+    bevy_fynix::View<Bevy, HamletTheme> + 'static
+{
+}
+
+impl<V: bevy_fynix::View<Bevy, HamletTheme> + 'static> View for V {}
 
 /// The window: the dock, its panels and the world. Add it to the
 /// core's app, after a [`ShowRequests`] resource is in place.

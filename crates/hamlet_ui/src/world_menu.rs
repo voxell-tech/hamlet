@@ -28,7 +28,7 @@ use hamlet_world::pick::{Asked, AskedGround, Thing};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
-use crate::{Cx, Ui, hand};
+use crate::{AnyView, Cx, View, hand};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Open>()
@@ -152,25 +152,26 @@ pub(super) fn restore(world: &mut World, agent: Entity) {
 }
 
 /// A menu of `items` at `at`.
-fn menu(at: Vec2, items: Vec<Ui>) -> Ui {
+fn menu(at: Vec2, items: Vec<AnyView>) -> impl View {
     popup(Rect::from_corners(at, at), items)
         .on_dismiss(|world, _| close(world))
         .min_width(px(200.0))
-        .boxed()
 }
 
 /// The menu or the question that is open, over everything.
-pub fn view() -> Ui {
+pub fn view() -> AnyView {
     keyed(resource::<Open, _>(Clone::clone), |open| {
         match open.clone() {
             Open::Nothing => frame().boxed(),
-            Open::Menu(thing, at) => Ui::new(move |cx: &mut Cx| {
-                let items = items::items(cx.world, thing, at);
-                if items.is_empty() {
-                    return cx.build(frame());
-                }
-                cx.build(menu(at, items))
-            }),
+            Open::Menu(thing, at) => {
+                AnyView::new(move |cx: &mut Cx| {
+                    let items = items::items(cx.world, thing, at);
+                    if items.is_empty() {
+                        return cx.build(frame());
+                    }
+                    cx.build(menu(at, items))
+                })
+            }
             Open::Question(deed, at) => question(deed, at),
             Open::Ground(at) => {
                 let found =
@@ -180,13 +181,15 @@ pub fn view() -> Ui {
                                 Open::Founding(at);
                         })
                         .boxed();
-                menu(at, vec![found])
+                menu(at, vec![found]).boxed()
             }
             Open::Founding(at) => founding::founding(at),
-            Open::Skills(agent, at) => Ui::new(move |cx: &mut Cx| {
-                let items = items::skills(cx.world, agent);
-                cx.build(menu(at, items))
-            }),
+            Open::Skills(agent, at) => {
+                AnyView::new(move |cx: &mut Cx| {
+                    let items = items::skills(cx.world, agent);
+                    cx.build(menu(at, items))
+                })
+            }
         }
     })
     .within(overlay(()))

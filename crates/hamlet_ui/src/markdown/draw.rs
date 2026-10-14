@@ -27,7 +27,7 @@ use crate::platform::{
     Display as DisplayFace, DisplayText, Mono, MonoText,
 };
 use crate::theme::{Palette, paint, themed};
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx, View};
 
 fn words(world: &World, session: Entity, id: u64) -> Option<&str> {
     match world.get::<Transcript>(session)?.get(id)? {
@@ -159,9 +159,9 @@ fn anchored(
 /// A wrapped paragraph of `spans`: a label with a text span under it
 /// for each. A link is a span the pointer finds by itself, on every
 /// line it runs over.
-pub(super) fn rich(spans: &[Span], ink: Ink) -> Ui {
+pub(super) fn rich(spans: &[Span], ink: Ink) -> AnyView {
     let spans = spans.to_vec();
-    Ui::new(move |cx: &mut Cx| {
+    AnyView::new(move |cx: &mut Cx| {
         let spans = anchored(cx.world, spans);
         let theme = cx.theme();
         let size = ink.size.unwrap_or(theme.text.body);
@@ -236,9 +236,9 @@ pub(super) fn rich(spans: &[Span], ink: Ink) -> Ui {
     })
 }
 
-fn code_view(lang: &str, text: &str) -> Ui {
+fn code_view(lang: &str, text: &str) -> impl View {
     let text = text.to_string();
-    let body = Ui::new(move |cx: &mut Cx| {
+    let body = AnyView::new(move |cx: &mut Cx| {
         // A long line wraps: nothing in the chat scrolls sideways.
         let node = cx.build(label(text).size(13.0));
         let mono =
@@ -252,7 +252,7 @@ fn code_view(lang: &str, text: &str) -> Ui {
         }
         node
     });
-    let mut parts = Vec::<Ui>::new();
+    let mut parts = Vec::<AnyView>::new();
     if !lang.is_empty() {
         parts.push(
             label(lang.to_string())
@@ -270,7 +270,6 @@ fn code_view(lang: &str, text: &str) -> Ui {
         .border(1.0)
         .border_color(paint(|p| p.brass_6))
         .radius(themed(|t| t.space.round))
-        .boxed()
 }
 
 /// Columns that share the width between them and may shrink to
@@ -285,10 +284,10 @@ fn shared(columns: u16) -> Vec<RepeatedGridTrack> {
 }
 
 /// A grid whose lines are the fill showing between its cells.
-fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> Ui {
+fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> AnyView {
     let widest = rows.iter().map(Vec::len).max().unwrap_or(0);
     let columns = align.len().max(widest).clamp(1, 64);
-    let mut cells = Vec::<Ui>::new();
+    let mut cells = Vec::<AnyView>::new();
     for (at, cell_row) in rows.iter().enumerate() {
         for column_at in 0..columns {
             let spans = cell_row
@@ -320,7 +319,7 @@ fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> Ui {
             );
         }
     }
-    Ui::new(move |cx: &mut Cx| {
+    AnyView::new(move |cx: &mut Cx| {
         let node = cx.build(
             column(cells)
                 .gap(1.0)
@@ -336,7 +335,7 @@ fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> Ui {
     })
 }
 
-fn block_view(at: usize, block: &Block, tone: Tone) -> Ui {
+fn block_view(at: usize, block: &Block, tone: Tone) -> AnyView {
     let above = match (at, &block.kind, block.marker) {
         (0, ..) => 0.0,
         (_, Kind::Heading(..), _) => 14.0,
@@ -363,7 +362,7 @@ fn block_view(at: usize, block: &Block, tone: Tone) -> Ui {
                 ..body
             },
         ),
-        Kind::Code { lang, text } => code_view(lang, text),
+        Kind::Code { lang, text } => code_view(lang, text).boxed(),
         Kind::Rule => frame()
             .height(px(1.0))
             .margin(UiRect::vertical(px(4.0)))
@@ -375,7 +374,7 @@ fn block_view(at: usize, block: &Block, tone: Tone) -> Ui {
         }
     };
 
-    let mut cells = Vec::<Ui>::new();
+    let mut cells = Vec::<AnyView>::new();
     // A bar runs the whole height of its row, so the bars of the
     // blocks of one quote meet.
     for _ in 0..block.quote.min(DEEPEST) {
@@ -430,7 +429,10 @@ fn block_view(at: usize, block: &Block, tone: Tone) -> Ui {
 
 /// A Markdown document, one view per block. A block that has not
 /// changed keeps its nodes while the document grows.
-pub(crate) fn document(blocks: Signal<Vec<Block>>, tone: Tone) -> Ui {
+pub(crate) fn document(
+    blocks: Signal<Vec<Block>>,
+    tone: Tone,
+) -> impl View {
     each(
         blocks.map(|blocks| {
             blocks.into_iter().enumerate().collect::<Vec<_>>()
@@ -439,12 +441,11 @@ pub(crate) fn document(blocks: Signal<Vec<Block>>, tone: Tone) -> Ui {
         move |(at, block)| block_view(*at, block, tone),
     )
     .within(bare())
-    .boxed()
 }
 
 /// Words set as they were typed, with `tail` after them, if there
 /// may be a link in them.
-pub(crate) fn typed(text: &str, tail: &str) -> Option<Ui> {
+pub(crate) fn typed(text: &str, tail: &str) -> Option<AnyView> {
     let mut spans = plain(text);
     if spans.iter().all(|span| span.link.is_none()) {
         return None;
@@ -465,13 +466,13 @@ pub(crate) fn typed(text: &str, tail: &str) -> Option<Ui> {
 }
 
 /// A Markdown document that is drawn once, one view per block.
-pub fn fixed(text: &str, tone: Tone) -> Ui {
+pub fn fixed(text: &str, tone: Tone) -> impl View {
     let blocks = parse(text)
         .iter()
         .enumerate()
         .map(|(at, block)| block_view(at, block, tone))
         .collect::<Vec<_>>();
-    column(blocks).gap(0.0).boxed()
+    column(blocks).gap(0.0)
 }
 
 #[cfg(test)]

@@ -19,7 +19,9 @@ use crate::icons::Glyph;
 use crate::looks::{Fills, ICON};
 use crate::platform::{ClipInside, Glow};
 use crate::theme::{HamletTheme, paint};
-use crate::{Ui, inspector, needs, remember, settings, world_view};
+use crate::{
+    AnyView, View, inspector, needs, remember, settings, world_view,
+};
 
 /// The least width a panel keeps, in logical pixels.
 const LEAST: f32 = 300.0;
@@ -32,12 +34,12 @@ pub(crate) fn plugin(app: &mut App) {
 }
 
 /// A dock panel's contents.
-pub fn panel(view: Ui) -> Ui {
+pub fn panel(view: impl View) -> AnyView {
     lit_panel(view, Lit::default())
 }
 
 /// A panel that light falls into as things happen in the hamlet.
-pub fn lit_panel(view: Ui, lit: Lit) -> Ui {
+pub fn lit_panel(view: impl View, lit: Lit) -> AnyView {
     // The dock frames the area; this is what fills it.
     column((view,))
         .fills_width()

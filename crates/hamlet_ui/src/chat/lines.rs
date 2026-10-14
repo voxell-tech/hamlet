@@ -29,7 +29,7 @@ use hamlet_core::session::{
 use super::entry::entry_view;
 use super::timeline::{Line, Part, People, Who, parts, timeline};
 use super::{ChatScroll, bubble};
-use crate::Ui;
+use crate::View;
 use crate::looks::{Fills, note};
 use crate::me::Me;
 
@@ -165,7 +165,7 @@ pub(super) fn fold_view(
     key: RowKey,
     session: Entity,
     first: u64,
-) -> Ui {
+) -> impl View {
     // The row is built once for its fold. Its heading and what is
     // inside read the fold as it stands, so opening it or a new step
     // builds neither the row nor its button again.
@@ -195,10 +195,7 @@ pub(super) fn fold_view(
     .within(
         column(()).gap(6.0).width(percent(100.0)).min_width(px(0.0)),
     );
-    column((head, inside))
-        .gap(4.0)
-        .align(AlignItems::FlexStart)
-        .boxed()
+    column((head, inside)).gap(4.0).align(AlignItems::FlexStart)
 }
 
 /// The identity of a row for as long as it is the same row: the agent
@@ -474,7 +471,7 @@ pub fn read_back(
 const GAP: f32 = 3.0;
 
 /// The chat with whoever `Me` points at.
-pub fn transcript() -> Ui {
+pub fn transcript() -> impl View {
     // One list for the whole chat, each row built once for as long
     // as it is the same row.
     let list = each(
@@ -509,10 +506,7 @@ pub fn transcript() -> Ui {
         y: OverflowAxis::Scroll,
     })
     .tagged(ChatScroll);
-    column((bubble::header(), said))
-        .fills_height()
-        .gap(6.0)
-        .boxed()
+    column((bubble::header(), said)).fills_height().gap(6.0)
 }
 
 /// A row of the chat.

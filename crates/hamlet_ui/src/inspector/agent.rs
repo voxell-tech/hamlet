@@ -33,7 +33,7 @@ use crate::roll::rolled;
 use crate::status::Bar;
 use crate::theme::paint;
 use crate::world_menu::{self};
-use crate::{Cx, Ui, chat, markdown, tabs};
+use crate::{AnyView, Cx, View, chat, markdown, tabs};
 
 /// The part of the selected agent the panel shows.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
@@ -64,11 +64,11 @@ pub struct Briefing {
 }
 
 /// An agent's purpose cut short, whole under the pointer.
-pub(super) fn said(purpose: String) -> Ui {
+pub(super) fn said(purpose: String) -> AnyView {
     let shown =
         crate::hover::short(&purpose, crate::hover::PURPOSE_SHOWN);
     if shown == purpose {
-        return dim(purpose);
+        return dim(purpose).boxed();
     }
     label(shown)
         .tone(Tone::Dim)
@@ -79,8 +79,8 @@ pub(super) fn said(purpose: String) -> Ui {
         .boxed()
 }
 
-pub(super) fn dim(text: impl Into<String>) -> Ui {
-    label(text.into()).tone(Tone::Dim).boxed()
+pub(super) fn dim(text: impl Into<String>) -> impl View {
+    label(text.into()).tone(Tone::Dim)
 }
 
 /// The step an agent is on, in words.
@@ -121,8 +121,8 @@ fn spent(world: &World, agent: Entity) -> String {
     format!("Spent {period}: {}", account.0.cost())
 }
 
-fn header(agent: Entity, with: Option<String>) -> Ui {
-    Ui::new(move |cx: &mut Cx| {
+fn header(agent: Entity, with: Option<String>) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
         let (name, purpose) = match &with {
             Some(name) => (
                 name.to_uppercase(),
@@ -237,13 +237,13 @@ fn header(agent: Entity, with: Option<String>) -> Ui {
     })
 }
 
-fn notes() -> Ui {
+fn notes() -> impl View {
     let shown =
         keyed(resource::<Papers, _>(|p| p.notes.clone()), |text| {
             if text.trim().is_empty() {
                 label("No notes yet.").boxed()
             } else {
-                markdown::fixed(text, Tone::Body)
+                markdown::fixed(text, Tone::Body).boxed()
             }
         })
         .within(bare());
@@ -254,7 +254,6 @@ fn notes() -> Ui {
     column((row((reflect,)), scroll((shown,)).fills_height()))
         .fills_height()
         .gap(8.0)
-        .boxed()
 }
 
 /// Opens the selected agent's character in the program the system
@@ -266,7 +265,7 @@ fn edit_character(world: &mut World) {
     }
 }
 
-fn character() -> Ui {
+fn character() -> impl View {
     let shown = keyed(
         resource::<Papers, _>(|p| p.character.clone()),
         |text| {
@@ -274,7 +273,7 @@ fn character() -> Ui {
                 note("Write here how this agent behaves and speaks.")
                     .boxed()
             } else {
-                markdown::fixed(text, Tone::Body)
+                markdown::fixed(text, Tone::Body).boxed()
             }
         },
     )
@@ -286,7 +285,6 @@ fn character() -> Ui {
     column((row((edit,)), scroll((shown,)).fills_height()))
         .fills_height()
         .gap(8.0)
-        .boxed()
 }
 
 /// Reads the prompt the agent the chat is with would be given now,
@@ -321,12 +319,13 @@ pub(super) fn leave_prompt(
     }
 }
 
-fn prompt() -> Ui {
+fn prompt() -> impl View {
     let shown =
         keyed(resource::<Briefing, _>(|b| b.text.clone()), |text| {
             // Each line as the model is given it, where Markdown
             // would run them together.
             markdown::fixed(&text.replace('\n', "  \n"), Tone::Body)
+                .boxed()
         })
         .within(bare());
     column((
@@ -345,18 +344,18 @@ fn prompt() -> Ui {
     ))
     .fills_height()
     .gap(8.0)
-    .boxed()
 }
 
 /// The sections as tabs.
-fn tabs() -> Ui {
+fn tabs() -> AnyView {
     tabs::strip(&TABS, |world, section| {
         *world.resource_mut::<Section>() = section;
         world.trigger(RefreshLists);
     })
+    .boxed()
 }
 
-fn sections() -> Ui {
+fn sections() -> impl View {
     keyed(resource::<Section, _>(|s| *s), |section| match section {
         Section::Conversation => {
             column((chat::transcript(), chat::message_bar()))
@@ -364,16 +363,15 @@ fn sections() -> Ui {
                 .gap(8.0)
                 .boxed()
         }
-        Section::Notes => notes(),
-        Section::Character => character(),
+        Section::Notes => notes().boxed(),
+        Section::Character => character().boxed(),
         Section::History => crate::history::screen(),
-        Section::Prompt => prompt(),
+        Section::Prompt => prompt().boxed(),
     })
     .within(filling())
-    .boxed()
 }
 
-pub(super) fn living() -> Ui {
+pub(super) fn living() -> impl View {
     keyed(
         resource::<Me, _>(|m| (m.session, m.agent, m.with.clone())),
         |(_, agent, with)| {
@@ -384,5 +382,4 @@ pub(super) fn living() -> Ui {
         },
     )
     .within(filling())
-    .boxed()
 }

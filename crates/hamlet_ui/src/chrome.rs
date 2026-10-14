@@ -34,7 +34,7 @@ use bevy_fynix::views::{BehaviorExt, FrameProps, button, icon, row};
 use bevy_fynix::{OverrideCursor, ScopedExt, style};
 
 use crate::theme::{HamletTheme, Palette};
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<ChromeSettings>()
@@ -191,8 +191,8 @@ fn close(world: &mut World) {
 }
 
 /// The three buttons of the window, for the end of the top bar.
-pub fn buttons() -> Ui {
-    Ui::new(|cx: &mut Cx| {
+pub fn buttons() -> AnyView {
+    AnyView::new(|cx: &mut Cx| {
         let side = cx.world.resource::<ChromeSettings>().button;
         let marks = cx.world.resource::<Marks>();
         let (small, large, shut) = (

@@ -18,7 +18,7 @@ use crate::looks::{Fills, note};
 use crate::me::Me;
 use crate::platform::{DisplayText, MonoText};
 use crate::theme::{paint, themed};
-use crate::{Cx, Ui, markdown};
+use crate::{AnyView, Cx, View, markdown};
 
 fn clip(s: &str, max: usize) -> String {
     let flat: String =
@@ -44,7 +44,7 @@ fn tool_text(summary: &str) -> String {
 }
 
 /// How the tool call at entry `id` of `session` stands.
-pub(super) fn state(session: Entity, id: u64) -> Ui {
+pub(super) fn state(session: Entity, id: u64) -> impl View {
     let exit = move |t: Option<&Transcript>| match t
         .and_then(|t| t.get(id))
     {
@@ -67,11 +67,10 @@ pub(super) fn state(session: Entity, id: u64) -> Ui {
             None => Tone::Accent,
         }
     }))
-    .boxed()
 }
 
-pub(crate) fn entry_view(session: Entity, id: u64) -> Ui {
-    Ui::new(move |cx: &mut Cx| {
+pub(crate) fn entry_view(session: Entity, id: u64) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
         let kind = cx
             .world
             .get::<Transcript>(session)
@@ -86,7 +85,7 @@ pub(crate) fn entry_view(session: Entity, id: u64) -> Ui {
                 t.and_then(|t| t.get(id)).map(f).unwrap_or_default()
             })
         };
-        let view: Ui = match kind {
+        let view: AnyView = match kind {
             Some(Entry::User { .. }) => column((
                 label(text(|e| match e {
                     Entry::User { user, .. } => user.clone(),

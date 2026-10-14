@@ -30,7 +30,7 @@ use crate::platform::DisplayText;
 use crate::theme::HamletTheme;
 use crate::window::{self, Layout};
 use crate::world_view::TimeOfDay;
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx, View};
 
 /// The height of the menu bar.
 const BAR: f32 = 34.0;
@@ -166,7 +166,7 @@ pub(crate) fn light_titles(
     }
 }
 
-fn title(name: &'static str, menu: Menu) -> Ui {
+fn title(name: &'static str, menu: Menu) -> impl View {
     button(
         label(name)
             .size(13.0)
@@ -178,19 +178,21 @@ fn title(name: &'static str, menu: Menu) -> Ui {
     .tagged(menu)
     .tagged(FootLight::new(false))
     .on_activate_with(move |world, node| open(world, menu, node))
-    .boxed()
 }
 
 /// The menu titles, for the top bar.
-pub fn titles() -> Ui {
+pub fn titles() -> impl View {
     row((title("HAMLET", Menu::App), title("VIEW", Menu::View)))
         .gap(0.0)
         .height(px(BAR))
         .align(AlignItems::Center)
-        .boxed()
 }
 
-fn item(which: Glyph, name: &'static str, act: fn(&mut World)) -> Ui {
+fn item(
+    which: Glyph,
+    name: &'static str,
+    act: fn(&mut World),
+) -> AnyView {
     menu_item(
         row((
             glyph(which, ICON).tone(Tone::Faint),
@@ -206,7 +208,7 @@ fn item(which: Glyph, name: &'static str, act: fn(&mut World)) -> Ui {
     .boxed()
 }
 
-fn items(menu: Menu) -> Vec<Ui> {
+fn items(menu: Menu) -> Vec<AnyView> {
     match menu {
         Menu::App => vec![
             item(Glyph::Minimal, "Minimal View", |w| {
@@ -242,7 +244,7 @@ fn items(menu: Menu) -> Vec<Ui> {
 }
 
 /// The open menu's list, or nothing while none is open.
-pub fn open_menu() -> Ui {
+pub fn open_menu() -> impl View {
     keyed(resource::<OpenMenu, _>(|m| m.0), |open| match open {
         Some((menu, anchor)) => popup(*anchor, items(*menu))
             .on_dismiss(|world, _| dismiss(world))
@@ -251,7 +253,6 @@ pub fn open_menu() -> Ui {
         None => frame().boxed(),
     })
     .within(overlay(()))
-    .boxed()
 }
 
 #[cfg(test)]

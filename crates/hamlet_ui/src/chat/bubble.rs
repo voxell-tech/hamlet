@@ -27,7 +27,7 @@ use crate::me::Me;
 use crate::platform::DisplayText;
 use crate::theme::{Palette, contrast, paint, themed};
 use crate::world_menu::{self, Deed};
-use crate::{Cx, Ui, markdown};
+use crate::{AnyView, Cx, View, markdown};
 
 /// The room at the left of the chat that a speaker's picture stands
 /// in, and the width of the picture.
@@ -65,8 +65,8 @@ fn legible(colour: Color, surface: Color, parchment: Color) -> Color {
 }
 
 /// A line of text in a colour that is not one of the theme's tones.
-fn inked(text: String, colour: Color, size: f32) -> Ui {
-    Ui::new(move |cx: &mut Cx| {
+fn inked(text: String, colour: Color, size: f32) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
         let node =
             cx.build(label(text).size(size).bold(true).wrap(false));
         let mut entity = cx.world.entity_mut(node);
@@ -82,7 +82,7 @@ fn inked(text: String, colour: Color, size: f32) -> Ui {
 
 /// A speaker's picture: its first letter on its robot's paint. The
 /// mayor's is ringed in brass, and a chief's is square.
-fn face(who: &Who, size: f32) -> Ui {
+fn face(who: &Who, size: f32) -> impl View {
     let letter = who
         .name
         .chars()
@@ -119,14 +119,13 @@ fn face(who: &Who, size: f32) -> Ui {
             .border(1.0)
             .border_color(paint(|p| p.brass_2)),
     }
-    .boxed()
 }
 
 /// `first` and then `last` on one line where there is room for
 /// both, and `last` on a line of its own under it where there is
 /// not.
-fn wrapping(first: Ui, last: Ui) -> Ui {
-    Ui::new(move |cx: &mut Cx| {
+fn wrapping(first: AnyView, last: AnyView) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
         let node = cx.build(
             row((first, last)).gap(0.0).align(AlignItems::FlexEnd),
         );
@@ -160,8 +159,8 @@ enum Words {
 
 /// One message: a bubble at the right for the chief's own, and at
 /// the left by its speaker's picture for anyone else's.
-fn said(line: Line, session: Entity, id: u64) -> Ui {
-    Ui::new(move |cx: &mut Cx| {
+fn said(line: Line, session: Entity, id: u64) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
         let cast = cx.world.resource::<Lines>().cast();
         let who = cast.get(line.by).cloned().unwrap_or_default();
         // The agent the chat is with comes first, and what is said
@@ -276,7 +275,8 @@ fn said(line: Line, session: Entity, id: u64) -> Ui {
                     _ => markdown::document(
                         markdown::entry(session, id),
                         Tone::Body,
-                    ),
+                    )
+                    .boxed(),
                 };
                 inside.push(wrapping(
                     column((body,))
@@ -373,7 +373,7 @@ fn said(line: Line, session: Entity, id: u64) -> Ui {
 }
 
 /// A row of the chat.
-pub(super) fn line_view(line: &Line) -> Ui {
+pub(super) fn line_view(line: &Line) -> AnyView {
     match &line.row {
         Row::Entry { session, id } => {
             said(line.clone(), *session, *id)
@@ -416,7 +416,7 @@ fn names(cast: &[Who]) -> String {
 
 /// The way to a new session: a small mark with no plate at the chat's
 /// head, which asks before it acts.
-fn fresh() -> Ui {
+fn fresh() -> impl View {
     button(crate::looks::raised(crate::icons::glyph(
         crate::icons::Glyph::NewSession,
         crate::looks::ICON,
@@ -430,12 +430,11 @@ fn fresh() -> Ui {
     .rules(crate::looks::retrace)
     .tagged(crate::feel::Mood::Ink)
     .on_activate(|world| world_menu::ask(world, Deed::NewSession))
-    .boxed()
 }
 
 /// The head of the chat: the house it is and everyone who speaks in
 /// it.
-pub(super) fn header() -> Ui {
+pub(super) fn header() -> AnyView {
     keyed(
         resource::<Lines, _>(|lines| lines.cast().to_vec()),
         |cast| {

@@ -17,13 +17,13 @@ use hamlet_model::config::Config;
 
 use super::choice::{chooser, home_default};
 use super::{Draft, SHOWN, Shelf};
-use crate::Ui;
 use crate::icons::Glyph;
 use crate::looks::{
     CONTROL, Fills, action, bad_action, bare, good_action, note,
     tick, well,
 };
 use crate::roll::{either, moved};
+use crate::{AnyView, View};
 
 /// Changes one model of the catalogue and writes it.
 fn change(
@@ -56,12 +56,12 @@ fn save(world: &mut World, config: Config) {
     world.resource_mut::<Shelf>().problem = failed;
 }
 
-fn small(text: &'static str) -> Ui {
-    label(text).size(11.0).tone(Tone::Faint).boxed()
+fn small(text: &'static str) -> impl View {
+    label(text).size(11.0).tone(Tone::Faint)
 }
 
 /// The endpoints of the settings, and a row to add one.
-pub fn endpoints() -> Ui {
+pub fn endpoints() -> impl View {
     let known = keyed(
         resource::<Settings, _>(|settings| {
             settings
@@ -121,7 +121,6 @@ pub fn endpoints() -> Ui {
         .boxed(),
     ))
     .gap(8.0)
-    .boxed()
 }
 
 /// The answers of the endpoints when they were last asked.
@@ -160,7 +159,7 @@ fn price(
     name: &str,
     get: fn(&Model) -> f64,
     set: fn(&mut Model, f64),
-) -> Ui {
+) -> AnyView {
     let (known, name) = (name.to_string(), name.to_string());
     keyed(
         resource::<Shelf, _>(move |shelf| {
@@ -204,7 +203,7 @@ fn price(
 }
 
 /// One model of the catalogue: its allowance and its prices.
-fn entry(name: &str) -> Ui {
+fn entry(name: &str) -> AnyView {
     let name = name.to_string();
     let (allowed, allow) = (name.clone(), name.clone());
     let from = name.clone();
@@ -273,7 +272,7 @@ pub(crate) fn narrowed<N: AsRef<str>>(
 
 /// The catalogue: every model the endpoints serve, for the chief
 /// to allow, price and describe.
-pub fn shelf() -> Ui {
+pub fn shelf() -> AnyView {
     let shown = bevy_fynix::derived(|world: &World| {
         let all = &world.resource::<Shelf>().catalogue;
         narrowed(

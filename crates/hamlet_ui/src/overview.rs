@@ -37,7 +37,7 @@ use crate::looks::{
 use crate::platform::DisplayText;
 use crate::roll::hamlets_moved;
 use crate::world_menu::Deed;
-use crate::{Ui, chat, tabs, world_menu};
+use crate::{AnyView, chat, tabs, world_menu};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Search>()
@@ -86,7 +86,10 @@ pub fn read_search(
 }
 
 /// A heading over a part of the panel, behind its icon.
-pub(super) fn heading(which: Glyph, text: impl Into<String>) -> Ui {
+pub(super) fn heading(
+    which: Glyph,
+    text: impl Into<String>,
+) -> AnyView {
     row((
         raised(glyph(which, ICON).tone(Tone::Faint)),
         label(text.into())
@@ -101,7 +104,7 @@ pub(super) fn heading(which: Glyph, text: impl Into<String>) -> Ui {
 }
 
 /// The hamlets that were closed down, each to be brought back.
-fn closed() -> Ui {
+fn closed() -> AnyView {
     let names = derived(|world: &World| {
         let home = &world.resource::<HomeDir>().0.root;
         // Each by the name commands know it by, and by what its
@@ -161,7 +164,7 @@ fn closed() -> Ui {
 }
 
 /// Every hamlet, with a search over them.
-pub fn overview() -> Ui {
+pub fn overview() -> AnyView {
     let shown = derived(|world: &World| {
         let search =
             world.resource::<Search>().0.trim().to_lowercase();

@@ -20,11 +20,11 @@ use crate::looks::{
 use crate::me::Me;
 use crate::platform::{DisplayText, Wraps};
 use crate::world_menu::{self, Deed};
-use crate::{Cx, Ui, lists, overview};
+use crate::{AnyView, Cx, View, lists, overview};
 
 /// The page of an agent that is gone, with the way back.
-pub(super) fn ruin(agent: Entity) -> Ui {
-    Ui::new(move |cx: &mut Cx| {
+pub(super) fn ruin(agent: Entity) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
         let named = |agent: Entity| {
             hamlet_core::agents::name_of(cx.world, agent)
         };
@@ -90,7 +90,7 @@ pub(super) fn ruin(agent: Entity) -> Ui {
 
 /// The library, when it is selected in the world: what it is, and
 /// its shelves.
-pub(super) fn library() -> Ui {
+pub(super) fn library() -> impl View {
     column((
         title("THE LIBRARY"),
         // On a line of their own, and on to another when the panel
@@ -98,7 +98,8 @@ pub(super) fn library() -> Ui {
         crate::looks::buttons(vec![
             crate::looks::back("ALL HAMLETS", |world| {
                 select(world, None)
-            }),
+            })
+            .boxed(),
             action(Glyph::Move, "MOVE", |world| {
                 hamlet_world::moving::pick_up(
                     world,
@@ -112,12 +113,11 @@ pub(super) fn library() -> Ui {
     ))
     .fills_height()
     .gap(10.0)
-    .boxed()
 }
 
 /// The skills the selected agent wrote and keeps in its own house,
 /// over those of the library, which every agent has.
-fn skills() -> Ui {
+fn skills() -> AnyView {
     let own = keyed(
         resource::<Papers, _>(|p| p.skills.clone()),
         |skills| {
@@ -151,7 +151,10 @@ fn skills() -> Ui {
 }
 
 /// A page of `what` about the selected agent, under whose it is.
-pub(crate) fn of_agent(what: &'static str, body: fn() -> Ui) -> Ui {
+pub(crate) fn of_agent(
+    what: &'static str,
+    body: fn() -> AnyView,
+) -> impl View {
     keyed(
         resource::<Me, _>(|m| (m.session, m.with.clone())),
         move |(_, with)| {
@@ -175,11 +178,10 @@ pub(crate) fn of_agent(what: &'static str, body: fn() -> Ui) -> Ui {
         },
     )
     .within(filling())
-    .boxed()
 }
 
 /// The Skills panel: the selected agent's own skills, and the
 /// library's.
-pub(crate) fn skills_screen() -> Ui {
-    of_agent("ITS OWN SKILLS", skills)
+pub(crate) fn skills_screen() -> AnyView {
+    of_agent("ITS OWN SKILLS", skills).boxed()
 }

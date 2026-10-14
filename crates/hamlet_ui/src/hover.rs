@@ -23,11 +23,11 @@ use bevy::ui::{
     PositionType, UiRect, UiTransform, Val, px,
 };
 use bevy::window::{PrimaryWindow, Window};
+use bevy_fynix::resource;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, overlay,
 };
-use bevy_fynix::{ViewExt, resource};
 use hamlet_core::agents::{
     Account, Activity, Busy, Citizen, Left, LivesIn, Mayor,
     MergedInto, Purpose, Roster, Treasury, Works,
@@ -45,7 +45,7 @@ use crate::platform::{DisplayText, show};
 use crate::roll::Roll;
 use crate::theme::{Themed, paint, themed};
 use crate::world_menu::Open;
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx, View};
 
 /// The layer of the card in the window's stack: over the panels,
 /// under the menus.
@@ -581,16 +581,15 @@ pub fn place(
 }
 
 /// A line of the card that takes no room while it is empty.
-fn line(read: fn(&Card) -> &String, tone: Tone) -> Ui {
+fn line(read: fn(&Card) -> &String, tone: Tone) -> impl View {
     label(resource::<Card, _>(move |card| read(card).clone()))
         .size(12.0)
         .tone(tone)
-        .boxed()
 }
 
 /// The card, on the window's top layer. It is built once.
-pub fn view() -> Ui {
-    Ui::new(|cx: &mut Cx| {
+pub fn view() -> AnyView {
+    AnyView::new(|cx: &mut Cx| {
         let shadow = cx.theme().shadow();
         let card = column((
             label(resource::<Card, _>(|card| card.title.clone()))

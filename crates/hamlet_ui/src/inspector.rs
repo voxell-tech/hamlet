@@ -23,7 +23,7 @@ pub(crate) use self::papers::{house, house_of};
 use crate::dock::show_tab;
 use crate::looks::filling;
 use crate::me::{Me, talk_to};
-use crate::{Ui, overview, tabs};
+use crate::{View, overview, tabs};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Section>()
@@ -91,19 +91,18 @@ fn showing(world: &World) -> Showing {
 }
 
 /// The Inspector's contents.
-pub fn screen() -> Ui {
+pub fn screen() -> impl View {
     keyed(derived(showing).when(every_frame()), |showing| {
         match showing {
             Showing::Overview => overview::overview(),
             Showing::Hamlet(hamlet) => overview::hamlet(*hamlet),
             Showing::Gone(agent) => gone::ruin(*agent),
             Showing::Chief(chief) => crate::chief::panel(*chief),
-            Showing::Library => gone::library(),
-            Showing::Agent => agent::living(),
+            Showing::Library => gone::library().boxed(),
+            Showing::Agent => agent::living().boxed(),
         }
     })
     .within(filling())
-    .boxed()
 }
 
 /// A click on a robot or a house selects its agent.

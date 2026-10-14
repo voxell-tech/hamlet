@@ -33,7 +33,7 @@ use crate::looks::{
 use crate::me::Me;
 use crate::platform::{DisplayText, MonoText, Wraps};
 use crate::theme::{paint, themed};
-use crate::{Cx, Ui, chat};
+use crate::{AnyView, Cx, View, chat};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
                      questions and faults come here, oldest first.";
@@ -157,7 +157,7 @@ pub(crate) fn tag_opened(_: On<TagOpened>, mut commands: Commands) {
     commands.queue(|world: &mut World| show_tab(world, "needs"));
 }
 
-fn button(need: &Need, at: usize) -> Ui {
+fn button(need: &Need, at: usize) -> AnyView {
     let Some(choice) = need.answers.get(at).copied() else {
         return frame().boxed();
     };
@@ -217,9 +217,9 @@ fn held(world: &World, need: &Need) -> Option<(Entity, u64, Change)> {
         .then(|| (session, open.id, change.clone()))
 }
 
-fn strip(need: &Need) -> Ui {
+fn strip(need: &Need) -> AnyView {
     let need = need.clone();
-    Ui::new(move |cx: &mut Cx| {
+    AnyView::new(move |cx: &mut Cx| {
         let about = match held(cx.world, &need) {
             Some((session, id, change)) => {
                 chat::change_view(session, id, change)
@@ -275,7 +275,7 @@ fn strip(need: &Need) -> Ui {
 }
 
 /// The Needs You panel's contents.
-pub fn screen() -> Ui {
+pub fn screen() -> impl View {
     column((
         row((label(resource::<Queue, _>(|queue| {
             match queue.len() {
@@ -334,5 +334,4 @@ pub fn screen() -> Ui {
     ))
     .fills_height()
     .gap(12.0)
-    .boxed()
 }

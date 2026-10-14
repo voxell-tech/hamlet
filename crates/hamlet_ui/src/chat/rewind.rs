@@ -26,7 +26,7 @@ use crate::icons::{Glyph, glyph};
 use crate::looks::{ICON, retrace};
 use crate::me::Me;
 use crate::world_menu::{self, Deed};
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx};
 
 /// The room of a mark about its picture, and the room it takes
 /// beside its message.
@@ -52,8 +52,8 @@ struct Mark;
 
 /// The mark beside the message `entry` of `session`, out of sight
 /// until the pointer is on its row. It asks before it acts.
-pub(super) fn mark(session: Entity, entry: u64) -> Ui {
-    Ui::new(move |cx: &mut Cx| {
+pub(super) fn mark(session: Entity, entry: u64) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
         let back = button(glyph(Glyph::Restore, ICON))
             .padding(UiRect::all(px(AROUND)))
             .tooltip(|| label("Rewind to here").size(12.0))
@@ -77,7 +77,7 @@ pub(super) fn mark(session: Entity, entry: u64) -> Ui {
 
 /// The question asked before the conversation `session` is taken
 /// back to its message `entry`, at `at` in the window.
-pub fn asked(session: Entity, entry: u64, at: Vec2) -> Ui {
+pub fn asked(session: Entity, entry: u64, at: Vec2) -> AnyView {
     world_menu::question(Deed::Rewind { session, entry }, at)
 }
 

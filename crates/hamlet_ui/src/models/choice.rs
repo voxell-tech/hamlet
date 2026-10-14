@@ -16,7 +16,7 @@ use super::Shelf;
 use crate::icons::Glyph;
 use crate::looks::{Fills, bare, note, tick};
 use crate::roll::{agents_moved, either, moved};
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx, View};
 
 /// Puts the model `name` on the list of the hamlet `hamlet`, or takes
 /// it off. A name on the list that the home does not allow is kept,
@@ -78,7 +78,7 @@ fn offered(shelf: &Shelf, default: &str, now: &str) -> Vec<String> {
 pub(super) fn chooser(
     read: impl Fn(&World) -> String + Send + Sync + 'static,
     write: impl Fn(&mut World, &str) + Send + Sync + Clone + 'static,
-) -> Ui {
+) -> impl View {
     let options = bevy_fynix::derived(move |world: &World| {
         let now = read(world);
         let names = world
@@ -120,7 +120,6 @@ pub(super) fn chooser(
         .boxed()
     })
     .within(bare())
-    .boxed()
 }
 
 /// Sets `key` of `section` in the limits of `hamlet` to the model
@@ -142,7 +141,7 @@ fn set_model(
 
 /// The model an agent of the hamlet `place` runs when no other was
 /// chosen for it, for its chief to change.
-fn default_of(place: &Settlement) -> Ui {
+fn default_of(place: &Settlement) -> AnyView {
     let (at, place) = (place.name.clone(), place.clone());
     chooser(
         move |world| {
@@ -159,6 +158,7 @@ fn default_of(place: &Settlement) -> Ui {
             set_model(world, &place.record(), ("", "model"), model);
         },
     )
+    .boxed()
 }
 
 /// Has the agent `name` of `hamlet` run `model` from now on: the
@@ -199,8 +199,8 @@ fn run_model(
 
 /// The model `agent` runs, for its chief to change. Nothing for an
 /// agent that is gone.
-pub(crate) fn of_agent(agent: Entity) -> Ui {
-    Ui::new(move |cx: &mut Cx| {
+pub(crate) fn of_agent(agent: Entity) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
         let lives = cx.world.get::<LivesIn>(agent).map(|l| l.0);
         let place = lives
             .and_then(|hamlet| cx.world.get::<Settlement>(hamlet))
@@ -231,8 +231,8 @@ pub(crate) fn of_agent(agent: Entity) -> Ui {
 
 /// The models the hamlet `hamlet` may run, picked from those the
 /// home allows.
-pub(crate) fn of_hamlet(hamlet: Entity) -> Ui {
-    Ui::new(move |cx: &mut Cx| {
+pub(crate) fn of_hamlet(hamlet: Entity) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
         let Some(place) = cx.world.get::<Settlement>(hamlet).cloned()
         else {
             return cx.build(column(()));

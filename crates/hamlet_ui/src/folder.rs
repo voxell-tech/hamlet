@@ -24,7 +24,7 @@ use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
 
-use crate::Ui;
+use crate::View;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{action, bad_action, bare, brass, buttons, note};
@@ -140,7 +140,7 @@ fn name_of(folder: &Path) -> String {
 }
 
 /// The folder `hamlet` works on, with what changes it.
-pub(crate) fn section(hamlet: Entity) -> Ui {
+pub(crate) fn section(hamlet: Entity) -> impl View {
     let work = derived(move |world: &World| {
         let mut work = world
             .get::<Settlement>(hamlet)
@@ -164,7 +164,8 @@ pub(crate) fn section(hamlet: Entity) -> Ui {
                 world.resource_mut::<Picker>().asked = Some(hamlet);
             },
         );
-        let mut parts = vec![heading(Glyph::Folder, "WORKS ON")];
+        let mut parts =
+            vec![heading(Glyph::Folder, "WORKS ON").boxed()];
         match &work.folder {
             Some(folder) => {
                 parts.push(
@@ -172,16 +173,23 @@ pub(crate) fn section(hamlet: Entity) -> Ui {
                         .size(13.0)
                         .boxed(),
                 );
-                parts.push(buttons(vec![
-                    choose,
-                    bad_action(Glyph::Cross, "STOP", move |world| {
-                        tell(
-                            world,
-                            hamlet,
-                            "/folder none".to_string(),
-                        )
-                    }),
-                ]));
+                parts.push(
+                    buttons(vec![
+                        choose,
+                        bad_action(
+                            Glyph::Cross,
+                            "STOP",
+                            move |world| {
+                                tell(
+                                    world,
+                                    hamlet,
+                                    "/folder none".to_string(),
+                                )
+                            },
+                        ),
+                    ])
+                    .boxed(),
+                );
                 let mode = work.mode;
                 parts.push(
                     segmented(
@@ -214,7 +222,7 @@ pub(crate) fn section(hamlet: Entity) -> Ui {
                      workspaces."
                         .to_string(),
                 ));
-                parts.push(buttons(vec![choose]));
+                parts.push(buttons(vec![choose]).boxed());
             }
         }
         if !work.before.is_empty() {
@@ -236,10 +244,9 @@ pub(crate) fn section(hamlet: Entity) -> Ui {
                 })
                 .collect::<Vec<_>>();
             parts.push(small("Worked on before:".to_string()));
-            parts.push(buttons(earlier));
+            parts.push(buttons(earlier).boxed());
         }
         column(parts).gap(6.0).align(AlignItems::FlexStart).boxed()
     })
     .within(bare())
-    .boxed()
 }

@@ -23,7 +23,7 @@ use super::entry::state;
 use crate::looks::{Fills, bare, note};
 use crate::platform::{Mono, MonoText};
 use crate::theme::{paint, themed};
-use crate::{Cx, Ui, markdown};
+use crate::{AnyView, Cx, View, markdown};
 
 /// The tuning of the chat.
 #[derive(Resource, Clone, PartialEq, serde::Deserialize)]
@@ -85,7 +85,7 @@ fn flip(all: &mut Vec<(Entity, u64)>, one: (Entity, u64)) {
 
 /// The lines of a change as one block of text, each run of lines of
 /// one kind a span of it.
-fn block(lines: &[Line]) -> Ui {
+fn block(lines: &[Line]) -> AnyView {
     let mut runs = Vec::<(Mark, String)>::new();
     for (at, line) in lines.iter().enumerate() {
         let lead = match line.mark {
@@ -102,7 +102,7 @@ fn block(lines: &[Line]) -> Ui {
             _ => runs.push((line.mark, text)),
         }
     }
-    Ui::new(move |cx: &mut Cx| {
+    AnyView::new(move |cx: &mut Cx| {
         let root = cx.build(label("").size(SIZE));
         let theme = cx.theme();
         let mono =
@@ -151,7 +151,11 @@ const INSET: f32 = 12.0;
 
 /// The lines of `change` on their plate, the first `most` of them,
 /// with a count of the rest.
-fn plate(change: &Change, most: usize, more: Option<Ui>) -> Ui {
+fn plate(
+    change: &Change,
+    most: usize,
+    more: Option<AnyView>,
+) -> impl View {
     let shown = &change.lines[..most.min(change.lines.len())];
     let mut parts = vec![block(shown)];
     parts.extend(more);
@@ -168,7 +172,6 @@ fn plate(change: &Change, most: usize, more: Option<Ui>) -> Ui {
         .border(1.0)
         .border_color(paint(|p| p.brass_6))
         .radius(themed(|t| t.space.round))
-        .boxed()
 }
 
 /// The end of a tool call's entry, and the words for an edit that
@@ -197,7 +200,7 @@ pub(crate) fn change_view(
     session: Entity,
     id: u64,
     change: Change,
-) -> Ui {
+) -> AnyView {
     let key = (session, id);
     let entry = move |world: &World| {
         ended(
@@ -288,9 +291,9 @@ fn lines_view(
     key: (Entity, u64),
     change: &Change,
     extent: Extent,
-) -> Ui {
+) -> AnyView {
     let change = change.clone();
-    Ui::new(move |cx: &mut Cx| {
+    AnyView::new(move |cx: &mut Cx| {
         let most = cx.world.resource::<ChatSettings>().change_lines;
         let whole = extent == Extent::Whole;
         let words = if whole {

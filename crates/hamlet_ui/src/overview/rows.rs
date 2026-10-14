@@ -24,7 +24,7 @@ use crate::inspector::now;
 use crate::looks::{note, plate, stated};
 use crate::platform::DisplayText;
 use crate::roll::Roll;
-use crate::{Ui, world_menu};
+use crate::{View, world_menu};
 
 /// A check that fires when the agents or the hamlets changed,
 /// something began or ended its wait, or the words typed did.
@@ -257,7 +257,7 @@ pub(super) fn pressable(
     beside: (Glyph, String, Tone),
     lines: Vec<String>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> Ui {
+) -> impl View {
     let lines = lines
         .into_iter()
         .filter(|line| !line.is_empty())
@@ -283,5 +283,4 @@ pub(super) fn pressable(
     .rules(plate)
     .tagged(world_menu::Asks(thing))
     .on_activate(act)
-    .boxed()
 }

@@ -22,27 +22,25 @@ use crate::looks::{
 use crate::models::narrowed;
 use crate::platform::DisplayText;
 use crate::theme::{paint, themed};
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx, View};
 
-fn title(which: Glyph, text: &'static str) -> Ui {
+fn title(which: Glyph, text: &'static str) -> impl View {
     headed(
         which,
         label(text).size(15.0).bold(true).tagged(DisplayText),
     )
-    .boxed()
 }
 
-fn said(text: impl Into<String>) -> Ui {
+fn said(text: impl Into<String>) -> AnyView {
     label(text.into()).size(13.0).tone(Tone::Dim).boxed()
 }
 
-fn small(text: &'static str) -> Ui {
+fn small(text: &'static str) -> impl View {
     label(text)
         .size(11.0)
         .bold(true)
         .tone(Tone::Faint)
         .tagged(DisplayText)
-        .boxed()
 }
 
 /// One typed value, under its name and over a word of help.
@@ -51,7 +49,7 @@ fn typed(
     get: fn(&Welcome) -> &String,
     set: fn(&mut Welcome, String),
     help: String,
-) -> Ui {
+) -> AnyView {
     column((
         small(name),
         text_field(
@@ -71,13 +69,13 @@ fn typed(
 
 /// The news of the last thing asked: that it is awaited, or the
 /// reason it did not work.
-fn news(waiting: &'static str) -> Ui {
+fn news(waiting: &'static str) -> AnyView {
     keyed(
         resource::<Welcome, _>(|welcome| {
             (welcome.asking, welcome.problem.clone())
         }),
         move |(asking, problem)| match problem {
-            _ if *asking => said(waiting),
+            _ if *asking => said(waiting).boxed(),
             Some(why) => label(why.clone())
                 .size(13.0)
                 .tone(Tone::Critical)
@@ -89,7 +87,7 @@ fn news(waiting: &'static str) -> Ui {
     .boxed()
 }
 
-fn choice(adding: bool) -> Ui {
+fn choice(adding: bool) -> AnyView {
     let (name, says, leave, after) = if adding {
         (
             "ADD A PLACE FOR MODELS",
@@ -148,7 +146,7 @@ fn choice(adding: bool) -> Ui {
 
 /// The provider's key, and for an address of the chief's own, the
 /// address.
-fn key_form(chosen: usize) -> Ui {
+fn key_form(chosen: usize) -> impl View {
     let names = PROVIDERS
         .iter()
         .map(|provider| provider.lettering)
@@ -183,14 +181,17 @@ fn key_form(chosen: usize) -> Ui {
             .boxed(),
     ];
     if known.is_none() {
-        parts.push(typed(
-            "WHERE YOUR MODEL RUNS",
-            |welcome| &welcome.url,
-            |welcome, text| welcome.url = text,
-            "The web address your provider gave you. It usually \
-             ends in /v1."
-                .into(),
-        ));
+        parts.push(
+            typed(
+                "WHERE YOUR MODEL RUNS",
+                |welcome| &welcome.url,
+                |welcome, text| welcome.url = text,
+                "The web address your provider gave you. It usually \
+                 ends in /v1."
+                    .into(),
+            )
+            .boxed(),
+        );
     }
     parts.extend([
         typed(
@@ -205,26 +206,25 @@ fn key_form(chosen: usize) -> Ui {
         }),))
         .boxed(),
     ]);
-    column(parts).gap(14.0).boxed()
+    column(parts).gap(14.0)
 }
 
 /// The head of a step: the way back to the first, and its name.
-fn head(which: Glyph, text: &'static str) -> Ui {
+fn head(which: Glyph, text: &'static str) -> impl View {
     row((
         back("BACK", |world| go(world, Step::Choice)),
         title(which, text),
     ))
     .gap(12.0)
     .align(AlignItems::Center)
-    .boxed()
 }
 
-fn key() -> Ui {
+fn key() -> AnyView {
     column((
         head(Glyph::Globe, "USE A KEY"),
         keyed(
             resource::<Welcome, _>(|welcome| welcome.provider),
-            |chosen| key_form(*chosen),
+            |chosen| key_form(*chosen).boxed(),
         )
         .within(bare()),
     ))
@@ -233,7 +233,7 @@ fn key() -> Ui {
 }
 
 /// The page shown while the chief approves in the browser.
-fn signing_in() -> Ui {
+fn signing_in() -> AnyView {
     column((
         head(Glyph::Signal, "SIGN IN"),
         said(
@@ -249,7 +249,7 @@ fn signing_in() -> Ui {
     .boxed()
 }
 
-fn local() -> Ui {
+fn local() -> AnyView {
     column((
         head(Glyph::Chip, "YOUR OWN MODEL"),
         said(
@@ -264,7 +264,7 @@ fn local() -> Ui {
 }
 
 /// One model, as a button that chooses it.
-fn offered(id: &str) -> Ui {
+fn offered(id: &str) -> AnyView {
     let chosen = id.to_string();
     button(row((label(id.to_string()),)).grow(1.0))
         .padding(pad())
@@ -275,7 +275,7 @@ fn offered(id: &str) -> Ui {
         .boxed()
 }
 
-fn models() -> Ui {
+fn models() -> AnyView {
     let shown = resource::<Welcome, _>(|welcome| {
         narrowed(welcome.models.iter(), &welcome.narrow)
     });
@@ -293,7 +293,7 @@ fn models() -> Ui {
         column(rows).gap(6.0).boxed()
     })
     .within(bare());
-    Ui::new(move |cx: &mut Cx| {
+    AnyView::new(move |cx: &mut Cx| {
         let welcome = cx.world.resource::<Welcome>();
         let found = format!(
             "{} answered with {} {}. Pick the one your hamlet will \
@@ -336,7 +336,7 @@ fn models() -> Ui {
 }
 
 /// The screen over the panels, or nothing while it is closed.
-pub fn view() -> Ui {
+pub fn view() -> AnyView {
     keyed(
         resource::<Welcome, _>(|welcome| {
             welcome.open.then_some((welcome.step, welcome.adding))

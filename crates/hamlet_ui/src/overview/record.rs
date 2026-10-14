@@ -11,7 +11,7 @@ use hamlet_rules::realm::Realm;
 use hamlet_rules::vote::{self, Standing};
 
 use super::{heading, tell};
-use crate::Ui;
+use crate::View;
 use crate::icons::Glyph;
 use crate::looks::{bad_action, bare, note};
 use crate::me::Me;
@@ -68,7 +68,7 @@ fn annals(world: &World, hamlet: Entity) -> Annals {
 
 /// A hamlet's record: its budget, its votes, each to be overturned
 /// while it stands, and who came and went.
-pub(super) fn record_of(hamlet: Entity) -> Ui {
+pub(super) fn record_of(hamlet: Entity) -> impl View {
     let told = derived(move |world: &World| annals(world, hamlet))
         .when(hamlets_moved());
     let words = |text: &str| note(text.to_string()).boxed();
@@ -111,5 +111,4 @@ pub(super) fn record_of(hamlet: Entity) -> Ui {
         column(parts).gap(8.0).padding(UiRect::top(px(4.0))).boxed()
     })
     .within(bare())
-    .boxed()
 }

@@ -18,7 +18,7 @@ use super::deed::Deed;
 use super::{Open, close, restore, stop};
 use crate::inspector::show_prompt;
 use crate::me::{talk_to, talk_to_mayor};
-use crate::{Ui, chat, hand};
+use crate::{AnyView, chat, hand};
 
 /// An agent of the hamlet that is not its mayor and has not left,
 /// with its name.
@@ -37,7 +37,7 @@ fn resident(world: &World, thing: Thing) -> Option<(Entity, String)> {
 pub(super) fn item(
     text: String,
     act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> Ui {
+) -> AnyView {
     menu_item(label(text).wrap(false))
         .on_activate(move |world| {
             close(world);
@@ -47,7 +47,7 @@ pub(super) fn item(
 }
 
 /// An item that asks before it does `deed`.
-fn asking(text: String, deed: Deed, at: Vec2) -> Ui {
+fn asking(text: String, deed: Deed, at: Vec2) -> AnyView {
     menu_item(label(text).wrap(false))
         .on_activate(move |world| {
             *world.resource_mut::<Open>() =
@@ -75,11 +75,11 @@ fn joined(world: &World, agent: Entity) -> Vec<(Entity, String)> {
     peers
 }
 
-fn focus(thing: Thing) -> Ui {
+fn focus(thing: Thing) -> AnyView {
     item("Focus".into(), move |w| focus_on(w, thing, false))
 }
 
-fn for_mayor() -> Vec<Ui> {
+fn for_mayor() -> Vec<AnyView> {
     vec![
         item("Talk to the Mayor".into(), talk_to_mayor),
         item("Prompt".into(), |world| {
@@ -97,7 +97,7 @@ fn for_mayor() -> Vec<Ui> {
     ]
 }
 
-fn for_ruin(world: &World, agent: Entity) -> Vec<Ui> {
+fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
     vec![item(
         format!("Restore {}", agents::name_of(world, agent)),
         move |world| restore(world, agent),
@@ -109,7 +109,7 @@ fn for_resident(
     thing: Thing,
     agent: Entity,
     at: Vec2,
-) -> Vec<Ui> {
+) -> Vec<AnyView> {
     let name = |agent: Entity| agents::name_of(world, agent);
     let mut items =
         vec![item(format!("Talk to {}", name(agent)), move |w| {
@@ -220,7 +220,7 @@ fn for_common(
     thing: Thing,
     hamlet: Entity,
     at: Vec2,
-) -> Vec<Ui> {
+) -> Vec<AnyView> {
     let name = agents::name_of(world, hamlet);
     let mut items = vec![focus(thing)];
     // It is closed by the name commands know it by. The
@@ -242,7 +242,7 @@ fn for_common(
     items
 }
 
-fn for_chief(thing: Thing, chief: Entity) -> Vec<Ui> {
+fn for_chief(thing: Thing, chief: Entity) -> Vec<AnyView> {
     let home = Thing::ChiefPlace(chief);
     vec![
         item("Change Your Look".into(), move |world| {
@@ -256,7 +256,7 @@ fn for_chief(thing: Thing, chief: Entity) -> Vec<Ui> {
     ]
 }
 
-fn for_library(thing: Thing) -> Vec<Ui> {
+fn for_library(thing: Thing) -> Vec<AnyView> {
     vec![
         focus(thing),
         item("Move the Library...".into(), |w| {
@@ -266,7 +266,7 @@ fn for_library(thing: Thing) -> Vec<Ui> {
 }
 
 /// The skills `agent` could be given, each pressed to give it.
-pub(super) fn skills(world: &World, agent: Entity) -> Vec<Ui> {
+pub(super) fn skills(world: &World, agent: Entity) -> Vec<AnyView> {
     hand::offers(world, agent)
         .into_iter()
         .map(|offer| {
@@ -284,7 +284,7 @@ pub(super) fn items(
     world: &World,
     thing: Thing,
     at: Vec2,
-) -> Vec<Ui> {
+) -> Vec<AnyView> {
     match thing {
         Thing::Keeper | Thing::Cottage => for_mayor(),
         Thing::Ruin(agent) => for_ruin(world, agent),

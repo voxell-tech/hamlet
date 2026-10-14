@@ -37,7 +37,7 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::theme::{HamletTheme, paint};
-use crate::{Cx, Ui, chat, inspector};
+use crate::{AnyView, Cx, View, chat, inspector};
 
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
@@ -450,7 +450,7 @@ fn choice(
     text: &'static str,
     path: &Path,
     act: fn(&mut World, PathBuf),
-) -> Ui {
+) -> AnyView {
     let path = path.to_path_buf();
     menu_item(label(text).wrap(false))
         .on_activate(move |world| act(world, path.clone()))
@@ -458,7 +458,7 @@ fn choice(
 }
 
 /// Rows of a session's context menu.
-fn choices(line: &Line) -> Vec<Ui> {
+fn choices(line: &Line) -> Vec<AnyView> {
     let mut choices = vec![choice("Read", &line.path, open)];
     if line.ours {
         choices.push(choice("Resume", &line.path, |world, path| {
@@ -480,7 +480,7 @@ fn choices(line: &Line) -> Vec<Ui> {
     choices
 }
 
-fn line_view(line: &Line) -> Ui {
+fn line_view(line: &Line) -> AnyView {
     let path = line.path.clone();
     let menu = line.clone();
     button(
@@ -503,7 +503,7 @@ fn line_view(line: &Line) -> Ui {
     .boxed()
 }
 
-fn failed() -> Ui {
+fn failed() -> impl View {
     keyed(resource::<History, _>(|h| h.failed.clone()), |failed| {
         match failed {
             Some(why) => {
@@ -513,10 +513,9 @@ fn failed() -> Ui {
         }
     })
     .within(column(()))
-    .boxed()
 }
 
-fn list() -> Ui {
+fn list() -> impl View {
     column((
         text_field(
             resource::<History, _>(|h| h.query.clone()),
@@ -548,11 +547,10 @@ fn list() -> Ui {
     ))
     .fills_height()
     .gap(8.0)
-    .boxed()
 }
 
 /// Buttons for the session being read.
-fn actions(resumable: bool, kept: bool) -> Ui {
+fn actions(resumable: bool, kept: bool) -> AnyView {
     keyed(resource::<History, _>(|h| h.doomed), move |doomed| {
         if *doomed {
             return column((
@@ -574,7 +572,7 @@ fn actions(resumable: bool, kept: bool) -> Ui {
             .gap(6.0)
             .boxed();
         }
-        let mut actions = vec![back("BACK", close)];
+        let mut actions = vec![back("BACK", close).boxed()];
         if resumable {
             actions.push(good_action(Glyph::Play, "RESUME", resume));
         }
@@ -587,15 +585,15 @@ fn actions(resumable: bool, kept: bool) -> Ui {
                 },
             ));
         }
-        buttons(actions)
+        buttons(actions).boxed()
     })
     .within(column(()))
     .boxed()
 }
 
 /// The reader of the open session.
-fn reader() -> Ui {
-    Ui::new(|cx: &mut Cx| {
+fn reader() -> AnyView {
+    AnyView::new(|cx: &mut Cx| {
         let history = cx.world.resource::<History>();
         let Some(reading) = &history.reading else {
             return cx.build(frame());
@@ -652,6 +650,7 @@ fn reader() -> Ui {
                                     reading.reach += PAGE;
                                 }
                             })
+                            .boxed()
                         },
                     )
                     .within(column(()).align(AlignItems::FlexStart)),
@@ -678,7 +677,7 @@ fn reader() -> Ui {
 }
 
 /// The Archive page.
-pub fn screen() -> Ui {
+pub fn screen() -> AnyView {
     inspector::of_agent("ARCHIVE", || {
         keyed(
             resource::<History, _>(|h| {
@@ -686,12 +685,13 @@ pub fn screen() -> Ui {
             }),
             |reading| match reading {
                 Some(_) => reader(),
-                None => list(),
+                None => list().boxed(),
             },
         )
         .within(filling())
         .boxed()
     })
+    .boxed()
 }
 
 #[cfg(test)]

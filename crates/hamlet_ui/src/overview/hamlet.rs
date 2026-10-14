@@ -30,7 +30,7 @@ use crate::looks::{
 };
 use crate::me::talk_to;
 use crate::world_menu::Deed;
-use crate::{Ui, chat, hand, tabs, world_menu};
+use crate::{AnyView, View, chat, hand, tabs, world_menu};
 
 /// The field a hamlet's new name is typed in.
 #[derive(Component)]
@@ -55,7 +55,7 @@ fn typed<M: Component>(world: &mut World) -> String {
 }
 
 /// The field and the buttons a hamlet is given a new name with.
-fn naming(hamlet: Entity, id: String) -> Ui {
+fn naming(hamlet: Entity, id: String) -> AnyView {
     keyed(
         resource::<Naming, _>(move |n| n.0 == Some(hamlet)),
         move |open| {
@@ -110,7 +110,7 @@ const PAGES: [(Page, Glyph, &str); 3] = [
 ];
 
 /// Everyone in `hamlet`, each pressed to talk to.
-fn list_of(hamlet: Entity) -> Ui {
+fn list_of(hamlet: Entity) -> impl View {
     let people =
         derived(move |world: &World| agent_rows(world, Some(hamlet)))
             .when(stale());
@@ -180,11 +180,10 @@ fn list_of(hamlet: Entity) -> Ui {
         column(parts).gap(8.0).padding(UiRect::top(px(4.0))).boxed()
     })
     .within(bare())
-    .boxed()
 }
 
 /// One hamlet: what it is, what can be done to it, and its pages.
-pub fn hamlet(hamlet: Entity) -> Ui {
+pub fn hamlet(hamlet: Entity) -> AnyView {
     let facts = derived(move |world: &World| {
         hamlet_rows(world)
             .into_iter()
@@ -203,7 +202,7 @@ pub fn hamlet(hamlet: Entity) -> Ui {
             format!("Kept on disk as {}", facts.id)
         };
         let mut actions = vec![
-            back("ALL HAMLETS", |world| select(world, None)),
+            back("ALL HAMLETS", |world| select(world, None)).boxed(),
             action(Glyph::Rename, "RENAME", move |world| {
                 world.resource_mut::<Naming>().0 = Some(hamlet);
             }),
@@ -246,9 +245,9 @@ pub fn hamlet(hamlet: Entity) -> Ui {
     let page =
         keyed(resource::<Page, _>(|page| *page), move |page| {
             match page {
-                Page::Agents => list_of(hamlet),
+                Page::Agents => list_of(hamlet).boxed(),
                 Page::Bylaws => crate::rules::panel(hamlet),
-                Page::Record => record_of(hamlet),
+                Page::Record => record_of(hamlet).boxed(),
             }
         })
         .within(bare());

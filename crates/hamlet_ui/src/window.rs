@@ -36,7 +36,7 @@ use crate::looks::{action, bad_action, good_action};
 use crate::platform::{DisplayText, Glow, Wraps};
 use crate::status::{Bar, Lately};
 use crate::theme::paint;
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx};
 
 /// The size the window opens at until the user has resized it once.
 const DEFAULT_SIZE: (u32, u32) = (1920, 1080);
@@ -298,8 +298,8 @@ pub(crate) fn quit(world: &mut bevy::ecs::world::World) {
 }
 
 /// The small status window.
-pub(crate) fn minimal() -> Ui {
-    Ui::new(|cx: &mut Cx| {
+pub(crate) fn minimal() -> AnyView {
+    AnyView::new(|cx: &mut Cx| {
         cx.build(
             column((
                 row((

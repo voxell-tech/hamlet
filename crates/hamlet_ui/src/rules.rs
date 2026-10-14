@@ -21,13 +21,13 @@ use hamlet_core::agents::{Charter, Settlement};
 use hamlet_core::core::HomeDir;
 use hamlet_home::limits::{self, Limits, Period};
 
-use crate::Ui;
 use crate::icons::Glyph;
 use crate::looks::{
     Fills, action, bare, doors, list_door, note, page_head, tick,
     well,
 };
 use crate::overview::heading;
+use crate::{AnyView, View};
 
 /// The width of the room of a control, so that the controls stand in
 /// a line at the panel's right.
@@ -169,7 +169,7 @@ fn put(
 }
 
 /// A row of the panel: what a control sets, and the control.
-fn line(what: &'static str, control: Ui) -> Ui {
+fn line(what: &'static str, control: AnyView) -> impl View {
     row((
         // The name gives way in a narrow panel and goes on to a
         // second line. The control keeps its width.
@@ -178,11 +178,10 @@ fn line(what: &'static str, control: Ui) -> Ui {
     ))
     .gap(10.0)
     .align(AlignItems::Center)
-    .boxed()
 }
 
-fn fine(text: &'static str) -> Ui {
-    label(text).size(11.0).tone(Tone::Dim).boxed()
+fn fine(text: &'static str) -> impl View {
+    label(text).size(11.0).tone(Tone::Dim)
 }
 
 /// A whole number of the limits, at `key` of `section`.
@@ -191,7 +190,7 @@ fn whole(
     key: &'static str,
     get: fn(&Limits) -> u64,
     most: u64,
-) -> Ui {
+) -> impl View {
     number_field(
         resource::<Book, _>(move |book| get(&book.limits)),
         move |world, value: u64| {
@@ -201,14 +200,13 @@ fn whole(
     .range(0u64, most)
     .width(px(110.0))
     .rules(well)
-    .boxed()
 }
 
 /// A cap on cost, in the provider's currency. 0 is no cap.
 fn cost(
     section: &'static str,
     get: fn(&Limits) -> Option<f64>,
-) -> Ui {
+) -> impl View {
     number_field(
         resource::<Book, _>(move |book| {
             get(&book.limits).unwrap_or(0.0)
@@ -223,7 +221,6 @@ fn cost(
     .precision(2)
     .width(px(110.0))
     .rules(well)
-    .boxed()
 }
 
 /// A yes or a no of the limits.
@@ -231,16 +228,15 @@ fn switch(
     section: &'static str,
     key: &'static str,
     get: fn(&Limits) -> bool,
-) -> Ui {
+) -> impl View {
     tick(resource::<Book, _>(move |book| get(&book.limits)))
         .on_change(move |world, on| {
             put(world, section, key, Some(on.to_string()));
         })
-        .boxed()
 }
 
 /// The budget of `hamlet` and the caps on one task.
-fn budget(hamlet: Entity) -> Ui {
+fn budget(hamlet: Entity) -> impl View {
     let period = segmented(
         ["A DAY", "A MONTH"],
         resource::<Book, _>(|book| match book.limits.budget.period {
@@ -267,7 +263,7 @@ fn budget(hamlet: Entity) -> Ui {
         line("It starts again every", period),
         line(
             "May spend, in dollars",
-            cost("budget", |l| l.budget.cost),
+            cost("budget", |l| l.budget.cost).boxed(),
         ),
         row((
             action(
@@ -289,7 +285,10 @@ fn budget(hamlet: Entity) -> Ui {
         .boxed(),
         heading(Glyph::Coins, "ONE TASK"),
         fine("Counted across every agent the task touches."),
-        line("May cost, in dollars", cost("task", |l| l.task.cost)),
+        line(
+            "May cost, in dollars",
+            cost("task", |l| l.task.cost).boxed(),
+        ),
         line(
             "Messages between agents",
             whole(
@@ -297,19 +296,19 @@ fn budget(hamlet: Entity) -> Ui {
                 "messages",
                 |l| u64::from(l.task.messages),
                 10_000,
-            ),
+            )
+            .boxed(),
         ),
         line(
             "Price of a road, in dollars",
-            cost("road", |l| Some(l.road.cost)),
+            cost("road", |l| Some(l.road.cost)).boxed(),
         ),
     ))
     .gap(6.0)
-    .boxed()
 }
 
 /// The rules of votes.
-fn votes() -> Ui {
+fn votes() -> impl View {
     let pass = row((
         number_field(
             resource::<Book, _>(|book| book.limits.votes.pass.0),
@@ -361,17 +360,19 @@ fn votes() -> Ui {
                 "least_voters",
                 |l| l.votes.least_voters as u64,
                 100,
-            ),
+            )
+            .boxed(),
         ),
         line(
             "Ballots hidden until it closes",
-            switch("votes", "sealed", |l| l.votes.sealed),
+            switch("votes", "sealed", |l| l.votes.sealed).boxed(),
         ),
         line(
             "A yes needs grounds in its house",
             switch("votes", "grounded_only", |l| {
                 l.votes.grounded_only
-            }),
+            })
+            .boxed(),
         ),
         line(
             "Minutes to answer a ballot",
@@ -380,7 +381,8 @@ fn votes() -> Ui {
                 "ballot_minutes",
                 |l| l.votes.ballot_minutes,
                 600,
-            ),
+            )
+            .boxed(),
         ),
         line(
             "Minutes a vote stays open",
@@ -389,7 +391,8 @@ fn votes() -> Ui {
                 "open_minutes",
                 |l| l.votes.open_minutes,
                 100_000,
-            ),
+            )
+            .boxed(),
         ),
         line(
             "Minutes before calling again",
@@ -398,70 +401,78 @@ fn votes() -> Ui {
                 "retry_minutes",
                 |l| l.votes.retry_minutes,
                 100_000,
-            ),
+            )
+            .boxed(),
         ),
     ))
     .gap(6.0)
-    .boxed()
 }
 
 /// The deeds a hamlet's mayor may do alone, and the most agents and
 /// roads the hamlet may have.
-fn mayor() -> Ui {
+fn mayor() -> impl View {
     column((
         heading(Glyph::Mayor, "THE MAYOR MAY, WITHOUT ASKING"),
         line(
             "Create agents",
             switch("mayor", "create_agents", |l| {
                 l.mayor.create_agents
-            }),
+            })
+            .boxed(),
         ),
         line(
             "Remove agents",
             switch("mayor", "remove_agents", |l| {
                 l.mayor.remove_agents
-            }),
+            })
+            .boxed(),
         ),
         line(
             "Merge agents",
-            switch("mayor", "merge_agents", |l| l.mayor.merge_agents),
+            switch("mayor", "merge_agents", |l| l.mayor.merge_agents)
+                .boxed(),
         ),
         line(
             "Build roads",
-            switch("mayor", "build_roads", |l| l.mayor.build_roads),
+            switch("mayor", "build_roads", |l| l.mayor.build_roads)
+                .boxed(),
         ),
         line(
             "Days of its decisions agents are told",
-            whole("mayor", "told_days", |l| l.mayor.told_days, 3650),
+            whole("mayor", "told_days", |l| l.mayor.told_days, 3650)
+                .boxed(),
         ),
         heading(Glyph::Signpost, "AGENTS AND ROADS"),
         line(
             "Most agents in this hamlet",
-            whole("", "most_agents", |l| l.most_agents as u64, 1000),
+            whole("", "most_agents", |l| l.most_agents as u64, 1000)
+                .boxed(),
         ),
         line(
             "Most roads the mayor builds",
-            whole("", "most_roads", |l| l.most_roads as u64, 10_000),
+            whole("", "most_roads", |l| l.most_roads as u64, 10_000)
+                .boxed(),
         ),
     ))
     .gap(6.0)
-    .boxed()
 }
 
 /// The rules that hold for every hamlet of the realm, as a page of
 /// the settings.
-pub fn realm() -> Ui {
+pub fn realm() -> impl View {
     let hamlets = column((
         heading(Glyph::Signpost, "HAMLETS AND THE ROADS BETWEEN"),
         line(
             "Most hamlets",
-            whole("hamlets", "most", |l| l.hamlets.most as u64, 1000),
+            whole("hamlets", "most", |l| l.hamlets.most as u64, 1000)
+                .boxed(),
         ),
         line(
             "Agents of different hamlets may have roads",
             switch("hamlets", "roads_between", |l| {
                 l.hamlets.roads_between
-            }),
+            })
+            .boxed(),
         ),
         line(
             "Mayors it takes to ask for a hamlet's removal",
@@ -470,7 +481,8 @@ pub fn realm() -> Ui {
                 "removal_mayors",
                 |l| l.hamlets.removal_mayors as u64,
                 100,
-            ),
+            )
+            .boxed(),
         ),
         line(
             "Days until an unused road grows over",
@@ -479,17 +491,17 @@ pub fn realm() -> Ui {
                 "grows_over_days",
                 |l| l.road.grows_over_days,
                 3650,
-            ),
+            )
+            .boxed(),
         ),
     ))
     .gap(6.0);
     column((fine("These apply to every hamlet."), hamlets, votes()))
         .gap(14.0)
-        .boxed()
 }
 
 /// The bylaws of `hamlet`, for its chief to change.
-pub fn panel(hamlet: Entity) -> Ui {
+pub fn panel(hamlet: Entity) -> AnyView {
     let problem = keyed(
         resource::<Book, _>(|book| book.problem.clone()),
         |problem| match problem {
@@ -520,13 +532,15 @@ pub fn panel(hamlet: Entity) -> Ui {
                     fine(
                         "These apply to this hamlet only. Rules for \
                          every hamlet are under Realm in Settings.",
-                    ),
-                );
+                    )
+                    .boxed(),
+                )
+                .boxed();
             }
             let body = match part {
-                Part::Budget => budget(hamlet),
+                Part::Budget => budget(hamlet).boxed(),
                 Part::Models => crate::models::of_hamlet(hamlet),
-                Part::Front | Part::Mayor => mayor(),
+                Part::Front | Part::Mayor => mayor().boxed(),
             };
             column((
                 page_head(
@@ -543,7 +557,7 @@ pub fn panel(hamlet: Entity) -> Ui {
             .boxed()
         })
         .within(bare());
-    Ui::new(move |cx: &mut crate::Cx| {
+    AnyView::new(move |cx: &mut crate::Cx| {
         // The bylaws shown are this hamlet's, read from its own
         // folder.
         let root =

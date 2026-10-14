@@ -19,7 +19,9 @@ use crate::platform::Glow;
 use crate::status::status_bar;
 use crate::theme::{HamletTheme, paint, themed};
 use crate::window::{self, Layout};
-use crate::{Cx, Ui, chrome, hover, menu, welcome, world_menu};
+use crate::{
+    AnyView, Cx, View, chrome, hover, menu, welcome, world_menu,
+};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(Startup, open);
@@ -32,8 +34,8 @@ pub(crate) fn mount(world: &mut World) {
     world.entity_mut(node).insert(TabGroup::default());
 }
 
-fn root() -> Ui {
-    Ui::new(|cx: &mut Cx| {
+fn root() -> AnyView {
+    AnyView::new(|cx: &mut Cx| {
         cx.build(
             column((
                 keyed(
@@ -56,7 +58,7 @@ fn root() -> Ui {
     })
 }
 
-fn full() -> Ui {
+fn full() -> impl View {
     column((
         toolbar(),
         column((dock::<HamletTheme>(), welcome::view()))
@@ -66,12 +68,11 @@ fn full() -> Ui {
     ))
     .fills_height()
     .gap(0.0)
-    .boxed()
 }
 
 /// The bar across the top: the menus, on a surface that warms
 /// toward its foot.
-pub fn toolbar() -> Ui {
+pub fn toolbar() -> impl View {
     column((
         row((
             menu::titles(),
@@ -91,7 +92,6 @@ pub fn toolbar() -> Ui {
         hairline(paint(|p| p.seam)),
     ))
     .gap(0.0)
-    .boxed()
 }
 
 /// The window's own camera, and a first test of the connection.

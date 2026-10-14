@@ -39,7 +39,7 @@ use crate::looks::{
 use crate::me::Me;
 use crate::platform::DisplayText;
 use crate::roll::{agents_moved, either, moved};
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx, View};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(spoke)
@@ -221,13 +221,12 @@ fn change(world: &mut World, chief: Entity, to: impl Fn(&mut Look)) {
     }
 }
 
-fn heading(text: &'static str) -> Ui {
+fn heading(text: &'static str) -> impl View {
     label(text)
         .size(11.0)
         .bold(true)
         .tone(Tone::Faint)
         .tagged(DisplayText)
-        .boxed()
 }
 
 /// The frame of a choice: lit when it is the one chosen.
@@ -240,7 +239,7 @@ fn swatch(
     colour: Color,
     on: bool,
     act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> Ui {
+) -> impl View {
     button(
         frame()
             .width(px(16.0))
@@ -253,7 +252,6 @@ fn swatch(
     .rules(chosen(on))
     .tagged(Mood::Plain)
     .on_activate(act)
-    .boxed()
 }
 
 /// A word to press. The one chosen is lit.
@@ -261,30 +259,29 @@ fn word(
     text: &'static str,
     on: bool,
     act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> Ui {
+) -> impl View {
     button(label(text.to_uppercase()).wrap(false).tagged(DisplayText))
         .padding(pad())
         .min_height(px(CONTROL))
         .rules(chosen(on))
         .tagged(Mood::Plain)
         .on_activate(act)
-        .boxed()
 }
 
 /// Choices in rows of no more than `most`, so a narrow panel holds
 /// them.
-fn rows(mut choices: Vec<Ui>, most: usize) -> Ui {
+fn rows(mut choices: Vec<AnyView>, most: usize) -> impl View {
     let mut lines = Vec::new();
     while !choices.is_empty() {
         let rest = choices.split_off(most.min(choices.len()));
         lines.push(row(choices).gap(6.0).boxed());
         choices = rest;
     }
-    column(lines).gap(6.0).boxed()
+    column(lines).gap(6.0)
 }
 
 /// The choices of a look, each pressed to take it.
-fn wardrobe(chief: Entity, facts: &Facts) -> Ui {
+fn wardrobe(chief: Entity, facts: &Facts) -> impl View {
     let look = facts.look;
     let cloaks = Cloak::ALL
         .into_iter()
@@ -293,6 +290,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> Ui {
             swatch(colour, look.cloak == cloak, move |world| {
                 change(world, chief, |look| look.cloak = cloak)
             })
+            .boxed()
         })
         .collect::<Vec<_>>();
     let lights = Light::ALL
@@ -302,6 +300,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> Ui {
             swatch(colour, look.light == light, move |world| {
                 change(world, chief, |look| look.light = light)
             })
+            .boxed()
         })
         .collect::<Vec<_>>();
     let hats = Hat::ALL
@@ -310,6 +309,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> Ui {
             word(hat.name(), look.hat == hat, move |world| {
                 change(world, chief, |look| look.hat = hat)
             })
+            .boxed()
         })
         .collect::<Vec<_>>();
     let held = Holds::ALL
@@ -318,6 +318,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> Ui {
             word(holds.name(), look.holds == holds, move |world| {
                 change(world, chief, |look| look.holds = holds)
             })
+            .boxed()
         })
         .collect::<Vec<_>>();
     column((
@@ -331,12 +332,11 @@ fn wardrobe(chief: Entity, facts: &Facts) -> Ui {
         rows(held, 4),
     ))
     .gap(8.0)
-    .boxed()
 }
 
 /// A chief: who they are, where their mascot is, and their look
 /// with every choice of it.
-pub fn panel(chief: Entity) -> Ui {
+pub fn panel(chief: Entity) -> AnyView {
     // Its look, its company and its name are its own, and the name
     // of who it stands by is an agent's.
     let mut look = component::<Look, _>(chief, |_| ());
@@ -377,7 +377,8 @@ pub fn panel(chief: Entity) -> Ui {
             note(facts.look.words()),
             buttons(vec![
                 action(Glyph::Hearth, "THE HEARTH", go_home),
-                back("ALL HAMLETS", |world| select(world, None)),
+                back("ALL HAMLETS", |world| select(world, None))
+                    .boxed(),
             ]),
             scroll((wardrobe(chief, facts),)).fills_height(),
         ))

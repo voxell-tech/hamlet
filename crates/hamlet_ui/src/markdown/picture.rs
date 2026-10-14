@@ -23,7 +23,7 @@ use crate::pictures::{
     Drawn, Pictures, Source, State, fetch, find, host,
 };
 use crate::theme::{paint, themed};
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx, View};
 
 fn plain(text: &str) -> Span {
     Span {
@@ -34,7 +34,7 @@ fn plain(text: &str) -> Span {
 }
 
 /// The words that stand for a picture, as a link to where it is.
-fn words(caption: &str, target: &Target, ink: Ink) -> Ui {
+fn words(caption: &str, target: &Target, ink: Ink) -> AnyView {
     let written = match target {
         Target::Web(address) => address,
         Target::Path(path) => path,
@@ -63,10 +63,10 @@ fn shown(
     source: &Source,
     caption: &str,
     most: Vec2,
-) -> Ui {
+) -> impl View {
     let size = drawn.fitted(most);
     let (image, anchor) = (drawn.image.clone(), source.anchor());
-    let picture = Ui::new(move |cx: &mut Cx| {
+    let picture = AnyView::new(move |cx: &mut Cx| {
         let within = cx.build(bare().width(percent(100.0)));
         let theme = cx.theme();
         // A node of its own, whose image no paint of a view tints
@@ -101,12 +101,11 @@ fn shown(
         .gap(4.0)
         .width(percent(100.0))
         .align(AlignItems::FlexStart)
-        .boxed()
 }
 
 /// The card of the picture at `address`, which is fetched when its
 /// button is pressed.
-fn card(address: &str, caption: &str, state: &State) -> Ui {
+fn card(address: &str, caption: &str, state: &State) -> impl View {
     let said = if caption.is_empty() {
         "A picture"
     } else {
@@ -154,7 +153,6 @@ fn card(address: &str, caption: &str, state: &State) -> Ui {
         .border(1.0)
         .border_color(paint(|p| p.brass_6))
         .radius(themed(|t| t.space.round))
-        .boxed()
 }
 
 /// The picture written as `target` with the words `caption`: the
@@ -164,9 +162,9 @@ pub(super) fn picture_view(
     caption: &str,
     target: &Target,
     ink: Ink,
-) -> Ui {
+) -> AnyView {
     let (caption, target) = (caption.to_string(), target.clone());
-    Ui::new(move |cx: &mut Cx| {
+    AnyView::new(move |cx: &mut Cx| {
         let Some(source) = find(cx.world, &target) else {
             return cx.build(words(&caption, &target, ink));
         };
@@ -186,10 +184,10 @@ pub(super) fn picture_view(
         let from = source.clone();
         let view = keyed(state, move |state| match (&from, state) {
             (_, State::Ready(drawn)) => {
-                shown(drawn, &from, &caption, most)
+                shown(drawn, &from, &caption, most).boxed()
             }
             (Source::Web(address), state) => {
-                card(address, &caption, state)
+                card(address, &caption, state).boxed()
             }
             (Source::File(_), State::Failed) => {
                 words(&caption, &target, ink)

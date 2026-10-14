@@ -21,14 +21,14 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, label,
     menu_button, row,
 };
-use bevy_fynix::{Bevy, ScopedExt, View, ViewExt, style};
+use bevy_fynix::{ScopedExt, ViewExt, style};
 
 use crate::feel::FootLight;
 use crate::icons::Glyph;
 use crate::looks::{ICON, hairline, headed};
 use crate::platform::{DisplayText, show};
 use crate::theme::{HamletTheme, Themed, paint};
-use crate::{Cx, Ui};
+use crate::{Cx, View};
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, fit);
@@ -75,10 +75,7 @@ pub fn tab_look(cx: &mut Cx) {
 }
 
 /// A tab's icon and its name.
-pub fn tab_name(
-    which: Glyph,
-    name: &'static str,
-) -> impl View<Bevy, HamletTheme> {
+pub fn tab_name(which: Glyph, name: &'static str) -> impl View {
     headed(
         which,
         label(name)
@@ -95,7 +92,7 @@ pub fn tab_name(
 pub fn strip<R: Resource + Copy>(
     tabs: &[(R, Glyph, &'static str)],
     choose: fn(&mut World, R),
-) -> Ui {
+) -> impl View {
     let values = tabs.iter().map(|tab| tab.0).collect::<Vec<_>>();
     let list = row((menu_button(
         "",
@@ -132,7 +129,6 @@ pub fn strip<R: Resource + Copy>(
         hairline(paint(|p| p.brass_6)),
     ))
     .gap(0.0)
-    .boxed()
 }
 
 /// Folds the tabs of a strip too narrow for them into a list beside

@@ -34,7 +34,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, label, overlay, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, resource};
+use bevy_fynix::{ScopedExt, resource};
 use hamlet_core::agents;
 use hamlet_core::session::{
     Entry, Reply, SessionKey, SessionOutput, Transcript, UserMessage,
@@ -51,7 +51,7 @@ pub use self::lines::{
     fold_lines, hide_unseen, read_back, transcript,
 };
 pub use self::rewind::{Rewinds, asked as rewind_asked};
-use crate::Ui;
+use crate::View;
 use crate::looks::well;
 use crate::me::{Me, talk_to, talk_to_mayor_of};
 
@@ -320,7 +320,7 @@ pub fn stick_to_bottom(
 }
 
 /// The one place to type, under the conversation it adds to.
-pub fn message_bar() -> Ui {
+pub fn message_bar() -> impl View {
     let field = row((
         text_field(resource::<Draft, _>(|d| d.text.clone()), commit)
             .grow(1.0)
@@ -339,7 +339,7 @@ pub fn message_bar() -> Ui {
     .grow(1.0)
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
-    row((field,)).gap(8.0).align(AlignItems::Center).boxed()
+    row((field,)).gap(8.0).align(AlignItems::Center)
 }
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ use super::close;
 use crate::feel::Mood;
 use crate::looks::{brass, lamp, lettered, note, well};
 use crate::platform::DisplayText;
-use crate::{Ui, chat};
+use crate::{AnyView, View, chat};
 
 /// The name of a hamlet being founded, the name of its mayor, and its
 /// purpose.
@@ -48,7 +48,7 @@ fn asks(
     what: &'static str,
     read: fn(&Founding) -> &String,
     write: fn(&mut Founding, String),
-) -> Ui {
+) -> impl View {
     column((
         label(what).size(11.0).tone(Tone::Dim),
         text_field(
@@ -60,11 +60,10 @@ fn asks(
         .rules(well),
     ))
     .gap(3.0)
-    .boxed()
 }
 
 /// The form a hamlet is founded with.
-pub(super) fn founding(at: Vec2) -> Ui {
+pub(super) fn founding(at: Vec2) -> AnyView {
     let body = column((
         label("FOUND A HAMLET")
             .size(13.0)

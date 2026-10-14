@@ -9,15 +9,13 @@ use bevy_fynix::views::{
     BehaviorExt, Checkbox, Frame, FrameProps, Icon, Label, Stack,
     button, checkbox, column, frame, label, row,
 };
-use bevy_fynix::{
-    Bevy, Prop, ScopedExt, View, ViewExt, Visual, style,
-};
+use bevy_fynix::{Prop, ScopedExt, ViewExt, Visual, style};
 
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::platform::{DisplayText, Wraps};
 use crate::theme::{HamletTheme, paint};
-use crate::{Cx, Ui};
+use crate::{AnyView, Cx, View};
 
 /// The least height of any button (macOS default control size, 28
 /// pt).
@@ -197,9 +195,7 @@ pub fn note(text: impl Into<Prop<String>>) -> Label {
 }
 
 /// The name at the head of a page.
-pub fn title(
-    text: impl Into<Prop<String>>,
-) -> impl View<Bevy, HamletTheme> {
+pub fn title(text: impl Into<Prop<String>>) -> impl View {
     label(text)
         .size(16.0)
         .bold(true)
@@ -213,9 +209,7 @@ pub fn tick(on: impl Into<Prop<bool>>) -> Checkbox {
 }
 
 /// A lettered button: `text` in the display face.
-pub(crate) fn lettered(
-    text: &'static str,
-) -> impl View<Bevy, HamletTheme> + FrameProps {
+pub(crate) fn lettered(text: &'static str) -> impl View + FrameProps {
     button(label(text).wrap(false).tagged(DisplayText))
         .padding(pad())
         .min_height(px(CONTROL))
@@ -226,17 +220,15 @@ pub const ICON: f32 = 14.0;
 
 /// An icon set a pixel high, on the middle of the display face's
 /// capitals beside it.
-pub fn raised(
-    mark: Icon,
-) -> impl View<Bevy, HamletTheme> + FrameProps {
+pub fn raised(mark: Icon) -> impl View + FrameProps {
     row((mark,)).padding(UiRect::bottom(px(2.0)))
 }
 
 /// An icon before `words` in the display face.
 pub(crate) fn headed(
     which: Glyph,
-    words: impl View<Bevy, HamletTheme> + 'static,
-) -> impl View<Bevy, HamletTheme> + FrameProps {
+    words: impl View + 'static,
+) -> impl View + FrameProps {
     row((raised(glyph(which, ICON)), words))
         .gap(6.0)
         .align(AlignItems::Center)
@@ -246,7 +238,7 @@ pub(crate) fn headed(
 pub fn marked(
     which: Glyph,
     text: &'static str,
-) -> impl View<Bevy, HamletTheme> + FrameProps {
+) -> impl View + FrameProps {
     button(headed(which, label(text).wrap(false).tagged(DisplayText)))
         // Less on the icon's side, which has air of its own.
         .padding(UiRect::new(px(10.0), px(13.0), px(0.0), px(0.0)))
@@ -259,42 +251,38 @@ pub(crate) fn stated(
     text: impl Into<String>,
     tone: Tone,
     size: f32,
-) -> Ui {
+) -> impl View {
     row((
         glyph(which, size).tone(tone),
         label(text.into()).size(size).tone(tone).wrap(false),
     ))
     .gap(5.0)
     .align(AlignItems::Center)
-    .boxed()
 }
 
 /// Buttons in a row that wraps: in a narrow panel they go on to a
 /// line below and are never cut off at its edge.
-pub fn buttons(buttons: Vec<Ui>) -> Ui {
+pub fn buttons(buttons: Vec<AnyView>) -> impl View {
     row(buttons)
         .gap(8.0)
         .align(AlignItems::Center)
         .tagged(Wraps)
-        .boxed()
 }
 
 /// A brass button that runs `act`.
-pub fn command(text: &'static str, act: fn(&mut World)) -> Ui {
+pub fn command(text: &'static str, act: fn(&mut World)) -> impl View {
     lettered(text)
         .rules(brass)
         .tagged(Mood::Plain)
         .on_activate(act)
-        .boxed()
 }
 
 /// The way back to `text`, which `act` takes.
-pub fn back(text: &'static str, act: fn(&mut World)) -> Ui {
+pub fn back(text: &'static str, act: fn(&mut World)) -> impl View {
     marked(Glyph::Back, text)
         .rules(retrace)
         .tagged(Mood::Ink)
         .on_activate(act)
-        .boxed()
 }
 
 /// A button with an icon before its word, of the look `rules` and
@@ -304,12 +292,11 @@ fn acting(
     text: &'static str,
     (rules, mood): (fn(&mut Cx), Mood),
     act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> Ui {
+) -> impl View {
     marked(which, text)
         .rules(rules)
         .tagged(mood)
         .on_activate(act)
-        .boxed()
 }
 
 /// A brass button with an icon before its word, that runs `act`.
@@ -317,8 +304,8 @@ pub(crate) fn action(
     which: Glyph,
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> Ui {
-    acting(which, text, (brass, Mood::Plain), act)
+) -> AnyView {
+    acting(which, text, (brass, Mood::Plain), act).boxed()
 }
 
 /// The button for the one action a screen is for, that runs `act`.
@@ -326,8 +313,8 @@ pub(crate) fn good_action(
     which: Glyph,
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> Ui {
-    acting(which, text, (lamp, Mood::Good), act)
+) -> AnyView {
+    acting(which, text, (lamp, Mood::Good), act).boxed()
 }
 
 /// A button that refuses, stops or throws away, by running `act`.
@@ -335,8 +322,8 @@ pub(crate) fn bad_action(
     which: Glyph,
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> Ui {
-    acting(which, text, (grim, Mood::Bad), act)
+) -> AnyView {
+    acting(which, text, (grim, Mood::Bad), act).boxed()
 }
 
 /// A row of a list that leads somewhere: no plate and no frame at
@@ -364,8 +351,8 @@ pub fn door(
     title: &'static str,
     holds: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> Ui {
-    way_in(which, title, holds, brass, act)
+) -> AnyView {
+    way_in(which, title, holds, brass, act).boxed()
 }
 
 /// The same as a row of a list, with no frame about it.
@@ -374,8 +361,8 @@ pub(crate) fn list_door(
     title: &'static str,
     holds: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> Ui {
-    way_in(which, title, holds, passage, act)
+) -> AnyView {
+    way_in(which, title, holds, passage, act).boxed()
 }
 
 fn way_in(
@@ -384,7 +371,7 @@ fn way_in(
     holds: &'static str,
     look: fn(&mut Cx),
     act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> Ui {
+) -> impl View {
     button(
         row((
             column((
@@ -407,12 +394,11 @@ fn way_in(
     .rules(look)
     .tagged(Mood::Plain)
     .on_activate(act)
-    .boxed()
 }
 
 /// The parts of something as rows of one list, a hairline between
 /// each and the next, over `foot`.
-pub(crate) fn doors(doors: Vec<Ui>, foot: Ui) -> Ui {
+pub(crate) fn doors(doors: Vec<AnyView>, foot: AnyView) -> impl View {
     let mut rows = Vec::new();
     for door in doors {
         if !rows.is_empty() {
@@ -421,7 +407,7 @@ pub(crate) fn doors(doors: Vec<Ui>, foot: Ui) -> Ui {
         rows.push(door);
     }
     rows.push(foot);
-    column(rows).gap(0.0).boxed()
+    column(rows).gap(0.0)
 }
 
 /// The head of a page of its own: the way back to `front`, which
@@ -431,7 +417,7 @@ pub(crate) fn page_head(
     act: fn(&mut World),
     which: Glyph,
     name: &'static str,
-) -> impl View<Bevy, HamletTheme> {
+) -> impl View {
     row((
         back(front, act),
         headed(

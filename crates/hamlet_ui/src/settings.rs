@@ -15,9 +15,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, dropdown, label,
     number_field, row, scroll, slider,
 };
-use bevy_fynix::{
-    Bevy, ScopedExt, View, ViewExt, derived, keyed, resource,
-};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_core::core::{HomeDir, SaveSettings, Settings};
 use hamlet_core::oversight::Revoke;
 use hamlet_core::oversight::grants::Grants;
@@ -34,9 +32,9 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::platform::DisplayText;
-use crate::theme::{HamletTheme, paint};
+use crate::theme::paint;
 use crate::world_menu::{self, Deed};
-use crate::{Cx, Ui, markdown};
+use crate::{AnyView, Cx, View, markdown};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Pane>()
@@ -47,10 +45,7 @@ pub fn plugin(app: &mut App) {
         );
 }
 
-fn field(
-    name: &'static str,
-    value: impl View<Bevy, HamletTheme>,
-) -> impl View<Bevy, HamletTheme> {
+fn field(name: &'static str, value: impl View) -> impl View {
     column((
         label(name)
             .size(12.0)
@@ -63,8 +58,8 @@ fn field(
 }
 
 /// The choice of the world's visual quality.
-fn quality() -> Ui {
-    Ui::new(|cx: &mut Cx| {
+fn quality() -> AnyView {
+    AnyView::new(|cx: &mut Cx| {
         cx.build(
             dropdown(
                 Quality::ALL.map(Quality::name),
@@ -156,10 +151,7 @@ impl Pane {
 }
 
 /// A setting's words, and under them its switch or slider.
-fn told(
-    control: impl View<Bevy, HamletTheme>,
-    words: impl View<Bevy, HamletTheme>,
-) -> impl View<Bevy, HamletTheme> {
+fn told(control: impl View, words: impl View) -> impl View {
     column((words, control))
         .gap(6.0)
         .align(AlignItems::FlexStart)
@@ -168,12 +160,12 @@ fn told(
 fn switch(
     on: impl Into<bevy_fynix::Prop<bool>>,
     set: impl Fn(&mut World, bool) + Send + Sync + 'static,
-) -> impl View<Bevy, HamletTheme> {
+) -> impl View {
     tick(on).on_change(set)
 }
 
 /// The settings of agents. Each applies when changed.
-fn agents() -> Ui {
+fn agents() -> impl View {
     column((
         field(
             "Reflect every N turns",
@@ -231,12 +223,11 @@ fn agents() -> Ui {
         field("Lasting permissions", permissions()),
     ))
     .gap(12.0)
-    .boxed()
 }
 
 /// The permissions agents were given for good from a petition, each
 /// to be taken back.
-fn permissions() -> Ui {
+fn permissions() -> AnyView {
     let held = derived(|world: &World| {
         world
             .get_resource::<Grants>()
@@ -359,7 +350,7 @@ pub(crate) fn default_charter(world: &mut World) {
 
 /// The words every agent's prompt opens with, and the ways to change
 /// them and to have the built-in ones again.
-fn charter_page() -> Ui {
+fn charter_page() -> impl View {
     let actions = keyed(resource::<Charter, _>(|c| c.own), |own| {
         let edit = action(Glyph::Rename, "EDIT", edit_charter)
             .tooltip(|| {
@@ -374,12 +365,12 @@ fn charter_page() -> Ui {
                 |world| world_menu::ask(world, Deed::DefaultCharter),
             ));
         }
-        buttons(actions)
+        buttons(actions).boxed()
     })
     .within(bare());
     let shown =
         keyed(resource::<Charter, _>(|c| c.text.clone()), |text| {
-            markdown::fixed(text, Tone::Body)
+            markdown::fixed(text, Tone::Body).boxed()
         })
         .within(bare());
     column((
@@ -389,7 +380,6 @@ fn charter_page() -> Ui {
         shown,
     ))
     .gap(12.0)
-    .boxed()
 }
 
 /// Saves the settings with one value changed.
@@ -406,7 +396,7 @@ fn level(
     turn: fn(&mut SoundSettings, bool),
     at: fn(&SoundSettings) -> f32,
     set: fn(&mut SoundSettings, f32),
-) -> impl View<Bevy, HamletTheme> {
+) -> impl View {
     row((
         switch(resource::<SoundSettings, _>(on), move |world, to| {
             turn(&mut world.resource_mut::<SoundSettings>(), to)
@@ -421,7 +411,7 @@ fn level(
     .align(AlignItems::Center)
 }
 
-fn senses() -> Ui {
+fn senses() -> impl View {
     column((
         field(
             "Visual quality",
@@ -447,10 +437,9 @@ fn senses() -> Ui {
         ),
     ))
     .gap(12.0)
-    .boxed()
 }
 
-fn door(pane: Pane) -> Ui {
+fn door(pane: Pane) -> AnyView {
     crate::looks::list_door(
         pane.glyph(),
         pane.title(),
@@ -460,7 +449,7 @@ fn door(pane: Pane) -> Ui {
 }
 
 /// The way back to the first-run screen.
-fn again() -> Ui {
+fn again() -> impl View {
     column((
         note("Choose again where your model comes from."),
         action(Glyph::Restore, "SET UP AGAIN", crate::welcome::again),
@@ -468,22 +457,25 @@ fn again() -> Ui {
     .gap(6.0)
     .padding(UiRect::top(px(8.0)))
     .align(AlignItems::FlexStart)
-    .boxed()
 }
 
 /// The Settings panel's contents.
-pub fn screen() -> Ui {
+pub fn screen() -> AnyView {
     let page = keyed(resource::<Pane, _>(|pane| *pane), |pane| {
         if *pane == Pane::Front {
-            return doors(Pane::PAGES.map(door).into(), again());
+            return doors(
+                Pane::PAGES.map(door).into(),
+                again().boxed(),
+            )
+            .boxed();
         }
         let body = match pane {
-            Pane::Endpoints => crate::models::endpoints(),
-            Pane::Models => crate::models::shelf(),
-            Pane::Agents => agents(),
-            Pane::Charter => charter_page(),
-            Pane::Realm => crate::rules::realm(),
-            Pane::Front | Pane::Senses => senses(),
+            Pane::Endpoints => crate::models::endpoints().boxed(),
+            Pane::Models => crate::models::shelf().boxed(),
+            Pane::Agents => agents().boxed(),
+            Pane::Charter => charter_page().boxed(),
+            Pane::Realm => crate::rules::realm().boxed(),
+            Pane::Front | Pane::Senses => senses().boxed(),
         };
         column((
             page_head(
@@ -498,7 +490,7 @@ pub fn screen() -> Ui {
         .boxed()
     })
     .within(column(()).gap(0.0).max_width(px(640.0)));
-    Ui::new(move |cx: &mut Cx| {
+    AnyView::new(move |cx: &mut Cx| {
         cx.build(scroll((page,)).fills_height())
     })
 }
