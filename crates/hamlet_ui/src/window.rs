@@ -18,8 +18,9 @@ use bevy::state::state::{
 use bevy::time::Time;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy::window::{
-    PrimaryWindow, Window, WindowCloseRequested,
-    WindowResizeConstraints, WindowResized,
+    ExitCondition, PrimaryWindow, Window, WindowCloseRequested,
+    WindowPlugin, WindowResizeConstraints, WindowResized,
+    WindowResolution,
 };
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_fynix::resource;
@@ -30,7 +31,7 @@ use bevy_fynix::views::{
 use hamlet_core::core::HomeDir;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::chrome::Grip;
+use crate::chrome::{self, Grip};
 use crate::icons::Glyph;
 use crate::looks::{action, bad_action, good_action};
 use crate::platform::{DisplayText, Glow, Wraps};
@@ -127,6 +128,22 @@ pub(crate) struct FullSize(pub (u32, u32));
 
 fn size_file(home: &Path) -> PathBuf {
     home.join("window")
+}
+
+/// The plugin of the window, at the size it was last left at, for
+/// Bevy's default plugins to be set with.
+pub fn window_plugin(home: &Path) -> WindowPlugin {
+    let size = saved_size(home);
+    WindowPlugin {
+        primary_window: Some(Window {
+            title: "Hamlet".into(),
+            resolution: WindowResolution::new(size.0, size.1),
+            ..chrome::bare()
+        }),
+        exit_condition: ExitCondition::DontExit,
+        close_when_requested: false,
+        ..WindowPlugin::default()
+    }
 }
 
 /// The size the user last left the full window at.

@@ -40,21 +40,13 @@ mod window;
 mod world_menu;
 mod world_view;
 
-use std::time::Duration;
-
-use bevy::DefaultPlugins;
-use bevy::app::{App, Plugin, PluginGroup, Update};
+use bevy::app::{App, Plugin, Update};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::state::state::OnEnter;
-use bevy::window::{
-    ExitCondition, Window, WindowPlugin, WindowResolution,
-};
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::{Bevy, FynixPlugin};
-use hamlet_core::agents::WatchEvery;
 use hamlet_core::core::HomeDir;
-use hamlet_world::hamlet::HamletPlugin;
 use hamlet_world::pick::Selected;
 
 pub use self::dock::{lit_panel, panel};
@@ -66,7 +58,7 @@ pub use self::roll::Roll;
 pub use self::root::toolbar;
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
-pub use self::window::ShowRequests;
+pub use self::window::{ShowRequests, window_plugin};
 
 /// The context a view of the window is built in.
 pub type Cx<'a> = bevy_fynix::Cx<'a, Bevy, HamletTheme>;
@@ -83,31 +75,20 @@ pub trait View:
 
 impl<V: bevy_fynix::View<Bevy, HamletTheme> + 'static> View for V {}
 
-/// The window: the dock, its panels and the world. Add it to the
-/// core's app, after a [`ShowRequests`] resource is in place.
+/// The panels: the dock, its panels and the world's place in them.
+/// Add it to the core's app after Bevy's default plugins, set with
+/// [`window_plugin`], the world's plugin and a [`ShowRequests`]
+/// resource.
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        // A window draws far more often than the records change.
-        app.insert_resource(WatchEvery(Duration::from_millis(200)))
-            .add_plugins(me::plugin);
+        app.add_plugins(me::plugin);
         let home = &app.world().resource::<HomeDir>().0.root;
         let size = window::saved_size(home);
         app.add_plugins((
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "Hamlet".into(),
-                    resolution: WindowResolution::new(size.0, size.1),
-                    ..chrome::bare()
-                }),
-                exit_condition: ExitCondition::DontExit,
-                close_when_requested: false,
-                ..WindowPlugin::default()
-            }),
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
-            HamletPlugin,
         ))
         .insert_resource(window::FullSize(size))
         .add_plugins((

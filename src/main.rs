@@ -4,9 +4,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
+use bevy::DefaultPlugins;
+use bevy::app::PluginGroup;
 use bevy_app::{
     App, AppExit, ScheduleRunnerPlugin, TerminalCtrlCHandlerPlugin,
 };
+use hamlet_core::agents::WatchEvery;
 use hamlet_core::core::CorePlugin;
 use hamlet_core::oversight::{OversightPlugin, Unreviewed};
 use hamlet_core::session::SessionPlugin;
@@ -16,7 +19,8 @@ use hamlet_home::{Home, limits};
 use hamlet_model::config::Config;
 use hamlet_model::log;
 use hamlet_sandbox as sandbox;
-use hamlet_ui::{ShowRequests, UiPlugin};
+use hamlet_ui::{ShowRequests, UiPlugin, window_plugin};
+use hamlet_world::hamlet::HamletPlugin;
 
 const USAGE: &str = "\
 usage: hamlet [--headless | --repl] [--insecure] [--replay \
@@ -106,7 +110,7 @@ fn main() -> Result<()> {
     // A relative path and an absolute one are the same home.
     let root = std::path::absolute(&root).unwrap_or(root);
     let home = Home::open(
-        root,
+        root.clone(),
         std::env::var_os("HAMLET_WORKSPACE").map(PathBuf::from),
     )?;
 
@@ -165,7 +169,16 @@ fn main() -> Result<()> {
         Mode::Window => {
             let exit = app
                 .insert_resource(ShowRequests(show_requests))
-                .add_plugins(UiPlugin)
+                // A window draws far more often than the records
+                // change.
+                .insert_resource(WatchEvery(Duration::from_millis(
+                    200,
+                )))
+                .add_plugins((
+                    DefaultPlugins.set(window_plugin(&root)),
+                    HamletPlugin,
+                    UiPlugin,
+                ))
                 .run();
             if let AppExit::Error(code) = exit {
                 bail!("the window exited with code {code}");
