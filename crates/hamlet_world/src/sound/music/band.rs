@@ -14,6 +14,12 @@ use crate::sound::clip::Clip;
 use crate::sound::{Cue, Cues, SoundSettings, drawn};
 use crate::{DayPart, WorldCamera};
 
+/// A breath that has been played, and the seconds to the next.
+type Made = (Vec<f32>, f32);
+
+/// Seconds before a breath is due that it is written and played.
+const AHEAD: f32 = 6.0;
+
 pub(in crate::sound) fn plugin(app: &mut App) {
     let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -36,9 +42,6 @@ pub(in crate::sound) fn plugin(app: &mut App) {
 #[derive(Component)]
 struct Strain;
 
-/// A breath that has been played, and the seconds to the next.
-type Made = (Vec<f32>, f32);
-
 /// The player of the music, and the breaths it has in hand.
 #[derive(Resource)]
 struct Band {
@@ -57,9 +60,6 @@ struct Band {
     answering: Option<Task<Vec<f32>>>,
     answered: f32,
 }
-
-/// Seconds before a breath is due that it is written and played.
-const AHEAD: f32 = 6.0;
 
 /// Share of the hamlet at work, 0 to 1.
 fn busy(society: Option<&Society>, set: &SoundSettings) -> f32 {

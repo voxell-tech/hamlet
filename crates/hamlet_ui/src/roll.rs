@@ -15,6 +15,33 @@ use hamlet_core::agents::{
 };
 use hamlet_core::oversight::Waiting;
 
+type AgentMoved = (
+    With<Citizen>,
+    Or<(
+        Changed<Name>,
+        Changed<Purpose>,
+        Changed<Account>,
+        Changed<Activity>,
+        Added<Busy>,
+        Added<Left>,
+        Added<Mayor>,
+    )>,
+);
+
+type HamletMoved = (
+    With<Settlement>,
+    Or<(Changed<Seen>, Changed<Treasury>, Changed<Name>)>,
+);
+
+/// The agents' components whose going changes what is shown.
+type AgentLost<'w, 's> = (
+    RemovedComponents<'w, 's, Busy>,
+    RemovedComponents<'w, 's, Left>,
+    RemovedComponents<'w, 's, Account>,
+    RemovedComponents<'w, 's, Citizen>,
+    RemovedComponents<'w, 's, Mayor>,
+);
+
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Roll>().add_systems(Update, turn_roll);
 }
@@ -90,33 +117,6 @@ pub fn either(
         one || other
     }
 }
-
-type AgentMoved = (
-    With<Citizen>,
-    Or<(
-        Changed<Name>,
-        Changed<Purpose>,
-        Changed<Account>,
-        Changed<Activity>,
-        Added<Busy>,
-        Added<Left>,
-        Added<Mayor>,
-    )>,
-);
-
-type HamletMoved = (
-    With<Settlement>,
-    Or<(Changed<Seen>, Changed<Treasury>, Changed<Name>)>,
-);
-
-/// The agents' components whose going changes what is shown.
-type AgentLost<'w, 's> = (
-    RemovedComponents<'w, 's, Busy>,
-    RemovedComponents<'w, 's, Left>,
-    RemovedComponents<'w, 's, Account>,
-    RemovedComponents<'w, 's, Citizen>,
-    RemovedComponents<'w, 's, Mayor>,
-);
 
 fn turn_roll(
     agents: Query<(), AgentMoved>,

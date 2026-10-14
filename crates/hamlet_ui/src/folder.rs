@@ -31,18 +31,18 @@ use crate::looks::{action, bad_action, bare, brass, buttons, note};
 use crate::overview::{heading, tell};
 use crate::roll::hamlets_moved;
 
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Picker>()
-        .add_observer(switched)
-        .add_systems(Update, (open, take));
-}
-
 /// The most earlier folders offered again.
 const EARLIER: usize = 3;
 
 /// The hamlet a folder was chosen for, and the folder. None when the
 /// dialog was closed with nothing chosen.
 type Chosen = (Entity, Option<PathBuf>);
+
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Picker>()
+        .add_observer(switched)
+        .add_systems(Update, (open, take));
+}
 
 /// The dialog a folder is chosen in.
 #[derive(Resource)]

@@ -55,6 +55,9 @@ use crate::Ui;
 use crate::looks::well;
 use crate::me::{Me, talk_to, talk_to_mayor_of};
 
+/// The least width of the field a chief types in.
+const FIELD_LEAST: f32 = 150.0;
+
 pub fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
         .init_resource::<ChatSettings>()
@@ -315,9 +318,6 @@ pub fn stick_to_bottom(
         end.was = at.y;
     }
 }
-
-/// The least width of the field a chief types in.
-const FIELD_LEAST: f32 = 150.0;
 
 /// The one place to type, under the conversation it adds to.
 pub fn message_bar() -> Ui {

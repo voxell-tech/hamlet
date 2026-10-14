@@ -29,6 +29,9 @@ use crate::theme::{BLACK, Lamplight, SEAM};
 use crate::window::Layout;
 use crate::{Cx, Ui};
 
+/// The side of an icon in the bar.
+const MARK: f32 = 12.0;
+
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Bar>()
         .init_resource::<Lately>()
@@ -158,9 +161,6 @@ pub(crate) fn ago(since: Instant) -> String {
         _ => format!("{} h ago", s / 3600),
     }
 }
-
-/// The side of an icon in the bar.
-const MARK: f32 = 12.0;
 
 /// An icon and the words it stands before.
 fn pair(

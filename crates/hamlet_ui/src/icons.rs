@@ -17,10 +17,6 @@ use self::Shape::{
     Arc, Curve, Dot, Fill, Line, Loop, Path, Ring, Round,
 };
 
-pub fn plugin(app: &mut App) {
-    app.insert_resource(dock()).add_systems(Startup, draw);
-}
-
 /// The side of the square every icon is drawn in, in its own units.
 const GRID: f32 = 16.0;
 
@@ -33,6 +29,10 @@ const DENSITY: f32 = 2.0;
 
 /// The handles of the icons' images start here.
 const FIRST: u128 = 0x6861_6d6c_6574_5f69_636f_6e73_0000_0000;
+
+pub fn plugin(app: &mut App) {
+    app.insert_resource(dock()).add_systems(Startup, draw);
+}
 
 /// An icon of the panels.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

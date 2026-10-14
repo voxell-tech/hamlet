@@ -15,6 +15,8 @@ use crate::session::{
     UserMessage,
 };
 
+const CHANNEL: &str = "terminal";
+
 /// Reads lines from the terminal and prints the session's replies.
 pub struct TerminalPlugin;
 
@@ -81,8 +83,6 @@ impl Plugin for TerminalPlugin {
             );
     }
 }
-
-const CHANNEL: &str = "terminal";
 
 /// Lines typed so far; `None` marks end of input.
 #[derive(Resource)]

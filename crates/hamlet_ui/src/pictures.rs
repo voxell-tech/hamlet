@@ -37,16 +37,6 @@ use crate::chat::ChatSettings;
 use crate::links::{Anchor, seek};
 use crate::markdown::Target;
 
-/// Reads the pictures of the chat off the frame and keeps them.
-pub fn plugin(app: &mut App) {
-    app.init_resource::<Pictures>()
-        .init_resource::<ChatSettings>()
-        .add_observer(show)
-        .add_observer(unshow)
-        .add_observer(look_again)
-        .add_systems(Update, take.run_if(arrived));
-}
-
 /// The endings of the files drawn as pictures, in small letters.
 const PICTURED: [&str; 6] =
     ["bmp", "gif", "jpeg", "jpg", "png", "webp"];
@@ -57,6 +47,23 @@ const DENSITY: f32 = 2.0;
 
 /// The most pictures remembered, shown or not.
 const REMEMBERED: usize = 512;
+
+/// The time a file was last written and its length.
+type Stamp = (Option<SystemTime>, u64);
+
+/// A picture that was read: its place, the file as it then was, and
+/// its pixels if it had any.
+type Read = (Source, Option<Stamp>, Option<Pixels>);
+
+/// Reads the pictures of the chat off the frame and keeps them.
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Pictures>()
+        .init_resource::<ChatSettings>()
+        .add_observer(show)
+        .add_observer(unshow)
+        .add_observer(look_again)
+        .add_systems(Update, take.run_if(arrived));
+}
 
 /// The place a picture comes from.
 #[derive(Component, Clone, PartialEq, Eq, Hash, Debug)]
@@ -103,9 +110,6 @@ pub(crate) enum State {
     Failed,
 }
 
-/// The time a file was last written and its length.
-type Stamp = (Option<SystemTime>, u64);
-
 struct Kept {
     /// The file as it was when it was read. None for the web.
     stamp: Option<Stamp>,
@@ -124,10 +128,6 @@ impl Kept {
         }
     }
 }
-
-/// A picture that was read: its place, the file as it then was, and
-/// its pixels if it had any.
-type Read = (Source, Option<Stamp>, Option<Pixels>);
 
 /// The pictures of the chat, each read once and shared by every row
 /// that shows it.

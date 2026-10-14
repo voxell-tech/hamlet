@@ -21,6 +21,19 @@ use tokio::sync::mpsc::{
 
 use crate::agents::AgentsPlugin;
 
+/// An endpoint's name, whether it is on this machine, and its
+/// models.
+type ListResult = (String, bool, Result<Vec<Listed>, String>);
+
+/// The models a test of the connection found.
+type Tested = Result<Vec<String>, String>;
+
+/// The outcome of a trial of the model.
+type Tried = Result<(), String>;
+
+/// The key a sign-in gave.
+type SignedIn = Result<String, String>;
+
 /// The settings, the model, the sandbox and the home as resources,
 /// and the hamlets of the home as entities.
 pub struct CorePlugin {
@@ -244,16 +257,9 @@ pub struct Listing {
     pub said: BTreeMap<String, Result<usize, String>>,
 }
 
-/// An endpoint's name, whether it is on this machine, and its
-/// models.
-type ListResult = (String, bool, Result<Vec<Listed>, String>);
-
 /// Re-reads the skill and session lists from disk.
 #[derive(Event)]
 pub struct RefreshLists;
-
-/// The models a test of the connection found.
-type Tested = Result<Vec<String>, String>;
 
 /// Asks the default model of these settings for a word in the
 /// background, to prove that it answers; the result lands in
@@ -270,9 +276,6 @@ pub enum Trial {
     Answered,
     Failed(String),
 }
-
-/// The outcome of a trial of the model.
-type Tried = Result<(), String>;
 
 impl From<Tried> for Trial {
     fn from(went: Tried) -> Self {
@@ -299,9 +302,6 @@ pub enum Signing {
     Done(String),
     Failed(String),
 }
-
-/// The key a sign-in gave.
-type SignedIn = Result<String, String>;
 
 impl From<SignedIn> for Signing {
     fn from(went: SignedIn) -> Self {

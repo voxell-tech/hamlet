@@ -30,6 +30,10 @@ use crate::theme::{
 };
 use crate::welcome::Committing;
 
+/// The share of a cursor that is left while the hand carries a thing
+/// of the world, so that the thing is seen through it.
+const FAINT: f32 = 0.4;
+
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(Startup, draw)
         .add_systems(Update, lend)
@@ -187,10 +191,6 @@ pub fn inks() -> Inks {
         edge: BLACK,
     }
 }
-
-/// The share of a cursor that is left while the hand carries a thing
-/// of the world, so that the thing is seen through it.
-const FAINT: f32 = 0.4;
 
 /// The pictures of every mode, and the same again made faint.
 #[derive(Resource)]

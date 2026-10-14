@@ -45,6 +45,13 @@ use crate::me::Me;
 use crate::window::WorldShown;
 use crate::{Cx, Ui};
 
+type WorldCameras<'w, 's> = Query<
+    'w,
+    's,
+    &'static mut Camera,
+    (With<WorldCamera>, Without<Window>),
+>;
+
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<TimeOfDay>()
         .insert_resource(hamlet_world::pick::NoNameTag)
@@ -331,13 +338,6 @@ pub fn pace(
         winit.focused_mode = mode;
     }
 }
-
-type WorldCameras<'w, 's> = Query<
-    'w,
-    's,
-    &'static mut Camera,
-    (With<WorldCamera>, Without<Window>),
->;
 
 /// Draws the world while it is in sight.
 pub fn draw(mut cameras: WorldCameras) {

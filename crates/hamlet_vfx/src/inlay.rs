@@ -8,6 +8,8 @@ use bevy::render::render_resource::{AsBindGroup, ShaderType};
 use bevy::shader::ShaderRef;
 use hamlet_assets::tint::hex;
 
+pub type InlayMaterial = ExtendedMaterial<StandardMaterial, InlayExt>;
+
 /// The inlay's material and its shader.
 pub struct InlayPlugin;
 
@@ -17,8 +19,6 @@ impl Plugin for InlayPlugin {
         app.add_plugins(MaterialPlugin::<InlayMaterial>::default());
     }
 }
-
-pub type InlayMaterial = ExtendedMaterial<StandardMaterial, InlayExt>;
 
 /// Emissive strengths, relative to sunlit white paper at 1.
 pub const EMBER: f32 = 1.5;

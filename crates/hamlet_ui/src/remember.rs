@@ -32,6 +32,14 @@ use crate::roll::Roll;
 use crate::theme::Lamplight;
 use crate::world_view::TimeOfDay;
 
+/// Seconds a change waits before it is written, so that dragging a
+/// divider writes once.
+const SETTLE: f32 = 0.8;
+
+/// The frames a remembered selection is looked for before it is given
+/// up: an agent removed since never comes.
+const PATIENCE: u32 = 240;
+
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Pending>()
         .init_resource::<Kept>()
@@ -49,10 +57,6 @@ pub(crate) fn plugin(app: &mut App) {
                 .chain(),
         );
 }
-
-/// Seconds a change waits before it is written, so that dragging a
-/// divider writes once.
-const SETTLE: f32 = 0.8;
 
 /// One node of the dock, with its children named by their place in
 /// the list.
@@ -213,10 +217,6 @@ impl Chosen {
         })
     }
 }
-
-/// The frames a remembered selection is looked for before it is given
-/// up: an agent removed since never comes.
-const PATIENCE: u32 = 240;
 
 /// Selects again what was selected when the window last closed, once
 /// its hamlet and agents are in the world.

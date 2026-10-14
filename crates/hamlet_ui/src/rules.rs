@@ -29,6 +29,10 @@ use crate::looks::{
 };
 use crate::overview::heading;
 
+/// The width of the room of a control, so that the controls stand in
+/// a line at the panel's right.
+const CONTROLS: f32 = 150.0;
+
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Book>()
         .init_resource::<Part>()
@@ -163,10 +167,6 @@ fn put(
         Err(e) => book.problem = Some(format!("{e:#}")),
     }
 }
-
-/// The width of the room of a control, so that the controls stand in
-/// a line at the panel's right.
-const CONTROLS: f32 = 150.0;
 
 /// A row of the panel: what a control sets, and the control.
 fn line(what: &'static str, control: Ui) -> Ui {

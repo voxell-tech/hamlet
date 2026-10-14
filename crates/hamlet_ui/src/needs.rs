@@ -35,6 +35,12 @@ use crate::platform::{DisplayText, MonoText, Wraps};
 use crate::theme::{BRASS_6, CARD, Lamplight};
 use crate::{Cx, Ui, chat};
 
+const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
+                     questions and faults come here, oldest first.";
+
+/// Seconds between two looks at the time each has waited.
+const TICK: f32 = 10.0;
+
 pub fn plugin(app: &mut App) {
     app.init_resource::<Reason>()
         .init_resource::<Queue>()
@@ -46,9 +52,6 @@ pub fn plugin(app: &mut App) {
 /// The reason or reply the next answer carries.
 #[derive(Resource, Default)]
 pub struct Reason(String);
-
-const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
-                     questions and faults come here, oldest first.";
 
 /// Everything that waits for the chief, oldest first, as the panels
 /// show it.
@@ -64,9 +67,6 @@ impl Queue {
         self.0.is_empty()
     }
 }
-
-/// Seconds between two looks at the time each has waited.
-const TICK: f32 = 10.0;
 
 /// Keeps the [`Queue`] in step with the waits and the time each has
 /// waited.

@@ -28,6 +28,10 @@ pub use self::pages::view;
 use self::providers::{LOCAL, OPENROUTER, OTHER, PROVIDERS, served};
 use crate::settings::Pane;
 
+const NOTHING_LOCAL: &str = "No model server answered here. Install \
+                             Ollama from ollama.com, download a \
+                             model, then choose Look Again.";
+
 /// Opens the screen on a home that was never set up.
 pub(crate) fn plugin(app: &mut App) {
     let home = &app.world().resource::<HomeDir>().0.root;
@@ -45,10 +49,6 @@ pub(crate) fn plugin(app: &mut App) {
             ),
         );
 }
-
-const NOTHING_LOCAL: &str = "No model server answered here. Install \
-                             Ollama from ollama.com, download a \
-                             model, then choose Look Again.";
 
 /// The step of the screen the chief is at.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]

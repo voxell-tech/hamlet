@@ -30,6 +30,9 @@ use self::dock::{panels, seed_dock};
 use self::sample::{first_run, setup};
 use self::sheets::{controls, hold, hold_message, icon_sheet};
 
+/// A view of the gallery, its type erased.
+type Ui = AnyView<Bevy, Lamplight>;
+
 /// Draws one [`Scene`] with the panels' own views and looks.
 pub struct GalleryPlugin(pub Scene);
 
@@ -100,9 +103,6 @@ impl Plugin for GalleryPlugin {
         ));
     }
 }
-
-/// A view of the gallery, its type erased.
-type Ui = AnyView<Bevy, Lamplight>;
 
 /// The scene a gallery shows.
 #[derive(Resource, Clone, Copy, PartialEq, Eq)]

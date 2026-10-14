@@ -31,6 +31,9 @@ use crate::me::Me;
 use crate::roll::Roll;
 use crate::sounds;
 
+/// The most paths whose files are remembered.
+const REMEMBERED: usize = 4096;
+
 /// Follows the pointer onto the links of the chat and opens the one
 /// that is clicked.
 pub fn plugin(app: &mut App) {
@@ -102,9 +105,6 @@ impl Roots {
         }
     }
 }
-
-/// The most paths whose files are remembered.
-const REMEMBERED: usize = 4096;
 
 /// The file each path written in the chat names under [`Roots`], as
 /// it was last looked for.

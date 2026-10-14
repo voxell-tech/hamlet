@@ -28,14 +28,15 @@ use crate::me::Me;
 use crate::world_menu::{self, Deed};
 use crate::{Cx, Ui};
 
-pub(super) fn plugin(app: &mut App) {
-    app.add_observer(reveal).add_observer(retype);
-}
-
 /// The room of a mark about its picture, and the room it takes
 /// beside its message.
 const AROUND: f32 = 4.0;
+
 pub(super) const ROOM: f32 = ICON + AROUND * 3.0;
+
+pub(super) fn plugin(app: &mut App) {
+    app.add_observer(reveal).add_observer(retype);
+}
 
 /// On a row of the chat: the message `entry` of the conversation
 /// `session`, which that conversation can be taken back to.

@@ -38,6 +38,14 @@ use crate::status::{Bar, Lately};
 use crate::theme::BLACK;
 use crate::{Cx, Ui};
 
+/// The size the window opens at until the user has resized it once.
+const DEFAULT_SIZE: (u32, u32) = (1920, 1080);
+
+const MINIMAL_SIZE: (u32, u32) = (440, 190);
+
+/// The least size of the full window.
+const LEAST_FULL: (u32, u32) = (1180, 680);
+
 /// The window's states and what entering and leaving each does.
 pub fn plugin(app: &mut App) {
     app.init_state::<Layout>()
@@ -64,12 +72,6 @@ pub fn plugin(app: &mut App) {
             (intercept_close, poll_show_requests, remember_size),
         );
 }
-
-/// The size the window opens at until the user has resized it once.
-const DEFAULT_SIZE: (u32, u32) = (1920, 1080);
-const MINIMAL_SIZE: (u32, u32) = (440, 190);
-/// The least size of the full window.
-const LEAST_FULL: (u32, u32) = (1180, 680);
 
 /// The least window size of a layout, below which its contents do not
 /// fit.

@@ -21,6 +21,22 @@ use crate::pick::{self, Footprint, Named, Reads, Thing, hit_box};
 use crate::play::{Play, Played};
 use crate::{Sky, Stock, WorldSystems, adopt};
 
+/// Height of the bench's top above the paving.
+const TOP: f32 = 0.91;
+
+/// The middle of the lamp's glass, in the bench's frame.
+const LAMP: Vec3 = Vec3::new(-0.85, 1.8, 0.36);
+
+/// The wheels of the clockwork, the largest first: the hub of each in
+/// the bench's frame, its radius and the number of its teeth.
+const WHEELS: [(Vec3, f32, usize); 3] = [
+    (Vec3::new(0.36, 1.2, -0.15), 0.19, 16),
+    (Vec3::new(0.677, 1.348, -0.15), 0.12, 10),
+    (Vec3::new(0.614, 1.022, -0.15), 0.08, 7),
+];
+
+const MODES: [Mode; 2] = [Mode::Manual, Mode::Auto];
+
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<WorksSettings>()
         .add_observer(click)
@@ -111,22 +127,6 @@ struct Fittings {
     matte: Handle<StandardMaterial>,
     brass: Handle<StandardMaterial>,
 }
-
-/// Height of the bench's top above the paving.
-const TOP: f32 = 0.91;
-
-/// The middle of the lamp's glass, in the bench's frame.
-const LAMP: Vec3 = Vec3::new(-0.85, 1.8, 0.36);
-
-/// The wheels of the clockwork, the largest first: the hub of each in
-/// the bench's frame, its radius and the number of its teeth.
-const WHEELS: [(Vec3, f32, usize); 3] = [
-    (Vec3::new(0.36, 1.2, -0.15), 0.19, 16),
-    (Vec3::new(0.677, 1.348, -0.15), 0.12, 10),
-    (Vec3::new(0.614, 1.022, -0.15), 0.08, 7),
-];
-
-const MODES: [Mode; 2] = [Mode::Manual, Mode::Auto];
 
 /// The colour a mode is shown in: the orange of what waits for the
 /// chief, and the blue of what runs.

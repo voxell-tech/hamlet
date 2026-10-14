@@ -4,12 +4,12 @@
 use bevy::app::{App, PostStartup};
 use bevy::ecs::system::NonSendMarker;
 
+/// The logo on its rounded tile, 256 pixels a side.
+const ICON: &[u8] = include_bytes!("icon.png");
+
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(PostStartup, show);
 }
-
-/// The logo on its rounded tile, 256 pixels a side.
-const ICON: &[u8] = include_bytes!("icon.png");
 
 /// Puts the logo on the Dock. A bundle's own icon is the same
 /// picture, so this changes nothing for a packaged app.

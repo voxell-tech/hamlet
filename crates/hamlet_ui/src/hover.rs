@@ -47,18 +47,32 @@ use crate::roll::Roll;
 use crate::theme::{BRASS_5, CARD, Lamplight};
 use crate::world_menu::Open;
 
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Card>()
-        .init_resource::<Resting>()
-        .add_systems(Update, (describe, place).chain());
-}
-
 /// The layer of the card in the window's stack: over the panels,
 /// under the menus.
 const CARD_Z: i32 = 950;
 
 /// The most of an agent's purpose the card shows, in letters.
 pub(crate) const PURPOSE_SHOWN: usize = 96;
+
+/// The state of an agent, for its card.
+type Doing<'a> = (
+    &'a Name,
+    (Has<Left>, Has<Busy>, Has<Proud>),
+    Option<&'a MergedInto>,
+    Option<&'a Activity>,
+    Option<&'a Purpose>,
+    Option<&'a Account>,
+);
+
+/// An agent that lives in a hamlet, that it is at work and that it is
+/// the mayor.
+type Living<'a> = (&'a Name, &'a LivesIn, Has<Busy>, Has<Mayor>);
+
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Card>()
+        .init_resource::<Resting>()
+        .add_systems(Update, (describe, place).chain());
+}
 
 /// The words of the card. It keeps them after `shown` is false, to go
 /// out with them.
@@ -96,20 +110,6 @@ pub(crate) fn short(text: &str, most: usize) -> String {
     let kept = kept.rsplit_once(' ').map_or(kept, |(kept, _)| kept);
     format!("{kept}...")
 }
-
-/// The state of an agent, for its card.
-type Doing<'a> = (
-    &'a Name,
-    (Has<Left>, Has<Busy>, Has<Proud>),
-    Option<&'a MergedInto>,
-    Option<&'a Activity>,
-    Option<&'a Purpose>,
-    Option<&'a Account>,
-);
-
-/// An agent that lives in a hamlet, that it is at work and that it is
-/// the mayor.
-type Living<'a> = (&'a Name, &'a LivesIn, Has<Busy>, Has<Mayor>);
 
 /// The queries a card is made from.
 #[derive(SystemParam)]

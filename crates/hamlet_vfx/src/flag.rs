@@ -13,6 +13,8 @@ use bevy::window::RequestRedraw;
 use crate::wind::{WindSettings, downwind};
 use crate::{Now, VfxSystems};
 
+pub type FlagMaterial = ExtendedMaterial<StandardMaterial, FlagExt>;
+
 pub(crate) fn plugin(app: &mut App) {
     embedded_asset!(app, "flag.wgsl");
     app.add_plugins(MaterialPlugin::<FlagMaterial>::default())
@@ -30,8 +32,6 @@ pub(crate) fn plugin(app: &mut App) {
             ),
         );
 }
-
-pub type FlagMaterial = ExtendedMaterial<StandardMaterial, FlagExt>;
 
 /// The waving of a flag.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]

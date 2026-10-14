@@ -21,6 +21,12 @@ use crate::platform::{ClipInside, Glow};
 use crate::theme::{BLACK, Lamplight};
 use crate::{Ui, inspector, needs, remember, settings, world_view};
 
+/// The least width a panel keeps, in logical pixels.
+const LEAST: f32 = 300.0;
+
+/// The share of the window's width the Needs You queue takes.
+pub(crate) const NEEDS_SHARE: f32 = 0.2;
+
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(Update, keep_wide);
 }
@@ -46,9 +52,6 @@ pub fn lit_panel(view: Ui, lit: Lit) -> Ui {
         .tagged(lit)
         .boxed()
 }
-
-/// The least width a panel keeps, in logical pixels.
-const LEAST: f32 = 300.0;
 
 /// The width `node` needs for every panel in it to keep [`LEAST`],
 /// and the width it is drawn at, from the width of each area.
@@ -119,9 +122,6 @@ pub(crate) fn keep_wide(
         tree.set_fraction(split, share);
     }
 }
-
-/// The share of the window's width the Needs You queue takes.
-pub(crate) const NEEDS_SHARE: f32 = 0.2;
 
 /// The world in the centre, and the working panels as tabs beside it.
 pub(crate) fn seed(world: &mut World) {

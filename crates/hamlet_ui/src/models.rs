@@ -23,14 +23,18 @@ pub(crate) use self::choice::{of_agent, of_hamlet};
 pub(crate) use self::home::narrowed;
 pub use self::home::{endpoints, shelf};
 
+/// The most models the catalogue shows at once.
+const SHOWN: usize = 40;
+
+/// Seconds between two looks at the catalogue's file, which a chief
+/// may write by hand.
+const LOOK: f32 = 2.0;
+
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Shelf>()
         .init_resource::<Draft>()
         .add_systems(Update, (follow, follow_catalogue));
 }
-
-/// The most models the catalogue shows at once.
-const SHOWN: usize = 40;
 
 /// The catalogue as the window shows it, and each hamlet's own
 /// list by the hamlet's name.
@@ -78,10 +82,6 @@ impl Shelf {
 pub struct Draft {
     narrow: String,
 }
-
-/// Seconds between two looks at the catalogue's file, which a chief
-/// may write by hand.
-const LOOK: f32 = 2.0;
 
 /// Reads the catalogue again when the endpoints were asked what they
 /// serve, after the window's own change, and when its file was

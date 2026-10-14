@@ -39,6 +39,21 @@ use hamlet_assets::fonts::{CINZEL, INTER, TWEMOJI};
 
 use crate::theme::{BLACK, HEARTH, Lamplight};
 
+/// The spacing of the letters of a header.
+const TRACKING: LetterSpacing = LetterSpacing::Px(1.0);
+
+/// The size of a tab's name.
+const TAB_SIZE: FontSize = FontSize::Px(12.0);
+
+type Unringed = (
+    Or<(
+        With<ButtonBehavior>,
+        With<CheckboxBehavior>,
+        With<MenuButton>,
+    )>,
+    Without<Ring>,
+);
+
 pub fn plugin(app: &mut App) {
     app.add_observer(hide_ring_on_press)
         .add_observer(take_typed_on_press)
@@ -103,12 +118,6 @@ fn install_emoji(cx: &mut FontCx) {
         let _ = cx.set_emoji_family(&name);
     }
 }
-
-/// The spacing of the letters of a header.
-const TRACKING: LetterSpacing = LetterSpacing::Px(1.0);
-
-/// The size of a tab's name.
-const TAB_SIZE: FontSize = FontSize::Px(12.0);
 
 /// Sets the display face, tracked, on tagged labels and on the dock's
 /// tab names, when a label is new or was styled again.
@@ -218,15 +227,6 @@ pub fn apply_mono(
 /// it.
 #[derive(Component)]
 pub struct Ring;
-
-type Unringed = (
-    Or<(
-        With<ButtonBehavior>,
-        With<CheckboxBehavior>,
-        With<MenuButton>,
-    )>,
-    Without<Ring>,
-);
 
 /// Puts every button, checkbox and dropdown button in the Tab order,
 /// with an outline to show focus.
