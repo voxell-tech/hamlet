@@ -41,6 +41,60 @@ use crate::agent::Event as AgentEvent;
 use crate::agents::{self, Roster, Synced};
 use crate::core::{self, HomeDir};
 
+/// Sessions, their workers and the letters between agents.
+pub struct SessionPlugin;
+impl Plugin for SessionPlugin {
+    fn build(&self, app: &mut App) {
+        let (tx, rx) = unbounded_channel();
+        app.insert_resource(Inbox { tx, rx })
+            .init_resource::<Workers>()
+            .add_observer(
+                |msg: On<UserMessage>, mut commands: Commands| {
+                    let msg = msg.event().clone();
+                    commands.queue(move |world: &mut World| {
+                        deliver(world, msg, None)
+                    });
+                },
+            )
+            .add_observer(
+                |letter: On<Letter>, mut commands: Commands| {
+                    let letter = letter.event().clone();
+                    commands.queue(move |world: &mut World| {
+                        post(world, letter)
+                    });
+                },
+            )
+            .add_observer(
+                |rewind: On<Rewind>, mut commands: Commands| {
+                    let rewind = rewind.event().clone();
+                    commands.queue(move |world: &mut World| {
+                        rewind::rewind(world, rewind)
+                    });
+                },
+            )
+            .add_observer(|stop: On<Stop>, jobs: Query<&Jobs>| {
+                if let Ok(jobs) = jobs.get(stop.event().session) {
+                    let reason = stop.event().reason.clone();
+                    let _ = jobs.stops.send((reason, jobs.last));
+                }
+            })
+            .add_observer(relate)
+            // A turn may have put a skill in the library.
+            .add_observer(
+                |_: On<JobFinished>, mut commands: Commands| {
+                    commands.queue(core::reshelve)
+                },
+            )
+            .add_systems(
+                Update,
+                drain
+                    .run_if(|inbox: Res<Inbox>| !inbox.rx.is_empty())
+                    .before(agents::watch),
+            )
+            .add_systems(Last, stop_on_exit);
+    }
+}
+
 /// One thing a session produces while it works.
 #[derive(Clone, Debug)]
 pub enum Reply {
@@ -159,61 +213,6 @@ pub(crate) struct Closing;
 /// agents may ask a chief questions and argue with instructions.
 #[derive(Resource)]
 pub(crate) struct Overseen;
-
-/// Sessions, their workers and the letters between agents.
-pub struct SessionPlugin;
-
-impl Plugin for SessionPlugin {
-    fn build(&self, app: &mut App) {
-        let (tx, rx) = unbounded_channel();
-        app.insert_resource(Inbox { tx, rx })
-            .init_resource::<Workers>()
-            .add_observer(
-                |msg: On<UserMessage>, mut commands: Commands| {
-                    let msg = msg.event().clone();
-                    commands.queue(move |world: &mut World| {
-                        deliver(world, msg, None)
-                    });
-                },
-            )
-            .add_observer(
-                |letter: On<Letter>, mut commands: Commands| {
-                    let letter = letter.event().clone();
-                    commands.queue(move |world: &mut World| {
-                        post(world, letter)
-                    });
-                },
-            )
-            .add_observer(
-                |rewind: On<Rewind>, mut commands: Commands| {
-                    let rewind = rewind.event().clone();
-                    commands.queue(move |world: &mut World| {
-                        rewind::rewind(world, rewind)
-                    });
-                },
-            )
-            .add_observer(|stop: On<Stop>, jobs: Query<&Jobs>| {
-                if let Ok(jobs) = jobs.get(stop.event().session) {
-                    let reason = stop.event().reason.clone();
-                    let _ = jobs.stops.send((reason, jobs.last));
-                }
-            })
-            .add_observer(relate)
-            // A turn may have put a skill in the library.
-            .add_observer(
-                |_: On<JobFinished>, mut commands: Commands| {
-                    commands.queue(core::reshelve)
-                },
-            )
-            .add_systems(
-                Update,
-                drain
-                    .run_if(|inbox: Res<Inbox>| !inbox.rx.is_empty())
-                    .before(agents::watch),
-            )
-            .add_systems(Last, stop_on_exit);
-    }
-}
 
 fn find(world: &mut World, key: &SessionKey) -> Option<Entity> {
     world

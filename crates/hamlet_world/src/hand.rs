@@ -30,6 +30,54 @@ use crate::keeper::Act;
 use crate::moving::Carrying;
 use crate::pick::{self, Hovered, Reach, Taken, Thing, Travel};
 
+pub(super) fn plugin(app: &mut App) {
+    app.init_resource::<PlaySettings>()
+        .init_resource::<Hand>()
+        .init_resource::<Reach>()
+        .init_resource::<Taken>()
+        .init_resource::<Travel>()
+        .init_resource::<HoverMap>()
+        .add_message::<Wish>()
+        .add_message::<Tap>()
+        .add_message::<FileDragAndDrop>()
+        .add_observer(touch::tap)
+        .add_observer(touch::tell)
+        .add_observer(touch::nudge)
+        .add_observer(lift::grab)
+        .add_observer(lift::let_go)
+        .add_observer(lift::drag_end)
+        .add_observer(touch::finished)
+        .add_systems(Startup, (toys::prepare, pool::gauge::prepare))
+        .add_systems(
+            Update,
+            (
+                (meet, claims, touch::room),
+                (
+                    touch::pokes,
+                    touch::pats,
+                    lift::carry,
+                    lift::fall,
+                    given::letters,
+                ),
+                (
+                    notice::watch,
+                    notice::join,
+                    notice::face,
+                    touch::fade,
+                )
+                    .chain(),
+                (pool::meters, toys::play),
+            )
+                .chain()
+                .after(pick::aim)
+                .before(WorldSystems),
+        )
+        .add_systems(
+            PostUpdate,
+            pool::readouts.before(bevy::ui::UiSystems::Layout),
+        );
+}
+
 /// A chief's hand on the world: poking, patting and lifting the
 /// robots, and what it gives them.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
@@ -221,54 +269,6 @@ impl Hand {
             None => self.within.map(|_| Grip::Ready),
         }
     }
-}
-
-pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<PlaySettings>()
-        .init_resource::<Hand>()
-        .init_resource::<Reach>()
-        .init_resource::<Taken>()
-        .init_resource::<Travel>()
-        .init_resource::<HoverMap>()
-        .add_message::<Wish>()
-        .add_message::<Tap>()
-        .add_message::<FileDragAndDrop>()
-        .add_observer(touch::tap)
-        .add_observer(touch::tell)
-        .add_observer(touch::nudge)
-        .add_observer(lift::grab)
-        .add_observer(lift::let_go)
-        .add_observer(lift::drag_end)
-        .add_observer(touch::finished)
-        .add_systems(Startup, (toys::prepare, pool::gauge::prepare))
-        .add_systems(
-            Update,
-            (
-                (meet, claims, touch::room),
-                (
-                    touch::pokes,
-                    touch::pats,
-                    lift::carry,
-                    lift::fall,
-                    given::letters,
-                ),
-                (
-                    notice::watch,
-                    notice::join,
-                    notice::face,
-                    touch::fade,
-                )
-                    .chain(),
-                (pool::meters, toys::play),
-            )
-                .chain()
-                .after(pick::aim)
-                .before(WorldSystems),
-        )
-        .add_systems(
-            PostUpdate,
-            pool::readouts.before(bevy::ui::UiSystems::Layout),
-        );
 }
 
 /// The angle from `a` to `b`, the short way round.

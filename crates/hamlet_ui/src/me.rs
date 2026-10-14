@@ -15,6 +15,28 @@ use hamlet_world::pick::{Selected, Thing, select};
 
 use crate::dock::show_tab;
 
+/// Opens the chat with the first mayor.
+pub(crate) fn plugin(app: &mut App) {
+    let user = user();
+    let key = SessionKey {
+        channel: "app".into(),
+        chat: user.clone(),
+        thread: "main".into(),
+    };
+    let session = session::ensure(app.world_mut(), &key);
+    let mayor =
+        agents::mayor(app.world_mut()).unwrap_or(Entity::PLACEHOLDER);
+    session::gather(app.world_mut(), mayor);
+    app.insert_resource(Me {
+        session,
+        key,
+        user,
+        mayor: session,
+        agent: mayor,
+        with: None,
+    });
+}
+
 /// The chat session this window shows and sends to.
 #[derive(Resource)]
 pub struct Me {
@@ -161,28 +183,6 @@ pub(crate) fn user() -> String {
     std::env::var("HAMLET_USER")
         .or_else(|_| std::env::var("USER"))
         .unwrap_or_else(|_| "user".into())
-}
-
-/// Opens the chat with the first mayor.
-pub(crate) fn plugin(app: &mut App) {
-    let user = user();
-    let key = SessionKey {
-        channel: "app".into(),
-        chat: user.clone(),
-        thread: "main".into(),
-    };
-    let session = session::ensure(app.world_mut(), &key);
-    let mayor =
-        agents::mayor(app.world_mut()).unwrap_or(Entity::PLACEHOLDER);
-    session::gather(app.world_mut(), mayor);
-    app.insert_resource(Me {
-        session,
-        key,
-        user,
-        mayor: session,
-        agent: mayor,
-        with: None,
-    });
 }
 
 #[cfg(test)]

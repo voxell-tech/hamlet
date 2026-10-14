@@ -45,6 +45,31 @@ use crate::me::Me;
 use crate::window::WorldShown;
 use crate::{Build, Ui};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<TimeOfDay>()
+        .insert_resource(hamlet_world::pick::NoNameTag)
+        .add_systems(
+            Update,
+            (
+                drive.before(WorldSystems),
+                pace.run_if(in_state(WorldShown)),
+                adopt_tags,
+                follow_scale,
+                hold_sky.before(WorldSystems),
+            ),
+        )
+        .add_systems(
+            PreUpdate,
+            match_pointer_target
+                .after(bevy::picking::pointer::PointerInput::receive)
+                .before(
+                    bevy::picking::backend::ray::RayMap::repopulate,
+                ),
+        )
+        .add_systems(OnEnter(WorldShown), draw)
+        .add_systems(OnExit(WorldShown), rest);
+}
+
 /// The camera that draws the world into the panel.
 #[derive(Resource)]
 pub(crate) struct WorldCam(Entity);
@@ -326,29 +351,4 @@ pub fn rest(mut cameras: WorldCameras) {
     for mut camera in &mut cameras {
         camera.is_active = false;
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<TimeOfDay>()
-        .insert_resource(hamlet_world::pick::NoNameTag)
-        .add_systems(
-            Update,
-            (
-                drive.before(WorldSystems),
-                pace.run_if(in_state(WorldShown)),
-                adopt_tags,
-                follow_scale,
-                hold_sky.before(WorldSystems),
-            ),
-        )
-        .add_systems(
-            PreUpdate,
-            match_pointer_target
-                .after(bevy::picking::pointer::PointerInput::receive)
-                .before(
-                    bevy::picking::backend::ray::RayMap::repopulate,
-                ),
-        )
-        .add_systems(OnEnter(WorldShown), draw)
-        .add_systems(OnExit(WorldShown), rest);
 }

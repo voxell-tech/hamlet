@@ -22,6 +22,50 @@ pub use self::mix::Ears;
 pub use self::synth::RATE;
 use crate::{Step, WorldCamera, WorldSystems};
 
+/// Sound for a world. Does nothing where the app has no audio.
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<SoundSettings>()
+        .add_message::<Cue>()
+        .add_observer(heard::hear_answer)
+        .add_observer(heard::hear_veto)
+        .configure_sets(
+            Update,
+            Cues.run_if(in_state(Hearing::On)).after(Step::Robots),
+        )
+        .add_systems(
+            Update,
+            (heard::hear_hand, heard::turn_of_day).before(Cues),
+        );
+    if !app.is_plugin_added::<AudioPlugin>() {
+        return;
+    }
+    app.add_audio_source::<Clip>()
+        .init_state::<Hearing>()
+        .init_resource::<mix::Heard>()
+        .add_systems(Startup, mix::spawn_ears)
+        .add_systems(Update, listen.before(WorldSystems))
+        .add_systems(OnEnter(Hearing::On), clip::make_clips)
+        .add_systems(
+            Update,
+            (
+                clip::bank_clips
+                    .run_if(resource_exists::<clip::Making>),
+                (
+                    mix::place_ears,
+                    mix::start_ambience,
+                    mix::mix_ambience,
+                    mix::play,
+                )
+                    .chain()
+                    .run_if(resource_exists::<clip::Bank>),
+            )
+                .chain()
+                .run_if(in_state(Hearing::On))
+                .after(Cues),
+        )
+        .add_plugins(music::band::plugin);
+}
+
 /// The share of one kind of sound heard at a time.
 #[derive(Clone, Copy, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -182,50 +226,6 @@ pub struct Cue {
 /// poses.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Cues;
-
-/// Sound for a world. Does nothing where the app has no audio.
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<SoundSettings>()
-        .add_message::<Cue>()
-        .add_observer(heard::hear_answer)
-        .add_observer(heard::hear_veto)
-        .configure_sets(
-            Update,
-            Cues.run_if(in_state(Hearing::On)).after(Step::Robots),
-        )
-        .add_systems(
-            Update,
-            (heard::hear_hand, heard::turn_of_day).before(Cues),
-        );
-    if !app.is_plugin_added::<AudioPlugin>() {
-        return;
-    }
-    app.add_audio_source::<Clip>()
-        .init_state::<Hearing>()
-        .init_resource::<mix::Heard>()
-        .add_systems(Startup, mix::spawn_ears)
-        .add_systems(Update, listen.before(WorldSystems))
-        .add_systems(OnEnter(Hearing::On), clip::make_clips)
-        .add_systems(
-            Update,
-            (
-                clip::bank_clips
-                    .run_if(resource_exists::<clip::Making>),
-                (
-                    mix::place_ears,
-                    mix::start_ambience,
-                    mix::mix_ambience,
-                    mix::play,
-                )
-                    .chain()
-                    .run_if(resource_exists::<clip::Bank>),
-            )
-                .chain()
-                .run_if(in_state(Hearing::On))
-                .after(Cues),
-        )
-        .add_plugins(music::band::plugin);
-}
 
 /// True when the world is being drawn in a window that is shown.
 fn drawn(

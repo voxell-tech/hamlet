@@ -16,6 +16,12 @@ use bevy::window::RequestRedraw;
 
 use crate::{Now, Tints, VfxSystems};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<WindSettings>()
+        .add_systems(Startup, prepare)
+        .add_systems(Update, blow.in_set(VfxSystems));
+}
+
 /// The wind's lines.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -73,12 +79,6 @@ struct Gust {
     began: f32,
     light: f32,
     line: Handle<StandardMaterial>,
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<WindSettings>()
-        .add_systems(Startup, prepare)
-        .add_systems(Update, blow.in_set(VfxSystems));
 }
 
 /// Points along the ribbon, as shares of its length.

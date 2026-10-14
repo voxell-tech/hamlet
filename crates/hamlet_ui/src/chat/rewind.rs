@@ -28,6 +28,10 @@ use crate::me::Me;
 use crate::world_menu::{self, Deed};
 use crate::{Build, Ui};
 
+pub(super) fn plugin(app: &mut App) {
+    app.add_observer(reveal).add_observer(retype);
+}
+
 /// The room of a mark about its picture, and the room it takes
 /// beside its message.
 const AROUND: f32 = 4.0;
@@ -118,8 +122,4 @@ fn retype(
     // The field is focused two steps on. A send starts a step
     // earlier, at the one that clears it.
     draft.step = 2;
-}
-
-pub(super) fn plugin(app: &mut App) {
-    app.add_observer(reveal).add_observer(retype);
 }

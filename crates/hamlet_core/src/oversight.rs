@@ -40,58 +40,9 @@ use crate::session::{
     ToolStarting, TurnDropped, TurnStarted,
 };
 
-/// The words the oversight rules look for and how much they quote.
-#[derive(Resource, Clone, Debug)]
-pub(crate) struct Rules {
-    pub words: Words,
-    /// The most of the mayor's notes its review of an instruction is
-    /// shown, in characters.
-    pub review_notes: usize,
-}
-
-impl Default for Rules {
-    fn default() -> Self {
-        Rules {
-            words: Words::default(),
-            review_notes: 2000,
-        }
-    }
-}
-
-/// Present when the mayor is never asked about an instruction,
-/// whatever the limits say.
-#[derive(Resource)]
-pub struct Unreviewed;
-
-fn hamlet(world: &World) -> Hamlet {
-    Hamlet::new(world.resource::<HomeDir>().0.root.clone())
-}
-
-/// The chief's limits as they were last read. Where the file
-/// cannot be read, the strictest reading of what this module takes
-/// from it.
-fn limits(world: &World) -> Limits {
-    agents::limits(world).unwrap_or_else(|_| Limits {
-        asking: hamlet_home::limits::Asking {
-            mayor_review: Review::Never,
-            ..Default::default()
-        },
-        ..Limits::default()
-    })
-}
-
-/// A chief takes a permission back.
-#[derive(Event, Clone, Debug)]
-pub struct Revoke {
-    pub agent: String,
-    pub permission: Permission,
-    pub chief: String,
-}
-
 /// Holds tool calls and instructions for a chief, and takes the
 /// chief's answers.
 pub struct OversightPlugin;
-
 impl Plugin for OversightPlugin {
     fn build(&self, app: &mut App) {
         let root = app.world().resource::<HomeDir>().0.root.clone();
@@ -270,6 +221,54 @@ impl Plugin for OversightPlugin {
             .add_systems(Startup, (recall, departed))
             .add_systems(Update, review::hear.run_if(review::heard));
     }
+}
+
+/// The words the oversight rules look for and how much they quote.
+#[derive(Resource, Clone, Debug)]
+pub(crate) struct Rules {
+    pub words: Words,
+    /// The most of the mayor's notes its review of an instruction is
+    /// shown, in characters.
+    pub review_notes: usize,
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        Rules {
+            words: Words::default(),
+            review_notes: 2000,
+        }
+    }
+}
+
+/// Present when the mayor is never asked about an instruction,
+/// whatever the limits say.
+#[derive(Resource)]
+pub struct Unreviewed;
+
+fn hamlet(world: &World) -> Hamlet {
+    Hamlet::new(world.resource::<HomeDir>().0.root.clone())
+}
+
+/// The chief's limits as they were last read. Where the file
+/// cannot be read, the strictest reading of what this module takes
+/// from it.
+fn limits(world: &World) -> Limits {
+    agents::limits(world).unwrap_or_else(|_| Limits {
+        asking: hamlet_home::limits::Asking {
+            mayor_review: Review::Never,
+            ..Default::default()
+        },
+        ..Limits::default()
+    })
+}
+
+/// A chief takes a permission back.
+#[derive(Event, Clone, Debug)]
+pub struct Revoke {
+    pub agent: String,
+    pub permission: Permission,
+    pub chief: String,
 }
 
 #[cfg(test)]

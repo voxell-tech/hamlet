@@ -35,6 +35,14 @@ use crate::platform::{DisplayText, MonoText, Wraps};
 use crate::theme::{BRASS_6, CARD, Lamplight};
 use crate::{Build, Ui, chat};
 
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Reason>()
+        .init_resource::<Queue>()
+        .add_observer(tag_answered)
+        .add_observer(tag_opened)
+        .add_systems(Update, (show_new, keep_queue));
+}
+
 /// The reason or reply the next answer carries.
 #[derive(Resource, Default)]
 pub struct Reason(String);
@@ -328,12 +336,4 @@ pub fn screen() -> Ui {
     .fills_height()
     .gap(12.0)
     .boxed()
-}
-
-pub fn plugin(app: &mut App) {
-    app.init_resource::<Reason>()
-        .init_resource::<Queue>()
-        .add_observer(tag_answered)
-        .add_observer(tag_opened)
-        .add_systems(Update, (show_new, keep_queue));
 }

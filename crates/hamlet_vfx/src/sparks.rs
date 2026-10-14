@@ -8,6 +8,19 @@ use bevy_hanabi::prelude::*;
 
 use crate::{Density, Now, Tints, VfxSystems};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<SparkSettings>()
+        .init_resource::<Density>();
+    // A world with nothing to draw on has no particles.
+    if !app.is_plugin_added::<RenderPlugin>() {
+        return;
+    }
+    if !app.is_plugin_added::<HanabiPlugin>() {
+        app.add_plugins(HanabiPlugin);
+    }
+    app.add_systems(Update, (make, clear).chain().in_set(VfxSystems));
+}
+
 /// The world's particles.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -62,19 +75,6 @@ struct Spent(f32);
 /// A swarm of fireflies.
 #[derive(Component)]
 struct Swarm;
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<SparkSettings>()
-        .init_resource::<Density>();
-    // A world with nothing to draw on has no particles.
-    if !app.is_plugin_added::<RenderPlugin>() {
-        return;
-    }
-    if !app.is_plugin_added::<HanabiPlugin>() {
-        app.add_plugins(HanabiPlugin);
-    }
-    app.add_systems(Update, (make, clear).chain().in_set(VfxSystems));
-}
 
 /// A colour that is `light` times white at its brightest and fades
 /// to nothing, as `(age, colour)` keys.

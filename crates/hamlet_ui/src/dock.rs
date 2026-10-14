@@ -21,6 +21,10 @@ use crate::platform::{ClipInside, Glow};
 use crate::theme::{BLACK, Lamplight};
 use crate::{Ui, inspector, needs, remember, settings, world_view};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.add_systems(Update, keep_wide);
+}
+
 /// A dock panel's contents.
 pub fn panel(view: Ui) -> Ui {
     lit_panel(view, Lit::default())
@@ -216,10 +220,6 @@ pub(crate) fn show_tab(world: &mut World, id: &str) {
     if id == "agent" {
         world.trigger(hamlet_core::core::RefreshLists);
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Update, keep_wide);
 }
 
 #[cfg(test)]

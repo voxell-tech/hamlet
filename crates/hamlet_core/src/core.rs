@@ -21,6 +21,72 @@ use tokio::sync::mpsc::{
 
 use crate::agents::AgentsPlugin;
 
+/// The settings, the model, the sandbox and the home as resources,
+/// and the hamlets of the home as entities.
+pub struct CorePlugin {
+    pub home: Home,
+    pub sandbox: &'static dyn Sandbox,
+    pub tokio: tokio::runtime::Handle,
+    pub config: Config,
+    /// Recorded assistant messages that answer in a model's place.
+    pub replay: Option<Vec<Value>>,
+}
+impl Plugin for CorePlugin {
+    fn build(&self, app: &mut App) {
+        let provider: Arc<dyn Provider> = match &self.replay {
+            Some(responses) => {
+                Arc::new(Replay::new(responses.clone()))
+            }
+            None => provider_for(&self.config),
+        };
+        app.insert_resource(Tokio(self.tokio.clone()))
+            .insert_resource(HomeDir(self.home.clone()))
+            .insert_resource(Sandboxing(self.sandbox))
+            .insert_resource(Model {
+                provider,
+                replay: self.replay.is_some(),
+            })
+            .insert_resource(Settings {
+                config: self.config.clone(),
+                error: None,
+            })
+            .init_resource::<Rounds<Tested>>()
+            .init_resource::<Rounds<ListResult>>()
+            .init_resource::<Rounds<Tried>>()
+            .init_resource::<Trial>()
+            .add_observer(try_model)
+            .init_resource::<Rounds<SignedIn>>()
+            .init_resource::<Signing>()
+            .add_observer(sign_in)
+            .init_resource::<Listing>()
+            .add_observer(list_models)
+            .init_resource::<Link>()
+            .init_resource::<Skills>()
+            .init_resource::<Shelved>()
+            .add_observer(save_settings)
+            .add_observer(test_connection)
+            .add_observer(
+                |_: On<RefreshLists>, mut commands: Commands| {
+                    commands.queue(refresh_lists)
+                },
+            )
+            .add_systems(Startup, refresh_lists)
+            .add_systems(
+                Update,
+                (
+                    hear::<Tested, Link>.run_if(answered::<Tested>),
+                    hear::<Tried, Trial>.run_if(answered::<Tried>),
+                    hear::<SignedIn, Signing>
+                        .run_if(answered::<SignedIn>),
+                    poll_lists.run_if(answered::<ListResult>),
+                ),
+            );
+        app.add_plugins(AgentsPlugin {
+            home: self.home.root.clone(),
+        });
+    }
+}
+
 /// The tokio runtime that background work is spawned on.
 #[derive(Resource)]
 pub struct Tokio(pub tokio::runtime::Handle);
@@ -282,73 +348,6 @@ fn sign_in(
         .map_err(|e| format!("{e:#}"));
         tell(went);
     });
-}
-
-/// The settings, the model, the sandbox and the home as resources,
-/// and the hamlets of the home as entities.
-pub struct CorePlugin {
-    pub home: Home,
-    pub sandbox: &'static dyn Sandbox,
-    pub tokio: tokio::runtime::Handle,
-    pub config: Config,
-    /// Recorded assistant messages that answer in a model's place.
-    pub replay: Option<Vec<Value>>,
-}
-
-impl Plugin for CorePlugin {
-    fn build(&self, app: &mut App) {
-        let provider: Arc<dyn Provider> = match &self.replay {
-            Some(responses) => {
-                Arc::new(Replay::new(responses.clone()))
-            }
-            None => provider_for(&self.config),
-        };
-        app.insert_resource(Tokio(self.tokio.clone()))
-            .insert_resource(HomeDir(self.home.clone()))
-            .insert_resource(Sandboxing(self.sandbox))
-            .insert_resource(Model {
-                provider,
-                replay: self.replay.is_some(),
-            })
-            .insert_resource(Settings {
-                config: self.config.clone(),
-                error: None,
-            })
-            .init_resource::<Rounds<Tested>>()
-            .init_resource::<Rounds<ListResult>>()
-            .init_resource::<Rounds<Tried>>()
-            .init_resource::<Trial>()
-            .add_observer(try_model)
-            .init_resource::<Rounds<SignedIn>>()
-            .init_resource::<Signing>()
-            .add_observer(sign_in)
-            .init_resource::<Listing>()
-            .add_observer(list_models)
-            .init_resource::<Link>()
-            .init_resource::<Skills>()
-            .init_resource::<Shelved>()
-            .add_observer(save_settings)
-            .add_observer(test_connection)
-            .add_observer(
-                |_: On<RefreshLists>, mut commands: Commands| {
-                    commands.queue(refresh_lists)
-                },
-            )
-            .add_systems(Startup, refresh_lists)
-            .add_systems(
-                Update,
-                (
-                    hear::<Tested, Link>.run_if(answered::<Tested>),
-                    hear::<Tried, Trial>.run_if(answered::<Tried>),
-                    hear::<SignedIn, Signing>
-                        .run_if(answered::<SignedIn>),
-                    poll_lists.run_if(answered::<ListResult>),
-                ),
-            );
-        app.add_plugins(AgentsPlugin {
-            home: self.home.root.clone(),
-        });
-    }
 }
 
 fn save_settings(

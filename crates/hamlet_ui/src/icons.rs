@@ -17,6 +17,10 @@ use self::Shape::{
     Arc, Curve, Dot, Fill, Line, Loop, Path, Ring, Round,
 };
 
+pub fn plugin(app: &mut App) {
+    app.insert_resource(dock()).add_systems(Startup, draw);
+}
+
 /// The side of the square every icon is drawn in, in its own units.
 const GRID: f32 = 16.0;
 
@@ -704,10 +708,6 @@ pub fn draw(mut images: ResMut<Assets<Image>>) {
                 .insert(&which.drawing(drawn), drawing(which, size));
         }
     }
-}
-
-pub fn plugin(app: &mut App) {
-    app.insert_resource(dock()).add_systems(Startup, draw);
 }
 
 #[cfg(test)]

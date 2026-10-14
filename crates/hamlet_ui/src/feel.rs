@@ -23,6 +23,38 @@ use crate::theme::{
     RUNE,
 };
 
+/// The feel of the controls, the dock's hint and the panels'
+/// backdrops.
+pub fn plugin(app: &mut App) {
+    embedded_asset!(app, "feel/backdrop.wgsl");
+    embedded_asset!(app, "feel/lamp.wgsl");
+    app.add_plugins((
+        UiMaterialPlugin::<backdrop::Backdrop>::default(),
+        UiMaterialPlugin::<control::Lamp>::default(),
+    ))
+    .init_resource::<FeelSettings>()
+    .init_resource::<MagicColors>()
+    .add_observer(control::answer)
+    .add_systems(
+        Update,
+        (
+            (
+                control::arm,
+                control::hover_tick,
+                control::press_tap,
+                control::feel,
+                control::light,
+                control::spill,
+                control::embers,
+                foot::foot_lights,
+            )
+                .chain(),
+            drag::dress_drag,
+            (backdrop::lay, backdrop::tint, backdrop::light).chain(),
+        ),
+    );
+}
+
 /// The meaning of a press on a button, which sets its light, its
 /// sound and its motion.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Default)]
@@ -173,38 +205,6 @@ impl Default for MagicColors {
             ghost: BLACK,
         }
     }
-}
-
-/// The feel of the controls, the dock's hint and the panels'
-/// backdrops.
-pub fn plugin(app: &mut App) {
-    embedded_asset!(app, "feel/backdrop.wgsl");
-    embedded_asset!(app, "feel/lamp.wgsl");
-    app.add_plugins((
-        UiMaterialPlugin::<backdrop::Backdrop>::default(),
-        UiMaterialPlugin::<control::Lamp>::default(),
-    ))
-    .init_resource::<FeelSettings>()
-    .init_resource::<MagicColors>()
-    .add_observer(control::answer)
-    .add_systems(
-        Update,
-        (
-            (
-                control::arm,
-                control::hover_tick,
-                control::press_tap,
-                control::feel,
-                control::light,
-                control::spill,
-                control::embers,
-                foot::foot_lights,
-            )
-                .chain(),
-            drag::dress_drag,
-            (backdrop::lay, backdrop::tint, backdrop::light).chain(),
-        ),
-    );
 }
 
 fn linear(color: Color) -> Vec3 {

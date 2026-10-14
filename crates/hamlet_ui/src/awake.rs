@@ -8,6 +8,12 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use hamlet_core::agents::Busy;
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<KeepAwake>()
+        .init_resource::<Holder>()
+        .add_systems(Update, hold);
+}
+
 /// The machine is kept awake while an agent works.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct KeepAwake(pub bool);
@@ -85,10 +91,4 @@ pub fn hold(
     } else {
         release(&mut holder.0);
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<KeepAwake>()
-        .init_resource::<Holder>()
-        .add_systems(Update, hold);
 }

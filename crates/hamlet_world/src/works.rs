@@ -21,6 +21,26 @@ use crate::pick::{self, Footprint, Named, Reads, Thing, hit_box};
 use crate::play::{Play, Played};
 use crate::{Sky, Stock, WorldSystems, adopt};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<WorksSettings>()
+        .add_observer(click)
+        .add_systems(Startup, prepare)
+        .add_systems(
+            Update,
+            (
+                fit,
+                show,
+                title.run_if(
+                    any_match_filter::<
+                        Or<(Changed<Works>, Added<Top>)>,
+                    >,
+                ),
+            )
+                .chain()
+                .before(WorldSystems),
+        );
+}
+
 /// The workbench of a common.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -628,24 +648,4 @@ fn click(
             });
         }
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<WorksSettings>()
-        .add_observer(click)
-        .add_systems(Startup, prepare)
-        .add_systems(
-            Update,
-            (
-                fit,
-                show,
-                title.run_if(
-                    any_match_filter::<
-                        Or<(Changed<Works>, Added<Top>)>,
-                    >,
-                ),
-            )
-                .chain()
-                .before(WorldSystems),
-        );
 }

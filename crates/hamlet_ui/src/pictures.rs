@@ -37,6 +37,16 @@ use crate::chat::ChatSettings;
 use crate::links::{Anchor, seek};
 use crate::markdown::Target;
 
+/// Reads the pictures of the chat off the frame and keeps them.
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Pictures>()
+        .init_resource::<ChatSettings>()
+        .add_observer(show)
+        .add_observer(unshow)
+        .add_observer(look_again)
+        .add_systems(Update, take.run_if(arrived));
+}
+
 /// The endings of the files drawn as pictures, in small letters.
 const PICTURED: [&str; 6] =
     ["bmp", "gif", "jpeg", "jpg", "png", "webp"];
@@ -441,16 +451,6 @@ fn look_again(
     if !pictures.shown.is_empty() {
         pictures.look_again(bounds(&settings));
     }
-}
-
-/// Reads the pictures of the chat off the frame and keeps them.
-pub fn plugin(app: &mut App) {
-    app.init_resource::<Pictures>()
-        .init_resource::<ChatSettings>()
-        .add_observer(show)
-        .add_observer(unshow)
-        .add_observer(look_again)
-        .add_systems(Update, take.run_if(arrived));
 }
 
 #[cfg(test)]

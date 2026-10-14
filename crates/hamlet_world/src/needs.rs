@@ -15,6 +15,15 @@ use hamlet_rules::chief::rulings::Choice;
 use super::label::{self, Lens};
 use super::pick::{Footprint, Named, Pressable, Thing};
 
+pub(super) fn plugin(app: &mut App) {
+    app.init_resource::<TagSettings>()
+        .add_systems(Startup, draw_glyphs)
+        .add_systems(
+            PostUpdate,
+            (hang, place).chain().before(UiSystems::Layout),
+        );
+}
+
 /// The paper tag at a house.
 #[derive(
     Resource, Clone, Copy, PartialEq, Debug, serde::Deserialize,
@@ -81,15 +90,6 @@ struct Mark {
 struct Glyphs {
     check: Handle<Image>,
     cross: Handle<Image>,
-}
-
-pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<TagSettings>()
-        .add_systems(Startup, draw_glyphs)
-        .add_systems(
-            PostUpdate,
-            (hang, place).chain().before(UiSystems::Layout),
-        );
 }
 
 fn draw_glyphs(

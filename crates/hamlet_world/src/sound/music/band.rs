@@ -14,6 +14,24 @@ use crate::sound::clip::Clip;
 use crate::sound::{Cue, Cues, SoundSettings, drawn};
 use crate::{DayPart, WorldCamera};
 
+pub(in crate::sound) fn plugin(app: &mut App) {
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(7, |since| since.subsec_nanos());
+    app.insert_resource(Band {
+        composer: Composer::new(seed),
+        level: 0.0,
+        dim: 1.0,
+        next: None,
+        making: None,
+        made: None,
+        moment: None,
+        answering: None,
+        answered: f32::MIN,
+    })
+    .add_systems(Update, conduct.after(Cues));
+}
+
 /// A breath or a phrase that is playing.
 #[derive(Component)]
 struct Strain;
@@ -53,24 +71,6 @@ fn busy(society: Option<&Society>, set: &SoundSettings) -> f32 {
             .count()
     });
     (at_work as f32 / set.busy_full.max(1.0)).min(1.0)
-}
-
-pub(in crate::sound) fn plugin(app: &mut App) {
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(7, |since| since.subsec_nanos());
-    app.insert_resource(Band {
-        composer: Composer::new(seed),
-        level: 0.0,
-        dim: 1.0,
-        next: None,
-        making: None,
-        made: None,
-        moment: None,
-        answering: None,
-        answered: f32::MIN,
-    })
-    .add_systems(Update, conduct.after(Cues));
 }
 
 /// Keeps the music going while it is wanted: writes each breath a

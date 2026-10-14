@@ -14,6 +14,18 @@ use super::label::{self, Lens};
 use super::sound::{Cue, Sound};
 use crate::pick::PickSettings;
 
+/// Draws the balloons of every agent that is [`Saying`] something.
+pub fn plugin(app: &mut App) {
+    app.init_resource::<BubbleSettings>()
+        .add_systems(
+            PostUpdate,
+            (bubbles, dots, pop_cues)
+                .chain()
+                .before(UiSystems::Layout),
+        )
+        .add_systems(Update, unpin);
+}
+
 /// The bubbles over robots.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -94,18 +106,6 @@ pub(crate) struct Pinned(pub f32);
 /// One of the dots of a thought that has no words yet.
 #[derive(Component)]
 struct Dot(f32);
-
-/// Draws the balloons of every agent that is [`Saying`] something.
-pub fn plugin(app: &mut App) {
-    app.init_resource::<BubbleSettings>()
-        .add_systems(
-            PostUpdate,
-            (bubbles, dots, pop_cues)
-                .chain()
-                .before(UiSystems::Layout),
-        )
-        .add_systems(Update, unpin);
-}
 
 /// Lets each pin run out.
 pub(super) fn unpin(

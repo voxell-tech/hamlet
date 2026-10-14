@@ -29,6 +29,12 @@ use crate::looks::{
 };
 use crate::overview::heading;
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Book>()
+        .init_resource::<Part>()
+        .add_systems(Update, follow);
+}
+
 /// The chief's limits as the window shows them.
 #[derive(Resource, Default)]
 pub struct Book {
@@ -597,12 +603,6 @@ impl Part {
             }
         }
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Book>()
-        .init_resource::<Part>()
-        .add_systems(Update, follow);
 }
 
 #[cfg(test)]

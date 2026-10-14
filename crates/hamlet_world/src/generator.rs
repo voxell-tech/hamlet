@@ -69,37 +69,12 @@ use super::sound::Cues;
 use super::{Clock, Sky, Step, base};
 use crate::sky::{Quality, SkySettings};
 
-/// Everything the generated world is shaped by. The land keeps the
-/// copy it was built from, so a change means a new land.
-#[derive(Clone, PartialEq, Debug, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct GenSettings {
-    pub land: LandSettings,
-    pub town: TownSettings,
-    pub house: HouseSettings,
-    pub yard: YardSettings,
-    pub road: RoadSettings,
-}
-
 /// Draws whatever [`Society`] holds, and draws again only what a
 /// change touches. It needs Bevy's default plugins.
 pub struct GenPlugin {
     pub seed: u64,
     pub settings: GenSettings,
 }
-
-/// Tells the effects the scene's time.
-fn tell_effects(clock: Res<Clock>, mut now: ResMut<Now>) {
-    now.0 = clock.t;
-}
-
-/// Gives the effects the share of particles the quality allows.
-fn thin_effects(quality: Res<Quality>, mut density: ResMut<Density>) {
-    if density.0 != quality.density() {
-        density.0 = quality.density();
-    }
-}
-
 impl Default for GenPlugin {
     fn default() -> Self {
         Self {
@@ -108,7 +83,6 @@ impl Default for GenPlugin {
         }
     }
 }
-
 impl Plugin for GenPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(base);
@@ -219,6 +193,30 @@ impl Plugin for GenPlugin {
                     .run_if(shown)
                     .after(TransformSystems::Propagate),
             );
+    }
+}
+
+/// Everything the generated world is shaped by. The land keeps the
+/// copy it was built from, so a change means a new land.
+#[derive(Clone, PartialEq, Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GenSettings {
+    pub land: LandSettings,
+    pub town: TownSettings,
+    pub house: HouseSettings,
+    pub yard: YardSettings,
+    pub road: RoadSettings,
+}
+
+/// Tells the effects the scene's time.
+fn tell_effects(clock: Res<Clock>, mut now: ResMut<Now>) {
+    now.0 = clock.t;
+}
+
+/// Gives the effects the share of particles the quality allows.
+fn thin_effects(quality: Res<Quality>, mut density: ResMut<Density>) {
+    if density.0 != quality.density() {
+        density.0 = quality.density();
     }
 }
 

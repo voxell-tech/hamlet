@@ -15,6 +15,10 @@ use hamlet_core::agents::{
 };
 use hamlet_core::oversight::Waiting;
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Roll>().add_systems(Update, turn_roll);
+}
+
 /// Counts the changes to what the panels show, so a panel reads
 /// again only then.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
@@ -137,8 +141,4 @@ fn turn_roll(
     if answered.read().count() > 0 || !waits.is_empty() {
         roll.waits += 1;
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Roll>().add_systems(Update, turn_roll);
 }

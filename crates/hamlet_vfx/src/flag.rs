@@ -13,6 +13,24 @@ use bevy::window::RequestRedraw;
 use crate::wind::{WindSettings, downwind};
 use crate::{Now, VfxSystems};
 
+pub(crate) fn plugin(app: &mut App) {
+    embedded_asset!(app, "flag.wgsl");
+    app.add_plugins(MaterialPlugin::<FlagMaterial>::default())
+        .init_resource::<FlagSettings>()
+        .init_resource::<Waving>()
+        .add_systems(
+            Update,
+            wave.run_if(any_with_component::<Cloth>)
+                .in_set(VfxSystems),
+        )
+        .add_systems(
+            PostUpdate,
+            keep_waving.run_if(any_with_component::<Cloth>).after(
+                VisibilitySystems::MarkNewlyHiddenEntitiesInvisible,
+            ),
+        );
+}
+
 pub type FlagMaterial = ExtendedMaterial<StandardMaterial, FlagExt>;
 
 /// The waving of a flag.
@@ -89,24 +107,6 @@ impl Waving {
         self.0.push((long, waving.clone()));
         waving
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    embedded_asset!(app, "flag.wgsl");
-    app.add_plugins(MaterialPlugin::<FlagMaterial>::default())
-        .init_resource::<FlagSettings>()
-        .init_resource::<Waving>()
-        .add_systems(
-            Update,
-            wave.run_if(any_with_component::<Cloth>)
-                .in_set(VfxSystems),
-        )
-        .add_systems(
-            PostUpdate,
-            keep_waving.run_if(any_with_component::<Cloth>).after(
-                VisibilitySystems::MarkNewlyHiddenEntitiesInvisible,
-            ),
-        );
 }
 
 /// The cloth of a flag `long` by `tall`, hung by its top corner at

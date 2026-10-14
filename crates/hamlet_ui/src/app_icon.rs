@@ -4,6 +4,10 @@
 use bevy::app::{App, PostStartup};
 use bevy::ecs::system::NonSendMarker;
 
+pub(crate) fn plugin(app: &mut App) {
+    app.add_systems(PostStartup, show);
+}
+
 /// The logo on its rounded tile, 256 pixels a side.
 const ICON: &[u8] = include_bytes!("icon.png");
 
@@ -68,8 +72,4 @@ pub fn show(
             }
         }
     });
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(PostStartup, show);
 }

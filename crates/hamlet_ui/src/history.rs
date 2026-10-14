@@ -39,6 +39,13 @@ use crate::me::Me;
 use crate::theme::{BRASS_4, BRASS_5, BRASS_6, CARD, Lamplight};
 use crate::{Build, Ui, chat, inspector};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<History>()
+        .add_observer(stale_on_refresh)
+        .add_observer(stale_on_job)
+        .add_systems(Update, refresh);
+}
+
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
 
@@ -681,13 +688,6 @@ pub fn screen() -> Ui {
         .within(filling())
         .boxed()
     })
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<History>()
-        .add_observer(stale_on_refresh)
-        .add_observer(stale_on_job)
-        .add_systems(Update, refresh);
 }
 
 #[cfg(test)]

@@ -27,6 +27,28 @@ pub(crate) use self::sync::watch;
 pub use self::sync::{Seen, WatchEvery, account, sync};
 use crate::core::HomeDir;
 
+/// Brings the hamlets of `home` up as entities and keeps them in
+/// step with their files.
+pub struct AgentsPlugin {
+    pub home: PathBuf,
+}
+impl Plugin for AgentsPlugin {
+    fn build(&self, app: &mut App) {
+        // A home from before there were several hamlets becomes the
+        // first.
+        if let Err(e) = Realm::open(&self.home) {
+            eprintln!("hamlet: could not open the realm: {e:#}");
+        }
+        if let Err(e) = Library::open(&self.home) {
+            eprintln!("hamlet: could not open the library: {e:#}");
+        }
+        register(app.world_mut());
+        found(app.world_mut(), &self.home, HOME);
+        sync(app.world_mut());
+        app.add_systems(Update, watch);
+    }
+}
+
 /// A hamlet, by its name in the home it lives under.
 #[derive(Component, Clone, Debug)]
 #[component(immutable)]
@@ -194,29 +216,6 @@ pub struct Consulted {
 #[derive(Event, Clone, Copy, Debug)]
 pub struct Voted {
     pub agent: Entity,
-}
-
-/// Brings the hamlets of `home` up as entities and keeps them in
-/// step with their files.
-pub struct AgentsPlugin {
-    pub home: PathBuf,
-}
-
-impl Plugin for AgentsPlugin {
-    fn build(&self, app: &mut App) {
-        // A home from before there were several hamlets becomes the
-        // first.
-        if let Err(e) = Realm::open(&self.home) {
-            eprintln!("hamlet: could not open the realm: {e:#}");
-        }
-        if let Err(e) = Library::open(&self.home) {
-            eprintln!("hamlet: could not open the library: {e:#}");
-        }
-        register(app.world_mut());
-        found(app.world_mut(), &self.home, HOME);
-        sync(app.world_mut());
-        app.add_systems(Update, watch);
-    }
 }
 
 /// Makes every component of an agent known to `world`, so a query

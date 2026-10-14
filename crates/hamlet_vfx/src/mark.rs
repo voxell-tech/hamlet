@@ -15,6 +15,12 @@ use bevy::render::render_resource::{
 };
 use bevy::shader::ShaderRef;
 
+pub(crate) fn plugin(app: &mut App) {
+    embedded_asset!(app, "mark.wgsl");
+    app.add_plugins(MaterialPlugin::<MarkMaterial>::default())
+        .add_systems(PreStartup, draw);
+}
+
 /// The material of a mark.
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone)]
 pub struct MarkMaterial {
@@ -170,12 +176,6 @@ pub struct Marks {
     /// One unit a side, about its own middle.
     square: Handle<Mesh>,
     level: Handle<Image>,
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    embedded_asset!(app, "mark.wgsl");
-    app.add_plugins(MaterialPlugin::<MarkMaterial>::default())
-        .add_systems(PreStartup, draw);
 }
 
 fn draw(

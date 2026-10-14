@@ -23,6 +23,12 @@ pub(crate) use self::choice::{of_agent, of_hamlet};
 pub(crate) use self::home::narrowed;
 pub use self::home::{endpoints, shelf};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Shelf>()
+        .init_resource::<Draft>()
+        .add_systems(Update, (follow, follow_catalogue));
+}
+
 /// The most models the catalogue shows at once.
 const SHOWN: usize = 40;
 
@@ -137,10 +143,4 @@ pub fn follow(
     if wrote {
         shelf.wrote = false;
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Shelf>()
-        .init_resource::<Draft>()
-        .add_systems(Update, (follow, follow_catalogue));
 }

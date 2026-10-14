@@ -7,6 +7,26 @@ use bevy::ui::UiSystems;
 use super::{Footprint, Hovered, PickSettings, Thing};
 use crate::label::{self, Lens};
 
+pub(super) fn plugin(app: &mut App) {
+    app.add_systems(Startup, spawn).add_systems(
+        PostUpdate,
+        (
+            name_tag,
+            signs,
+            write_signs.run_if(
+                any_match_filter::<
+                    Or<(
+                        Changed<Name>,
+                        Changed<Thing>,
+                        Changed<Reads>,
+                    )>,
+                >,
+            ),
+        )
+            .before(UiSystems::Layout),
+    );
+}
+
 /// A thing whose name is shown over it all the time.
 #[derive(Component)]
 pub struct Named;
@@ -38,26 +58,6 @@ pub struct NameTag;
 
 #[derive(Component)]
 struct NameText;
-
-pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Startup, spawn).add_systems(
-        PostUpdate,
-        (
-            name_tag,
-            signs,
-            write_signs.run_if(
-                any_match_filter::<
-                    Or<(
-                        Changed<Name>,
-                        Changed<Thing>,
-                        Changed<Reads>,
-                    )>,
-                >,
-            ),
-        )
-            .before(UiSystems::Layout),
-    );
-}
 
 fn spawn(mut commands: Commands) {
     commands.spawn((

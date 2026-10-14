@@ -39,6 +39,14 @@ use crate::roll::hamlets_moved;
 use crate::world_menu::Deed;
 use crate::{Ui, chat, tabs, world_menu};
 
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Search>()
+        .init_resource::<Naming>()
+        .init_resource::<Page>()
+        .add_systems(Startup, register)
+        .add_systems(Update, (read_search, tabs::mark::<Page>));
+}
+
 /// The words typed in the search over the hamlets.
 #[derive(Resource, Default, PartialEq)]
 pub struct Search(String);
@@ -250,12 +258,4 @@ pub(super) fn tell(world: &mut World, hamlet: Entity, text: String) {
         return;
     };
     chat::decree(world, &name, text);
-}
-
-pub fn plugin(app: &mut App) {
-    app.init_resource::<Search>()
-        .init_resource::<Naming>()
-        .init_resource::<Page>()
-        .add_systems(Startup, register)
-        .add_systems(Update, (read_search, tabs::mark::<Page>));
 }

@@ -30,6 +30,13 @@ pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
 use crate::{Build, Ui, hand};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Open>()
+        .init_resource::<Founding>()
+        .add_observer(ask_of_row)
+        .add_systems(Update, answer_ask);
+}
+
 /// The popup open over the world, and its place in the window.
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(crate) enum Open {
@@ -188,11 +195,4 @@ pub fn view() -> Ui {
     })
     .within(overlay(()))
     .boxed()
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Open>()
-        .init_resource::<Founding>()
-        .add_observer(ask_of_row)
-        .add_systems(Update, answer_ask);
 }

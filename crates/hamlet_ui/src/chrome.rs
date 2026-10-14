@@ -36,6 +36,14 @@ use bevy_fynix::{OverrideCursor, ScopedExt, style};
 use crate::theme::{BLACK, BRASS_HOVER, Lamplight, RED};
 use crate::{Build, Ui};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<ChromeSettings>()
+        .init_resource::<Maximised>()
+        .add_observer(grab)
+        .add_systems(Startup, draw_marks)
+        .add_systems(Update, resize_by_edge);
+}
+
 /// A window with no title bar from the system. On macOS the system
 /// keeps the frame and hides its bar and buttons. Elsewhere the
 /// window has no frame at all.
@@ -322,12 +330,4 @@ pub(crate) fn resize_by_edge(
         }
         None => {}
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<ChromeSettings>()
-        .init_resource::<Maximised>()
-        .add_observer(grab)
-        .add_systems(Startup, draw_marks)
-        .add_systems(Update, resize_by_edge);
 }

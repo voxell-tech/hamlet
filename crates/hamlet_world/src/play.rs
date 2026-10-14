@@ -2,6 +2,10 @@
 
 use bevy::prelude::*;
 
+pub(super) fn plugin(app: &mut App) {
+    app.add_message::<Played>();
+}
+
 /// One thing done by hand.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Play {
@@ -43,8 +47,4 @@ pub enum Play {
 pub struct Played {
     pub what: Play,
     pub at: Vec3,
-}
-
-pub(super) fn plugin(app: &mut App) {
-    app.add_message::<Played>();
 }

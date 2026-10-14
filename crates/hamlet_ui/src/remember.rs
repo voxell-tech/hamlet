@@ -32,6 +32,24 @@ use crate::roll::Roll;
 use crate::theme::Lamplight;
 use crate::world_view::TimeOfDay;
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Pending>()
+        .init_resource::<Kept>()
+        .add_systems(
+            Update,
+            (
+                reselect
+                    .run_if(|pending: Res<Pending>| pending.seeks()),
+                note_selected.run_if(
+                    resource_changed::<Selected>
+                        .or_eager(resource_changed::<Roll>),
+                ),
+                keep,
+            )
+                .chain(),
+        );
+}
+
 /// Seconds a change waits before it is written, so that dragging a
 /// divider writes once.
 const SETTLE: f32 = 0.8;
@@ -488,24 +506,6 @@ pub fn keep(
         let _ = std::fs::write(file(&home.0.root), text);
     }
     *written = Some(view);
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Pending>()
-        .init_resource::<Kept>()
-        .add_systems(
-            Update,
-            (
-                reselect
-                    .run_if(|pending: Res<Pending>| pending.seeks()),
-                note_selected.run_if(
-                    resource_changed::<Selected>
-                        .or_eager(resource_changed::<Roll>),
-                ),
-                keep,
-            )
-                .chain(),
-        );
 }
 
 #[cfg(test)]

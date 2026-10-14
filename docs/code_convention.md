@@ -38,6 +38,13 @@ either way it is added with `app.add_plugins((.., flag::plugin, ..))`. Do
 not call it as a function (`flag::plugin(app)`): added, it is named in the
 app's list of plugins and cannot be added twice by mistake.
 
+## The plugin comes first
+
+A module's plugin is the first item in its file, right under the `use` and
+`mod` lines, so what the module adds to the app is read before how it
+works. A `Plugin` struct is followed at once by its impls, with no blank
+line between them.
+
 ## A tuning value is written once, in its file under `assets/`
 
 A size, a speed, a timing or a colour of the world goes in the file for

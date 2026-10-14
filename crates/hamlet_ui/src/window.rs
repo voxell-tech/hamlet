@@ -38,6 +38,33 @@ use crate::status::{Bar, Lately};
 use crate::theme::BLACK;
 use crate::{Build, Ui};
 
+/// The window's states and what entering and leaving each does.
+pub fn plugin(app: &mut App) {
+    app.init_state::<Layout>()
+        .init_state::<Showing>()
+        .add_computed_state::<WorldShown>()
+        .insert_resource(winit_settings(false))
+        .add_systems(OnExit(Layout::Full), keep_size)
+        .add_systems(OnEnter(Layout::Full), constrain)
+        .add_systems(
+            OnTransition {
+                exited: Layout::Minimal,
+                entered: Layout::Full,
+            },
+            resize,
+        )
+        .add_systems(
+            OnEnter(Layout::Minimal),
+            (constrain, resize).chain(),
+        )
+        .add_systems(OnEnter(Showing::Hidden), hide)
+        .add_systems(OnEnter(Showing::Shown), show)
+        .add_systems(
+            Update,
+            (intercept_close, poll_show_requests, remember_size),
+        );
+}
+
 /// The size the window opens at until the user has resized it once.
 const DEFAULT_SIZE: (u32, u32) = (1920, 1080);
 const MINIMAL_SIZE: (u32, u32) = (440, 190);
@@ -95,33 +122,6 @@ impl ComputedStates for WorldShown {
 /// The size the full window goes back to.
 #[derive(Resource)]
 pub(crate) struct FullSize(pub (u32, u32));
-
-/// The window's states and what entering and leaving each does.
-pub fn plugin(app: &mut App) {
-    app.init_state::<Layout>()
-        .init_state::<Showing>()
-        .add_computed_state::<WorldShown>()
-        .insert_resource(winit_settings(false))
-        .add_systems(OnExit(Layout::Full), keep_size)
-        .add_systems(OnEnter(Layout::Full), constrain)
-        .add_systems(
-            OnTransition {
-                exited: Layout::Minimal,
-                entered: Layout::Full,
-            },
-            resize,
-        )
-        .add_systems(
-            OnEnter(Layout::Minimal),
-            (constrain, resize).chain(),
-        )
-        .add_systems(OnEnter(Showing::Hidden), hide)
-        .add_systems(OnEnter(Showing::Shown), show)
-        .add_systems(
-            Update,
-            (intercept_close, poll_show_requests, remember_size),
-        );
-}
 
 fn size_file(home: &Path) -> PathBuf {
     home.join("window")

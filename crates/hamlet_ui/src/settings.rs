@@ -38,6 +38,15 @@ use crate::theme::{BRASS_6, Lamplight};
 use crate::world_menu::{self, Deed};
 use crate::{Build, Ui, markdown};
 
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Pane>()
+        .init_resource::<Charter>()
+        .add_systems(
+            Update,
+            read_charter.run_if(resource_changed::<Pane>),
+        );
+}
+
 fn field(
     name: &'static str,
     value: impl View<Bevy, Lamplight>,
@@ -492,13 +501,4 @@ pub fn screen() -> Ui {
     Ui::new(move |cx: &mut Build| {
         cx.build(scroll((page,)).fills_height())
     })
-}
-
-pub fn plugin(app: &mut App) {
-    app.init_resource::<Pane>()
-        .init_resource::<Charter>()
-        .add_systems(
-            Update,
-            read_charter.run_if(resource_changed::<Pane>),
-        );
 }

@@ -15,6 +15,38 @@ use hamlet_assets::tint;
 use super::pick::{Hovered, Selected, Thing};
 use super::{WorldCamera, WorldSystems};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<DebugSettings>()
+        .init_resource::<Hovered>()
+        .init_resource::<Selected>()
+        .init_gizmo_group::<WorldGizmos>()
+        .add_systems(Startup, spawn_readout)
+        .add_systems(
+            Update,
+            (toggle, apply.run_if(resource_changed::<DebugSettings>))
+                .chain()
+                .before(WorldSystems),
+        )
+        .add_systems(
+            PostUpdate,
+            (hit_boxes, pointer_hits)
+                .run_if(shown)
+                .after(TransformSystems::Propagate),
+        );
+    if !app.is_plugin_added::<FpsOverlayPlugin>() {
+        app.add_plugins(FpsOverlayPlugin {
+            config: FpsOverlayConfig {
+                enabled: false,
+                frame_time_graph_config: FrameTimeGraphConfig {
+                    enabled: false,
+                    ..FrameTimeGraphConfig::target_fps(60.0)
+                },
+                ..default()
+            },
+        });
+    }
+}
+
 /// The debug overlay.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -73,38 +105,6 @@ pub(crate) struct WorldGizmos;
 /// The line of words under the frame rate.
 #[derive(Component)]
 struct Readout;
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<DebugSettings>()
-        .init_resource::<Hovered>()
-        .init_resource::<Selected>()
-        .init_gizmo_group::<WorldGizmos>()
-        .add_systems(Startup, spawn_readout)
-        .add_systems(
-            Update,
-            (toggle, apply.run_if(resource_changed::<DebugSettings>))
-                .chain()
-                .before(WorldSystems),
-        )
-        .add_systems(
-            PostUpdate,
-            (hit_boxes, pointer_hits)
-                .run_if(shown)
-                .after(TransformSystems::Propagate),
-        );
-    if !app.is_plugin_added::<FpsOverlayPlugin>() {
-        app.add_plugins(FpsOverlayPlugin {
-            config: FpsOverlayConfig {
-                enabled: false,
-                frame_time_graph_config: FrameTimeGraphConfig {
-                    enabled: false,
-                    ..FrameTimeGraphConfig::target_fps(60.0)
-                },
-                ..default()
-            },
-        });
-    }
-}
 
 /// True when the overlay is shown.
 pub fn shown(set: Res<DebugSettings>) -> bool {

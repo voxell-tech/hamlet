@@ -39,6 +39,24 @@ use hamlet_assets::fonts::{CINZEL, INTER, TWEMOJI};
 
 use crate::theme::{BLACK, HEARTH, Lamplight};
 
+pub fn plugin(app: &mut App) {
+    app.add_observer(hide_ring_on_press)
+        .add_observer(take_typed_on_press)
+        .add_systems(Startup, install_fonts)
+        .add_systems(
+            Update,
+            (
+                apply_mono,
+                apply_display,
+                apply_glow,
+                apply_clip,
+                apply_wrap,
+                (make_focusable, focus_ring.run_if(focus_moved))
+                    .chain(),
+            ),
+        );
+}
+
 /// The display face, for headers and buttons.
 #[derive(Resource)]
 pub struct Display(pub(super) Handle<Font>);
@@ -320,24 +338,6 @@ pub fn show(
     if node.display != want {
         node.display = want;
     }
-}
-
-pub fn plugin(app: &mut App) {
-    app.add_observer(hide_ring_on_press)
-        .add_observer(take_typed_on_press)
-        .add_systems(Startup, install_fonts)
-        .add_systems(
-            Update,
-            (
-                apply_mono,
-                apply_display,
-                apply_glow,
-                apply_clip,
-                apply_wrap,
-                (make_focusable, focus_ring.run_if(focus_moved))
-                    .chain(),
-            ),
-        );
 }
 
 #[cfg(test)]

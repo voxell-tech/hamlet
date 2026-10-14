@@ -30,6 +30,12 @@ use crate::theme::{
 };
 use crate::welcome::Committing;
 
+pub(crate) fn plugin(app: &mut App) {
+    app.add_systems(Startup, draw)
+        .add_systems(Update, lend)
+        .add_systems(PostUpdate, dress);
+}
+
 /// The line a cursor that resizes lies along.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Axis {
@@ -309,10 +315,4 @@ pub(crate) fn dress(
             commands.entity(window).try_insert(wanted);
         }
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Startup, draw)
-        .add_systems(Update, lend)
-        .add_systems(PostUpdate, dress);
 }

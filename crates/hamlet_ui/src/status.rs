@@ -29,6 +29,18 @@ use crate::theme::{BLACK, Lamplight, SEAM};
 use crate::window::Layout;
 use crate::{Build, Ui};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Bar>()
+        .init_resource::<Lately>()
+        .add_systems(
+            Update,
+            (
+                update_status,
+                update_lately.run_if(in_state(Layout::Minimal)),
+            ),
+        );
+}
+
 /// The words of the status bar and the minimal window.
 #[derive(Resource, Default, PartialEq)]
 pub struct Bar {
@@ -296,16 +308,4 @@ pub fn status_bar() -> Ui {
             .gap(0.0),
         )
     })
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Bar>()
-        .init_resource::<Lately>()
-        .add_systems(
-            Update,
-            (
-                update_status,
-                update_lately.run_if(in_state(Layout::Minimal)),
-            ),
-        );
 }

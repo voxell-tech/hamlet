@@ -41,6 +41,12 @@ use crate::platform::DisplayText;
 use crate::roll::{agents_moved, either, moved};
 use crate::{Build, Ui};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.add_observer(spoke)
+        .add_systems(Startup, enter)
+        .add_systems(Update, (keep, keep_place));
+}
+
 /// Brings the chief this window belongs to into the world, with the
 /// look that was kept for them.
 pub(crate) fn enter(world: &mut World) {
@@ -381,12 +387,6 @@ pub fn panel(chief: Entity) -> Ui {
     })
     .within(filling())
     .boxed()
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.add_observer(spoke)
-        .add_systems(Startup, enter)
-        .add_systems(Update, (keep, keep_place));
 }
 
 #[cfg(test)]

@@ -9,6 +9,10 @@ use super::{
 };
 use crate::generator::Floor;
 
+pub(super) fn plugin(app: &mut App) {
+    app.add_systems(Startup, spawn).add_systems(Update, rings);
+}
+
 #[derive(Component)]
 enum Ring {
     Hover,
@@ -20,10 +24,6 @@ enum Ring {
 /// for, its middle and how far it reaches to each side.
 #[derive(Component, Default)]
 struct Ground(Option<(Thing, Vec2, f32)>);
-
-pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Startup, spawn).add_systems(Update, rings);
-}
 
 /// Each ring is a mark of light on the ground and what stands on it.
 /// A world with no marks, as a test's, has no rings.

@@ -17,6 +17,28 @@ use self::magic::MagicSettings;
 use self::sparks::SparkSettings;
 use self::wind::WindSettings;
 
+/// Every effect, glowing in `tints`.
+pub struct VfxPlugin {
+    pub tints: Tints,
+}
+impl Plugin for VfxPlugin {
+    fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<InlayPlugin>() {
+            app.add_plugins(InlayPlugin);
+        }
+        app.add_plugins((
+            TuningPlugin::<VfxTuning>::default(),
+            sparks::plugin,
+            magic::plugin,
+            mark::plugin,
+            wind::plugin,
+            flag::plugin,
+        ))
+        .insert_resource(self.tints)
+        .init_resource::<Now>();
+    }
+}
+
 /// The effects' systems. An effect set off before these plays in
 /// the same frame.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -45,29 +67,6 @@ pub struct Tints {
     pub firefly: Vec3,
     pub rune: Vec3,
     pub wind: Vec3,
-}
-
-/// Every effect, glowing in `tints`.
-pub struct VfxPlugin {
-    pub tints: Tints,
-}
-
-impl Plugin for VfxPlugin {
-    fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<InlayPlugin>() {
-            app.add_plugins(InlayPlugin);
-        }
-        app.add_plugins((
-            TuningPlugin::<VfxTuning>::default(),
-            sparks::plugin,
-            magic::plugin,
-            mark::plugin,
-            wind::plugin,
-            flag::plugin,
-        ))
-        .insert_resource(self.tints)
-        .init_resource::<Now>();
-    }
 }
 
 /// The effects' tuning, as `assets/vfx.toml` has it.

@@ -21,6 +21,41 @@ use crate::generator::land::Land;
 use crate::hand::PlaySettings;
 use crate::library::Library;
 
+pub(super) fn plugin(app: &mut App) {
+    app.init_resource::<ChiefSettings>()
+        .init_resource::<PlaySettings>()
+        .add_observer(settle::leave)
+        .add_systems(Startup, wickstep::prepare)
+        .add_systems(
+            Update,
+            (
+                (settle::resettle, settle::settle)
+                    .chain()
+                    .in_set(Settling),
+                settle::hold_ground.run_if(
+                    resource_changed::<Land>
+                        .or_eager(resource_changed::<ChiefSettings>)
+                        .or_eager(
+                            any_match_filter::<
+                                Or<(
+                                    Changed<Place>,
+                                    Changed<Library>,
+                                )>,
+                            >,
+                        )
+                        .or_eager(any_component_removed::<Place>)
+                        .or_eager(any_component_removed::<Library>),
+                ),
+                dress::dress,
+                wickstep::step,
+                (dress::animate, wickstep::cast, dress::light),
+                mascot::stand,
+            )
+                .chain()
+                .before(crate::WorldSystems),
+        );
+}
+
 /// A chief's place, its mascot and the Wickstep that carries it.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -170,41 +205,6 @@ pub struct Place {
 /// any town is founded, so that a town never takes a chief's site.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Settling;
-
-pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<ChiefSettings>()
-        .init_resource::<PlaySettings>()
-        .add_observer(settle::leave)
-        .add_systems(Startup, wickstep::prepare)
-        .add_systems(
-            Update,
-            (
-                (settle::resettle, settle::settle)
-                    .chain()
-                    .in_set(Settling),
-                settle::hold_ground.run_if(
-                    resource_changed::<Land>
-                        .or_eager(resource_changed::<ChiefSettings>)
-                        .or_eager(
-                            any_match_filter::<
-                                Or<(
-                                    Changed<Place>,
-                                    Changed<Library>,
-                                )>,
-                            >,
-                        )
-                        .or_eager(any_component_removed::<Place>)
-                        .or_eager(any_component_removed::<Library>),
-                ),
-                dress::dress,
-                wickstep::step,
-                (dress::animate, wickstep::cast, dress::light),
-                mascot::stand,
-            )
-                .chain()
-                .before(crate::WorldSystems),
-        );
-}
 
 /// Brings the chief `user` into the world, looking like `look`.
 pub fn arrive(world: &mut World, user: &str, look: Look) -> Entity {

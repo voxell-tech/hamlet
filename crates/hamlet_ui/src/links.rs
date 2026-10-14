@@ -31,6 +31,26 @@ use crate::me::Me;
 use crate::roll::Roll;
 use crate::sounds;
 
+/// Follows the pointer onto the links of the chat and opens the one
+/// that is clicked.
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Roots>()
+        .init_resource::<Found>()
+        .init_resource::<Aimed>()
+        .add_observer(aim)
+        .add_observer(aim_off)
+        .add_observer(aim_gone)
+        .add_observer(tap)
+        .add_observer(follow)
+        .add_observer(forget)
+        .add_systems(
+            Update,
+            keep_roots.run_if(
+                resource_changed::<Me>.or_eager(hamlets_turned),
+            ),
+        );
+}
+
 /// The place a span of text leads when it is clicked.
 #[derive(Component, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub(crate) enum Anchor {
@@ -271,26 +291,6 @@ fn forget(_: On<JobFinished>, mut found: ResMut<Found>) {
     if !found.0.is_empty() {
         found.0.clear();
     }
-}
-
-/// Follows the pointer onto the links of the chat and opens the one
-/// that is clicked.
-pub fn plugin(app: &mut App) {
-    app.init_resource::<Roots>()
-        .init_resource::<Found>()
-        .init_resource::<Aimed>()
-        .add_observer(aim)
-        .add_observer(aim_off)
-        .add_observer(aim_gone)
-        .add_observer(tap)
-        .add_observer(follow)
-        .add_observer(forget)
-        .add_systems(
-            Update,
-            keep_roots.run_if(
-                resource_changed::<Me>.or_eager(hamlets_turned),
-            ),
-        );
 }
 
 #[cfg(test)]

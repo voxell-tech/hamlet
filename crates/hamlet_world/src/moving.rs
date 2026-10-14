@@ -16,6 +16,35 @@ use super::play::{Play, Played};
 use super::{WorldSystems, label};
 use crate::sky::CameraSettings;
 
+pub(super) fn plugin(app: &mut App) {
+    app.init_resource::<Carrying>()
+        .init_resource::<CarrySettings>()
+        .add_message::<SetDown>()
+        .add_observer(click)
+        .add_systems(Startup, prepare)
+        .add_systems(
+            Update,
+            (
+                keys,
+                reach,
+                (
+                    show.run_if(
+                        resource_changed::<Carrying>
+                            .or_else(resource_changed::<Society>)
+                            .or_else(resource_changed::<Land>)
+                            .or_else(
+                                resource_changed::<CarrySettings>,
+                            ),
+                    ),
+                    tell,
+                ),
+            )
+                .chain()
+                .after(pick::aim)
+                .before(WorldSystems),
+        );
+}
+
 /// A place in a chief's hand: how the footprint that shows where it
 /// would stand is drawn.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
@@ -112,35 +141,6 @@ struct Word;
 struct Lights {
     fits: Handle<StandardMaterial>,
     unfit: Handle<StandardMaterial>,
-}
-
-pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Carrying>()
-        .init_resource::<CarrySettings>()
-        .add_message::<SetDown>()
-        .add_observer(click)
-        .add_systems(Startup, prepare)
-        .add_systems(
-            Update,
-            (
-                keys,
-                reach,
-                (
-                    show.run_if(
-                        resource_changed::<Carrying>
-                            .or_else(resource_changed::<Society>)
-                            .or_else(resource_changed::<Land>)
-                            .or_else(
-                                resource_changed::<CarrySettings>,
-                            ),
-                    ),
-                    tell,
-                ),
-            )
-                .chain()
-                .after(pick::aim)
-                .before(WorldSystems),
-        );
 }
 
 fn prepare(

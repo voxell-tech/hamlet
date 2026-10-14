@@ -55,6 +55,27 @@ use crate::Ui;
 use crate::looks::well;
 use crate::me::{Me, talk_to, talk_to_mayor_of};
 
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Draft>()
+        .init_resource::<ChatSettings>()
+        .init_resource::<Changes>()
+        .init_resource::<Unfolded>()
+        .init_resource::<Lines>()
+        .init_resource::<Reach>()
+        .add_observer(keep_typed)
+        .add_plugins(rewind::plugin)
+        .add_systems(
+            Update,
+            (
+                (stick_to_bottom, read_back, fold_lines).chain(),
+                hide_unseen,
+                break_long_words,
+                show_placeholder,
+            ),
+        )
+        .add_systems(PostUpdate, refocus);
+}
+
 /// The text field's root, to find its editable child.
 #[derive(Component)]
 pub struct ChatField;
@@ -319,27 +340,6 @@ pub fn message_bar() -> Ui {
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
     row((field,)).gap(8.0).align(AlignItems::Center).boxed()
-}
-
-pub fn plugin(app: &mut App) {
-    app.init_resource::<Draft>()
-        .init_resource::<ChatSettings>()
-        .init_resource::<Changes>()
-        .init_resource::<Unfolded>()
-        .init_resource::<Lines>()
-        .init_resource::<Reach>()
-        .add_observer(keep_typed)
-        .add_plugins(rewind::plugin)
-        .add_systems(
-            Update,
-            (
-                (stick_to_bottom, read_back, fold_lines).chain(),
-                hide_unseen,
-                break_long_words,
-                show_placeholder,
-            ),
-        )
-        .add_systems(PostUpdate, refocus);
 }
 
 #[cfg(test)]

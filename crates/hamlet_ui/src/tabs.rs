@@ -30,6 +30,10 @@ use crate::platform::{DisplayText, show};
 use crate::theme::{BRASS_3, BRASS_6, Lamplight};
 use crate::{Build, Ui};
 
+pub fn plugin(app: &mut App) {
+    app.add_systems(Update, fit);
+}
+
 /// The tab of a strip that chooses among the values of `R`.
 #[derive(Component, Clone, Copy)]
 pub struct TabOf<R>(R);
@@ -206,8 +210,4 @@ pub fn mark<R: Resource + Copy + PartialEq>(
             fill.0 = want;
         }
     }
-}
-
-pub fn plugin(app: &mut App) {
-    app.add_systems(Update, fit);
 }

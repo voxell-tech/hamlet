@@ -20,11 +20,6 @@ use crate::palette::Palette;
 use crate::pick::{self, Footprint, Named, Thing, hit_box};
 use crate::{Clock, Sky, Stock};
 
-/// The systems that stand the library on its ground. They run once
-/// every chief has its place and before any town is founded.
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct Raising;
-
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Stood>()
         .add_observer(librarian::called)
@@ -37,6 +32,11 @@ pub(crate) fn plugin(app: &mut App) {
             ),
         );
 }
+
+/// The systems that stand the library on its ground. They run once
+/// every chief has its place and before any town is founded.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct Raising;
 
 /// The radius of the ground the library keeps level and clear.
 pub(crate) const GROUNDS: f32 = 9.5;

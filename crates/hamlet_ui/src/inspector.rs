@@ -25,6 +25,24 @@ use crate::looks::filling;
 use crate::me::{Me, talk_to};
 use crate::{Ui, overview, tabs};
 
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Section>()
+        .init_resource::<Papers>()
+        .init_resource::<Briefing>()
+        .add_observer(papers::papers_on_job)
+        .add_systems(
+            Update,
+            (
+                tabs::mark::<Section>,
+                agent::leave_prompt.run_if(resource_changed::<Me>),
+                keep_papers.run_if(
+                    resource_changed::<Me>
+                        .or_eager(resource_changed::<Section>),
+                ),
+            ),
+        );
+}
+
 /// The subject of the panel: every hamlet when nothing is selected, a
 /// hamlet whose common is, an agent that is gone, a chief, or the
 /// agent the chat is with.
@@ -111,22 +129,4 @@ pub(crate) fn follow_selection(world: &mut World) {
         talk_to(world, agent);
     }
     show_tab(world, "agent");
-}
-
-pub fn plugin(app: &mut App) {
-    app.init_resource::<Section>()
-        .init_resource::<Papers>()
-        .init_resource::<Briefing>()
-        .add_observer(papers::papers_on_job)
-        .add_systems(
-            Update,
-            (
-                tabs::mark::<Section>,
-                agent::leave_prompt.run_if(resource_changed::<Me>),
-                keep_papers.run_if(
-                    resource_changed::<Me>
-                        .or_eager(resource_changed::<Section>),
-                ),
-            ),
-        );
 }

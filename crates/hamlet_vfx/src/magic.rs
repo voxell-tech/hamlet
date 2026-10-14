@@ -10,6 +10,12 @@ use bevy::window::RequestRedraw;
 use crate::mark::{Lay, MarkMaterial, Marks, Shape, lie};
 use crate::{Now, Tints, VfxSystems};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<MagicSettings>()
+        .add_systems(Startup, prepare)
+        .add_systems(Update, cast.in_set(VfxSystems));
+}
+
 /// The world's small magic.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -106,12 +112,6 @@ pub struct Flight {
     /// Seconds on its way, and how high its arc is.
     pub time: f32,
     pub arc: f32,
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<MagicSettings>()
-        .add_systems(Startup, prepare)
-        .add_systems(Update, cast.in_set(VfxSystems));
 }
 
 /// A colour that adds its light to what is behind it.

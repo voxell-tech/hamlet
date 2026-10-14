@@ -8,6 +8,23 @@ use super::{Selected, Taken, Thing, Travel, WorldSurface, select};
 use crate::play::{Play, Played};
 use crate::sky::CameraSettings;
 
+pub(super) fn plugin(app: &mut App) {
+    app.init_resource::<Orbit>()
+        .init_resource::<Glide>()
+        .init_resource::<Centre>()
+        .init_resource::<Stance>()
+        .init_resource::<Following>()
+        .init_resource::<Leash>()
+        .init_resource::<Steer>()
+        .add_observer(drag)
+        .add_observer(drag_end)
+        .add_observer(scroll)
+        .add_systems(
+            Update,
+            (focus_keys, follow, glide).chain().in_set(Steering),
+        );
+}
+
 /// The camera moved by hand, on top of the stage's view.
 #[derive(Resource, Clone, Copy, PartialEq)]
 pub struct Orbit {
@@ -106,23 +123,6 @@ pub struct Following(pub Option<Thing>);
 /// it.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Steering;
-
-pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Orbit>()
-        .init_resource::<Glide>()
-        .init_resource::<Centre>()
-        .init_resource::<Stance>()
-        .init_resource::<Following>()
-        .init_resource::<Leash>()
-        .init_resource::<Steer>()
-        .add_observer(drag)
-        .add_observer(drag_end)
-        .add_observer(scroll)
-        .add_systems(
-            Update,
-            (focus_keys, follow, glide).chain().in_set(Steering),
-        );
-}
 
 /// The place of `thing` on the ground.
 fn place(

@@ -37,6 +37,46 @@ use crate::sky::CameraSettings;
 use crate::works::Switched;
 use crate::{WorldCamera, WorldSystems};
 
+/// Hover, selection and the camera moved by hand. What can be
+/// pointed at is up to whoever spawns it with [`watch`].
+pub fn plugin(app: &mut App) {
+    app.add_plugins((
+        MeshPickingPlugin,
+        camera::plugin,
+        rings::plugin,
+        signs::plugin,
+    ))
+    // Only marked things are tested, never the large meshes.
+    .insert_resource(MeshPickingSettings {
+        require_markers: true,
+        ray_cast_visibility: RayCastVisibility::Any,
+    })
+    .init_resource::<Hovered>()
+    .init_resource::<Selected>()
+    .init_resource::<Also>()
+    .init_resource::<Asked>()
+    .init_resource::<AskedGround>()
+    .init_resource::<CameraSettings>()
+    .init_resource::<PickSettings>()
+    .init_resource::<Travel>()
+    .init_resource::<Taken>()
+    .init_resource::<Reach>()
+    .add_message::<Played>()
+    .add_observer(press)
+    .add_observer(click_surface)
+    .add_observer(click)
+    // Before the pointer's events, so a click reads this frame's
+    // hover.
+    .add_systems(
+        PreUpdate,
+        hover
+            .in_set(PickingSystems::Hover)
+            .after(generate_hovermap)
+            .before(pointer_events),
+    )
+    .add_systems(Update, (mark_camera, aim.before(WorldSystems)));
+}
+
 /// The room each thing takes for the pointer, its ring and its name.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -232,46 +272,6 @@ pub struct Taken {
     /// Something was open over the world as the frame began, and
     /// Escape closes that.
     pub over: bool,
-}
-
-/// Hover, selection and the camera moved by hand. What can be
-/// pointed at is up to whoever spawns it with [`watch`].
-pub fn plugin(app: &mut App) {
-    app.add_plugins((
-        MeshPickingPlugin,
-        camera::plugin,
-        rings::plugin,
-        signs::plugin,
-    ))
-    // Only marked things are tested, never the large meshes.
-    .insert_resource(MeshPickingSettings {
-        require_markers: true,
-        ray_cast_visibility: RayCastVisibility::Any,
-    })
-    .init_resource::<Hovered>()
-    .init_resource::<Selected>()
-    .init_resource::<Also>()
-    .init_resource::<Asked>()
-    .init_resource::<AskedGround>()
-    .init_resource::<CameraSettings>()
-    .init_resource::<PickSettings>()
-    .init_resource::<Travel>()
-    .init_resource::<Taken>()
-    .init_resource::<Reach>()
-    .add_message::<Played>()
-    .add_observer(press)
-    .add_observer(click_surface)
-    .add_observer(click)
-    // Before the pointer's events, so a click reads this frame's
-    // hover.
-    .add_systems(
-        PreUpdate,
-        hover
-            .in_set(PickingSystems::Hover)
-            .after(generate_hovermap)
-            .before(pointer_events),
-    )
-    .add_systems(Update, (mark_camera, aim.before(WorldSystems)));
 }
 
 /// Makes `entity` answer the pointer.

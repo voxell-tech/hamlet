@@ -47,6 +47,12 @@ use crate::roll::Roll;
 use crate::theme::{BRASS_5, CARD, Lamplight};
 use crate::world_menu::Open;
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Card>()
+        .init_resource::<Resting>()
+        .add_systems(Update, (describe, place).chain());
+}
+
 /// The layer of the card in the window's stack: over the panels,
 /// under the menus.
 const CARD_Z: i32 = 950;
@@ -611,12 +617,6 @@ pub fn view() -> Ui {
     .z(Some(CARD_Z))
     .with((OverrideClip, CardBox, Lamplight::shadow()));
     overlay((card,)).boxed()
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Card>()
-        .init_resource::<Resting>()
-        .add_systems(Update, (describe, place).chain());
 }
 
 #[cfg(test)]

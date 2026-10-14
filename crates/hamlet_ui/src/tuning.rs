@@ -11,6 +11,11 @@ use crate::chat::ChatSettings;
 use crate::chrome::ChromeSettings;
 use crate::feel::FeelSettings;
 
+/// Loads `assets/ui.toml` and keeps the panels in step with it.
+pub fn plugin(app: &mut App) {
+    app.add_plugins(TuningPlugin::<UiTuning>::default());
+}
+
 /// The panels' tuning, as `assets/ui.toml` has it.
 #[derive(Asset, TypePath, Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -35,8 +40,3 @@ designed!(UiTuning {
     ChromeSettings => chrome,
     ChatSettings => chat,
 });
-
-/// Loads `assets/ui.toml` and keeps the panels in step with it.
-pub fn plugin(app: &mut App) {
-    app.add_plugins(TuningPlugin::<UiTuning>::default());
-}

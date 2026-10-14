@@ -69,16 +69,9 @@ pub use self::status::{Bar, status_bar};
 use self::theme::Lamplight;
 pub use self::window::ShowRequests;
 
-/// The context a view of the window is built in.
-pub type Build<'a> = Cx<'a, Bevy, Lamplight>;
-
-/// A view of the window, its type erased.
-pub(crate) type Ui = AnyView<Bevy, Lamplight>;
-
 /// The window: the dock, its panels and the world. Add it to the
 /// core's app, after a [`ShowRequests`] resource is in place.
 pub struct UiPlugin;
-
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         // A window draws far more often than the records change.
@@ -166,3 +159,9 @@ impl Plugin for UiPlugin {
         );
     }
 }
+
+/// The context a view of the window is built in.
+pub type Build<'a> = Cx<'a, Bevy, Lamplight>;
+
+/// A view of the window, its type erased.
+pub(crate) type Ui = AnyView<Bevy, Lamplight>;

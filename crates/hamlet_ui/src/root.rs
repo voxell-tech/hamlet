@@ -21,6 +21,10 @@ use crate::theme::{BLACK, Lamplight, SEAM};
 use crate::window::{self, Layout};
 use crate::{Build, Ui, chrome, hover, menu, welcome, world_menu};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.add_systems(Startup, open);
+}
+
 /// Mounts the views, as one tab group so Tab moves through the
 /// controls.
 pub(crate) fn mount(world: &mut World) {
@@ -97,8 +101,4 @@ fn open(world: &mut World) {
     world.spawn((Camera2d, IsDefaultUiCamera));
     let config = world.resource::<Settings>().config.clone();
     world.trigger(TestConnection(config));
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Startup, open);
 }

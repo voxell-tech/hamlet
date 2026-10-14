@@ -28,6 +28,24 @@ pub use self::pages::view;
 use self::providers::{LOCAL, OPENROUTER, OTHER, PROVIDERS, served};
 use crate::settings::Pane;
 
+/// Opens the screen on a home that was never set up.
+pub(crate) fn plugin(app: &mut App) {
+    let home = &app.world().resource::<HomeDir>().0.root;
+    let replay = app.world().resource::<Model>().replay;
+    let welcome = Welcome::at_launch(home, replay);
+    app.insert_resource(welcome)
+        .init_resource::<Committing>()
+        .add_systems(
+            Update,
+            (
+                run_committed
+                    .run_if(|waits: Res<Committing>| waits.waits()),
+                follow,
+                read_narrow,
+            ),
+        );
+}
+
 const NOTHING_LOCAL: &str = "No model server answered here. Install \
                              Ollama from ollama.com, download a \
                              model, then choose Look Again.";
@@ -511,24 +529,6 @@ pub(crate) fn read_narrow(
     if text.value() != welcome.narrow.as_str() {
         welcome.narrow = text.value().to_string();
     }
-}
-
-/// Opens the screen on a home that was never set up.
-pub(crate) fn plugin(app: &mut App) {
-    let home = &app.world().resource::<HomeDir>().0.root;
-    let replay = app.world().resource::<Model>().replay;
-    let welcome = Welcome::at_launch(home, replay);
-    app.insert_resource(welcome)
-        .init_resource::<Committing>()
-        .add_systems(
-            Update,
-            (
-                run_committed
-                    .run_if(|waits: Res<Committing>| waits.waits()),
-                follow,
-                read_narrow,
-            ),
-        );
 }
 
 #[cfg(test)]

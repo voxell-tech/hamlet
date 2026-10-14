@@ -15,24 +15,8 @@ use crate::session::{
     UserMessage,
 };
 
-const CHANNEL: &str = "terminal";
-
-/// Lines typed so far; `None` marks end of input.
-#[derive(Resource)]
-struct Lines(UnboundedReceiver<Option<String>>);
-
-#[derive(Resource)]
-struct Me {
-    key: SessionKey,
-    user: String,
-    /// True when text of the current reply already streamed to the
-    /// screen.
-    streamed: bool,
-}
-
 /// Reads lines from the terminal and prints the session's replies.
 pub struct TerminalPlugin;
-
 impl Plugin for TerminalPlugin {
     fn build(&self, app: &mut App) {
         let (tx, rx) = unbounded_channel();
@@ -95,6 +79,21 @@ impl Plugin for TerminalPlugin {
                 },
             );
     }
+}
+
+const CHANNEL: &str = "terminal";
+
+/// Lines typed so far; `None` marks end of input.
+#[derive(Resource)]
+struct Lines(UnboundedReceiver<Option<String>>);
+
+#[derive(Resource)]
+struct Me {
+    key: SessionKey,
+    user: String,
+    /// True when text of the current reply already streamed to the
+    /// screen.
+    streamed: bool,
 }
 
 fn prompt() {

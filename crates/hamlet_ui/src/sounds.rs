@@ -20,6 +20,12 @@ use crate::inspector::Section;
 use crate::menu::OpenMenu;
 use crate::world_menu::Open;
 
+pub(crate) fn plugin(app: &mut App) {
+    app.add_observer(sent)
+        .add_observer(failed)
+        .add_systems(Update, (menus, tabs, folds));
+}
+
 fn cue(sound: Sound) -> Cue {
     Cue {
         sound,
@@ -143,12 +149,6 @@ fn failed(output: On<SessionOutput>, mut cues: MessageWriter<Cue>) {
     if matches!(output.reply, Reply::Error(_)) {
         cues.write(cue(Sound::Error));
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.add_observer(sent)
-        .add_observer(failed)
-        .add_systems(Update, (menus, tabs, folds));
 }
 
 #[cfg(test)]

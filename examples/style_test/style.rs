@@ -36,7 +36,6 @@ use self::stations::Stationed;
 /// Bevy's default plugins. It spawns a `WorldCamera` that draws to
 /// the window until the app gives it another target.
 pub struct StylePlugin;
-
 impl Plugin for StylePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(CameraSettings {

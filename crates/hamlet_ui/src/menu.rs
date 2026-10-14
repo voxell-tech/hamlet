@@ -32,6 +32,13 @@ use crate::window::{self, Layout};
 use crate::world_view::TimeOfDay;
 use crate::{Build, Ui};
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<OpenMenu>()
+        .add_systems(Update, light_titles)
+        // Before the toolkit closes a popup on Escape this frame.
+        .add_systems(First, hold_escape);
+}
+
 /// The height of the menu bar.
 const BAR: f32 = 34.0;
 
@@ -245,13 +252,6 @@ pub fn open_menu() -> Ui {
     })
     .within(overlay(()))
     .boxed()
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<OpenMenu>()
-        .add_systems(Update, light_titles)
-        // Before the toolkit closes a popup on Escape this frame.
-        .add_systems(First, hold_escape);
 }
 
 #[cfg(test)]

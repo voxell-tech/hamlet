@@ -24,6 +24,10 @@ use hamlet_world::moving::{self, SetDown};
 use crate::chat;
 use crate::me::Me;
 
+pub(crate) fn plugin(app: &mut App) {
+    app.add_systems(Update, grant);
+}
+
 fn name(world: &World, agent: Entity) -> Option<String> {
     world
         .get::<Name>(agent)
@@ -176,10 +180,6 @@ pub(crate) fn grant(
             Wish::Letter { to, path } => letter(world, to, &path),
         });
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Update, grant);
 }
 
 #[cfg(test)]
