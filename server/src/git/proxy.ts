@@ -110,7 +110,7 @@ function command(line: string): Command[] {
         : [];
 }
 
-/** Why `command` is refused, or `undefined` when it may go on. */
+/** The reason `command` is refused, or `undefined` when it may go on. */
 function refusal(command: Command): string | undefined {
     if (command.ref.startsWith("refs/tags/")) return "pushing tags is refused";
     if (/^0+$/.test(command.new)) return "deleting branches is refused";

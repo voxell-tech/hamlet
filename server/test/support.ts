@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,7 +14,7 @@ import {
 import {
     createModels,
     createProvider,
-    type Models,
+    type MutableModels,
 } from "@earendil-works/pi-ai/models";
 import { createFauxCore } from "@earendil-works/pi-ai/providers/faux";
 import type {
@@ -23,25 +24,30 @@ import type {
     Harness,
     Storage,
     StorageWrite,
+    Submission,
 } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterEach } from "vitest";
+import { chatOf, submitLine } from "../src/chats.ts";
+import { HOME, WorkDoc } from "../src/hamlet.ts";
+import { type Home, type HomeOptions, openHome } from "../src/home.ts";
+import { OversightDoc, type Wait } from "../src/waits.ts";
 
 export const context = BACKGROUND_CONTEXT;
 
 const scratches: string[] = [];
-const closers: (() => void)[] = [];
+const closers: (() => unknown)[] = [];
 
-afterEach(() => {
-    for (const close of closers.splice(0)) close();
+afterEach(async () => {
+    for (const close of closers.splice(0).reverse()) await close();
     for (const dir of scratches.splice(0)) {
         rmSync(dir, { recursive: true, force: true });
     }
 });
 
-/** Calls each of `closers` after the test. */
-export function closeAfter(...close: (() => void)[]): void {
+/** Calls each of `closers` after the test, the last given first. */
+export function closeAfter(...close: (() => unknown)[]): void {
     closers.push(...close);
 }
 
@@ -60,7 +66,7 @@ export function fauxModels(
     ids: string[] = ["faux-1"],
     cost = 0,
 ): {
-    models: Models;
+    models: MutableModels;
     faux: Faux;
 } {
     const faux = createFauxCore({
@@ -86,6 +92,71 @@ export function fauxModels(
     return { models, faux };
 }
 
+/** The chief of every {@link testHome}. */
+export const CHIEF = "chief";
+
+/** The founder of the first hamlet, its mayor. */
+export const MAYOR = { hamlet: HOME, number: 0 };
+
+/**
+ * Opens a home in `dir` for one test, and closes it after the test. Its chief is {@link CHIEF}, and its mayor runs
+ * `faux::faux-1` unless `options.env` names another model.
+ */
+export async function testHome(
+    dir: string,
+    options: HomeOptions,
+): Promise<Home> {
+    const home = await openHome(
+        dir,
+        {
+            chief: CHIEF,
+            ...options,
+            env: { HAMLET_MODEL: "faux::faux-1", ...options.env },
+        },
+        context,
+    );
+    closeAfter(() => home.close(context));
+    return home;
+}
+
+/** Sends `text` to the home's mayor as a line `chief` typed, with a fresh id. */
+export function say(
+    home: Home,
+    text: string,
+    chief = home.chief,
+): Promise<Submission> {
+    return submitLine(
+        home,
+        { agent: MAYOR, chief },
+        { id: randomUUID(), text },
+        context,
+    );
+}
+
+/** The waits open for a chief now. */
+export async function openWaits(home: Home): Promise<Readonly<Wait>[]> {
+    const oversight = await home.harness.snapshot(OversightDoc, context);
+    return Object.values(oversight?.waits ?? {});
+}
+
+/** The current conversation of the home's chief with its mayor. */
+export function mayorChat(home: Home): Promise<Conversation> {
+    return chatOf(home, { agent: MAYOR, chief: home.chief }, context);
+}
+
+/** Has the first hamlet work on `folder`, in `mode`. */
+export async function setFolder(
+    home: Home,
+    folder: string | null,
+    mode: "manual" | "auto" = "manual",
+): Promise<void> {
+    await home.harness.commit(async (tx) => {
+        const work = await tx.doc(WorkDoc, HOME, HOME);
+        work.folder = folder;
+        work.mode = mode;
+    }, context);
+}
+
 /** Prices each response from its model's rates, as a real provider does. */
 function priced(
     stream: StreamFunction<string, SimpleStreamOptions>,
@@ -109,7 +180,7 @@ function priced(
     };
 }
 
-/** What one request showed the model. */
+/** The model, prompt and tools of one request. */
 export type Request = {
     model: string;
     sections: Record<string, string>;
@@ -174,7 +245,7 @@ export function crashing(
     };
 }
 
-/** What a command printed, both streams in order, and how it ended. */
+/** The output of a command, both streams in order, and how it ended. */
 export async function sh(
     env: ExecutionEnv,
     script: string,

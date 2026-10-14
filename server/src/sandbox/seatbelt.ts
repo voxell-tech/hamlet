@@ -164,6 +164,16 @@ function profile(policy: Policy, tmp: string): Profile {
 /** macOS Seatbelt, through `sandbox-exec`. */
 export const Seatbelt: Sandbox = {
     name: "seatbelt",
+    probe: {
+        argv: [
+            SANDBOX_EXEC,
+            "-p",
+            "(version 1)(allow default)",
+            "--",
+            "/usr/bin/true",
+        ],
+        hint: `macOS sandboxing needs ${SANDBOX_EXEC}`,
+    },
     baseEnv: hostEnv,
     command(policy, argv, _cwd, tmp): Confined {
         const { sbpl, params } = profile(policy, tmp);

@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, mkdtemp } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import {
@@ -20,8 +20,10 @@ import {
 } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import {
-    holdsLocked,
+    type Limits,
+    limitsOf,
     type Policy,
+    policyHash,
     privateTmp,
     readable,
     writable,
@@ -30,17 +32,53 @@ import { platformSandbox, type Sandbox } from "./sandbox.ts";
 
 type Reach = "read" | "write" | "move";
 
+// A byte-order mark is kept, as the node environment keeps it.
+const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+/** `argv`, run by bash once `limits` hold for it and for every process it starts. */
+function limited(limits: Limits, argv: readonly string[]): string[] {
+    // bash counts a file's size in blocks of 1024 bytes. A limit is only
+    // lowered, so where the machine allows less, its own limit stays.
+    const script = (
+        [
+            ["t", limits.cpuSecs],
+            ["u", limits.maxProcs],
+            ["f", limits.maxFileMb * 1024],
+            ["c", 0],
+        ] as const
+    )
+        .map(
+            ([flag, value]) =>
+                `ulimit -${flag} ${value} 2>/dev/null || ulimit -${flag} hard`,
+        )
+        .join("\n");
+    return ["bash", "-c", `${script}\nexec "$@"`, "bash", ...argv];
+}
+
 /** An `ExecutionEnv` whose commands and file operations keep to a policy (S12, C18). */
 export class SandboxEnv extends NodeExecutionEnv {
+    /** The {@link policyHash} of the policy and the sandbox the environment runs commands under. */
+    readonly policyHash: string;
     readonly #policy: Policy;
+    readonly #limits: Limits;
     readonly #sandbox: Sandbox;
     readonly #tmp: string;
+    readonly #scoped: boolean;
 
-    constructor(options: { cwd: string; policy: Policy; sandbox?: Sandbox }) {
+    constructor(options: {
+        cwd: string;
+        policy: Policy;
+        sandbox?: Sandbox;
+        /** A name for a private temp folder of the environment's own, apart from every other scope of the same writable paths. `cleanup` removes the folder. */
+        tmpScope?: string;
+    }) {
         super({ cwd: options.cwd });
         this.#policy = options.policy;
+        this.#limits = limitsOf(options.policy);
         this.#sandbox = options.sandbox ?? platformSandbox();
-        this.#tmp = privateTmp(options.policy);
+        this.policyHash = policyHash(options.policy, this.#sandbox.name);
+        this.#tmp = privateTmp(options.policy, options.tmpScope);
+        this.#scoped = options.tmpScope !== undefined;
     }
 
     override async exec(
@@ -65,16 +103,18 @@ export class SandboxEnv extends NodeExecutionEnv {
         }
         const confined = this.#sandbox.command(
             this.#policy,
-            argv,
+            limited(this.#limits, argv),
             cwd,
             this.#tmp,
         );
+        const { wallSecs } = this.#limits;
         return super.exec(
             confined.argv,
             {
                 ...options,
                 env: { ...confined.env, ...options?.env },
                 inheritEnv: false,
+                timeout: Math.min(options?.timeout ?? wallSecs, wallSecs),
             },
             context,
         );
@@ -85,7 +125,18 @@ export class SandboxEnv extends NodeExecutionEnv {
         context: Context,
     ): Promise<Result<string, FileError>> {
         const refused = await this.#refused(path, "read", context);
-        return refused ? err(refused) : super.readTextFile(path, context);
+        if (refused) return err(refused);
+        // A lossy read would let an edit write the replacement characters
+        // back over the file.
+        const bytes = await super.readBinaryFile(path, context);
+        if (!bytes.ok) return bytes;
+        try {
+            return ok(STRICT_UTF8.decode(bytes.value));
+        } catch {
+            return err(
+                new FileError("invalid", `${path} is not UTF-8 text`, path),
+            );
+        }
     }
 
     override async openTextLineReader(
@@ -198,7 +249,7 @@ export class SandboxEnv extends NodeExecutionEnv {
     ): Promise<Result<void, FileError>> {
         const refused =
             (await this.#refused(sourcePath, "move", context)) ??
-            (await this.#refused(destinationPath, "write", context));
+            (await this.#refused(destinationPath, "move", context));
         return refused
             ? err(refused)
             : super.renameFile(sourcePath, destinationPath, context);
@@ -236,7 +287,12 @@ export class SandboxEnv extends NodeExecutionEnv {
         }
     }
 
-    /** Why the policy refuses `path` to `reach`, or `undefined` when it allows it. */
+    override async cleanup(context: Context): Promise<void> {
+        await super.cleanup(context);
+        if (this.#scoped) await rm(this.#tmp, { recursive: true, force: true });
+    }
+
+    /** The reason the policy refuses `path` to `reach`, or `undefined` when it allows it. */
     async #refused(
         path: string,
         reach: Reach,
@@ -248,8 +304,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         const allowed =
             reach === "read"
                 ? readable(this.#policy, this.#tmp, real)
-                : writable(this.#policy, this.#tmp, real) &&
-                  (reach === "write" || !holdsLocked(this.#policy, real));
+                : writable(this.#policy, this.#tmp, real, reach === "move");
         return allowed
             ? undefined
             : new FileError(
@@ -259,7 +314,7 @@ export class SandboxEnv extends NodeExecutionEnv {
               );
     }
 
-    /** Whether `program` names an executable file, on the policy's `PATH` when it is a bare name. */
+    /** True when `program` names an executable file, on the policy's `PATH` when it is a bare name. */
     async #found(program: string, cwd: string): Promise<boolean> {
         const candidates = program.includes("/")
             ? [isAbsolute(program) ? program : resolve(cwd, program)]

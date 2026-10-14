@@ -1,0 +1,48 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { connect } from "./connection.ts";
+import { layoutOf } from "./layout.ts";
+
+/** The address and token of a chief's server. */
+export type ServerAddress = { url: string; token: string };
+
+/** The local server's address, or the server the environment names. */
+export async function reachHome(
+    dir: string,
+    env: NodeJS.ProcessEnv,
+): Promise<ServerAddress> {
+    if (env.HAMLET_SERVER) {
+        if (!env.HAMLET_TOKEN)
+            throw new Error(
+                "HAMLET_SERVER needs HAMLET_TOKEN, its home's token",
+            );
+        return { url: env.HAMLET_SERVER, token: env.HAMLET_TOKEN };
+    }
+    const layout = layoutOf(resolve(dir));
+    const found = await readFile(layout.server, "utf8").catch(() => {
+        throw new Error(
+            `no server runs for ${layout.dir}; start one with \`npm run hamlet -- server\``,
+        );
+    });
+    const { url } = JSON.parse(found) as { url: string };
+    const { connection } = JSON.parse(
+        await readFile(layout.credentials, "utf8"),
+    ) as { connection: { token: string } };
+    return { url, token: connection.token };
+}
+
+/** An authenticated connection and the realm's starting state. */
+export async function connectChief(address: ServerAddress) {
+    const connection = await connect(address.url);
+    try {
+        connection.send({ type: "hello", v: 0, token: address.token });
+        const state = await connection.next();
+        if (state.type === "fault") throw new Error(state.text);
+        if (state.type !== "state")
+            throw new Error("The server sent no state.");
+        return { connection, state };
+    } catch (error) {
+        await connection.close();
+        throw error;
+    }
+}

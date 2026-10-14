@@ -10,16 +10,22 @@
     "scripts": {
         "check": "tsc --noEmit && biome check --error-on-warnings .",
         "format": "biome check --write .",
-        "test": "vitest --run"
+        "hamlet": "node --enable-experimental-regexp-engine --disable-warning=ExperimentalWarning src/cli.ts",
+        "schema": "node scripts/schema.ts && biome format --write protocol.schema.json",
+        "test": "vitest --run",
+        "test:live": "vitest --run --mode live"
     },
     "dependencies": {
         "@earendil-works/chord": "1.2.0",
         "@earendil-works/pi-ai": "1.2.0",
-        "@earendil-works/pi-durable": "1.2.0"
+        "@earendil-works/pi-durable": "1.2.0",
+        "typebox": "1.3.27",
+        "ws": "8.22.0"
     },
     "devDependencies": {
         "@biomejs/biome": "2.5.15",
         "@types/node": "24.19.2",
+        "@types/ws": "8.18.2",
         "typescript": "7.0.2",
         "vitest": "5.0.4"
     }

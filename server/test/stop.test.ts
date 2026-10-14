@@ -1,0 +1,74 @@
+import {
+    fauxAssistantMessage,
+    fauxToolCall,
+} from "@earendil-works/pi-ai/providers/faux";
+import { expect, it, vi } from "vitest";
+import { stopAgent } from "../src/talk.ts";
+import { localDay } from "../src/time.ts";
+import { OversightDayDoc, settle } from "../src/waits.ts";
+import {
+    context,
+    fauxModels,
+    MAYOR,
+    mayorChat,
+    openWaits,
+    say,
+    scratch,
+    setFolder,
+    testHome,
+    transcript,
+} from "./support.ts";
+
+it("stops a held turn, drops its queued chief line, lapses waits and spares the next line", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), {
+        models,
+        env: { HAMLET_REFLECT_EVERY: "0" },
+    });
+    await setFolder(home, scratch(), "manual");
+    faux.setResponses([
+        fauxAssistantMessage(fauxToolCall("bash", { command: "echo never" }), {
+            stopReason: "toolUse",
+        }),
+        fauxAssistantMessage(
+            fauxToolCall("bash", { command: "echo still gated" }),
+            { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage("The next line answers."),
+    ]);
+    const first = await say(home, "Run a command.");
+    await vi.waitFor(async () => expect(await openWaits(home)).toHaveLength(1));
+    const queued = await say(home, "Drop this.");
+    expect(await stopAgent(home, MAYOR, context)).toBe("Stopping mayor.");
+    expect(await first.wait(context)).toMatchObject({ status: "unanswered" });
+    expect(await queued.wait(context)).toMatchObject({ status: "unanswered" });
+    expect(await openWaits(home)).toEqual([]);
+    expect(
+        (await transcript(await mayorChat(home))).at(-1)?.data,
+    ).toMatchObject({ text: "Stopped: stopped by chief (1 queued dropped)" });
+    const events = (
+        await home.harness.snapshot(
+            OversightDayDoc,
+            localDay(home.now()),
+            context,
+        )
+    )?.events;
+    expect(events).toContainEqual(
+        expect.objectContaining({ type: "settled", how: "stopped" }),
+    );
+    const after = await say(home, "After the stop.");
+    await vi.waitFor(async () => expect(await openWaits(home)).toHaveLength(1));
+    const [wait] = await openWaits(home);
+    if (wait === undefined) throw new Error("missing next approval");
+    await home.harness.commit(
+        (tx) =>
+            settle(
+                tx,
+                wait.id,
+                { how: "deny", chief: home.chief, text: "" },
+                home.now(),
+            ),
+        context,
+    );
+    expect(await after.wait(context)).toMatchObject({ status: "done" });
+});

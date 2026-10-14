@@ -5,12 +5,14 @@
 set -eu
 machine=${HAMLET_LINUX_MACHINE:-hamlet-sandbox}
 repo=$(cd "$(dirname "$0")/../.." && pwd)
+# One copy per checkout, so worktrees can test at the same time.
+copy="hamlet-$(printf %s "$repo" | shasum | cut -c1-12)"
 orbctl run -m "$machine" sh -c "
     set -eu
-    mkdir -p ~/hamlet/assets
-    rsync -a --delete --exclude node_modules '$repo/server/' ~/hamlet/server/
-    cp '$repo/assets/charter.md' ~/hamlet/assets/
-    cd ~/hamlet/server
+    mkdir -p ~/$copy/assets
+    rsync -a --delete --exclude node_modules '$repo/server/' ~/$copy/server/
+    rsync -a '$repo/assets/' ~/$copy/assets/
+    cd ~/$copy/server
     npm ci --silent --no-audit --no-fund
     npx vitest --run $*
 "

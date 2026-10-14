@@ -4,6 +4,10 @@ import type { Confined, Sandbox } from "./sandbox.ts";
 /** Linux bubblewrap. */
 export const Bwrap: Sandbox = {
     name: "bwrap",
+    probe: {
+        argv: ["bwrap", "--unshare-all", "--ro-bind", "/", "/", "true"],
+        hint: "bubblewrap is required for sandboxing. Install it (e.g. `apt install bubblewrap`). On Ubuntu 24.04+, AppArmor restricts unprivileged user namespaces; allow bwrap via an AppArmor profile or set kernel.apparmor_restrict_unprivileged_userns=0",
+    },
     baseEnv: () => ({
         PATH: "/usr/local/bin:/usr/bin:/bin",
         HOME: "/tmp",

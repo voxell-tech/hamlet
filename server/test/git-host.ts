@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { scratch } from "./support.ts";
 
-/** How a git command ended. */
+/** The end of a git command. */
 export type Ran = { code: number; stdout: string; stderr: string };
 
 /** Runs git with no user or system configuration and no prompts. */

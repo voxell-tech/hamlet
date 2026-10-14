@@ -11,6 +11,8 @@ export type Confined = {
 /** A way to confine a command on one platform. */
 export interface Sandbox {
     readonly name: string;
+    /** A command that succeeds only where the sandbox works, and what to do where it fails. */
+    readonly probe: { argv: string[]; hint: string };
     /** The environment tools start from. */
     baseEnv(): Record<string, string>;
     /** `argv`, run from `cwd`, confined to `policy`, with `tmp` as its temp folder. */
