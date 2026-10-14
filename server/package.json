@@ -1,0 +1,26 @@
+{
+    "name": "hamlet-server",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Hamlet's agent server",
+    "type": "module",
+    "engines": {
+        "node": ">=24.1.0"
+    },
+    "scripts": {
+        "check": "tsc --noEmit && biome check --error-on-warnings .",
+        "format": "biome check --write .",
+        "test": "vitest --run"
+    },
+    "dependencies": {
+        "@earendil-works/chord": "1.2.0",
+        "@earendil-works/pi-ai": "1.2.0",
+        "@earendil-works/pi-durable": "1.2.0"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "2.5.15",
+        "@types/node": "24.19.2",
+        "typescript": "7.0.2",
+        "vitest": "5.0.4"
+    }
+}

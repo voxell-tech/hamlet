@@ -42,5 +42,21 @@ example `cargo test -p hamlet_rules`.
 do are compiled only with `cargo test --features live-tests`; run them only
 when the owner asks.
 
+The agent server in `server/` has two checks of its own, run in that folder
+with the Node version in `server/.nvmrc`. They must be clean before a
+commit too, and `npm test` never contacts a model server or the internet
+either.
+
+```sh
+npm run check   # TypeScript and Biome
+npm test
+```
+
+On Linux, tools run under bubblewrap rather than Seatbelt. After changing
+`server/src/sandbox/` or `server/src/git/`, run the tests there too with
+`server/scripts/test-linux.sh`, in the OrbStack machine `hamlet-sandbox`
+(Debian with bubblewrap, socat, git, curl, python3 and the Node of
+`.nvmrc`).
+
 Never run the `hamlet` binary without `HAMLET_HOME` set to a scratch folder:
 with the default home it works on the owner's real notes, skills and logs.
