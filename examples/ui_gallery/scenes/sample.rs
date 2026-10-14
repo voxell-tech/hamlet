@@ -125,7 +125,10 @@ pub(super) fn setup(world: &mut World) {
             chatgpt: false,
             api_key: Some("key".into()),
         });
-        world.insert_resource(hamlet_ui::models::Shelf::of(shelf()));
+        world.insert_resource(
+            hamlet_core::catalogue::ModelCatalogue::of(shelf()),
+        );
+        world.init_resource::<hamlet_ui::models::Shelf>();
         world.init_resource::<hamlet_core::core::Listing>();
         world.insert_resource(hamlet_core::core::Settings {
             config,

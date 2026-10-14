@@ -3,7 +3,6 @@
 //! when both say so.
 
 use std::collections::BTreeMap;
-use std::time::SystemTime;
 
 mod choice;
 mod home;
@@ -12,12 +11,9 @@ use bevy::app::{App, Update};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Local, Query, Res, ResMut};
-use bevy::time::Time;
+use bevy::ecs::system::{Query, ResMut};
 use hamlet_core::agents::{Charter, Settlement};
-use hamlet_core::core::{HomeDir, Listing};
 use hamlet_home::limits::Limits;
-use hamlet_model::catalogue::{self, Catalogue};
 
 pub(crate) use self::choice::{of_agent, of_hamlet};
 pub(crate) use self::home::narrowed;
@@ -26,22 +22,16 @@ pub use self::home::{endpoints, shelf};
 /// The most models the catalogue shows at once.
 const SHOWN: usize = 40;
 
-/// Seconds between two looks at the catalogue's file, which a chief
-/// may write by hand.
-const LOOK: f32 = 2.0;
-
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Shelf>()
         .init_resource::<Draft>()
-        .add_systems(Update, (follow, follow_catalogue));
+        .add_systems(Update, follow);
 }
 
-/// The catalogue as the window shows it, and each hamlet's own
-/// list by the hamlet's name.
+/// Each hamlet's own list of models as the window shows it, by the
+/// hamlet's name.
 #[derive(Resource, Default)]
 pub struct Shelf {
-    catalogue: Catalogue,
-    stamp: Option<SystemTime>,
     lists: BTreeMap<String, Vec<String>>,
     /// Each hamlet's default model and the model its chief chose
     /// for an agent, by the hamlet's name.
@@ -55,14 +45,6 @@ pub struct Shelf {
 }
 
 impl Shelf {
-    /// A shelf that shows `catalogue`.
-    pub fn of(catalogue: Catalogue) -> Shelf {
-        Shelf {
-            catalogue,
-            ..Shelf::default()
-        }
-    }
-
     /// Shows `limits` as those of the hamlet `name`.
     fn show(&mut self, name: &str, limits: Limits) {
         if self.lists.get(name) != Some(&limits.models) {
@@ -81,31 +63,6 @@ impl Shelf {
 #[derive(Resource, Default)]
 pub struct Draft {
     narrow: String,
-}
-
-/// Reads the catalogue again when the endpoints were asked what they
-/// serve, after the window's own change, and when its file was
-/// written.
-pub(crate) fn follow_catalogue(
-    time: Res<Time>,
-    home: Res<HomeDir>,
-    listing: Option<Res<Listing>>,
-    mut shelf: ResMut<Shelf>,
-    mut due: Local<f32>,
-) {
-    let now = time.elapsed_secs();
-    let listed = listing.is_some_and(|listing| listing.is_changed());
-    if !listed && shelf.stamp.is_some() && now < *due {
-        return;
-    }
-    *due = now + LOOK;
-    let stamp = std::fs::metadata(catalogue::path(&home.0.root))
-        .and_then(|file| file.modified())
-        .unwrap_or(SystemTime::UNIX_EPOCH);
-    if shelf.stamp != Some(stamp) {
-        shelf.stamp = Some(stamp);
-        shelf.catalogue = Catalogue::load(&home.0.root);
-    }
 }
 
 /// Shows each hamlet's list as its limits were last read, when they

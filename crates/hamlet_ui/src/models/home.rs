@@ -8,6 +8,7 @@ use bevy_fynix::views::{
     FrameProps, column, label, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use hamlet_core::catalogue::ModelCatalogue;
 use hamlet_core::core::{
     HomeDir, ListModels, Listing, SaveSettings, Settings,
     TestConnection, Tokio,
@@ -33,14 +34,15 @@ fn change(
     act: impl FnOnce(&mut Model),
 ) {
     let home = world.resource::<HomeDir>().0.root.clone();
-    let mut shelf = world.resource_mut::<Shelf>();
-    let Some(model) = shelf.catalogue.get_mut(name) else {
+    let mut models = world.resource_mut::<ModelCatalogue>();
+    let Some(model) = models.catalogue.get_mut(name) else {
         return;
     };
     act(model);
-    let saved = shelf.catalogue.save(&home);
-    shelf.problem = saved.err().map(|e| format!("{e:#}"));
-    shelf.stamp = None;
+    let saved = models.catalogue.save(&home);
+    models.reread();
+    world.resource_mut::<Shelf>().problem =
+        saved.err().map(|e| format!("{e:#}"));
 }
 
 fn remove(world: &mut World, name: &str) {
@@ -188,8 +190,8 @@ fn price(
 ) -> AnyView {
     let (known, name) = (name.to_string(), name.to_string());
     keyed(
-        resource::<Shelf, _>(move |shelf| {
-            shelf.catalogue.get(&known).is_none_or(|model| {
+        resource::<ModelCatalogue, _>(move |models| {
+            models.catalogue.get(&known).is_none_or(|model| {
                 matches!(
                     model.priced,
                     Priced::Unknown | Priced::Yours
@@ -198,9 +200,10 @@ fn price(
         }),
         move |open| {
             let (shown, changed) = (name.clone(), name.clone());
-            let value = resource::<Shelf, _>(move |shelf| {
-                shelf.catalogue.get(&shown).map_or(0.0, get)
-            });
+            let value =
+                resource::<ModelCatalogue, _>(move |models| {
+                    models.catalogue.get(&shown).map_or(0.0, get)
+                });
             if !open {
                 return row((label(
                     value.map(|v| format!("{v:.2}")),
@@ -235,8 +238,8 @@ fn entry(name: &str) -> AnyView {
     let from = name.clone();
     column((
         row((
-            tick(resource::<Shelf, _>(move |shelf| {
-                shelf
+            tick(resource::<ModelCatalogue, _>(move |models| {
+                models
                     .catalogue
                     .get(&allowed)
                     .is_some_and(|model| model.allowed)
@@ -254,8 +257,8 @@ fn entry(name: &str) -> AnyView {
             price(&name, |m| m.input, |m, v| m.input = v),
             small("OUT"),
             price(&name, |m| m.output, |m, v| m.output = v),
-            label(resource::<Shelf, _>(move |shelf| {
-                let Some(model) = shelf.catalogue.get(&from) else {
+            label(resource::<ModelCatalogue, _>(move |models| {
+                let Some(model) = models.catalogue.get(&from) else {
                     return String::new();
                 };
                 match model.context {
@@ -300,7 +303,7 @@ pub(crate) fn narrowed<N: AsRef<str>>(
 /// to allow, price and describe.
 pub fn shelf() -> AnyView {
     let shown = bevy_fynix::derived(|world: &World| {
-        let all = &world.resource::<Shelf>().catalogue;
+        let all = &world.resource::<ModelCatalogue>().catalogue;
         narrowed(
             all.models.iter().map(Model::name),
             &world.resource::<Draft>().narrow,

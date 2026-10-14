@@ -102,6 +102,7 @@ impl Plugin for CorePlugin {
                 home: self.home.root.clone(),
             },
             awake::plugin,
+            crate::catalogue::plugin,
         ));
     }
 }

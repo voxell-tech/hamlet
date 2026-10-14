@@ -8,8 +8,10 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, dropdown, label, row};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_core::agents::{Account, LivesIn, Mayor, Settlement};
+use hamlet_core::catalogue::ModelCatalogue;
 use hamlet_core::core::Settings;
 use hamlet_home::limits::{self, Limits};
+use hamlet_model::catalogue::Catalogue;
 use hamlet_rules::hamlet::{Hamlet, MAYOR};
 
 use super::Shelf;
@@ -59,9 +61,13 @@ pub(super) fn home_default(world: &World) -> String {
 
 /// The names a dropdown of models offers: the home's default, every
 /// model the home allows, and `now` when it is none of those.
-fn offered(shelf: &Shelf, default: &str, now: &str) -> Vec<String> {
+fn offered(
+    catalogue: &Catalogue,
+    default: &str,
+    now: &str,
+) -> Vec<String> {
     let mut names = vec![default.to_string()];
-    for name in shelf.catalogue.allowed().map(|model| model.name()) {
+    for name in catalogue.allowed().map(|model| model.name()) {
         if !names.contains(&name) {
             names.push(name);
         }
@@ -82,8 +88,10 @@ pub(super) fn chooser(
     let options = bevy_fynix::derived(move |world: &World| {
         let now = read(world);
         let names = world
-            .get_resource::<Shelf>()
-            .map(|shelf| offered(shelf, &home_default(world), &now))
+            .get_resource::<ModelCatalogue>()
+            .map(|models| {
+                offered(&models.catalogue, &home_default(world), &now)
+            })
             .unwrap_or_default();
         (names, now)
     })
@@ -238,8 +246,8 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> AnyView {
             return cx.build(column(()));
         };
         let default = default_of(&place);
-        let allowed = resource::<Shelf, _>(|shelf| {
-            shelf.catalogue.allowed().cloned().collect::<Vec<_>>()
+        let allowed = resource::<ModelCatalogue, _>(|models| {
+            models.catalogue.allowed().cloned().collect::<Vec<_>>()
         });
         let rows = keyed(allowed, move |models| {
             if models.is_empty() {
@@ -347,12 +355,12 @@ mod tests {
 
         // The model run is offered, though the home does not list it,
         // after the home's default.
-        let shelf = Shelf::default();
+        let catalogue = Catalogue::default();
         assert_eq!(
-            offered(&shelf, "own", "by-hand"),
+            offered(&catalogue, "own", "by-hand"),
             ["own", "by-hand"]
         );
-        assert_eq!(offered(&shelf, "own", "own"), ["own"]);
+        assert_eq!(offered(&catalogue, "own", "own"), ["own"]);
     }
 
     #[test]
