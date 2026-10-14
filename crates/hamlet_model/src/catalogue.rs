@@ -261,9 +261,10 @@ impl Catalogue {
     }
 
     /// Takes in what the endpoint `endpoint` lists. A new model waits
-    /// for the chief to allow it, a price the chief wrote stays, and
-    /// a model with no price that runs on this machine (`local`) is
-    /// given `LOCAL_PRICE`.
+    /// for the chief to allow it, a price the chief wrote stays, a
+    /// model with no price that runs on this machine (`local`) is
+    /// given `LOCAL_PRICE`, and one the endpoint no longer lists is
+    /// dropped.
     pub fn take_in(
         &mut self,
         endpoint: &str,
@@ -300,6 +301,10 @@ impl Catalogue {
                 None => {}
             }
         }
+        self.models.retain(|model| {
+            model.endpoint != endpoint
+                || listed.iter().any(|found| found.id == model.id)
+        });
         self.models.sort_by(|a, b| {
             (&a.endpoint, &a.id).cmp(&(&b.endpoint, &b.id))
         });
@@ -410,6 +415,9 @@ mod tests {
         assert_eq!(large.input, 9.0);
         assert!(large.card().contains("For hard questions."));
         assert_eq!(all.allowed().count(), 1);
+        // One the endpoint no longer serves goes.
+        all.take_in("far", &listed(Some(cheap))[..1], false);
+        assert!(all.get("far::small").is_none());
 
         // One on this machine costs a little, so its work counts.
         all.take_in("near", &listed(None), true);

@@ -309,7 +309,10 @@ pub fn shelf() -> AnyView {
             &world.resource::<Draft>().narrow,
         )
     })
-    .when(either(moved::<Shelf>(), moved::<Draft>()));
+    .when(either(
+        moved::<ModelCatalogue>(),
+        either(moved::<Shelf>(), moved::<Draft>()),
+    ));
     let models = keyed(shown, |(names, more)| {
         if names.is_empty() {
             return note(

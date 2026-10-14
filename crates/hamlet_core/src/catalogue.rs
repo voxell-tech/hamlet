@@ -10,7 +10,7 @@ use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Local, Res, ResMut};
 use hamlet_model::catalogue::{self, Catalogue};
 
-use crate::core::{HomeDir, Listing};
+use crate::core::{HomeDir, Listing, Settings};
 
 /// The time between two looks at the catalogue's file.
 const LOOK: Duration = Duration::from_secs(2);
@@ -45,16 +45,18 @@ impl ModelCatalogue {
 }
 
 /// Reads the catalogue again when the endpoints were asked what they
-/// serve, after a change written to it, and when its file was
-/// written.
+/// serve or the settings changed, after a change written to it, and
+/// when its file was written.
 fn follow(
     home: Res<HomeDir>,
     listing: Res<Listing>,
+    settings: Res<Settings>,
     mut models: ResMut<ModelCatalogue>,
     mut due: Local<Option<Instant>>,
 ) {
     let now = Instant::now();
     if !listing.is_changed()
+        && !settings.is_changed()
         && models.stamp.is_some()
         && due.is_some_and(|due| now < due)
     {

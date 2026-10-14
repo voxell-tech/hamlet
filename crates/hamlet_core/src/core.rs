@@ -384,7 +384,18 @@ fn save_settings(
     mut settings: ResMut<Settings>,
 ) {
     let config = save.event().0.clone();
-    match config.save(&home.0.root) {
+    match config.save(&home.0.root).and_then(|()| {
+        // The models of an endpoint taken out go with it.
+        let mut all = Catalogue::load(&home.0.root);
+        let known = all.models.len();
+        all.models.retain(|model| {
+            config.endpoint(&model.endpoint).is_some()
+        });
+        if all.models.len() < known {
+            all.save(&home.0.root)?;
+        }
+        Ok(())
+    }) {
         Ok(()) => {
             if !model.replay {
                 model.provider = provider_for(&config, &home.0.root);
