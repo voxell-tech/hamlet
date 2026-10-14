@@ -22,7 +22,7 @@ use crate::looks::{
 use crate::models::narrowed;
 use crate::platform::DisplayText;
 use crate::theme::{BRASS_5, CARD, Lamplight, SHADOW};
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 fn title(which: Glyph, text: &'static str) -> Ui {
     headed(
@@ -155,7 +155,7 @@ fn key_form(chosen: usize) -> Ui {
         .chain(["OTHER"])
         .enumerate()
         .map(|(at, name)| {
-            let look: fn(&mut Build) =
+            let look: fn(&mut Cx) =
                 if at == chosen { lamp } else { brass };
             lettered(name)
                 .rules(look)
@@ -293,7 +293,7 @@ fn models() -> Ui {
         column(rows).gap(6.0).boxed()
     })
     .within(bare());
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let welcome = cx.world.resource::<Welcome>();
         let found = format!(
             "{} answered with {} {}. Pick the one your hamlet will \

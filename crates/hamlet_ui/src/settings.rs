@@ -36,7 +36,7 @@ use crate::me::Me;
 use crate::platform::DisplayText;
 use crate::theme::{BRASS_6, Lamplight};
 use crate::world_menu::{self, Deed};
-use crate::{Build, Ui, markdown};
+use crate::{Cx, Ui, markdown};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Pane>()
@@ -64,7 +64,7 @@ fn field(
 
 /// The choice of the world's visual quality.
 fn quality() -> Ui {
-    Ui::new(|cx: &mut Build| {
+    Ui::new(|cx: &mut Cx| {
         cx.build(
             dropdown(
                 Quality::ALL.map(Quality::name),
@@ -498,7 +498,7 @@ pub fn screen() -> Ui {
         .boxed()
     })
     .within(column(()).gap(0.0).max_width(px(640.0)));
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         cx.build(scroll((page,)).fills_height())
     })
 }

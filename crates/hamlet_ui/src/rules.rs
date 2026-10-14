@@ -543,7 +543,7 @@ pub fn panel(hamlet: Entity) -> Ui {
             .boxed()
         })
         .within(bare());
-    Ui::new(move |cx: &mut crate::Build| {
+    Ui::new(move |cx: &mut crate::Cx| {
         // The bylaws shown are this hamlet's, read from its own
         // folder.
         let root =

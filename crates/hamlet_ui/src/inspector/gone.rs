@@ -20,11 +20,11 @@ use crate::looks::{
 use crate::me::Me;
 use crate::platform::{DisplayText, Wraps};
 use crate::world_menu::{self, Deed};
-use crate::{Build, Ui, lists, overview};
+use crate::{Cx, Ui, lists, overview};
 
 /// The page of an agent that is gone, with the way back.
 pub(super) fn ruin(agent: Entity) -> Ui {
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let named = |agent: Entity| {
             hamlet_core::agents::name_of(cx.world, agent)
         };

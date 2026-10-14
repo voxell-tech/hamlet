@@ -19,7 +19,7 @@ use crate::platform::Glow;
 use crate::status::status_bar;
 use crate::theme::{BLACK, Lamplight, SEAM};
 use crate::window::{self, Layout};
-use crate::{Build, Ui, chrome, hover, menu, welcome, world_menu};
+use crate::{Cx, Ui, chrome, hover, menu, welcome, world_menu};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(Startup, open);
@@ -33,7 +33,7 @@ pub(crate) fn mount(world: &mut World) {
 }
 
 fn root() -> Ui {
-    Ui::new(|cx: &mut Build| {
+    Ui::new(|cx: &mut Cx| {
         cx.build(
             column((
                 keyed(

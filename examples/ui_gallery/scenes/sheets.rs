@@ -22,8 +22,8 @@ use hamlet_ui::icons::{Glyph, glyph};
 use hamlet_ui::platform::DisplayText;
 use hamlet_ui::theme::{BLACK, BRASS_3, BRASS_5, CARD, Lamplight};
 use hamlet_ui::{
-    Build, brass, chat, grim, lamp, lists, marked, menu, platform,
-    tabs, well,
+    Cx, brass, chat, grim, lamp, lists, marked, menu, platform, tabs,
+    well,
 };
 use hamlet_world::sound::SoundSettings;
 
@@ -64,7 +64,7 @@ fn cell(name: &'static str, view: Ui) -> Ui {
         .boxed()
 }
 
-type Look = fn(&mut Build);
+type Look = fn(&mut Cx);
 
 /// A button of one look in each of its states.
 fn states(

@@ -37,7 +37,7 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::theme::{BRASS_4, BRASS_5, BRASS_6, CARD, Lamplight};
-use crate::{Build, Ui, chat, inspector};
+use crate::{Cx, Ui, chat, inspector};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<History>()
@@ -420,7 +420,7 @@ pub(crate) fn stale_on_job(
 }
 
 /// Look of a session's row.
-fn card(cx: &mut Build) {
+fn card(cx: &mut Cx) {
     style::<Lamplight>()
         .frame(|f, _| {
             f.fill(CARD)
@@ -591,7 +591,7 @@ fn actions(resumable: bool, kept: bool) -> Ui {
 
 /// The reader of the open session.
 fn reader() -> Ui {
-    Ui::new(|cx: &mut Build| {
+    Ui::new(|cx: &mut Cx| {
         let history = cx.world.resource::<History>();
         let Some(reading) = &history.reading else {
             return cx.build(frame());

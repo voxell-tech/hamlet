@@ -15,7 +15,7 @@ use hamlet_ui::feel::Lit;
 use hamlet_ui::icons::Glyph;
 use hamlet_ui::theme::Lamplight;
 use hamlet_ui::{
-    Build, ICON, Me, chat, inspector, lit_panel, menu, needs, panel,
+    Cx, ICON, Me, chat, inspector, lit_panel, menu, needs, panel,
     settings, status_bar, toolbar, welcome,
 };
 
@@ -23,7 +23,7 @@ use super::{Scene, Stand, Ui};
 
 /// The picture of the world over the command line.
 fn world_stand() -> Ui {
-    AnyView::new(|cx: &mut Build| {
+    AnyView::new(|cx: &mut Cx| {
         let picture =
             cx.world.get_resource::<Stand>().map(|stand| ImageNode {
                 image: stand.0.clone(),
@@ -115,7 +115,7 @@ pub(super) fn seed_dock(world: &mut World) {
 /// The question before a rewind to the last of the chief's
 /// messages, in the scene that shows it.
 fn rewind_question() -> Ui {
-    AnyView::new(|cx: &mut Build| {
+    AnyView::new(|cx: &mut Cx| {
         let session = cx.world.resource::<Me>().session;
         let last = cx
             .world

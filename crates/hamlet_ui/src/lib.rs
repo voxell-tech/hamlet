@@ -52,7 +52,7 @@ use bevy::window::{
     ExitCondition, Window, WindowPlugin, WindowResolution,
 };
 use bevy_fynix::dock::DockPlugin;
-use bevy_fynix::{AnyView, Bevy, Cx, FynixPlugin, Theme};
+use bevy_fynix::{AnyView, Bevy, FynixPlugin, Theme};
 use hamlet_core::agents::WatchEvery;
 use hamlet_core::core::HomeDir;
 use hamlet_world::hamlet::HamletPlugin;
@@ -161,7 +161,7 @@ impl Plugin for UiPlugin {
 }
 
 /// The context a view of the window is built in.
-pub type Build<'a> = Cx<'a, Bevy, Lamplight>;
+pub type Cx<'a> = bevy_fynix::Cx<'a, Bevy, Lamplight>;
 
 /// A view of the window, its type erased.
 pub(crate) type Ui = AnyView<Bevy, Lamplight>;

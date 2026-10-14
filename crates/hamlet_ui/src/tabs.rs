@@ -28,7 +28,7 @@ use crate::icons::Glyph;
 use crate::looks::{ICON, hairline, headed};
 use crate::platform::{DisplayText, show};
 use crate::theme::{BRASS_3, BRASS_6, Lamplight};
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, fit);
@@ -58,7 +58,7 @@ pub struct Folds(Option<f32>);
 pub struct Listed;
 
 /// A tab: lettering alone, bright on the one shown.
-pub fn tab_look(cx: &mut Build) {
+pub fn tab_look(cx: &mut Cx) {
     style::<Lamplight>()
         .frame(|f, _| {
             f.fill(Color::NONE)

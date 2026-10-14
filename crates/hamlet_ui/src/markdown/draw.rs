@@ -26,7 +26,7 @@ use crate::platform::{
     Display as DisplayFace, DisplayText, Mono, MonoText,
 };
 use crate::theme::{BRASS_5, BRASS_6, Lamplight, PLATE};
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 fn words(world: &World, session: Entity, id: u64) -> Option<&str> {
     match world.get::<Transcript>(session)?.get(id)? {
@@ -159,7 +159,7 @@ fn anchored(
 /// line it runs over.
 pub(super) fn rich(spans: &[Span], ink: Ink) -> Ui {
     let spans = spans.to_vec();
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let spans = anchored(cx.world, spans);
         let root = cx.build(label("").size(ink.size));
         let theme = cx.theme();
@@ -232,7 +232,7 @@ pub(super) fn rich(spans: &[Span], ink: Ink) -> Ui {
 
 fn code_view(lang: &str, text: &str) -> Ui {
     let text = text.to_string();
-    let body = Ui::new(move |cx: &mut Build| {
+    let body = Ui::new(move |cx: &mut Cx| {
         // A long line wraps: nothing in the chat scrolls sideways.
         let node = cx.build(label(text).size(13.0));
         let mono =
@@ -313,7 +313,7 @@ fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> Ui {
             );
         }
     }
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let node = cx.build(
             column(cells)
                 .gap(1.0)

@@ -21,7 +21,7 @@ use crate::theme::{
     LAMP, LAMP_LOW, Lamplight, RED, RED_DEEP, RED_HOVER, RED_LOW,
     WELL,
 };
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 /// The least height of any button (macOS default control size, 28
 /// pt).
@@ -34,7 +34,7 @@ pub fn pad() -> UiRect {
 
 /// An ordinary button: a wooden plate in a brass frame, lettered in
 /// brass. A held one sinks into the dark.
-pub fn brass(cx: &mut Build) {
+pub fn brass(cx: &mut Cx) {
     style::<Lamplight>()
         .frame(|f, _| {
             f.fill(GREY_4)
@@ -58,7 +58,7 @@ pub fn brass(cx: &mut Build) {
 
 /// The button for the one action a screen is for: a lamp that burns
 /// low behind amber glass, and is turned up under the pointer.
-pub fn lamp(cx: &mut Build) {
+pub fn lamp(cx: &mut Cx) {
     style::<Lamplight>()
         .frame(|f, _| {
             f.fill(LAMP_LOW)
@@ -81,7 +81,7 @@ pub fn lamp(cx: &mut Build) {
 
 /// The way back to where a page was reached from: an arrow and a name
 /// with no plate, dim until the pointer is on them.
-pub fn retrace(cx: &mut Build) {
+pub fn retrace(cx: &mut Cx) {
     style::<Lamplight>()
         .frame(|f, _| f.fill(Color::NONE))
         .label(|l, _| l.tone(Tone::Dim).size(12.0).bold(true))
@@ -94,14 +94,14 @@ pub fn retrace(cx: &mut Build) {
 
 /// A view before it comes in and after it goes: clear, and a little
 /// small.
-pub fn away(cx: &mut Build) {
+pub fn away(cx: &mut Cx) {
     cx.set::<Visual>(|visual, _| visual.opacity(0.0));
     cx.root(|cx| cx.set::<Visual>(|visual, _| visual.scale(0.96)));
 }
 
 /// A text field: a well sunk into the panel, framed in dim brass that
 /// brightens under the pointer and while it is typed in.
-pub fn well(cx: &mut Build) {
+pub fn well(cx: &mut Cx) {
     style::<Lamplight>()
         .frame(|f, _| {
             f.fill(WELL)
@@ -121,7 +121,7 @@ pub fn well(cx: &mut Build) {
 
 /// A button for what refuses, stops or throws away: a dark red plate
 /// in a red frame, and a coal under the pointer.
-pub fn grim(cx: &mut Build) {
+pub fn grim(cx: &mut Cx) {
     style::<Lamplight>()
         .frame(|f, _| {
             f.fill(RED_DEEP)
@@ -284,7 +284,7 @@ pub fn back(text: &'static str, act: fn(&mut World)) -> Ui {
 fn acting(
     which: Glyph,
     text: &'static str,
-    (rules, mood): (fn(&mut Build), Mood),
+    (rules, mood): (fn(&mut Cx), Mood),
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> Ui {
     marked(which, text)
@@ -323,7 +323,7 @@ pub(crate) fn bad_action(
 
 /// A row of a list that leads somewhere: no plate and no frame at
 /// rest, and a faint plate under the pointer.
-pub(crate) fn passage(cx: &mut Build) {
+pub(crate) fn passage(cx: &mut Cx) {
     style::<Lamplight>()
         .frame(|f, _| f.fill(Color::NONE).radius(Lamplight::round()))
         .label(|l, _| l.tone(Tone::Faint).size(12.0).bold(true))
@@ -360,7 +360,7 @@ fn way_in(
     which: Glyph,
     title: &'static str,
     holds: &'static str,
-    look: fn(&mut Build),
+    look: fn(&mut Cx),
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> Ui {
     button(
@@ -425,7 +425,7 @@ pub(crate) fn page_head(
 }
 
 /// A row that is pressed whole: a plate under the pointer.
-pub(crate) fn plate(cx: &mut Build) {
+pub(crate) fn plate(cx: &mut Cx) {
     style::<Lamplight>()
         .frame(|f, _| {
             f.fill(Color::NONE)

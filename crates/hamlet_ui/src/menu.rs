@@ -30,7 +30,7 @@ use crate::platform::DisplayText;
 use crate::theme::Lamplight;
 use crate::window::{self, Layout};
 use crate::world_view::TimeOfDay;
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<OpenMenu>()
@@ -138,7 +138,7 @@ fn open(world: &mut World, menu: Menu, title: Entity) {
 }
 
 /// A menu's title: lettering alone, that brightens under the pointer.
-pub fn nav(cx: &mut Build) {
+pub fn nav(cx: &mut Cx) {
     style::<Lamplight>()
         .frame(|f, _| {
             f.fill(Color::NONE)

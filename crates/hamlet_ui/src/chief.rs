@@ -39,7 +39,7 @@ use crate::looks::{
 use crate::me::Me;
 use crate::platform::DisplayText;
 use crate::roll::{agents_moved, either, moved};
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(spoke)
@@ -231,7 +231,7 @@ fn heading(text: &'static str) -> Ui {
 }
 
 /// The frame of a choice: lit when it is the one chosen.
-fn chosen(on: bool) -> fn(&mut Build) {
+fn chosen(on: bool) -> fn(&mut Cx) {
     if on { lamp } else { brass }
 }
 

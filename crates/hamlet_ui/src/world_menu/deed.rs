@@ -22,7 +22,7 @@ use crate::feel::Mood;
 use crate::looks::{brass, grim, lettered};
 use crate::me::Me;
 use crate::platform::DisplayText;
-use crate::{Build, Ui, chat, hand};
+use crate::{Cx, Ui, chat, hand};
 
 /// Something that ends an agent or a hamlet, or changes who runs
 /// one.
@@ -259,7 +259,7 @@ impl Deed {
 /// The question before `deed`, with a warning for each agent that is
 /// at work.
 pub(crate) fn question(deed: Deed, at: Vec2) -> Ui {
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let working = deed.working(cx.world);
         let warning = match working.as_slice() {
             [] => frame().boxed(),

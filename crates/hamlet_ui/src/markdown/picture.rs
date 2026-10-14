@@ -23,7 +23,7 @@ use crate::pictures::{
     Drawn, Pictures, Source, State, fetch, find, host,
 };
 use crate::theme::{BRASS_6, Lamplight, PLATE};
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 fn plain(text: &str) -> Span {
     Span {
@@ -66,7 +66,7 @@ fn shown(
 ) -> Ui {
     let size = drawn.fitted(most);
     let (image, anchor) = (drawn.image.clone(), source.anchor());
-    let picture = Ui::new(move |cx: &mut Build| {
+    let picture = Ui::new(move |cx: &mut Cx| {
         let within = cx.build(bare().width(percent(100.0)));
         // A node of its own, whose image no paint of a view tints
         // and whose height follows the width it ends up with.
@@ -165,7 +165,7 @@ pub(super) fn picture_view(
     ink: Ink,
 ) -> Ui {
     let (caption, target) = (caption.to_string(), target.clone());
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let Some(source) = find(cx.world, &target) else {
             return cx.build(words(&caption, &target, ink));
         };

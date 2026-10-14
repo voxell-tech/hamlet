@@ -33,7 +33,7 @@ use crate::roll::rolled;
 use crate::status::Bar;
 use crate::theme::BRASS_6;
 use crate::world_menu::{self};
-use crate::{Build, Ui, chat, markdown, tabs};
+use crate::{Cx, Ui, chat, markdown, tabs};
 
 /// The part of the selected agent the panel shows.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
@@ -122,7 +122,7 @@ fn spent(world: &World, agent: Entity) -> String {
 }
 
 fn header(agent: Entity, with: Option<String>) -> Ui {
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let (name, purpose) = match &with {
             Some(name) => (
                 name.to_uppercase(),

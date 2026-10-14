@@ -25,7 +25,7 @@ use crate::platform::{Mono, MonoText};
 use crate::theme::{
     BRASS_6, Lamplight, MOSS, MOSS_DEEP, PLATE, RED_DEEP,
 };
-use crate::{Build, Ui, markdown};
+use crate::{Cx, Ui, markdown};
 
 /// The tuning of the chat.
 #[derive(Resource, Clone, PartialEq, serde::Deserialize)]
@@ -104,7 +104,7 @@ fn block(lines: &[Line]) -> Ui {
             _ => runs.push((line.mark, text)),
         }
     }
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let root = cx.build(label("").size(SIZE));
         let theme = cx.theme();
         let mono =
@@ -288,7 +288,7 @@ fn lines_view(
     extent: Extent,
 ) -> Ui {
     let change = change.clone();
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let most = cx.world.resource::<ChatSettings>().change_lines;
         let whole = extent == Extent::Whole;
         let words = if whole {

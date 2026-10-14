@@ -16,7 +16,7 @@ use super::Shelf;
 use crate::icons::Glyph;
 use crate::looks::{Fills, bare, note, tick};
 use crate::roll::{agents_moved, either, moved};
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 /// Puts the model `name` on the list of the hamlet `hamlet`, or takes
 /// it off. A name on the list that the home does not allow is kept,
@@ -200,7 +200,7 @@ fn run_model(
 /// The model `agent` runs, for its chief to change. Nothing for an
 /// agent that is gone.
 pub(crate) fn of_agent(agent: Entity) -> Ui {
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let lives = cx.world.get::<LivesIn>(agent).map(|l| l.0);
         let place = lives
             .and_then(|hamlet| cx.world.get::<Settlement>(hamlet))
@@ -232,7 +232,7 @@ pub(crate) fn of_agent(agent: Entity) -> Ui {
 /// The models the hamlet `hamlet` may run, picked from those the
 /// home allows.
 pub(crate) fn of_hamlet(hamlet: Entity) -> Ui {
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let Some(place) = cx.world.get::<Settlement>(hamlet).cloned()
         else {
             return cx.build(column(()));

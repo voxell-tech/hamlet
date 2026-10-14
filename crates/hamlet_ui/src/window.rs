@@ -36,7 +36,7 @@ use crate::looks::{action, bad_action, good_action};
 use crate::platform::{DisplayText, Glow, Wraps};
 use crate::status::{Bar, Lately};
 use crate::theme::BLACK;
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 /// The window's states and what entering and leaving each does.
 pub fn plugin(app: &mut App) {
@@ -297,7 +297,7 @@ pub(crate) fn quit(world: &mut bevy::ecs::world::World) {
 
 /// The small status window.
 pub(crate) fn minimal() -> Ui {
-    Ui::new(|cx: &mut Build| {
+    Ui::new(|cx: &mut Cx| {
         cx.build(
             column((
                 row((

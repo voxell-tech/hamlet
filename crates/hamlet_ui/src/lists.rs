@@ -17,7 +17,7 @@ use crate::looks::{Fills, action, away, bad_action};
 use crate::platform::DisplayText;
 use crate::theme::{BRASS_6, CARD, Lamplight};
 use crate::world_menu::{self, Deed};
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct SkillRow {
@@ -115,7 +115,7 @@ pub fn card(
     tone: Tone,
     beside: Option<Ui>,
 ) -> Ui {
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let slip = CARD;
         let name = row((label(title)
             .size(13.0)

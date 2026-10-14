@@ -34,7 +34,7 @@ use bevy_fynix::views::{BehaviorExt, FrameProps, button, icon, row};
 use bevy_fynix::{OverrideCursor, ScopedExt, style};
 
 use crate::theme::{BLACK, BRASS_HOVER, Lamplight, RED};
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<ChromeSettings>()
@@ -144,7 +144,7 @@ pub fn draw_marks(world: &mut World) {
 
 /// A window button: bare until the pointer is on it, then a plate of
 /// `under`.
-fn plate(under: Color) -> impl FnOnce(&mut Build) {
+fn plate(under: Color) -> impl FnOnce(&mut Cx) {
     move |cx| {
         style::<Lamplight>()
             .frame(|f, _| f.fill(Color::NONE).radius(0.0))
@@ -192,7 +192,7 @@ fn close(world: &mut World) {
 
 /// The three buttons of the window, for the end of the top bar.
 pub fn buttons() -> Ui {
-    Ui::new(|cx: &mut Build| {
+    Ui::new(|cx: &mut Cx| {
         let side = cx.world.resource::<ChromeSettings>().button;
         let marks = cx.world.resource::<Marks>();
         let (small, large, shut) = (

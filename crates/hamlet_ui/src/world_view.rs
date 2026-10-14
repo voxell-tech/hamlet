@@ -43,7 +43,7 @@ use hamlet_world::{Hour, Stage, WorldCamera, WorldSystems};
 use crate::looks::Fills;
 use crate::me::Me;
 use crate::window::WorldShown;
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<TimeOfDay>()
@@ -223,7 +223,7 @@ pub(crate) fn match_pointer_target(
 /// The panel: an ordinary frame whose node shows the world camera's
 /// picture.
 pub fn view() -> Ui {
-    Ui::new(|cx: &mut Build| {
+    Ui::new(|cx: &mut Cx| {
         let camera = cx.world.get_resource::<WorldCam>().map(|c| c.0);
         // The tags, signs and balloons hang off this node at the
         // camera's viewport coordinates, so one that runs past the

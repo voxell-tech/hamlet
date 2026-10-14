@@ -28,7 +28,7 @@ use hamlet_world::pick::{Asked, AskedGround, Thing};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
-use crate::{Build, Ui, hand};
+use crate::{Cx, Ui, hand};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Open>()
@@ -164,15 +164,13 @@ pub fn view() -> Ui {
     keyed(resource::<Open, _>(Clone::clone), |open| {
         match open.clone() {
             Open::Nothing => frame().boxed(),
-            Open::Menu(thing, at) => {
-                Ui::new(move |cx: &mut Build| {
-                    let items = items::items(cx.world, thing, at);
-                    if items.is_empty() {
-                        return cx.build(frame());
-                    }
-                    cx.build(menu(at, items))
-                })
-            }
+            Open::Menu(thing, at) => Ui::new(move |cx: &mut Cx| {
+                let items = items::items(cx.world, thing, at);
+                if items.is_empty() {
+                    return cx.build(frame());
+                }
+                cx.build(menu(at, items))
+            }),
             Open::Question(deed, at) => question(deed, at),
             Open::Ground(at) => {
                 let found =
@@ -185,12 +183,10 @@ pub fn view() -> Ui {
                 menu(at, vec![found])
             }
             Open::Founding(at) => founding::founding(at),
-            Open::Skills(agent, at) => {
-                Ui::new(move |cx: &mut Build| {
-                    let items = items::skills(cx.world, agent);
-                    cx.build(menu(at, items))
-                })
-            }
+            Open::Skills(agent, at) => Ui::new(move |cx: &mut Cx| {
+                let items = items::skills(cx.world, agent);
+                cx.build(menu(at, items))
+            }),
         }
     })
     .within(overlay(()))

@@ -18,7 +18,7 @@ use crate::looks::{Fills, note};
 use crate::me::Me;
 use crate::platform::{DisplayText, MonoText};
 use crate::theme::{BRASS_6, CARD, Lamplight};
-use crate::{Build, Ui, markdown};
+use crate::{Cx, Ui, markdown};
 
 fn clip(s: &str, max: usize) -> String {
     let flat: String =
@@ -71,7 +71,7 @@ pub(super) fn state(session: Entity, id: u64) -> Ui {
 }
 
 pub(crate) fn entry_view(session: Entity, id: u64) -> Ui {
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let kind = cx
             .world
             .get::<Transcript>(session)

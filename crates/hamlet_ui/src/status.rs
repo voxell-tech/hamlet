@@ -27,7 +27,7 @@ use crate::me::Me;
 use crate::needs::Queue;
 use crate::theme::{BLACK, Lamplight, SEAM};
 use crate::window::Layout;
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Bar>()
@@ -229,7 +229,7 @@ fn aimed() -> Ui {
 
 /// The bar along the foot of the window.
 pub fn status_bar() -> Ui {
-    Ui::new(|cx: &mut Build| {
+    Ui::new(|cx: &mut Cx| {
         let sandbox = cx.world.resource::<Sandboxing>().0.name();
         cx.build(
             column((

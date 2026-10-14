@@ -30,7 +30,7 @@ use crate::theme::{
     contrast,
 };
 use crate::world_menu::{self, Deed};
-use crate::{Build, Ui, markdown};
+use crate::{Cx, Ui, markdown};
 
 /// The room at the left of the chat that a speaker's picture stands
 /// in, and the width of the picture.
@@ -69,7 +69,7 @@ fn legible(colour: Color, surface: Color) -> Color {
 
 /// A line of text in a colour that is not one of the theme's tones.
 fn inked(text: String, colour: Color, size: f32) -> Ui {
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let node =
             cx.build(label(text).size(size).bold(true).wrap(false));
         let mut entity = cx.world.entity_mut(node);
@@ -125,7 +125,7 @@ fn face(who: &Who, size: f32) -> Ui {
 /// both, and `last` on a line of its own under it where there is
 /// not.
 fn wrapping(first: Ui, last: Ui) -> Ui {
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let node = cx.build(
             row((first, last)).gap(0.0).align(AlignItems::FlexEnd),
         );
@@ -160,7 +160,7 @@ enum Words {
 /// One message: a bubble at the right for the chief's own, and at
 /// the left by its speaker's picture for anyone else's.
 fn said(line: Line, session: Entity, id: u64) -> Ui {
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let cast = cx.world.resource::<Lines>().cast();
         let who = cast.get(line.by).cloned().unwrap_or_default();
         // The agent the chat is with comes first, and what is said

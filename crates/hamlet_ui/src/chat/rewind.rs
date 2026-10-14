@@ -26,7 +26,7 @@ use crate::icons::{Glyph, glyph};
 use crate::looks::{ICON, retrace};
 use crate::me::Me;
 use crate::world_menu::{self, Deed};
-use crate::{Build, Ui};
+use crate::{Cx, Ui};
 
 pub(super) fn plugin(app: &mut App) {
     app.add_observer(reveal).add_observer(retype);
@@ -52,7 +52,7 @@ struct Mark;
 /// The mark beside the message `entry` of `session`, out of sight
 /// until the pointer is on its row. It asks before it acts.
 pub(super) fn mark(session: Entity, entry: u64) -> Ui {
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let back = button(glyph(Glyph::Restore, ICON))
             .padding(UiRect::all(px(AROUND)))
             .tooltip(|| label("Rewind to here").size(12.0))

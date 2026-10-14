@@ -33,7 +33,7 @@ use crate::looks::{
 use crate::me::Me;
 use crate::platform::{DisplayText, MonoText, Wraps};
 use crate::theme::{BRASS_6, CARD, Lamplight};
-use crate::{Build, Ui, chat};
+use crate::{Cx, Ui, chat};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Reason>()
@@ -171,7 +171,7 @@ fn button(need: &Need, at: usize) -> Ui {
         _ => "ALWAYS ALLOW",
     };
     use Glyph::{Check, CheckAll, Cross, Restore, Talk};
-    let (which, text, rules, mood): (_, _, fn(&mut Build), _) =
+    let (which, text, rules, mood): (_, _, fn(&mut Cx), _) =
         match choice {
             Choice::Allow => (Check, "ALLOW ONCE", lamp, Mood::Good),
             Choice::Always => (CheckAll, always, brass, Mood::Plain),
@@ -219,7 +219,7 @@ fn held(world: &World, need: &Need) -> Option<(Entity, u64, Change)> {
 
 fn strip(need: &Need) -> Ui {
     let need = need.clone();
-    Ui::new(move |cx: &mut Build| {
+    Ui::new(move |cx: &mut Cx| {
         let slip = CARD;
         let about = match held(cx.world, &need) {
             Some((session, id, change)) => {
