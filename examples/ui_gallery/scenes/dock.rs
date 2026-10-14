@@ -13,7 +13,7 @@ use bevy_fynix::{AnyView, ViewExt};
 use hamlet_core::session::{Entry, Transcript};
 use hamlet_ui::feel::Lit;
 use hamlet_ui::icons::Glyph;
-use hamlet_ui::theme::Lamplight;
+use hamlet_ui::theme::{HamletTheme, themed};
 use hamlet_ui::{
     Cx, ICON, Me, chat, inspector, lit_panel, menu, needs, panel,
     settings, status_bar, toolbar, welcome,
@@ -50,7 +50,7 @@ fn world_stand() -> Ui {
 
 pub(super) fn seed_dock(world: &mut World) {
     let mut registry =
-        world.resource_mut::<DockRegistry<Lamplight>>();
+        world.resource_mut::<DockRegistry<HamletTheme>>();
     registry.register(
         "world",
         DockWindowKind::new("WORLD", world_stand)
@@ -138,7 +138,7 @@ fn rewind_question() -> Ui {
 pub(super) fn panels() -> Ui {
     column((
         toolbar(),
-        column((dock::<Lamplight>(), welcome::view()))
+        column((dock::<HamletTheme>(), welcome::view()))
             .grow(1.0)
             .min_height(px(0.0))
             .gap(0.0),
@@ -148,7 +148,7 @@ pub(super) fn panels() -> Ui {
     ))
     .width(percent(100.0))
     .height(percent(100.0))
-    .fill(Lamplight::background())
+    .fill(themed(|t| t.background()))
     .gap(0.0)
     .boxed()
 }

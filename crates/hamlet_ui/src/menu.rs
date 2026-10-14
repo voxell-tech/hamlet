@@ -27,7 +27,7 @@ use crate::feel::FootLight;
 use crate::icons::{Glyph, glyph};
 use crate::looks::ICON;
 use crate::platform::DisplayText;
-use crate::theme::Lamplight;
+use crate::theme::HamletTheme;
 use crate::window::{self, Layout};
 use crate::world_view::TimeOfDay;
 use crate::{Cx, Ui};
@@ -139,7 +139,7 @@ fn open(world: &mut World, menu: Menu, title: Entity) {
 
 /// A menu's title: lettering alone, that brightens under the pointer.
 pub fn nav(cx: &mut Cx) {
-    style::<Lamplight>()
+    style::<HamletTheme>()
         .frame(|f, _| {
             f.fill(Color::NONE)
                 .height(percent(100.0))

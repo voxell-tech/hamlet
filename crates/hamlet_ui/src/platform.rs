@@ -32,12 +32,11 @@ use bevy::ui_widgets::{
     Button as ButtonBehavior, Checkbox as CheckboxBehavior,
     MenuButton,
 };
-use bevy_fynix::Theme;
 use bevy_fynix::dock::DockTab;
 use bevy_fynix::tokens::{TextTokens, Tone};
 use hamlet_assets::fonts::{CINZEL, INTER, TWEMOJI};
 
-use crate::theme::{BLACK, HEARTH, Lamplight};
+use crate::theme::Themed;
 
 /// The spacing of the letters of a header.
 const TRACKING: LetterSpacing = LetterSpacing::Px(1.0);
@@ -188,6 +187,7 @@ pub struct Glow;
 /// Gives each [`Glow`] surface its gradient.
 pub fn apply_glow(
     mut commands: Commands,
+    theme: Themed,
     surfaces: Query<
         Entity,
         (With<Glow>, Without<BackgroundGradient>),
@@ -195,8 +195,8 @@ pub fn apply_glow(
 ) {
     for surface in &surfaces {
         let stops = vec![
-            ColorStop::new(BLACK, percent(35.0)),
-            ColorStop::new(HEARTH, percent(100.0)),
+            ColorStop::new(theme.palette.black, percent(35.0)),
+            ColorStop::new(theme.palette.hearth, percent(100.0)),
         ];
         commands.entity(surface).try_insert(
             BackgroundGradient::from(LinearGradient::to_bottom(
@@ -260,10 +260,10 @@ pub(crate) fn focus_moved(
 pub fn focus_ring(
     focus: Res<InputFocus>,
     visible: Res<InputFocusVisible>,
-    theme: Res<Theme<Lamplight>>,
+    theme: Themed,
     mut rings: Query<(Entity, &mut Outline), With<Ring>>,
 ) {
-    let accent = theme.0.tone(Tone::Accent);
+    let accent = theme.tone(Tone::Accent);
     for (control, mut outline) in &mut rings {
         let shown = visible.0 && focus.get() == Some(control);
         let want = if shown {
@@ -344,8 +344,11 @@ pub fn show(
 mod tests {
     use bevy::app::{App, Update};
     use bevy::ecs::schedule::IntoScheduleConfigs;
+    use bevy_fynix::Theme;
+    use hamlet_assets::Tuning;
 
     use super::*;
+    use crate::theme::HamletTheme;
 
     #[test]
     fn a_button_joins_the_tab_order_and_shows_a_ring_only_after_a_key_move()
@@ -353,7 +356,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<InputFocus>()
             .init_resource::<InputFocusVisible>()
-            .insert_resource(Theme(Lamplight))
+            .insert_resource(Theme(HamletTheme::designed()))
             .add_systems(
                 Update,
                 (make_focusable, focus_ring.run_if(focus_moved))

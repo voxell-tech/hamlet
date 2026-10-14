@@ -2,7 +2,6 @@
 //! for the chief, and a flash when the agent it shows changes.
 
 use bevy::asset::{Asset, Assets};
-use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::{With, Without};
@@ -18,6 +17,7 @@ use hamlet_core::oversight::Waiting;
 
 use super::{FeelSettings, MagicColors, ease, linear};
 use crate::me::Me;
+use crate::theme::Themed;
 
 /// The light that falls into a panel.
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
@@ -55,10 +55,11 @@ pub struct Lit {
 pub(super) fn lay(
     mut commands: Commands,
     set: Res<FeelSettings>,
-    colors: Res<MagicColors>,
+    theme: Themed,
     mut backdrops: ResMut<Assets<Backdrop>>,
     panels: Query<(Entity, &Lit), Without<MaterialNode<Backdrop>>>,
 ) {
+    let colors = MagicColors::of(&theme);
     for (panel, lit) in &panels {
         // A panel no light falls into has nothing to draw.
         if !lit.alarm && !lit.flash {
@@ -78,10 +79,11 @@ pub(super) fn lay(
 
 /// Carries a change of the colours to every backdrop.
 pub(super) fn tint(
-    colors: Res<MagicColors>,
+    theme: Themed,
     mut backdrops: ResMut<Assets<Backdrop>>,
 ) {
-    if !colors.is_changed() || colors.is_added() {
+    let colors = MagicColors::of(&theme);
+    if !theme.is_changed() || theme.is_added() {
         return;
     }
     for (_, backdrop) in backdrops.iter_mut() {
@@ -148,15 +150,18 @@ pub(super) fn light(
 mod tests {
     use bevy::app::{App, Update};
     use bevy::ecs::schedule::IntoScheduleConfigs;
+    use bevy_fynix::Theme;
+    use hamlet_assets::Tuning;
 
     use super::super::tests::step;
     use super::*;
     use crate::me::Me;
+    use crate::theme::HamletTheme;
 
     /// A world with one panel of each kind, and their backdrops.
     fn panels(app: &mut App) -> (Entity, Entity, Entity) {
         app.init_resource::<FeelSettings>()
-            .init_resource::<MagicColors>()
+            .insert_resource(Theme(HamletTheme::designed()))
             .init_resource::<Time>()
             .init_resource::<Assets<Backdrop>>()
             .add_systems(Update, (lay, light).chain());
@@ -244,7 +249,7 @@ mod tests {
         step(&mut app);
         assert_eq!(lamp_and_flash(&app, selection).1, 1.0);
         assert_eq!(lamp_and_flash(&app, needs).1, 0.0);
-        let colors = MagicColors::default();
+        let colors = MagicColors::of(&HamletTheme::designed());
         let node = app
             .world()
             .get::<MaterialNode<Backdrop>>(selection)

@@ -5,29 +5,30 @@ mod art;
 #[cfg(test)]
 mod tests;
 
-use bevy::app::{App, PostUpdate, Startup, Update};
+use bevy::app::{App, PostUpdate, Update};
 use bevy::asset::{Assets, Handle};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::{With, Without};
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_exists;
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
 use bevy::image::Image;
 use bevy::input::ButtonInput;
 use bevy::input::mouse::MouseButton;
+use bevy::state::state::OnEnter;
 use bevy::time::{Real, Time};
 use bevy::window::{
     CursorIcon, CustomCursor, CustomCursorImage, PrimaryWindow,
     SystemCursorIcon,
 };
-use bevy_fynix::EntityCursor;
+use bevy_fynix::{EntityCursor, Theme};
 use hamlet_world::hand::{Grip, Hand};
 use hamlet_world::pick::{Hovered, Pressable, Steer, Taken, Thing};
 
 pub use self::art::{Inks, face, frames, hot, side};
-use crate::theme::{
-    BLACK, BRASS_1, BRASS_2, BRASS_4, COAL, EMBER, FLAME, LAMP, RUNE,
-};
+use crate::theme::{HamletTheme, Look};
 use crate::welcome::Committing;
 
 /// The share of a cursor that is left while the hand carries a thing
@@ -35,9 +36,12 @@ use crate::welcome::Committing;
 const FAINT: f32 = 0.4;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Startup, draw)
+    app.add_systems(OnEnter(Look::Ready), draw)
         .add_systems(Update, lend)
-        .add_systems(PostUpdate, dress);
+        .add_systems(
+            PostUpdate,
+            dress.run_if(resource_exists::<Cursors>),
+        );
 }
 
 /// The line a cursor that resizes lies along.
@@ -177,18 +181,19 @@ impl Mode {
     }
 }
 
-/// The inks of the panels' own theme.
-pub fn inks() -> Inks {
+/// The inks of the panels' theme.
+pub fn inks(theme: &HamletTheme) -> Inks {
+    let p = &theme.palette;
     Inks {
-        flame: FLAME,
-        lamp: LAMP,
-        ember: EMBER,
-        wax: BRASS_1,
-        shade: BRASS_2,
-        brass: BRASS_4,
-        rune: RUNE,
-        coal: COAL,
-        edge: BLACK,
+        flame: p.flame,
+        lamp: p.lamp,
+        ember: p.ember,
+        wax: p.brass_1,
+        shade: p.brass_2,
+        brass: p.brass_4,
+        rune: p.rune,
+        coal: p.coal,
+        edge: p.black,
     }
 }
 
@@ -220,7 +225,7 @@ fn fade(image: &mut Image) {
 
 /// Draws every cursor.
 pub fn draw(world: &mut World) {
-    let inks = inks();
+    let inks = inks(&world.resource::<Theme<HamletTheme>>().0);
     let mut images = world.resource_mut::<Assets<Image>>();
     let cursors = Mode::all()
         .into_iter()

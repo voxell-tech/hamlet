@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use crate::awake::KeepAwake;
 use crate::me::Me;
 use crate::roll::Roll;
-use crate::theme::Lamplight;
+use crate::theme::HamletTheme;
 use crate::world_view::TimeOfDay;
 
 /// Seconds a change waits before it is written, so that dragging a
@@ -431,7 +431,7 @@ pub fn restore(world: &mut World) -> bool {
         chosen: view.selected.clone(),
         tried: 0,
     });
-    let registry = world.resource::<DockRegistry<Lamplight>>();
+    let registry = world.resource::<DockRegistry<HamletTheme>>();
     let known = |id: &str| registry.get(id).is_some();
     let Some(tree) = rebuilt(&view.dock, &known) else {
         return false;

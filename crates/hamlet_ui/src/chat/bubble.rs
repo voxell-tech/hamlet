@@ -25,10 +25,7 @@ use super::timeline::{Kind, Line, Who};
 use crate::looks::{Fills, bare, hairline};
 use crate::me::Me;
 use crate::platform::DisplayText;
-use crate::theme::{
-    BRASS_1, BRASS_2, BRASS_3, BRASS_6, CARD, Lamplight, SEAM,
-    contrast,
-};
+use crate::theme::{Palette, contrast, paint, themed};
 use crate::world_menu::{self, Deed};
 use crate::{Cx, Ui, markdown};
 
@@ -54,8 +51,8 @@ const RESERVE: &str =
     "\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}";
 
 /// `colour` made lighter, its hue kept, until it reads on
-/// `surface`.
-fn legible(colour: Color, surface: Color) -> Color {
+/// `surface`, or `parchment` if it never does.
+fn legible(colour: Color, surface: Color, parchment: Color) -> Color {
     let paint = Oklcha::from(colour);
     (0..=12)
         .map(|step| {
@@ -64,7 +61,7 @@ fn legible(colour: Color, surface: Color) -> Color {
             Color::from(Oklcha { lightness, ..paint })
         })
         .find(|lighter| contrast(*lighter, surface) >= 4.5)
-        .unwrap_or(BRASS_1)
+        .unwrap_or(parchment)
 }
 
 /// A line of text in a colour that is not one of the theme's tones.
@@ -92,11 +89,14 @@ fn face(who: &Who, size: f32) -> Ui {
         .next()
         .map(|first| first.to_uppercase().collect::<String>())
         .unwrap_or_default();
-    let tone = if contrast(BRASS_1, who.paint) >= 3.0 {
-        Tone::Body
-    } else {
-        Tone::OnAccent
-    };
+    let ground = who.paint;
+    let tone = themed(move |t| {
+        if contrast(t.palette.brass_1, ground) >= 3.0 {
+            Tone::Body
+        } else {
+            Tone::OnAccent
+        }
+    });
     let face = row((label(letter)
         .size(size * 0.5)
         .bold(true)
@@ -110,13 +110,14 @@ fn face(who: &Who, size: f32) -> Ui {
     .fill(who.paint);
     match who.kind {
         Kind::Agent => face.radius(size / 2.0),
-        Kind::Mayor => {
-            face.radius(size / 2.0).border(1.5).border_color(BRASS_3)
-        }
+        Kind::Mayor => face
+            .radius(size / 2.0)
+            .border(1.5)
+            .border_color(paint(|p| p.brass_3)),
         Kind::Me | Kind::Chief => face
-            .radius(Lamplight::round())
+            .radius(themed(|t| t.space.round))
             .border(1.0)
-            .border_color(BRASS_2),
+            .border_color(paint(|p| p.brass_2)),
     }
     .boxed()
 }
@@ -188,7 +189,9 @@ fn said(line: Line, session: Entity, id: u64) -> Ui {
         let back = mine
             && words == Words::Plain
             && session == cx.world.resource::<Me>().session;
-        let fill = if mine { BRASS_6 } else { CARD };
+        let palette = &cx.theme().palette;
+        let fill: fn(&Palette) -> Color =
+            if mine { |p| p.brass_6 } else { |p| p.card };
         let time = hour(line.at);
         let key = line.key();
 
@@ -196,7 +199,7 @@ fn said(line: Line, session: Entity, id: u64) -> Ui {
         if line.named && !mine {
             let mut head = vec![inked(
                 who.name.clone(),
-                legible(who.paint, fill),
+                legible(who.paint, fill(palette), palette.brass_1),
                 12.0,
             )];
             if let Some(to) = to {
@@ -295,9 +298,13 @@ fn said(line: Line, session: Entity, id: u64) -> Ui {
             // its words are: what does not fit there is cut.
             .min_width(px(0.0))
             .max_width(percent(100.0))
-            .fill(fill)
+            .fill(paint(fill))
             .border(1.0)
-            .border_color(if mine { BRASS_6 } else { SEAM })
+            .border_color(paint(if mine {
+                |p| p.brass_6
+            } else {
+                |p| p.seam
+            }))
             .corners(resource::<Lines, _>(move |lines| {
                 let tail = px(if ends(lines) { TAIL } else { ROUND });
                 let round = BorderRadius::all(px(ROUND));
@@ -469,7 +476,7 @@ pub(super) fn header() -> Ui {
                 .gap(10.0)
                 .align(AlignItems::Center)
                 .padding(UiRect::axes(px(0.0), px(7.0))),
-                hairline(SEAM),
+                hairline(paint(|p| p.seam)),
             ))
             .gap(0.0)
             .boxed()

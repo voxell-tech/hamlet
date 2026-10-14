@@ -15,6 +15,7 @@ use bevy::ui::{
 };
 
 use super::{FeelSettings, MagicColors};
+use crate::theme::Themed;
 
 /// The layers the dock library puts its drop hint and the dragged
 /// tab on, which is all that tells them from other nodes.
@@ -62,9 +63,10 @@ pub(super) fn dress_drag(
     mut commands: Commands,
     time: Res<Time>,
     set: Res<FeelSettings>,
-    colors: Res<MagicColors>,
+    theme: Themed,
     mut drawn: Query<Dragged, Without<ChildOf>>,
 ) {
+    let colors = MagicColors::of(&theme);
     let breath = 0.5 + 0.5 * (time.elapsed_secs() * set.breath).sin();
     let dt = time.delta_secs();
     for (
@@ -159,15 +161,17 @@ pub(super) fn dress_drag(
 mod tests {
     use bevy::app::{App, Update};
     use bevy::color::Color;
+    use bevy_fynix::Theme;
+    use hamlet_assets::Tuning;
 
     use super::super::tests::step;
     use super::*;
-    use crate::theme::LAMP;
+    use crate::theme::HamletTheme;
 
     #[test]
     fn only_the_docks_hint_and_ghost_are_dressed() {
         let mut app = App::new();
-        app.init_resource::<MagicColors>()
+        app.insert_resource(Theme(HamletTheme::designed()))
             .init_resource::<FeelSettings>()
             .init_resource::<Time>()
             .add_systems(Update, dress_drag);
@@ -190,7 +194,10 @@ mod tests {
         let world = app.world();
         let pane = world.get::<BackgroundColor>(hint).unwrap().0;
         assert!(pane.alpha() > 0.0 && pane.alpha() < 0.2, "{pane:?}");
-        assert_eq!(pane.with_alpha(1.0), LAMP);
+        assert_eq!(
+            pane.with_alpha(1.0),
+            HamletTheme::designed().palette.lamp
+        );
         assert_eq!(
             world.get::<UiTransform>(hint).unwrap().scale,
             Vec2::ONE
@@ -208,7 +215,7 @@ mod tests {
     #[test]
     fn the_docks_hint_glides_to_where_it_is_put() {
         let mut app = App::new();
-        app.init_resource::<MagicColors>()
+        app.insert_resource(Theme(HamletTheme::designed()))
             .init_resource::<FeelSettings>()
             .init_resource::<Time>()
             .add_systems(Update, dress_drag);

@@ -1,10 +1,11 @@
 //! A colour as a file writes it: `"#rrggbb"`, `"#rrggbbaa"`, or its
-//! parts as numbers. `#[serde(with = "tint")]` reads a [`Color`], and
-//! `tint::linear` the linear RGB a mesh is coloured with.
+//! parts as numbers. `#[serde(with = "tint")]` reads a [`Color`] and
+//! writes it back as `"#rrggbbaa"`, and `tint::linear` reads the
+//! linear RGB a mesh is coloured with.
 
 use bevy::prelude::*;
 use serde::de::Error;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serializer};
 
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -49,6 +50,14 @@ pub fn deserialize<'de, D: Deserializer<'de>>(
     from: D,
 ) -> Result<Color, D::Error> {
     Written::deserialize(from)?.srgb().map(Color::Srgba)
+}
+
+pub fn serialize<S: Serializer>(
+    color: &Color,
+    to: S,
+) -> Result<S::Ok, S::Error> {
+    let [r, g, b, a] = color.to_srgba().to_u8_array();
+    to.serialize_str(&format!("#{r:02x}{g:02x}{b:02x}{a:02x}"))
 }
 
 pub mod linear {

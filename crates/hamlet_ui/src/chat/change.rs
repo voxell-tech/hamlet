@@ -22,9 +22,7 @@ use hamlet_core::tools::change::{Line, Mark};
 use super::entry::state;
 use crate::looks::{Fills, bare, note};
 use crate::platform::{Mono, MonoText};
-use crate::theme::{
-    BRASS_6, Lamplight, MOSS, MOSS_DEEP, PLATE, RED_DEEP,
-};
+use crate::theme::{paint, themed};
 use crate::{Cx, Ui, markdown};
 
 /// The tuning of the chat.
@@ -112,10 +110,14 @@ fn block(lines: &[Line]) -> Ui {
         for (mark, text) in runs {
             let (ink, plate) = match mark {
                 Mark::Same => (theme.tone(Tone::Dim), None),
-                Mark::Out => {
-                    (theme.tone(Tone::Critical), Some(RED_DEEP))
-                }
-                Mark::In => (MOSS, Some(MOSS_DEEP)),
+                Mark::Out => (
+                    theme.tone(Tone::Critical),
+                    Some(theme.palette.red_deep),
+                ),
+                Mark::In => (
+                    theme.palette.moss,
+                    Some(theme.palette.moss_deep),
+                ),
             };
             let font = TextFont {
                 font: mono
@@ -162,10 +164,10 @@ fn plate(change: &Change, most: usize, more: Option<Ui>) -> Ui {
         .gap(4.0)
         .padding(UiRect::axes(px(10.0), px(8.0)))
         .min_width(px(0.0))
-        .fill(PLATE)
+        .fill(paint(|p| p.plate))
         .border(1.0)
-        .border_color(BRASS_6)
-        .radius(Lamplight::round())
+        .border_color(paint(|p| p.brass_6))
+        .radius(themed(|t| t.space.round))
         .boxed()
 }
 

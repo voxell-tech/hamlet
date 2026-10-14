@@ -18,10 +18,7 @@ use bevy::ui_render::prelude::UiMaterialPlugin;
 
 pub use self::backdrop::Lit;
 pub use self::foot::FootLight;
-use crate::theme::{
-    BLACK, BRASS_5, COAL, EMBER, FLAME, LAMP, LAMP_HIGH, LAMP_LOW,
-    RUNE,
-};
+use crate::theme::HamletTheme;
 
 /// The feel of the controls, the dock's hint and the panels'
 /// backdrops.
@@ -33,7 +30,6 @@ pub fn plugin(app: &mut App) {
         UiMaterialPlugin::<control::Lamp>::default(),
     ))
     .init_resource::<FeelSettings>()
-    .init_resource::<MagicColors>()
     .add_observer(control::answer)
     .add_systems(
         Update,
@@ -161,7 +157,7 @@ pub(crate) struct FeelSettings {
 }
 
 /// The colours of the light.
-#[derive(Resource, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct MagicColors {
     /// The light of a control, the heart of its flame, and the light
     /// of a control that refuses.
@@ -188,21 +184,23 @@ pub(crate) struct MagicColors {
     pub ghost: Color,
 }
 
-impl Default for MagicColors {
-    fn default() -> Self {
+impl MagicColors {
+    /// The colours of the light in `theme`.
+    pub fn of(theme: &HamletTheme) -> Self {
+        let p = &theme.palette;
         Self {
-            lamp: LAMP,
-            flame: FLAME,
-            coal: COAL,
-            glass_low: LAMP_LOW,
-            glass_high: LAMP_HIGH,
-            ember: EMBER,
-            plate_edge: BRASS_5,
-            alarm: LAMP,
-            flash: RUNE,
-            foot: LAMP,
-            hint: LAMP,
-            ghost: BLACK,
+            lamp: p.lamp,
+            flame: p.flame,
+            coal: p.coal,
+            glass_low: p.lamp_low,
+            glass_high: p.lamp_high,
+            ember: p.ember,
+            plate_edge: p.brass_5,
+            alarm: p.lamp,
+            flash: p.rune,
+            foot: p.lamp,
+            hint: p.lamp,
+            ghost: p.black,
         }
     }
 }

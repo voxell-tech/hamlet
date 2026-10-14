@@ -13,13 +13,13 @@ use bevy::ecs::world::World;
 use bevy::image::Image;
 use bevy::math::Rect;
 use bevy::picking::PickingSettings;
-use bevy::prelude::ClearColor;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::{AnyView, Bevy, FynixPlugin, Theme, mount};
+use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
+use hamlet_assets::Tuning;
 use hamlet_core::core::{Link, Sandboxing};
 use hamlet_ui::history::History;
-use hamlet_ui::theme::Lamplight;
+use hamlet_ui::theme::{self, HamletTheme};
 use hamlet_ui::{
     Bar, Roll, chat, chrome, feel, icons, inspector, links, menu,
     needs, overview, pictures, platform, settings, welcome,
@@ -31,7 +31,7 @@ use self::sample::{first_run, setup};
 use self::sheets::{controls, hold, hold_message, icon_sheet};
 
 /// A view of the gallery, its type erased.
-type Ui = AnyView<Bevy, Lamplight>;
+type Ui = AnyView<Bevy, HamletTheme>;
 
 /// Draws one [`Scene`] with the panels' own views and looks.
 pub struct GalleryPlugin(pub Scene);
@@ -39,68 +39,70 @@ pub struct GalleryPlugin(pub Scene);
 impl Plugin for GalleryPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            FynixPlugin::<Lamplight>::default(),
-            DockPlugin::<Lamplight>::default(),
-        ))
-        .insert_resource(Theme(Lamplight))
-        .insert_resource(ClearColor(Lamplight::background()))
-        .insert_resource(self.0)
-        // No pointer moves here, so a held hover stays held.
-        .insert_resource(PickingSettings {
-            is_hover_enabled: false,
-            ..PickingSettings::default()
-        })
-        .insert_resource(Sandboxing(
-            hamlet_sandbox::detect(true).expect("no sandbox"),
-        ))
-        .insert_resource(Link::Ok {
-            models: vec!["hearth".into()],
-        })
-        .insert_resource(Bar {
-            running: "Running, idle".into(),
-            running_tone: Tone::Dim,
-            model: "hearth-large".into(),
-            link: "Connected, 1 model".into(),
-            usage: "12.4k tokens".into(),
-            budget: "$1.20 of $20.00".into(),
-            ..Bar::default()
-        })
-        .init_resource::<Roll>()
-        .init_resource::<SoundSettings>()
-        .init_resource::<History>()
-        .init_resource::<hamlet_ui::rules::Book>()
-        .init_resource::<hamlet_ui::models::Shelf>()
-        .init_resource::<hamlet_ui::models::Draft>()
-        .init_resource::<hamlet_ui::rules::Part>()
-        .init_resource::<menu::OpenMenu>()
-        .insert_resource(first_run(self.0))
-        .init_resource::<chrome::ChromeSettings>()
-        .add_message::<Cue>()
-        .add_systems(Startup, (setup, chrome::draw_marks))
-        .add_systems(PostStartup, (seed_dock, mount_scene).chain())
-        .add_systems(
-            Update,
-            (
-                hold,
-                hold_message.run_if(|scene: Res<Scene>| {
-                    *scene == Scene::Rewind
-                }),
-            ),
-        )
-        .add_plugins((
-            platform::plugin,
-            icons::plugin,
-            chat::plugin,
-            links::plugin,
-            pictures::plugin,
-            needs::plugin,
-            inspector::plugin,
-            overview::plugin,
-            settings::plugin,
-            feel::plugin,
-            hamlet_ui::tuning::plugin,
-            hamlet_ui::tabs::plugin,
+            FynixPlugin::<HamletTheme>::default(),
+            DockPlugin::<HamletTheme>::default(),
         ));
+        theme::insert_theme(app.world_mut(), HamletTheme::designed());
+        app.insert_resource(self.0)
+            // No pointer moves here, so a held hover stays held.
+            .insert_resource(PickingSettings {
+                is_hover_enabled: false,
+                ..PickingSettings::default()
+            })
+            .insert_resource(Sandboxing(
+                hamlet_sandbox::detect(true).expect("no sandbox"),
+            ))
+            .insert_resource(Link::Ok {
+                models: vec!["hearth".into()],
+            })
+            .insert_resource(Bar {
+                running: "Running, idle".into(),
+                running_tone: Tone::Dim,
+                model: "hearth-large".into(),
+                link: "Connected, 1 model".into(),
+                usage: "12.4k tokens".into(),
+                budget: "$1.20 of $20.00".into(),
+                ..Bar::default()
+            })
+            .init_resource::<Roll>()
+            .init_resource::<SoundSettings>()
+            .init_resource::<History>()
+            .init_resource::<hamlet_ui::rules::Book>()
+            .init_resource::<hamlet_ui::models::Shelf>()
+            .init_resource::<hamlet_ui::models::Draft>()
+            .init_resource::<hamlet_ui::rules::Part>()
+            .init_resource::<menu::OpenMenu>()
+            .insert_resource(first_run(self.0))
+            .init_resource::<chrome::ChromeSettings>()
+            .add_message::<Cue>()
+            .add_systems(Startup, (setup, chrome::draw_marks))
+            .add_systems(
+                PostStartup,
+                (seed_dock, mount_scene).chain(),
+            )
+            .add_systems(
+                Update,
+                (
+                    hold,
+                    hold_message.run_if(|scene: Res<Scene>| {
+                        *scene == Scene::Rewind
+                    }),
+                ),
+            )
+            .add_plugins((
+                platform::plugin,
+                icons::plugin,
+                chat::plugin,
+                links::plugin,
+                pictures::plugin,
+                needs::plugin,
+                inspector::plugin,
+                overview::plugin,
+                settings::plugin,
+                feel::plugin,
+                hamlet_ui::tuning::plugin,
+                hamlet_ui::tabs::plugin,
+            ));
     }
 }
 
@@ -180,5 +182,5 @@ fn mount_scene(world: &mut World) {
         Scene::Icons => icon_sheet(),
         _ => panels(),
     };
-    mount::<Lamplight>(world, view);
+    mount::<HamletTheme>(world, view);
 }

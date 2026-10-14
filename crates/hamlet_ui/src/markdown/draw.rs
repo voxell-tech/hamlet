@@ -1,5 +1,6 @@
 //! Markdown drawn: a view for each block.
 
+use bevy::color::Color;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::world::World;
@@ -12,7 +13,7 @@ use bevy::ui::{
     MinTrackSizingFunction, Node, RepeatedGridTrack, UiRect, px,
 };
 use bevy::window::SystemCursorIcon;
-use bevy_fynix::tokens::{SurfaceTokens, TextTokens, Tone};
+use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::{FrameProps, column, frame, label, row};
 use bevy_fynix::{EntityCursor, Signal, ViewExt, component, each};
 use hamlet_core::session::{Entry, Transcript, reply_in};
@@ -25,7 +26,7 @@ use crate::looks::{Fills, bare};
 use crate::platform::{
     Display as DisplayFace, DisplayText, Mono, MonoText,
 };
-use crate::theme::{BRASS_5, BRASS_6, Lamplight, PLATE};
+use crate::theme::{Palette, paint, themed};
 use crate::{Cx, Ui};
 
 fn words(world: &World, session: Entity, id: u64) -> Option<&str> {
@@ -122,7 +123,8 @@ pub(super) enum Face {
 /// The size, the tone and the face of a block's text.
 #[derive(Clone, Copy)]
 pub(super) struct Ink {
-    pub size: f32,
+    /// `None` for the theme's body size.
+    pub size: Option<f32>,
     pub tone: Tone,
     pub face: Face,
 }
@@ -161,8 +163,9 @@ pub(super) fn rich(spans: &[Span], ink: Ink) -> Ui {
     let spans = spans.to_vec();
     Ui::new(move |cx: &mut Cx| {
         let spans = anchored(cx.world, spans);
-        let root = cx.build(label("").size(ink.size));
         let theme = cx.theme();
+        let size = ink.size.unwrap_or(theme.text.body);
+        let root = cx.build(label("").size(size));
         let mono =
             cx.world.get_resource::<Mono>().map(|m| m.0.clone());
         let display = cx
@@ -188,9 +191,9 @@ pub(super) fn rich(spans: &[Span], ink: Ink) -> Ui {
             let font = TextFont {
                 font: face.map(FontSource::from).unwrap_or_default(),
                 font_size: FontSize::Px(if code {
-                    ink.size - 1.0
+                    size - 1.0
                 } else {
-                    ink.size
+                    size
                 }),
                 weight: if bold || ink.face != Face::Body {
                     FontWeight::BOLD
@@ -211,7 +214,10 @@ pub(super) fn rich(spans: &[Span], ink: Ink) -> Ui {
                 ChildOf(root),
             ));
             if code {
-                entity.insert((MonoText, TextBackgroundColor(PLATE)));
+                entity.insert((
+                    MonoText,
+                    TextBackgroundColor(theme.palette.plate),
+                ));
             } else if ink.face == Face::Heading {
                 entity.insert(DisplayText);
             }
@@ -260,10 +266,10 @@ fn code_view(lang: &str, text: &str) -> Ui {
         .gap(4.0)
         .padding(UiRect::axes(px(10.0), px(8.0)))
         .min_width(px(0.0))
-        .fill(PLATE)
+        .fill(paint(|p| p.plate))
         .border(1.0)
-        .border_color(BRASS_6)
-        .radius(Lamplight::round())
+        .border_color(paint(|p| p.brass_6))
+        .radius(themed(|t| t.space.round))
         .boxed()
 }
 
@@ -288,10 +294,11 @@ fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> Ui {
             let spans = cell_row
                 .get(column_at)
                 .map_or(&[][..], Vec::as_slice);
-            let (face, fill) = if at == 0 {
-                (Face::Strong, PLATE)
+            let (face, fill): (_, fn(&Palette) -> Color) = if at == 0
+            {
+                (Face::Strong, |p| p.plate)
             } else {
-                (Face::Body, Lamplight.panel())
+                (Face::Body, |p| p.black)
             };
             let side = match align.get(column_at) {
                 Some(Align::Center) => AlignItems::Center,
@@ -299,7 +306,7 @@ fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> Ui {
                 _ => AlignItems::FlexStart,
             };
             let ink = Ink {
-                size: 13.0,
+                size: Some(13.0),
                 tone,
                 face,
             };
@@ -308,7 +315,7 @@ fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> Ui {
                     .padding(UiRect::axes(px(10.0), px(5.0)))
                     .min_width(px(0.0))
                     .align(side)
-                    .fill(fill)
+                    .fill(paint(fill))
                     .boxed(),
             );
         }
@@ -319,7 +326,7 @@ fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> Ui {
                 .gap(1.0)
                 .padding(UiRect::all(px(1.0)))
                 .min_width(px(0.0))
-                .fill(BRASS_6),
+                .fill(paint(|p| p.brass_6)),
         );
         if let Some(mut ui) = cx.world.get_mut::<Node>(node) {
             ui.display = Display::Grid;
@@ -338,7 +345,7 @@ fn block_view(at: usize, block: &Block, tone: Tone) -> Ui {
     };
     let tone = if block.quote > 0 { Tone::Dim } else { tone };
     let body = Ink {
-        size: Lamplight.body_size(),
+        size: None,
         tone,
         face: Face::Body,
     };
@@ -347,11 +354,11 @@ fn block_view(at: usize, block: &Block, tone: Tone) -> Ui {
         Kind::Heading(level, spans) => rich(
             spans,
             Ink {
-                size: match level {
+                size: Some(match level {
                     1 => 20.0,
                     2 => 17.0,
                     _ => 15.0,
-                },
+                }),
                 face: Face::Heading,
                 ..body
             },
@@ -360,7 +367,7 @@ fn block_view(at: usize, block: &Block, tone: Tone) -> Ui {
         Kind::Rule => frame()
             .height(px(1.0))
             .margin(UiRect::vertical(px(4.0)))
-            .fill(BRASS_6)
+            .fill(paint(|p| p.brass_6))
             .boxed(),
         Kind::Table { align, rows } => table_view(align, rows, tone),
         Kind::Picture { caption, target } => {
@@ -377,7 +384,7 @@ fn block_view(at: usize, block: &Block, tone: Tone) -> Ui {
                 .width(px(3.0))
                 .margin(UiRect::right(px(10.0)))
                 .shrink(0.0)
-                .fill(BRASS_5)
+                .fill(paint(|p| p.brass_5))
                 .boxed(),
         );
     }
@@ -450,7 +457,7 @@ pub(crate) fn typed(text: &str, tail: &str) -> Option<Ui> {
     Some(rich(
         &spans,
         Ink {
-            size: Lamplight.body_size(),
+            size: None,
             tone: Tone::Body,
             face: Face::Body,
         },
@@ -473,7 +480,8 @@ mod tests {
     use bevy::ecs::query::With;
     use bevy::time::TimePlugin;
     use bevy::ui::widget::Text;
-    use bevy_fynix::{FynixPlugin, Theme, mount};
+    use bevy_fynix::{FynixPlugin, mount};
+    use hamlet_assets::Tuning;
     use hamlet_core::agent::Event as AgentEvent;
     use hamlet_core::session::Reply;
     use serde_json::json;
@@ -483,14 +491,15 @@ mod tests {
     use crate::chat;
     use crate::links::Roots;
     use crate::me::Me;
+    use crate::theme::{self, HamletTheme};
 
     fn app() -> App {
         let mut app = App::new();
         app.add_plugins((
             TimePlugin,
-            FynixPlugin::<Lamplight>::default(),
-        ))
-        .insert_resource(Theme(Lamplight));
+            FynixPlugin::<HamletTheme>::default(),
+        ));
+        theme::insert_theme(app.world_mut(), HamletTheme::designed());
         app.update();
         app
     }
@@ -545,7 +554,7 @@ mod tests {
                [docs](http://x).\n\n```sh\nls -la\n```\n\n| a | b \
                |\n|---|---|\n| 1 | 2 |\n"],
         );
-        mount::<Lamplight>(
+        mount::<HamletTheme>(
             app.world_mut(),
             document(entry(session, ids[1]), Tone::Body),
         );
@@ -580,7 +589,7 @@ mod tests {
         assert!(world.get::<Underline>(docs).is_some());
         assert_eq!(
             world.get::<TextColor>(docs).unwrap().0,
-            Lamplight.tone(Tone::Accent)
+            HamletTheme::designed().tone(Tone::Accent)
         );
     }
 
@@ -599,7 +608,7 @@ mod tests {
         .init_resource::<chat::Lines>()
         .init_resource::<chat::Reach>()
         .add_systems(bevy::app::Update, chat::fold_lines);
-        mount::<Lamplight>(app.world_mut(), chat::transcript());
+        mount::<HamletTheme>(app.world_mut(), chat::transcript());
         app.update();
         app.update();
         let before = spans(&mut app);
@@ -646,7 +655,7 @@ mod tests {
         ] {
             transcript.apply(&Reply::Event(event));
         }
-        mount::<Lamplight>(
+        mount::<HamletTheme>(
             app.world_mut(),
             document(entry(session, 1), Tone::Body),
         );

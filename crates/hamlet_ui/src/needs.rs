@@ -32,7 +32,7 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::platform::{DisplayText, MonoText, Wraps};
-use crate::theme::{BRASS_6, CARD, Lamplight};
+use crate::theme::{paint, themed};
 use crate::{Cx, Ui, chat};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
@@ -220,7 +220,6 @@ fn held(world: &World, need: &Need) -> Option<(Entity, u64, Change)> {
 fn strip(need: &Need) -> Ui {
     let need = need.clone();
     Ui::new(move |cx: &mut Cx| {
-        let slip = CARD;
         let about = match held(cx.world, &need) {
             Some((session, id, change)) => {
                 chat::change_view(session, id, change)
@@ -268,9 +267,9 @@ fn strip(need: &Need) -> Ui {
             .gap(6.0)
             .padding(UiRect::axes(px(14.0), px(10.0)))
             .border(1.0)
-            .border_color(BRASS_6)
-            .radius(Lamplight::round())
-            .fill(slip),
+            .border_color(paint(|p| p.brass_6))
+            .radius(themed(|t| t.space.round))
+            .fill(paint(|p| p.card)),
         )
     })
 }

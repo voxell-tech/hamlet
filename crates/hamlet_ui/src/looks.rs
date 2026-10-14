@@ -16,11 +16,7 @@ use bevy_fynix::{
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::platform::{DisplayText, Wraps};
-use crate::theme::{
-    BLACK, BRASS_3, BRASS_4, BRASS_5, BRASS_6, BRASS_HOVER, GREY_4,
-    LAMP, LAMP_LOW, Lamplight, RED, RED_DEEP, RED_HOVER, RED_LOW,
-    WELL,
-};
+use crate::theme::{HamletTheme, paint};
 use crate::{Cx, Ui};
 
 /// The least height of any button (macOS default control size, 28
@@ -35,22 +31,27 @@ pub fn pad() -> UiRect {
 /// An ordinary button: a wooden plate in a brass frame, lettered in
 /// brass. A held one sinks into the dark.
 pub fn brass(cx: &mut Cx) {
-    style::<Lamplight>()
-        .frame(|f, _| {
-            f.fill(GREY_4)
+    style::<HamletTheme>()
+        .frame(|f, t| {
+            f.fill(t.palette.grey_4)
                 .border(1.0)
-                .border_color(BRASS_5)
-                .radius(Lamplight::round())
+                .border_color(t.palette.brass_5)
+                .radius(t.space.round)
         })
         .label(|l, _| l.tone(Tone::Faint).size(12.0).bold(true))
         .icon(|i, _| i.tone(Tone::Faint))
         .hovered(|s| {
-            s.frame(|f, _| f.fill(BRASS_HOVER).border_color(BRASS_3))
-                .tone(Tone::Body)
+            s.frame(|f, t| {
+                f.fill(t.palette.brass_hover)
+                    .border_color(t.palette.brass_3)
+            })
+            .tone(Tone::Body)
         })
         .pressed(|s| {
-            s.frame(|f, _| f.fill(WELL).border_color(BRASS_5))
-                .tone(Tone::Dim)
+            s.frame(|f, t| {
+                f.fill(t.palette.well).border_color(t.palette.brass_5)
+            })
+            .tone(Tone::Dim)
         })
         .transition(Motion::Interact)
         .apply(cx);
@@ -59,21 +60,27 @@ pub fn brass(cx: &mut Cx) {
 /// The button for the one action a screen is for: a lamp that burns
 /// low behind amber glass, and is turned up under the pointer.
 pub fn lamp(cx: &mut Cx) {
-    style::<Lamplight>()
-        .frame(|f, _| {
-            f.fill(LAMP_LOW)
+    style::<HamletTheme>()
+        .frame(|f, t| {
+            f.fill(t.palette.lamp_low)
                 .border(1.0)
-                .border_color(BRASS_4)
-                .radius(Lamplight::round())
+                .border_color(t.palette.brass_4)
+                .radius(t.space.round)
         })
         .label(|l, _| l.tone(Tone::Body).size(12.0).bold(true))
         .icon(|i, _| i.tone(Tone::Body))
         .hovered(|s| {
-            s.frame(|f, _| f.fill(LAMP_LOW).border_color(LAMP))
+            s.frame(|f, t| {
+                f.fill(t.palette.lamp_low)
+                    .border_color(t.palette.lamp)
+            })
         })
         .pressed(|s| {
-            s.frame(|f, _| f.fill(LAMP_LOW).border_color(BRASS_5))
-                .tone(Tone::Faint)
+            s.frame(|f, t| {
+                f.fill(t.palette.lamp_low)
+                    .border_color(t.palette.brass_5)
+            })
+            .tone(Tone::Faint)
         })
         .transition(Motion::Interact)
         .apply(cx);
@@ -82,7 +89,7 @@ pub fn lamp(cx: &mut Cx) {
 /// The way back to where a page was reached from: an arrow and a name
 /// with no plate, dim until the pointer is on them.
 pub fn retrace(cx: &mut Cx) {
-    style::<Lamplight>()
+    style::<HamletTheme>()
         .frame(|f, _| f.fill(Color::NONE))
         .label(|l, _| l.tone(Tone::Dim).size(12.0).bold(true))
         .icon(|i, _| i.tone(Tone::Dim))
@@ -102,18 +109,22 @@ pub fn away(cx: &mut Cx) {
 /// A text field: a well sunk into the panel, framed in dim brass that
 /// brightens under the pointer and while it is typed in.
 pub fn well(cx: &mut Cx) {
-    style::<Lamplight>()
-        .frame(|f, _| {
-            f.fill(WELL)
+    style::<HamletTheme>()
+        .frame(|f, t| {
+            f.fill(t.palette.well)
                 .border(1.0)
-                .border_color(BRASS_6)
-                .radius(Lamplight::round())
+                .border_color(t.palette.brass_6)
+                .radius(t.space.round)
         })
         .hovered(|s| {
-            s.frame(|f, _| f.fill(WELL).border_color(BRASS_5))
+            s.frame(|f, t| {
+                f.fill(t.palette.well).border_color(t.palette.brass_5)
+            })
         })
         .when::<bevy_fynix::Focused>(|s| {
-            s.frame(|f, _| f.fill(WELL).border_color(BRASS_4))
+            s.frame(|f, t| {
+                f.fill(t.palette.well).border_color(t.palette.brass_4)
+            })
         })
         .transition(Motion::Interact)
         .apply(cx);
@@ -122,22 +133,27 @@ pub fn well(cx: &mut Cx) {
 /// A button for what refuses, stops or throws away: a dark red plate
 /// in a red frame, and a coal under the pointer.
 pub fn grim(cx: &mut Cx) {
-    style::<Lamplight>()
-        .frame(|f, _| {
-            f.fill(RED_DEEP)
+    style::<HamletTheme>()
+        .frame(|f, t| {
+            f.fill(t.palette.red_deep)
                 .border(1.0)
-                .border_color(RED_LOW)
-                .radius(Lamplight::round())
+                .border_color(t.palette.red_low)
+                .radius(t.space.round)
         })
         .label(|l, _| l.tone(Tone::Critical).size(12.0).bold(true))
         .icon(|i, _| i.tone(Tone::Critical))
         .hovered(|s| {
-            s.frame(|f, _| f.fill(RED_HOVER).border_color(RED))
-                .tone(Tone::Body)
+            s.frame(|f, t| {
+                f.fill(t.palette.red_hover)
+                    .border_color(t.palette.red)
+            })
+            .tone(Tone::Body)
         })
         .pressed(|s| {
-            s.frame(|f, _| f.fill(WELL).border_color(RED))
-                .tone(Tone::Critical)
+            s.frame(|f, t| {
+                f.fill(t.palette.well).border_color(t.palette.red)
+            })
+            .tone(Tone::Critical)
         })
         .transition(Motion::Interact)
         .apply(cx);
@@ -171,7 +187,7 @@ pub(crate) fn filling() -> Stack<()> {
 }
 
 /// A line one pixel thick, of `colour`.
-pub(crate) fn hairline(colour: Color) -> Frame {
+pub(crate) fn hairline(colour: impl Into<Prop<Color>>) -> Frame {
     frame().height(px(1.0)).fill(colour)
 }
 
@@ -183,7 +199,7 @@ pub fn note(text: impl Into<Prop<String>>) -> Label {
 /// The name at the head of a page.
 pub fn title(
     text: impl Into<Prop<String>>,
-) -> impl View<Bevy, Lamplight> {
+) -> impl View<Bevy, HamletTheme> {
     label(text)
         .size(16.0)
         .bold(true)
@@ -199,7 +215,7 @@ pub fn tick(on: impl Into<Prop<bool>>) -> Checkbox {
 /// A lettered button: `text` in the display face.
 pub(crate) fn lettered(
     text: &'static str,
-) -> impl View<Bevy, Lamplight> + FrameProps {
+) -> impl View<Bevy, HamletTheme> + FrameProps {
     button(label(text).wrap(false).tagged(DisplayText))
         .padding(pad())
         .min_height(px(CONTROL))
@@ -210,15 +226,17 @@ pub const ICON: f32 = 14.0;
 
 /// An icon set a pixel high, on the middle of the display face's
 /// capitals beside it.
-pub fn raised(mark: Icon) -> impl View<Bevy, Lamplight> + FrameProps {
+pub fn raised(
+    mark: Icon,
+) -> impl View<Bevy, HamletTheme> + FrameProps {
     row((mark,)).padding(UiRect::bottom(px(2.0)))
 }
 
 /// An icon before `words` in the display face.
 pub(crate) fn headed(
     which: Glyph,
-    words: impl View<Bevy, Lamplight> + 'static,
-) -> impl View<Bevy, Lamplight> + FrameProps {
+    words: impl View<Bevy, HamletTheme> + 'static,
+) -> impl View<Bevy, HamletTheme> + FrameProps {
     row((raised(glyph(which, ICON)), words))
         .gap(6.0)
         .align(AlignItems::Center)
@@ -228,7 +246,7 @@ pub(crate) fn headed(
 pub fn marked(
     which: Glyph,
     text: &'static str,
-) -> impl View<Bevy, Lamplight> + FrameProps {
+) -> impl View<Bevy, HamletTheme> + FrameProps {
     button(headed(which, label(text).wrap(false).tagged(DisplayText)))
         // Less on the icon's side, which has air of its own.
         .padding(UiRect::new(px(10.0), px(13.0), px(0.0), px(0.0)))
@@ -324,12 +342,16 @@ pub(crate) fn bad_action(
 /// A row of a list that leads somewhere: no plate and no frame at
 /// rest, and a faint plate under the pointer.
 pub(crate) fn passage(cx: &mut Cx) {
-    style::<Lamplight>()
-        .frame(|f, _| f.fill(Color::NONE).radius(Lamplight::round()))
+    style::<HamletTheme>()
+        .frame(|f, t| f.fill(Color::NONE).radius(t.space.round))
         .label(|l, _| l.tone(Tone::Faint).size(12.0).bold(true))
         .icon(|i, _| i.tone(Tone::Faint))
-        .hovered(|s| s.frame(|f, _| f.fill(GREY_4)).tone(Tone::Body))
-        .pressed(|s| s.frame(|f, _| f.fill(WELL)).tone(Tone::Dim))
+        .hovered(|s| {
+            s.frame(|f, t| f.fill(t.palette.grey_4)).tone(Tone::Body)
+        })
+        .pressed(|s| {
+            s.frame(|f, t| f.fill(t.palette.well)).tone(Tone::Dim)
+        })
         .transition(Motion::Interact)
         .apply(cx);
 }
@@ -394,7 +416,7 @@ pub(crate) fn doors(doors: Vec<Ui>, foot: Ui) -> Ui {
     let mut rows = Vec::new();
     for door in doors {
         if !rows.is_empty() {
-            rows.push(hairline(BRASS_6).boxed());
+            rows.push(hairline(paint(|p| p.brass_6)).boxed());
         }
         rows.push(door);
     }
@@ -409,7 +431,7 @@ pub(crate) fn page_head(
     act: fn(&mut World),
     which: Glyph,
     name: &'static str,
-) -> impl View<Bevy, Lamplight> {
+) -> impl View<Bevy, HamletTheme> {
     row((
         back(front, act),
         headed(
@@ -426,14 +448,14 @@ pub(crate) fn page_head(
 
 /// A row that is pressed whole: a plate under the pointer.
 pub(crate) fn plate(cx: &mut Cx) {
-    style::<Lamplight>()
-        .frame(|f, _| {
+    style::<HamletTheme>()
+        .frame(|f, t| {
             f.fill(Color::NONE)
-                .radius(Lamplight::round())
+                .radius(t.space.round)
                 .justify(JustifyContent::FlexStart)
                 .padding(UiRect::axes(px(10.0), px(5.0)))
         })
-        .hovered(|s| s.fill(|_| BRASS_HOVER))
-        .pressed(|s| s.fill(|_| BLACK))
+        .hovered(|s| s.fill(|t| t.palette.brass_hover))
+        .pressed(|s| s.fill(|t| t.palette.black))
         .apply(cx);
 }

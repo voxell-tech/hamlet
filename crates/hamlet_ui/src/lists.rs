@@ -15,7 +15,7 @@ use crate::dock::show_tab;
 use crate::icons::Glyph;
 use crate::looks::{Fills, action, away, bad_action};
 use crate::platform::DisplayText;
-use crate::theme::{BRASS_6, CARD, Lamplight};
+use crate::theme::{HamletTheme, paint, themed};
 use crate::world_menu::{self, Deed};
 use crate::{Cx, Ui};
 
@@ -40,7 +40,7 @@ fn skill_rows(skills: &Skills) -> Vec<SkillRow> {
 fn empty_state<R: Resource>(
     is_empty: fn(&R) -> bool,
     hint: &'static str,
-) -> impl View<Bevy, Lamplight> {
+) -> impl View<Bevy, HamletTheme> {
     keyed(resource::<R, _>(is_empty), move |empty| {
         if *empty {
             column((
@@ -116,7 +116,6 @@ pub fn card(
     beside: Option<Ui>,
 ) -> Ui {
     Ui::new(move |cx: &mut Cx| {
-        let slip = CARD;
         let name = row((label(title)
             .size(13.0)
             .bold(true)
@@ -134,9 +133,9 @@ pub fn card(
             .gap(4.0)
             .padding(UiRect::axes(px(14.0), px(10.0)))
             .border(1.0)
-            .border_color(BRASS_6)
-            .radius(Lamplight::round())
-            .fill(slip)
+            .border_color(paint(|p| p.brass_6))
+            .radius(themed(|t| t.space.round))
+            .fill(paint(|p| p.card))
             .appear(away)
             .transition(Motion::Expand),
         )

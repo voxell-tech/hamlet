@@ -22,7 +22,7 @@ use crate::looks::{action, bare, note};
 use crate::pictures::{
     Drawn, Pictures, Source, State, fetch, find, host,
 };
-use crate::theme::{BRASS_6, Lamplight, PLATE};
+use crate::theme::{paint, themed};
 use crate::{Cx, Ui};
 
 fn plain(text: &str) -> Span {
@@ -50,10 +50,10 @@ fn words(caption: &str, target: &Target, ink: Ink) -> Ui {
 fn framed() -> Frame {
     frame()
         .max_width(percent(100.0))
-        .fill(PLATE)
+        .fill(paint(|p| p.plate))
         .border(1.0)
-        .border_color(BRASS_6)
-        .radius(Lamplight::round())
+        .border_color(paint(|p| p.brass_6))
+        .radius(themed(|t| t.space.round))
 }
 
 /// The picture `drawn`, no larger than `most`, over its caption. A
@@ -68,6 +68,7 @@ fn shown(
     let (image, anchor) = (drawn.image.clone(), source.anchor());
     let picture = Ui::new(move |cx: &mut Cx| {
         let within = cx.build(bare().width(percent(100.0)));
+        let theme = cx.theme();
         // A node of its own, whose image no paint of a view tints
         // and whose height follows the width it ends up with.
         let edge = 1.0;
@@ -78,13 +79,13 @@ fn shown(
                 max_width: percent(100.0),
                 aspect_ratio: Some(outer.x / outer.y),
                 border: UiRect::all(px(edge)),
-                border_radius: BorderRadius::all(px(
-                    Lamplight::round(),
-                )),
+                border_radius: BorderRadius::all(px(theme
+                    .space
+                    .round)),
                 ..Node::default()
             },
-            BackgroundColor(PLATE),
-            BorderColor::all(BRASS_6),
+            BackgroundColor(theme.palette.plate),
+            BorderColor::all(theme.palette.brass_6),
             ImageNode::new(image).with_mode(NodeImageMode::Stretch),
             anchor,
             EntityCursor(SystemCursorIcon::Pointer),
@@ -120,7 +121,7 @@ fn card(address: &str, caption: &str, state: &State) -> Ui {
         plain(". It is fetched only when you ask."),
     ];
     let small = Ink {
-        size: 12.0,
+        size: Some(12.0),
         tone: Tone::Dim,
         face: Face::Body,
     };
@@ -149,10 +150,10 @@ fn card(address: &str, caption: &str, state: &State) -> Ui {
         .align(AlignItems::FlexStart)
         .min_width(px(0.0))
         .max_width(percent(100.0))
-        .fill(PLATE)
+        .fill(paint(|p| p.plate))
         .border(1.0)
-        .border_color(BRASS_6)
-        .radius(Lamplight::round())
+        .border_color(paint(|p| p.brass_6))
+        .radius(themed(|t| t.space.round))
         .boxed()
 }
 

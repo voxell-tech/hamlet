@@ -36,7 +36,7 @@ use crate::looks::{
     good_action, hairline, note, well,
 };
 use crate::me::Me;
-use crate::theme::{BRASS_4, BRASS_5, BRASS_6, CARD, Lamplight};
+use crate::theme::{HamletTheme, paint};
 use crate::{Cx, Ui, chat, inspector};
 
 /// Characters of a title a row shows.
@@ -421,21 +421,25 @@ pub(crate) fn stale_on_job(
 
 /// Look of a session's row.
 fn card(cx: &mut Cx) {
-    style::<Lamplight>()
-        .frame(|f, _| {
-            f.fill(CARD)
+    style::<HamletTheme>()
+        .frame(|f, t| {
+            f.fill(t.palette.card)
                 .border(1.0)
-                .border_color(BRASS_6)
-                .radius(Lamplight::round())
+                .border_color(t.palette.brass_6)
+                .radius(t.space.round)
                 .padding(UiRect::axes(px(14.0), px(10.0)))
                 .justify(JustifyContent::FlexStart)
                 .align(AlignItems::FlexStart)
         })
         .hovered(|s| {
-            s.frame(|f, _| f.fill(CARD).border_color(BRASS_4))
+            s.frame(|f, t| {
+                f.fill(t.palette.card).border_color(t.palette.brass_4)
+            })
         })
         .pressed(|s| {
-            s.frame(|f, _| f.fill(CARD).border_color(BRASS_5))
+            s.frame(|f, t| {
+                f.fill(t.palette.card).border_color(t.palette.brass_5)
+            })
         })
         .transition(Motion::Interact)
         .apply(cx);
@@ -628,7 +632,7 @@ fn reader() -> Ui {
                 note(detail),
                 actions(resumable, kept),
                 note(hint),
-                hairline(BRASS_6),
+                hairline(paint(|p| p.brass_6)),
                 scroll((
                     keyed(
                         resource::<History, _>(|h| {

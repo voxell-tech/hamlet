@@ -104,7 +104,7 @@ Paths are under `crates/`.
 | A starter skill | `hamlet_home/starters/<name>/SKILL.md` |
 | A panel | Its file in `hamlet_ui/src/` |
 | The right-click menu | `hamlet_ui/src/world_menu/items.rs` |
-| A colour in the panels | `hamlet_ui/src/theme.rs` |
+| A colour in the panels | `assets/theme.toml`, its fields in `hamlet_ui/src/theme.rs` |
 | How a control looks or feels | `hamlet_ui/src/looks.rs`, `feel/`; [`ui-warmth.md`](ui-warmth.md) |
 | An icon | `hamlet_ui/src/icons.rs`; [`icons.md`](icons.md) |
 | A colour in the world | `assets/palette.toml` |

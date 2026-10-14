@@ -25,7 +25,7 @@ use crate::links::Aimed;
 use crate::looks::{hairline, note};
 use crate::me::Me;
 use crate::needs::Queue;
-use crate::theme::{BLACK, Lamplight, SEAM};
+use crate::theme::{HamletTheme, paint};
 use crate::window::Layout;
 use crate::{Cx, Ui};
 
@@ -164,9 +164,9 @@ pub(crate) fn ago(since: Instant) -> String {
 
 /// An icon and the words it stands before.
 fn pair(
-    mark: impl View<Bevy, Lamplight> + 'static,
-    words: impl View<Bevy, Lamplight> + 'static,
-) -> impl View<Bevy, Lamplight> + 'static {
+    mark: impl View<Bevy, HamletTheme> + 'static,
+    words: impl View<Bevy, HamletTheme> + 'static,
+) -> impl View<Bevy, HamletTheme> + 'static {
     row((mark, words)).gap(5.0).align(AlignItems::Center)
 }
 
@@ -233,7 +233,7 @@ pub fn status_bar() -> Ui {
         let sandbox = cx.world.resource::<Sandboxing>().0.name();
         cx.build(
             column((
-                hairline(SEAM),
+                hairline(paint(|p| p.seam)),
                 row((
                     pair(
                         glyph(Glyph::Shield, MARK).tone(Tone::Dim),
@@ -303,7 +303,7 @@ pub fn status_bar() -> Ui {
                 .gap(18.0)
                 .align(AlignItems::Center)
                 .padding(UiRect::axes(px(16.0), px(5.0)))
-                .fill(BLACK),
+                .fill(paint(|p| p.black)),
             ))
             .gap(0.0),
         )

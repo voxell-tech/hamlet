@@ -27,7 +27,7 @@ use crate::feel::FootLight;
 use crate::icons::Glyph;
 use crate::looks::{ICON, hairline, headed};
 use crate::platform::{DisplayText, show};
-use crate::theme::{BRASS_3, BRASS_6, Lamplight};
+use crate::theme::{HamletTheme, Themed, paint};
 use crate::{Cx, Ui};
 
 pub fn plugin(app: &mut App) {
@@ -59,7 +59,7 @@ pub struct Listed;
 
 /// A tab: lettering alone, bright on the one shown.
 pub fn tab_look(cx: &mut Cx) {
-    style::<Lamplight>()
+    style::<HamletTheme>()
         .frame(|f, _| {
             f.fill(Color::NONE)
                 .radius(0.0)
@@ -78,7 +78,7 @@ pub fn tab_look(cx: &mut Cx) {
 pub fn tab_name(
     which: Glyph,
     name: &'static str,
-) -> impl View<Bevy, Lamplight> {
+) -> impl View<Bevy, HamletTheme> {
     headed(
         which,
         label(name)
@@ -129,7 +129,7 @@ pub fn strip<R: Resource + Copy>(
         .collect::<Vec<_>>();
     column((
         row(tabs).gap(0.0).tagged(Folds::default()),
-        hairline(BRASS_6),
+        hairline(paint(|p| p.brass_6)),
     ))
     .gap(0.0)
     .boxed()
@@ -189,6 +189,7 @@ pub fn fit(
 /// underline.
 pub fn mark<R: Resource + Copy + PartialEq>(
     mut commands: Commands,
+    theme: Themed,
     shown: Res<R>,
     mut tabs: Query<(Entity, &TabOf<R>, &mut FootLight, Has<Shown>)>,
     mut lines: Query<(&Underline<R>, &mut BackgroundColor)>,
@@ -205,7 +206,11 @@ pub fn mark<R: Resource + Copy + PartialEq>(
         }
     }
     for (of, mut fill) in &mut lines {
-        let want = if of.0 == *shown { BRASS_3 } else { Color::NONE };
+        let want = if of.0 == *shown {
+            theme.palette.brass_3
+        } else {
+            Color::NONE
+        };
         if fill.0 != want {
             fill.0 = want;
         }

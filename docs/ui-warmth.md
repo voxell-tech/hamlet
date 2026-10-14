@@ -30,8 +30,11 @@ room stays dark so that the world stays the bright thing on screen.
 
 In `hamlet_ui/src/`:
 
-- `theme.rs` holds the palette. A test holds every text tone to a contrast
-  of 4.5:1 or better on every surface it meets.
+- `theme.rs` holds the theme, whose values are in `assets/theme.toml`.
+  The panels are built only once that file has loaded; one not found or
+  not readable gives way to the copy built into the app. A test holds
+  every text tone to a contrast of 4.5:1 or better on every surface it
+  meets.
 - `looks.rs` holds the looks of each kind of button and field.
 - `feel/` holds the behaviour: a control's warmth, press, flame and
   sparks, and the light that falls into a panel. Its tuning is

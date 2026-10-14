@@ -30,6 +30,7 @@ use hamlet_world::sound::{Cue, Sound};
 
 use super::{FeelSettings, MagicColors, Mood, ease, linear, waver};
 use crate::sounds;
+use crate::theme::Themed;
 
 /// A button's state of feel, each 0 to 1.
 #[derive(Component, Default)]
@@ -332,10 +333,11 @@ type Lamped<'a> = (
 /// Keeps the flame in the glass of every control that has one.
 pub(super) fn light(
     mut commands: Commands,
-    colors: Res<MagicColors>,
+    theme: Themed,
     mut lamps: ResMut<Assets<Lamp>>,
     controls: Query<Lamped>,
 ) {
+    let colors = MagicColors::of(&theme);
     for (control, feel, mood, node, lamp) in &controls {
         // Lettering has no glass for a flame to burn in.
         if matches!(*mood, Mood::Quiet | Mood::Ink) {
@@ -387,7 +389,7 @@ const INK_REACH: f32 = 0.55;
 pub(super) fn spill(
     mut commands: Commands,
     set: Res<FeelSettings>,
-    colors: Res<MagicColors>,
+    theme: Themed,
     mut lamps: ResMut<Assets<Lamp>>,
     buttons: Query<Glowing>,
     inked: Query<(&ComputedNode, &UiGlobalTransform)>,
@@ -399,6 +401,7 @@ pub(super) fn spill(
     )>,
     mut pooled: Local<Vec<Entity>>,
 ) {
+    let colors = MagicColors::of(&theme);
     // The place of the light's node and the lamp it shows.
     let place = |(_, feel, mood, node, at, within): Glowing| {
         let mood = mood.copied().unwrap_or_default();
@@ -489,7 +492,7 @@ pub(super) fn embers(
     mut commands: Commands,
     time: Res<Time>,
     set: Res<FeelSettings>,
-    colors: Res<MagicColors>,
+    theme: Themed,
     mut sparks: Query<(
         Entity,
         &mut Ember,
@@ -497,6 +500,7 @@ pub(super) fn embers(
         &mut BackgroundColor,
     )>,
 ) {
+    let colors = MagicColors::of(&theme);
     for (id, mut ember, mut node, mut fill) in &mut sparks {
         ember.age += time.delta_secs();
         if ember.age < 0.0 {
@@ -524,15 +528,17 @@ mod tests {
     use bevy::ecs::message::Messages;
     use bevy::ecs::schedule::IntoScheduleConfigs;
     use bevy::ui::Val;
+    use bevy_fynix::Theme;
+    use hamlet_assets::Tuning;
 
     use super::super::tests::step;
     use super::*;
-    use crate::theme::{COAL, LAMP};
+    use crate::theme::HamletTheme;
 
     fn app() -> App {
         let mut app = App::new();
         app.init_resource::<FeelSettings>()
-            .init_resource::<MagicColors>()
+            .insert_resource(Theme(HamletTheme::designed()))
             .init_resource::<Time>()
             .init_resource::<Assets<Lamp>>()
             .add_message::<Cue>()
@@ -649,7 +655,10 @@ mod tests {
         assert!(flame(&app, button) > 0.6);
         let glows = glows(&mut app);
         assert_eq!(glows.len(), 1);
-        assert_eq!(glows[0].truncate(), linear(LAMP));
+        assert_eq!(
+            glows[0].truncate(),
+            linear(HamletTheme::designed().palette.lamp)
+        );
         let set = FeelSettings::default();
         assert_eq!(sparks(&mut app), set.embers as usize);
 
@@ -683,7 +692,10 @@ mod tests {
         }
         assert!(furthest > 1.0, "{furthest}");
         assert!(furthest <= set.shake, "a shake of the head");
-        assert_eq!(glows(&mut app)[0].truncate(), linear(COAL));
+        assert_eq!(
+            glows(&mut app)[0].truncate(),
+            linear(HamletTheme::designed().palette.coal)
+        );
         assert_eq!(sparks(&mut app), 0);
 
         for _ in 0..200 {

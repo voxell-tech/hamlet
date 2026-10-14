@@ -38,14 +38,14 @@ use hamlet_world::chief::{Beside, Look};
 use hamlet_world::hand::Proud;
 use hamlet_world::pick::{Following, Hovered, Thing};
 
-use crate::Ui;
 use crate::feel::FeelSettings;
 use crate::inspector::now;
 use crate::overview::standing;
 use crate::platform::{DisplayText, show};
 use crate::roll::Roll;
-use crate::theme::{BRASS_5, CARD, Lamplight};
+use crate::theme::{Themed, paint, themed};
 use crate::world_menu::Open;
+use crate::{Cx, Ui};
 
 /// The layer of the card in the window's stack: over the panels,
 /// under the menus.
@@ -477,6 +477,7 @@ pub(crate) fn describe(
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn place(
     mut commands: Commands,
+    theme: Themed,
     card: Res<Card>,
     time: Res<Time>,
     set: Res<FeelSettings>,
@@ -542,7 +543,9 @@ pub fn place(
         }
         if fill.0.alpha() != eased {
             fill.0.set_alpha(eased);
-            *edge = BorderColor::all(BRASS_5.with_alpha(eased));
+            *edge = BorderColor::all(
+                theme.palette.brass_5.with_alpha(eased),
+            );
         }
         for child in under.iter_descendants(entity) {
             if let Ok(mut ink) = inks.get_mut(child)
@@ -587,36 +590,39 @@ fn line(read: fn(&Card) -> &String, tone: Tone) -> Ui {
 
 /// The card, on the window's top layer. It is built once.
 pub fn view() -> Ui {
-    let card = column((
-        label(resource::<Card, _>(|card| card.title.clone()))
-            .size(13.0)
-            .bold(true)
-            .wrap(false)
-            .tagged(DisplayText),
-        label(resource::<Card, _>(|card| card.state.clone()))
-            .size(12.0)
-            .tone(resource::<Card, _>(|card| card.tone)),
-        line(|card| &card.purpose, Tone::Body),
-        line(|card| &card.account, Tone::Dim),
-        line(|card| &card.hint, Tone::Dim),
-    ))
-    .gap(3.0)
-    .padding(UiRect::axes(px(12.0), px(9.0)))
-    .max_width(px(280.0))
-    .border(1.0)
-    .border_color(BRASS_5)
-    .radius(Lamplight::soft())
-    .fill(CARD)
-    .position(PositionType::Absolute)
-    .inset(UiRect {
-        left: px(0.0),
-        top: px(0.0),
-        right: Val::Auto,
-        bottom: Val::Auto,
+    Ui::new(|cx: &mut Cx| {
+        let shadow = cx.theme().shadow();
+        let card = column((
+            label(resource::<Card, _>(|card| card.title.clone()))
+                .size(13.0)
+                .bold(true)
+                .wrap(false)
+                .tagged(DisplayText),
+            label(resource::<Card, _>(|card| card.state.clone()))
+                .size(12.0)
+                .tone(resource::<Card, _>(|card| card.tone)),
+            line(|card| &card.purpose, Tone::Body),
+            line(|card| &card.account, Tone::Dim),
+            line(|card| &card.hint, Tone::Dim),
+        ))
+        .gap(3.0)
+        .padding(UiRect::axes(px(12.0), px(9.0)))
+        .max_width(px(280.0))
+        .border(1.0)
+        .border_color(paint(|p| p.brass_5))
+        .radius(themed(|t| t.space.soft))
+        .fill(paint(|p| p.card))
+        .position(PositionType::Absolute)
+        .inset(UiRect {
+            left: px(0.0),
+            top: px(0.0),
+            right: Val::Auto,
+            bottom: Val::Auto,
+        })
+        .z(Some(CARD_Z))
+        .with((OverrideClip, CardBox, shadow));
+        cx.build(overlay((card,)))
     })
-    .z(Some(CARD_Z))
-    .with((OverrideClip, CardBox, Lamplight::shadow()));
-    overlay((card,)).boxed()
 }
 
 #[cfg(test)]

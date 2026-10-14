@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 
 use bevy::asset::io::Reader;
 use bevy::asset::io::embedded::EmbeddedAssetRegistry;
-use bevy::asset::{AssetLoader, LoadContext};
+use bevy::asset::{AssetLoader, LoadContext, LoadState};
 use bevy::ecs::error::BevyError;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use serde::de::DeserializeOwned;
 
@@ -43,6 +44,8 @@ pub const PALETTE: File = file!("palette.toml");
 pub const VFX: File = file!("vfx.toml");
 /// The panels' answers to the hand.
 pub const UI: File = file!("ui.toml");
+/// The panels' theme.
+pub const THEME: File = file!("theme.toml");
 
 /// The typefaces. Their licences are beside them in `assets/fonts/`.
 pub mod fonts {
@@ -101,6 +104,42 @@ macro_rules! designed {
             }
         })+
     };
+}
+
+/// What has come of loading a [`Tuning`] file.
+pub enum Loaded<T> {
+    Waiting,
+    Read(T),
+    /// Not found, or not a file of `T`: why.
+    Failed(String),
+}
+
+/// `T`'s file as [`TuningPlugin<T>`] opens it at startup. Without an
+/// asset server it never loads.
+#[derive(SystemParam)]
+pub struct Loading<'w, T: Tuning> {
+    open: Option<Res<'w, Open<T>>>,
+    server: Option<Res<'w, AssetServer>>,
+    files: Option<Res<'w, Assets<T>>>,
+}
+
+impl<T: Tuning> Loading<'_, T> {
+    /// What has come of loading the file.
+    pub fn loaded(&self) -> Loaded<T> {
+        let (Some(open), Some(server), Some(files)) =
+            (&self.open, &self.server, &self.files)
+        else {
+            return Loaded::Waiting;
+        };
+        match server.load_state(&open.file) {
+            LoadState::Loaded => files
+                .get(&open.file)
+                .cloned()
+                .map_or(Loaded::Waiting, Loaded::Read),
+            LoadState::Failed(why) => Loaded::Failed(why.to_string()),
+            _ => Loaded::Waiting,
+        }
+    }
 }
 
 /// Replaces the resource `R` with `now` where the file's section

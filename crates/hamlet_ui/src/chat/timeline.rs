@@ -23,7 +23,7 @@ use hamlet_world::palette::Palette;
 
 use super::lines::{Row, rows};
 use crate::me::Me;
-use crate::theme::BRASS_5;
+use crate::theme::Themed;
 
 /// The part a conversation has in an agent's chat.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -116,6 +116,7 @@ pub struct People<'w, 's> {
     >,
     chiefs: Query<'w, 's, (&'static Chief, &'static Look)>,
     palette: Option<Res<'w, Palette>>,
+    theme: Themed<'w>,
     changed: Query<
         'w,
         's,
@@ -221,7 +222,8 @@ impl People<'_, '_> {
             } else {
                 Kind::Chief
             },
-            paint: cloak.map_or(BRASS_5, Self::shown),
+            paint: cloak
+                .map_or(self.theme.palette.brass_5, Self::shown),
         }
     }
 }
@@ -264,7 +266,7 @@ impl Cast<'_, '_, '_> {
                     name: "Mayor".to_string(),
                     tag: "MAYOR".to_string(),
                     kind: Kind::Mayor,
-                    paint: BRASS_5,
+                    paint: people.theme.palette.brass_5,
                 },
             })
         })
@@ -285,7 +287,7 @@ impl Cast<'_, '_, '_> {
                 self.place(Id::Stranger(address.to_string()), || {
                     Who {
                         name: titled(address),
-                        paint: BRASS_5,
+                        paint: self.people.theme.palette.brass_5,
                         ..Who::default()
                     }
                 })

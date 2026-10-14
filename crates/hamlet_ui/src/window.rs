@@ -35,7 +35,7 @@ use crate::icons::Glyph;
 use crate::looks::{action, bad_action, good_action};
 use crate::platform::{DisplayText, Glow, Wraps};
 use crate::status::{Bar, Lately};
-use crate::theme::BLACK;
+use crate::theme::paint;
 use crate::{Cx, Ui};
 
 /// The size the window opens at until the user has resized it once.
@@ -339,7 +339,7 @@ pub(crate) fn minimal() -> Ui {
             .grow(1.0)
             .gap(6.0)
             .padding(UiRect::all(px(16.0)))
-            .fill(BLACK)
+            .fill(paint(|p| p.black))
             .tagged(Glow)
             // The small window is held anywhere but on its buttons.
             .tagged(Grip),

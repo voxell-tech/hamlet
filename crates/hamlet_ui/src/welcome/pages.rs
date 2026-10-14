@@ -21,7 +21,7 @@ use crate::looks::{
 };
 use crate::models::narrowed;
 use crate::platform::DisplayText;
-use crate::theme::{BRASS_5, CARD, Lamplight, SHADOW};
+use crate::theme::{paint, themed};
 use crate::{Cx, Ui};
 
 fn title(which: Glyph, text: &'static str) -> Ui {
@@ -359,10 +359,10 @@ pub fn view() -> Ui {
             .max_width(px(560.0))
             .max_height(percent(100.0))
             .gap(0.0)
-            .fill(CARD)
+            .fill(paint(|p| p.card))
             .border(1.0)
-            .border_color(BRASS_5)
-            .radius(Lamplight::round());
+            .border_color(paint(|p| p.brass_5))
+            .radius(themed(|t| t.space.round));
             // It is filled, so that no press reaches the panels
             // under it. A row, so that the card is as tall as its
             // words are once they are wrapped to its width.
@@ -372,7 +372,7 @@ pub fn view() -> Ui {
                 .padding(UiRect::all(px(16.0)))
                 .align(AlignItems::Center)
                 .justify(JustifyContent::Center)
-                .fill(SHADOW)
+                .fill(themed(|t| t.shadow.color))
                 .boxed()
         },
     )

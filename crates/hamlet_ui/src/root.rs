@@ -17,7 +17,7 @@ use hamlet_core::core::{Settings, TestConnection};
 use crate::looks::{Fills, filling, hairline};
 use crate::platform::Glow;
 use crate::status::status_bar;
-use crate::theme::{BLACK, Lamplight, SEAM};
+use crate::theme::{HamletTheme, paint, themed};
 use crate::window::{self, Layout};
 use crate::{Cx, Ui, chrome, hover, menu, welcome, world_menu};
 
@@ -28,7 +28,7 @@ pub(crate) fn plugin(app: &mut App) {
 /// Mounts the views, as one tab group so Tab moves through the
 /// controls.
 pub(crate) fn mount(world: &mut World) {
-    let node = bevy_fynix::mount::<Lamplight>(world, root());
+    let node = bevy_fynix::mount::<HamletTheme>(world, root());
     world.entity_mut(node).insert(TabGroup::default());
 }
 
@@ -50,7 +50,7 @@ fn root() -> Ui {
             ))
             .width(percent(100.0))
             .height(percent(100.0))
-            .fill(Lamplight::background())
+            .fill(themed(|t| t.background()))
             .gap(0.0),
         )
     })
@@ -59,7 +59,7 @@ fn root() -> Ui {
 fn full() -> Ui {
     column((
         toolbar(),
-        column((dock::<Lamplight>(), welcome::view()))
+        column((dock::<HamletTheme>(), welcome::view()))
             .fills_height()
             .gap(0.0),
         status_bar(),
@@ -85,10 +85,10 @@ pub fn toolbar() -> Ui {
         .gap(0.0)
         .align(AlignItems::Center)
         .padding(UiRect::axes(px(8.0), px(0.0)))
-        .fill(BLACK)
+        .fill(paint(|p| p.black))
         .tagged(Glow)
         .tagged(chrome::Grip),
-        hairline(SEAM),
+        hairline(paint(|p| p.seam)),
     ))
     .gap(0.0)
     .boxed()

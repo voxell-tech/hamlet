@@ -18,7 +18,7 @@ use crate::feel::Lit;
 use crate::icons::Glyph;
 use crate::looks::{Fills, ICON};
 use crate::platform::{ClipInside, Glow};
-use crate::theme::{BLACK, Lamplight};
+use crate::theme::{HamletTheme, paint};
 use crate::{Ui, inspector, needs, remember, settings, world_view};
 
 /// The least width a panel keeps, in logical pixels.
@@ -44,7 +44,7 @@ pub fn lit_panel(view: Ui, lit: Lit) -> Ui {
         .min_height(px(0.0))
         .padding(UiRect::all(px(16.0)))
         .gap(0.0)
-        .fill(BLACK)
+        .fill(paint(|p| p.black))
         // Overflow is cut at the padding.
         .overflow(Overflow::clip())
         .tagged(ClipInside)
@@ -126,7 +126,7 @@ pub(crate) fn keep_wide(
 /// The world in the centre, and the working panels as tabs beside it.
 pub(crate) fn seed(world: &mut World) {
     let mut registry =
-        world.resource_mut::<DockRegistry<Lamplight>>();
+        world.resource_mut::<DockRegistry<HamletTheme>>();
     registry.register(
         "world",
         DockWindowKind::new("REALM", || {

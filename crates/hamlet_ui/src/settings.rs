@@ -34,7 +34,7 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::platform::DisplayText;
-use crate::theme::{BRASS_6, Lamplight};
+use crate::theme::{HamletTheme, paint};
 use crate::world_menu::{self, Deed};
 use crate::{Cx, Ui, markdown};
 
@@ -49,8 +49,8 @@ pub fn plugin(app: &mut App) {
 
 fn field(
     name: &'static str,
-    value: impl View<Bevy, Lamplight>,
-) -> impl View<Bevy, Lamplight> {
+    value: impl View<Bevy, HamletTheme>,
+) -> impl View<Bevy, HamletTheme> {
     column((
         label(name)
             .size(12.0)
@@ -157,9 +157,9 @@ impl Pane {
 
 /// A setting's words, and under them its switch or slider.
 fn told(
-    control: impl View<Bevy, Lamplight>,
-    words: impl View<Bevy, Lamplight>,
-) -> impl View<Bevy, Lamplight> {
+    control: impl View<Bevy, HamletTheme>,
+    words: impl View<Bevy, HamletTheme>,
+) -> impl View<Bevy, HamletTheme> {
     column((words, control))
         .gap(6.0)
         .align(AlignItems::FlexStart)
@@ -168,7 +168,7 @@ fn told(
 fn switch(
     on: impl Into<bevy_fynix::Prop<bool>>,
     set: impl Fn(&mut World, bool) + Send + Sync + 'static,
-) -> impl View<Bevy, Lamplight> {
+) -> impl View<Bevy, HamletTheme> {
     tick(on).on_change(set)
 }
 
@@ -385,7 +385,7 @@ fn charter_page() -> Ui {
     column((
         note("Every agent reads this at the start of each turn."),
         actions,
-        hairline(BRASS_6),
+        hairline(paint(|p| p.brass_6)),
         shown,
     ))
     .gap(12.0)
@@ -406,7 +406,7 @@ fn level(
     turn: fn(&mut SoundSettings, bool),
     at: fn(&SoundSettings) -> f32,
     set: fn(&mut SoundSettings, f32),
-) -> impl View<Bevy, Lamplight> {
+) -> impl View<Bevy, HamletTheme> {
     row((
         switch(resource::<SoundSettings, _>(on), move |world, to| {
             turn(&mut world.resource_mut::<SoundSettings>(), to)

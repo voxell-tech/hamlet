@@ -31,7 +31,7 @@ use crate::me::Me;
 use crate::platform::{DisplayText, Wraps};
 use crate::roll::rolled;
 use crate::status::Bar;
-use crate::theme::BRASS_6;
+use crate::theme::paint;
 use crate::world_menu::{self};
 use crate::{Cx, Ui, chat, markdown, tabs};
 
@@ -340,7 +340,7 @@ fn prompt() -> Ui {
             "PROMPT",
         ),
         note("What this agent is told at the start of a turn."),
-        hairline(BRASS_6),
+        hairline(paint(|p| p.brass_6)),
         scroll((shown,)).fills_height(),
     ))
     .fills_height()

@@ -1,0 +1,56 @@
+# The look of the panels. Each colour is "#rrggbbaa", and a time is in
+# seconds. What each value means is written beside its field in
+# crates/hamlet_ui/src/theme.rs.
+
+[palette]
+black = "#120e0aff"
+grey_1 = "#ab9f8bff"
+grey_4 = "#2a2018ff"
+wood_hover = "#34291fff"
+seam = "#2c231bff"
+brass_1 = "#f2e7d0ff"
+brass_2 = "#d9c391ff"
+brass_3 = "#caa666ff"
+brass_4 = "#c9983fff"
+brass_5 = "#7c5d2fff"
+brass_6 = "#45351fff"
+brass_hover = "#3b2d1eff"
+lamp = "#f2b35aff"
+flame = "#ffd58aff"
+ember = "#ff9a3cff"
+lamp_low = "#3e2810ff"
+lamp_high = "#7a5220ff"
+rune = "#6fd6d2ff"
+card = "#1b1510ff"
+well = "#0b0806ff"
+plate = "#211a13ff"
+hearth = "#1f150cff"
+red = "#f47560ff"
+red_deep = "#3a1711ff"
+red_low = "#8f4034ff"
+red_hover = "#5a2219ff"
+coal = "#d9482fff"
+moss = "#a9d18aff"
+moss_deep = "#1d2a16ff"
+
+[text]
+body = 14.0
+small = 12.0
+
+[space]
+gap = 8.0
+row = 28.0
+round = 4.0
+soft = 6.0
+divider = 1.0
+divider_grip = 8.0
+tab_padding = 12.0
+
+[shadow]
+color = "#0503018c"
+drop = 6.0
+blur = 18.0
+
+[motion]
+interact = 0.14
+expand = 0.22

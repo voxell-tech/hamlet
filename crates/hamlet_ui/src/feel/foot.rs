@@ -14,6 +14,7 @@ use bevy::ui::{
 
 use super::control::Feel;
 use super::{FeelSettings, MagicColors, ease};
+use crate::theme::Themed;
 
 /// A title or a tab that is lit from below under the pointer, at a
 /// press, and for as long as it is `held`.
@@ -45,9 +46,10 @@ pub(super) fn foot_lights(
     mut commands: Commands,
     time: Res<Time>,
     set: Res<FeelSettings>,
-    colors: Res<MagicColors>,
+    theme: Themed,
     mut lights: Query<FootLit>,
 ) {
+    let colors = MagicColors::of(&theme);
     let dt = time.delta_secs();
     for (node, mut light, hovered, feel, lit) in &mut lights {
         let over = hovered.is_some_and(|h| h.0);

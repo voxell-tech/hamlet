@@ -4,8 +4,11 @@ use bevy::picking::backend::HitData;
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
 use bevy::window::Window;
+use bevy_fynix::Theme;
+use hamlet_assets::Tuning;
 
 use super::*;
+use crate::theme::HamletTheme;
 
 /// The alpha of every pixel of a picture.
 fn alphas(image: &Image) -> Vec<u8> {
@@ -14,7 +17,7 @@ fn alphas(image: &Image) -> Vec<u8> {
 }
 
 fn pictures() -> Vec<(Mode, usize, Image)> {
-    let inks = inks();
+    let inks = inks(&HamletTheme::designed());
     Mode::all()
         .into_iter()
         .flat_map(|mode| {
@@ -138,6 +141,7 @@ fn each_fact_gives_way_to_the_ones_before_it() {
 fn app() -> (App, Entity) {
     let mut app = App::new();
     app.init_resource::<Assets<Image>>()
+        .insert_resource(Theme(HamletTheme::designed()))
         .init_resource::<Time<Real>>()
         .add_systems(PostUpdate, dress);
     draw(app.world_mut());

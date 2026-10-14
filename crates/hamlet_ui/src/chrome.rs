@@ -33,7 +33,7 @@ use bevy_fynix::tokens::Motion;
 use bevy_fynix::views::{BehaviorExt, FrameProps, button, icon, row};
 use bevy_fynix::{OverrideCursor, ScopedExt, style};
 
-use crate::theme::{BLACK, BRASS_HOVER, Lamplight, RED};
+use crate::theme::{HamletTheme, Palette};
 use crate::{Cx, Ui};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -144,12 +144,12 @@ pub fn draw_marks(world: &mut World) {
 
 /// A window button: bare until the pointer is on it, then a plate of
 /// `under`.
-fn plate(under: Color) -> impl FnOnce(&mut Cx) {
+fn plate(under: fn(&Palette) -> Color) -> impl FnOnce(&mut Cx) {
     move |cx| {
-        style::<Lamplight>()
+        style::<HamletTheme>()
             .frame(|f, _| f.fill(Color::NONE).radius(0.0))
-            .hovered(move |s| s.fill(move |_| under))
-            .pressed(|s| s.fill(|_| BLACK))
+            .hovered(move |s| s.fill(move |t| under(&t.palette)))
+            .pressed(|s| s.fill(|t| t.palette.black))
             .transition(Motion::Interact)
             .apply(cx);
     }
@@ -201,7 +201,7 @@ pub fn buttons() -> Ui {
             marks.close.clone(),
         );
         let one = move |image: Handle<Image>,
-                        under: Color,
+                        under: fn(&Palette) -> Color,
                         act: fn(&mut World)| {
             button(icon(image).size(12.0))
                 .width(px(side + 8.0))
@@ -214,9 +214,9 @@ pub fn buttons() -> Ui {
         };
         cx.build(
             row((
-                one(small, BRASS_HOVER, minimise),
-                one(large, BRASS_HOVER, maximise),
-                one(shut, RED, close),
+                one(small, |p| p.brass_hover, minimise),
+                one(large, |p| p.brass_hover, maximise),
+                one(shut, |p| p.red, close),
             ))
             .gap(2.0)
             .align(AlignItems::Center),

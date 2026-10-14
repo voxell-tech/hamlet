@@ -570,9 +570,12 @@ pub fn break_long_words(
 
 #[cfg(test)]
 mod tests {
+    use bevy_fynix::Theme;
+    use hamlet_assets::Tuning;
     use serde_json::json;
 
     use super::*;
+    use crate::theme::HamletTheme;
 
     #[test]
     fn the_steps_of_a_turn_fold_into_one_row() {
@@ -684,6 +687,7 @@ mod tests {
             "chief",
             Some("juniper"),
         ));
+        world.insert_resource(Theme(HamletTheme::designed()));
         world.init_resource::<Unfolded>();
         world.init_resource::<Reach>();
         world.init_resource::<Lines>();

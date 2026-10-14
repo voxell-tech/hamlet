@@ -17,7 +17,7 @@ use super::change::change_view;
 use crate::looks::{Fills, note};
 use crate::me::Me;
 use crate::platform::{DisplayText, MonoText};
-use crate::theme::{BRASS_6, CARD, Lamplight};
+use crate::theme::{paint, themed};
 use crate::{Cx, Ui, markdown};
 
 fn clip(s: &str, max: usize) -> String {
@@ -77,7 +77,6 @@ pub(crate) fn entry_view(session: Entity, id: u64) -> Ui {
             .get::<Transcript>(session)
             .and_then(|t| t.get(id))
             .cloned();
-        let slip = CARD;
         let speaker = match &cx.world.resource::<Me>().with {
             Some(name) => name.to_uppercase(),
             None => "MAYOR".to_string(),
@@ -105,9 +104,9 @@ pub(crate) fn entry_view(session: Entity, id: u64) -> Ui {
             .gap(2.0)
             .padding(UiRect::axes(px(12.0), px(8.0)))
             .border(1.0)
-            .border_color(BRASS_6)
-            .radius(Lamplight::round())
-            .fill(slip)
+            .border_color(paint(|p| p.brass_6))
+            .radius(themed(|t| t.space.round))
+            .fill(paint(|p| p.card))
             .boxed(),
             Some(Entry::Assistant(_)) => column((
                 label(speaker.clone())

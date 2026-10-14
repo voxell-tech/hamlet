@@ -1,78 +1,291 @@
 //! The look of the panels (docs/ui-warmth.md): warm near-black
 //! surfaces, brass frames, and lamplight as the one colour that
-//! glows.
+//! glows. Its values are in `assets/theme.toml`, and nothing of the
+//! panels is built until that file has loaded.
 
+use std::ops::Deref;
 use std::time::Duration;
 
+use bevy::app::{App, Update};
+use bevy::asset::Asset;
 use bevy::color::{Color, LinearRgba, Luminance};
+use bevy::ecs::change_detection::DetectChanges;
+use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::system::{Commands, If, Res, ResMut, SystemParam};
+use bevy::ecs::world::World;
+use bevy::log::error;
+use bevy::prelude::ClearColor;
+use bevy::reflect::TypePath;
+use bevy::state::app::AppExtStates;
+use bevy::state::condition::in_state;
+use bevy::state::state::{NextState, States};
 use bevy::ui::{BoxShadow, px};
 use bevy_fynix::tokens::{
     Curve, Motion, MotionTokens, SpacingTokens, SurfaceTokens,
     TextTokens, Tone,
 };
+use bevy_fynix::{Signal, Theme, resource};
+use hamlet_assets::{
+    File, Loaded, Loading, Tuning, TuningPlugin, tint,
+};
+use serde::{Deserialize, Serialize};
 
-/// The panels' theme.
-pub struct Lamplight;
-
-const fn hex(rgb: u32) -> Color {
-    let [_, r, g, b] = rgb.to_be_bytes();
-    Color::srgb(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0)
+pub(crate) fn plugin(app: &mut App) {
+    app.add_plugins(TuningPlugin::<HamletTheme>::default())
+        .init_state::<Look>()
+        .add_systems(Update, dress.run_if(in_state(Look::Loading)));
 }
 
-/// A panel: soot, the darkest warm surface but for a well.
-pub const BLACK: Color = hex(0x120e0a);
-/// Text that stands back.
-pub const GREY_1: Color = hex(0xab9f8b);
-/// The wood of a button.
-pub(crate) const GREY_4: Color = hex(0x2a2018);
-/// A seam between two surfaces, and the tint of what is selected.
-pub(crate) const SEAM: Color = hex(0x2c231b);
-/// Parchment, for what is read.
-pub const BRASS_1: Color = hex(0xf2e7d0);
-/// Brass, from what is lettered in it down to a hairline.
-pub(crate) const BRASS_2: Color = hex(0xd9c391);
-pub const BRASS_3: Color = hex(0xcaa666);
-pub(crate) const BRASS_4: Color = hex(0xc9983f);
-pub const BRASS_5: Color = hex(0x7c5d2f);
-pub const BRASS_6: Color = hex(0x45351f);
-/// Lamplight: what is live, what waits, and every glow.
-pub(crate) const LAMP: Color = hex(0xf2b35a);
-/// The heart of a flame.
-pub(crate) const FLAME: Color = hex(0xffd58a);
-/// A spark that rises from what was just done.
-pub const EMBER: Color = hex(0xff9a3c);
-/// The glass of a lamp that burns low, away from its flame and near
-/// it.
-pub(crate) const LAMP_LOW: Color = hex(0x3e2810);
-pub(crate) const LAMP_HIGH: Color = hex(0x7a5220);
-/// The agents' own magic, as the world draws it.
-pub(crate) const RUNE: Color = hex(0x6fd6d2);
-/// A card in a list: a shade above the panel, and no more.
-pub const CARD: Color = hex(0x1b1510);
-/// The floor of a text field, sunk below the panel.
-pub(crate) const WELL: Color = hex(0x0b0806);
-/// The plate under code in a reply.
-pub(crate) const PLATE: Color = hex(0x211a13);
-/// Red, for what is refused, stopped or at fault.
-pub(crate) const RED: Color = hex(0xf47560);
-/// A refusing button's plate, and its glow.
-pub(crate) const RED_DEEP: Color = hex(0x3a1711);
-/// The frame of a button that ends something, while it rests, and
-/// its plate under the pointer.
-pub(crate) const RED_LOW: Color = hex(0x8f4034);
-pub(crate) const RED_HOVER: Color = hex(0x5a2219);
-pub(crate) const COAL: Color = hex(0xd9482f);
-/// Moss, for a line put in a file, and the plate under it.
-pub(crate) const MOSS: Color = hex(0xa9d18a);
-pub(crate) const MOSS_DEEP: Color = hex(0x1d2a16);
-/// The warmth that gathers at the foot of a surface.
-pub(crate) const HEARTH: Color = hex(0x1f150c);
-/// A button's fill under the pointer.
-pub(crate) const BRASS_HOVER: Color = hex(0x3b2d1e);
+/// The theme, for a system: one that takes it waits for the theme to
+/// load.
+#[derive(SystemParam)]
+pub struct Themed<'w> {
+    theme: If<Res<'w, Theme<HamletTheme>>>,
+}
 
-/// The shadow under what floats over the panels and the world.
-pub(crate) const SHADOW: Color =
-    Color::srgba(0.02, 0.012, 0.005, 0.55);
+impl Themed<'_> {
+    /// Whether the theme has come in or changed since the system last
+    /// ran.
+    pub fn is_changed(&self) -> bool {
+        self.theme.0.is_changed()
+    }
+
+    /// Whether the theme came in since the system last ran.
+    pub fn is_added(&self) -> bool {
+        self.theme.0.is_added()
+    }
+}
+
+impl Deref for Themed<'_> {
+    type Target = HamletTheme;
+
+    fn deref(&self) -> &HamletTheme {
+        &self.theme.0.0
+    }
+}
+
+/// Whether the theme has loaded. The panels are built on
+/// [`Look::Ready`].
+#[derive(
+    States, Clone, Copy, PartialEq, Eq, Hash, Debug, Default,
+)]
+pub enum Look {
+    #[default]
+    Loading,
+    Ready,
+}
+
+/// The panels' theme, as `assets/theme.toml` has it.
+#[derive(
+    Asset, TypePath, Clone, PartialEq, Debug, Serialize, Deserialize,
+)]
+#[serde(deny_unknown_fields)]
+pub struct HamletTheme {
+    pub palette: Palette,
+    pub text: TextSizes,
+    pub space: Spacing,
+    pub shadow: Shadow,
+    pub motion: Timing,
+}
+
+impl Tuning for HamletTheme {
+    const FILE: File = hamlet_assets::THEME;
+
+    fn apply(&self, was: &Self, world: &mut World) {
+        // Until the panels are built, the theme comes in by `dress`.
+        if self != was && world.contains_resource::<Theme<Self>>() {
+            insert_theme(world, self.clone());
+        }
+    }
+}
+
+/// Every colour of the panels.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Palette {
+    /// A panel: soot, the darkest warm surface but for a well.
+    #[serde(with = "tint")]
+    pub black: Color,
+    /// Text that stands back.
+    #[serde(with = "tint")]
+    pub grey_1: Color,
+    /// The wood of a button, and that wood under the pointer.
+    #[serde(with = "tint")]
+    pub grey_4: Color,
+    #[serde(with = "tint")]
+    pub wood_hover: Color,
+    /// A seam between two surfaces, and the tint of what is
+    /// selected.
+    #[serde(with = "tint")]
+    pub seam: Color,
+    /// Parchment, for what is read.
+    #[serde(with = "tint")]
+    pub brass_1: Color,
+    /// Brass, from what is lettered in it down to a hairline.
+    #[serde(with = "tint")]
+    pub brass_2: Color,
+    #[serde(with = "tint")]
+    pub brass_3: Color,
+    #[serde(with = "tint")]
+    pub brass_4: Color,
+    #[serde(with = "tint")]
+    pub brass_5: Color,
+    #[serde(with = "tint")]
+    pub brass_6: Color,
+    /// A button's fill under the pointer.
+    #[serde(with = "tint")]
+    pub brass_hover: Color,
+    /// HamletTheme: what is live, what waits, and every glow.
+    #[serde(with = "tint")]
+    pub lamp: Color,
+    /// The heart of a flame.
+    #[serde(with = "tint")]
+    pub flame: Color,
+    /// A spark that rises from what was just done.
+    #[serde(with = "tint")]
+    pub ember: Color,
+    /// The glass of a lamp that burns low, away from its flame and
+    /// near it.
+    #[serde(with = "tint")]
+    pub lamp_low: Color,
+    #[serde(with = "tint")]
+    pub lamp_high: Color,
+    /// The agents' own magic, as the world draws it.
+    #[serde(with = "tint")]
+    pub rune: Color,
+    /// A card in a list: a shade above the panel, and no more.
+    #[serde(with = "tint")]
+    pub card: Color,
+    /// The floor of a text field, sunk below the panel.
+    #[serde(with = "tint")]
+    pub well: Color,
+    /// The plate under code in a reply.
+    #[serde(with = "tint")]
+    pub plate: Color,
+    /// The warmth that gathers at the foot of a surface.
+    #[serde(with = "tint")]
+    pub hearth: Color,
+    /// Red, for what is refused, stopped or at fault.
+    #[serde(with = "tint")]
+    pub red: Color,
+    /// A refusing button's plate, and its glow.
+    #[serde(with = "tint")]
+    pub red_deep: Color,
+    /// The frame of a button that ends something, while it rests,
+    /// and its plate under the pointer.
+    #[serde(with = "tint")]
+    pub red_low: Color,
+    #[serde(with = "tint")]
+    pub red_hover: Color,
+    #[serde(with = "tint")]
+    pub coal: Color,
+    /// Moss, for a line put in a file, and the plate under it.
+    #[serde(with = "tint")]
+    pub moss: Color,
+    #[serde(with = "tint")]
+    pub moss_deep: Color,
+}
+
+/// The sizes of the lettering.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextSizes {
+    pub body: f32,
+    pub small: f32,
+}
+
+/// The gaps, heights and corners of the panels.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Spacing {
+    pub gap: f32,
+    /// The height of a row.
+    pub row: f32,
+    /// The corner of a control and of a card, theme round. Frames
+    /// stay square.
+    pub round: f32,
+    /// The corner of what floats: a menu, a card over the world.
+    pub soft: f32,
+    pub divider: f32,
+    /// How far either side of a divider the pointer takes hold of
+    /// it.
+    pub divider_grip: f32,
+    pub tab_padding: f32,
+}
+
+/// The shadow under what floats over the panels and the world, cast
+/// by the lamps.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Shadow {
+    #[serde(with = "tint")]
+    pub color: Color,
+    /// How far below what floats it falls.
+    pub drop: f32,
+    pub blur: f32,
+}
+
+/// How long the panels take to move.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Timing {
+    /// A control answering the hand.
+    pub interact: f32,
+    /// Something opening or folding away.
+    pub expand: f32,
+}
+
+/// The theme as a prop reads it. Fynix holds [`Theme`] out of the
+/// world while it builds and updates the views, so a prop that
+/// follows the theme reads this copy.
+#[derive(Resource)]
+struct PropTheme(HamletTheme);
+
+/// Puts `theme` in, for the views and for the props that follow it.
+pub fn insert_theme(world: &mut World, theme: HamletTheme) {
+    world.insert_resource(ClearColor(theme.background()));
+    world.insert_resource(PropTheme(theme.clone()));
+    world.insert_resource(Theme(theme));
+}
+
+/// A value of the theme, as a prop that follows the theme when it
+/// changes.
+pub fn themed<T>(
+    pick: impl Fn(&HamletTheme) -> T + Send + Sync + 'static,
+) -> Signal<T> {
+    resource::<PropTheme, _>(move |theme| pick(&theme.0))
+}
+
+/// A colour of the palette, as a prop that follows the theme when it
+/// changes.
+pub fn paint(pick: fn(&Palette) -> Color) -> Signal<Color> {
+    themed(move |theme| pick(&theme.palette))
+}
+
+/// Puts the theme in once its file has loaded, and so lets the
+/// panels be built. A theme not found or not readable leaves the one
+/// built into the app.
+fn dress(
+    file: Loading<HamletTheme>,
+    mut look: ResMut<NextState<Look>>,
+    mut commands: Commands,
+) {
+    let theme = match file.loaded() {
+        Loaded::Waiting => return,
+        Loaded::Read(theme) => theme,
+        Loaded::Failed(why) => {
+            error!(
+                "assets/{}: {why}; the panels take the theme built \
+                 in",
+                hamlet_assets::THEME.name
+            );
+            HamletTheme::designed()
+        }
+    };
+    commands.queue(|world: &mut World| insert_theme(world, theme));
+    look.set(Look::Ready);
+}
 
 /// The contrast of two colours, as WCAG 2 has it.
 pub(crate) fn contrast(one: Color, other: Color) -> f32 {
@@ -82,115 +295,112 @@ pub(crate) fn contrast(one: Color, other: Color) -> f32 {
     a.max(b) / a.min(b)
 }
 
-impl Lamplight {
+impl HamletTheme {
     /// The window background, behind the panels.
-    pub fn background() -> Color {
-        BLACK
+    pub fn background(&self) -> Color {
+        self.palette.black
     }
 
-    /// The corner of a control and of a card, worn round. Frames
-    /// stay square.
-    pub fn round() -> f32 {
-        4.0
-    }
-
-    /// The corner of what floats: a menu, a card over the world.
-    pub fn soft() -> f32 {
-        6.0
-    }
-
-    /// The shadow of what floats, cast by the lamps.
-    pub fn shadow() -> BoxShadow {
-        BoxShadow::new(SHADOW, px(0.0), px(6.0), px(0.0), px(18.0))
+    /// The shadow of what floats.
+    pub fn shadow(&self) -> BoxShadow {
+        let shadow = &self.shadow;
+        BoxShadow::new(
+            shadow.color,
+            px(0.0),
+            px(shadow.drop),
+            px(0.0),
+            px(shadow.blur),
+        )
     }
 }
 
-impl TextTokens for Lamplight {
+impl TextTokens for HamletTheme {
     fn tone(&self, tone: Tone) -> Color {
+        let palette = &self.palette;
         match tone {
-            Tone::Body => BRASS_1,
-            Tone::Dim => GREY_1,
+            Tone::Body => palette.brass_1,
+            Tone::Dim => palette.grey_1,
             // Brass 2 marks what can be pressed.
-            Tone::Faint => BRASS_2,
-            Tone::Accent => LAMP,
-            Tone::OnAccent => BLACK,
-            Tone::Critical => RED,
+            Tone::Faint => palette.brass_2,
+            Tone::Accent => palette.lamp,
+            Tone::OnAccent => palette.black,
+            Tone::Critical => palette.red,
         }
     }
 
     fn body_size(&self) -> f32 {
-        14.0
+        self.text.body
     }
 
     fn small_size(&self) -> f32 {
-        12.0
+        self.text.small
     }
 }
 
-impl SurfaceTokens for Lamplight {
+impl SurfaceTokens for HamletTheme {
     fn fill(&self) -> Color {
-        GREY_4
+        self.palette.grey_4
     }
 
     fn hover(&self) -> Color {
-        hex(0x34291f)
+        self.palette.wood_hover
     }
 
     fn panel(&self) -> Color {
-        BLACK
+        self.palette.black
     }
 
     fn hairline(&self) -> Color {
-        BRASS_6
+        self.palette.brass_6
     }
 
     fn selection(&self) -> Color {
-        BRASS_6
+        self.palette.brass_6
     }
 
     fn accent(&self) -> Color {
-        BRASS_4
+        self.palette.brass_4
     }
 }
 
-impl SpacingTokens for Lamplight {
+impl SpacingTokens for HamletTheme {
     fn gap(&self) -> f32 {
-        8.0
+        self.space.gap
     }
 
     fn row(&self) -> f32 {
-        28.0
+        self.space.row
     }
 
     fn radius(&self) -> f32 {
-        Self::round()
+        self.space.round
     }
 
     fn divider(&self) -> f32 {
-        1.0
+        self.space.divider
     }
 
     fn divider_grip(&self) -> f32 {
-        8.0
+        self.space.divider_grip
     }
 
     fn tab_padding(&self) -> f32 {
-        12.0
+        self.space.tab_padding
     }
 
     fn menu_radius(&self) -> f32 {
-        Self::soft()
+        self.space.soft
     }
 }
 
-impl MotionTokens for Lamplight {
+impl MotionTokens for HamletTheme {
     fn motion(&self, motion: Motion) -> Curve {
-        let millis = match motion {
-            Motion::Interact => 140,
-            Motion::Expand => 220,
+        let seconds = match motion {
+            Motion::Interact => self.motion.interact,
+            Motion::Expand => self.motion.expand,
         };
         Curve {
-            duration: Duration::from_millis(millis),
+            duration: Duration::from_secs_f32(seconds),
             ease: |t| 1.0 - (1.0 - t) * (1.0 - t),
         }
     }
@@ -202,6 +412,8 @@ mod tests {
 
     #[test]
     fn every_tone_reads_on_every_surface_it_meets() {
+        let theme = HamletTheme::designed();
+        let p = &theme.palette;
         let tones = [
             Tone::Body,
             Tone::Dim,
@@ -210,11 +422,12 @@ mod tests {
             Tone::Critical,
         ];
         let surfaces = [
-            BLACK, WELL, CARD, PLATE, GREY_4, HEARTH, RED_DEEP, SEAM,
+            p.black, p.well, p.card, p.plate, p.grey_4, p.hearth,
+            p.red_deep, p.seam,
         ];
         for tone in tones {
             for surface in surfaces {
-                let ratio = contrast(Lamplight.tone(tone), surface);
+                let ratio = contrast(theme.tone(tone), surface);
                 assert!(
                     ratio >= 4.5,
                     "{tone:?} on {surface:?}: {ratio}"
@@ -223,20 +436,20 @@ mod tests {
         }
         // Under the pointer a button is lettered in parchment, and a
         // row keeps its dim words.
-        assert!(contrast(BRASS_1, BRASS_HOVER) >= 4.5);
-        assert!(contrast(GREY_1, BRASS_HOVER) >= 4.5);
-        assert!(contrast(BRASS_1, Lamplight.selection()) >= 4.5);
+        assert!(contrast(p.brass_1, p.brass_hover) >= 4.5);
+        assert!(contrast(p.grey_1, p.brass_hover) >= 4.5);
+        assert!(contrast(p.brass_1, theme.selection()) >= 4.5);
         // The good action is lettered on its glass, lit or not.
-        assert!(contrast(BRASS_1, LAMP_LOW) >= 4.5);
-        assert!(contrast(BRASS_1, LAMP_HIGH) >= 4.5);
-        assert!(contrast(BRASS_2, LAMP_LOW) >= 4.5);
-        assert!(contrast(RUNE, BLACK) >= 4.5);
+        assert!(contrast(p.brass_1, p.lamp_low) >= 4.5);
+        assert!(contrast(p.brass_1, p.lamp_high) >= 4.5);
+        assert!(contrast(p.brass_2, p.lamp_low) >= 4.5);
+        assert!(contrast(p.rune, p.black) >= 4.5);
         // A line put in a file, on its own plate and on that of the
         // change.
-        assert!(contrast(MOSS, MOSS_DEEP) >= 4.5);
-        assert!(contrast(MOSS, PLATE) >= 4.5);
+        assert!(contrast(p.moss, p.moss_deep) >= 4.5);
+        assert!(contrast(p.moss, p.plate) >= 4.5);
         // The chief's own words in the chat, and their hour.
-        assert!(contrast(BRASS_1, BRASS_6) >= 4.5);
-        assert!(contrast(BRASS_2, BRASS_6) >= 4.5);
+        assert!(contrast(p.brass_1, p.brass_6) >= 4.5);
+        assert!(contrast(p.brass_2, p.brass_6) >= 4.5);
     }
 }

@@ -12,8 +12,9 @@ use bevy::image::Image;
 use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
-use hamlet_ui::cursor::{Mode, face, frames, hot, inks, side};
-use hamlet_ui::theme::{BLACK, BRASS_1, BRASS_6, GREY_1};
+use hamlet_assets::Tuning;
+use hamlet_ui::cursor::{Inks, Mode, face, frames, hot, inks, side};
+use hamlet_ui::theme::HamletTheme;
 use hamlet_world::palette::Palette;
 
 /// The colours of the sheet.
@@ -25,6 +26,7 @@ struct Paper {
     dim: [u8; 4],
     /// The mark on the hot spot.
     mark: [u8; 4],
+    inks: Inks,
 }
 
 struct Sheet {
@@ -229,7 +231,7 @@ fn cell(
     (x, y): (usize, usize),
     paper: &Paper,
 ) {
-    let image = face(mode, 0, &inks());
+    let image = face(mode, 0, &paper.inks);
     let (hx, hy) = hot(mode);
     let name = format!("{mode:?}");
     sheet.words(&name, (x, y), 2, paper.ink);
@@ -279,7 +281,7 @@ fn turning(sheet: &mut Sheet, (x, y): (usize, usize), paper: &Paper) {
     sheet.words("Wait, as it turns", (x, y), 2, paper.ink);
     let top = y + 22;
     for frame in 0..frames(Mode::Wait) {
-        let image = face(Mode::Wait, frame, &inks());
+        let image = face(Mode::Wait, frame, &paper.inks);
         let (column, row) = (frame % 4, frame / 4);
         sheet.swatch(
             &image,
@@ -307,13 +309,16 @@ fn main() {
         PathBuf::from,
     );
     let sun = Palette::default().grass_sun;
+    let theme = HamletTheme::designed();
+    let p = &theme.palette;
     let paper = Paper {
-        panel: bytes(BLACK),
+        panel: bytes(p.black),
         grass: bytes(Color::linear_rgb(sun.x, sun.y, sun.z)),
-        seam: bytes(BRASS_6),
-        ink: bytes(BRASS_1),
-        dim: bytes(GREY_1),
+        seam: bytes(p.brass_6),
+        ink: bytes(p.brass_1),
+        dim: bytes(p.grey_1),
         mark: bytes(Color::srgb(1.0, 0.2, 0.9)),
+        inks: inks(&theme),
     };
     let (wide, high, gap) = (340, 278, 20);
     let modes = Mode::all();

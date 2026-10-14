@@ -44,15 +44,15 @@ mod world_view;
 use std::time::Duration;
 
 use bevy::DefaultPlugins;
-use bevy::app::{App, Plugin, PluginGroup, PostStartup, Update};
+use bevy::app::{App, Plugin, PluginGroup, Update};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
-use bevy::prelude::ClearColor;
+use bevy::state::state::OnEnter;
 use bevy::window::{
     ExitCondition, Window, WindowPlugin, WindowResolution,
 };
 use bevy_fynix::dock::DockPlugin;
-use bevy_fynix::{AnyView, Bevy, FynixPlugin, Theme};
+use bevy_fynix::{AnyView, Bevy, FynixPlugin};
 use hamlet_core::agents::WatchEvery;
 use hamlet_core::core::HomeDir;
 use hamlet_world::hamlet::HamletPlugin;
@@ -66,14 +66,14 @@ pub use self::me::Me;
 pub use self::roll::Roll;
 pub use self::root::toolbar;
 pub use self::status::{Bar, status_bar};
-use self::theme::Lamplight;
+use self::theme::{HamletTheme, Look};
 pub use self::window::ShowRequests;
 
 /// The context a view of the window is built in.
-pub type Cx<'a> = bevy_fynix::Cx<'a, Bevy, Lamplight>;
+pub type Cx<'a> = bevy_fynix::Cx<'a, Bevy, HamletTheme>;
 
 /// A view of the window, its type erased.
-pub(crate) type Ui = AnyView<Bevy, Lamplight>;
+pub(crate) type Ui = AnyView<Bevy, HamletTheme>;
 
 /// The window: the dock, its panels and the world. Add it to the
 /// core's app, after a [`ShowRequests`] resource is in place.
@@ -97,12 +97,10 @@ impl Plugin for UiPlugin {
                 close_when_requested: false,
                 ..WindowPlugin::default()
             }),
-            FynixPlugin::<Lamplight>::default(),
-            DockPlugin::<Lamplight>::default(),
+            FynixPlugin::<HamletTheme>::default(),
+            DockPlugin::<HamletTheme>::default(),
             HamletPlugin,
         ))
-        .insert_resource(Theme(Lamplight))
-        .insert_resource(ClearColor(Lamplight::background()))
         .insert_resource(window::FullSize(size))
         .add_plugins((
             (
@@ -139,6 +137,7 @@ impl Plugin for UiPlugin {
                 hand::plugin,
             ),
             (
+                theme::plugin,
                 tuning::plugin,
                 tabs::plugin,
                 platform::plugin,
@@ -151,7 +150,7 @@ impl Plugin for UiPlugin {
         // The world panel shows the world's camera, which the world
         // has spawned by now.
         .add_systems(
-            PostStartup,
+            OnEnter(Look::Ready),
             (world_view::attach, dock::seed, root::mount).chain(),
         )
         .add_systems(

@@ -17,10 +17,11 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{Bevy, Focused, ScopedExt, View, ViewExt};
+use hamlet_assets::Tuning;
 use hamlet_ui::feel::{FootLight, Lit, Mood};
 use hamlet_ui::icons::{Glyph, glyph};
 use hamlet_ui::platform::DisplayText;
-use hamlet_ui::theme::{BLACK, BRASS_3, BRASS_5, CARD, Lamplight};
+use hamlet_ui::theme::{HamletTheme, paint, themed};
 use hamlet_ui::{
     Cx, brass, chat, grim, lamp, lists, marked, menu, platform, tabs,
     well,
@@ -89,7 +90,7 @@ fn states(
     .boxed()
 }
 
-fn field(text: &'static str) -> impl View<Bevy, Lamplight> {
+fn field(text: &'static str) -> impl View<Bevy, HamletTheme> {
     text_field(text.to_string(), |_, _| {})
         .width(px(160.0))
         .rules(well)
@@ -111,7 +112,7 @@ fn fields() -> Ui {
     .boxed()
 }
 
-fn title(name: &'static str) -> impl View<Bevy, Lamplight> {
+fn title(name: &'static str) -> impl View<Bevy, HamletTheme> {
     button(
         label(name)
             .size(13.0)
@@ -148,7 +149,7 @@ fn titles() -> Ui {
 fn tab(
     which: Glyph,
     name: &'static str,
-) -> impl View<Bevy, Lamplight> {
+) -> impl View<Bevy, HamletTheme> {
     button(tabs::tab_name(which, name)).rules(tabs::tab_look)
 }
 
@@ -157,7 +158,7 @@ fn tabs() -> Ui {
         tab(Glyph::Talk, "TALK")
             .tagged(FootLight::new(true))
             .tagged(tabs::Shown),
-        frame().height(px(2.0)).fill(BRASS_3),
+        frame().height(px(2.0)).fill(paint(|p| p.brass_3)),
     ))
     .gap(0.0);
     row((
@@ -199,10 +200,10 @@ fn popups() -> Ui {
     .gap(3.0)
     .padding(UiRect::axes(px(12.0), px(9.0)))
     .border(1.0)
-    .border_color(BRASS_5)
-    .radius(Lamplight::soft())
-    .fill(CARD)
-    .with(Lamplight::shadow());
+    .border_color(paint(|p| p.brass_5))
+    .radius(themed(|t| t.space.soft))
+    .fill(paint(|p| p.card))
+    .with(HamletTheme::designed().shadow());
     let wide = |name, view: Ui| {
         column((caption(name), view))
             .gap(8.0)
@@ -274,7 +275,7 @@ pub(super) fn controls() -> Ui {
     .height(percent(100.0))
     .padding(UiRect::all(px(28.0)))
     .gap(20.0)
-    .fill(BLACK)
+    .fill(paint(|p| p.black))
     .overflow(Overflow::clip())
     .tagged(platform::Glow)
     .tagged(Lit::default())
@@ -316,7 +317,7 @@ pub(super) fn icon_sheet() -> Ui {
         .width(percent(100.0))
         .height(percent(100.0))
         .padding(UiRect::all(px(24.0)))
-        .fill(BLACK)
+        .fill(paint(|p| p.black))
         .tagged(platform::Wraps)
         .boxed()
 }
