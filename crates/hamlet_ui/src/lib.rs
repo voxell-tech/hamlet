@@ -72,6 +72,7 @@ pub use self::window::ShowRequests;
 /// The window: the dock, its panels and the world. Add it to the
 /// core's app, after a [`ShowRequests`] resource is in place.
 pub struct UiPlugin;
+
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         // A window draws far more often than the records change.

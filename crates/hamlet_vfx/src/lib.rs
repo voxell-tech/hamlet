@@ -21,6 +21,7 @@ use self::wind::WindSettings;
 pub struct VfxPlugin {
     pub tints: Tints,
 }
+
 impl Plugin for VfxPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<InlayPlugin>() {

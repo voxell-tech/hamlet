@@ -43,6 +43,7 @@ use crate::session::{
 /// Holds tool calls and instructions for a chief, and takes the
 /// chief's answers.
 pub struct OversightPlugin;
+
 impl Plugin for OversightPlugin {
     fn build(&self, app: &mut App) {
         let root = app.world().resource::<HomeDir>().0.root.clone();

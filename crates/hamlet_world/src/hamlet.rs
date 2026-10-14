@@ -28,6 +28,7 @@ use crate::{
 /// after Bevy's default plugins, in place of the style test's
 /// plugin.
 pub struct HamletPlugin;
+
 impl Plugin for HamletPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((

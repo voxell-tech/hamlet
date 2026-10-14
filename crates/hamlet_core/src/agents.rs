@@ -32,6 +32,7 @@ use crate::core::HomeDir;
 pub struct AgentsPlugin {
     pub home: PathBuf,
 }
+
 impl Plugin for AgentsPlugin {
     fn build(&self, app: &mut App) {
         // A home from before there were several hamlets becomes the

@@ -42,8 +42,8 @@ app's list of plugins and cannot be added twice by mistake.
 
 A module's plugin is the first item in its file, right under the `use` and
 `mod` lines, so what the module adds to the app is read before how it
-works. A `Plugin` struct is followed at once by its impls, with no blank
-line between them.
+works. A `Plugin` struct is followed by its impls, with nothing else
+between them.
 
 ## A tuning value is written once, in its file under `assets/`
 

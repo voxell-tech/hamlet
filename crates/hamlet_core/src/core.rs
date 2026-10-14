@@ -31,6 +31,7 @@ pub struct CorePlugin {
     /// Recorded assistant messages that answer in a model's place.
     pub replay: Option<Vec<Value>>,
 }
+
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         let provider: Arc<dyn Provider> = match &self.replay {

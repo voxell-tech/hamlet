@@ -75,6 +75,7 @@ pub struct GenPlugin {
     pub seed: u64,
     pub settings: GenSettings,
 }
+
 impl Default for GenPlugin {
     fn default() -> Self {
         Self {
@@ -83,6 +84,7 @@ impl Default for GenPlugin {
         }
     }
 }
+
 impl Plugin for GenPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(base);

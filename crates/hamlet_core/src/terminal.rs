@@ -17,6 +17,7 @@ use crate::session::{
 
 /// Reads lines from the terminal and prints the session's replies.
 pub struct TerminalPlugin;
+
 impl Plugin for TerminalPlugin {
     fn build(&self, app: &mut App) {
         let (tx, rx) = unbounded_channel();

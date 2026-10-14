@@ -32,6 +32,7 @@ use self::sheets::{controls, hold, hold_message, icon_sheet};
 
 /// Draws one [`Scene`] with the panels' own views and looks.
 pub struct GalleryPlugin(pub Scene);
+
 impl Plugin for GalleryPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((

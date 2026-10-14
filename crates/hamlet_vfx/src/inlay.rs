@@ -10,6 +10,7 @@ use hamlet_assets::tint::hex;
 
 /// The inlay's material and its shader.
 pub struct InlayPlugin;
+
 impl Plugin for InlayPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "inlay.wgsl");

@@ -43,6 +43,7 @@ use crate::core::{self, HomeDir};
 
 /// Sessions, their workers and the letters between agents.
 pub struct SessionPlugin;
+
 impl Plugin for SessionPlugin {
     fn build(&self, app: &mut App) {
         let (tx, rx) = unbounded_channel();
