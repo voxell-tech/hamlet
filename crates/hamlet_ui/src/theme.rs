@@ -9,8 +9,7 @@ use std::time::Duration;
 use bevy::app::{App, Update};
 use bevy::asset::Asset;
 use bevy::color::{Color, LinearRgba, Luminance};
-use bevy::ecs::change_detection::DetectChanges;
-use bevy::ecs::resource::Resource;
+use bevy::ecs::message::Message;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, If, Res, ResMut, SystemParam};
 use bevy::ecs::world::World;
@@ -21,11 +20,11 @@ use bevy::state::app::AppExtStates;
 use bevy::state::condition::in_state;
 use bevy::state::state::{NextState, States};
 use bevy::ui::{BoxShadow, px};
+use bevy_fynix::Theme;
 use bevy_fynix::tokens::{
     Curve, Motion, MotionTokens, SpacingTokens, SurfaceTokens,
     TextTokens, Tone,
 };
-use bevy_fynix::{Signal, Theme, resource};
 use hamlet_assets::{
     File, Loaded, Loading, Tuning, TuningPlugin, tint,
 };
@@ -33,6 +32,7 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<HamletTheme>::default())
+        .add_message::<ThemeChanged>()
         .init_state::<Look>()
         .add_systems(Update, dress.run_if(in_state(Look::Loading)));
 }
@@ -42,19 +42,6 @@ pub(crate) fn plugin(app: &mut App) {
 #[derive(SystemParam)]
 pub struct Themed<'w> {
     theme: If<Res<'w, Theme<HamletTheme>>>,
-}
-
-impl Themed<'_> {
-    /// Whether the theme has come in or changed since the system last
-    /// ran.
-    pub fn is_changed(&self) -> bool {
-        self.theme.0.is_changed()
-    }
-
-    /// Whether the theme came in since the system last ran.
-    pub fn is_added(&self) -> bool {
-        self.theme.0.is_added()
-    }
 }
 
 impl Deref for Themed<'_> {
@@ -96,6 +83,7 @@ impl Tuning for HamletTheme {
         // Until the panels are built, the theme comes in by `dress`.
         if self != was && world.contains_resource::<Theme<Self>>() {
             insert_theme(world, self.clone());
+            world.write_message(ThemeChanged);
         }
     }
 }
@@ -236,31 +224,16 @@ pub struct Timing {
     pub expand: f32,
 }
 
-/// The theme as a prop reads it. Fynix holds [`Theme`] out of the
-/// world while it builds and updates the views, so a prop that
-/// follows the theme reads this copy.
-#[derive(Resource)]
-struct PropTheme(HamletTheme);
+/// A theme saved while the app runs has replaced the one the panels
+/// were built with. Fynix lends [`Theme`] out each update, which
+/// marks it changed, so this is how a change is told.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ThemeChanged;
 
-/// Puts `theme` in, for the views and for the props that follow it.
+/// Puts `theme` in, for the views and the window behind them.
 pub fn insert_theme(world: &mut World, theme: HamletTheme) {
     world.insert_resource(ClearColor(theme.background()));
-    world.insert_resource(PropTheme(theme.clone()));
     world.insert_resource(Theme(theme));
-}
-
-/// A value of the theme, as a prop that follows the theme when it
-/// changes.
-pub fn themed<T>(
-    pick: impl Fn(&HamletTheme) -> T + Send + Sync + 'static,
-) -> Signal<T> {
-    resource::<PropTheme, _>(move |theme| pick(&theme.0))
-}
-
-/// A colour of the palette, as a prop that follows the theme when it
-/// changes.
-pub fn paint(pick: fn(&Palette) -> Color) -> Signal<Color> {
-    themed(move |theme| pick(&theme.palette))
 }
 
 /// Puts the theme in once its file has loaded, and so lets the

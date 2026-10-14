@@ -14,7 +14,7 @@ use bevy_fynix::{Prop, ScopedExt, ViewExt, Visual, style};
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::platform::{DisplayText, Wraps};
-use crate::theme::{HamletTheme, paint};
+use crate::theme::HamletTheme;
 use crate::{AnyView, Cx, View};
 
 /// The least height of any button (macOS default control size, 28
@@ -400,11 +400,15 @@ fn way_in(
 
 /// The parts of something as rows of one list, a hairline between
 /// each and the next, over `foot`.
-pub(crate) fn doors(doors: Vec<AnyView>, foot: AnyView) -> impl View {
+pub(crate) fn doors(
+    cx: &Cx,
+    doors: Vec<AnyView>,
+    foot: AnyView,
+) -> impl View + use<> {
     let mut rows = Vec::new();
     for door in doors {
         if !rows.is_empty() {
-            rows.push(hairline(paint(|p| p.brass_6)).boxed());
+            rows.push(hairline(cx.theme().palette.brass_6).boxed());
         }
         rows.push(door);
     }

@@ -27,7 +27,7 @@ use crate::looks::{
     well,
 };
 use crate::overview::heading;
-use crate::{AnyView, View};
+use crate::{AnyView, View, with_cx};
 
 /// The width of the room of a control, so that the controls stand in
 /// a line at the panel's right.
@@ -527,15 +527,13 @@ pub fn panel(hamlet: Entity) -> AnyView {
                         },
                     )
                 });
-                return doors(
-                    parts.into(),
-                    fine(
-                        "These apply to this hamlet only. Rules for \
-                         every hamlet are under Realm in Settings.",
-                    )
-                    .boxed(),
+                let foot = fine(
+                    "These apply to this hamlet only. Rules for \
+                     every hamlet are under Realm in Settings.",
                 )
                 .boxed();
+                let parts = parts.into();
+                return with_cx(move |cx| doors(cx, parts, foot));
             }
             let body = match part {
                 Part::Budget => budget(hamlet).boxed(),

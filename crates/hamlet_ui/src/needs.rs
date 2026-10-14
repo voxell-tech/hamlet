@@ -32,7 +32,6 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::platform::{DisplayText, MonoText, Wraps};
-use crate::theme::{paint, themed};
 use crate::{AnyView, Cx, View, chat};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
@@ -267,9 +266,9 @@ fn strip(need: &Need) -> AnyView {
             .gap(6.0)
             .padding(UiRect::axes(px(14.0), px(10.0)))
             .border(1.0)
-            .border_color(paint(|p| p.brass_6))
-            .radius(themed(|t| t.space.round))
-            .fill(paint(|p| p.card)),
+            .border_color(cx.theme().palette.brass_6)
+            .radius(cx.theme().space.round)
+            .fill(cx.theme().palette.card),
         )
     })
 }

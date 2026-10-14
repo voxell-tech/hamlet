@@ -22,8 +22,7 @@ use crate::looks::{
 };
 use crate::models::narrowed;
 use crate::platform::DisplayText;
-use crate::theme::{paint, themed};
-use crate::{AnyView, Cx, View};
+use crate::{AnyView, Cx, View, with_cx};
 
 fn title(which: Glyph, text: &'static str) -> impl View {
     headed(
@@ -382,30 +381,34 @@ pub fn view() -> AnyView {
                 Step::Local => local(),
                 Step::Models => models(),
             };
-            let card = column((
-                scroll((page,)).padding(UiRect::all(px(24.0))),
-            ))
-            .width(percent(100.0))
-            .max_width(px(560.0))
-            .max_height(percent(100.0))
-            .gap(0.0)
-            .fill(paint(|p| p.card))
-            .border(1.0)
-            .border_color(paint(|p| p.brass_5))
-            .radius(themed(|t| t.space.round));
-            // It is filled, so that no press reaches the panels
-            // under it. A row, so that the card is as tall as its
-            // words are once they are wrapped to its width.
-            row((card,))
-                .width(percent(100.0))
-                .height(percent(100.0))
-                .padding(UiRect::all(px(16.0)))
-                .align(AlignItems::Center)
-                .justify(JustifyContent::Center)
-                .fill(themed(|t| t.shadow.color))
-                .boxed()
+            with_cx(move |cx| over(cx, page))
         },
     )
     .within(overlay(()))
     .boxed()
+}
+
+/// `page` on its card, over the panels.
+fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
+    let theme = cx.theme();
+    let card =
+        column((scroll((page,)).padding(UiRect::all(px(24.0))),))
+            .width(percent(100.0))
+            .max_width(px(560.0))
+            .max_height(percent(100.0))
+            .gap(0.0)
+            .fill(theme.palette.card)
+            .border(1.0)
+            .border_color(theme.palette.brass_5)
+            .radius(theme.space.round);
+    // It is filled, so that no press reaches the panels
+    // under it. A row, so that the card is as tall as its
+    // words are once they are wrapped to its width.
+    row((card,))
+        .width(percent(100.0))
+        .height(percent(100.0))
+        .padding(UiRect::all(px(16.0)))
+        .align(AlignItems::Center)
+        .justify(JustifyContent::Center)
+        .fill(theme.shadow.color)
 }

@@ -43,7 +43,7 @@ use crate::inspector::now;
 use crate::overview::standing;
 use crate::platform::{DisplayText, show};
 use crate::roll::Roll;
-use crate::theme::{Themed, paint, themed};
+use crate::theme::Themed;
 use crate::world_menu::Open;
 use crate::{AnyView, Cx, View};
 
@@ -608,9 +608,9 @@ pub fn view() -> AnyView {
         .padding(UiRect::axes(px(12.0), px(9.0)))
         .max_width(px(280.0))
         .border(1.0)
-        .border_color(paint(|p| p.brass_5))
-        .radius(themed(|t| t.space.soft))
-        .fill(paint(|p| p.card))
+        .border_color(cx.theme().palette.brass_5)
+        .radius(cx.theme().space.soft)
+        .fill(cx.theme().palette.card)
         .position(PositionType::Absolute)
         .inset(UiRect {
             left: px(0.0),

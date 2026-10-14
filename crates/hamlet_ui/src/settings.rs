@@ -32,9 +32,8 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::platform::DisplayText;
-use crate::theme::paint;
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View, markdown};
+use crate::{AnyView, Cx, View, markdown, with_cx};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Pane>()
@@ -350,7 +349,7 @@ pub(crate) fn default_charter(world: &mut World) {
 
 /// The words every agent's prompt opens with, and the ways to change
 /// them and to have the built-in ones again.
-fn charter_page() -> impl View {
+fn charter_page(cx: &Cx) -> impl View + use<> {
     let actions = keyed(resource::<Charter, _>(|c| c.own), |own| {
         let edit = action(Glyph::Rename, "EDIT", edit_charter)
             .tooltip(|| {
@@ -376,7 +375,7 @@ fn charter_page() -> impl View {
     column((
         note("Every agent reads this at the start of each turn."),
         actions,
-        hairline(paint(|p| p.brass_6)),
+        hairline(cx.theme().palette.brass_6),
         shown,
     ))
     .gap(12.0)
@@ -463,17 +462,15 @@ fn again() -> impl View {
 pub fn screen() -> AnyView {
     let page = keyed(resource::<Pane, _>(|pane| *pane), |pane| {
         if *pane == Pane::Front {
-            return doors(
-                Pane::PAGES.map(door).into(),
-                again().boxed(),
-            )
-            .boxed();
+            let (pages, foot) =
+                (Pane::PAGES.map(door).into(), again().boxed());
+            return with_cx(move |cx| doors(cx, pages, foot));
         }
         let body = match pane {
             Pane::Endpoints => crate::models::endpoints().boxed(),
             Pane::Models => crate::models::shelf().boxed(),
             Pane::Agents => agents().boxed(),
-            Pane::Charter => charter_page().boxed(),
+            Pane::Charter => with_cx(charter_page),
             Pane::Realm => crate::rules::realm().boxed(),
             Pane::Front | Pane::Senses => senses().boxed(),
         };

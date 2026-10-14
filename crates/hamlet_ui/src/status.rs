@@ -25,7 +25,6 @@ use crate::links::Aimed;
 use crate::looks::{hairline, note};
 use crate::me::Me;
 use crate::needs::Queue;
-use crate::theme::paint;
 use crate::window::Layout;
 use crate::{AnyView, Cx, View};
 
@@ -229,9 +228,10 @@ fn aimed() -> impl View {
 pub fn status_bar() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let sandbox = cx.world.resource::<Sandboxing>().0.name();
+        let palette = &cx.theme().palette;
         cx.build(
             column((
-                hairline(paint(|p| p.seam)),
+                hairline(palette.seam),
                 row((
                     pair(
                         glyph(Glyph::Shield, MARK).tone(Tone::Dim),
@@ -301,7 +301,7 @@ pub fn status_bar() -> AnyView {
                 .gap(18.0)
                 .align(AlignItems::Center)
                 .padding(UiRect::axes(px(16.0), px(5.0)))
-                .fill(paint(|p| p.black)),
+                .fill(palette.black),
             ))
             .gap(0.0),
         )

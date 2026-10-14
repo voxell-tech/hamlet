@@ -27,8 +27,8 @@ use crate::feel::FootLight;
 use crate::icons::Glyph;
 use crate::looks::{ICON, hairline, headed};
 use crate::platform::{DisplayText, show};
-use crate::theme::{HamletTheme, Themed, paint};
-use crate::{Cx, View};
+use crate::theme::{HamletTheme, Themed};
+use crate::{Cx, View, with_cx};
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, fit);
@@ -126,7 +126,7 @@ pub fn strip<R: Resource + Copy>(
         .collect::<Vec<_>>();
     column((
         row(tabs).gap(0.0).tagged(Folds::default()),
-        hairline(paint(|p| p.brass_6)),
+        with_cx(|cx| hairline(cx.theme().palette.brass_6)),
     ))
     .gap(0.0)
 }

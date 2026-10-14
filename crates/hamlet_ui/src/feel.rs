@@ -13,12 +13,13 @@ use bevy::color::{Color, ColorToComponents, LinearRgba};
 use bevy::ecs::component::Component;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::on_message;
 use bevy::math::Vec3;
 use bevy::ui_render::prelude::UiMaterialPlugin;
 
 pub use self::backdrop::Lit;
 pub use self::foot::FootLight;
-use crate::theme::HamletTheme;
+use crate::theme::{HamletTheme, ThemeChanged};
 
 /// The feel of the controls, the dock's hint and the panels'
 /// backdrops.
@@ -30,6 +31,7 @@ pub fn plugin(app: &mut App) {
         UiMaterialPlugin::<control::Lamp>::default(),
     ))
     .init_resource::<FeelSettings>()
+    .add_message::<ThemeChanged>()
     .add_observer(control::answer)
     .add_systems(
         Update,
@@ -46,7 +48,12 @@ pub fn plugin(app: &mut App) {
             )
                 .chain(),
             drag::dress_drag,
-            (backdrop::lay, backdrop::tint, backdrop::light).chain(),
+            (
+                backdrop::lay,
+                backdrop::tint.run_if(on_message::<ThemeChanged>),
+                backdrop::light,
+            )
+                .chain(),
         ),
     );
 }

@@ -35,7 +35,7 @@ use crate::looks::{
     good_action, hairline, note, well,
 };
 use crate::me::Me;
-use crate::theme::{HamletTheme, paint};
+use crate::theme::HamletTheme;
 use crate::{AnyView, Cx, View, chat, inspector};
 
 /// Characters of a title a row shows.
@@ -509,7 +509,7 @@ fn reader() -> AnyView {
                 note(detail),
                 actions(resumable, kept),
                 note(hint),
-                hairline(paint(|p| p.brass_6)),
+                hairline(cx.theme().palette.brass_6),
                 scroll((
                     keyed(
                         resource::<History, _>(|h| {

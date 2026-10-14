@@ -9,11 +9,11 @@ use bevy_fynix::dock::{
     Edge, dock,
 };
 use bevy_fynix::views::{FrameProps, column, frame, overlay};
-use bevy_fynix::{AnyView, ViewExt};
+use bevy_fynix::{AnyView, Bevy, View};
 use hamlet_core::session::{Entry, Transcript};
 use hamlet_ui::feel::Lit;
 use hamlet_ui::icons::Glyph;
-use hamlet_ui::theme::{HamletTheme, themed};
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::{
     Cx, ICON, Me, chat, inspector, lit_panel, menu, needs, panel,
     settings, status_bar, toolbar, welcome,
@@ -136,8 +136,16 @@ fn rewind_question() -> Ui {
 }
 
 pub(super) fn panels() -> Ui {
+    AnyView::new(|cx: &mut Cx| {
+        let panels = shown(cx);
+        cx.build(panels)
+    })
+}
+
+/// The window's panels as the app lays them out.
+fn shown(cx: &Cx) -> impl View<Bevy, HamletTheme> + use<> {
     column((
-        toolbar(),
+        toolbar(cx),
         column((dock::<HamletTheme>(), welcome::view()))
             .grow(1.0)
             .min_height(px(0.0))
@@ -148,7 +156,6 @@ pub(super) fn panels() -> Ui {
     ))
     .width(percent(100.0))
     .height(percent(100.0))
-    .fill(themed(|t| t.background()))
+    .fill(cx.theme().background())
     .gap(0.0)
-    .boxed()
 }

@@ -25,9 +25,9 @@ use super::timeline::{Kind, Line, Who};
 use crate::looks::{Fills, bare, hairline};
 use crate::me::Me;
 use crate::platform::DisplayText;
-use crate::theme::{Palette, contrast, paint, themed};
+use crate::theme::{Palette, contrast};
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View, markdown};
+use crate::{AnyView, Cx, View, markdown, with_cx};
 
 /// The room at the left of the chat that a speaker's picture stands
 /// in, and the width of the picture.
@@ -82,7 +82,8 @@ fn inked(text: String, colour: Color, size: f32) -> AnyView {
 
 /// A speaker's picture: its first letter on its robot's paint. The
 /// mayor's is ringed in brass, and a chief's is square.
-fn face(who: &Who, size: f32) -> impl View {
+fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
+    let theme = cx.theme();
     let letter = who
         .name
         .chars()
@@ -90,13 +91,11 @@ fn face(who: &Who, size: f32) -> impl View {
         .map(|first| first.to_uppercase().collect::<String>())
         .unwrap_or_default();
     let ground = who.paint;
-    let tone = themed(move |t| {
-        if contrast(t.palette.brass_1, ground) >= 3.0 {
-            Tone::Body
-        } else {
-            Tone::OnAccent
-        }
-    });
+    let tone = if contrast(theme.palette.brass_1, ground) >= 3.0 {
+        Tone::Body
+    } else {
+        Tone::OnAccent
+    };
     let face = row((label(letter)
         .size(size * 0.5)
         .bold(true)
@@ -113,11 +112,11 @@ fn face(who: &Who, size: f32) -> impl View {
         Kind::Mayor => face
             .radius(size / 2.0)
             .border(1.5)
-            .border_color(paint(|p| p.brass_3)),
+            .border_color(theme.palette.brass_3),
         Kind::Me | Kind::Chief => face
-            .radius(themed(|t| t.space.round))
+            .radius(theme.space.round)
             .border(1.0)
-            .border_color(paint(|p| p.brass_2)),
+            .border_color(theme.palette.brass_2),
     }
 }
 
@@ -298,13 +297,13 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
             // its words are: what does not fit there is cut.
             .min_width(px(0.0))
             .max_width(percent(100.0))
-            .fill(paint(fill))
+            .fill(fill(palette))
             .border(1.0)
-            .border_color(paint(if mine {
-                |p| p.brass_6
+            .border_color(if mine {
+                palette.brass_6
             } else {
-                |p| p.seam
-            }))
+                palette.seam
+            })
             .corners(resource::<Lines, _>(move |lines| {
                 let tail = px(if ends(lines) { TAIL } else { ROUND });
                 let round = BorderRadius::all(px(ROUND));
@@ -338,18 +337,14 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
                 .boxed()
         } else {
             let picture =
-                column((face(&who, FACE),)).display(resource::<
-                    Lines,
-                    _,
-                >(
-                    move |lines| {
+                column((with_cx(move |cx| face(cx, &who, FACE)),))
+                    .display(resource::<Lines, _>(move |lines| {
                         if ends(lines) {
                             Display::Flex
                         } else {
                             Display::None
                         }
-                    },
-                ));
+                    }));
             row((
                 column((picture,))
                     .width(px(GUTTER))
@@ -438,49 +433,55 @@ pub(super) fn header() -> AnyView {
     keyed(
         resource::<Lines, _>(|lines| lines.cast().to_vec()),
         |cast| {
-            let Some(owner) = cast.first() else {
-                return frame().boxed();
-            };
-            let title = match owner.kind {
-                Kind::Mayor => "THE MAYOR'S HALL".to_string(),
-                _ => format!("{}'S HOUSE", owner.name.to_uppercase()),
-            };
-            let me = |who: &&Who| who.kind == Kind::Me;
-            let faces = cast
-                .iter()
-                .filter(|who| !me(who))
-                .chain(cast.iter().filter(me))
-                .take(FACES)
-                .map(|who| face(who, 20.0))
-                .collect::<Vec<_>>();
-            column((
-                row((
-                    row(faces).gap(3.0).shrink(0.0),
-                    column((
-                        label(title)
-                            .size(11.0)
-                            .bold(true)
-                            .wrap(false)
-                            .tone(Tone::Faint)
-                            .tagged(DisplayText),
-                        label(names(cast))
-                            .size(12.0)
-                            .wrap(false)
-                            .tone(Tone::Dim),
-                    ))
-                    .gap(1.0)
-                    .fills_width(),
-                    fresh(),
-                ))
-                .gap(10.0)
-                .align(AlignItems::Center)
-                .padding(UiRect::axes(px(0.0), px(7.0))),
-                hairline(paint(|p| p.seam)),
-            ))
-            .gap(0.0)
-            .boxed()
+            let cast = cast.clone();
+            with_cx(move |cx| head(cx, &cast))
         },
     )
     .within(bare())
+    .boxed()
+}
+
+/// The house `cast` speaks in and everyone in it.
+fn head(cx: &Cx, cast: &[Who]) -> AnyView {
+    let Some(owner) = cast.first() else {
+        return frame().boxed();
+    };
+    let title = match owner.kind {
+        Kind::Mayor => "THE MAYOR'S HALL".to_string(),
+        _ => format!("{}'S HOUSE", owner.name.to_uppercase()),
+    };
+    let me = |who: &&Who| who.kind == Kind::Me;
+    let faces = cast
+        .iter()
+        .filter(|who| !me(who))
+        .chain(cast.iter().filter(me))
+        .take(FACES)
+        .map(|who| face(cx, who, 20.0))
+        .collect::<Vec<_>>();
+    column((
+        row((
+            row(faces).gap(3.0).shrink(0.0),
+            column((
+                label(title)
+                    .size(11.0)
+                    .bold(true)
+                    .wrap(false)
+                    .tone(Tone::Faint)
+                    .tagged(DisplayText),
+                label(names(cast))
+                    .size(12.0)
+                    .wrap(false)
+                    .tone(Tone::Dim),
+            ))
+            .gap(1.0)
+            .fills_width(),
+            fresh(),
+        ))
+        .gap(10.0)
+        .align(AlignItems::Center)
+        .padding(UiRect::axes(px(0.0), px(7.0))),
+        hairline(cx.theme().palette.seam),
+    ))
+    .gap(0.0)
     .boxed()
 }

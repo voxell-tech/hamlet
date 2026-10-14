@@ -83,9 +83,6 @@ pub(super) fn tint(
     mut backdrops: ResMut<Assets<Backdrop>>,
 ) {
     let colors = MagicColors::of(&theme);
-    if !theme.is_changed() || theme.is_added() {
-        return;
-    }
     for (_, backdrop) in backdrops.iter_mut() {
         backdrop.alarm =
             linear(colors.alarm).extend(backdrop.alarm.w);

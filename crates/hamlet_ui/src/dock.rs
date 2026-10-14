@@ -18,9 +18,10 @@ use crate::feel::Lit;
 use crate::icons::Glyph;
 use crate::looks::{Fills, ICON};
 use crate::platform::{ClipInside, Glow};
-use crate::theme::{HamletTheme, paint};
+use crate::theme::HamletTheme;
 use crate::{
-    AnyView, View, inspector, needs, remember, settings, world_view,
+    AnyView, Cx, View, inspector, needs, remember, settings,
+    world_view,
 };
 
 /// The least width a panel keeps, in logical pixels.
@@ -40,19 +41,23 @@ pub fn panel(view: impl View) -> AnyView {
 
 /// A panel that light falls into as things happen in the hamlet.
 pub fn lit_panel(view: impl View, lit: Lit) -> AnyView {
-    // The dock frames the area; this is what fills it.
-    column((view,))
-        .fills_width()
-        .min_height(px(0.0))
-        .padding(UiRect::all(px(16.0)))
-        .gap(0.0)
-        .fill(paint(|p| p.black))
-        // Overflow is cut at the padding.
-        .overflow(Overflow::clip())
-        .tagged(ClipInside)
-        .tagged(Glow)
-        .tagged(lit)
-        .boxed()
+    AnyView::new(move |cx: &mut Cx| {
+        let fill = cx.theme().palette.black;
+        // The dock frames the area; this is what fills it.
+        cx.build(
+            column((view,))
+                .fills_width()
+                .min_height(px(0.0))
+                .padding(UiRect::all(px(16.0)))
+                .gap(0.0)
+                .fill(fill)
+                // Overflow is cut at the padding.
+                .overflow(Overflow::clip())
+                .tagged(ClipInside)
+                .tagged(Glow)
+                .tagged(lit),
+        )
+    })
 }
 
 /// The width `node` needs for every panel in it to keep [`LEAST`],

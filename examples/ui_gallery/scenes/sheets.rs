@@ -21,7 +21,7 @@ use hamlet_assets::Tuning;
 use hamlet_ui::feel::{FootLight, Lit, Mood};
 use hamlet_ui::icons::{Glyph, glyph};
 use hamlet_ui::platform::DisplayText;
-use hamlet_ui::theme::{HamletTheme, paint, themed};
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::{
     Cx, brass, chat, grim, lamp, lists, marked, menu, platform, tabs,
     well,
@@ -154,11 +154,12 @@ fn tab(
 }
 
 fn tabs() -> Ui {
+    let theme = HamletTheme::designed();
     let shown = column((
         tab(Glyph::Talk, "TALK")
             .tagged(FootLight::new(true))
             .tagged(tabs::Shown),
-        frame().height(px(2.0)).fill(paint(|p| p.brass_3)),
+        frame().height(px(2.0)).fill(theme.palette.brass_3),
     ))
     .gap(0.0);
     row((
@@ -183,6 +184,7 @@ fn tabs() -> Ui {
 
 /// The hover card, as it is drawn over the world.
 fn popups() -> Ui {
+    let theme = HamletTheme::designed();
     let card = column((
         label("JUNIPER")
             .size(13.0)
@@ -200,10 +202,10 @@ fn popups() -> Ui {
     .gap(3.0)
     .padding(UiRect::axes(px(12.0), px(9.0)))
     .border(1.0)
-    .border_color(paint(|p| p.brass_5))
-    .radius(themed(|t| t.space.soft))
-    .fill(paint(|p| p.card))
-    .with(HamletTheme::designed().shadow());
+    .border_color(theme.palette.brass_5)
+    .radius(theme.space.soft)
+    .fill(theme.palette.card)
+    .with(theme.shadow());
     let wide = |name, view: Ui| {
         column((caption(name), view))
             .gap(8.0)
@@ -225,6 +227,7 @@ fn popups() -> Ui {
 }
 
 pub(super) fn controls() -> Ui {
+    let theme = HamletTheme::designed();
     let part = |name: &'static str, view: Ui| {
         column((heading(name), view)).gap(10.0)
     };
@@ -275,7 +278,7 @@ pub(super) fn controls() -> Ui {
     .height(percent(100.0))
     .padding(UiRect::all(px(28.0)))
     .gap(20.0)
-    .fill(paint(|p| p.black))
+    .fill(theme.palette.black)
     .overflow(Overflow::clip())
     .tagged(platform::Glow)
     .tagged(Lit::default())
@@ -285,6 +288,7 @@ pub(super) fn controls() -> Ui {
 /// Every icon at each size, in the tones it is tinted with, and
 /// large.
 pub(super) fn icon_sheet() -> Ui {
+    let theme = HamletTheme::designed();
     let cells = Glyph::ALL
         .into_iter()
         .map(|which| {
@@ -317,7 +321,7 @@ pub(super) fn icon_sheet() -> Ui {
         .width(percent(100.0))
         .height(percent(100.0))
         .padding(UiRect::all(px(24.0)))
-        .fill(paint(|p| p.black))
+        .fill(theme.palette.black)
         .tagged(platform::Wraps)
         .boxed()
 }

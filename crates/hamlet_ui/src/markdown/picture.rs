@@ -22,7 +22,6 @@ use crate::looks::{action, bare, note};
 use crate::pictures::{
     Drawn, Pictures, Source, State, fetch, find, host,
 };
-use crate::theme::{paint, themed};
 use crate::{AnyView, Cx, View};
 
 fn plain(text: &str) -> Span {
@@ -47,13 +46,14 @@ fn words(caption: &str, target: &Target, ink: Ink) -> AnyView {
 }
 
 /// A plate in the frame of a picture.
-fn framed() -> Frame {
+fn framed(cx: &Cx) -> Frame {
+    let theme = cx.theme();
     frame()
         .max_width(percent(100.0))
-        .fill(paint(|p| p.plate))
+        .fill(theme.palette.plate)
         .border(1.0)
-        .border_color(paint(|p| p.brass_6))
-        .radius(themed(|t| t.space.round))
+        .border_color(theme.palette.brass_6)
+        .radius(theme.space.round)
 }
 
 /// The picture `drawn`, no larger than `most`, over its caption. A
@@ -105,7 +105,13 @@ fn shown(
 
 /// The card of the picture at `address`, which is fetched when its
 /// button is pressed.
-fn card(address: &str, caption: &str, state: &State) -> impl View {
+fn card(
+    cx: &Cx,
+    address: &str,
+    caption: &str,
+    state: &State,
+) -> impl View + use<> {
+    let theme = cx.theme();
     let said = if caption.is_empty() {
         "A picture"
     } else {
@@ -149,10 +155,10 @@ fn card(address: &str, caption: &str, state: &State) -> impl View {
         .align(AlignItems::FlexStart)
         .min_width(px(0.0))
         .max_width(percent(100.0))
-        .fill(paint(|p| p.plate))
+        .fill(theme.palette.plate)
         .border(1.0)
-        .border_color(paint(|p| p.brass_6))
-        .radius(themed(|t| t.space.round))
+        .border_color(theme.palette.brass_6)
+        .radius(theme.space.round)
 }
 
 /// The picture written as `target` with the words `caption`: the
@@ -187,15 +193,24 @@ pub(super) fn picture_view(
                 shown(drawn, &from, &caption, most).boxed()
             }
             (Source::Web(address), state) => {
-                card(address, &caption, state).boxed()
+                let (address, caption, state) =
+                    (address.clone(), caption.clone(), state.clone());
+                AnyView::new(move |cx: &mut Cx| {
+                    let card = card(cx, &address, &caption, &state);
+                    cx.build(card)
+                })
             }
             (Source::File(_), State::Failed) => {
                 words(&caption, &target, ink)
             }
-            (Source::File(_), _) => framed()
-                .width(px(most.x))
-                .height(px(settings.picture_wait))
-                .boxed(),
+            (Source::File(_), _) => {
+                let (wide, tall) = (most.x, settings.picture_wait);
+                AnyView::new(move |cx: &mut Cx| {
+                    let plate =
+                        framed(cx).width(px(wide)).height(px(tall));
+                    cx.build(plate)
+                })
+            }
         })
         .within(
             bare().width(percent(100.0)).align(AlignItems::FlexStart),

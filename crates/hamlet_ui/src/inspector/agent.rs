@@ -32,9 +32,8 @@ use crate::me::Me;
 use crate::platform::{DisplayText, Wraps};
 use crate::roll::rolled;
 use crate::status::Bar;
-use crate::theme::paint;
 use crate::world_menu::{self};
-use crate::{AnyView, Cx, View, chat, markdown, tabs};
+use crate::{AnyView, Cx, View, chat, markdown, tabs, with_cx};
 
 /// The part of the selected agent the panel shows.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
@@ -320,7 +319,7 @@ pub(super) fn leave_prompt(
     }
 }
 
-fn prompt() -> impl View {
+fn prompt(cx: &Cx) -> impl View + use<> {
     let shown =
         keyed(resource::<Briefing, _>(|b| b.text.clone()), |text| {
             // Each line as the model is given it, where Markdown
@@ -340,7 +339,7 @@ fn prompt() -> impl View {
             "PROMPT",
         ),
         note("What this agent is told at the start of a turn."),
-        hairline(paint(|p| p.brass_6)),
+        hairline(cx.theme().palette.brass_6),
         scroll((shown,)).fills_height(),
     ))
     .fills_height()
@@ -367,7 +366,7 @@ fn sections() -> impl View {
         Section::Notes => notes().boxed(),
         Section::Character => character().boxed(),
         Section::History => crate::history::screen(),
-        Section::Prompt => prompt().boxed(),
+        Section::Prompt => with_cx(prompt),
     })
     .within(filling())
 }

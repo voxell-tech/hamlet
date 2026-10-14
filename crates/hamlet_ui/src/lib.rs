@@ -73,6 +73,17 @@ pub trait View:
 
 impl<V: bevy_fynix::View<Bevy, HamletTheme> + 'static> View for V {}
 
+/// The view `make` gives with the context in hand, for one made
+/// where there is none, as in a `keyed` view.
+pub(crate) fn with_cx<V: View>(
+    make: impl FnOnce(&Cx) -> V + 'static,
+) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let view = make(cx);
+        cx.build(view)
+    })
+}
+
 /// The panels: the dock, its panels and the world's place in them.
 /// Add it to the core's app after Bevy's default plugins, set with
 /// [`window_plugin`], the world's plugin and a [`ShowRequests`]

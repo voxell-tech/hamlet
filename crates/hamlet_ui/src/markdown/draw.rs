@@ -26,7 +26,7 @@ use crate::looks::{Fills, bare};
 use crate::platform::{
     Display as DisplayFace, DisplayText, Mono, MonoText,
 };
-use crate::theme::{Palette, paint, themed};
+use crate::theme::Palette;
 use crate::{AnyView, Cx, View};
 
 fn words(world: &World, session: Entity, id: u64) -> Option<&str> {
@@ -236,7 +236,8 @@ pub(super) fn rich(spans: &[Span], ink: Ink) -> AnyView {
     })
 }
 
-fn code_view(lang: &str, text: &str) -> impl View {
+fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View + use<> {
+    let theme = cx.theme();
     let text = text.to_string();
     let body = AnyView::new(move |cx: &mut Cx| {
         // A long line wraps: nothing in the chat scrolls sideways.
@@ -266,10 +267,10 @@ fn code_view(lang: &str, text: &str) -> impl View {
         .gap(4.0)
         .padding(UiRect::axes(px(10.0), px(8.0)))
         .min_width(px(0.0))
-        .fill(paint(|p| p.plate))
+        .fill(theme.palette.plate)
         .border(1.0)
-        .border_color(paint(|p| p.brass_6))
-        .radius(themed(|t| t.space.round))
+        .border_color(theme.palette.brass_6)
+        .radius(theme.space.round)
 }
 
 /// Columns that share the width between them and may shrink to
@@ -284,7 +285,13 @@ fn shared(columns: u16) -> Vec<RepeatedGridTrack> {
 }
 
 /// A grid whose lines are the fill showing between its cells.
-fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> AnyView {
+fn table_view(
+    cx: &Cx,
+    align: &[Align],
+    rows: &[Row],
+    tone: Tone,
+) -> AnyView {
+    let palette = &cx.theme().palette;
     let widest = rows.iter().map(Vec::len).max().unwrap_or(0);
     let columns = align.len().max(widest).clamp(1, 64);
     let mut cells = Vec::<AnyView>::new();
@@ -314,7 +321,7 @@ fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> AnyView {
                     .padding(UiRect::axes(px(10.0), px(5.0)))
                     .min_width(px(0.0))
                     .align(side)
-                    .fill(paint(fill))
+                    .fill(fill(palette))
                     .boxed(),
             );
         }
@@ -325,7 +332,7 @@ fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> AnyView {
                 .gap(1.0)
                 .padding(UiRect::all(px(1.0)))
                 .min_width(px(0.0))
-                .fill(paint(|p| p.brass_6)),
+                .fill(cx.theme().palette.brass_6),
         );
         if let Some(mut ui) = cx.world.get_mut::<Node>(node) {
             ui.display = Display::Grid;
@@ -335,7 +342,12 @@ fn table_view(align: &[Align], rows: &[Row], tone: Tone) -> AnyView {
     })
 }
 
-fn block_view(at: usize, block: &Block, tone: Tone) -> AnyView {
+fn block_view(
+    cx: &Cx,
+    at: usize,
+    block: &Block,
+    tone: Tone,
+) -> AnyView {
     let above = match (at, &block.kind, block.marker) {
         (0, ..) => 0.0,
         (_, Kind::Heading(..), _) => 14.0,
@@ -362,13 +374,17 @@ fn block_view(at: usize, block: &Block, tone: Tone) -> AnyView {
                 ..body
             },
         ),
-        Kind::Code { lang, text } => code_view(lang, text).boxed(),
+        Kind::Code { lang, text } => {
+            code_view(cx, lang, text).boxed()
+        }
         Kind::Rule => frame()
             .height(px(1.0))
             .margin(UiRect::vertical(px(4.0)))
-            .fill(paint(|p| p.brass_6))
+            .fill(cx.theme().palette.brass_6)
             .boxed(),
-        Kind::Table { align, rows } => table_view(align, rows, tone),
+        Kind::Table { align, rows } => {
+            table_view(cx, align, rows, tone)
+        }
         Kind::Picture { caption, target } => {
             picture_view(caption, target, body)
         }
@@ -383,7 +399,7 @@ fn block_view(at: usize, block: &Block, tone: Tone) -> AnyView {
                 .width(px(3.0))
                 .margin(UiRect::right(px(10.0)))
                 .shrink(0.0)
-                .fill(paint(|p| p.brass_5))
+                .fill(cx.theme().palette.brass_5)
                 .boxed(),
         );
     }
@@ -438,7 +454,13 @@ pub(crate) fn document(
             blocks.into_iter().enumerate().collect::<Vec<_>>()
         }),
         |placed: &(usize, Block)| placed.clone(),
-        move |(at, block)| block_view(*at, block, tone),
+        move |(at, block)| {
+            let (at, block) = (*at, block.clone());
+            AnyView::new(move |cx: &mut Cx| {
+                let view = block_view(cx, at, &block, tone);
+                cx.build(view)
+            })
+        },
     )
     .within(bare())
 }
@@ -467,12 +489,15 @@ pub(crate) fn typed(text: &str, tail: &str) -> Option<AnyView> {
 
 /// A Markdown document that is drawn once, one view per block.
 pub fn fixed(text: &str, tone: Tone) -> impl View {
-    let blocks = parse(text)
-        .iter()
-        .enumerate()
-        .map(|(at, block)| block_view(at, block, tone))
-        .collect::<Vec<_>>();
-    column(blocks).gap(0.0)
+    let blocks = parse(text);
+    AnyView::new(move |cx: &mut Cx| {
+        let views = blocks
+            .iter()
+            .enumerate()
+            .map(|(at, block)| block_view(cx, at, block, tone))
+            .collect::<Vec<_>>();
+        cx.build(column(views).gap(0.0))
+    })
 }
 
 #[cfg(test)]

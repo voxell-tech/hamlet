@@ -22,7 +22,6 @@ use hamlet_core::tools::change::{Line, Mark};
 use super::entry::state;
 use crate::looks::{Fills, bare, note};
 use crate::platform::{Mono, MonoText};
-use crate::theme::{paint, themed};
 use crate::{AnyView, Cx, View, markdown};
 
 /// The tuning of the chat.
@@ -152,10 +151,12 @@ const INSET: f32 = 12.0;
 /// The lines of `change` on their plate, the first `most` of them,
 /// with a count of the rest.
 fn plate(
+    cx: &Cx,
     change: &Change,
     most: usize,
     more: Option<AnyView>,
-) -> impl View {
+) -> impl View + use<> {
+    let theme = cx.theme();
     let shown = &change.lines[..most.min(change.lines.len())];
     let mut parts = vec![block(shown)];
     parts.extend(more);
@@ -168,10 +169,10 @@ fn plate(
         .gap(4.0)
         .padding(UiRect::axes(px(10.0), px(8.0)))
         .min_width(px(0.0))
-        .fill(paint(|p| p.plate))
+        .fill(theme.palette.plate)
         .border(1.0)
-        .border_color(paint(|p| p.brass_6))
-        .radius(themed(|t| t.space.round))
+        .border_color(theme.palette.brass_6)
+        .radius(theme.space.round)
 }
 
 /// The end of a tool call's entry, and the words for an edit that
@@ -316,6 +317,7 @@ fn lines_view(
                 .boxed()
         });
         let shown = if whole { usize::MAX } else { most };
-        cx.build(plate(&change, shown, more))
+        let plate = plate(cx, &change, shown, more);
+        cx.build(plate)
     })
 }
