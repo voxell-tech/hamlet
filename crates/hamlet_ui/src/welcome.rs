@@ -5,7 +5,6 @@
 use std::path::Path;
 
 mod pages;
-mod providers;
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
@@ -23,10 +22,12 @@ use hamlet_core::core::{
 };
 use hamlet_model::catalogue::{self, Catalogue, Listed};
 use hamlet_model::chatgpt;
+use hamlet_model::config::providers::{
+    LOCAL, OPENROUTER, OTHER, PROVIDERS, served,
+};
 use hamlet_model::config::{Config, Endpoint};
 
 pub use self::pages::view;
-use self::providers::{LOCAL, OPENROUTER, OTHER, PROVIDERS, served};
 use crate::settings::Pane;
 
 const NOTHING_LOCAL: &str = "No model server answered here. Install \

@@ -1,6 +1,7 @@
 //! Settings in `<home>/config.toml`, and the tests of a connection.
 
 pub(crate) mod keys;
+pub mod providers;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

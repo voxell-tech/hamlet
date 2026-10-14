@@ -8,8 +8,8 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_core::core::SignIn;
+use hamlet_model::config::providers::PROVIDERS;
 
-use super::providers::PROVIDERS;
 use super::{
     Act, Narrowing, Step, Welcome, close, go, look, pick, request,
     sign_in,
@@ -158,8 +158,8 @@ fn choice(adding: bool) -> AnyView {
 fn key_form(chosen: usize) -> impl View {
     let names = PROVIDERS
         .iter()
-        .map(|provider| provider.lettering)
-        .chain(["OTHER"])
+        .map(|provider| provider.name.to_uppercase())
+        .chain(["OTHER".to_string()])
         .enumerate()
         .map(|(at, name)| {
             let look: fn(&mut Cx) =

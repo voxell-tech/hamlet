@@ -209,7 +209,9 @@ pub fn tick(on: impl Into<Prop<bool>>) -> Checkbox {
 }
 
 /// A lettered button: `text` in the display face.
-pub(crate) fn lettered(text: &'static str) -> impl View + FrameProps {
+pub(crate) fn lettered(
+    text: impl Into<Prop<String>>,
+) -> impl View + FrameProps {
     button(label(text).wrap(false).tagged(DisplayText))
         .padding(pad())
         .min_height(px(CONTROL))
