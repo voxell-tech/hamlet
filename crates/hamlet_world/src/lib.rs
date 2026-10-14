@@ -13,6 +13,7 @@ pub mod library;
 pub mod meshes;
 pub mod moving;
 pub mod needs;
+pub mod orders;
 pub mod palette;
 pub mod pick;
 pub mod play;

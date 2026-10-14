@@ -24,11 +24,12 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_core::agents::{self};
 use hamlet_core::oversight::Veto;
+use hamlet_world::orders;
 use hamlet_world::pick::{Asked, AskedGround, Thing};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
-use crate::{AnyView, Cx, View, hand};
+use crate::{AnyView, Cx, View};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Open>()
@@ -148,7 +149,7 @@ pub(crate) fn ask(world: &mut World, deed: Deed) {
 /// Brings back `agent`, which was removed or merged away.
 pub(super) fn restore(world: &mut World, agent: Entity) {
     let text = format!("/restore {}", agents::name_of(world, agent));
-    hand::decree(world, agent, text);
+    orders::decree(world, agent, text);
 }
 
 /// A menu of `items` at `at`.

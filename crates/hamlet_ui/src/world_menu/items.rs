@@ -11,14 +11,14 @@ use hamlet_core::agents::{
 };
 use hamlet_rules::hamlet::HOME;
 use hamlet_world::generator::society::Place as Ground;
-use hamlet_world::moving;
 use hamlet_world::pick::{Also, Selected, Thing, focus_on, select};
+use hamlet_world::{moving, orders};
 
 use super::deed::Deed;
 use super::{Open, close, restore, stop};
 use crate::inspector::show_prompt;
 use crate::me::{talk_to, talk_to_mayor};
-use crate::{AnyView, chat, hand};
+use crate::{AnyView, chat};
 
 /// An agent of the hamlet that is not its mayor and has not left,
 /// with its name.
@@ -150,16 +150,16 @@ fn for_resident(
         if joined {
             items.push(item(
                 format!("Remove the road to {other}"),
-                move |w| hand::part(w, agent, them),
+                move |w| orders::part(w, agent, them),
             ));
         } else {
             items.push(item(
                 format!("Build a road to {other}"),
-                move |w| hand::introduce(w, agent, them),
+                move |w| orders::introduce(w, agent, them),
             ));
         }
     }
-    if !hand::offers(world, agent).is_empty() {
+    if !orders::offers(world, agent).is_empty() {
         items.push(
             menu_item(label("Give a skill...").wrap(false))
                 .on_activate(move |world| {
@@ -195,12 +195,12 @@ fn for_resident(
         if Some(peer) != chosen {
             items.push(item(
                 format!("Remove the road to {name}"),
-                move |w| hand::part(w, agent, peer),
+                move |w| orders::part(w, agent, peer),
             ));
         }
     }
     items.push(item("Undo the Last Change".into(), move |world| {
-        hand::decree(world, agent, "/undo".into())
+        orders::decree(world, agent, "/undo".into())
     }));
     items.push(asking(
         format!("Make {me} Mayor..."),
@@ -230,7 +230,7 @@ fn for_common(
         .map(|settlement| settlement.name.clone())
         .unwrap_or_default();
     items.push(item(format!("Move {name}..."), move |w| {
-        hand::carry(w, hamlet)
+        orders::carry(w, hamlet)
     }));
     if !id.is_empty() && id != HOME {
         items.push(asking(
@@ -267,14 +267,14 @@ fn for_library(thing: Thing) -> Vec<AnyView> {
 
 /// The skills `agent` could be given, each pressed to give it.
 pub(super) fn skills(world: &World, agent: Entity) -> Vec<AnyView> {
-    hand::offers(world, agent)
+    orders::offers(world, agent)
         .into_iter()
         .map(|offer| {
             let text = match &offer.from {
                 Some(from) => format!("{} (of {from})", offer.skill),
                 None => format!("{} (starter)", offer.skill),
             };
-            item(text, move |w| hand::give(w, agent, &offer))
+            item(text, move |w| orders::give(w, agent, &offer))
         })
         .collect()
 }

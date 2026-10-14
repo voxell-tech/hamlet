@@ -16,13 +16,14 @@ use hamlet_core::agents::{
     self, Busy, Citizen, Left, LivesIn, Settlement,
 };
 use hamlet_core::session::Rewind;
+use hamlet_world::orders;
 
 use super::close;
 use crate::feel::Mood;
 use crate::looks::{brass, grim, lettered};
 use crate::me::Me;
 use crate::platform::DisplayText;
-use crate::{AnyView, Cx, chat, hand};
+use crate::{AnyView, Cx, chat};
 
 /// Something that ends an agent or a hamlet, or changes who runs
 /// one.
@@ -64,7 +65,7 @@ impl Deed {
         match self {
             Deed::Remove(agent) => {
                 let text = format!("/remove {}", name(*agent));
-                hand::decree(world, *agent, text);
+                orders::decree(world, *agent, text);
             }
             Deed::Merge { absorbed, kept } => {
                 let text = format!(
@@ -72,15 +73,15 @@ impl Deed {
                     name(*absorbed),
                     name(*kept)
                 );
-                hand::decree(world, *kept, text);
+                orders::decree(world, *kept, text);
             }
             Deed::Erase(agent) => {
                 let text = format!("/erase {}", name(*agent));
-                hand::decree(world, *agent, text);
+                orders::decree(world, *agent, text);
             }
             Deed::Mayor(agent) => {
                 let text = format!("/mayor {}", name(*agent));
-                hand::decree(world, *agent, text);
+                orders::decree(world, *agent, text);
             }
             // The hamlets and the library are the realm's, and the
             // open conversation is the open chat's.

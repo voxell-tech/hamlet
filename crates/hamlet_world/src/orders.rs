@@ -1,31 +1,40 @@
 //! The chief's deeds by hand in the world, carried to the core as the
 //! commands a chief could type. A letter is put in the agent's inbox
-//! and the agent is told.
+//! and the agent is told. The panels say each [`Decree`] and
+//! [`Tell`] in the chief's chat.
 
 use std::path::Path;
 
-use bevy::app::{App, Update};
-use bevy::ecs::entity::Entity;
-use bevy::ecs::message::MessageReader;
-use bevy::ecs::name::Name;
-use bevy::ecs::system::Commands;
-use bevy::ecs::world::World;
-use hamlet_core::agents::{self, LivesIn, Mayor, Settlement};
-use hamlet_core::session::{SessionKey, UserMessage};
+use bevy::prelude::*;
+use hamlet_core::agents::{self, LivesIn, Settlement};
+use hamlet_core::core::HomeDir;
 use hamlet_rules::gifts::{self, Offer};
 use hamlet_rules::hamlet::{HOME, Hamlet};
-use hamlet_world::chief::Stands;
-use hamlet_world::generator::society::Place;
-use hamlet_world::hamlet::{hamlet_of, town_of};
-use hamlet_world::hand::{self, Wish};
-use hamlet_world::library::Stood;
-use hamlet_world::moving::{self, SetDown};
 
-use crate::chat;
-use crate::me::Me;
+use crate::chief::{Player, Stands};
+use crate::generator::society::Place;
+use crate::hamlet::{hamlet_of, town_of};
+use crate::hand::{self, Wish};
+use crate::library::Stood;
+use crate::moving::{self, SetDown};
 
-pub(crate) fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(Update, grant);
+}
+
+/// A chief's command for the hamlet `hamlet`, as the chief would
+/// type it.
+#[derive(Event, Clone, Debug, PartialEq)]
+pub struct Decree {
+    pub hamlet: String,
+    pub text: String,
+}
+
+/// Words from the chief to `agent`, in its own chat.
+#[derive(Event, Clone, Debug, PartialEq)]
+pub struct Tell {
+    pub agent: Entity,
+    pub text: String,
 }
 
 fn name(world: &World, agent: Entity) -> Option<String> {
@@ -40,11 +49,13 @@ fn record(world: &World, agent: Entity) -> Option<Hamlet> {
     Some(world.get::<Settlement>(lives.0)?.record())
 }
 
-/// Gives a chief's command to the hamlet of `agent`.
-pub(super) fn decree(world: &mut World, agent: Entity, text: String) {
+/// Gives a chief's command to the hamlet of `agent`, carried out by
+/// the time this returns.
+pub fn decree(world: &mut World, agent: Entity, text: String) {
     let hamlet =
         agents::hamlet_of(world, agent).unwrap_or(HOME).to_string();
-    chat::decree(world, &hamlet, text);
+    world.trigger(Decree { hamlet, text });
+    world.flush();
 }
 
 /// Builds a road between two agents at the chief's word.
@@ -66,7 +77,7 @@ pub fn part(world: &mut World, a: Entity, b: Entity) {
 }
 
 /// Has two agents greet each other and builds a road between them.
-pub(crate) fn introduce(world: &mut World, a: Entity, b: Entity) {
+pub fn introduce(world: &mut World, a: Entity, b: Entity) {
     hand::greet(world, a, b);
     road(world, a, b);
 }
@@ -92,7 +103,7 @@ pub fn give(world: &mut World, agent: Entity, offer: &Offer) {
 }
 
 /// The skills `agent` could be given.
-pub(crate) fn offers(world: &World, agent: Entity) -> Vec<Offer> {
+pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
     name(world, agent)
         .zip(record(world, agent))
         .map(|(name, hamlet)| hamlet.offers(&name))
@@ -114,15 +125,8 @@ fn letter(world: &mut World, agent: Entity, path: &Path) {
             return;
         }
     };
-    let user = world.resource::<Me>().user.clone();
-    let key = if world.get::<Mayor>(agent).is_some() {
-        SessionKey::with_mayor("app", &user, hamlet.name())
-    } else {
-        SessionKey::with_agent("app", &user, &name)
-    };
-    world.trigger(UserMessage {
-        key,
-        user,
+    world.trigger(Tell {
+        agent,
         text: gifts::letter(&at),
     });
     world.flush();
@@ -141,32 +145,43 @@ pub fn carry(world: &mut World, hamlet: Entity) {
 fn set_down(world: &mut World, set: SetDown) {
     match set.place {
         Place::Town(town) => {
-            let name = hamlet_of(world, town).and_then(|hamlet| {
-                Some(world.get::<Settlement>(hamlet)?.name.clone())
+            let Some(hamlet) = hamlet_of(world, town) else {
+                return;
+            };
+            let Some(name) = world
+                .get::<Settlement>(hamlet)
+                .map(|settlement| settlement.name.clone())
+            else {
+                return;
+            };
+            let (x, z) = (set.to.x, set.to.y);
+            world.trigger(Decree {
+                text: format!("/move-hamlet {name} {x:.1} {z:.1}"),
+                hamlet: name,
             });
-            if let Some(name) = name {
-                let (x, z) = (set.to.x, set.to.y);
-                chat::send(
-                    world,
-                    format!("/move-hamlet {name} {x:.1} {z:.1}"),
-                );
+            world.flush();
+        }
+        Place::Chief => {
+            let player = world
+                .query_filtered::<Entity, With<Player>>()
+                .iter(world)
+                .next();
+            if let Some(chief) = player {
+                world.entity_mut(chief).insert(Stands(set.to));
             }
         }
-        Place::Chief => crate::chief::set_home(world, set.to),
         Place::Library => {
-            let home = world
-                .resource::<hamlet_core::core::HomeDir>()
-                .0
-                .root
-                .clone();
-            let _ = Stands(set.to).write_at(&Stood::file(&home));
+            if let Some(home) = world.get_resource::<HomeDir>() {
+                let file = Stood::file(&home.0.root);
+                let _ = Stands(set.to).write_at(&file);
+            }
             world.resource_mut::<Stood>().0 = Some(set.to);
         }
     }
 }
 
 /// Carries out everything the hand asked for.
-pub(crate) fn grant(
+fn grant(
     mut set: MessageReader<SetDown>,
     mut wishes: MessageReader<Wish>,
     mut commands: Commands,
@@ -184,26 +199,21 @@ pub(crate) fn grant(
 
 #[cfg(test)]
 mod tests {
-    use bevy::app::App;
-    use bevy::ecs::observer::On;
-    use bevy::ecs::query::With;
-    use bevy::ecs::resource::Resource;
-    use bevy::ecs::system::ResMut;
-    use bevy::math::Vec2;
     use hamlet_core::agents::AgentsPlugin;
     use hamlet_testing::Scratch;
-    use hamlet_world::play::Played;
 
     use super::*;
+    use crate::hamlet::Sited;
+    use crate::play::Played;
 
-    /// Every message that reached the core, with its session.
+    /// Every decree and every telling, as `(hamlet or agent, text)`.
     #[derive(Resource, Default)]
-    struct Heard(Vec<(SessionKey, String)>);
+    struct Heard(Vec<(String, String)>);
 
-    /// A home with two agents, a chat with the mayor, and a core
-    /// that carries out the chief's commands and nothing else.
+    /// A home with two agents, and panels that carry out the chief's
+    /// commands and nothing else.
     fn app(tag: &str) -> (Scratch, App, Hamlet) {
-        let dir = Scratch::new(&format!("ui-hand-{tag}"));
+        let dir = Scratch::new(&format!("world-orders-{tag}"));
         let hamlet = Hamlet::new(dir.to_path_buf());
         hamlet
             .create("librarian", "Keeps the list.", "test")
@@ -218,26 +228,32 @@ mod tests {
         .add_message::<SetDown>()
         .add_message::<Played>()
         .add_observer(
-            |said: On<UserMessage>,
+            |decree: On<Decree>,
              mut heard: ResMut<Heard>,
              mut commands: Commands| {
-                heard.0.push((said.key.clone(), said.text.clone()));
-                let said = said.event().clone();
+                let Decree { hamlet, text } = decree.event().clone();
+                heard.0.push((hamlet.clone(), text.clone()));
                 commands.queue(move |world: &mut World| {
                     let home = world
                         .query::<&Settlement>()
                         .iter(world)
-                        .next()
+                        .find(|kept| kept.name == hamlet)
                         .map(Settlement::record);
                     if let Some(home) = home {
-                        let _ = home.decree(&said.user, &said.text);
+                        let _ = home.decree("alice", &text);
                     }
                     agents::sync(world);
                 });
             },
+        )
+        .add_observer(
+            |tell: On<Tell>,
+             names: Query<&Name>,
+             mut heard: ResMut<Heard>| {
+                let name = names.get(tell.agent).unwrap().to_string();
+                heard.0.push((name, tell.text.clone()));
+            },
         );
-        let mayor = agents::mayor(app.world_mut()).unwrap();
-        app.insert_resource(Me::of(mayor, mayor, "alice", None));
         (dir, app, hamlet)
     }
 
@@ -249,12 +265,16 @@ mod tests {
         agents::named(app.world_mut(), name).unwrap()
     }
 
+    fn heard(app: &mut App) -> Vec<(String, String)> {
+        std::mem::take(&mut app.world_mut().resource_mut::<Heard>().0)
+    }
+
     #[test]
     fn a_town_set_down_goes_to_the_record_as_a_chiefs_command() {
         use hamlet_rules::chief;
         use hamlet_rules::realm::Realm;
-        use hamlet_world::generator::society::TownId;
-        use hamlet_world::hamlet::Sited;
+
+        use crate::generator::society::TownId;
 
         let (dir, mut app, _) = app("move");
         let world = app.world_mut();
@@ -274,18 +294,16 @@ mod tests {
         });
         grant_all(world);
         let said = heard(&mut app);
-        assert_eq!(said.len(), 1);
-        assert_eq!(said[0].1, "/move-hamlet home 12.5 -40.0");
+        assert_eq!(
+            said,
+            [(HOME.into(), "/move-hamlet home 12.5 -40.0".into())]
+        );
         let realm = Realm::new(dir.to_path_buf());
         let done = chief::command(&realm, HOME, "alice", &said[0].1);
         assert!(done.unwrap().is_ok());
         assert_eq!(realm.hamlets()[0].at, Some((12.5, -40.0)));
         grant_all(app.world_mut());
         assert!(heard(&mut app).is_empty());
-    }
-
-    fn heard(app: &mut App) -> Vec<(SessionKey, String)> {
-        std::mem::take(&mut app.world_mut().resource_mut::<Heard>().0)
     }
 
     #[test]
@@ -295,13 +313,10 @@ mod tests {
             (agent(&mut app, "scout"), agent(&mut app, "librarian"));
         app.world_mut().write_message(Wish::Road { a, b });
         grant_all(app.world_mut());
-        let said = heard(&mut app);
-        assert_eq!(said.len(), 1);
         assert_eq!(
-            said[0].0,
-            SessionKey::with_mayor("app", "alice", HOME)
+            heard(&mut app),
+            [(HOME.into(), "/road scout librarian".into())]
         );
-        assert_eq!(said[0].1, "/road scout librarian");
         assert!(hamlet.has_road("scout", "librarian"));
         // The road is in the world as an entity.
         let world = app.world_mut();
@@ -328,70 +343,6 @@ mod tests {
     }
 
     #[test]
-    fn a_deed_goes_to_the_hamlet_of_the_agent_it_is_about() {
-        use hamlet_rules::realm::{Origin, Realm};
-
-        use crate::world_menu::Deed;
-
-        let (dir, mut app, _) = app("deed");
-        let user = "alice".to_string();
-        let mill = Realm::new(dir.to_path_buf())
-            .found(
-                "mill",
-                "miller",
-                "Grinds.",
-                Origin::Human { user },
-            )
-            .unwrap();
-        mill.create("carder", "Cards wool.", "test").unwrap();
-        agents::sync(app.world_mut());
-        let carder = agent(&mut app, "carder");
-        // The chat is with the first hamlet's mayor.
-        Deed::Remove(carder).run(app.world_mut());
-        let said = heard(&mut app);
-        assert_eq!(
-            said[0].0,
-            SessionKey::with_mayor("app", "alice", "mill")
-        );
-        assert_eq!(said[0].1, "/remove carder");
-    }
-
-    #[test]
-    fn the_chat_stays_true_to_its_agent_as_offices_change_and_agents_go()
-     {
-        use hamlet_core::core::HomeDir;
-
-        let (dir, mut app, hamlet) = app("reseat");
-        app.insert_resource(HomeDir(hamlet_home::Home {
-            root: dir.to_path_buf(),
-            workspace: dir.join("workspace"),
-        }));
-        let scout = agent(&mut app, "scout");
-        let world = app.world_mut();
-        assert!(crate::me::seat(world, scout));
-        assert_eq!(
-            world.resource::<Me>().with.as_deref(),
-            Some("scout")
-        );
-        // The agent it is with takes the office.
-        hamlet.set_mayor("scout", "chief:alice", "x").unwrap();
-        agents::sync(world);
-        crate::me::reseat(world);
-        let me = world.resource::<Me>();
-        assert_eq!((me.agent, me.with.as_deref()), (scout, None));
-        assert_eq!(
-            me.key,
-            SessionKey::with_mayor("app", "alice", HOME)
-        );
-        // One that is gone from the world gives way to the mayor.
-        let librarian = agents::named(world, "librarian").unwrap();
-        assert!(crate::me::seat(world, librarian));
-        world.despawn(librarian);
-        crate::me::reseat(world);
-        assert_eq!(world.resource::<Me>().agent, scout);
-    }
-
-    #[test]
     fn a_letter_is_put_in_the_inbox_and_the_agent_is_told() {
         let (dir, mut app, hamlet) = app("letter");
         let scout = agent(&mut app, "scout");
@@ -408,10 +359,7 @@ mod tests {
         );
         let said = heard(&mut app);
         assert_eq!(said.len(), 1);
-        assert_eq!(
-            said[0].0,
-            SessionKey::with_agent("app", "alice", "scout")
-        );
+        assert_eq!(said[0].0, "scout");
         assert!(
             said[0].1.contains("`inbox/list.txt`"),
             "{}",

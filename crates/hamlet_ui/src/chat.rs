@@ -18,10 +18,11 @@ use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
+use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Local, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::text::{EditableText, TextEdit};
@@ -41,6 +42,7 @@ use hamlet_core::session::{
 };
 use hamlet_rules::chief::{self, Target};
 use hamlet_rules::hamlet::HOME;
+use hamlet_world::orders::{Decree, Tell};
 
 pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};
@@ -53,7 +55,7 @@ pub use self::lines::{
 pub use self::rewind::{Rewinds, asked as rewind_asked};
 use crate::View;
 use crate::looks::well;
-use crate::me::{Me, talk_to, talk_to_mayor_of};
+use crate::me::{self, Me, talk_to, talk_to_mayor_of};
 
 /// The least width of the field a chief types in.
 const FIELD_LEAST: f32 = 150.0;
@@ -66,6 +68,8 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Lines>()
         .init_resource::<Reach>()
         .add_observer(keep_typed)
+        .add_observer(decreed)
+        .add_observer(told)
         .add_plugins(rewind::plugin)
         .add_systems(
             Update,
@@ -192,6 +196,27 @@ pub(crate) fn decree(world: &mut World, hamlet: &str, text: String) {
             }
         }
     }
+}
+
+/// Gives a decree of the world's as [`decree`] does.
+pub(crate) fn decreed(decree: On<Decree>, mut commands: Commands) {
+    let Decree { hamlet, text } = decree.event().clone();
+    commands.queue(move |world: &mut World| {
+        self::decree(world, &hamlet, text)
+    });
+}
+
+/// Says the world's words for an agent in this chief's chat with it.
+fn told(tell: On<Tell>, mut commands: Commands) {
+    let Tell { agent, text } = tell.event().clone();
+    commands.queue(move |world: &mut World| {
+        let Some((key, _)) = me::address(world, agent) else {
+            return;
+        };
+        let user = world.resource::<Me>().user.clone();
+        world.trigger(UserMessage { key, user, text });
+        world.flush();
+    });
 }
 
 fn input_root(world: &mut World) -> Option<Entity> {

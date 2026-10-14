@@ -54,7 +54,7 @@ pub struct Me {
 /// The session a chat with `agent` is kept under, and the agent's
 /// name. `None` for the name of a mayor, and nothing at all for an
 /// agent that is not there.
-fn address(
+pub(crate) fn address(
     world: &World,
     agent: Entity,
 ) -> Option<(SessionKey, Option<String>)> {
@@ -207,5 +207,124 @@ impl Me {
             agent,
             with: with.map(str::to_string),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::ecs::observer::On;
+    use bevy::ecs::system::{Commands, ResMut};
+    use hamlet_core::agents::{AgentsPlugin, Settlement};
+    use hamlet_core::core::HomeDir;
+    use hamlet_core::session::UserMessage;
+    use hamlet_rules::hamlet::Hamlet;
+    use hamlet_testing::Scratch;
+
+    use super::*;
+
+    /// Every message that reached the core, with its session.
+    #[derive(Resource, Default)]
+    struct Heard(Vec<(SessionKey, String)>);
+
+    /// A home with two agents, a chat with the mayor, and a core
+    /// that carries out the chief's commands and nothing else.
+    fn app(tag: &str) -> (Scratch, App, Hamlet) {
+        let dir = Scratch::new(&format!("ui-me-{tag}"));
+        let hamlet = Hamlet::new(dir.to_path_buf());
+        hamlet
+            .create("librarian", "Keeps the list.", "test")
+            .unwrap();
+        hamlet.create("scout", "Looks things up.", "test").unwrap();
+        let mut app = App::new();
+        app.add_plugins(AgentsPlugin {
+            home: dir.to_path_buf(),
+        })
+        .init_resource::<Heard>()
+        .insert_resource(HomeDir(hamlet_home::Home {
+            root: dir.to_path_buf(),
+            workspace: dir.join("workspace"),
+        }))
+        .add_observer(crate::chat::decreed)
+        .add_observer(
+            |said: On<UserMessage>,
+             mut heard: ResMut<Heard>,
+             mut commands: Commands| {
+                heard.0.push((said.key.clone(), said.text.clone()));
+                let said = said.event().clone();
+                commands.queue(move |world: &mut World| {
+                    let home = world
+                        .query::<&Settlement>()
+                        .iter(world)
+                        .next()
+                        .map(Settlement::record);
+                    if let Some(home) = home {
+                        let _ = home.decree(&said.user, &said.text);
+                    }
+                    agents::sync(world);
+                });
+            },
+        );
+        let mayor = agents::mayor(app.world_mut()).unwrap();
+        app.insert_resource(Me::of(mayor, mayor, "alice", None));
+        (dir, app, hamlet)
+    }
+
+    #[test]
+    fn a_deed_goes_to_the_hamlet_of_the_agent_it_is_about() {
+        use hamlet_rules::realm::{Origin, Realm};
+
+        use crate::world_menu::Deed;
+
+        let (dir, mut app, _) = app("deed");
+        let user = "alice".to_string();
+        let mill = Realm::new(dir.to_path_buf())
+            .found(
+                "mill",
+                "miller",
+                "Grinds.",
+                Origin::Human { user },
+            )
+            .unwrap();
+        mill.create("carder", "Cards wool.", "test").unwrap();
+        agents::sync(app.world_mut());
+        let carder =
+            agents::named(app.world_mut(), "carder").unwrap();
+        // The chat is with the first hamlet's mayor.
+        Deed::Remove(carder).run(app.world_mut());
+        let said = &app.world().resource::<Heard>().0;
+        assert_eq!(
+            said[0].0,
+            SessionKey::with_mayor("app", "alice", "mill")
+        );
+        assert_eq!(said[0].1, "/remove carder");
+    }
+
+    #[test]
+    fn the_chat_stays_true_to_its_agent_as_offices_change_and_agents_go()
+     {
+        let (_dir, mut app, hamlet) = app("reseat");
+        let world = app.world_mut();
+        let scout = agents::named(world, "scout").unwrap();
+        assert!(seat(world, scout));
+        assert_eq!(
+            world.resource::<Me>().with.as_deref(),
+            Some("scout")
+        );
+        // The agent it is with takes the office.
+        hamlet.set_mayor("scout", "chief:alice", "x").unwrap();
+        agents::sync(world);
+        reseat(world);
+        let me = world.resource::<Me>();
+        assert_eq!((me.agent, me.with.as_deref()), (scout, None));
+        assert_eq!(
+            me.key,
+            SessionKey::with_mayor("app", "alice", HOME)
+        );
+        // One that is gone from the world gives way to the mayor.
+        let librarian = agents::named(world, "librarian").unwrap();
+        assert!(seat(world, librarian));
+        world.despawn(librarian);
+        reseat(world);
+        assert_eq!(world.resource::<Me>().agent, scout);
     }
 }

@@ -119,7 +119,7 @@ another. A kind of place needs four things:
    sites off it and lets the camera go to it.
 2. **A way to start a move**: `moving::pick_up`. The footprint, the
    colours, the words and the click are the same code for every kind.
-3. **A record**: an arm in `set_down` in `hamlet_ui/src/hand.rs`.
+3. **A record**: an arm in `set_down` in `hamlet_world/src/orders.rs`.
 4. **A way to show it going.** The house-by-house move is for towns.
 
 A claim only keeps towns away. The ground itself is held by `Land::hold`,

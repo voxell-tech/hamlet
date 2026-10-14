@@ -9,7 +9,6 @@ pub mod cursor;
 mod dock;
 pub mod feel;
 mod folder;
-mod hand;
 pub mod history;
 mod hover;
 pub mod icons;
@@ -118,12 +117,7 @@ impl Plugin for UiPlugin {
                 settings::plugin,
                 welcome::plugin,
             ),
-            (
-                world_view::plugin,
-                world_menu::plugin,
-                hover::plugin,
-                hand::plugin,
-            ),
+            (world_view::plugin, world_menu::plugin, hover::plugin),
             (
                 theme::plugin,
                 tuning::plugin,

@@ -14,6 +14,7 @@ pub mod wickstep;
 use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
+use hamlet_core::core::HomeDir;
 
 pub use self::look::{Cloak, Hat, Holds, Light, Look};
 pub use self::wickstep::{Mascot, Phase, Stay};
@@ -53,6 +54,10 @@ pub(super) fn plugin(app: &mut App) {
             )
                 .chain()
                 .before(crate::WorldSystems),
+        )
+        .add_systems(
+            Update,
+            keep_place.run_if(resource_exists::<HomeDir>),
         );
 }
 
@@ -130,6 +135,11 @@ pub struct ChiefSettings {
 pub struct Chief {
     pub user: String,
 }
+
+/// On the chief this app belongs to: the one whose place the hand
+/// sets down.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Player;
 
 /// The agent a chief is talking to, whose side its mascot keeps.
 /// Nobody while it is at home.
@@ -218,6 +228,19 @@ pub fn arrive(world: &mut World, user: &str, look: Look) -> Entity {
             Beside::default(),
         ))
         .id()
+}
+
+/// Keeps the place a chief set down.
+fn keep_place(
+    home: Res<HomeDir>,
+    placed: Query<(&Chief, &Stands), Changed<Stands>>,
+) {
+    for (chief, stands) in &placed {
+        // One read back at launch is as it was written.
+        if Stands::read(&home.0.root, &chief.user) != Some(*stands) {
+            let _ = stands.write(&home.0.root, &chief.user);
+        }
+    }
 }
 
 /// The chief called `user`, if the world knows one.

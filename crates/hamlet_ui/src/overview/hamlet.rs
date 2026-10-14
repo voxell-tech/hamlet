@@ -15,6 +15,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_rules::hamlet::HOME;
+use hamlet_world::orders;
 use hamlet_world::pick::{Thing, select};
 
 use super::heading;
@@ -30,7 +31,7 @@ use crate::looks::{
 };
 use crate::me::talk_to;
 use crate::world_menu::Deed;
-use crate::{AnyView, View, chat, hand, tabs, world_menu};
+use crate::{AnyView, View, chat, tabs, world_menu};
 
 /// The field a hamlet's new name is typed in.
 #[derive(Component)]
@@ -209,7 +210,7 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
             // Its town is then in hand, to be set down with a click
             // on the ground.
             action(Glyph::Move, "MOVE", move |world| {
-                hand::carry(world, hamlet)
+                orders::carry(world, hamlet)
             }),
         ];
         // The first hamlet is the home itself and stays.

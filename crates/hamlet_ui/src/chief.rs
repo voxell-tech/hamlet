@@ -8,10 +8,10 @@ use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::{Changed, With};
+use bevy::ecs::query::With;
 use bevy::ecs::system::{Query, Res};
 use bevy::ecs::world::World;
-use bevy::math::{Vec2, Vec3};
+use bevy::math::Vec3;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -22,7 +22,8 @@ use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
 use hamlet_core::core::HomeDir;
 use hamlet_core::session::UserMessage;
 use hamlet_world::chief::{
-    self, Beside, Chief, Cloak, Hat, Holds, Light, Look, Stands,
+    self, Beside, Chief, Cloak, Hat, Holds, Light, Look, Player,
+    Stands,
 };
 use hamlet_world::generator::society::Place as Ground;
 use hamlet_world::library::{Library, Stood};
@@ -44,18 +45,20 @@ use crate::{AnyView, Cx, View};
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(spoke)
         .add_systems(Startup, enter)
-        .add_systems(Update, (keep, keep_place));
+        .add_systems(Update, keep);
 }
 
 /// Brings the chief this window belongs to into the world, with the
 /// look that was kept for them.
 pub(crate) fn enter(world: &mut World) {
     let user = world.resource::<Me>().user.clone();
-    if chief::named(world, &user).is_some() {
+    if let Some(chief) = chief::named(world, &user) {
+        world.entity_mut(chief).insert(Player);
         return;
     }
     let home = world.resource::<HomeDir>().0.root.clone();
     let chief = chief::arrive(world, &user, Look::read(&home, &user));
+    world.entity_mut(chief).insert(Player);
     if let Some(stands) = Stands::read(&home, &user) {
         world.entity_mut(chief).insert(stands);
     }
@@ -72,27 +75,6 @@ pub(crate) fn enter(world: &mut World) {
 /// with a click on the ground.
 pub(crate) fn carry_home(world: &mut World) {
     moving::pick_up(world, Ground::Chief);
-}
-
-/// Sets the place of this window's chief down at `to`.
-pub(crate) fn set_home(world: &mut World, to: Vec2) {
-    let user = world.resource::<Me>().user.clone();
-    if let Some(chief) = chief::named(world, &user) {
-        world.entity_mut(chief).insert(Stands(to));
-    }
-}
-
-/// Keeps the place a chief set down.
-pub(crate) fn keep_place(
-    home: Res<HomeDir>,
-    placed: Query<(&Chief, &Stands), Changed<Stands>>,
-) {
-    for (chief, stands) in &placed {
-        // One read back at launch is as it was written.
-        if Stands::read(&home.0.root, &chief.user) != Some(*stands) {
-            let _ = stands.write(&home.0.root, &chief.user);
-        }
-    }
 }
 
 /// Selects the place of the chief this window belongs to, and
