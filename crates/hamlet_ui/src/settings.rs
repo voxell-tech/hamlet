@@ -16,10 +16,10 @@ use bevy_fynix::views::{
     number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_core::awake::KeepAwake;
 use hamlet_core::core::{HomeDir, SaveSettings, Settings};
 use hamlet_core::oversight::Revoke;
 use hamlet_core::oversight::grants::Grants;
+use hamlet_desktop::awake::KeepAwake;
 use hamlet_home::charter;
 use hamlet_model::config::Config;
 use hamlet_world::sky::Quality;

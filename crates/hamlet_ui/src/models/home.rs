@@ -110,7 +110,7 @@ pub fn endpoints() -> impl View {
                             Glyph::Meter,
                             "MANAGE USAGE",
                             |_| {
-                                crate::links::open::browse(
+                                hamlet_desktop::open::browse(
                                     chatgpt::USAGE,
                                 );
                             },

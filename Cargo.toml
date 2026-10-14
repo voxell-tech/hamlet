@@ -18,6 +18,7 @@ hamlet_model = { path = "crates/hamlet_model" }
 hamlet_home = { path = "crates/hamlet_home" }
 hamlet_rules = { path = "crates/hamlet_rules" }
 hamlet_core = { path = "crates/hamlet_core" }
+hamlet_desktop = { path = "crates/hamlet_desktop" }
 hamlet_assets = { path = "crates/hamlet_assets" }
 hamlet_vfx = { path = "crates/hamlet_vfx" }
 hamlet_world = { path = "crates/hamlet_world" }
@@ -83,6 +84,7 @@ hamlet_sandbox.workspace = true
 hamlet_model.workspace = true
 hamlet_home.workspace = true
 hamlet_core.workspace = true
+hamlet_desktop.workspace = true
 hamlet_ui.workspace = true
 hamlet_world.workspace = true
 anyhow.workspace = true

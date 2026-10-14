@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 hamlet_assets.workspace = true
 hamlet_core.workspace = true
+hamlet_desktop.workspace = true
 hamlet_home.workspace = true
 hamlet_model.workspace = true
 hamlet_rules.workspace = true
@@ -21,19 +22,10 @@ chrono.workspace = true
 image.workspace = true
 pulldown-cmark.workspace = true
 reqwest.workspace = true
-rfd.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 toml.workspace = true
-
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2.workspace = true
-objc2-app-kit.workspace = true
-objc2-foundation.workspace = true
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-winit.workspace = true
 
 [dev-dependencies]
 hamlet_testing.workspace = true

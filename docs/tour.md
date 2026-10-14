@@ -54,6 +54,7 @@ table. The binary and the examples are the root package.
 | `hamlet_home` | A home on disk: its layout, charter and prompt, the chief's limits, the starter skills |
 | `hamlet_rules` | The hamlet's record and the rules over it. Plain files and functions, no Bevy |
 | `hamlet_core` | The runtime as Bevy plugins: agents, sessions, tools and oversight. No rendering |
+| `hamlet_desktop` | The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder dialog and the app's icon |
 | `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
 | `hamlet_world` | The 3D world, drawn from the core's entities |

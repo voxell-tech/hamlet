@@ -4,7 +4,6 @@
 
 pub mod agent;
 pub mod agents;
-pub mod awake;
 pub mod catalogue;
 pub mod core;
 pub mod oversight;

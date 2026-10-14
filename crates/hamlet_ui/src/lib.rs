@@ -1,7 +1,6 @@
 //! The command center (I4): a Bevy and fynix window added to the
 //! core's app.
 
-mod app_icon;
 pub mod chat;
 mod chief;
 pub mod chrome;
@@ -100,7 +99,6 @@ impl Plugin for UiPlugin {
                 menu::plugin,
                 status::plugin,
                 remember::plugin,
-                app_icon::plugin,
             ),
             (
                 inspector::plugin,

@@ -14,6 +14,7 @@ use hamlet_core::core::CorePlugin;
 use hamlet_core::oversight::{OversightPlugin, Unreviewed};
 use hamlet_core::session::SessionPlugin;
 use hamlet_core::terminal::TerminalPlugin;
+use hamlet_desktop::DesktopPlugin;
 use hamlet_home::instance::{self, Instance};
 use hamlet_home::{Home, limits};
 use hamlet_model::config::Config;
@@ -151,6 +152,9 @@ fn main() -> Result<()> {
         },
         SessionPlugin,
         OversightPlugin,
+        DesktopPlugin {
+            window: mode == Mode::Window,
+        },
     ));
     if replayed {
         // A recorded session holds no answers for the mayor's

@@ -19,8 +19,8 @@ use bevy_fynix::dock::{
     DockTree, NodeId, SplitAxis,
 };
 use hamlet_core::agents::{Citizen, Left, Settlement};
-use hamlet_core::awake::KeepAwake;
 use hamlet_core::core::HomeDir;
+use hamlet_desktop::awake::KeepAwake;
 use hamlet_world::chief;
 use hamlet_world::pick::{Selected, Thing, select};
 use hamlet_world::sky::Quality;

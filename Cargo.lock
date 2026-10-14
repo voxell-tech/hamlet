@@ -3319,6 +3319,7 @@ dependencies = [
  "bevy_fynix",
  "hamlet_assets",
  "hamlet_core",
+ "hamlet_desktop",
  "hamlet_home",
  "hamlet_model",
  "hamlet_rules",
@@ -3356,6 +3357,21 @@ dependencies = [
  "regex",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "hamlet_desktop"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_core",
+ "hamlet_testing",
+ "objc2 0.5.2",
+ "objc2-app-kit 0.2.2",
+ "objc2-foundation 0.2.2",
+ "rfd",
+ "tokio",
+ "winit",
 ]
 
 [[package]]
@@ -3427,23 +3443,19 @@ dependencies = [
  "chrono",
  "hamlet_assets",
  "hamlet_core",
+ "hamlet_desktop",
  "hamlet_home",
  "hamlet_model",
  "hamlet_rules",
  "hamlet_testing",
  "hamlet_world",
  "image",
- "objc2 0.5.2",
- "objc2-app-kit 0.2.2",
- "objc2-foundation 0.2.2",
  "pulldown-cmark",
  "reqwest",
- "rfd",
  "serde",
  "serde_json",
  "tokio",
  "toml",
- "winit",
 ]
 
 [[package]]

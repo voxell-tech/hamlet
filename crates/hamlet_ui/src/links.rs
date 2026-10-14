@@ -1,8 +1,6 @@
 //! The links in the chat (docs/chat.md): the place each leads, the
 //! folders a path is looked for in, and the click that follows one.
 
-pub(crate) mod open;
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -22,6 +20,7 @@ use bevy::picking::events::{Click, Out, Over, Pointer, Press};
 use bevy::picking::pointer::PointerButton;
 use hamlet_core::core::HomeDir;
 use hamlet_core::session::{self, JobFinished, Seat};
+use hamlet_desktop::open;
 use hamlet_home::Home;
 use hamlet_rules::hamlet::Hamlet;
 use hamlet_world::sound::{Cue, Sound};

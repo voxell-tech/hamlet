@@ -16,7 +16,7 @@ const RUNS: [&str; 34] = [
 
 /// The way a file is shown.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Way {
+pub enum Way {
     /// By the program the system keeps for its kind.
     Open,
     /// In its folder, unopened.
@@ -35,10 +35,7 @@ fn expand(written: &str) -> PathBuf {
 /// it followed: itself, or the first of it under `roots`. Nothing if
 /// it is not there or lies outside every one of `roots`, which have
 /// their own links followed already.
-pub(crate) fn locate(
-    written: &str,
-    roots: &[PathBuf],
-) -> Option<PathBuf> {
+pub fn locate(written: &str, roots: &[PathBuf]) -> Option<PathBuf> {
     let written = expand(written);
     let tries = if written.is_absolute() {
         vec![written]
@@ -66,7 +63,7 @@ fn executable(_: &Path) -> bool {
 
 /// The way `path` is shown: a file the system would run is only
 /// revealed.
-pub(crate) fn way(path: &Path) -> Way {
+pub fn way(path: &Path) -> Way {
     let listed = path
         .extension()
         .and_then(|ending| ending.to_str())
@@ -112,7 +109,7 @@ fn program(path: &Path, way: Way) -> Command {
 
 /// Shows the file `path` if it is still under `roots`. False when it
 /// is not, or nothing could show it.
-pub(crate) fn show(path: &Path, roots: &[PathBuf]) -> bool {
+pub fn show(path: &Path, roots: &[PathBuf]) -> bool {
     let Some(path) =
         path.to_str().and_then(|path| locate(path, roots))
     else {
@@ -122,7 +119,7 @@ pub(crate) fn show(path: &Path, roots: &[PathBuf]) -> bool {
 }
 
 /// Opens `address` in the chief's browser or mail program.
-pub(crate) fn browse(address: &str) -> bool {
+pub fn browse(address: &str) -> bool {
     let mut open = if cfg!(target_os = "macos") {
         Command::new("open")
     } else if cfg!(target_os = "windows") {
@@ -144,7 +141,7 @@ mod tests {
     fn a_path_is_found_only_inside_its_roots() {
         use std::os::unix::fs::{PermissionsExt, symlink};
 
-        let all = hamlet_testing::Scratch::new("links-open");
+        let all = hamlet_testing::Scratch::new("desktop-open");
         let (project, house) =
             (all.join("project"), all.join("house"));
         std::fs::create_dir_all(project.join("src")).unwrap();

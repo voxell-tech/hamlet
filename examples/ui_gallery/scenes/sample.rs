@@ -136,7 +136,7 @@ pub(super) fn setup(world: &mut World) {
             error: None,
         });
         world.init_resource::<welcome::Committing>();
-        world.init_resource::<hamlet_core::awake::KeepAwake>();
+        world.init_resource::<hamlet_desktop::awake::KeepAwake>();
         world.init_resource::<hamlet_world::sky::Quality>();
     }
     if scene == Scene::Charter {

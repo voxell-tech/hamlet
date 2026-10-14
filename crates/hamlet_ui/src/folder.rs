@@ -2,13 +2,12 @@
 //! dialog to choose one, the way to stop, and the switch between
 //! manual and auto.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use bevy::app::{App, Update};
+use bevy::app::App;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
-use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Commands, NonSendMarker, Res, ResMut};
+use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
 use bevy_fynix::views::{
@@ -16,13 +15,10 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_core::agents::{Settlement, Works};
-use hamlet_core::core::Tokio;
+use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_rules::work::{Mode, Work};
 use hamlet_world::pick::{Thing, select};
 use hamlet_world::works::Switched;
-use tokio::sync::mpsc::{
-    UnboundedReceiver, UnboundedSender, unbounded_channel,
-};
 
 use crate::View;
 use crate::feel::Mood;
@@ -34,37 +30,8 @@ use crate::roll::hamlets_moved;
 /// The most earlier folders offered again.
 const EARLIER: usize = 3;
 
-/// The hamlet a folder was chosen for, and the folder. None when the
-/// dialog was closed with nothing chosen.
-type Chosen = (Entity, Option<PathBuf>);
-
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Picker>()
-        .add_observer(switched)
-        .add_systems(Update, (open, take));
-}
-
-/// The dialog a folder is chosen in.
-#[derive(Resource)]
-pub(crate) struct Picker {
-    /// The hamlet whose folder the chief asked to choose.
-    asked: Option<Entity>,
-    /// A dialog is open.
-    open: bool,
-    tx: UnboundedSender<Chosen>,
-    rx: UnboundedReceiver<Chosen>,
-}
-
-impl Default for Picker {
-    fn default() -> Self {
-        let (tx, rx) = unbounded_channel();
-        Picker {
-            asked: None,
-            open: false,
-            tx,
-            rx,
-        }
-    }
+    app.add_observer(switched).add_observer(chosen);
 }
 
 /// A press on a hamlet's clockwork switches its mode. With no folder
@@ -88,43 +55,12 @@ fn switched(switched: On<Switched>, mut commands: Commands) {
     });
 }
 
-/// Opens the system's folder dialog for the hamlet that asked. The
-/// marker keeps this on the main thread, where macOS wants a dialog
-/// begun.
-fn open(
-    _main: NonSendMarker,
-    mut picker: ResMut<Picker>,
-    tokio: Option<Res<Tokio>>,
-) {
-    if picker.open {
-        picker.asked = None;
-        return;
-    }
-    let (Some(hamlet), Some(tokio)) = (picker.asked.take(), tokio)
-    else {
-        return;
-    };
-    picker.open = true;
-    let chosen = rfd::AsyncFileDialog::new()
-        .set_title("Choose the folder this hamlet works on")
-        .pick_folder();
-    let tx = picker.tx.clone();
-    tokio.0.spawn(async move {
-        let folder = chosen.await.map(|f| f.path().to_path_buf());
-        let _ = tx.send((hamlet, folder));
-    });
-}
-
 /// Points the hamlet at the folder its dialog gave.
-fn take(mut picker: ResMut<Picker>, mut commands: Commands) {
-    while let Ok((hamlet, folder)) = picker.rx.try_recv() {
-        picker.open = false;
-        if let Some(folder) = folder {
-            commands.queue(move |world: &mut World| {
-                work_on(world, hamlet, &folder)
-            });
-        }
-    }
+fn chosen(chosen: On<FolderChosen>, mut commands: Commands) {
+    let FolderChosen { asker, folder } = chosen.event().clone();
+    commands.queue(move |world: &mut World| {
+        work_on(world, asker, &folder)
+    });
 }
 
 fn work_on(world: &mut World, hamlet: Entity, folder: &Path) {
@@ -161,7 +97,11 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                 None => "CHOOSE A FOLDER",
             },
             move |world| {
-                world.resource_mut::<Picker>().asked = Some(hamlet);
+                world.trigger(ChooseFolder {
+                    asker: hamlet,
+                    title: "Choose the folder this hamlet works on"
+                        .into(),
+                });
             },
         );
         let mut parts =

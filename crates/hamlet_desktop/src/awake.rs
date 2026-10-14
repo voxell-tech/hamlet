@@ -2,12 +2,11 @@
 
 use std::process::{Child, Command, Stdio};
 
-use bevy_app::{App, Update};
-use bevy_ecs::query::With;
-use bevy_ecs::resource::Resource;
-use bevy_ecs::system::{Local, Query, Res, ResMut};
-
-use crate::agents::Busy;
+use bevy::app::{App, Update};
+use bevy::ecs::query::With;
+use bevy::ecs::resource::Resource;
+use bevy::ecs::system::{Local, Query, Res, ResMut};
+use hamlet_core::agents::Busy;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<KeepAwake>()

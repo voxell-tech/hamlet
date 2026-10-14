@@ -1,0 +1,26 @@
+[package]
+name = "hamlet_desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder dialog and the app's icon"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_core.workspace = true
+bevy.workspace = true
+rfd.workspace = true
+tokio.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+winit.workspace = true
+
+[dev-dependencies]
+hamlet_testing.workspace = true
