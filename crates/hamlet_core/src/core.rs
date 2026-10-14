@@ -20,6 +20,7 @@ use tokio::sync::mpsc::{
 };
 
 use crate::agents::AgentsPlugin;
+use crate::awake;
 
 /// An endpoint's name, whether it is on this machine, and its
 /// models.
@@ -95,9 +96,12 @@ impl Plugin for CorePlugin {
                     poll_lists.run_if(answered::<ListResult>),
                 ),
             );
-        app.add_plugins(AgentsPlugin {
-            home: self.home.root.clone(),
-        });
+        app.add_plugins((
+            AgentsPlugin {
+                home: self.home.root.clone(),
+            },
+            awake::plugin,
+        ));
     }
 }
 

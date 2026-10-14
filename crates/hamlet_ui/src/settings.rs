@@ -16,6 +16,7 @@ use bevy_fynix::views::{
     number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use hamlet_core::awake::KeepAwake;
 use hamlet_core::core::{HomeDir, SaveSettings, Settings};
 use hamlet_core::oversight::Revoke;
 use hamlet_core::oversight::grants::Grants;
@@ -24,7 +25,6 @@ use hamlet_model::config::Config;
 use hamlet_world::sky::Quality;
 use hamlet_world::sound::SoundSettings;
 
-use crate::awake::KeepAwake;
 use crate::icons::Glyph;
 use crate::looks::{
     Fills, ICON, action, bad_action, bare, buttons, doors, hairline,

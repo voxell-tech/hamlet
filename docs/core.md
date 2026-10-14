@@ -14,9 +14,11 @@ them. This is about `hamlet_core`, the runtime.
 | `session` | A conversation as an entity, and the worker that owns its agent |
 | `oversight` | What waits for a chief |
 | `terminal` | The terminal channel |
+| `awake` | Keeps the machine awake while an agent works |
 
-A module uses only those above it. `CorePlugin` adds `AgentsPlugin`, so
-`core` and `agents` know each other.
+A module uses only those above it. `CorePlugin` adds `AgentsPlugin` and
+`awake::plugin`, so `core` and `agents` know each other, and `core` knows
+`awake`.
 
 ## A typed line
 

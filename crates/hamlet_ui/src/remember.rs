@@ -19,6 +19,7 @@ use bevy_fynix::dock::{
     DockTree, NodeId, SplitAxis,
 };
 use hamlet_core::agents::{Citizen, Left, Settlement};
+use hamlet_core::awake::KeepAwake;
 use hamlet_core::core::HomeDir;
 use hamlet_world::chief;
 use hamlet_world::pick::{Selected, Thing, select};
@@ -26,7 +27,6 @@ use hamlet_world::sky::Quality;
 use hamlet_world::sound::SoundSettings;
 use serde::{Deserialize, Serialize};
 
-use crate::awake::KeepAwake;
 use crate::me::Me;
 use crate::roll::Roll;
 use crate::theme::HamletTheme;

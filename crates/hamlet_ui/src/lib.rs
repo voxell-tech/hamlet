@@ -2,7 +2,6 @@
 //! core's app.
 
 mod app_icon;
-pub mod awake;
 pub mod chat;
 mod chief;
 pub mod chrome;
@@ -122,7 +121,6 @@ impl Plugin for UiPlugin {
                 status::plugin,
                 remember::plugin,
                 app_icon::plugin,
-                awake::plugin,
             ),
             (
                 inspector::plugin,
