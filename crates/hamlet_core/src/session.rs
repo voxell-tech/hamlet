@@ -240,6 +240,24 @@ fn place(
     Ok((seat, house, path))
 }
 
+/// The house of whoever sits at `seat` in `home`, and the home
+/// itself when nobody does: the first mayor's house is the home.
+pub fn house_at(home: &Home, seat: Option<&Seat>) -> Home {
+    let root = seat.and_then(|seat| {
+        Hamlet::at(&home.root, &seat.hamlet).house_dir(&seat.name)
+    });
+    match root {
+        Some(root) => Home {
+            workspace: root.join("workspace"),
+            root,
+        },
+        None => Home {
+            root: home.root.clone(),
+            workspace: home.workspace.clone(),
+        },
+    }
+}
+
 /// The house of whoever sits at `seat`.
 fn house_of(world: &World, seat: &Seat) -> Result<Home> {
     let home = &world.resource::<HomeDir>().0;

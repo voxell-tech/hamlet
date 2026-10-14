@@ -21,12 +21,11 @@ use bevy::ecs::world::World;
 use bevy::picking::events::{Click, Out, Over, Pointer, Press};
 use bevy::picking::pointer::PointerButton;
 use hamlet_core::core::HomeDir;
-use hamlet_core::session::{JobFinished, Seat};
+use hamlet_core::session::{self, JobFinished, Seat};
 use hamlet_home::Home;
 use hamlet_rules::hamlet::Hamlet;
 use hamlet_world::sound::{Cue, Sound};
 
-use crate::inspector::house_of;
 use crate::me::Me;
 use crate::roll::Roll;
 use crate::sounds;
@@ -92,7 +91,7 @@ impl Roots {
             Some(seat) => Hamlet::at(&home.root, &seat.hamlet),
             None => Hamlet::new(home.root.clone()),
         };
-        let house = house_of(home, seat);
+        let house = session::house_at(home, seat);
         Roots {
             of: Some(session),
             ..Roots::new(

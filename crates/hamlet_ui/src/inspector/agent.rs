@@ -14,7 +14,8 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_core::agents::{
-    Account, Activity, Busy, Doing, LivesIn, Paper, Purpose, Treasury,
+    self, Account, Activity, Busy, Doing, LivesIn, Paper, Purpose,
+    Treasury,
 };
 use hamlet_core::core::RefreshLists;
 use hamlet_core::session::{self, Seat};
@@ -259,8 +260,8 @@ fn notes() -> impl View {
 /// Opens the selected agent's character in the program the system
 /// keeps for such a file, made empty if there is none yet.
 fn edit_character(world: &mut World) {
-    let file = super::papers::house(world).character();
-    if file.exists() || std::fs::write(&file, "").is_ok() {
+    let house = super::papers::house(world);
+    if let Ok(file) = agents::papers::character_file(&house) {
         crate::links::open_file(&file);
     }
 }

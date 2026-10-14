@@ -2,6 +2,7 @@
 //! in step with the records on disk by [`sync()`] and [`account`].
 
 mod activity;
+pub mod papers;
 mod roster;
 mod sync;
 

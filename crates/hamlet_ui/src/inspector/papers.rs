@@ -1,16 +1,14 @@
 //! The notes, the character and the skills an agent keeps in its
 //! house, read for its pages.
 
-use std::path::PathBuf;
-
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
+use hamlet_core::agents;
 use hamlet_core::core::HomeDir;
-use hamlet_core::session::{JobFinished, Seat};
+use hamlet_core::session::{self, JobFinished, Seat};
 use hamlet_home::Home;
-use hamlet_rules::hamlet::Hamlet;
 
 use crate::me::Me;
 
@@ -21,25 +19,7 @@ const NOTES_SHOWN: usize = 6000;
 pub(crate) fn house(world: &World) -> Home {
     let home = &world.resource::<HomeDir>().0;
     let me = world.resource::<Me>();
-    house_of(home, world.get::<Seat>(me.session))
-}
-
-/// The house of whoever sits at `seat` in `home`.
-pub(crate) fn house_of(home: &Home, seat: Option<&Seat>) -> Home {
-    let root = seat.and_then(|seat| {
-        Hamlet::at(&home.root, &seat.hamlet).house_dir(&seat.name)
-    });
-    match root {
-        Some(root) => Home {
-            workspace: root.join("workspace"),
-            root,
-        },
-        // The first mayor's house is the home itself.
-        None => Home {
-            root: home.root.clone(),
-            workspace: home.workspace.clone(),
-        },
-    }
+    session::house_at(home, world.get::<Seat>(me.session))
 }
 
 /// The notes, the character and the skills the selected agent keeps
@@ -61,23 +41,15 @@ fn read_papers(
     let Some(home) = home else {
         return;
     };
-    let house = house_of(&home.0, seats.get(me.session).ok());
-    let shown = |file: PathBuf| {
-        std::fs::read_to_string(file)
-            .unwrap_or_default()
-            .trim()
-            .chars()
-            .take(NOTES_SHOWN)
-            .collect::<String>()
-    };
+    let house =
+        session::house_at(&home.0, seats.get(me.session).ok());
+    let kept = agents::papers::Papers::read(&house);
+    let shown =
+        |text: String| text.chars().take(NOTES_SHOWN).collect();
     let now = Papers {
-        notes: shown(house.notes()),
-        character: shown(house.character()),
-        skills: house
-            .skill_index()
-            .into_iter()
-            .map(|skill| (skill.name, skill.description))
-            .collect(),
+        notes: shown(kept.notes),
+        character: shown(kept.character),
+        skills: kept.skills,
     };
     if **papers != now {
         **papers = now;
