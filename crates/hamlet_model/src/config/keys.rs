@@ -2,11 +2,28 @@
 //! keychain when one is there, in a private file of the home
 //! otherwise.
 
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::Result;
 
 const KEYCHAIN_SERVICE: &str = "hamlet";
+
+/// The secrets read or kept this run, by the file each would be
+/// kept in. The keychain may ask the chief for a password at each
+/// read, so each secret is read from it once.
+static KNOWN: Mutex<BTreeMap<PathBuf, String>> =
+    Mutex::new(BTreeMap::new());
+
+/// Remembers `secret` as the one kept in `file`, or that none is.
+fn know(file: PathBuf, secret: Option<&str>) {
+    let mut known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
+    match secret {
+        Some(secret) => known.insert(file, secret.to_string()),
+        None => known.remove(&file),
+    };
+}
 
 /// The name the key of `endpoint` is kept under.
 fn key_name(endpoint: &str) -> String {
@@ -31,15 +48,27 @@ pub(super) fn save_key(
 /// The secret kept under `name`, in the keychain or in the file of
 /// that name in the home.
 pub(crate) fn load_secret(home: &Path, name: &str) -> Option<String> {
+    let file = home.join(name);
+    let known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(secret) = known.get(&file) {
+        return Some(secret.clone());
+    }
+    drop(known);
     let read = keyring::Entry::new(KEYCHAIN_SERVICE, name)
         .and_then(|e| e.get_password());
-    match read {
+    let secret = match read {
         Ok(k) if !k.is_empty() => Some(k),
-        _ => std::fs::read_to_string(home.join(name))
+        _ => std::fs::read_to_string(&file)
             .ok()
             .map(|k| k.trim().to_string())
             .filter(|k| !k.is_empty()),
+    };
+    // One not found is looked for again, as finding none asks for
+    // no password.
+    if let Some(secret) = &secret {
+        know(file, Some(secret));
     }
+    secret
 }
 
 /// Keeps `secret` under `name`, or forgets the one kept there.
@@ -51,6 +80,7 @@ pub(crate) fn save_secret(
     let entry = keyring::Entry::new(KEYCHAIN_SERVICE, name);
     let file = home.join(name);
     let Some(secret) = secret.filter(|k| !k.is_empty()) else {
+        know(file.clone(), None);
         if let Ok(e) = entry {
             let _ = e.delete_credential();
         }
@@ -58,10 +88,12 @@ pub(crate) fn save_secret(
         return Ok(());
     };
     if entry.and_then(|e| e.set_password(secret)).is_ok() {
-        let _ = std::fs::remove_file(file);
-        return Ok(());
+        let _ = std::fs::remove_file(&file);
+    } else {
+        write_private(&file, secret)?;
     }
-    write_private(&file, secret)
+    know(file, Some(secret));
+    Ok(())
 }
 
 fn write_private(path: &Path, contents: &str) -> Result<()> {
