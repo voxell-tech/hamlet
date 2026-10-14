@@ -7,6 +7,7 @@ use bevy_fynix::views::{
     row, scroll, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use hamlet_core::core::SignIn;
 
 use super::providers::PROVIDERS;
 use super::{
@@ -113,7 +114,15 @@ fn choice(adding: bool) -> AnyView {
             "SIGN IN WITH OPENROUTER",
             "The quickest way. You sign in with your browser and \
              pay OpenRouter for what you use.",
-            sign_in,
+            |world| sign_in(world, SignIn::OpenRouter),
+        ),
+        door(
+            Glyph::Talk,
+            "CONTINUE WITH CHATGPT",
+            "Use your ChatGPT plan, with no key. You sign in with \
+             your browser, and what your hamlet does counts toward \
+             your plan's usage.",
+            |world| sign_in(world, SignIn::ChatGpt),
         ),
         door(
             Glyph::Globe,
@@ -234,12 +243,25 @@ fn key() -> AnyView {
 
 /// The page shown while the chief approves in the browser.
 fn signing_in() -> AnyView {
+    let asked = keyed(
+        resource::<Welcome, _>(|welcome| welcome.signing),
+        |to| match to {
+            Some(SignIn::ChatGpt) => said(
+                "Sign in to ChatGPT in your browser and allow \
+                 Hamlet to use your plan. Hamlet carries on once \
+                 you have.",
+            ),
+            _ => said(
+                "Sign in to OpenRouter in your browser and choose \
+                 Authorize. Hamlet carries on once you have.",
+            ),
+        },
+    )
+    .within(bare());
     column((
         head(Glyph::Signal, "SIGN IN"),
-        said(
-            "Sign in to OpenRouter in your browser and choose \
-             Authorize. Hamlet carries on once you have.",
-        ),
+        asked,
+        news("Asking for its models..."),
         note(
             "Nothing opened? Go back and choose I Have a Key \
              instead.",
@@ -295,7 +317,7 @@ fn models() -> AnyView {
     .within(bare());
     AnyView::new(move |cx: &mut Cx| {
         let welcome = cx.world.resource::<Welcome>();
-        let found = format!(
+        let mut found = format!(
             "{} answered with {} {}. Pick the one your hamlet will \
              think with.",
             welcome.from,
@@ -306,6 +328,14 @@ fn models() -> AnyView {
                 "models"
             }
         );
+        if welcome.asked.as_ref().is_some_and(|at| at.chatgpt) {
+            found.push_str(&format!(
+                " You're using your ChatGPT plan: its models count \
+                 toward the plan's usage, which you can manage at \
+                 {}.",
+                hamlet_model::chatgpt::USAGE
+            ));
+        }
         cx.build(
             column((
                 head(Glyph::Check, "PICK A MODEL"),

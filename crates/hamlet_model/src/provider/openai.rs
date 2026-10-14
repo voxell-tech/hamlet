@@ -1,6 +1,7 @@
 //! The client for servers that speak the OpenAI chat protocol, and
 //! the endpoints of a home.
 
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
@@ -9,26 +10,27 @@ use futures::future::BoxFuture;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
+use super::responses::ChatGpt;
 use super::stream::{LineSplitter, StreamAcc};
 use super::{CallRecord, Completion, Delta, Provider};
 use crate::config::{Config, host};
 
 /// The wait for a server to take the connection.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+pub(super) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The waits before the further tries of a call that another try may
 /// mend: a server that cannot be reached, is busy or failed.
-const RETRY_WAITS: [Duration; 3] = [
+pub(super) const RETRY_WAITS: [Duration; 3] = [
     Duration::from_secs(1),
     Duration::from_secs(2),
     Duration::from_secs(4),
 ];
 
 /// The longest wait a server may ask for before another try.
-const RETRY_LONGEST: Duration = Duration::from_secs(30);
+pub(super) const RETRY_LONGEST: Duration = Duration::from_secs(30);
 
 /// The most of a server's error text that is shown, in characters.
-const ERROR_SHOWN: usize = 500;
+pub(super) const ERROR_SHOWN: usize = 500;
 
 /// Client for any OpenAI Chat Completions compatible endpoint
 /// (Ollama, DeepSeek, ...).
@@ -197,22 +199,22 @@ impl OpenAiCompat {
 }
 
 /// A try that failed.
-struct Failed {
-    error: anyhow::Error,
+pub(super) struct Failed {
+    pub(super) error: anyhow::Error,
     /// Another try may mend it, after the wait the server asked for
     /// where it asked for one.
-    again: Option<Option<Duration>>,
+    pub(super) again: Option<Option<Duration>>,
 }
 
 impl Failed {
-    fn passing(error: anyhow::Error) -> Self {
+    pub(super) fn passing(error: anyhow::Error) -> Self {
         Failed {
             error,
             again: Some(None),
         }
     }
 
-    fn last(error: anyhow::Error) -> Self {
+    pub(super) fn last(error: anyhow::Error) -> Self {
         Failed { error, again: None }
     }
 }
@@ -229,22 +231,37 @@ impl Provider for OpenAiCompat {
     }
 }
 
+/// The client of one endpoint.
+enum Client {
+    Chat(OpenAiCompat),
+    ChatGpt(ChatGpt),
+}
+
 /// Every endpoint of a home. A model is run where its name says:
 /// `far::large` on the endpoint `far`.
 pub struct Endpoints {
-    all: Vec<(String, OpenAiCompat)>,
+    all: Vec<(String, Client)>,
     /// The model that runs where nobody chose one.
     model: String,
 }
 
 impl Endpoints {
-    pub fn new(config: &Config) -> Self {
+    /// The endpoints of `config`, those on a ChatGPT plan signed in
+    /// to with the sign-in kept in `home`.
+    pub fn new(config: &Config, home: &Path) -> Self {
         let all = config.endpoints.iter().map(|endpoint| {
-            let client = OpenAiCompat::new(
-                endpoint.base_url.clone(),
-                endpoint.api_key.clone(),
-                String::new(),
-            );
+            let base_url = endpoint.base_url.clone();
+            let client = match endpoint.chatgpt {
+                true => Client::ChatGpt(ChatGpt::new(
+                    base_url,
+                    home.to_path_buf(),
+                )),
+                false => Client::Chat(OpenAiCompat::new(
+                    base_url,
+                    endpoint.api_key.clone(),
+                    String::new(),
+                )),
+            };
             (endpoint.name.clone(), client)
         });
         Endpoints {
@@ -258,7 +275,7 @@ impl Endpoints {
     fn route<'a>(
         &'a self,
         name: &'a str,
-    ) -> Result<(&'a OpenAiCompat, &'a str)> {
+    ) -> Result<(&'a Client, &'a str)> {
         let (endpoint, id) = crate::catalogue::parts(name)
             .with_context(|| {
                 format!(
@@ -290,9 +307,16 @@ impl Provider for Endpoints {
         Box::pin(async move {
             let name = model.unwrap_or(&self.model);
             let (client, id) = self.route(name)?;
-            let mut done = client
-                .run(messages, tools, Some(id), on_delta)
-                .await?;
+            let mut done = match client {
+                Client::Chat(client) => {
+                    client
+                        .run(messages, tools, Some(id), on_delta)
+                        .await?
+                }
+                Client::ChatGpt(client) => {
+                    client.run(messages, tools, id, on_delta).await?
+                }
+            };
             // The records name a model as the home does.
             done.call.model = name.to_string();
             Ok(done)
@@ -307,17 +331,24 @@ mod tests {
     #[test]
     fn a_model_is_run_where_its_name_says() {
         use crate::config::Endpoint;
-        let all = Endpoints::new(&Config {
-            endpoints: vec![Endpoint {
-                name: "far".into(),
-                base_url: "https://far/v1/".into(),
-                api_key: None,
-            }],
-            ..Config::default()
-        });
+        let all = Endpoints::new(
+            &Config {
+                endpoints: vec![Endpoint {
+                    name: "far".into(),
+                    base_url: "https://far/v1/".into(),
+                    ..Endpoint::default()
+                }],
+                ..Config::default()
+            },
+            Path::new("home"),
+        );
         let at = |model| {
-            all.route(model)
-                .map(|(client, id)| (&*client.base_url, id))
+            all.route(model).map(|(client, id)| match client {
+                Client::Chat(client) => (&*client.base_url, id),
+                Client::ChatGpt(_) => {
+                    unreachable!("none is signed in")
+                }
+            })
         };
         assert_eq!(
             at("far::org/large").unwrap(),

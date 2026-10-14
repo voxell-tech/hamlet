@@ -155,13 +155,17 @@ pub(crate) fn read_list(body: &Value) -> Vec<Listed> {
             .or_else(|| v.as_str()?.trim().parse::<f64>().ok())
     };
     // Most answer with `data`, a few with `models` or a bare list,
-    // and a few name a model by `name` or `model`.
+    // and a few name a model by `slug`, `name` or `model`.
     let models = [&body["data"], &body["models"], body]
         .into_iter()
         .find_map(Value::as_array);
     let mut listed = models
         .into_iter()
         .flatten()
+        // A ChatGPT plan lists models it keeps from pickers too.
+        .filter(|m| {
+            m["visibility"].as_str().is_none_or(|v| v == "list")
+        })
         .filter_map(|m| {
             let per_token = |key: &str| {
                 number(&m["pricing"][key]).filter(|p| *p >= 0.0)
@@ -169,7 +173,7 @@ pub(crate) fn read_list(body: &Value) -> Vec<Listed> {
             let price =
                 per_token("prompt").zip(per_token("completion"));
             Some(Listed {
-                id: ["id", "name", "model"]
+                id: ["id", "slug", "name", "model"]
                     .into_iter()
                     .find_map(|key| m[key].as_str())?
                     .to_string(),
@@ -356,6 +360,11 @@ mod tests {
         assert_eq!(read_list(&bare)[0].id, "tiny");
         let other = json!({"models": [{"model": "tiny"}]});
         assert_eq!(read_list(&other)[0].id, "tiny");
+        // A ChatGPT plan's, with a model kept from pickers.
+        let plan = json!({"models": [{"slug": "shown", "visibility": "list"},
+            {"slug": "kept", "visibility": "hide"}]});
+        let shown = read_list(&plan);
+        assert_eq!((shown.len(), &*shown[0].id), (1, "shown"));
     }
 
     #[test]

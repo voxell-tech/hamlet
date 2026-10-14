@@ -2,6 +2,7 @@
 //! client and the session log.
 
 pub mod catalogue;
+pub mod chatgpt;
 pub mod config;
 pub mod log;
 pub mod provider;

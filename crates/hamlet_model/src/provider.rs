@@ -2,12 +2,14 @@
 
 mod openai;
 mod replay;
+mod responses;
 mod stream;
 
 use anyhow::Result;
 use futures::future::BoxFuture;
 pub use openai::{Endpoints, OpenAiCompat};
 pub use replay::Replay;
+pub use responses::ChatGpt;
 use serde_json::Value;
 
 /// A piece of streamed output.
@@ -40,17 +42,25 @@ pub struct CallRecord {
 
 impl CallRecord {
     /// Fills the counts from a usage object in any of the shapes
-    /// providers use.
+    /// providers use, of the chat protocol or of the Responses API.
     fn read_usage(&mut self, usage: &Value) {
         let n = |v: &Value| v.as_u64();
-        self.input_tokens = n(&usage["prompt_tokens"]);
-        self.output_tokens = n(&usage["completion_tokens"]);
+        self.input_tokens = n(&usage["prompt_tokens"])
+            .or_else(|| n(&usage["input_tokens"]));
+        self.output_tokens = n(&usage["completion_tokens"])
+            .or_else(|| n(&usage["output_tokens"]));
         self.cached_input_tokens =
             n(&usage["prompt_tokens_details"]["cached_tokens"])
-                .or_else(|| n(&usage["prompt_cache_hit_tokens"]));
+                .or_else(|| n(&usage["prompt_cache_hit_tokens"]))
+                .or_else(|| {
+                    n(&usage["input_tokens_details"]["cached_tokens"])
+                });
         self.reasoning_tokens =
             n(&usage["completion_tokens_details"]
-                ["reasoning_tokens"]);
+                ["reasoning_tokens"])
+            .or_else(|| {
+                n(&usage["output_tokens_details"]["reasoning_tokens"])
+            });
         self.billed_cost = usage["cost"].as_f64();
         self.usage_raw = Some(usage.clone());
     }

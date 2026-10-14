@@ -27,7 +27,7 @@ use hamlet_rules::chief::rulings::Choice;
 use hamlet_ui::history::{History, Past, Reading};
 use hamlet_ui::links::{Aimed, Roots};
 use hamlet_ui::{
-    Me, awake, chat, history, inspector, menu, overview, welcome,
+    Me, chat, history, inspector, menu, overview, welcome,
 };
 use hamlet_world::chief;
 use hamlet_world::pick::{Also, Selected, Thing};
@@ -122,6 +122,7 @@ pub(super) fn setup(world: &mut World) {
         config.endpoints.push(hamlet_model::config::Endpoint {
             name: "far".into(),
             base_url: "https://models.example/api/v1".into(),
+            chatgpt: false,
             api_key: Some("key".into()),
         });
         world.insert_resource(hamlet_ui::models::Shelf::of(shelf()));
@@ -131,7 +132,7 @@ pub(super) fn setup(world: &mut World) {
             error: None,
         });
         world.init_resource::<welcome::Committing>();
-        world.init_resource::<awake::KeepAwake>();
+        world.init_resource::<hamlet_core::awake::KeepAwake>();
         world.init_resource::<hamlet_world::sky::Quality>();
     }
     if scene == Scene::Charter {

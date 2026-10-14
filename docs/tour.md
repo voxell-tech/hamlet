@@ -99,6 +99,7 @@ Paths are under `crates/`.
 | Spending and limits | `hamlet_rules/src/budget/`, `hamlet_home/src/limits.rs` |
 | Models, their prices and who may run them | `hamlet_model/src/catalogue.rs`, `hamlet_rules/src/models.rs` |
 | The model client | `hamlet_model/src/provider/` |
+| Signing in with ChatGPT to run models on the chief's plan | `hamlet_model/src/chatgpt.rs`; its client, on the Responses API, in `hamlet_model/src/provider/responses.rs` |
 | Removing, merging, restoring an agent | `hamlet_rules/src/lifecycle.rs` |
 | Founding, naming, moving, closing a hamlet | `hamlet_rules/src/realm.rs` |
 | A starter skill | `hamlet_home/starters/<name>/SKILL.md` |

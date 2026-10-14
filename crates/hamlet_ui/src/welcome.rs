@@ -22,6 +22,7 @@ use hamlet_core::core::{
     Signing, TestConnection, Trial, TryModel,
 };
 use hamlet_model::catalogue::{self, Catalogue, Listed};
+use hamlet_model::chatgpt;
 use hamlet_model::config::{Config, Endpoint};
 
 pub use self::pages::view;
@@ -87,8 +88,8 @@ pub struct Welcome {
     trying: Option<Config>,
     /// Its answer is still awaited.
     pub asking: bool,
-    /// A sign-in in the browser is awaited.
-    signing: bool,
+    /// The sign-in in the browser that is awaited.
+    pub signing: Option<SignIn>,
     /// The server on this computer that is being tried.
     local: usize,
     /// The name of whoever answered, as the chief knows them, and
@@ -209,7 +210,7 @@ fn go(world: &mut World, step: Step) {
     let mut welcome = world.resource_mut::<Welcome>();
     welcome.step = step;
     welcome.asking = false;
-    welcome.signing = false;
+    welcome.signing = None;
     welcome.trying = None;
     welcome.problem = None;
     welcome.narrow.clear();
@@ -261,18 +262,20 @@ fn connect(world: &mut World) {
             .map_or(OTHER, |provider| provider.endpoint)
             .into(),
         base_url,
+        chatgpt: false,
         api_key: (!key.is_empty()).then_some(key),
     };
     let from = known.map_or("It", |provider| provider.name);
     ask(world, endpoint, from);
 }
 
-/// Sends the chief to OpenRouter in a browser, to come back with a
-/// key.
-fn sign_in(world: &mut World) {
+/// Sends the chief to sign in in a browser: to OpenRouter, to come
+/// back with a key, or to ChatGPT, to come back signed in to the
+/// plan.
+fn sign_in(world: &mut World, to: SignIn) {
     go(world, Step::SignIn);
-    world.resource_mut::<Welcome>().signing = true;
-    world.trigger(SignIn);
+    world.resource_mut::<Welcome>().signing = Some(to);
+    world.trigger(to);
 }
 
 /// Looks for a server on this computer, the first of the list
@@ -288,7 +291,10 @@ fn look(world: &mut World) {
 fn plainly(why: &str, tried: bool) -> String {
     let low = why.to_lowercase();
     let said = |status: u16| low.contains(&format!("http {status}"));
-    if said(401) || said(403) || low.contains("api key") {
+    // Its errors are written to be shown as they are.
+    if low.contains("chatgpt") {
+        why.chars().take(400).collect()
+    } else if said(401) || said(403) || low.contains("api key") {
         "That key was not accepted. Check that you copied all of it \
          and that it is still active."
             .into()
@@ -332,24 +338,37 @@ pub fn follow(
     mut welcome: ResMut<Welcome>,
     mut commands: Commands,
 ) {
-    if welcome.signing {
-        match &*signing {
-            Signing::Idle | Signing::Waiting => {}
+    if let Some(to) = welcome.signing {
+        match (&*signing, to) {
+            (Signing::Idle | Signing::Waiting, _) => {}
             // The key it gave is used as one that was typed.
-            Signing::Done(key) => {
-                welcome.signing = false;
+            (Signing::Done(key), SignIn::OpenRouter) => {
+                welcome.signing = None;
                 welcome.provider = OPENROUTER;
                 welcome.key.clone_from(key);
                 welcome.step = Step::Key;
                 commands.queue(connect);
             }
-            Signing::Failed(why) => {
-                welcome.signing = false;
+            (Signing::Done(_), SignIn::ChatGpt) => {
+                welcome.signing = None;
+                commands.queue(|world: &mut World| {
+                    ask(world, chatgpt::endpoint(), "ChatGPT")
+                });
+            }
+            (Signing::Failed(why), SignIn::OpenRouter) => {
+                welcome.signing = None;
                 welcome.step = Step::Key;
                 welcome.provider = OPENROUTER;
                 welcome.problem = Some(format!(
                     "Signing in did not finish ({why}). Try again, \
                      or make a key and paste it here."
+                ));
+            }
+            (Signing::Failed(why), SignIn::ChatGpt) => {
+                welcome.signing = None;
+                welcome.problem = Some(format!(
+                    "Signing in did not finish ({why}). Go back and \
+                     try again."
                 ));
             }
         }
@@ -426,14 +445,15 @@ pub fn follow(
 }
 
 /// Puts `endpoint` among those of `config` and returns the name it
-/// has there. One at the same address is given the key and keeps
-/// its name, and a name another has is numbered.
+/// has there. One at the same address, signed in to the same way, is
+/// given the key and keeps its name, and a name another has is
+/// numbered.
 fn settle(config: &mut Config, endpoint: Endpoint) -> String {
     let at = |url: &str| url.trim_end_matches('/').to_string();
-    let same = config
-        .endpoints
-        .iter_mut()
-        .find(|known| at(&known.base_url) == at(&endpoint.base_url));
+    let same = config.endpoints.iter_mut().find(|known| {
+        at(&known.base_url) == at(&endpoint.base_url)
+            && known.chatgpt == endpoint.chatgpt
+    });
     if let Some(known) = same {
         known.api_key = endpoint.api_key;
         return known.name.clone();
@@ -546,6 +566,7 @@ mod tests {
         let far = |key: &str| Endpoint {
             name: "local".into(),
             base_url: "https://far.example/v1/".into(),
+            chatgpt: false,
             api_key: Some(key.into()),
         };
         assert_eq!(settle(&mut config, far("first")), "local-2");

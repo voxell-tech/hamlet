@@ -1,6 +1,6 @@
 //! Settings in `<home>/config.toml`, and the tests of a connection.
 
-mod keys;
+pub(crate) mod keys;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -39,8 +39,25 @@ pub struct Endpoint {
     pub name: String,
     /// OpenAI-compatible, e.g. `http://localhost:11434/v1`.
     pub base_url: String,
+    /// Served on the chief's ChatGPT plan, by a sign-in in place of
+    /// a key.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub chatgpt: bool,
     #[serde(skip)]
     pub api_key: Option<String>,
+}
+
+impl Endpoint {
+    /// The key it is called with. For one on a ChatGPT plan, the
+    /// access token of the sign-in, renewed first when near its end.
+    pub async fn key(&self, home: &Path) -> Result<Option<String>> {
+        if self.chatgpt {
+            return crate::chatgpt::access_token(home)
+                .await
+                .map(Some);
+        }
+        Ok(self.api_key.clone())
+    }
 }
 
 /// True when `name` can be an endpoint's.
@@ -70,6 +87,7 @@ impl Default for Config {
             endpoints: vec![Endpoint {
                 name: "local".into(),
                 base_url: "http://localhost:11434/v1".into(),
+                chatgpt: false,
                 api_key: None,
             }],
         }
@@ -213,7 +231,10 @@ impl Config {
 
 /// Lists the models of the endpoint that serves the model nobody
 /// chose, by name, which also proves its URL and key work.
-pub async fn test_connection(c: &Config) -> Result<Vec<String>> {
+pub async fn test_connection(
+    c: &Config,
+    home: &Path,
+) -> Result<Vec<String>> {
     let endpoint = c.default_endpoint().with_context(|| {
         format!(
             "the default model `{}` names no endpoint the settings \
@@ -221,23 +242,26 @@ pub async fn test_connection(c: &Config) -> Result<Vec<String>> {
             c.model
         )
     })?;
-    let listed = crate::catalogue::list(
-        &endpoint.base_url,
-        endpoint.api_key.as_deref(),
-    )
-    .await?;
+    let key = endpoint.key(home).await?;
+    let listed =
+        crate::catalogue::list(&endpoint.base_url, key.as_deref())
+            .await;
+    let listed = match endpoint.chatgpt {
+        true => listed.context("ChatGPT did not list its models")?,
+        false => listed?,
+    };
     Ok(listed.into_iter().map(|model| model.id).collect())
 }
 
 /// Asks the model nobody chose for a word, which proves that it
 /// answers a chat.
-pub async fn try_model(c: &Config) -> Result<()> {
+pub async fn try_model(c: &Config, home: &Path) -> Result<()> {
     use crate::provider::Provider;
     let hello = [serde_json::json!({
         "role": "user",
         "content": "Say hello in one word.",
     })];
-    let endpoints = crate::provider::Endpoints::new(c);
+    let endpoints = crate::provider::Endpoints::new(c, home);
     let mut unheard = |_: crate::provider::Delta<'_>| {};
     let asked = endpoints.complete(&hello, &[], None, &mut unheard);
     tokio::time::timeout(ANSWER_WAIT, asked)

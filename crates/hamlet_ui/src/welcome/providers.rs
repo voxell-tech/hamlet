@@ -95,6 +95,7 @@ pub(super) fn served(local: &Provider) -> Endpoint {
     Endpoint {
         name: local.endpoint.into(),
         base_url: local.base_url.into(),
+        chatgpt: false,
         api_key: None,
     }
 }

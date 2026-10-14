@@ -10,9 +10,10 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_core::core::{
     HomeDir, ListModels, Listing, SaveSettings, Settings,
-    TestConnection,
+    TestConnection, Tokio,
 };
 use hamlet_model::catalogue::{Model, Priced};
+use hamlet_model::chatgpt;
 use hamlet_model::config::Config;
 
 use super::choice::{chooser, home_default};
@@ -45,9 +46,17 @@ fn change(
 fn remove(world: &mut World, name: &str) {
     let home = world.resource::<HomeDir>().0.root.clone();
     let mut config = world.resource::<Settings>().config.clone();
+    let signed_in = config.endpoint(name).is_some_and(|e| e.chatgpt);
     config.endpoints.retain(|endpoint| endpoint.name != name);
     save(world, config);
     Config::forget_key(&home, name);
+    if signed_in {
+        let tokio = world.resource::<Tokio>().0.clone();
+        // Signed out here even when OpenAI cannot be told.
+        tokio.spawn(async move {
+            let _ = chatgpt::sign_out(&home).await;
+        });
+    }
 }
 
 fn save(world: &mut World, config: Config) {
@@ -73,6 +82,7 @@ pub fn endpoints() -> impl View {
                         e.name.clone(),
                         e.base_url.clone(),
                         e.api_key.is_some(),
+                        e.chatgpt,
                     )
                 })
                 .collect::<Vec<_>>()
@@ -80,23 +90,39 @@ pub fn endpoints() -> impl View {
         |endpoints| {
             let rows = endpoints
                 .iter()
-                .map(|(name, base_url, keyed)| {
+                .map(|(name, base_url, keyed, plan)| {
                     let gone = name.clone();
-                    let key =
-                        if *keyed { "Key set" } else { "No key" };
+                    let key = match (*plan, *keyed) {
+                        (true, _) => "Using ChatGPT plan",
+                        (false, true) => "Key set",
+                        (false, false) => "No key",
+                    };
+                    let mut parts = vec![
+                        row((label(name.clone()).bold(true),))
+                            .fills_width()
+                            .boxed(),
+                        note(key).boxed(),
+                    ];
+                    if *plan {
+                        parts.push(action(
+                            Glyph::Meter,
+                            "MANAGE USAGE",
+                            |_| {
+                                crate::links::open::browse(
+                                    chatgpt::USAGE,
+                                );
+                            },
+                        ));
+                    }
+                    parts.push(bad_action(
+                        Glyph::Gone,
+                        "REMOVE",
+                        move |world| remove(world, &gone),
+                    ));
                     column((
-                        row((
-                            row((label(name.clone()).bold(true),))
-                                .fills_width(),
-                            note(key),
-                            bad_action(
-                                Glyph::Gone,
-                                "REMOVE",
-                                move |world| remove(world, &gone),
-                            ),
-                        ))
-                        .gap(12.0)
-                        .align(AlignItems::Center),
+                        row(parts)
+                            .gap(12.0)
+                            .align(AlignItems::Center),
                         note(base_url.clone()),
                     ))
                     .gap(2.0)

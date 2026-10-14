@@ -25,6 +25,7 @@ hamlet_ui = { path = "crates/hamlet_ui" }
 hamlet_testing = { path = "crates/hamlet_testing" }
 
 anyhow = "1"
+base64 = "0.22"
 bevy_app = { version = "0.19", default-features = false, features = ["std"] }
 bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
 bevy = { version = "0.19", default-features = false, features = ["2d", "3d", "ui", "mesh_picking", "default_platform", "bevy_audio", "bevy_dev_tools", "debug", "serialize"] }
@@ -40,6 +41,7 @@ process-wrap = { version = "10.0.1", features = ["tokio1"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
 rfd = "0.17"
+ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"

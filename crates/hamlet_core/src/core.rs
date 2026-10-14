@@ -2,6 +2,7 @@
 //! folder as resources, plus the events that change them.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -12,7 +13,7 @@ use hamlet_home::{Home, Skill};
 use hamlet_model::catalogue::{self, Catalogue, Listed};
 use hamlet_model::config::{self, Config};
 use hamlet_model::provider::{Endpoints, Provider, Replay};
-use hamlet_model::signin;
+use hamlet_model::{chatgpt, signin};
 use hamlet_sandbox::Sandbox;
 use serde_json::Value;
 use tokio::sync::mpsc::{
@@ -32,7 +33,7 @@ type Tested = Result<Vec<String>, String>;
 /// The outcome of a trial of the model.
 type Tried = Result<(), String>;
 
-/// The key a sign-in gave.
+/// The key, or the account's email, a sign-in gave.
 type SignedIn = Result<String, String>;
 
 /// The settings, the model, the sandbox and the home as resources,
@@ -52,7 +53,7 @@ impl Plugin for CorePlugin {
             Some(responses) => {
                 Arc::new(Replay::new(responses.clone()))
             }
-            None => provider_for(&self.config),
+            None => provider_for(&self.config, &self.home.root),
         };
         app.insert_resource(Tokio(self.tokio.clone()))
             .insert_resource(HomeDir(self.home.clone()))
@@ -125,8 +126,8 @@ pub struct Settings {
     pub error: Option<String>,
 }
 
-fn provider_for(c: &Config) -> Arc<dyn Provider> {
-    Arc::new(Endpoints::new(c))
+fn provider_for(c: &Config, home: &Path) -> Arc<dyn Provider> {
+    Arc::new(Endpoints::new(c, home))
 }
 
 /// The provider every job is handed, as the settings stand.
@@ -290,10 +291,15 @@ impl From<Tried> for Trial {
     }
 }
 
-/// Signs the chief in to OpenRouter in a browser, in the
-/// background; the key it gives lands in `Signing`.
-#[derive(Event)]
-pub struct SignIn;
+/// Signs the chief in in a browser, in the background; what it gives
+/// lands in `Signing`.
+#[derive(Event, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SignIn {
+    /// For a key to OpenRouter.
+    OpenRouter,
+    /// For the use of the chief's ChatGPT plan, kept in the home.
+    ChatGpt,
+}
 
 /// The state of the last sign-in.
 #[derive(Resource, Clone, Debug, PartialEq, Default)]
@@ -302,7 +308,8 @@ pub enum Signing {
     Idle,
     /// The browser is open and the chief has yet to approve.
     Waiting,
-    /// The key the chief was given.
+    /// The key the chief was given, or for ChatGPT the email of the
+    /// account.
     Done(String),
     Failed(String),
 }
@@ -334,20 +341,34 @@ fn browse(url: &str) -> std::io::Result<()> {
 }
 
 fn sign_in(
-    _: On<SignIn>,
+    to: On<SignIn>,
     tokio: Res<Tokio>,
+    home: Res<HomeDir>,
     mut sign_ins: ResMut<Rounds<SignedIn>>,
     mut signing: ResMut<Signing>,
 ) {
     *signing = Signing::Waiting;
+    let (to, home) = (*to.event(), home.0.root.clone());
     let tell = sign_ins.begin();
+    let browsed = |url: &str| {
+        browse(url).map_err(|e| {
+            anyhow::anyhow!("could not open the browser: {e}")
+        })
+    };
     tokio.0.spawn(async move {
         let went = async {
-            let begun = signin::begin().await?;
-            browse(&begun.url).map_err(|e| {
-                anyhow::anyhow!("could not open the browser: {e}")
-            })?;
-            begun.finish().await
+            match to {
+                SignIn::OpenRouter => {
+                    let begun = signin::begin().await?;
+                    browsed(&begun.url)?;
+                    begun.finish().await
+                }
+                SignIn::ChatGpt => {
+                    let begun = chatgpt::begin(&home).await?;
+                    browsed(&begun.url)?;
+                    begun.finish(&home).await
+                }
+            }
         }
         .await
         .map_err(|e| format!("{e:#}"));
@@ -365,7 +386,7 @@ fn save_settings(
     match config.save(&home.0.root) {
         Ok(()) => {
             if !model.replay {
-                model.provider = provider_for(&config);
+                model.provider = provider_for(&config, &home.0.root);
             }
             *settings = Settings {
                 config,
@@ -379,13 +400,15 @@ fn save_settings(
 fn test_connection(
     test: On<TestConnection>,
     tokio: Res<Tokio>,
+    home: Res<HomeDir>,
     mut tests: ResMut<Rounds<Tested>>,
     mut link: ResMut<Link>,
 ) {
     *link = Link::Testing;
     let (config, tell) = (test.event().0.clone(), tests.begin());
+    let home = home.0.root.clone();
     tokio.0.spawn(async move {
-        let found = config::test_connection(&config)
+        let found = config::test_connection(&config, &home)
             .await
             .map_err(|e| format!("{e:#}"));
         tell(found);
@@ -395,13 +418,15 @@ fn test_connection(
 fn try_model(
     asked: On<TryModel>,
     tokio: Res<Tokio>,
+    home: Res<HomeDir>,
     mut trials: ResMut<Rounds<Tried>>,
     mut trial: ResMut<Trial>,
 ) {
     *trial = Trial::Trying;
     let (config, tell) = (asked.event().0.clone(), trials.begin());
+    let home = home.0.root.clone();
     tokio.0.spawn(async move {
-        let went = config::try_model(&config)
+        let went = config::try_model(&config, &home)
             .await
             .map_err(|e| format!("{e:#}"));
         tell(went);
@@ -411,6 +436,7 @@ fn try_model(
 fn list_models(
     _: On<ListModels>,
     tokio: Res<Tokio>,
+    home: Res<HomeDir>,
     mut lists: ResMut<Rounds<ListResult>>,
     settings: Res<Settings>,
     mut listing: ResMut<Listing>,
@@ -420,19 +446,20 @@ fn list_models(
     listing.asking = 0;
     let tell = lists.begin();
     for endpoint in &settings.config.endpoints {
-        let (name, base_url, key) = (
-            endpoint.name.clone(),
-            endpoint.base_url.clone(),
-            endpoint.api_key.clone(),
-        );
+        let (endpoint, home) =
+            (endpoint.clone(), home.0.root.clone());
         listing.asking += 1;
         let tell = tell.clone();
         tokio.0.spawn(async move {
-            let listed = catalogue::list(&base_url, key.as_deref())
-                .await
-                .map_err(|e| format!("{e:#}"));
-            let local = catalogue::is_local(&base_url);
-            tell((name, local, listed));
+            let listed = async {
+                let key = endpoint.key(&home).await?;
+                catalogue::list(&endpoint.base_url, key.as_deref())
+                    .await
+            }
+            .await
+            .map_err(|e| format!("{e:#}"));
+            let local = catalogue::is_local(&endpoint.base_url);
+            tell((endpoint.name, local, listed));
         });
     }
 }

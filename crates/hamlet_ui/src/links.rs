@@ -1,7 +1,7 @@
 //! The links in the chat (docs/chat.md): the place each leads, the
 //! folders a path is looked for in, and the click that follows one.
 
-mod open;
+pub(crate) mod open;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
