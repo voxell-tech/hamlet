@@ -21,12 +21,13 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::{
-    Activity, Deeds, LivesIn, Settlement, Treasury,
+    Activity, Closed, Deeds, HOME, LivesIn, Settlement, Treasury,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_world::pick::{Thing, focus_on, select};
 
 pub use self::hamlet::{Naming, Page, hamlet};
+pub use self::record::Annals;
 use self::rows::{hamlet_rows, pressable};
 pub(crate) use self::rows::{stale, standing};
 use crate::icons::{Glyph, glyph};
@@ -37,7 +38,9 @@ use crate::platform::DisplayText;
 use crate::{AnyView, chat, tabs, world_menu};
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Search>()
+    app.add_plugins(record::plugin)
+        .init_resource::<Erasing>()
+        .init_resource::<Search>()
         .init_resource::<Naming>()
         .init_resource::<Page>()
         .add_systems(Startup, register)
@@ -182,7 +185,7 @@ pub fn overview() -> AnyView {
         label("Search by a hamlet's name or its mayor's.")
             .size(11.0)
             .tone(Tone::Dim),
-        scroll((list,)).fills_height(),
+        scroll((list, closed())).fills_height(),
         row((
             action(
                 Glyph::Hearth,
@@ -196,6 +199,132 @@ pub fn overview() -> AnyView {
     ))
     .fills_height()
     .gap(8.0)
+    .boxed()
+}
+
+#[derive(Resource, Default)]
+struct Erasing(Option<String>);
+
+fn closed() -> AnyView {
+    keyed(
+        derived(|world: &World| {
+            (
+                world.resource::<Closed>().0.clone(),
+                world.resource::<Deeds>().has("restore-hamlet"),
+                world.resource::<Deeds>().has("erase-hamlet"),
+                world.resource::<Erasing>().0.clone(),
+            )
+        })
+        .when(bevy_fynix::every_frame()),
+        |(closed, restore, erase, asking)| {
+            if closed.is_empty() {
+                return column(()).boxed();
+            }
+            let mut parts = vec![heading(
+                Glyph::Gone,
+                format!("CLOSED DOWN ({})", closed.len()),
+            )];
+            for hamlet in closed {
+                let mut actions = Vec::new();
+                if *restore {
+                    let id = hamlet.id.clone();
+                    actions.push(action(
+                        Glyph::Restore,
+                        "RESTORE",
+                        move |world| {
+                            if world
+                                .resource::<Deeds>()
+                                .has("restore-hamlet")
+                            {
+                                chat::decree(
+                                    world,
+                                    HOME,
+                                    format!("/restore-hamlet {id}"),
+                                );
+                            }
+                        },
+                    ));
+                }
+                if *erase {
+                    let id = hamlet.id.clone();
+                    actions.push(crate::looks::bad_action(
+                        Glyph::Gone,
+                        "DELETE FOR GOOD",
+                        move |world| {
+                            world.resource_mut::<Erasing>().0 =
+                                Some(id.clone())
+                        },
+                    ));
+                }
+                parts.push(
+                    column((
+                        note(hamlet.name.clone()),
+                        note(hamlet.reason.clone()),
+                        crate::looks::buttons(actions),
+                    ))
+                    .gap(4.0)
+                    .boxed(),
+                );
+                if *erase && asking.as_ref() == Some(&hamlet.id) {
+                    let id = hamlet.id.clone();
+                    parts.push(
+                        column((
+                            note(format!(
+                                "DELETE {} FOR GOOD?",
+                                hamlet.name.to_uppercase()
+                            )),
+                            note(
+                                "Every archived house is deleted. \
+                                 This cannot be undone.",
+                            ),
+                            crate::looks::buttons(vec![
+                                crate::looks::bad_action(
+                                    Glyph::Gone,
+                                    "DELETE",
+                                    move |world| {
+                                        world
+                                            .resource_mut::<Erasing>()
+                                            .0 = None;
+                                        if world
+                                            .resource::<Deeds>()
+                                            .has("erase-hamlet")
+                                            && world
+                                                .resource::<Closed>()
+                                                .0
+                                                .iter()
+                                                .any(|h| h.id == id)
+                                        {
+                                            chat::decree(
+                                                world,
+                                                HOME,
+                                                format!(
+                                                    "/erase-hamlet \
+                                                     {id}"
+                                                ),
+                                            );
+                                        }
+                                    },
+                                ),
+                                action(
+                                    Glyph::Back,
+                                    "CANCEL",
+                                    |world| {
+                                        world
+                                            .resource_mut::<Erasing>()
+                                            .0 = None
+                                    },
+                                ),
+                            ]),
+                        ))
+                        .gap(6.0)
+                        .boxed(),
+                    );
+                }
+            }
+            column(parts).gap(8.0).boxed()
+        },
+    )
+    .within(bare())
     .boxed()
 }
 
@@ -216,6 +345,63 @@ mod tests {
 
     use super::*;
     use crate::me::tests::{panel_app, words};
+
+    #[test]
+    fn closed_hamlets_restore_and_need_confirmation_to_erase() {
+        use hamlet_client::outbox::Outbox;
+
+        use crate::me::tests::press;
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let mut state = hamlet_testing::realm::state();
+        state.deeds = Some(vec![
+            "restore-hamlet".into(),
+            "erase-hamlet".into(),
+        ]);
+        state.closed = Some(vec![v0::ClosedHamlet {
+            id: "mill".into(),
+            name: "The Mill".into(),
+            at: 100,
+            by: "chief".into(),
+            reason: "Finished grinding".into(),
+        }]);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            overview(),
+        );
+        app.update();
+        assert!(
+            words(&mut app).iter().any(|s| s == "CLOSED DOWN (1)")
+        );
+        press(&mut app, "RESTORE");
+        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, v0::ClientMessage::Say(s) if s.text == "/restore-hamlet mill" && s.to.hamlet == "home")));
+        press(&mut app, "DELETE FOR GOOD");
+        assert!(!app.world().resource::<Outbox>().iter().any(|m| matches!(m, v0::ClientMessage::Say(s) if s.text.starts_with("/erase-hamlet"))));
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|s| s == "DELETE THE MILL FOR GOOD?")
+        );
+        press(&mut app, "DELETE");
+        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, v0::ClientMessage::Say(s) if s.text == "/erase-hamlet mill" && s.to.hamlet == "home")));
+        app.world_mut().resource_mut::<Deeds>().0.clear();
+        for _ in 0..3 {
+            app.update();
+        }
+        let shown = words(&mut app);
+        assert!(
+            !shown
+                .iter()
+                .any(|s| s == "RESTORE" || s == "DELETE FOR GOOD")
+        );
+    }
 
     #[test]
     fn a_received_hamlet_row_follows_busy_and_waiting() {
@@ -346,7 +532,6 @@ mod tests {
                 |text| text == "The server's second budget line."
             )
         );
-        assert!(!shown.iter().any(|text| text.starts_with("VOTES")
-            || text == "WHO CAME AND WENT"));
+        assert!(shown.iter().any(|text| text == "VOTES (0)"));
     }
 }

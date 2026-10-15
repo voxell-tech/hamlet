@@ -16,6 +16,25 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }
     let mut state = hamlet_testing::realm::state();
     state.chief = "chief".into();
+    state.deeds = Some(
+        [
+            "record",
+            "overturn",
+            "restore-hamlet",
+            "erase-hamlet",
+            "found",
+        ]
+        .map(String::from)
+        .into(),
+    );
+    state.closed = Some(vec![v0::ClosedHamlet {
+        id: "press".into(),
+        name: "The Old Press".into(),
+        at: 1000,
+        by: "chief".into(),
+        reason: "The harvest is finished. Its houses are kept."
+            .into(),
+    }]);
     for (id, title, mayor, others) in [
         ("home", "Pear Tree Hollow", "founder", 3),
         ("mill", "mill", "miller", 2),
@@ -24,6 +43,32 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         let mut hamlet = hamlet_testing::realm::hamlet(id);
         hamlet.name = title.into();
         if id == "home" {
+            hamlet.votes = Some(vec![v0::VoteView {
+                id: 3,
+                motion: "scout for mayor".into(),
+                by: "chief".into(),
+                open: false,
+                overturnable: true,
+                report: "Vote 3: scout for mayor. Two yes of three; \
+                         passed."
+                    .into(),
+                voters: vec![],
+            }]);
+            hamlet.limits.votes = Some(v0::VoteLimits {
+                pass_yes: 2,
+                pass_of: 3,
+                least_voters: 3,
+                sealed: true,
+                grounded_only: false,
+                ballot_minutes: 5,
+                open_minutes: 60,
+                retry_minutes: 60,
+            });
+            hamlet.limits.hamlets = Some(v0::HamletLimits {
+                most: 6,
+                roads_between: true,
+                removal_mayors: 3,
+            });
             hamlet.folder = Some("/projects/orchard-almanac".into());
             hamlet.mode_words = "Agents ask before each edit and \
                                  command on the server."
@@ -71,6 +116,15 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         Scene::Hamlet | Scene::Rules => Some(Thing::Common(first)),
         _ => None,
     }));
+    world.insert_resource(hamlet_ui::overview::Annals::received(
+        first,
+        "The mayor created scout to read the orchard's records. The \
+         chief restored smith, whose house and notes returned."
+            .into(),
+    ));
+    if scene == Scene::Hamlet {
+        world.insert_resource(hamlet_ui::overview::Page::Record);
+    }
     if scene == Scene::Rules {
         world.insert_resource(hamlet_ui::overview::Page::Bylaws);
     }
