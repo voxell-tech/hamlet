@@ -8,6 +8,7 @@
   to change what. Start there.
 - [Comment convention](docs/comment_convention.md)
 - [Code convention](docs/code_convention.md)
+- [`server/AGENTS.md`](server/AGENTS.md) before working in `server/`.
 - The design is in [`docs/spec/`](docs/spec/). Code refers to its
   requirements by ID (C1, H10, ...). Read it before non-trivial changes.
   Decisions that are hard to reverse are in [`docs/adr/`](docs/adr/), and
