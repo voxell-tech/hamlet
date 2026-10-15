@@ -10,6 +10,7 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, UiRect, px};
+use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, dropdown, label,
@@ -25,6 +26,7 @@ use hamlet_model::config::Config;
 use hamlet_world::sky::Quality;
 use hamlet_world::sound::SoundSettings;
 
+use crate::dock::{PanelAppExt, panel};
 use crate::icons::Glyph;
 use crate::looks::{
     Fills, ICON, action, bad_action, bare, buttons, doors, hairline,
@@ -36,12 +38,17 @@ use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx, View, markdown, with_cx};
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Pane>()
-        .init_resource::<Charter>()
-        .add_systems(
-            Update,
-            read_charter.run_if(resource_changed::<Pane>),
-        );
+    app.add_panel(
+        "settings",
+        DockWindowKind::new("SETTINGS", || panel(screen()))
+            .icon(Glyph::Sliders.image(ICON)),
+    )
+    .init_resource::<Pane>()
+    .init_resource::<Charter>()
+    .add_systems(
+        Update,
+        read_charter.run_if(resource_changed::<Pane>),
+    );
 }
 
 fn field(name: &'static str, value: impl View) -> impl View {
