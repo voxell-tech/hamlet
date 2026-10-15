@@ -50,6 +50,7 @@ fn address() -> Address {
 
 fn chat() -> ChatRef {
     ChatRef {
+        from: None,
         with: address(),
         past: Some(2),
     }
@@ -267,6 +268,7 @@ fn watches_open_pages_and_close_without_a_request_id() {
         ClientMessage::Open(Open {
             id: ID.into(),
             chat: ChatRef {
+                from: None,
                 with: address(),
                 past: None,
             },
@@ -673,4 +675,26 @@ fn approval_waits_require_a_danger_and_other_kinds_require_null() {
         );
         wire["danger"] = Value::Null;
     }
+}
+
+#[test]
+fn society_and_realm_fields_round_trip_without_losing_departures_or_ballots()
+ {
+    let mut wire = state_wire();
+    let a = json!({"hamlet": "home", "number": 0});
+    let b = json!({"hamlet": "mill", "number": 1});
+    wire["agents"][0]["left"] = json!({"how": "merged", "into": a, "at": 12, "by": "the mayor", "reason": "Shared work", "words": "scout merged into founder"});
+    wire["agents"][0]["consulting"] = json!(true);
+    wire["agents"][0]["conversations"] = json!([{"with": b, "kind": "letters", "count": 2, "last": null}]);
+    wire["hamlets"][0]["roads"] = json!([{"a": a, "b": b, "messages": 10, "level": "rail", "lastFrom": null}]);
+    wire["hamlets"][0]["votes"] = json!([{"id": 1, "motion": "Seat scout", "by": "the chief", "open": true, "overturnable": true, "report": "Voting", "voters": [{"agent": a, "cast": null}, {"agent": b, "cast": "none"}]}]);
+    wire["hamlets"][0]["at"] = json!({"x": 2.5, "z": -3.5});
+    wire["library"] = json!([{"name": "maps", "description": "Draw maps", "by": "scout"}]);
+    wire["closed"] = json!([{"id": "mill", "name": "The Mill", "at": 13, "by": "the chief", "reason": "Finished"}]);
+    server(wire.clone());
+    wire["hamlets"][0]["at"] = Value::Null;
+    wire["agents"][0]["left"]["into"] = Value::Null;
+    server(wire);
+    let wire = json!({"type": "open", "id": ID, "chat": {"with": {"hamlet": "home", "agent": "mayor"}, "from": b}});
+    client(serde_json::from_value(wire.clone()).unwrap(), wire);
 }

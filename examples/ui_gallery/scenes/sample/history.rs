@@ -52,6 +52,7 @@ pub(super) fn setup(world: &mut World, reading: bool) {
             holder: world
                 .spawn((
                     Chat(v0::ChatRef {
+                        from: None,
                         with: world
                             .resource::<hamlet_ui::Me>()
                             .to

@@ -40,6 +40,7 @@ export type AgentRef = Static<typeof AgentRef>;
 export const ChatRef = object({
     with: Address,
     past: Type.Optional(Type.Integer()),
+    from: Type.Optional(AgentRef),
 });
 export type ChatRef = Static<typeof ChatRef>;
 
@@ -97,8 +98,29 @@ export type Change = Static<typeof Change>;
 export const Period = Type.Enum(["day", "month"]);
 export type Period = Static<typeof Period>;
 
+/** The rules of a hamlet's votes (H13). */
+export const VoteLimits = object({
+    passYes: Type.Integer(),
+    passOf: Type.Integer(),
+    leastVoters: Type.Integer(),
+    sealed: Type.Boolean(),
+    groundedOnly: Type.Boolean(),
+    ballotMinutes: Type.Integer(),
+    openMinutes: Type.Integer(),
+    retryMinutes: Type.Integer(),
+});
+
+/** The realm's limits (H14, H19). */
+export const HamletLimits = object({
+    most: Type.Integer(),
+    roadsBetween: Type.Boolean(),
+    removalMayors: Type.Integer(),
+});
+
 /** A hamlet's limits as stored, where null leaves a meter uncapped (H22). */
 export const Limits = object({
+    votes: Type.Optional(VoteLimits),
+    hamlets: Type.Optional(HamletLimits),
     budget: object({
         period: Period,
         tokens: nullable(Type.Integer()),
@@ -405,7 +427,75 @@ export const Report = object({
 });
 export type Report = Static<typeof Report>;
 
+/** A road with its ends resolved to living agents (H3). */
+export const Road = object({
+    a: AgentRef,
+    b: AgentRef,
+    messages: Type.Integer(),
+    level: Type.Enum(["overgrown", "dirt", "paved", "rail"]),
+    lastFrom: nullable(AgentRef),
+});
+export type Road = Static<typeof Road>;
+
+/** A voter's ballot, or null before it is asked. */
+export const Voter = object({
+    agent: AgentRef,
+    cast: nullable(Type.Enum(["yes", "no", "abstain", "none"])),
+});
+
+/** A vote's ready-made words (H13). */
+export const VoteView = object({
+    id: Type.Integer(),
+    motion: Type.String(),
+    by: Type.String(),
+    open: Type.Boolean(),
+    overturnable: Type.Boolean(),
+    report: Type.String(),
+    voters: Type.Array(Voter),
+});
+export type VoteView = Static<typeof VoteView>;
+
+/** A town's position (H32). */
+export const TownAt = object({ x: Type.Number(), z: Type.Number() });
+
+/** An agent's departure and farewell (H28). */
+export const Left = object({
+    how: Type.Enum(["removed", "merged"]),
+    into: nullable(AgentRef),
+    at: Type.Integer(),
+    by: Type.String(),
+    reason: Type.String(),
+    words: Type.String(),
+});
+
+/** A conversation with another agent (C22). */
+export const ConversationView = object({
+    with: AgentRef,
+    kind: Type.Enum(["letters", "questions"]),
+    count: Type.Integer(),
+    last: nullable(Type.Integer()),
+});
+
+/** A skill on the library's shelf (H33). */
+export const LibrarySkill = object({
+    name: Type.String(),
+    description: Type.String(),
+    by: Type.String(),
+});
+
+/** A removed hamlet a chief can restore or erase (H20). */
+export const ClosedHamlet = object({
+    id: Type.String(),
+    name: Type.String(),
+    at: Type.Integer(),
+    by: Type.String(),
+    reason: Type.String(),
+});
+
 export const Hamlet = object({
+    roads: Type.Optional(Type.Array(Road)),
+    votes: Type.Optional(Type.Array(VoteView)),
+    at: Type.Optional(nullable(TownAt)),
     id: Type.String(),
     name: Type.String(),
     folder: nullable(Type.String()),
@@ -436,6 +526,9 @@ export const Doing = Type.Enum([
 export type Doing = Static<typeof Doing>;
 
 export const Agent = object({
+    left: Type.Optional(Left),
+    consulting: Type.Optional(Type.Boolean()),
+    conversations: Type.Optional(Type.Array(ConversationView)),
     ref: AgentRef,
     name: Type.String(),
     purpose: Type.String(),
@@ -533,6 +626,8 @@ export type ProviderView = Static<typeof ProviderView>;
 
 /** The whole realm's state (S5). */
 export const State = object({
+    library: Type.Optional(Type.Array(LibrarySkill)),
+    closed: Type.Optional(Type.Array(ClosedHamlet)),
     type: Type.Literal("state"),
     /** A new epoch is a new server start. */
     epoch: Type.Integer(),
@@ -818,6 +913,16 @@ const DEFINITIONS: Record<string, TSchema> = {
     Address,
     AgentRef,
     ChatRef,
+    VoteLimits,
+    HamletLimits,
+    Road,
+    Voter,
+    VoteView,
+    TownAt,
+    Left,
+    ConversationView,
+    LibrarySkill,
+    ClosedHamlet,
     Choice,
     Amount,
     Change,

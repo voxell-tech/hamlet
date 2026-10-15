@@ -14,6 +14,7 @@ fn app() -> App {
 
 fn reference() -> v0::ChatRef {
     v0::ChatRef {
+        from: None,
         with: v0::Address {
             hamlet: "home".into(),
             agent: "mayor".into(),

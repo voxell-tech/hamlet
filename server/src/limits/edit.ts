@@ -10,8 +10,12 @@ type LimitsEdit = (
 
 /** A validated limits document with defaults for omitted fields. */
 export function validateLimits(value: unknown): Limits {
-    const merged = merge(defaultLimits(), value, "");
-    return merged as Limits;
+    const merged = merge(defaultLimits(), value, "") as Limits;
+    if (merged.votes.passOf < 1)
+        throw new Error("votes.passOf: must be at least 1");
+    if (merged.votes.passYes > merged.votes.passOf)
+        throw new Error("votes.passYes: cannot exceed votes.passOf");
+    return merged;
 }
 
 function object(value: unknown): value is Record<string, unknown> {

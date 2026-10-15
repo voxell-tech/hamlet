@@ -14,7 +14,13 @@ pub struct Address {
 pub struct Agent {
     pub activity: AgentActivity,
     pub busy: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consulting: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversations: Option<Vec<ConversationView>>,
     pub faulted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<Left>,
     pub mayor: bool,
     pub model: String,
     pub name: String,
@@ -110,6 +116,8 @@ pub struct Changes {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChatRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<AgentRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub past: Option<i64>,
     pub with: Address,
 }
@@ -187,6 +195,31 @@ pub enum ClientMessage {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Close {
     pub chat: ChatRef,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ClosedHamlet {
+    pub at: i64,
+    pub by: String,
+    pub id: String,
+    pub name: String,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ConversationView {
+    pub count: i64,
+    pub kind: ConversationViewKind,
+    pub last: Option<i64>,
+    pub with: AgentRef,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ConversationViewKind {
+    #[serde(rename = "letters")]
+    Letters,
+    #[serde(rename = "questions")]
+    Questions,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -378,6 +411,9 @@ pub enum GrantSource {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Hamlet {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
+    pub at: Option<Option<TownAt>>,
     pub before: Vec<String>,
     pub budget: Report,
     pub folder: Option<String>,
@@ -387,6 +423,10 @@ pub struct Hamlet {
     #[serde(rename = "modeWords")]
     pub mode_words: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roads: Option<Vec<Road>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub votes: Option<Vec<VoteView>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -395,6 +435,15 @@ pub enum HamletMode {
     Manual,
     #[serde(rename = "auto")]
     Auto,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HamletLimits {
+    pub most: i64,
+    #[serde(rename = "removalMayors")]
+    pub removal_mayors: i64,
+    #[serde(rename = "roadsBetween")]
+    pub roads_between: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -446,9 +495,36 @@ pub struct ItemTool {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Left {
+    pub at: i64,
+    pub by: String,
+    pub how: LeftHow,
+    pub into: Option<AgentRef>,
+    pub reason: String,
+    pub words: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum LeftHow {
+    #[serde(rename = "removed")]
+    Removed,
+    #[serde(rename = "merged")]
+    Merged,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LibrarySkill {
+    pub by: String,
+    pub description: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Limits {
     pub asking: LimitsAsking,
     pub budget: LimitsBudget,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hamlets: Option<HamletLimits>,
     pub leaving: LimitsLeaving,
     pub mayor: LimitsMayor,
     pub model: Option<String>,
@@ -461,6 +537,8 @@ pub struct Limits {
     pub pinned: std::collections::BTreeMap<String, String>,
     pub road: LimitsRoad,
     pub task: LimitsTask,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub votes: Option<VoteLimits>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -886,6 +964,28 @@ pub struct Rewind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Road {
+    pub a: AgentRef,
+    pub b: AgentRef,
+    #[serde(rename = "lastFrom")]
+    pub last_from: Option<AgentRef>,
+    pub level: RoadLevel,
+    pub messages: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum RoadLevel {
+    #[serde(rename = "overgrown")]
+    Overgrown,
+    #[serde(rename = "dirt")]
+    Dirt,
+    #[serde(rename = "paved")]
+    Paved,
+    #[serde(rename = "rail")]
+    Rail,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Say {
     pub id: RequestId,
     pub text: String,
@@ -944,10 +1044,14 @@ pub struct State {
     pub agents: Vec<Agent>,
     pub chief: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed: Option<Vec<ClosedHamlet>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deeds: Option<Vec<String>>,
     pub epoch: i64,
     pub grants: Vec<Grant>,
     pub hamlets: Vec<Hamlet>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library: Option<Vec<LibrarySkill>>,
     pub providers: Vec<ProviderView>,
     pub revision: i64,
     pub sandbox: String,
@@ -968,6 +1072,12 @@ pub struct Stop {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<Address>,
     pub id: RequestId,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TownAt {
+    pub x: f64,
+    pub z: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1053,6 +1163,54 @@ pub struct UsageView {
     pub reasoning: i64,
     pub summary: String,
     pub unreported: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VoteLimits {
+    #[serde(rename = "ballotMinutes")]
+    pub ballot_minutes: i64,
+    #[serde(rename = "groundedOnly")]
+    pub grounded_only: bool,
+    #[serde(rename = "leastVoters")]
+    pub least_voters: i64,
+    #[serde(rename = "openMinutes")]
+    pub open_minutes: i64,
+    #[serde(rename = "passOf")]
+    pub pass_of: i64,
+    #[serde(rename = "passYes")]
+    pub pass_yes: i64,
+    #[serde(rename = "retryMinutes")]
+    pub retry_minutes: i64,
+    pub sealed: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VoteView {
+    pub by: String,
+    pub id: i64,
+    pub motion: String,
+    pub open: bool,
+    pub overturnable: bool,
+    pub report: String,
+    pub voters: Vec<Voter>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Voter {
+    pub agent: AgentRef,
+    pub cast: Option<VoterCast>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum VoterCast {
+    #[serde(rename = "yes")]
+    Yes,
+    #[serde(rename = "no")]
+    No,
+    #[serde(rename = "abstain")]
+    Abstain,
+    #[serde(rename = "none")]
+    None,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

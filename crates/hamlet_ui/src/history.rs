@@ -239,6 +239,7 @@ fn open(world: &mut World, number: i64) {
     let holder = world
         .spawn((
             Chat(v0::ChatRef {
+                from: None,
                 with,
                 past: Some(number),
             }),

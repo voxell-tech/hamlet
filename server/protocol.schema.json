@@ -49,6 +49,262 @@
                 },
                 "past": {
                     "type": "integer"
+                },
+                "from": {
+                    "$ref": "#/$defs/AgentRef"
+                }
+            },
+            "additionalProperties": false
+        },
+        "VoteLimits": {
+            "type": "object",
+            "required": [
+                "passYes",
+                "passOf",
+                "leastVoters",
+                "sealed",
+                "groundedOnly",
+                "ballotMinutes",
+                "openMinutes",
+                "retryMinutes"
+            ],
+            "properties": {
+                "passYes": {
+                    "type": "integer"
+                },
+                "passOf": {
+                    "type": "integer"
+                },
+                "leastVoters": {
+                    "type": "integer"
+                },
+                "sealed": {
+                    "type": "boolean"
+                },
+                "groundedOnly": {
+                    "type": "boolean"
+                },
+                "ballotMinutes": {
+                    "type": "integer"
+                },
+                "openMinutes": {
+                    "type": "integer"
+                },
+                "retryMinutes": {
+                    "type": "integer"
+                }
+            },
+            "additionalProperties": false
+        },
+        "HamletLimits": {
+            "type": "object",
+            "required": ["most", "roadsBetween", "removalMayors"],
+            "properties": {
+                "most": {
+                    "type": "integer"
+                },
+                "roadsBetween": {
+                    "type": "boolean"
+                },
+                "removalMayors": {
+                    "type": "integer"
+                }
+            },
+            "additionalProperties": false
+        },
+        "Road": {
+            "type": "object",
+            "required": ["a", "b", "messages", "level", "lastFrom"],
+            "properties": {
+                "a": {
+                    "$ref": "#/$defs/AgentRef"
+                },
+                "b": {
+                    "$ref": "#/$defs/AgentRef"
+                },
+                "messages": {
+                    "type": "integer"
+                },
+                "level": {
+                    "enum": ["overgrown", "dirt", "paved", "rail"]
+                },
+                "lastFrom": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/AgentRef"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": false
+        },
+        "Voter": {
+            "type": "object",
+            "required": ["agent", "cast"],
+            "properties": {
+                "agent": {
+                    "$ref": "#/$defs/AgentRef"
+                },
+                "cast": {
+                    "anyOf": [
+                        {
+                            "enum": ["yes", "no", "abstain", "none"]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": false
+        },
+        "VoteView": {
+            "type": "object",
+            "required": [
+                "id",
+                "motion",
+                "by",
+                "open",
+                "overturnable",
+                "report",
+                "voters"
+            ],
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "motion": {
+                    "type": "string"
+                },
+                "by": {
+                    "type": "string"
+                },
+                "open": {
+                    "type": "boolean"
+                },
+                "overturnable": {
+                    "type": "boolean"
+                },
+                "report": {
+                    "type": "string"
+                },
+                "voters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Voter"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "TownAt": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+                "x": {
+                    "type": "number"
+                },
+                "z": {
+                    "type": "number"
+                }
+            },
+            "additionalProperties": false
+        },
+        "Left": {
+            "type": "object",
+            "required": ["how", "into", "at", "by", "reason", "words"],
+            "properties": {
+                "how": {
+                    "enum": ["removed", "merged"]
+                },
+                "into": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/AgentRef"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "at": {
+                    "type": "integer"
+                },
+                "by": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "words": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "ConversationView": {
+            "type": "object",
+            "required": ["with", "kind", "count", "last"],
+            "properties": {
+                "with": {
+                    "$ref": "#/$defs/AgentRef"
+                },
+                "kind": {
+                    "enum": ["letters", "questions"]
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "last": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": false
+        },
+        "LibrarySkill": {
+            "type": "object",
+            "required": ["name", "description", "by"],
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "by": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "ClosedHamlet": {
+            "type": "object",
+            "required": ["id", "name", "at", "by", "reason"],
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "at": {
+                    "type": "integer"
+                },
+                "by": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -151,6 +407,12 @@
                 "permissions"
             ],
             "properties": {
+                "votes": {
+                    "$ref": "#/$defs/VoteLimits"
+                },
+                "hamlets": {
+                    "$ref": "#/$defs/HamletLimits"
+                },
                 "budget": {
                     "type": "object",
                     "required": ["period", "tokens", "cost", "minutes"],
@@ -1351,6 +1613,28 @@
                 "budget"
             ],
             "properties": {
+                "roads": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Road"
+                    }
+                },
+                "votes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/VoteView"
+                    }
+                },
+                "at": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/TownAt"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "id": {
                     "type": "string"
                 },
@@ -1420,6 +1704,18 @@
                 "spent"
             ],
             "properties": {
+                "left": {
+                    "$ref": "#/$defs/Left"
+                },
+                "consulting": {
+                    "type": "boolean"
+                },
+                "conversations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/ConversationView"
+                    }
+                },
                 "ref": {
                     "$ref": "#/$defs/AgentRef"
                 },
@@ -1931,6 +2227,18 @@
                 "providers"
             ],
             "properties": {
+                "library": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/LibrarySkill"
+                    }
+                },
+                "closed": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/ClosedHamlet"
+                    }
+                },
                 "type": {
                     "type": "string",
                     "const": "state"

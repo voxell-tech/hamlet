@@ -12,6 +12,17 @@ type Caps = {
 
 /** A chief's limits on one hamlet (H22). A cap of 0 stops everything. */
 export type Limits = {
+    votes: {
+        passYes: number;
+        passOf: number;
+        leastVoters: number;
+        sealed: boolean;
+        groundedOnly: boolean;
+        ballotMinutes: number;
+        openMinutes: number;
+        retryMinutes: number;
+    };
+    hamlets: { most: number; roadsBetween: boolean; removalMayors: number };
     /** The hamlet's budget for a period (H8). */
     budget: Caps & { period: "day" | "month" };
     /** The caps on one task, across every agent it reaches (H12). */
@@ -67,6 +78,17 @@ export type Limits = {
 /** The limits a hamlet has before a chief changes them. */
 export function defaultLimits(): Limits {
     return {
+        votes: {
+            passYes: 2,
+            passOf: 3,
+            leastVoters: 3,
+            sealed: true,
+            groundedOnly: false,
+            ballotMinutes: 5,
+            openMinutes: 60,
+            retryMinutes: 60,
+        },
+        hamlets: { most: 6, roadsBetween: true, removalMayors: 3 },
         budget: { period: "day", cost: 5, minutes: null, tokens: null },
         task: { messages: 12, cost: 1, minutes: null, tokens: null },
         road: { tokens: 0, cost: 0.01, minutes: 0, growsOverDays: 7 },
@@ -91,7 +113,8 @@ export function defaultLimits(): Limits {
 /** Each hamlet's limits, by hamlet id. */
 export const LimitsDoc = defineDocFamily<Limits, string>({
     kind: "hamlet.limits",
-    version: 1,
+    version: 2,
+    migrate: (value) => ({ ...defaultLimits(), ...value }) as Limits,
     scope: "session",
     family: true,
     initial: defaultLimits,

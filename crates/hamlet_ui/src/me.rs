@@ -78,6 +78,7 @@ pub(crate) fn address(
 
 fn watch(world: &mut World, to: v0::Address) -> Entity {
     let reference = v0::ChatRef {
+        from: None,
         with: to,
         past: None,
     };

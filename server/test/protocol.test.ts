@@ -695,3 +695,124 @@ it("requires a danger for approvals and null for other waits", () => {
     for (const kind of ["fault", "question", "objection"])
         expect(parseServer(wire(kind, "command"))).toHaveProperty("malformed");
 });
+
+const societyAgent = {
+    ...agent,
+    left: {
+        how: "merged",
+        into: ref,
+        at: 12,
+        by: "the mayor",
+        reason: "Shared work",
+        words: "scout merged into founder: Shared work",
+    },
+    consulting: true,
+    conversations: [
+        { with: ref, kind: "letters", count: 2, last: 12 },
+        { with: ref, kind: "questions", count: 1, last: null },
+    ],
+};
+const societyHamlet = {
+    ...hamlet,
+    roads: [
+        {
+            a: ref,
+            b: { hamlet: "mill", number: 1 },
+            messages: 10,
+            level: "rail",
+            lastFrom: ref,
+        },
+    ],
+    votes: [
+        {
+            id: 1,
+            motion: "Seat scout",
+            by: "the chief",
+            open: true,
+            overturnable: true,
+            report: "Voting",
+            voters: [null, "none", "yes", "no", "abstain"].map((cast) => ({
+                agent: ref,
+                cast,
+            })),
+        },
+    ],
+    at: { x: 2.5, z: -3.5 },
+};
+
+it("takes the society and realm fields in snapshots, changes and watched chats", () => {
+    const messages = [
+        {
+            ...fromServer.state[0],
+            hamlets: [societyHamlet],
+            agents: [societyAgent],
+            library: [{ name: "maps", description: "Draw maps", by: "scout" }],
+            closed: [
+                {
+                    id: "mill",
+                    name: "The Mill",
+                    at: 13,
+                    by: "the chief",
+                    reason: "Finished",
+                },
+            ],
+        },
+        {
+            type: "change",
+            epoch: 1,
+            revision: 9,
+            changes: [
+                { type: "hamlet", hamlet: societyHamlet },
+                { type: "agent", agent: societyAgent },
+            ],
+        },
+        {
+            type: "change",
+            epoch: 1,
+            revision: 10,
+            changes: [
+                {
+                    type: "hamlet",
+                    hamlet: {
+                        ...societyHamlet,
+                        at: null,
+                        roads: [{ ...societyHamlet.roads[0], lastFrom: null }],
+                    },
+                },
+            ],
+        },
+    ];
+    for (const message of messages) {
+        expect(parseServer(JSON.stringify(message))).toEqual({ message });
+        expect(Schema.Check(exported, message)).toBe(true);
+    }
+    const message = { type: "open", id: ID, chat: { with: mayor, from: ref } };
+    expect(parseClient(JSON.stringify(message))).toEqual({ message });
+    expect(Schema.Check(exported, message)).toBe(true);
+});
+
+it("refuses unknown road levels and ballot casts with words", () => {
+    for (const changed of [
+        {
+            ...societyHamlet,
+            roads: [{ ...societyHamlet.roads[0], level: "highway" }],
+        },
+        {
+            ...societyHamlet,
+            votes: [
+                {
+                    ...societyHamlet.votes[0],
+                    voters: [{ agent: ref, cast: "maybe" }],
+                },
+            ],
+        },
+    ]) {
+        const parsed = parseServer(
+            JSON.stringify({ ...fromServer.state[0], hamlets: [changed] }),
+        );
+        expect(parsed).toHaveProperty(
+            "malformed",
+            expect.stringContaining("does not fit protocol v0"),
+        );
+    }
+});
