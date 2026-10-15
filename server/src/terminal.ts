@@ -24,7 +24,7 @@ export const DOCUMENTS = [
 ] as const;
 export type DocumentName = (typeof DOCUMENTS)[number];
 export type TerminalCommand =
-    | { name: "edit"; doc: DocumentName }
+    | { name: "edit"; doc: DocumentName; hamlet?: string }
     | { name: "login"; provider: string; key: boolean }
     | { name: "models"; action: "list" | "refresh" | "try"; model?: string };
 
@@ -85,7 +85,12 @@ export async function terminal(
             else throw new Error("The server did not send the models.");
             return;
         }
-        const message = await editDocument(command.doc, state, request);
+        const message = await editDocument(
+            command.doc,
+            state,
+            request,
+            command.hamlet ?? HOME,
+        );
         const answer = await request(message);
         if (answer.type !== "reply")
             throw new Error(
@@ -106,15 +111,16 @@ async function editDocument(
     request: (
         message: ClientMessage & { id: string },
     ) => Promise<ServerMessage>,
+    hamlet: string,
 ): Promise<Edit> {
-    const agent = { hamlet: HOME, agent: MAYOR };
+    const agent = { hamlet, agent: MAYOR };
     let text: string;
     if (doc === "limits") {
         const hamlet = state.hamlets.find(
             (hamlet) => hamlet.id === agent.hamlet,
         );
         if (hamlet === undefined)
-            throw new Error(`no hamlet named \`${HOME}\``);
+            throw new Error(`no hamlet named \`${agent.hamlet}\``);
         text = `${JSON.stringify(hamlet.limits, null, 2)}\n`;
     } else if (doc === "settings") {
         const { model, reflectEvery, allowNet, endpoints } = state.settings;
