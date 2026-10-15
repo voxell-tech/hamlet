@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
     existsSync,
     mkdirSync,
@@ -187,6 +188,128 @@ describe("a sandboxed command", () => {
         expect(existsSync(join(folder, ".git", "hooks", "pre-commit"))).toBe(
             false,
         );
+    });
+
+    it.each([".git", ".GIT"])(
+        "never writes a nested repository's hooks or config under %s",
+        async (name) => {
+            const { folder, env } = folderEnv();
+            const git = join(folder, "vendor", "lib", name);
+            mkdirSync(join(git, "hooks"), { recursive: true });
+            writeFileSync(join(git, "config"), "kept");
+
+            for (const path of ["hooks/pre-commit", "config"]) {
+                const ran = await sh(
+                    env,
+                    `echo a > vendor/lib/${name}/${path}`,
+                );
+                expect({ path, failed: ran.exitCode !== 0 }).toEqual({
+                    path,
+                    failed: true,
+                });
+            }
+            expect(readdirSync(join(git, "hooks"))).toEqual([]);
+            expect(readFileSync(join(git, "config"), "utf8")).toBe("kept");
+        },
+    );
+
+    it("cannot move a nested repository's .git away", async () => {
+        const { folder, env } = folderEnv();
+        const git = join(folder, "vendor", "lib", ".git");
+        mkdirSync(join(git, "hooks"), { recursive: true });
+        writeFileSync(join(git, "config"), "kept");
+
+        expect(
+            (
+                await sh(
+                    env,
+                    `python3 -c "import os; os.rename('vendor/lib/.git', 'moved')"`,
+                )
+            ).exitCode,
+        ).not.toBe(0);
+        expect(existsSync(git)).toBe(true);
+        expect(existsSync(join(folder, "moved"))).toBe(false);
+    });
+
+    it("can still commit in a nested repository", async () => {
+        const { folder, env } = folderEnv();
+        const nested = join(folder, "vendor", "lib");
+        mkdirSync(nested, { recursive: true });
+        execFileSync("git", ["init", "-q", "--template=", nested]);
+        mkdirSync(join(nested, ".git", "hooks"));
+        symlinkSync(folder, join(nested, "loop"));
+
+        const ran = await sh(
+            env,
+            "echo a > vendor/lib/a && git -C vendor/lib add a && git -C vendor/lib -c user.name=Test -c user.email=test@example.test -c commit.gpgsign=false commit -qm nested && git -C vendor/lib log -1 --format=%s",
+        );
+
+        expect(ran).toEqual({ exitCode: 0, output: "nested\n" });
+    });
+
+    it.skipIf(process.platform !== "darwin")(
+        "guards a repository created during the command",
+        async () => {
+            const { folder, env } = folderEnv();
+            for (const path of ["hooks/pre-commit", "config"]) {
+                const git = `vendor/${path.split("/")[0]}/.git`;
+                const parent = path === "config" ? git : `${git}/hooks`;
+                const ran = await sh(
+                    env,
+                    `mkdir -p ${parent} && echo a > ${git}/${path}`,
+                );
+
+                expect({ path, failed: ran.exitCode !== 0 }).toEqual({
+                    path,
+                    failed: true,
+                });
+                expect(existsSync(join(folder, git))).toBe(true);
+                expect(existsSync(join(folder, git, path))).toBe(false);
+            }
+        },
+    );
+
+    it.skipIf(process.platform !== "linux")(
+        "cannot carry a nested repository's locks away in a parent folder",
+        async () => {
+            const { folder, env } = folderEnv();
+            const git = join(folder, "vendor", "lib", ".git");
+            mkdirSync(join(git, "hooks"), { recursive: true });
+            writeFileSync(join(git, "config"), "kept");
+
+            for (const path of ["vendor/lib", "vendor"]) {
+                expect(
+                    (
+                        await sh(
+                            env,
+                            `python3 -c "import os; os.rename('${path}', 'moved')"`,
+                        )
+                    ).exitCode,
+                ).not.toBe(0);
+                expect(existsSync(git)).toBe(true);
+            }
+        },
+    );
+
+    it("guards repositories in a folder with regex and quote characters", async () => {
+        const folder = join(scratch(), `folder[0](x)+.^$'"`);
+        const [home, house] = [scratch(), scratch()];
+        const git = join(folder, "nested", ".git");
+        mkdirSync(join(git, "hooks"), { recursive: true });
+        writeFileSync(join(git, "config"), "kept");
+        const env = new SandboxEnv({
+            cwd: folder,
+            policy: openPolicy({ folder, house, home }),
+        });
+
+        expect(
+            (await sh(env, "echo a > nested/.git/config")).exitCode,
+        ).not.toBe(0);
+        expect(readFileSync(join(git, "config"), "utf8")).toBe("kept");
+        expect(await sh(env, "echo a > ordinary && cat ordinary")).toEqual({
+            exitCode: 0,
+            output: "a\n",
+        });
     });
 
     it("keeps each house's temp folder from the others", async () => {

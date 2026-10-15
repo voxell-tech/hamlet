@@ -139,6 +139,20 @@ function profile(policy: Policy, tmp: string): Profile {
         `(allow file-read* file-write* (subpath (param "{}")))`,
         policy.rw,
     );
+    if (policy.open) {
+        rules(
+            out,
+            "GIT",
+            `(deny file-write* (require-all (subpath (param "{}")) (regex #"/[.][gG][iI][tT]/([hH][oO][oO][kK][sS]|[cC][oO][nN][fF][iI][gG])(/|$)")))`,
+            policy.rw,
+        );
+        rules(
+            out,
+            "GIT_DIR",
+            `(deny file-write-unlink (require-all (subpath (param "{}")) (regex #"/[.][gG][iI][tT]$")))`,
+            policy.rw,
+        );
+    }
     rules(
         out,
         "LOCKED",
