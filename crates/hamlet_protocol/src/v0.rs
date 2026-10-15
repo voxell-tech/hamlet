@@ -118,8 +118,18 @@ pub struct ChatRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<AgentRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ChatRefKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub past: Option<i64>,
     pub with: Address,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ChatRefKind {
+    #[serde(rename = "letters")]
+    Letters,
+    #[serde(rename = "questions")]
+    Questions,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

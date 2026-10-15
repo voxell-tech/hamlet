@@ -692,6 +692,7 @@ mod tests {
         let session = app
             .world_mut()
             .spawn(Chat(v0::ChatRef {
+                kind: None,
                 from: None,
                 with: to.clone(),
                 past: None,

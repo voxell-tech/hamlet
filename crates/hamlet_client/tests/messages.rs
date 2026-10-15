@@ -34,6 +34,7 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_addresses()
     let wait =
         world.query::<(Entity, &Waiting)>().single(world).unwrap().0;
     let reference = v0::ChatRef {
+        kind: None,
         from: None,
         with: address(MAYOR),
         past: Some(3),
@@ -132,6 +133,7 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
     );
     let chat = world
         .spawn(Chat(v0::ChatRef {
+            kind: None,
             from: None,
             with: address(MAYOR),
             past: None,
@@ -225,6 +227,7 @@ fn chats_expose_string_item_ids_server_usage_and_agent_relations() {
     let chat = world
         .spawn((
             Chat(v0::ChatRef {
+                kind: None,
                 from: None,
                 with: address(MAYOR),
                 past: None,

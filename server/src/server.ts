@@ -3,6 +3,7 @@ import type { Context } from "@earendil-works/chord";
 import { withAbortSignal } from "@earendil-works/chord/context";
 import type { AuthPrompt } from "@earendil-works/pi-ai";
 import type { Submission } from "@earendil-works/pi-durable";
+import { requireWritable } from "./agent-chats.ts";
 import { checkConnection, checkModel } from "./check.ts";
 import { type Client, type Server, serve } from "./connection.ts";
 import { edit } from "./edits.ts";
@@ -278,6 +279,7 @@ export async function serveHome(
                 }),
             rewind: async (message) => {
                 const result = await deed(message.id, async () => {
+                    requireWritable(message.chat);
                     if (message.chat.past !== undefined)
                         throw new Error(
                             "Open the current conversation to rewind it.",

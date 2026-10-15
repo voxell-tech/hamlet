@@ -41,6 +41,7 @@ export const ChatRef = object({
     with: Address,
     past: Type.Optional(Type.Integer()),
     from: Type.Optional(AgentRef),
+    kind: Type.Optional(Type.Enum(["letters", "questions"])),
 });
 export type ChatRef = Static<typeof ChatRef>;
 

@@ -52,6 +52,7 @@ pub(super) fn setup(world: &mut World) {
     let session = world
         .spawn((
             Chat(v0::ChatRef {
+                kind: None,
                 from: None,
                 with: to.clone(),
                 past: None,

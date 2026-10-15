@@ -195,6 +195,7 @@ mod tests {
         let mut app = app();
         app.add_plugins(hamlet_client::ClientPlugin { server: None });
         let chat = v0::ChatRef {
+            kind: None,
             from: None,
             with: v0::Address {
                 hamlet: "home".into(),
