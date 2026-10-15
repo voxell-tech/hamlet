@@ -3,8 +3,8 @@ import { defineTool, type ToolExecutionApi } from "@earendil-works/pi-durable";
 import { createBashTool } from "@earendil-works/pi-durable/tools";
 import { envFor, LEAVE, type Leave, placeOf } from "../environment.ts";
 import type { Home } from "../home.ts";
+import { shellOutput } from "../output.ts";
 import { SandboxEnv } from "../sandbox/env.ts";
-import { shellOutput } from "./output.ts";
 
 /** Seconds a command may run, which a model can ask to shorten and never to lengthen. */
 const WALL_SECS = 120;

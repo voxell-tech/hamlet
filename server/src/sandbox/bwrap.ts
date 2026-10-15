@@ -1,4 +1,13 @@
-import { aboveLocked, isDir, type Service, tempRoot } from "./policy.ts";
+import { existsSync } from "node:fs";
+import {
+    aboveRoots,
+    fixedRoots,
+    isDir,
+    type Service,
+    tempRoot,
+    within,
+    writeRoots,
+} from "./policy.ts";
 import type { Confined, Sandbox } from "./sandbox.ts";
 
 /** Linux bubblewrap. */
@@ -49,12 +58,22 @@ export const Bwrap: Sandbox = {
             }
         }
         for (const path of policy.ro) args.push("--ro-bind", path, path);
-        for (const path of [...policy.rw, tmp]) args.push("--bind", path, path);
-        // Linux refuses to move a mount point, and a folder that holds a
-        // locked path would carry the lock away with it. A path that does
-        // not exist yet cannot be mounted, so it is not guarded here.
-        for (const path of aboveLocked(policy).filter(isDir)) {
+        for (const path of writeRoots(policy, tmp))
             args.push("--bind", path, path);
+        // Mount points keep roots and their writable ancestors in place.
+        for (const path of [
+            ...new Set([
+                ...aboveRoots(policy, tmp),
+                ...fixedRoots(policy, tmp),
+            ]),
+        ].sort((a, b) => a.length - b.length)) {
+            if (
+                existsSync(path) &&
+                writeRoots(policy, tmp).some(
+                    (rw) => path !== rw && within(path, rw),
+                )
+            )
+                args.push("--bind", path, path);
         }
         for (const path of policy.locked) {
             args.push("--ro-bind-try", path, path);

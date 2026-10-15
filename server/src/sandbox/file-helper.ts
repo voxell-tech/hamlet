@@ -1,4 +1,5 @@
-import { mkdtemp } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Context } from "@earendil-works/chord";
@@ -15,7 +16,23 @@ import { decode, encode, frameId } from "./wire.ts";
 
 const context = {} as Context;
 const tmp = process.argv[2] ?? "";
+const output = process.argv[3] ?? "";
 class FileEnv extends NodeExecutionEnv {
+    override async createTempFile(
+        options: { prefix?: string; suffix?: string } | undefined,
+    ): Promise<Result<string, FileError>> {
+        try {
+            const path = join(
+                output,
+                `${options?.prefix ?? ""}${randomUUID()}${options?.suffix ?? ""}`,
+            );
+            await writeFile(path, "", { flag: "wx", mode: 0o600 });
+            return ok(path);
+        } catch (error) {
+            return err(new FileError("unknown", String(error)));
+        }
+    }
+
     override async createTempDir(
         prefix: string | undefined,
     ): Promise<Result<string, FileError>> {

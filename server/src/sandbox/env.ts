@@ -1,6 +1,6 @@
-import { constants } from "node:fs";
+import { constants, lstatSync, mkdirSync, type Stats } from "node:fs";
 import { access, rmdir } from "node:fs/promises";
-import { delimiter, isAbsolute, resolve } from "node:path";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import {
     type BinaryReader,
@@ -19,16 +19,19 @@ import {
     type WatchTarget,
 } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { Files } from "./files.ts";
+import { shellOutput } from "../output.ts";
+import { FILE_READS, Files } from "./files.ts";
 import {
+    canon,
     directoryRoot,
-    isDir,
+    fixedRoots,
     type Limits,
     limitsOf,
     type Policy,
     policyHash,
     privateTmp,
     readable,
+    tempRoot,
     writable,
 } from "./policy.ts";
 import { limited, platformSandbox, type Sandbox } from "./sandbox.ts";
@@ -38,6 +41,20 @@ type Reach = "read" | "write" | "move";
 // A byte-order mark is kept, as the node environment keeps it.
 const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
+function rootAt(path: string) {
+    let info: Stats | undefined;
+    try {
+        info = lstatSync(resolve(path));
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (info && !info.isDirectory() && !info.isFile() && !info.isSocket())
+        throw new Error(
+            `The sandbox root must be a real file, directory or socket: ${path}`,
+        );
+    return { path, real: canon(path), dev: info?.dev, ino: info?.ino };
+}
+
 /** An `ExecutionEnv` whose commands and file operations keep to a policy (S12, C18). */
 export class SandboxEnv extends NodeExecutionEnv {
     /** The {@link policyHash} of the policy and the sandbox the environment runs commands under. */
@@ -46,9 +63,10 @@ export class SandboxEnv extends NodeExecutionEnv {
     readonly #limits: Limits;
     readonly #sandbox: Sandbox;
     readonly #tmp: string;
+    readonly #output: string;
     readonly #scoped: boolean;
     readonly #files: Files;
-    readonly #roots: { path: string; real: string }[];
+    readonly #roots: ReturnType<typeof rootAt>[];
 
     constructor(options: {
         cwd: string;
@@ -58,21 +76,36 @@ export class SandboxEnv extends NodeExecutionEnv {
         tmpScope?: string;
     }) {
         super({ cwd: options.cwd });
-        this.#policy = options.policy;
-        this.#roots = options.policy.rw.map((path) => ({
-            path,
-            real: directoryRoot(path),
-        }));
+        for (const path of options.policy.rw) directoryRoot(path);
+        for (const { socket } of options.policy.services)
+            if (!lstatSync(socket).isSocket())
+                throw new Error(
+                    `The service endpoint must be a real socket: ${socket}`,
+                );
         this.#limits = limitsOf(options.policy);
         this.#sandbox = options.sandbox ?? platformSandbox();
         this.policyHash = policyHash(options.policy, this.#sandbox.name);
         this.#tmp = privateTmp(options.policy, options.tmpScope);
+        this.#output = join(this.#tmp, "tmp-files");
+        directoryRoot(this.#output);
+        mkdirSync(this.#output, { recursive: true, mode: 0o700 });
+        this.#policy = {
+            ...options.policy,
+            fixed: [
+                ...(options.policy.fixed ?? []),
+                tempRoot(),
+                this.#output,
+                ...FILE_READS,
+            ],
+        };
+        this.#roots = fixedRoots(this.#policy, this.#tmp).map(rootAt);
         this.#scoped = options.tmpScope !== undefined;
         this.#files = new Files(
             this.#policy,
             this.#sandbox,
             this.cwd,
             this.#tmp,
+            this.#output,
         );
     }
 
@@ -83,6 +116,17 @@ export class SandboxEnv extends NodeExecutionEnv {
     ): Promise<Result<ShellExecResult, ExecutionError>> {
         const refused = this.#rootRefusal();
         if (refused) return err(new ExecutionError("spawn_error", refused));
+        if (options?.spill !== undefined) {
+            try {
+                return await shellOutput(this, []).exec(
+                    command,
+                    options,
+                    context,
+                );
+            } catch (error) {
+                return err(new ExecutionError("unknown", String(error)));
+            }
+        }
         const argv =
             typeof command === "string" ? ["bash", "-c", command] : command;
         const [program] = argv;
@@ -332,9 +376,20 @@ export class SandboxEnv extends NodeExecutionEnv {
         await super.cleanup(context);
         await this.#files.close();
         if (this.#scoped) {
-            await this.exec(["rm", "-rf", "--", this.#tmp], undefined, context);
-            // A mounted temp root can only be removed after its sandbox ends.
-            await rmdir(this.#tmp).catch(() => undefined);
+            await this.exec(
+                [
+                    "/bin/bash",
+                    "-c",
+                    'shopt -s dotglob nullglob; rm -rf -- "$TMPDIR"/*',
+                ],
+                undefined,
+                context,
+            );
+            // Mounted roots can only be removed after their sandbox ends.
+            if (this.#rootRefusal() === undefined) {
+                await rmdir(this.#output).catch(() => undefined);
+                await rmdir(this.#tmp).catch(() => undefined);
+            }
         }
     }
 
@@ -418,6 +473,8 @@ export class SandboxEnv extends NodeExecutionEnv {
         onChange: (change: WatchChange) => void,
         context: Context,
     ): Promise<Result<FileWatcher, FileError>> {
+        const refused = this.#rootRefusal();
+        if (refused) return err(new FileError("permission_denied", refused));
         const opened = await this.#files.call<{
             handle: number;
             event: number;
@@ -460,9 +517,17 @@ export class SandboxEnv extends NodeExecutionEnv {
 
     #rootRefusal(): string | undefined {
         try {
-            for (const { path, real } of this.#roots)
-                if (directoryRoot(path) !== real || !isDir(path))
+            for (const root of this.#roots) {
+                const current = rootAt(root.path);
+                if (
+                    current.real !== root.real ||
+                    current.dev !== root.dev ||
+                    current.ino !== root.ino ||
+                    (root.dev === undefined &&
+                        this.#policy.rw.includes(root.path))
+                )
                     throw new Error();
+            }
         } catch {
             return "The sandbox root is no longer its real directory. The operation was refused.";
         }

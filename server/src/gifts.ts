@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { submitLine } from "./chats.ts";
@@ -23,17 +23,21 @@ import {
     type Reply,
 } from "./protocol.ts";
 import { named, RecordDoc } from "./record.ts";
+import { directoryRoot } from "./sandbox/policy.ts";
 import { refreshSkills } from "./skills.ts";
 
 const IDLE_MS = 60_000;
+const STAGE_REFUSED = "The gift could not be staged. Nothing was handed over.";
 
 async function staged(home: Home): Promise<string> {
     try {
-        const root = join(home.layout.dir, ".gifts");
+        const root = home.layout.gifts;
+        directoryRoot(root);
         await mkdir(root, { recursive: true, mode: 0o700 });
+        directoryRoot(root);
         return await mkdtemp(join(root, "gift-"));
-    } catch (error) {
-        throw giftError(error);
+    } catch {
+        throw new Error(STAGE_REFUSED);
     }
 }
 
@@ -53,7 +57,10 @@ async function resolved(
 
 /** Abandoned gifts from an earlier server process. */
 export async function clearStagedGifts(home: Home): Promise<void> {
-    await rm(join(home.layout.dir, ".gifts"), { recursive: true, force: true });
+    const root = home.layout.gifts;
+    directoryRoot(root);
+    for (const name of await readdir(root))
+        await rm(join(root, name), { recursive: true, force: true });
 }
 
 type Upload = {
@@ -312,7 +319,7 @@ export function uploads(home: Home, context: Context) {
 function giftError(error: unknown): Error {
     return error instanceof Error && !("code" in error)
         ? error
-        : new Error("The gift could not be staged. Nothing was handed over.");
+        : new Error(STAGE_REFUSED);
 }
 
 /** A chief's skill gift delivered through the same deed as typed /give (H25). */

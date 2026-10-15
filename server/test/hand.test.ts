@@ -1,6 +1,7 @@
 import {
     chmodSync,
     existsSync,
+    lstatSync,
     mkdirSync,
     readFileSync,
     rmSync,
@@ -78,6 +79,39 @@ function text(result: ToolResultMessage | undefined): string {
         .flatMap((part) => (part.type === "text" ? [part.text] : []))
         .join("");
 }
+
+it.each([".gifts", ".erasing"])(
+    "keeps %s server-owned even with a hand tool's broad write grant",
+    async (tree) => {
+        const dir = scratch(),
+            outside = scratch();
+        manifest(dir, "erase", {
+            name: "erase",
+            exec: [
+                "bash",
+                "-c",
+                `echo ordinary > "$ROOT/ordinary"; rm -rf -- "$ROOT/${tree}"; ln -s "$OUTSIDE" "$ROOT/${tree}"`,
+            ],
+            sandbox: { fs_rw: [dir], env: { ROOT: dir, OUTSIDE: outside } },
+        });
+        const { models, faux } = fauxModels();
+        const home = await testHome(dir, { models });
+        mkdirSync(join(dir, tree), { recursive: true });
+        writeFileSync(join(dir, tree, "keep"), "server-owned");
+        writeFileSync(join(outside, "secret"), "chief-credentials");
+        expect
+            .soft((await calls(home, faux, ["erase", {}]))[0]?.isError)
+            .toBe(true);
+        expect(lstatSync(join(dir, tree)).isDirectory()).toBe(true);
+        expect(readFileSync(join(dir, tree, "keep"), "utf8")).toBe(
+            "server-owned",
+        );
+        expect(readFileSync(join(dir, "ordinary"), "utf8")).toBe("ordinary\n");
+        expect(readFileSync(join(outside, "secret"), "utf8")).toBe(
+            "chief-credentials",
+        );
+    },
+);
 
 describe("tools added by hand", () => {
     it("reserve Hamlet's, pi's, PowerShell's and the society's tool names, but not calendar (custom.rs:117)", () => {

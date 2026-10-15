@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentRef } from "./hamlet.ts";
+import { directoryRoot } from "./sandbox/policy.ts";
 
 /** The paths of a home's parts (C8). */
 export type Layout = {
@@ -19,6 +20,8 @@ export type Layout = {
     readonly tools: string;
     readonly houses: string;
     readonly librarian: string;
+    readonly gifts: string;
+    readonly erasing: string;
 };
 
 /** The layout of the home in `dir`. */
@@ -33,6 +36,8 @@ export function layoutOf(dir: string): Layout {
         tools: join(dir, "tools"),
         houses: join(dir, "houses"),
         librarian: join(dir, "librarian"),
+        gifts: join(dir, ".gifts"),
+        erasing: join(dir, ".erasing"),
     };
 }
 
@@ -44,8 +49,12 @@ export async function layOut(dir: string): Promise<Layout> {
         layout.tools,
         layout.houses,
         layout.librarian,
+        layout.gifts,
+        layout.erasing,
     ]) {
-        await mkdir(folder, { recursive: true });
+        directoryRoot(folder);
+        await mkdir(folder, { recursive: true, mode: 0o700 });
+        directoryRoot(folder);
     }
     try {
         await writeFile(join(layout.librarian, "NOTES.md"), "# Notes\n", {
@@ -68,8 +77,17 @@ export async function buildHouse(
     agent: AgentRef,
 ): Promise<string> {
     const house = houseOf(layout, agent);
-    await mkdir(join(house, "skills"), { recursive: true });
-    await mkdir(join(house, "inbox"), { recursive: true });
+    for (const folder of [
+        layout.houses,
+        join(layout.houses, agent.hamlet),
+        house,
+        join(house, "skills"),
+        join(house, "inbox"),
+    ]) {
+        directoryRoot(folder);
+        await mkdir(folder, { recursive: true, mode: 0o700 });
+        directoryRoot(folder);
+    }
     try {
         await writeFile(join(house, "NOTES.md"), "# Notes\n", { flag: "wx" });
     } catch (error) {

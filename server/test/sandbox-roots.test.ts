@@ -1,6 +1,7 @@
 import {
     lstat,
     mkdir,
+    readdir,
     readFile,
     rename,
     rm,
@@ -26,6 +27,54 @@ import {
     sh,
     testHome,
 } from "./support.ts";
+
+it.each([false, true])(
+    "keeps the private temp root fixed with open policy %s",
+    async (open) => {
+        const house = scratch(),
+            home = scratch(),
+            folder = scratch(),
+            outside = scratch();
+        await writeFile(join(outside, "secret"), "chief-credentials");
+        const env = new SandboxEnv({
+            cwd: house,
+            policy: open
+                ? openPolicy({ house, home, folder })
+                : closedPolicy(house),
+        });
+        const tmp = (await sh(env, 'printf %s "$TMPDIR"')).output;
+        try {
+            await sh(env, `rm -rf -- "$TMPDIR"; ln -s '${outside}' "$TMPDIR"`);
+            const next = await sh(
+                env,
+                'cat "$TMPDIR/secret"; echo clobbered > "$TMPDIR/secret"',
+            );
+            expect.soft(next.output).not.toContain("chief-credentials");
+            expect
+                .soft(await readFile(join(outside, "secret"), "utf8"))
+                .toBe("chief-credentials");
+            expect((await lstat(tmp)).isDirectory()).toBe(true);
+            expect(
+                await sh(
+                    env,
+                    'echo ordinary > "$TMPDIR/note"; cat "$TMPDIR/note"',
+                ),
+            ).toEqual({ exitCode: 0, output: "ordinary\n" });
+            expect(
+                (await env.remove(tmp, { recursive: true }, context)).ok,
+            ).toBe(false);
+            expect(
+                (await env.renameFile(tmp, `${tmp}-moved`, context)).ok,
+            ).toBe(false);
+        } finally {
+            await env.cleanup(context);
+            if ((await lstat(tmp)).isSymbolicLink()) {
+                await rm(tmp);
+                await mkdir(tmp);
+            }
+        }
+    },
+);
 
 it.each(["closed house", "open house", "open folder"])(
     "cannot replace the %s with a link in a command",
@@ -100,6 +149,28 @@ it("refuses commands and file tools if a previously granted root becomes a link"
         await env.cleanup(context);
     }
 });
+
+it.each(["houses/home", "houses/home/0", ".gifts", ".erasing"])(
+    "refuses a linked %s before opening or creating anything for agents",
+    async (part) => {
+        const dir = scratch(),
+            outside = scratch(),
+            models = fauxModels().models;
+        const home = await testHome(dir, { models });
+        await home.close(context);
+        const path = join(dir, part);
+        await rename(path, `${path}-old`);
+        await symlink(outside, path);
+        await writeFile(join(outside, "secret"), "chief-credentials");
+        await expect(testHome(dir, { models })).rejects.toThrow(
+            /root|directory/i,
+        );
+        expect(await readdir(outside)).toEqual(["secret"]);
+        expect(await readFile(join(outside, "secret"), "utf8")).toBe(
+            "chief-credentials",
+        );
+    },
+);
 
 it("refuses a linked root before starting an environment or any tree operation", async () => {
     const home = await testHome(scratch(), { models: fauxModels().models });

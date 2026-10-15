@@ -543,7 +543,7 @@ export async function removeHouse(home: Home, dir: string): Promise<number> {
             path = join(path, part);
             if (!(await lstat(path)).isDirectory()) throw new Error(refused);
         }
-        const erasing = join(home.layout.dir, ".erasing");
+        const erasing = home.layout.erasing;
         await mkdir(erasing, { recursive: true, mode: 0o700 });
         if (!(await lstat(erasing)).isDirectory()) throw new Error(refused);
         const slot = await mkdtemp(join(erasing, "house-"));
