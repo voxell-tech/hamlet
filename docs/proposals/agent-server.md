@@ -104,6 +104,15 @@ commands, not edits of the agent's own house. Tools added by hand reach the
 paths their manifests grant, not the shell's paths. There is no
 `--insecure` mode yet.
 
+Seatbelt denies writes to `.git/hooks` and `.git/config` by pattern under
+the writable folders, with their paths kept as parameters. It guards nested
+repositories, including one created during the command. Bubblewrap scans
+for repositories before each command, without following symbolic links,
+and refuses the command if the scan cannot finish within 100000 entries.
+It mounts their hooks and config read-only and pins the folders above
+them. A repository created during a bubblewrap command is not guarded
+until the next command; that part of C18 is not yet met.
+
 Step 3 gives the package the `hamlet` executable, renames the Rust binary
 `hamlet-app`, and adds `hamlet dev` to start a scratch server and its window
 and `hamlet window` to open a window pointed at a server. Players still open
@@ -121,11 +130,11 @@ an app called Hamlet; only its executable is named `hamlet-app`.
 | The gate (C7, H11) | A `beforeTool` hook in the oversight extension |
 | The hamlet's record, the realm, oversight, the library's record, limits, settings | Session-scoped documents; a tool commits a change with a marker of its result, so a repeated call returns that result (ADR 0005) |
 | A task and its caps (H12) | A document of the task's counts, read by the gate and the budget check |
-| Spend (H8) | pi-durable's kept responses and aggregate summary usage, charged to Hamlet's ledger by hamlet and local day, agent and task; roads join it in step 4 |
+| Spend (H8) | pi-durable's kept responses and aggregate summary usage, charged in integer micro-dollars to Hamlet's ledger by hamlet and local day, agent and task; roads join it in step 4 |
 | Letters (H30) | A submission to the receiver's conversation with the sender; its answer is submitted back to the sender's conversation |
 | Questions (H30) | A tool that submits to the receiver's conversation and waits for it, as pi-durable's subagent example does, so it survives a restart |
 | Votes (H13) | A task that owns the mayor's turn and each ballot as child tasks |
-| Reflection (C5) | A queued server input with its own task and a reserved ordinal, kept across a restart; an orderly close waits up to 120 s for owed reflections able to run |
+| Reflection (C5) | A queued server input with its own task and a reserved ordinal, kept across a restart; zero allows only reflection a chief asks for; with a nonzero count, an orderly close waits up to 120 s for owed reflections able to run |
 | Summarising (C28) | pi-durable's compaction, set to C28's thresholds |
 | Taking a conversation back (C27) | A fork from the entry before the message, with the conversation pointed at the fork (ADR 0002) |
 | What the window watches (S5) | `watchEvents()` per open conversation, and the documents' changes for the realm's state |
@@ -181,8 +190,9 @@ submission, so a restart between the two submits the same ID.
 One chief's chat with one agent is shared by every client. Its conversations
 are numbered from 1, with a current conversation and a history. `/new` moves
 the current pointer at once; the earlier conversation finishes its queue
-and reflects on owed turns. `/resume` alone lists history and `/resume <n>`
-returns by number. A rewind forks the current conversation but keeps its
+and, unless reflection is set to zero, reflects on owed turns. `/resume`
+alone lists history, the non-current conversations, and `/resume <n>` returns
+by number. A rewind forks the current conversation but keeps its
 number. An address names a hamlet and agent, with `mayor` for the office;
 a chat reference adds optional `past` for a numbered conversation.
 
@@ -229,8 +239,8 @@ that started the login; disconnecting it cancels the flow. Credentials
 stay on the server.
 
 Tool results, protocol messages and the oversight record are scrubbed of
-known credentials. Assistant text can reach pi's storage before it can be
-scrubbed; C32 is not yet met.
+known credentials. An assistant's own messages keep their text, reasoning
+and tool-call arguments unscrubbed in pi's storage; C32 is not yet met.
 
 ## Order of work
 
@@ -276,9 +286,13 @@ offline. They pass in `server/test/`.
 - OpenAI's login listens on port 1455, which the Codex CLI uses too; a clash
   fails the login with a clear error.
 - Windows has no sandbox, and the server offers no `--insecure` mode.
-- C31's first-token timing is conditional; raw provider usage and each
-  summarising call's timing, billed charge and end reason are not recorded.
-- C32 is not yet met for assistant text kept by pi.
+- C18 is not yet met for repositories created during a bubblewrap command;
+  their hooks and config are not guarded until the next command.
+- C31 is not yet met: first-token timing is not recorded for every call;
+  raw provider usage and each summarising call's timing, billed charge and
+  end reason are not recorded. Summaries' model time is not yet charged.
+- C32 is not yet met for assistant messages kept by pi, including their
+  text, reasoning and tool-call arguments.
 
 ## Left for later
 

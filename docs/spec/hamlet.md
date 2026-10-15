@@ -31,7 +31,7 @@ another agent's house.
 | `/agent <name>`, `/hamlet <name>` | Talk to that agent, or to that hamlet's mayor |
 | `/to <agent> <instruction>` | Instruct an agent directly |
 | `/new` | Move at once to a new conversation while the old one finishes its queue (C24) |
-| `/resume [n]` | List conversations, or go back to one by its stable number (C24) |
+| `/resume [n]` | List earlier conversations, or go back to one by its stable number (C24) |
 | `/retry`, `/reflect` | Carry on a failed or stopped turn as a visible new input, reflect now (C26, C5) |
 | `/stop [agent\|all]` | Stop an agent's work, or everyone's (H23) |
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
@@ -127,10 +127,10 @@ failed or aborted attempts. A response with no reported tokens is estimated
 unless it failed or was aborted; an attempt with no reported usage costs
 nothing. The provider's billed cost is used when available, else the model's
 catalogue rates or the chief's assigned price. An unpriced model is charged
-[$0.10 per million tokens] on this machine, [$1 per million] elsewhere.
+$0.10 per million tokens on this machine, $1 per million elsewhere.
 Subscription models are charged at catalogue rates even when the chief
-pays no per-token bill. Cost is kept in integer micro-dollars, by the
-server's local day. Summaries have no recorded model time (C31).
+pays no per-token bill. Spending follows the server's local day.
+Summaries' model time is not yet charged (C31).
 
 Before every model call the hamlet's budget and the task's caps are checked,
 and a turn that has run out stops, saying what ran out and who can change

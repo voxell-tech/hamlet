@@ -61,12 +61,12 @@ that would have had it.
 
 | Tool | Does |
 |---|---|
-| `read` | pi's read: text without line numbers, up to [2000 lines] or [50 KiB], whichever comes first, with an offset and a line limit; also reads supported images |
-| `write` | pi's write: creates or replaces a whole file and makes its parent folders |
-| `edit` | pi's edit: one or more exact text replacements in one file, each matching a unique, non-overlapping part of the original |
-| `bash` | Hamlet's command tool: runs in the house, or in the hamlet's folder when it has one, and says with a `network` flag whether it needs the network. Stops after [120 s], or an earlier timeout; keeps the last [2000 lines] or [50 KiB] of stdout and stderr, and gives a file holding the whole output when it spills |
-| `search` | Finds a linear-time regular expression in files, with a name filter and optional case-insensitive matching, up to [100] hits; skips binary files, files that are not UTF-8, files over [1 MiB] and build folders |
-| `find` | Lists a folder, or finds files by name under it, up to [100] matches |
+| `read` | Gives text without line numbers, up to 2000 lines or 50 KiB, whichever comes first, with an offset and a line limit; also reads supported images |
+| `write` | Creates or replaces a whole file and makes its parent folders |
+| `edit` | Makes one or more exact text replacements in one file, each matching a unique, non-overlapping part of the original |
+| `bash` | Runs in the house, or in the hamlet's folder when it has one, and says with a `network` flag whether it needs the network. Stops after 120 s, or an earlier timeout; keeps the last 2000 lines or 50 KiB of stdout and stderr, and gives a file holding the whole output when it spills |
+| `search` | Finds a linear-time regular expression in files, with a name filter and optional case-insensitive matching, up to 100 hits; skips binary files, files that are not UTF-8, files over 1 MiB and build folders |
+| `find` | Lists a folder, or finds files by name under it, up to 100 matches |
 
 The hamlet's own tools, offered by role, are in [`hamlet.md`](hamlet.md).
 
@@ -76,12 +76,16 @@ every agent, and runs under the same sandbox and the same gate as the shell.
 
 ## What tools reach
 
-**C18.** Tools run in a sandbox. The built-in tools write only in the
-agent's house and in the folder its hamlet works on. With a folder, a
-command can read the rest of the machine, so the project's own tools run,
-but never the rest of the home, and never writes `.git/hooks` or
-`.git/config`, including in nested repositories. The library and the
-home's tools folder are readable and never writable.
+**C18. Not yet met.** Tools run in a sandbox. The built-in tools write only
+in the agent's house and in the folder its hamlet works on. With a folder,
+a command can read the rest of the machine, so the project's own tools run,
+but never the rest of the home. A command never writes `.git/hooks` or
+`.git/config` of the folder's repository or of a repository nested in it.
+The library and the home's tools folder are readable and never writable.
+
+Under bubblewrap, the protection of a repository created during a command
+is not yet met: its hooks and config are not guarded until the next
+command. Seatbelt guards that repository during the command too.
 
 A tool added by hand has the filesystem reach its manifest grants, rather
 than the shell's reach: its readable and writable paths, with its own
@@ -121,10 +125,11 @@ waits (H30).
 while it works wait in order.
 
 **C24.** A chief can start a new conversation with an agent. `/new` moves
-to it at once, while the old conversation finishes its queue and reflects
-on what it owes (C5). Every conversation has a stable number in that chief's
-chat with the agent, shared by the chief's clients. `/resume` alone lists
-them; `/resume <n>` goes back to one by its number.
+to it at once, while the old conversation finishes its queue and, unless
+reflection is set to zero, reflects on what it owes (C5). Every conversation
+has a stable number in that chief's chat with the agent, shared by the
+chief's clients. `/resume` alone lists the earlier ones; `/resume <n>` goes
+back to one by its number.
 
 **C25.** A chief can stop an agent's running turn, which also drops what it
 had queued. The conversation stays whole: the turn shows as stopped.
@@ -137,16 +142,16 @@ or one that was answered, cannot be retried.
 **C27.** A chief can take a conversation back to before one of its
 messages. What waited for a chief from the part taken out lapses.
 
-**C28.** Compaction reserves [20%] of the model's window for an answer.
-pi estimates the conversation's size: above the window less that reserve,
-a request waits for a summary; [half the reserve] before that threshold,
-a summary starts in the background. Compaction needs an earlier part it can
-summarise, keeps recent context [20000 tokens] at pi's message boundaries,
-and replaces the earlier part sent to the model with its summary. The
-stored conversation stays whole, and shows a notice for the summary. A
-context-overflow error also triggers compaction and one more attempt.
+**C28.** Compaction reserves 20% of the model's window for an answer.
+When the conversation's estimated size is above the window less that
+reserve, a request waits for a summary; half the reserve before that
+threshold, a summary starts in the background. Compaction needs an earlier
+part it can summarise, keeps the most recent 20000 tokens of whole
+messages, and replaces the earlier part sent to the model with its summary.
+The stored conversation stays whole, and shows a notice for the summary.
+A context-overflow error also triggers compaction and one more attempt.
 
-An empty reply cut off for length with fewer than [1024] output tokens,
+An empty reply cut off for length with fewer than 1024 output tokens,
 other than a reflection, has the conversation summarised and is asked for
 once more under the same task. A second such cut-off fails. With no earlier
 conversation to summarise, or no summary that succeeds, the turn fails and
@@ -159,14 +164,15 @@ the message again.
 **C5.** An agent reflects after every [10] answered turns in each chief
 conversation, including retries, when a chief asks it to, and on owed turns
 when a conversation is put away or the server stops in an orderly way.
-Zero disables automatic reflection. An automatic reflection is queued
-behind inputs already waiting, and reflects on those turns too. A client's
-end of input triggers no reflection.
+Zero means the agent reflects only when a chief asks it to. An automatic
+reflection is queued behind inputs already waiting, and reflects on those
+turns too. A client's end of input triggers no reflection.
 
-An orderly close submits owed reflections and waits up to [120 s] for
-those able to run. A running chief turn is suspended promptly, with its
-reflection queued; unfinished work carries on at the next start. A second
-stop signal closes at once.
+When the count is nonzero, an orderly close submits owed reflections and
+waits up to 120 s for those able to run. A running chief turn is suspended
+promptly; its owed reflection stays queued if the count is nonzero.
+Unfinished work carries on at the next start. A second stop signal closes
+at once.
 
 The agent is asked to keep in its notes what is worth remembering about
 the chiefs and its lessons, and to save or improve a skill for anything
@@ -180,20 +186,20 @@ call with its name, its arguments cut to 200 characters and, for an edit,
 the change, then the call's end with its exit code, its time and the first
 line of a failure, and the notices meant only for people.
 
-**C31.** Kept model responses record the model, where it was served, the
-input, cached, output and reasoning tokens, the whole time, why the response
-ended, and the provider's billed charge when available. Failed and aborted
-attempts with kept responses are recorded too. Charges follow H8 and belong
-to the hamlet, the agent and the task, even after a rewind.
+**C31. Not yet met.** Every model call, including each summarising call,
+records the model, where it was served, the input, cached, output and
+reasoning tokens, the provider's own charge when available, the time to the
+first token, the whole time, and why it ended. Failed and aborted attempts
+are recorded too. Charges follow H8 and belong to the hamlet, the agent and
+the task, even after a rewind.
 
-Time to the first token is recorded when captured, but is not available for
-every call. The provider's raw usage is not yet recorded. Summaries have
-aggregate usage and cost, without each summarising call's timing, billed
-charge or end reason.
+Time to the first token is not yet recorded for every call. The provider's
+raw usage is not yet recorded. Summaries have aggregate usage and cost,
+without each summarising call's timing, billed charge or end reason.
 
 **C32. Not yet met.** No credential appears in a conversation as it is kept
 or shown. Known credentials are scrubbed from chief inputs, tool results
 (including structured output), streamed and spilled command output,
-protocol messages and the oversight record. An assistant's own text cannot
-be scrubbed before pi keeps it, so the stored conversation is not yet
-covered whole.
+protocol messages and the oversight record. An assistant's own messages
+keep their text, reasoning and tool-call arguments unscrubbed, so the stored
+conversation is not yet covered whole.
