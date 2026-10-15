@@ -615,7 +615,17 @@ describe("tools added by hand", () => {
             (await (await mayorChat(home)).agent(context)).tools
                 .map((tool) => tool.name)
                 .sort(),
-        ).toEqual(["bash", "edit", "find", "read", "search", "write"]);
+        ).toEqual([
+            "bash",
+            "build_road",
+            "create_agent",
+            "edit",
+            "find",
+            "read",
+            "search",
+            "set_model",
+            "write",
+        ]);
     });
 
     it("reserve the names of other installed extensions too", async () => {

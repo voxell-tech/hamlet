@@ -179,7 +179,7 @@ it("carries a letter's sender and task, and checks that task before calling the 
     expect(level({ messages: 3, lastUsed: 0 }, 10, 7)).toBe("paved");
 });
 
-it("dispatches stub deeds and /to over a WebSocket to another agent and hamlet", async () => {
+it("dispatches road refusals and /to over a WebSocket to another agent and hamlet", async () => {
     const { models, faux } = fauxModels();
     const { home, connection, messages } = await served({ models });
     await addAgent(home, HOME, "scout");
@@ -193,7 +193,7 @@ it("dispatches stub deeds and /to over a WebSocket to another agent and hamlet",
     expect(stub).toMatchObject({
         type: "reply",
         kind: "error",
-        text: "This is not built yet.",
+        text: "no agent named `smith` in this hamlet",
     });
     faux.setResponses([
         (prompt) => {

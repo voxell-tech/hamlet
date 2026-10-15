@@ -7,7 +7,6 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { describe, expect, it } from "vitest";
 import type { Home } from "../src/home.ts";
 import { Letters, QuestionsDoc } from "../src/letters.ts";
-import { MayorTools } from "../src/mayor.ts";
 import {
     context,
     crashing,
@@ -19,7 +18,7 @@ import {
     transcript,
 } from "./support.ts";
 
-const parts = [MayorTools, Letters];
+const parts = [Letters];
 
 const create = fauxAssistantMessage(
     fauxToolCall("create_agent", {
