@@ -39,6 +39,7 @@ const PARTS = [
     ["notes", "# NOTES.md\n"],
     ["skills", "# Skills\n"],
     ["library", "# Library\n"],
+    ["hamlet", "# Your hamlet\n"],
     ["budget", "# Budget\n"],
 ] as const;
 
