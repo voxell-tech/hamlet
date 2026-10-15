@@ -267,8 +267,11 @@ export const Merging: Part = (home) => ({
                             );
                             call.archive = entry.id;
                             call.text =
-                                report(entry, plan.notes === "joined") +
-                                (why ? ` ${why}` : "");
+                                report(
+                                    entry,
+                                    plan.notes === "joined",
+                                    args.purpose,
+                                ) + (why ? ` ${why}` : "");
                             return entry;
                         }, context);
                         await apply(home, place.hamlet, entry, context);
@@ -283,7 +286,11 @@ export const Merging: Part = (home) => ({
                                     type: "text",
                                     text:
                                         result?.text ??
-                                        report(entry, plan.notes === "joined"),
+                                        report(
+                                            entry,
+                                            plan.notes === "joined",
+                                            args.purpose,
+                                        ),
                                 },
                             ],
                         };
@@ -333,7 +340,7 @@ export const merge: Deed = async (home, given, context) =>
             context,
         );
         await apply(home, args.hamlet, entry, context);
-        return report(entry, plan.notes === "joined");
+        return report(entry, plan.notes === "joined", agents.kept.purpose);
     });
 
 async function allowed(
@@ -469,6 +476,13 @@ async function prepare(
         const files = new Map<string, Buffer>();
         const clashes: string[] = [];
         const put = (rel: string, bytes: Buffer) => {
+            if (
+                rel.startsWith("/") ||
+                rel.includes("\\") ||
+                rel.includes("\0") ||
+                rel.split("/").some((p) => !p || p === "." || p === "..")
+            )
+                throw new Error("A merge needs ordinary relative file paths.");
             if (files.has(rel) || present.has(rel))
                 throw new Error(
                     `The merge needs \`${rel}\`, which already exists; keep it aside before merging.`,
@@ -529,6 +543,18 @@ async function prepare(
                 );
             }
             put(rel, bytes);
+        }
+        const env = envFor(home, { hamlet, number: kept.number }, false);
+        try {
+            for (const rel of files.keys()) {
+                const info = await env.fileInfo(join(target, rel), context);
+                if (info.ok || info.error.code !== "not_found")
+                    throw new Error(
+                        `The merge cannot safely deliver \`${rel}\`; keep its destination aside before merging.`,
+                    );
+            }
+        } finally {
+            await env.cleanup(context);
         }
         return {
             files,
@@ -798,9 +824,9 @@ function accept(reply: string, limit: number): string | undefined {
         : undefined;
 }
 
-function report(entry: Archived, joined: boolean): string {
+function report(entry: Archived, joined: boolean, purpose: string): string {
     const m = entry.merge;
-    return `Merged \`${entry.agent.name}\` into \`${m?.kept.name}\`. \`${m?.kept.name}\` has the notes, skills, files and roads of both. \`${entry.agent.name}\` is archived as ${entry.id}.${joined ? ` The two notes were joined, not rewritten: ask \`${m?.kept.name}\` to tidy its NOTES.md.` : ""}${m?.clashes.length ? ` Kept apart because they differed: ${m.clashes.join("; ")}.` : ""}`;
+    return `Merged \`${entry.agent.name}\` into \`${m?.kept.name}\`. \`${m?.kept.name}\` has the notes, skills, files and roads of both, and its purpose is now: ${purpose} \`${entry.agent.name}\` is archived as ${entry.id}.${joined ? ` The two notes were joined, not rewritten: ask \`${m?.kept.name}\` to tidy its NOTES.md.` : ""}${m?.clashes.length ? ` Kept apart because they differed: ${m.clashes.join("; ")}.` : ""}`;
 }
 
 /** A merged agent split back out of its kept house. */

@@ -91,6 +91,7 @@ describe("the mayor's tools", () => {
                 .sort();
         const all = [
             "bash",
+            "call_vote",
             "edit",
             "find",
             "merge_agents",

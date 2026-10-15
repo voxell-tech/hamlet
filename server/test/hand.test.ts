@@ -617,6 +617,7 @@ describe("tools added by hand", () => {
                 .sort(),
         ).toEqual([
             "bash",
+            "call_vote",
             "edit",
             "find",
             "merge_agents",

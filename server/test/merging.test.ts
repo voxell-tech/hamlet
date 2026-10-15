@@ -112,6 +112,7 @@ it("merges houses, keeps clashes apart, inherits road use and leaves each charac
     await put(2, "found.txt", "Dune");
     const words = await merge(home, deed, context);
     expect(words).toContain("Merged `scout` into `librarian`");
+    expect(words).toContain("its purpose is now: Keeps the list.");
     expect(words).toContain("joined, not rewritten");
     const r = await home.harness.snapshot(RecordDoc, HOME, context);
     expect(r?.agents.map((a) => a.name)).toEqual([
@@ -485,3 +486,18 @@ it("keeps both agents' notes when two merges into one house are decided together
     expect(await get(1, "NOTES.md")).toContain("The wiki is slow.");
     expect(await get(1, "NOTES.md")).toContain("The sky is blue.");
 }, 60_000);
+
+it("refuses a blocked destination before archiving either agent", async () => {
+    const { home, put } = await pair();
+    await put(1, "blocked", "a file, not a folder");
+    await put(2, "blocked/inside", "cannot be delivered here");
+    await expect(merge(home, deed, context)).rejects.toThrow();
+    expect(
+        (await home.harness.snapshot(RecordDoc, HOME, context))?.agents.map(
+            (a) => a.name,
+        ),
+    ).toEqual(["founder", "librarian", "scout"]);
+    expect(
+        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
+    ).toHaveLength(0);
+}, 30_000);

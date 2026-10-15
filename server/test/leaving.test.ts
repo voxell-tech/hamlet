@@ -15,6 +15,7 @@ import { houseOf } from "../src/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { resolve, roadsOf } from "../src/realm.ts";
 import { RecordDoc } from "../src/record.ts";
+import { VotesDoc } from "../src/society/docs.ts";
 import {
     erase,
     record,
@@ -28,6 +29,7 @@ import {
     addAgent,
     addHamlet,
     context,
+    crashing,
     fauxModels,
     openWaits,
     say,
@@ -312,3 +314,69 @@ it("runs a chief's remove, restore, record and undo over a WebSocket", async () 
     });
     expect(await undo(run.home, deed, context)).toContain("Nothing to undo");
 });
+
+it("replays a committed removal's result even if a vote opened before its tool result was kept", async () => {
+    const { models, faux } = fauxModels();
+    const dir = scratch();
+    const home = await testHome(dir, {
+        models,
+        openStorage: crashing((writes) =>
+            writes.some(
+                (w) =>
+                    w.type === "entry" &&
+                    w.value.kind === "pi.tool-result" &&
+                    JSON.stringify(w.value.model).includes("Removed `scout`"),
+            ),
+        ),
+    });
+    await addAgent(home, HOME, "scout");
+    await addAgent(home, HOME, "smith");
+    faux.setResponses([
+        fauxAssistantMessage(
+            fauxToolCall("remove_agent", {
+                name: "scout",
+                reason: "Work ended",
+            }),
+            { stopReason: "toolUse" },
+        ),
+    ]);
+    const sub = await say(home, "remove scout");
+    expect(await home.harness.closed).toMatchObject({ reason: "failed" });
+    faux.setResponses([
+        (prompt) => {
+            expect(JSON.stringify(prompt)).toContain("Removed `scout`");
+            return fauxAssistantMessage("done");
+        },
+    ]);
+    const again = await testHome(dir, {
+        models,
+        parts: [
+            (home) => ({
+                start: async (c) => {
+                    await home.harness.commit(async (tx) => {
+                        (await tx.doc(VotesDoc, HOME, HOME)).votes.push({
+                            id: 1,
+                            motion: { kind: "replace_mayor", candidate: 2 },
+                            by: { chief: home.chief },
+                            reason: "A vote opened",
+                            mayor: 0,
+                            voters: [2],
+                            answer: null,
+                            ballots: [],
+                            standing: "open",
+                            called: home.now(),
+                            task: "test-vote",
+                        });
+                    }, c);
+                },
+            }),
+        ],
+    });
+    expect(
+        (await (await again.harness.submission(sub.id, context))?.wait(context))
+            ?.status,
+    ).toBe("done");
+    expect(
+        (await again.harness.snapshot(RecordDoc, HOME, context))?.archive,
+    ).toHaveLength(1);
+}, 30_000);

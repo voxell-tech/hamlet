@@ -56,7 +56,13 @@ export const Leaving: Part = (home) => ({
                         api.conversationId,
                         context,
                     );
+                    const saved = await api.snapshot(
+                        RemovalDoc,
+                        api.taskId,
+                        context,
+                    );
                     const wait =
+                        !saved?.text &&
                         placeBefore &&
                         (await voteOpen(
                             api,
