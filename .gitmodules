@@ -1,4 +1,4 @@
 [submodule "vendor/fynix"]
 	path = vendor/fynix
 	url = git@github.com:voxell-tech/fynix.git
-	branch = main
+	branch = nixon/wait-for-theme

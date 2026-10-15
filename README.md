@@ -7,23 +7,36 @@
 
 # Hamlet
 
-Humans and Agents Making Little Evolving Towns: AI agents that live as a
-hamlet, in Rust.
+[![License](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/voxell-tech/hamlet#license)
+[![CI](https://github.com/voxell-tech/hamlet/workflows/CI/badge.svg)](https://github.com/voxell-tech/hamlet/actions)
+[![Discord](https://img.shields.io/discord/442334985471655946.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/Mhnyp6VYEQ)
+
+**Hamlet** is an agent orchestrator. You lead a team of AI agents, and
+watch them work as a hamlet: a small 3D world where each agent has a house
+and a robot. Free and open-source forever.
 
 <p align="center">
   <img src="brand/hamlet-window.png" alt="The Hamlet window: petitions for the chief on the left, a realm of four hamlets joined by roads across a river in the middle, and the list of hamlets with their agents and budgets on the right" width="860">
 </p>
 
-You are the chief. The agent you talk to is the mayor. It starts with two
-tools (a sandboxed shell and a file editor), a notes file and a folder of
-skills, and grows the rest itself. It can create other agents, each with a
-house of its own (notes, skills and a log), and agents talk to each other
-along roads the mayor lays. Agents can vote a mayor out, hamlets can sit side
-by side, and the chief can overrule anything.
+## Features
 
-A desktop command center shows the hamlet as a generated 3D world, with a
-robot and a house per agent, beside panels for what needs you, who is
-selected and who lives there.
+- **One lead, many agents**: You are the chief and talk to the mayor, the
+  lead agent. It creates the agents the work needs, each with its own
+  notes, skills and log.
+- **Agents that grow**: An agent starts with a sandboxed shell, a file
+  editor and a notes file, and writes its own skills from there.
+- **Agents talk to each other**: Messages travel along roads the mayor
+  lays between houses.
+- **Point a hamlet at your code**: Give a hamlet a folder and its agents
+  work in it, as a coding agent does.
+- **You stay in charge**: In manual mode every edit and command waits for
+  your approval. In auto mode the sandbox keeps writes inside the folder.
+  Agents can vote a mayor out, and the chief can overrule anything.
+- **Many hamlets at once**: Hamlets sit side by side, each with its own
+  agents, budget and folder.
+- **Any model**: Any OpenAI-compatible endpoint, a local
+  [Ollama](https://ollama.com) by default.
 
 **Status:** early and moving fast.
 
@@ -62,6 +75,10 @@ cargo +nightly fmt
 [`docs/tour.md`](docs/tour.md) is the map of the code,
 [`docs/`](docs/README.md) lists every page, and [`AGENTS.md`](AGENTS.md)
 has the rules for working here.
+
+## Join the community!
+
+You can join us on the [Voxell discord server](https://discord.gg/Mhnyp6VYEQ).
 
 ## License
 

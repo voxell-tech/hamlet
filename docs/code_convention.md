@@ -18,6 +18,24 @@ When a generic call's type needs pinning down, prefer turbofish on
 the call itself (`.collect::<Vec<_>>()`, `.parse::<i32>()`, and so on)
 over annotating the binding's type to steer inference.
 
+## Test our own code, and only what can break
+
+A test covers logic written here. Bevy and the other crates we build
+on have their own tests: do not assert that a `clamp` clamps, that a
+reflected value survives a save, or that a component is where it was
+just inserted.
+
+Skip a test that only restates the line it covers: a `match` written
+out again as a table of asserts, a flag set from `is_some()`, a
+one-line formula. If the test would change in step with every edit of
+the code and catch nothing else, it is not worth having.
+
+Keep tests where a mistake is easy to make and hard to see in review:
+maths with a sign or a space to get wrong, a round trip through our
+own format, a behaviour a user asked for by name.
+
+When it's a toss-up whether a test earns its place, leave it out.
+
 ## Colours are parameters of a shader, not constants in it
 
 A shader takes its colours as uniforms, set from Rust. This holds

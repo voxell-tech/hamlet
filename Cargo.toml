@@ -11,27 +11,34 @@ default-members = [".", "crates/*"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/voxell-tech/hamlet"
 
 [workspace.dependencies]
-hamlet_sandbox = { path = "crates/hamlet_sandbox" }
-hamlet_model = { path = "crates/hamlet_model" }
-hamlet_home = { path = "crates/hamlet_home" }
-hamlet_rules = { path = "crates/hamlet_rules" }
-hamlet_core = { path = "crates/hamlet_core" }
-hamlet_desktop = { path = "crates/hamlet_desktop" }
-hamlet_assets = { path = "crates/hamlet_assets" }
-hamlet_vfx = { path = "crates/hamlet_vfx" }
-hamlet_world = { path = "crates/hamlet_world" }
-hamlet_ui = { path = "crates/hamlet_ui" }
-hamlet_testing = { path = "crates/hamlet_testing" }
+# hamlet
+hamlet_sandbox = { version = "0.1.0", path = "crates/hamlet_sandbox" }
+hamlet_model = { version = "0.1.0", path = "crates/hamlet_model" }
+hamlet_home = { version = "0.1.0", path = "crates/hamlet_home" }
+hamlet_rules = { version = "0.1.0", path = "crates/hamlet_rules" }
+hamlet_core = { version = "0.1.0", path = "crates/hamlet_core" }
+hamlet_desktop = { version = "0.1.0", path = "crates/hamlet_desktop" }
+hamlet_assets = { version = "0.1.0", path = "crates/hamlet_assets" }
+hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
+hamlet_world = { version = "0.1.0", path = "crates/hamlet_world" }
+hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
+hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
 
-anyhow = "1"
-base64 = "0.22"
+# fynix
+bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
+
+# bevy
 bevy_app = { version = "0.19", default-features = false, features = ["std"] }
 bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
 bevy = { version = "0.19", default-features = false, features = ["2d", "3d", "ui", "mesh_picking", "default_platform", "bevy_audio", "bevy_dev_tools", "debug", "serialize"] }
-bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
 bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
+
+# other
+anyhow = "1"
+base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures = "0.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
@@ -55,15 +62,16 @@ winit = { version = "0.30", default-features = false }
 toml = "1"
 
 [workspace.lints.clippy]
+redundant_type_annotations = "warn"
 # Bevy systems take many parameters and long query types by nature.
 too_many_arguments = "allow"
 type_complexity = "allow"
 
-# The usual Bevy profile: our own code builds fast, the engine and the
-# other dependencies run fast.
+# Enable a small amount of optimization in the dev profile.
 [profile.dev]
 opt-level = 1
 
+# Enable a large amount of optimization in the dev profile for dependencies.
 [profile.dev.package."*"]
 opt-level = 3
 

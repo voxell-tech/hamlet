@@ -108,6 +108,7 @@ jobs:
       # internet.
       - run: cargo test --workspace --all-targets
 
+  # Note: cargo test --all-targets disables doc tests, so we have to add this to test docs
   doctest:
     runs-on: ubuntu-latest
     steps:
