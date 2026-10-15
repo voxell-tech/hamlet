@@ -155,7 +155,7 @@ fn plate(
     change: &Change,
     most: usize,
     more: Option<AnyView>,
-) -> impl View + use<> {
+) -> impl View {
     let theme = cx.theme();
     let shown = &change.lines[..most.min(change.lines.len())];
     let mut parts = vec![block(shown)];

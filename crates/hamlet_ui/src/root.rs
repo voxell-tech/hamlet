@@ -89,7 +89,7 @@ fn root() -> AnyView {
     })
 }
 
-fn full(cx: &Cx) -> impl View + use<> {
+fn full(cx: &Cx) -> impl View {
     column((
         toolbar(cx),
         column((dock::<HamletTheme>(), welcome::view()))

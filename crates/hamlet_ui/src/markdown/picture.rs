@@ -110,7 +110,7 @@ fn card(
     address: &str,
     caption: &str,
     state: &State,
-) -> impl View + use<> {
+) -> impl View {
     let theme = cx.theme();
     let said = if caption.is_empty() {
         "A picture"

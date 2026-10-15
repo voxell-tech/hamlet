@@ -236,7 +236,7 @@ pub(super) fn rich(spans: &[Span], ink: Ink) -> AnyView {
     })
 }
 
-fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View + use<> {
+fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
     let theme = cx.theme();
     let text = text.to_string();
     let body = AnyView::new(move |cx: &mut Cx| {
