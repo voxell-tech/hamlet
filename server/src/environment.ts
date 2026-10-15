@@ -8,7 +8,7 @@ import { WorkDoc } from "./hamlet.ts";
 import type { HomeBase } from "./home.ts";
 import { houseOf } from "./layout.ts";
 import { SandboxEnv } from "./sandbox/env.ts";
-import { policyHash } from "./sandbox/policy.ts";
+import { directoryRoot, policyHash } from "./sandbox/policy.ts";
 import { closedPolicy, openPolicy } from "./sandbox/reach.ts";
 
 /** The name of the tool task memo a gate leaves for one call. */
@@ -61,6 +61,8 @@ export async function envFor(
         context,
     );
     if (place === undefined) return undefined;
+    directoryRoot(place.house);
+    if (place.folder !== null) directoryRoot(place.folder);
     const shared = [home.layout.tools, home.layout.library];
     const policy =
         place.folder === null

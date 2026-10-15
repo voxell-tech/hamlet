@@ -202,7 +202,7 @@ async function found(home: Home, context: Context): Promise<void> {
                 id: HOME,
                 title: null,
                 at: null,
-                chiefs: [home.chief],
+                chiefs: [],
                 from: null,
                 founded: home.now(),
                 removed: null,

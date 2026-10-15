@@ -21,6 +21,8 @@ import {
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { Files } from "./files.ts";
 import {
+    directoryRoot,
+    isDir,
     type Limits,
     limitsOf,
     type Policy,
@@ -46,6 +48,7 @@ export class SandboxEnv extends NodeExecutionEnv {
     readonly #tmp: string;
     readonly #scoped: boolean;
     readonly #files: Files;
+    readonly #roots: { path: string; real: string }[];
 
     constructor(options: {
         cwd: string;
@@ -56,6 +59,10 @@ export class SandboxEnv extends NodeExecutionEnv {
     }) {
         super({ cwd: options.cwd });
         this.#policy = options.policy;
+        this.#roots = options.policy.rw.map((path) => ({
+            path,
+            real: directoryRoot(path),
+        }));
         this.#limits = limitsOf(options.policy);
         this.#sandbox = options.sandbox ?? platformSandbox();
         this.policyHash = policyHash(options.policy, this.#sandbox.name);
@@ -74,6 +81,8 @@ export class SandboxEnv extends NodeExecutionEnv {
         options: ShellExecOptions | undefined,
         context: Context,
     ): Promise<Result<ShellExecResult, ExecutionError>> {
+        const refused = this.#rootRefusal();
+        if (refused) return err(new ExecutionError("spawn_error", refused));
         const argv =
             typeof command === "string" ? ["bash", "-c", command] : command;
         const [program] = argv;
@@ -334,7 +343,10 @@ export class SandboxEnv extends NodeExecutionEnv {
         args: unknown[],
         context: Context,
     ): Promise<Result<T, FileError>> {
-        return this.#files.call(method, args, context, this.cwd);
+        const refused = this.#rootRefusal();
+        return refused
+            ? Promise.resolve(err(new FileError("permission_denied", refused)))
+            : this.#files.call(method, args, context, this.cwd);
     }
 
     async #lines(
@@ -428,6 +440,8 @@ export class SandboxEnv extends NodeExecutionEnv {
         reach: Reach,
         context: Context,
     ): Promise<FileError | undefined> {
+        const refused = this.#rootRefusal();
+        if (refused) return new FileError("permission_denied", refused, path);
         const absolute = await super.absolutePath(path, context);
         if (!absolute.ok) return absolute.error;
         const real = absolute.value;
@@ -442,6 +456,17 @@ export class SandboxEnv extends NodeExecutionEnv {
                   `${path} is out of this agent's reach to ${reach === "read" ? "read" : "change"}`,
                   path,
               );
+    }
+
+    #rootRefusal(): string | undefined {
+        try {
+            for (const { path, real } of this.#roots)
+                if (directoryRoot(path) !== real || !isDir(path))
+                    throw new Error();
+        } catch {
+            return "The sandbox root is no longer its real directory. The operation was refused.";
+        }
+        return undefined;
     }
 
     /** True when `program` names an executable file, on the policy's `PATH` when it is a bare name. */

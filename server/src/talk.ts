@@ -71,6 +71,16 @@ const FollowDoc = defineDoc<{
 });
 const followers = new WeakMap<Home, (context: Context) => Promise<void>>();
 
+async function rememberInput(
+    tx: Tx,
+    conversation: ConversationId,
+    input: SubmissionId,
+): Promise<void> {
+    const follow = await tx.doc(FollowDoc, conversation);
+    if (!follow.seen[String(input)] && !follow.pending.includes(input))
+        follow.pending.push(input);
+}
+
 /** Settles the conversations' follow-up work already kept by pi. */
 export async function followHome(home: Home, context: Context): Promise<void> {
     await followers.get(home)?.(context);
@@ -87,11 +97,10 @@ export const Talk: Part = (home) => {
         input: SubmissionId,
         context: Context,
     ) => {
-        await home.harness.commit(async (tx) => {
-            const follow = await tx.doc(FollowDoc, conversation);
-            if (!follow.seen[String(input)] && !follow.pending.includes(input))
-                follow.pending.push(input);
-        }, context);
+        await home.harness.commit(
+            (tx) => rememberInput(tx, conversation, input),
+            context,
+        );
     };
     const drain = async (context: Context) => {
         const conversations = [...admitted];
@@ -168,10 +177,30 @@ export const Talk: Part = (home) => {
                 if (admitted.size > 0 && !closing)
                     void flush(BACKGROUND_CONTEXT).catch(() => {});
             });
-            for (const { id } of await home.harness.commit(
-                agentConversations,
-                context,
-            ))
+            for (const { id } of await home.harness.commit(async (tx) => {
+                const conversations = await agentConversations(tx);
+                for (const { id, place } of conversations) {
+                    const key = agentKey(place);
+                    const prefix = `chief:${id}:`;
+                    for (const instruction of (
+                        await tx.doc(InstructionsDoc, key, key)
+                    ).given) {
+                        if (
+                            instruction.done !== null ||
+                            !instruction.task.startsWith(prefix)
+                        )
+                            continue;
+                        const submission = await tx.submissionByRequest(
+                            id,
+                            `chief:${instruction.task.slice(prefix.length)}`,
+                        );
+                        if (submission === undefined)
+                            instruction.done = home.now();
+                        else await rememberInput(tx, id, submission.id);
+                    }
+                }
+                return conversations;
+            }, context))
                 if (!admitted.has(id)) admitted.set(id, new Set());
             await flush(context);
         },
@@ -289,11 +318,16 @@ async function follow(
                 status.entry === undefined
                     ? undefined
                     : await tx.entry(status.entry);
-            if (ChiefEntry.is(entry)) {
+            const chiefTask = ChiefEntry.is(entry)
+                ? entry.data.task
+                : status.requestId?.startsWith("chief:")
+                  ? `chief:${id}:${status.requestId.slice("chief:".length)}`
+                  : undefined;
+            if (chiefTask !== undefined) {
                 const key = agentKey(place);
                 const instruction = (
                     await tx.doc(InstructionsDoc, key, key)
-                ).given.find((i) => i.task === entry.data.task);
+                ).given.find((i) => i.task === chiefTask);
                 if (instruction) instruction.done = home.now();
             }
             if (entry !== undefined && ReflectionEntry.is(entry)) {

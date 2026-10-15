@@ -210,22 +210,31 @@ export async function say(
         }
     }
     if (command?.command === "stop") {
-        const target =
-            command.agent === null
-                ? undefined
-                : await addressed(
-                      home.harness,
-                      { hamlet: message.to.hamlet, agent: command.agent },
-                      context,
-                  );
-        if (command.agent === null || target !== undefined)
-            await stopAgent(home, target, context);
-        return reply(
-            message.id,
-            command.agent === null
-                ? "Stopping everything."
-                : `Stopping ${command.agent}.`,
+        if (command.agent === null) {
+            await stopAgent(home, undefined, context);
+            return reply(message.id, "Stopping everything.");
+        }
+        const target = await resolve(
+            home.harness,
+            message.to.hamlet,
+            command.agent,
+            context,
         );
+        if (!target)
+            return reply(
+                message.id,
+                `no agent named \`${command.agent}\``,
+                "error",
+            );
+        if ("gone" in target) return reply(message.id, target.gone, "error");
+        if (!isChief(realm, target.hamlet, home.chief))
+            return reply(
+                message.id,
+                "Only a chief of that hamlet may stop it.",
+                "error",
+            );
+        await stopAgent(home, target.ref, context);
+        return reply(message.id, `Stopping ${command.agent}.`);
     }
     const target = await resolve(
         home.harness,
@@ -327,17 +336,21 @@ export async function say(
             ? undefined
             : (await home.harness.snapshot(ChatDoc, agentKey(agent), context))
                   ?.chats[home.chief];
-    const own = waits.find(
-        (wait) =>
-            (wait.by === message.to.agent &&
-                (wait.agent === null ||
-                    wait.agent.hamlet === message.to.hamlet)) ||
-            (agent !== undefined &&
+    const own =
+        waits.find(
+            (wait) =>
+                agent !== undefined &&
                 wait.chat?.hamlet === agent.hamlet &&
                 wait.chat.number === agent.number &&
                 wait.chat.chief === home.chief &&
-                wait.chat.chat === chat?.current),
-    );
+                wait.chat.chat === chat?.current,
+        ) ??
+        waits.find(
+            (wait) =>
+                agent !== undefined &&
+                wait.agent?.hamlet === agent.hamlet &&
+                wait.agent.number === agent.number,
+        );
     if (command?.command === "queue")
         return reply(
             message.id,
