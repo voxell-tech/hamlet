@@ -616,6 +616,7 @@ describe("tools added by hand", () => {
                 .map((tool) => tool.name)
                 .sort(),
         ).toEqual([
+            "ask_agent",
             "bash",
             "build_road",
             "create_agent",
@@ -624,6 +625,7 @@ describe("tools added by hand", () => {
             "read",
             "search",
             "set_model",
+            "tell_agent",
             "write",
         ]);
     });

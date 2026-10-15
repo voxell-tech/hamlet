@@ -90,6 +90,7 @@ describe("the mayor's tools", () => {
                 .map((tool) => tool.name)
                 .sort();
         const all = [
+            "ask_agent",
             "bash",
             "build_road",
             "create_agent",
@@ -98,6 +99,7 @@ describe("the mayor's tools", () => {
             "read",
             "search",
             "set_model",
+            "tell_agent",
             "write",
         ];
 
