@@ -109,6 +109,7 @@ describe("the home's model providers", () => {
 
 it("estimates every unreported request from its full history and tool definitions", async () => {
     const endpoint = await openaiFake();
+    endpoint.listing({ data: [{ id: "org/large", context_length: 128_000 }] });
     endpoint.usage(undefined);
     const home = await testHome(scratch(), {
         env: {
