@@ -4,19 +4,19 @@ use bevy::ecs::world::World;
 use bevy::math::Vec2;
 use bevy::ui::widget::{ImageNode, NodeImageMode};
 use bevy::ui::{percent, px};
+use bevy_fynix::AnyView;
 use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockRegistry, DockTree, DockWindowKind,
     Edge, dock,
 };
 use bevy_fynix::views::{FrameProps, column, frame, overlay};
-use bevy_fynix::{AnyView, Bevy, View};
 use hamlet_core::session::{Entry, Transcript};
 use hamlet_ui::feel::Lit;
 use hamlet_ui::icons::Glyph;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::{
-    Cx, ICON, Me, chat, inspector, lit_panel, menu, needs, panel,
-    settings, status_bar, toolbar, welcome,
+    Cx, ICON, Me, View, chat, inspector, lit_panel, menu, needs,
+    panel, settings, status_bar, toolbar, welcome,
 };
 
 use super::{Scene, Stand, Ui};
@@ -143,7 +143,7 @@ pub(super) fn panels() -> Ui {
 }
 
 /// The window's panels as the app lays them out.
-fn shown(cx: &Cx) -> impl View<Bevy, HamletTheme> + use<> {
+fn shown(cx: &Cx) -> impl View {
     column((
         toolbar(cx),
         column((dock::<HamletTheme>(), welcome::view()))

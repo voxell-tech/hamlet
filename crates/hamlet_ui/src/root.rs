@@ -103,7 +103,7 @@ fn full(cx: &Cx) -> impl View {
 
 /// The bar across the top: the menus, on a surface that warms
 /// toward its foot.
-pub fn toolbar(cx: &Cx) -> impl View + use<> {
+pub fn toolbar(cx: &Cx) -> impl View {
     let palette = &cx.theme().palette;
     column((
         row((
