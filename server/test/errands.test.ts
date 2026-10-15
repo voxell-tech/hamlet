@@ -1,0 +1,96 @@
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
+import { expect, it } from "vitest";
+import { PayerDoc, runErrand, startErrand } from "../src/errands.ts";
+import { booksOf, ledgerOf } from "../src/ledger.ts";
+import { localDay } from "../src/time.ts";
+import {
+    addHamlet,
+    context,
+    fauxModels,
+    MAYOR,
+    request,
+    scratch,
+    testHome,
+} from "./support.ts";
+
+it("runs bare and owned errands, charges the payer and task, and reuses the kept answer after reopening", async () => {
+    const { models, faux } = fauxModels(["faux-1"], 10000);
+    const dir = scratch();
+    const home = await testHome(dir, { models });
+    await addHamlet(home, "mill", "miller");
+    const bare = await home.harness.commit(async (tx) => {
+        const id = await startErrand(home, tx, {
+            agent: MAYOR,
+            kind: "notes",
+            own: false,
+            instructions: "Join the notes.",
+            tools: [],
+        });
+        (await tx.doc(PayerDoc, id)).hamlet = "mill";
+        return id;
+    }, context);
+    faux.setResponses([
+        (prompt, _o, _s, model) => {
+            const sent = request(prompt.messages, model);
+            expect(sent.sections).toEqual({
+                instructions:
+                    "<instructions>\nJoin the notes.\n</instructions>",
+            });
+            expect(sent.tools).toEqual([]);
+            return fauxAssistantMessage("joined");
+        },
+    ]);
+    const input = {
+        requestId: "one-notes",
+        text: "A and B",
+        task: "merge-task",
+    };
+    expect(await runErrand(home, bare, input, context)).toEqual({
+        status: "done",
+        text: "joined",
+    });
+    const books = await booksOf(home, "mill", "day", input.task, context);
+    expect(books.hamlet.micros).toBeGreaterThan(0);
+    expect(books.task).toEqual(books.hamlet);
+    expect(
+        (await booksOf(home, "home", "day", null, context)).hamlet.micros,
+    ).toBe(0);
+    expect(
+        await ledgerOf(home, "mill", localDay(home.now()), context),
+    ).toMatchObject([{ what: "model", of: "home", task: input.task }]);
+    await home.close(context);
+    const again = await testHome(dir, { models });
+    expect(await runErrand(again, bare, input, context)).toEqual({
+        status: "done",
+        text: "joined",
+    });
+    expect(faux.state.callCount).toBe(1);
+    const owned = await again.harness.commit(
+        (tx) =>
+            startErrand(again, tx, {
+                agent: MAYOR,
+                kind: "answer",
+                own: true,
+                instructions: "Answer once.",
+                tools: [],
+            }),
+        context,
+    );
+    faux.setResponses([
+        (prompt, _o, _s, model) => {
+            const sent = request(prompt.messages, model);
+            expect(sent.sections).toHaveProperty("charter");
+            expect(sent.sections).toHaveProperty("notes");
+            expect(sent.tools).toEqual([]);
+            return fauxAssistantMessage("answer");
+        },
+    ]);
+    expect(
+        await runErrand(
+            again,
+            owned,
+            { requestId: "answer", text: "Why?", task: "answer-task" },
+            context,
+        ),
+    ).toMatchObject({ status: "done", text: "answer" });
+});

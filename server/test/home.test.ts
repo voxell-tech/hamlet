@@ -64,6 +64,7 @@ describe("opening a home", () => {
                 number: 1,
                 name: "scout",
                 purpose: "Looks around.",
+                model: null,
                 since: 1,
             });
             record.mayor = 1;

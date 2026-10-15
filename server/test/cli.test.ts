@@ -154,7 +154,7 @@ describe("the hamlet command", () => {
         const { models } = fauxModels();
         const opened = await openHome(
             home,
-            { models, env: { HAMLET_MODEL: FAUX_MODEL } },
+            { models, chief: "chief", env: { HAMLET_MODEL: FAUX_MODEL } },
             context,
         );
         await opened.harness.commit(async (tx) => {

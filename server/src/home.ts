@@ -4,6 +4,8 @@ import type { Context } from "@earendil-works/chord";
 import type { OAuthAuth } from "@earendil-works/pi-ai";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import {
+    type ConversationId,
+    type Cursor,
     createRegistry,
     DEFAULT_COMPACTION_POLICY,
     Harness,
@@ -13,6 +15,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CharacterDoc } from "./character.ts";
+import { ChatDoc, type With, WithDoc } from "./chats.ts";
 import { Credentials } from "./credentials.ts";
 import { closeEnvironments, envFor } from "./environment.ts";
 import { agentKey, HOME, WorkDoc } from "./hamlet.ts";
@@ -21,10 +24,12 @@ import { LimitsDoc } from "./limits.ts";
 import { claim } from "./lock.ts";
 import { homeModels } from "./models.ts";
 import { PARTS, type Part } from "./parts.ts";
+import { liveHamlets, RealmDoc } from "./realm.ts";
 import { RecordDoc } from "./record.ts";
 import { platformSandbox, type Sandbox } from "./sandbox/sandbox.ts";
 import { type Overrides, readOverrides, SettingsDoc } from "./settings.ts";
 import { closeSkills, refreshSkills } from "./skills.ts";
+import { AgentConversationsDoc } from "./society/docs.ts";
 
 export type HomeOptions = {
     /** pi-ai's models; by default the home's own, from its settings and credentials. */
@@ -177,18 +182,52 @@ function runSettings(compaction: {
 
 /** Founds the first hamlet when the home is fresh, and builds each of its agents' houses. */
 async function found(home: Home, context: Context): Promise<void> {
-    const numbers = await home.harness.commit(async (tx) => {
-        const record = await tx.doc(RecordDoc, HOME, HOME);
-        await tx.doc(WorkDoc, HOME, HOME);
-        await tx.doc(LimitsDoc, HOME, HOME);
-        await tx.doc(SettingsDoc);
-        for (const { number } of record.agents) {
-            const key = agentKey({ hamlet: HOME, number });
-            await tx.doc(CharacterDoc, key, key);
+    const existing: { id: ConversationId; place: Readonly<With> }[] = [];
+    let cursor: Cursor | undefined;
+    do {
+        const page = await home.harness.commit(
+            (tx) => tx.scanConversations({}, 100, cursor),
+            context,
+        );
+        for (const { id } of page.items) {
+            const place = await home.harness.snapshot(WithDoc, id, context);
+            if (place) existing.push({ id, place });
         }
-        return record.agents.map((agent) => agent.number);
+        cursor = page.next;
+    } while (cursor !== undefined);
+    const agents = await home.harness.commit(async (tx) => {
+        const realm = await tx.doc(RealmDoc);
+        if (realm.hamlets.length === 0)
+            realm.hamlets.push({
+                id: HOME,
+                title: null,
+                at: null,
+                chiefs: [home.chief],
+                from: null,
+                founded: home.now(),
+                removed: null,
+                erased: false,
+            });
+        await tx.doc(SettingsDoc);
+        const agents = [];
+        for (const { id } of liveHamlets(realm)) {
+            const record = await tx.doc(RecordDoc, id, id);
+            await tx.doc(WorkDoc, id, id);
+            await tx.doc(LimitsDoc, id, id);
+            for (const { number } of record.agents) {
+                const agent = { hamlet: id, number };
+                const key = agentKey(agent);
+                await tx.doc(CharacterDoc, key, key);
+                await tx.doc(ChatDoc, key, key);
+                agents.push(agent);
+            }
+        }
+        for (const { id, place } of existing) {
+            const key = agentKey(place);
+            const index = await tx.doc(AgentConversationsDoc, key, key);
+            if (!index.ids.includes(id)) index.ids.push(id);
+        }
+        return agents;
     }, context);
-    for (const number of numbers) {
-        await buildHouse(home.layout, { hamlet: HOME, number });
-    }
+    for (const agent of agents) await buildHouse(home.layout, agent);
 }

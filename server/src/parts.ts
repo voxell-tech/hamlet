@@ -7,6 +7,16 @@ import { Hand } from "./hand.ts";
 import type { Home } from "./home.ts";
 import { Providers } from "./models.ts";
 import { Prompt } from "./prompt.ts";
+import { Dealings } from "./realm/dealings.ts";
+import { Founding } from "./realm/founding.ts";
+import { Agents } from "./society/agents.ts";
+import { HamletBrief } from "./society/brief.ts";
+import { Leaving } from "./society/leaving.ts";
+import { Letters } from "./society/letters.ts";
+import { Librarian } from "./society/librarian.ts";
+import { Merging } from "./society/merging.ts";
+import { Objections } from "./society/objections.ts";
+import { Votes } from "./society/votes.ts";
 import { Talk } from "./talk.ts";
 import { Tools } from "./tools.ts";
 
@@ -26,11 +36,28 @@ export type Part = (home: Home) => {
  */
 export const PARTS: readonly Part[] = [
     Prompt,
+    HamletBrief,
+    Founding,
     Hand,
     Tools,
+    Agents,
+    Letters,
+    Leaving,
+    Merging,
+    Votes,
+    Librarian,
+    Objections,
+    Dealings,
     Gate,
     Talk,
     Budget,
     Choice,
     Providers,
 ];
+
+/** A chief's society or realm command. */
+export type Deed = (
+    home: Home,
+    given: { hamlet: string; rest: string; chief: string },
+    context: Context,
+) => Promise<string>;

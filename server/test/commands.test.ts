@@ -37,7 +37,11 @@ it("names each typed command once and reads its case-sensitive first word", () =
         text: "not on this machine",
     });
     expect(readCommand("/queue")).toEqual({ command: "queue" });
-    expect(readCommand("/undo")).toEqual({ command: "undo" });
+    expect(readCommand("/undo")).toEqual({
+        command: "deed",
+        deed: "undo",
+        rest: "",
+    });
     expect(readCommand("/stop")).toEqual({ command: "stop", agent: null });
     expect(readCommand("/stop all")).toEqual({ command: "stop", agent: null });
     expect(readCommand("/stop scout")).toEqual({

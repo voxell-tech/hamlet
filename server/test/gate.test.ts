@@ -219,6 +219,7 @@ describe("the gate", () => {
                     number,
                     name: "scout",
                     purpose: "Looks around.",
+                    model: null,
                     since: NOON,
                 });
                 record.mayor = number;

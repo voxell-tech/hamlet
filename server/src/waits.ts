@@ -332,3 +332,17 @@ async function note(tx: Tx, event: WaitEvent): Promise<void> {
     const day = localDay(event.at);
     (await tx.doc(OversightDayDoc, day, day)).events.push(event);
 }
+
+/** The lapse of every wait raised by a departing agent (H28). */
+export async function lapseAgent(
+    tx: Tx,
+    agent: AgentRef,
+    at: number,
+): Promise<void> {
+    const waits = Object.values((await tx.doc(OversightDoc)).waits).filter(
+        (w) =>
+            w.agent?.hamlet === agent.hamlet && w.agent.number === agent.number,
+    );
+    for (const wait of waits)
+        await settle(tx, wait.id, { how: "lapsed", text: "", chief: null }, at);
+}

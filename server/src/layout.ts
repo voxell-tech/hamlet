@@ -18,6 +18,7 @@ export type Layout = {
     /** The tools a chief added by hand (C17). */
     readonly tools: string;
     readonly houses: string;
+    readonly librarian: string;
 };
 
 /** The layout of the home in `dir`. */
@@ -31,14 +32,27 @@ export function layoutOf(dir: string): Layout {
         library: join(dir, "library"),
         tools: join(dir, "tools"),
         houses: join(dir, "houses"),
+        librarian: join(dir, "librarian"),
     };
 }
 
 /** Lays out the home in `dir`, keeping whatever is already there. */
 export async function layOut(dir: string): Promise<Layout> {
     const layout = layoutOf(dir);
-    for (const folder of [layout.library, layout.tools, layout.houses]) {
+    for (const folder of [
+        layout.library,
+        layout.tools,
+        layout.houses,
+        layout.librarian,
+    ]) {
         await mkdir(folder, { recursive: true });
+    }
+    try {
+        await writeFile(join(layout.librarian, "NOTES.md"), "# Notes\n", {
+            flag: "wx",
+        });
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
     return layout;
 }

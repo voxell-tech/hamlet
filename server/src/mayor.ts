@@ -20,13 +20,19 @@ export const MayorTools: Part = (home) => ({
                 }),
                 change: async (tx, { name, purpose, reason }) => {
                     const record = await tx.doc(RecordDoc, HOME, HOME);
-                    const number =
-                        Math.max(...record.agents.map((each) => each.number)) +
-                        1;
+                    const number = record.next++;
                     const at = home.now();
-                    record.agents.push({ number, name, purpose, since: at });
+                    record.agents.push({
+                        number,
+                        name,
+                        purpose,
+                        since: at,
+                        model: null,
+                    });
                     record.decisions.push({
                         kind: "created",
+                        name,
+                        purpose,
                         at,
                         by: MAYOR,
                         agent: number,

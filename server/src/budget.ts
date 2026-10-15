@@ -11,10 +11,13 @@ import {
 } from "@earendil-works/pi-durable";
 import { untilAborted } from "./abort.ts";
 import { WithDoc } from "./chats.ts";
+import { agentOf, payerOf } from "./errands.ts";
 import { booksOf, markUncounted, reconcile } from "./ledger.ts";
 import { LimitsDoc, limitsOf } from "./limits.ts";
+import { micros, money } from "./money.ts";
 import { notify } from "./notice.ts";
 import type { Part } from "./parts.ts";
+import { RecordDoc } from "./record.ts";
 import { reportOf, stopped } from "./report.ts";
 import { turnOf } from "./turn.ts";
 
@@ -38,8 +41,8 @@ export const Budget: Part = (home) => {
                 section(
                     "budget",
                     async (input, context) => {
-                        const place = await input.read.snapshot(
-                            WithDoc,
+                        const place = await agentOf(
+                            input.read,
                             input.conversationId,
                             context,
                         );
@@ -68,7 +71,29 @@ export const Budget: Part = (home) => {
                             context,
                             "the hamlet's own model",
                         );
-                        const words = `# Budget\nBudget: you and every agent spend from the hamlet's one budget, and only the chief can change it.\n${[report.summary, ...report.lines].join("\n")}`;
+                        const record = await input.read.snapshot(
+                            RecordDoc,
+                            place.hamlet,
+                            context,
+                        );
+                        const limits = limitsOf(
+                            await input.read.snapshot(
+                                LimitsDoc,
+                                place.hamlet,
+                                context,
+                            ),
+                        );
+                        const mayor = record?.mayor === place.number;
+                        const books = await booksOf(
+                            home,
+                            place.hamlet,
+                            limits.budget.period,
+                            turn?.task ?? null,
+                            context,
+                        );
+                        const words = mayor
+                            ? `# Budget\nOnly the chief changes this shared budget.\n${[report.summary, ...report.lines].join("\n")}\nA road costs ${money(micros(limits.road.cost))}. Models you may choose: ${limits.models.join(", ") || "the hamlet's own model"}.`
+                            : `# Budget\nEveryone in the hamlet spends from its one budget. Your spend: ${money(books.agents[String(place.number)]?.micros ?? 0)}.`;
                         if (turn !== undefined)
                             await home.harness.commit(async (tx) => {
                                 Object.assign(
@@ -94,18 +119,17 @@ export const Budget: Part = (home) => {
                         );
                         if (place === undefined) return undefined;
                         const turn = await turnOf(home.harness, api, context);
+                        const payer =
+                            (await payerOf(api, api.conversationId, context)) ??
+                            place.hamlet;
                         const limits = limitsOf(
-                            await api.snapshot(
-                                LimitsDoc,
-                                place.hamlet,
-                                context,
-                            ),
+                            await api.snapshot(LimitsDoc, payer, context),
                         );
                         const reason = stopped(
                             limits,
                             await booksOf(
                                 home,
-                                place.hamlet,
+                                payer,
                                 limits.budget.period,
                                 turn?.task ?? null,
                                 context,
@@ -147,18 +171,17 @@ export const Budget: Part = (home) => {
                         );
                         if (place === undefined) return undefined;
                         const turn = await turnOf(home.harness, api, context);
+                        const payer =
+                            (await payerOf(api, api.conversationId, context)) ??
+                            place.hamlet;
                         const limits = limitsOf(
-                            await api.snapshot(
-                                LimitsDoc,
-                                place.hamlet,
-                                context,
-                            ),
+                            await api.snapshot(LimitsDoc, payer, context),
                         );
                         const reason = stopped(
                             limits,
                             await booksOf(
                                 home,
-                                place.hamlet,
+                                payer,
                                 limits.budget.period,
                                 turn?.task ?? null,
                                 context,

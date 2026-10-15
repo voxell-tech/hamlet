@@ -7,7 +7,16 @@ import {
     LiveDoc,
     type SubmissionId,
 } from "@earendil-works/pi-durable";
-import { ChiefEntry, ReflectionEntry, RetryEntry } from "./chats.ts";
+import {
+    ChiefEntry,
+    ErrandEntry,
+    LetterEntry,
+    QuestionEntry,
+    ReflectionEntry,
+    ReplyEntry,
+    RetryEntry,
+} from "./chats.ts";
+import type { AgentRef } from "./hamlet.ts";
 
 /** A turn: the run one input starts, until its answer. */
 export type Turn = {
@@ -19,6 +28,7 @@ export type Turn = {
     task: string | null;
     /** The chief whose typed line started it. */
     chief: string | null;
+    from: AgentRef | null;
 };
 
 /**
@@ -52,12 +62,40 @@ export async function turnOf(
               )?.items[0];
     if (ChiefEntry.is(entry)) {
         const { task, chief } = entry.data;
-        return { input, kind: entry.kind, task, chief };
+        return { input, kind: entry.kind, task, chief, from: null };
     }
-    if (RetryEntry.is(entry) || ReflectionEntry.is(entry)) {
-        return { input, kind: entry.kind, task: entry.data.task, chief: null };
+    if (
+        LetterEntry.is(entry) ||
+        QuestionEntry.is(entry) ||
+        ReplyEntry.is(entry)
+    )
+        return {
+            input,
+            kind: entry.kind,
+            task: entry.data.task,
+            chief: null,
+            from: entry.data.from,
+        };
+    if (
+        RetryEntry.is(entry) ||
+        ReflectionEntry.is(entry) ||
+        ErrandEntry.is(entry)
+    ) {
+        return {
+            input,
+            kind: entry.kind,
+            task: entry.data.task,
+            chief: null,
+            from: null,
+        };
     }
-    return { input, kind: entry?.kind ?? "pi.user", task: null, chief: null };
+    return {
+        input,
+        kind: entry?.kind ?? "pi.user",
+        task: null,
+        chief: null,
+        from: null,
+    };
 }
 
 /** A new H12 task, begun at `at`. */

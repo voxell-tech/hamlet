@@ -6,12 +6,14 @@ import {
     DEFAULT_COMPACTION_POLICY,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { ChatDoc, conversationsOf, WithDoc } from "./chats.ts";
+import { WithDoc } from "./chats.ts";
 import { type AgentRef, agentKey, HOME, MAYOR } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "./limits.ts";
 import type { Part } from "./parts.ts";
+import { liveHamlets, RealmDoc } from "./realm.ts";
 import { RecordDoc } from "./record.ts";
+import { configureRole } from "./roles.ts";
 import {
     modelName,
     modelRef,
@@ -19,6 +21,7 @@ import {
     SettingsDoc,
     settingsOf,
 } from "./settings.ts";
+import { AgentConversationsDoc } from "./society/docs.ts";
 
 /** The share of the window of the mayor's model kept free for an answer (C28). */
 const RESERVE = 0.2;
@@ -26,17 +29,24 @@ const RESERVE = 0.2;
 /** The reason a choice of model is recorded with when its edit gives none. */
 const CHOSEN = "The chief chose it.";
 
-/** The model an agent runs, as `endpoint::id`: the chief's pin, else the hamlet's model, else the home's default (H29). */
+/** The model an agent runs: the chief's pin, an allowed mayor choice, the hamlet's model or the home's default (H29). */
 export function choose(
     limits: Readonly<Limits>,
     settings: Readonly<Settings>,
-    agent: { name: string; mayor: boolean },
+    agent: { name: string; mayor: boolean; model?: string | null },
 ): string {
     const name = agent.mayor ? MAYOR : agent.name;
     const pinned = Object.hasOwn(limits.pinned, name)
         ? limits.pinned[name]
         : undefined;
-    return pinned ?? limits.model ?? settings.model;
+    return (
+        pinned ??
+        (agent.model && limits.models.includes(agent.model)
+            ? agent.model
+            : undefined) ??
+        limits.model ??
+        settings.model
+    );
 }
 
 /** A chief's edit of the documents a choice of model reads, made by `change`. */
@@ -87,6 +97,7 @@ export async function configureAgent(
 ): Promise<void> {
     const agent = await tx.doc(WithDoc, conversation);
     await run(tx, conversation, await choiceOf(home, tx, agent));
+    await configureRole(home, tx, conversation);
 }
 
 /**
@@ -120,6 +131,7 @@ export const Choice: Part = (home) => {
                 for (const agent of await agentsOf(tx)) {
                     const model = await choiceOf(home, tx, agent);
                     for (const conversation of await chatsOf(tx, agent)) {
+                        await configureRole(home, tx, conversation);
                         const stored = (await tx.doc(AgentDoc, conversation))
                             .model;
                         if (
@@ -152,26 +164,29 @@ async function choiceOf(home: Home, tx: Tx, agent: AgentRef): Promise<string> {
     const record = await tx.doc(RecordDoc, agent.hamlet, agent.hamlet);
     const limits = await tx.doc(LimitsDoc, agent.hamlet, agent.hamlet);
     const settings = settingsOf(await tx.doc(SettingsDoc), home.overrides);
-    const name =
-        record.agents.find((each) => each.number === agent.number)?.name ?? "";
+    const resident = record.agents.find((each) => each.number === agent.number);
+    const name = resident?.name ?? "";
     return choose(limits, settings, {
         name,
         mayor: record.mayor === agent.number,
+        model: resident?.model ?? null,
     });
 }
 
-/** Every agent of the first hamlet. */
+/** Every living agent of the realm. */
 async function agentsOf(tx: Tx): Promise<AgentRef[]> {
-    return (await tx.doc(RecordDoc, HOME, HOME)).agents.map((agent) => ({
-        hamlet: HOME,
-        number: agent.number,
-    }));
+    const agents: AgentRef[] = [];
+    for (const { id } of liveHamlets(await tx.doc(RealmDoc))) {
+        for (const a of (await tx.doc(RecordDoc, id, id)).agents)
+            agents.push({ hamlet: id, number: a.number });
+    }
+    return agents;
 }
 
-/** Every conversation of `agent`'s chats. */
+/** Every conversation belonging to an agent. */
 async function chatsOf(tx: Tx, agent: AgentRef): Promise<ConversationId[]> {
     const key = agentKey(agent);
-    return conversationsOf(await tx.doc(ChatDoc, key, key));
+    return (await tx.doc(AgentConversationsDoc, key, key)).ids;
 }
 
 /** Configures `conversation` to run `model`, a name `endpoint::id`. */
@@ -181,4 +196,11 @@ async function run(
     model: string,
 ): Promise<void> {
     await configure(tx, conversation, { model: modelRef(model) ?? null });
+}
+
+/** Current roles and choices applied to every living agent's conversations. */
+export async function reconfigure(home: Home, tx: Tx): Promise<void> {
+    for (const agent of await agentsOf(tx))
+        for (const conversation of await chatsOf(tx, agent))
+            await configureAgent(home, tx, conversation);
 }

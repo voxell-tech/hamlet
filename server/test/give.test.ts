@@ -365,6 +365,7 @@ it("copies another agent's whole skill, keeps the giver's and records its source
             number: 1,
             name: "scout",
             purpose: "Maps",
+            model: null,
             since: 1,
         });
     }, context);
@@ -521,6 +522,7 @@ it.each(["skill", "nested"])(
                 number: 1,
                 name: "scout",
                 purpose: "Maps",
+                model: null,
                 since: 1,
             });
         }, context);
@@ -843,6 +845,7 @@ async function scout(run: Awaited<ReturnType<typeof served>>): Promise<string> {
             number: 1,
             name: "scout",
             purpose: "Maps",
+            model: null,
             since: 1,
         });
     }, context);
@@ -1218,6 +1221,7 @@ it("gives an agent a skill from the typed giver and records the mayor's resolved
             number: 1,
             name: "scout",
             purpose: "Maps",
+            model: null,
             since: 1,
         });
     }, context);
@@ -1564,7 +1568,13 @@ it("records a skill giver's hamlet when it differs from the receiving agent's", 
     await run.home.harness.commit(async (tx) => {
         const record = await tx.doc(RecordDoc, "other", "other");
         record.agents = [
-            { number: 0, name: "cartographer", purpose: "Maps", since: 1 },
+            {
+                number: 0,
+                name: "cartographer",
+                purpose: "Maps",
+                since: 1,
+                model: null,
+            },
         ];
         record.mayor = 0;
     }, context);
@@ -1753,6 +1763,7 @@ it.each(["special", "large", "many"])(
                 number: 1,
                 name: "scout",
                 purpose: "Skills",
+                model: null,
                 since: 1,
             });
         }, context);

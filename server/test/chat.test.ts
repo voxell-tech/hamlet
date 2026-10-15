@@ -238,7 +238,7 @@ it("shows the chief's available commands on stderr without putting help in the a
     expect(chat.err()).toContain("/queue: List what waits for you");
     expect(chat.err()).toContain("/agent <name>");
     expect(chat.err()).toContain("/hamlet <name>");
-    expect(chat.err()).not.toContain("/to <agent>");
+    expect(chat.err()).toContain("/to <agent>");
     expect(chat.err()).not.toContain("/go");
 });
 

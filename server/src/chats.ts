@@ -13,7 +13,9 @@ import {
 import { configureAgent } from "./choice.ts";
 import { type AgentRef, agentKey, HOME } from "./hamlet.ts";
 import type { Home } from "./home.ts";
-import { newTask } from "./turn.ts";
+import { InstructionsDoc } from "./instructions.ts";
+import { AgentConversationsDoc } from "./society/docs.ts";
+import { TaskDoc } from "./tasks.ts";
 
 /** The agent a conversation is with, the chief who talks to it, and its number in their chat (C22). */
 export type With = {
@@ -87,6 +89,30 @@ export const ReflectionEntry = defineEntry<{ task: string; at: number }>(
     "hamlet.reflection",
 );
 
+/** A letter from another agent (H30). */
+export const LetterEntry = defineEntry<{
+    from: AgentRef;
+    task: string;
+    at: number;
+    replyTo: ConversationId | null;
+}>("hamlet.letter");
+/** A question from an agent waiting for the answer (H30). */
+export const QuestionEntry = defineEntry<{
+    from: AgentRef;
+    task: string;
+    at: number;
+}>("hamlet.question");
+/** An answer returned to a letter's sender. */
+export const ReplyEntry = defineEntry<{
+    from: AgentRef;
+    task: string;
+    at: number;
+}>("hamlet.reply");
+/** An input to a one-off model call. */
+export const ErrandEntry = defineEntry<{ task: string; at: number }>(
+    "hamlet.errand",
+);
+
 /** The words a retry asks the model with (C26). */
 const CARRY_ON = "Carry on from where you stopped.";
 
@@ -143,10 +169,24 @@ export async function submitLine(
 ): Promise<Submission> {
     const conversation = await chatOf(home, chat, context);
     const at = home.now();
-    return conversation.submit(
-        chiefInput(chat.chief, line, newTask(at), at),
-        context,
-    );
+    const task = `chief:${conversation.id}:${line.id}`;
+    await home.harness.commit(async (tx) => {
+        const key = agentKey(chat.agent);
+        const doc = await tx.doc(InstructionsDoc, key, key);
+        if (!doc.given.some((i) => i.task === task)) {
+            doc.given.push({
+                task,
+                chief: chat.chief,
+                text: line.text,
+                at,
+                done: null,
+                hearing: { agent: false, mayor: false, cleared: false },
+            });
+            doc.given = doc.given.slice(-20);
+        }
+        (await tx.doc(TaskDoc, task, task)).chief = chat.chief;
+    }, context);
+    return conversation.submit(chiefInput(chat.chief, line, task, at), context);
 }
 
 /** The current conversation of `chat`, which its first use starts. */
@@ -196,7 +236,12 @@ export async function startConversation(
     const created = await tx.createConversation({
         ownership: { kind: "ownerless" },
     });
-    Object.assign(await tx.doc(WithDoc, created.id), place);
+    Object.assign(await tx.doc(WithDoc, created.id), {
+        ...place,
+        chat: place.chief === null ? 0 : place.chat,
+    });
+    const key = agentKey(place);
+    (await tx.doc(AgentConversationsDoc, key, key)).ids.push(created.id);
     await configureAgent(home, tx, created.id);
     return created.id;
 }

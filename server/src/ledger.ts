@@ -13,14 +13,26 @@ import {
     UsageDoc,
 } from "@earendil-works/pi-durable";
 import { AnswerDoc } from "./answers.ts";
-import { ChiefEntry, ReflectionEntry, RetryEntry, WithDoc } from "./chats.ts";
+import {
+    ChiefEntry,
+    ErrandEntry,
+    LetterEntry,
+    QuestionEntry,
+    ReflectionEntry,
+    ReplyEntry,
+    RetryEntry,
+    WithDoc,
+} from "./chats.ts";
+import { PayerDoc } from "./errands.ts";
 import type { Home } from "./home.ts";
-import { type Amount, add, amountOf, zero } from "./money.ts";
+import type { Limits } from "./limits.ts";
+import { type Amount, add, amountOf, micros, zero } from "./money.ts";
 import { TaskDoc } from "./tasks.ts";
 import { localDay } from "./time.ts";
 
 export type Charge = Amount & {
     what: "model" | "summary" | "attempt";
+    of: string | null;
     at: number;
     agent: number;
     task: string | null;
@@ -35,12 +47,27 @@ export type Charge = Amount & {
     billed: number | null;
     firstTokenMs: number | null;
 };
-export type LedgerLine = Charge | { what: "reset"; at: number; by: string };
+export type RoadCharge = Amount & {
+    what: "road";
+    at: number;
+    agent: number;
+    task: string | null;
+    of: string | null;
+};
+export type LedgerLine =
+    | Charge
+    | RoadCharge
+    | { what: "reset"; at: number; by: string };
 
 /** Append-only charges and reset marks, by hamlet and local day. */
 export const LedgerDoc = defineDocFamily<{ lines: LedgerLine[] }, string>({
     kind: "hamlet.ledger",
-    version: 1,
+    version: 2,
+    migrate: (value) => ({
+        lines: (value as unknown as { lines: LedgerLine[] }).lines.map(
+            (line) => (line.what === "reset" ? line : { ...line, of: null }),
+        ),
+    }),
     scope: "session",
     family: true,
     initial: () => ({ lines: [] }),
@@ -142,6 +169,8 @@ async function count(
 ): Promise<void> {
     const counted = await tx.doc(CountedDoc, conversation);
     const place = await tx.doc(WithDoc, conversation);
+    const payer = (await tx.doc(PayerDoc, conversation)).hamlet ?? place.hamlet;
+    const of = payer === place.hamlet ? null : place.hamlet;
     const usage = await tx.doc(UsageDoc, conversation);
     const fresh: Record<string, JsonRepresentation<Usage>> = {};
     const recoveries = await tx.doc(AnswerDoc, conversation);
@@ -175,7 +204,11 @@ async function count(
             if (
                 ChiefEntry.is(entry) ||
                 RetryEntry.is(entry) ||
-                ReflectionEntry.is(entry)
+                ReflectionEntry.is(entry) ||
+                LetterEntry.is(entry) ||
+                QuestionEntry.is(entry) ||
+                ReplyEntry.is(entry) ||
+                ErrandEntry.is(entry)
             )
                 counted.task = entry.data.task;
             const message = entry.model?.[0];
@@ -201,7 +234,8 @@ async function count(
                 (message as typeof message & { billedCost?: number })
                     .billedCost,
             );
-            await append(tx, place.hamlet, {
+            await append(tx, payer, {
+                of,
                 ...amount,
                 what: failed ? "attempt" : "model",
                 at: message.timestamp,
@@ -238,7 +272,8 @@ async function count(
             const provider = key.slice(0, slash);
             const id = key.slice(slash + 1);
             const model = home.models.getModel(provider, id);
-            await append(tx, place.hamlet, {
+            await append(tx, payer, {
+                of,
                 ...amountOf(extra, 0, model),
                 what: "summary",
                 at: home.now(),
@@ -371,4 +406,27 @@ export async function ledgerOf(
         (await home.harness.snapshot(LedgerDoc, `${hamlet}/${day}`, context))
             ?.lines ?? []
     );
+}
+
+/** The price of a road charged to its hamlet and task (H3). */
+export async function chargeRoad(
+    tx: Tx,
+    hamlet: string,
+    given: {
+        task: string | null;
+        agent: number;
+        at: number;
+        limits: Readonly<Limits>;
+    },
+): Promise<void> {
+    await append(tx, hamlet, {
+        what: "road",
+        of: null,
+        at: given.at,
+        agent: given.agent,
+        task: given.task,
+        tokens: given.limits.road.tokens,
+        micros: micros(given.limits.road.cost),
+        ms: given.limits.road.minutes * 60000,
+    });
 }

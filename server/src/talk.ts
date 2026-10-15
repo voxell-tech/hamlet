@@ -2,7 +2,6 @@ import type { Context } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
     type ConversationId,
-    type Cursor,
     defineDoc,
     defineExtension,
     GenerationTask,
@@ -39,9 +38,11 @@ import { closeGate } from "./gate.ts";
 import { type AgentRef, agentKey } from "./hamlet.ts";
 import { entriesOf, LineageDoc } from "./history.ts";
 import type { Home } from "./home.ts";
+import { InstructionsDoc } from "./instructions.ts";
 import { reconcile } from "./ledger.ts";
 import { NoticeEntry, notify } from "./notice.ts";
 import type { Part } from "./parts.ts";
+import { liveHamlets, RealmDoc } from "./realm.ts";
 import { addressOf, RecordDoc } from "./record.ts";
 import {
     enterReflection,
@@ -50,8 +51,10 @@ import {
     reflectEvery,
     requestReflection,
 } from "./reflection.ts";
+
+import { AgentConversationsDoc } from "./society/docs.ts";
 import { newTask, turnOf } from "./turn.ts";
-import { lapse, raiseFault } from "./waits.ts";
+import { lapse, OversightDoc, raiseFault, settle } from "./waits.ts";
 
 const FollowDoc = defineDoc<{
     pending: SubmissionId[];
@@ -73,7 +76,7 @@ export async function followHome(home: Home, context: Context): Promise<void> {
     await followers.get(home)?.(context);
 }
 
-/** Serialized follow-up work for chief conversations, carrying queued lines across a failure (C23). */
+/** Serialized follow-up work for agent conversations, carrying queued inputs across a failure (C23). */
 export const Talk: Part = (home) => {
     const admitted = new Map<ConversationId, Set<SubmissionId>>();
     let line = Promise.resolve();
@@ -166,7 +169,7 @@ export const Talk: Part = (home) => {
                     void flush(BACKGROUND_CONTEXT).catch(() => {});
             });
             for (const { id } of await home.harness.commit(
-                chiefConversations,
+                agentConversations,
                 context,
             ))
                 if (!admitted.has(id)) admitted.set(id, new Set());
@@ -242,24 +245,11 @@ export const Talk: Part = (home) => {
 async function chiefConversations(
     tx: Tx,
 ): Promise<{ id: ConversationId; place: With & { chief: string } }[]> {
-    const conversations: {
-        id: ConversationId;
-        place: With & { chief: string };
-    }[] = [];
-    let cursor: Cursor | undefined;
-    do {
-        const page = await tx.scanConversations({}, 100, cursor);
-        for (const { id } of page.items) {
-            const place = await tx.doc(WithDoc, id);
-            if (place.chief !== null)
-                conversations.push({
-                    id,
-                    place: { ...place, chief: place.chief },
-                });
-        }
-        cursor = page.next;
-    } while (cursor !== undefined);
-    return conversations;
+    return (await agentConversations(tx)).flatMap(({ id, place }) =>
+        place.chief === null
+            ? []
+            : [{ id, place: { ...place, chief: place.chief } }],
+    );
 }
 
 async function follow(
@@ -268,7 +258,7 @@ async function follow(
     context: Context,
 ): Promise<void> {
     const place = await home.harness.snapshot(WithDoc, id, context);
-    if (place?.chief == null) return;
+    if (place === undefined) return;
     for (const input of (await home.harness.snapshot(FollowDoc, id, context))
         ?.pending ?? []) {
         const submission = await home.harness.submission(input, context);
@@ -299,6 +289,13 @@ async function follow(
                 status.entry === undefined
                     ? undefined
                     : await tx.entry(status.entry);
+            if (ChiefEntry.is(entry)) {
+                const key = agentKey(place);
+                const instruction = (
+                    await tx.doc(InstructionsDoc, key, key)
+                ).given.find((i) => i.task === entry.data.task);
+                if (instruction) instruction.done = home.now();
+            }
             if (entry !== undefined && ReflectionEntry.is(entry)) {
                 const job = await tx.doc(ReflectDoc, id);
                 if (job.entered !== input) {
@@ -387,15 +384,20 @@ async function follow(
     }
 }
 
-/** Stops an agent's running conversations and drops their queued chief lines (C25, H34). */
+/** Stops an agent's running conversations and drops their queued inputs (C25, H34). */
 export async function stopAgent(
     home: Home,
     agent: AgentRef | undefined,
     context: Context,
 ): Promise<string> {
     const places = await home.harness.commit(async (tx) => {
-        const places: { id: ConversationId; chat: ChatId }[] = [];
-        for (const { id, place } of await chiefConversations(tx)) {
+        const places: { id: ConversationId; chat: ChatId; agent: AgentRef }[] =
+            [];
+        const targets =
+            agent === undefined
+                ? await agentConversations(tx)
+                : await conversationsFor(tx, agent);
+        for (const { id, place } of targets) {
             if (
                 agent !== undefined &&
                 (place.hamlet !== agent.hamlet || place.number !== agent.number)
@@ -406,9 +408,10 @@ export async function stopAgent(
             if (live.run !== undefined || inbox.items.length > 0)
                 places.push({
                     id,
+                    agent: { hamlet: place.hamlet, number: place.number },
                     chat: {
                         agent: { hamlet: place.hamlet, number: place.number },
-                        chief: place.chief,
+                        chief: place.chief ?? home.chief,
                     },
                 });
         }
@@ -432,6 +435,21 @@ export async function stopAgent(
                 { how: "stopped", chief: home.chief },
                 home.now(),
             );
+            for (const wait of Object.values(
+                (await tx.doc(OversightDoc)).waits,
+            )) {
+                if (
+                    wait.kind !== "fault" &&
+                    wait.agent?.hamlet === place.agent.hamlet &&
+                    wait.agent.number === place.agent.number
+                )
+                    await settle(
+                        tx,
+                        wait.id,
+                        { how: "stopped", chief: home.chief, text: "" },
+                        home.now(),
+                    );
+            }
             await notify(
                 tx,
                 place.id,
@@ -628,6 +646,8 @@ export async function rewind(
                           ownership: { kind: "ownerless" },
                       })
                   ).id;
+        const index = await tx.doc(AgentConversationsDoc, key, key);
+        if (!index.ids.includes(fork)) index.ids.push(fork);
         await configureAgent(home, tx, fork);
         Object.assign(await tx.doc(WithDoc, fork), {
             ...chat.agent,
@@ -639,4 +659,32 @@ export async function rewind(
         current.conversation = fork;
     }, context);
     return entry.data.text;
+}
+
+async function agentConversations(
+    tx: Tx,
+): Promise<{ id: ConversationId; place: With }[]> {
+    const result: { id: ConversationId; place: With }[] = [];
+    for (const { id } of liveHamlets(await tx.doc(RealmDoc))) {
+        for (const agent of (await tx.doc(RecordDoc, id, id)).agents) {
+            result.push(
+                ...(await conversationsFor(tx, {
+                    hamlet: id,
+                    number: agent.number,
+                })),
+            );
+        }
+    }
+    return result;
+}
+
+async function conversationsFor(
+    tx: Tx,
+    agent: AgentRef,
+): Promise<{ id: ConversationId; place: With }[]> {
+    const key = agentKey(agent);
+    const result: { id: ConversationId; place: With }[] = [];
+    for (const id of (await tx.doc(AgentConversationsDoc, key, key)).ids)
+        result.push({ id, place: await tx.doc(WithDoc, id) });
+    return result;
 }

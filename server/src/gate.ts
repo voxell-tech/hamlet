@@ -25,6 +25,7 @@ import { safeValue, safeWords } from "./plainly.ts";
 import { addressOf, RecordDoc } from "./record.ts";
 import { canon, within } from "./sandbox/policy.ts";
 import { SettingsDoc, settingsOf } from "./settings.ts";
+import { holdFor } from "./society/objections.ts";
 import { turnOf } from "./turn.ts";
 import {
     type Choice,
@@ -175,6 +176,7 @@ export const Gate: Part = (home) => ({
         hooks: [
             hook(ToolTask, {
                 beforeTool: async (call, api, context) => {
+                    await holdFor(home, api, context);
                     const place = await api.snapshot(
                         WithDoc,
                         api.conversationId,
@@ -275,7 +277,7 @@ export const Gate: Part = (home) => ({
                             }
                             const manifests = (await tx.doc(ManifestsDoc))
                                 .tools;
-                            const verdict = judge(
+                            let verdict = judge(
                                 reachOf(call, manifests),
                                 standing,
                             );
@@ -284,12 +286,17 @@ export const Gate: Part = (home) => ({
                                 place.hamlet,
                                 place.hamlet,
                             );
-                            const by = addressOf(record, place.number);
+                            const by = waitBy(record, place);
                             const limits = await tx.doc(
                                 LimitsDoc,
                                 place.hamlet,
                                 place.hamlet,
                             );
+                            if (
+                                record.mayor === place.number &&
+                                reserved(call, limits)
+                            )
+                                verdict = { ask: "reserved" };
                             if ("run" in verdict) {
                                 state.leave = verdict.run;
                                 return verdict;
@@ -455,4 +462,37 @@ async function standingOf(home: Home, tx: Tx, place: With): Promise<Standing> {
         asksEdits: manual && !trust.edit,
         asksCommands: manual && !trust.command,
     };
+}
+
+/** The limits that reserve a mayor's society act (H22). */
+function reserved(
+    call: ToolHookCall,
+    limits: import("./limits.ts").Limits,
+): boolean {
+    switch (call.name) {
+        case "create_agent":
+            return (
+                !limits.mayor.createAgents ||
+                (!limits.mayor.buildRoads &&
+                    Array.isArray(call.arguments.roads) &&
+                    call.arguments.roads.length > 0)
+            );
+        case "build_road":
+            return !limits.mayor.buildRoads;
+        case "remove_agent":
+            return !limits.mayor.removeAgents;
+        case "merge_agents":
+            return !limits.mayor.mergeAgents;
+        default:
+            return false;
+    }
+}
+function waitBy(
+    record: import("./record.ts").HamletRecord,
+    place: With,
+): string {
+    const name = addressOf(record, place.number);
+    return name === "mayor" && place.hamlet !== "home"
+        ? `mayor@${place.hamlet}`
+        : name;
 }

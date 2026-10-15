@@ -12,7 +12,9 @@ import { defaultLimits, LimitsDoc } from "../src/limits.ts";
 import { RecordDoc } from "../src/record.ts";
 import { SettingsDoc } from "../src/settings.ts";
 import {
+    addHamlet,
     CHIEF,
+    chatWith,
     context,
     fauxModels,
     mayorChat,
@@ -212,4 +214,35 @@ describe("the mayor's model", () => {
             expect(home.compaction.reserveTokens).toBe(16_384),
         );
     });
+});
+
+it("uses the mayor's allowed choice and reconfigures another hamlet when that allowance is revoked", async () => {
+    const { models, faux } = fauxModels(["faux-1", "faux-2", "faux-3"]);
+    const home = await testHome(scratch(), { models });
+    const miller = await addHamlet(home, "mill", "miller");
+    await home.harness.commit(async (tx) => {
+        const limits = await tx.doc(LimitsDoc, "mill", "mill");
+        limits.models = ["faux::faux-2"];
+        limits.model = "faux::faux-3";
+        const agent = (await tx.doc(RecordDoc, "mill", "mill")).agents[0];
+        if (!agent) throw new Error("no miller");
+        agent.model = "faux::faux-2";
+    }, context);
+    const chat = await chatWith(home, miller);
+    const seen: string[] = [];
+    const step: FauxResponseFactory = (_prompt, _options, _state, model) => {
+        seen.push(model.id);
+        return fauxAssistantMessage("done");
+    };
+    faux.setResponses([step, step]);
+    await (await chat.submit({ type: "input", content: "work" }, context)).wait(
+        context,
+    );
+    await edit(home, async (tx) => {
+        (await tx.doc(LimitsDoc, "mill", "mill")).models = [];
+    });
+    await (
+        await chat.submit({ type: "input", content: "work again" }, context)
+    ).wait(context);
+    expect(seen).toEqual(["faux-2", "faux-3"]);
 });

@@ -94,6 +94,7 @@ describe("a turn", () => {
                 kind: "hamlet.chief",
                 task: line.data.task,
                 chief: CHIEF,
+                from: null,
             });
         }
         const runs = seen

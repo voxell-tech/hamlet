@@ -35,3 +35,25 @@ export const WorkDoc = defineDocFamily<Work, string>({
     family: true,
     initial: () => ({ folder: null, mode: "manual", before: [] }),
 });
+
+/** An agent name normalized from a model's spelling (C10). */
+export function tidyName(name: string): string {
+    let tidy = "";
+    for (const c of name.trim()) {
+        if (/[A-Z]/.test(c) && /[a-z]$/.test(tidy)) tidy += "-";
+        if (c === " " || c === "_" || c === "-") {
+            if (!tidy.endsWith("-")) tidy += "-";
+        } else tidy += c.replace(/[A-Z]/g, (c) => c.toLowerCase());
+    }
+    return tidy.replace(/^-+|-+$/g, "");
+}
+
+/** Validation of an agent's name (C10). */
+export function checkName(name: string): void {
+    if (!/^[a-z-]{1,24}$/.test(name))
+        throw new Error(
+            "a name is 1 to 24 lowercase letters and hyphens, such as `librarian`",
+        );
+    if ([MAYOR, FOUNDER, "all"].includes(name))
+        throw new Error(`\`${name}\` is reserved`);
+}

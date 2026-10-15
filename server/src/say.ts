@@ -5,15 +5,23 @@ import { readCommand } from "./commands.ts";
 import { answerWords } from "./gate.ts";
 import { giftSkill } from "./gifts.ts";
 import { GrantsDoc, grantsOf, revoke } from "./grants.ts";
-import { agentKey, HOME } from "./hamlet.ts";
+import { agentKey } from "./hamlet.ts";
 import { historyOf } from "./history.ts";
 import type { Home } from "./home.ts";
 import { resetBudget } from "./ledger.ts";
 import { LimitsDoc, limitsOf } from "./limits.ts";
+import type { Deed } from "./parts.ts";
 import { safeWords } from "./plainly.ts";
 import type { Reply, Say } from "./protocol.ts";
+import * as founding from "./realm/founding.ts";
+import { isChief, liveHamlets, RealmDoc, resolve } from "./realm.ts";
 import { addressed } from "./record.ts";
 import { reportOf } from "./report.ts";
+import * as agents from "./society/agents.ts";
+import * as leaving from "./society/leaving.ts";
+import * as library from "./society/librarian.ts";
+import * as merging from "./society/merging.ts";
+import * as voting from "./society/votes.ts";
 import { newChat, reflect, resumeChat, retry, stopAgent } from "./talk.ts";
 import { OversightDoc } from "./waits.ts";
 import { queue, strip } from "./words.ts";
@@ -26,17 +34,66 @@ export async function say(
     context: Context,
     submitted?: (submission: Submission) => void,
 ): Promise<Reply | undefined> {
-    if (message.to.hamlet !== HOME)
+    const realm = await home.harness.snapshot(RealmDoc, context);
+    const place = realm?.hamlets.find((h) => h.id === message.to.hamlet);
+    if (!place || place.erased)
         throw new Error(`no hamlet named \`${message.to.hamlet}\``);
+    if (!liveHamlets(realm).includes(place))
+        throw new Error(
+            `Hamlet \`${place.id}\` was removed: ${place.removed?.reason ?? ""}`,
+        );
+    if (!realm || !isChief(realm, place.id, home.chief))
+        throw new Error("Only a chief of that hamlet may instruct it.");
     const text = safeWords(home, message.text);
     const command = readCommand(text);
     if (command !== undefined && "error" in command)
         return reply(message.id, command.error, command.kind);
-    if (command?.command === "undo")
-        return reply(
-            message.id,
-            "Nothing to undo. Only a removal or a merge can be undone (the archive keeps the house); a permission is taken back with /revoke. A command that ran, a file that was changed and what was spent cannot be undone.",
+    if (command?.command === "deed") {
+        try {
+            const deed = DEED_HANDLERS[command.deed];
+            if (!deed)
+                return reply(message.id, "Choose that address in your client.");
+            return reply(
+                message.id,
+                await deed(
+                    home,
+                    {
+                        hamlet: message.to.hamlet,
+                        rest: command.rest,
+                        chief: home.chief,
+                    },
+                    context,
+                ),
+            );
+        } catch (error) {
+            return reply(
+                message.id,
+                safeWords(
+                    home,
+                    error instanceof Error ? error.message : String(error),
+                ),
+                "error",
+            );
+        }
+    }
+    if (command?.command === "to") {
+        const target = await resolve(
+            home.harness,
+            message.to.hamlet,
+            command.agent,
+            context,
         );
+        if (!target) throw new Error(`no agent named \`${command.agent}\``);
+        if ("gone" in target) throw new Error(target.gone);
+        const sub = await submitLine(
+            home,
+            { agent: target.ref, chief: home.chief },
+            { id: message.id, text: command.text },
+            context,
+        );
+        submitted?.(sub);
+        return undefined;
+    }
     if (command?.command === "budget") {
         const report = await reportOf(home, message.to.hamlet, context);
         return reply(message.id, [report.summary, ...report.lines].join("\n"));
@@ -170,7 +227,14 @@ export async function say(
                 : `Stopping ${command.agent}.`,
         );
     }
-    const agent = await addressed(home.harness, message.to, context);
+    const target = await resolve(
+        home.harness,
+        message.to.hamlet,
+        `${message.to.agent}@${message.to.hamlet}`,
+        context,
+    );
+    if (target && "gone" in target) throw new Error(target.gone);
+    const agent = target && "ref" in target ? target.ref : undefined;
     if (
         agent !== undefined &&
         (command?.command === "new" ||
@@ -314,6 +378,15 @@ export async function say(
             );
         }
     }
+    if (!command && own?.kind === "question")
+        return reply(
+            message.id,
+            await answerWords(
+                home,
+                { wait: own.id, choice: "reply", text, chief: home.chief },
+                context,
+            ),
+        );
     if (
         !text.trimStart().startsWith("/") &&
         own !== undefined &&
@@ -343,3 +416,26 @@ function reply(
 ): Reply {
     return { type: "reply", to, kind, text };
 }
+
+const DEED_HANDLERS: Record<string, Deed> = {
+    road: agents.road,
+    unroad: agents.unroad,
+    remove: leaving.remove,
+    restore: leaving.restore,
+    erase: leaving.erase,
+    record: leaving.record,
+    undo: leaving.undo,
+    merge: merging.merge,
+    vote: voting.vote,
+    votes: voting.votes,
+    overturn: voting.overturn,
+    mayor: voting.mayor,
+    unshelve: library.unshelve,
+    found: founding.found,
+    hamlets: founding.hamlets,
+    "name-hamlet": founding.nameHamlet,
+    "move-hamlet": founding.moveHamlet,
+    "remove-hamlet": founding.removeHamletDeed,
+    "restore-hamlet": founding.restoreHamlet,
+    "erase-hamlet": founding.eraseHamlet,
+};

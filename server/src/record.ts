@@ -17,10 +17,35 @@ export type AgentRecord = {
     purpose: string;
     /** Its time of creation; 0 for the founder. */
     since: number;
+    model: string | null;
 };
 
 /** A decision of a mayor or a chief, with who made it and why (H17). */
 export type Decision =
+    | ({ at: number; by: string; reason: string } & (
+          | {
+                kind: "removed" | "restored" | "erased";
+                agent: number;
+                name: string;
+                archive: string;
+            }
+          | {
+                kind: "merged";
+                keep: number;
+                absorb: number;
+                purpose: string;
+                notes: "joined" | "rewritten" | "plain";
+            }
+          | { kind: "road_built" | "road_removed"; a: End; b: End }
+          | { kind: "road_refused"; from: number; to: string }
+          | { kind: "mayor_changed"; from: number; to: number }
+          | {
+                kind: "moved_in" | "moved_out";
+                agent: number;
+                name: string;
+                hamlet: string;
+            }
+      ))
     | {
           kind: "model";
           at: number;
@@ -33,6 +58,8 @@ export type Decision =
       }
     | {
           kind: "created";
+          name: string;
+          purpose: string;
           at: number;
           by: string;
           agent: number;
@@ -59,22 +86,93 @@ export type Decision =
           from: string | null;
       };
 
+/** An end tied to an agent or to the mayor's office. */
+export type End = number | "office";
+
+/** A road kept in the hamlet's record. */
+export type RoadRecord = {
+    a: End;
+    b: End;
+    messages: number;
+    lastFrom: End | null;
+    lastUsed: number;
+    since: number;
+    by: string;
+};
+
+/** A departed agent and its reversible merge manifest (H20). */
+export type Archived = {
+    id: string;
+    agent: AgentRecord;
+    how: "removed" | "merged";
+    into: number | null;
+    at: number;
+    by: string;
+    reason: string;
+    roads: RoadRecord[];
+    merge: {
+        kept: AgentRecord;
+        notesBefore: string;
+        notesAfter: string;
+        brought: { path: string; sha256: string }[];
+        clashes: string[];
+        inherited: { peer: End; messages: number; fresh: boolean }[];
+        applied: boolean;
+    } | null;
+    back: string | null;
+};
+
 /** A hamlet's record: who lives there, who holds the office and what was decided. */
 export type HamletRecord = {
     agents: AgentRecord[];
     /** The number of the agent that holds the mayor's office. */
     mayor: number;
     decisions: Decision[];
+    next: number;
+    roads: RoadRecord[];
+    archive: Archived[];
 };
 
 /** Each hamlet's record, by hamlet id. A hamlet starts with its founder in the office. */
 export const RecordDoc = defineDocFamily<HamletRecord, string>({
     kind: "hamlet.record",
-    version: 1,
+    version: 2,
+    migrate: (value) => {
+        const old = value as unknown as HamletRecord;
+        const agents = old.agents.map((agent) => ({
+            ...agent,
+            model: agent.model ?? null,
+        }));
+        return {
+            ...old,
+            agents,
+            next: Math.max(0, ...agents.map((a) => a.number)) + 1,
+            roads: [],
+            archive: [],
+            decisions: old.decisions.map((d) =>
+                d.kind === "created"
+                    ? {
+                          ...d,
+                          name:
+                              agents.find((a) => a.number === d.agent)?.name ??
+                              "",
+                          purpose:
+                              agents.find((a) => a.number === d.agent)
+                                  ?.purpose ?? "",
+                      }
+                    : d,
+            ),
+        };
+    },
     scope: "session",
     family: true,
     initial: () => ({
-        agents: [{ number: 0, name: FOUNDER, purpose: "", since: 0 }],
+        agents: [
+            { number: 0, name: FOUNDER, purpose: "", since: 0, model: null },
+        ],
+        next: 1,
+        roads: [],
+        archive: [],
         mayor: 0,
         decisions: [],
     }),
@@ -106,9 +204,8 @@ export async function addressed(
     address: { hamlet: string; agent: string },
     context: Context,
 ): Promise<AgentRef | undefined> {
-    const record =
-        (await read.snapshot(RecordDoc, address.hamlet, context)) ??
-        RecordDoc.definition.initial(address.hamlet);
+    const record = await read.snapshot(RecordDoc, address.hamlet, context);
+    if (record === undefined) return undefined;
     const found = named(record, address.agent);
     return found && { hamlet: address.hamlet, number: found.number };
 }

@@ -8,7 +8,6 @@ import { type Client, type Server, serve } from "./connection.ts";
 import { edit } from "./edits.ts";
 import { answerWords } from "./gate.ts";
 import { clearStagedGifts, give, uploads } from "./gifts.ts";
-import { HOME } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import { login as signIn } from "./logins.ts";
 import { safeValue, safeWords } from "./plainly.ts";
@@ -20,7 +19,7 @@ import type {
     ServerMessage,
 } from "./protocol.ts";
 import { read } from "./reads.ts";
-import { addressed } from "./record.ts";
+import { isChief, RealmDoc, resolve } from "./realm.ts";
 import { say } from "./say.ts";
 import { watchState } from "./state.ts";
 import { newChat, resumeChat, retry, rewind, stopAgent } from "./talk.ts";
@@ -72,12 +71,25 @@ export async function serveHome(
         }
     };
     const chatOf = async (address: Address) => {
-        if (address.hamlet !== HOME)
+        const realm = await home.harness.snapshot(RealmDoc, context);
+        const place = realm?.hamlets.find((h) => h.id === address.hamlet);
+        if (!place || place.erased)
             throw new Error(`no hamlet named \`${address.hamlet}\``);
-        const agent = await addressed(home.harness, address, context);
-        if (agent === undefined)
-            throw new Error(`no agent named \`${address.agent}\``);
-        return { agent, chief: home.chief };
+        if (place.removed)
+            throw new Error(
+                `Hamlet \`${place.id}\` was removed: ${place.removed.reason}`,
+            );
+        if (!realm || !isChief(realm, address.hamlet, home.chief))
+            throw new Error("Only a chief of that hamlet may instruct it.");
+        const target = await resolve(
+            home.harness,
+            address.hamlet,
+            `${address.agent}@${address.hamlet}`,
+            context,
+        );
+        if (!target) throw new Error(`no agent named \`${address.agent}\``);
+        if ("gone" in target) throw new Error(target.gone);
+        return { agent: target.ref, chief: home.chief };
     };
     await clearStagedGifts(home);
     const gifts = uploads(home, context);

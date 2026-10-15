@@ -7,7 +7,8 @@ import {
 } from "@earendil-works/pi-durable";
 import { CharacterDoc } from "./character.ts";
 import { charterOf } from "./charter.ts";
-import { type With, WithDoc } from "./chats.ts";
+import type { With } from "./chats.ts";
+import { agentOf } from "./errands.ts";
 import { agentKey, WorkDoc } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./layout.ts";
@@ -54,8 +55,8 @@ export const Prompt: Part = (home) => {
         section(
             key,
             async (input, context) => {
-                const agent = await input.read.snapshot(
-                    WithDoc,
+                const agent = await agentOf(
+                    input.read,
                     input.conversationId,
                     context,
                 );
@@ -69,11 +70,8 @@ export const Prompt: Part = (home) => {
         extension: defineExtension({
             name: "hamlet.prompt",
             sections: [
-                section(
-                    "charter",
-                    async (input, context) =>
-                        (await charterOf(input.read, context)).trimEnd(),
-                    { tag: false },
+                part("charter", async ({ input, context }) =>
+                    (await charterOf(input.read, context)).trimEnd(),
                 ),
                 part("machine", (given) => machine(home, given)),
                 part("project", project),

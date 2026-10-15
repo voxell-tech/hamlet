@@ -53,7 +53,7 @@ describe("the budget", () => {
         ]);
         const chat = await mayorChat(home);
         const prompt = await told(home, chat, context);
-        expect(prompt.endsWith("- mayor: the hamlet's own model, $0.00")).toBe(
+        expect(prompt.includes("- mayor: the hamlet's own model, $0.00")).toBe(
             true,
         );
         expect((await reportOf(home, HOME, context)).lines).toEqual([
