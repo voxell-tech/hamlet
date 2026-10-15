@@ -165,6 +165,20 @@ function cased(real: string): string {
     }
 }
 
+/** A directory root's canonical spelling. Links and special files are refused. */
+export function directoryRoot(path: string): string {
+    const absolute = resolve(path);
+    try {
+        if (!lstatSync(absolute).isDirectory())
+            throw new Error(
+                `The sandbox root must be a real directory: ${path}`,
+            );
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    return canon(absolute);
+}
+
 /** The folder that holds every private temp dir. */
 export function tempRoot(): string {
     return join(canon(tmpdir()), "hamlet-sandbox-tmp");
@@ -213,7 +227,13 @@ export function writable(
     return (
         inAny(real, [...policy.rw, tmp]) &&
         !inAnyFolded(real, policy.locked) &&
-        !(move && holdsLocked(policy, real))
+        !(
+            move &&
+            (holdsLocked(policy, real) ||
+                policy.rw.some(
+                    (root) => canon(root).toLowerCase() === real.toLowerCase(),
+                ))
+        )
     );
 }
 

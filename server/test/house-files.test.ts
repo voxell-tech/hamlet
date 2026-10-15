@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import * as fs from "node:fs/promises";
 import {
     lstat,
     mkdir,
@@ -21,9 +22,69 @@ import {
 } from "../src/gift-files.ts";
 import { houseOf } from "../src/layout.ts";
 import { SandboxEnv } from "../src/sandbox/env.ts";
-import { context, fauxModels, MAYOR, scratch, testHome } from "./support.ts";
+import { closedPolicy } from "../src/sandbox/reach.ts";
+import {
+    context,
+    fauxModels,
+    MAYOR,
+    scratch,
+    sh,
+    testHome,
+} from "./support.ts";
+
+vi.mock("node:fs/promises", async (original) => ({
+    ...(await original<typeof import("node:fs/promises")>()),
+}));
 
 const caps = { entries: 4096, bytes: 32 * 1024 * 1024 };
+
+it.skipIf(process.platform !== "darwin")(
+    "revokes a lingering process's writes before traversing an erased house",
+    async () => {
+        const home = await testHome(scratch(), { models: fauxModels().models });
+        const house = houseOf(home.layout, MAYOR);
+        const outside = scratch();
+        await mkdir(join(house, "work"));
+        await writeFile(join(house, "work/canary"), "mine");
+        await writeFile(join(outside, "canary"), "private");
+        const env = new SandboxEnv({ cwd: house, policy: closedPolicy(house) });
+        const tmp = (await sh(env, 'printf %s "$TMPDIR"')).output;
+        await sh(
+            env,
+            `(cd '${house}'; (while [ ! -e '${tmp}/release' ]; do sleep 0.01; done; mv work moved && ln -s '${outside}' work; echo $? > '${tmp}/done') >/dev/null 2>&1 &)`,
+        );
+        await env.cleanup(context);
+        const original = fs.readdir;
+        let attempted = false;
+        const walking = vi
+            .spyOn(fs, "readdir")
+            .mockImplementation(
+                async (...args: Parameters<typeof fs.readdir>) => {
+                    if (String(args[0]).endsWith("/work") && !attempted) {
+                        attempted = true;
+                        await writeFile(join(tmp, "release"), "go");
+                        await vi.waitFor(async () =>
+                            expect(
+                                await readFile(join(tmp, "done"), "utf8"),
+                            ).toBeTruthy(),
+                        );
+                    }
+                    return original(...args);
+                },
+            );
+        try {
+            await removeHouse(home, house);
+            expect(attempted).toBe(true);
+            expect(await readFile(join(tmp, "done"), "utf8")).not.toBe("0\n");
+            expect(await readFile(join(outside, "canary"), "utf8")).toBe(
+                "private",
+            );
+        } finally {
+            walking.mockRestore();
+            await writeFile(join(tmp, "release"), "go");
+        }
+    },
+);
 
 it("stages regular files without following links or copying special files, naming every refused entry", async () => {
     const home = await testHome(scratch(), { models: fauxModels().models });

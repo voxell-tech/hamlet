@@ -1,0 +1,131 @@
+import {
+    lstat,
+    mkdir,
+    readFile,
+    rename,
+    rm,
+    symlink,
+    writeFile,
+} from "node:fs/promises";
+import { join } from "node:path";
+import { expect, it } from "vitest";
+import {
+    deliverTree,
+    listTree,
+    removeTree,
+    stageTree,
+} from "../src/gift-files.ts";
+import { houseOf } from "../src/layout.ts";
+import { SandboxEnv } from "../src/sandbox/env.ts";
+import { closedPolicy, openPolicy } from "../src/sandbox/reach.ts";
+import {
+    context,
+    fauxModels,
+    MAYOR,
+    scratch,
+    sh,
+    testHome,
+} from "./support.ts";
+
+it.each(["closed house", "open house", "open folder"])(
+    "cannot replace the %s with a link in a command",
+    async (kind) => {
+        const home = scratch(),
+            house = join(home, "house"),
+            folder = scratch(),
+            outside = scratch();
+        await mkdir(house);
+        await writeFile(join(outside, "canary"), "private");
+        const root = kind === "open folder" ? folder : house;
+        const env = new SandboxEnv({
+            cwd: root,
+            policy:
+                kind === "closed house"
+                    ? closedPolicy(house)
+                    : openPolicy({ house, folder, home }),
+        });
+        try {
+            const attack = await sh(
+                env,
+                `cd / && rm -rf -- '${root}' && ln -s '${outside}' '${root}'`,
+            );
+            expect(attack.exitCode).not.toBe(0);
+            expect((await lstat(root)).isDirectory()).toBe(true);
+            expect(await sh(env, "echo ordinary > note && cat note")).toEqual({
+                exitCode: 0,
+                output: "ordinary\n",
+            });
+            expect(
+                (await sh(env, `echo changed > '${root}/canary'`)).exitCode,
+            ).toBe(0);
+            expect(await readFile(join(outside, "canary"), "utf8")).toBe(
+                "private",
+            );
+            expect(
+                (await env.remove(root, { recursive: true }, context)).ok,
+            ).toBe(false);
+            expect(
+                (await env.renameFile(root, `${root}-moved`, context)).ok,
+            ).toBe(false);
+        } finally {
+            await env.cleanup(context);
+        }
+    },
+);
+
+it("refuses commands and file tools if a previously granted root becomes a link", async () => {
+    const parent = scratch(),
+        house = join(parent, "house"),
+        outside = scratch();
+    await mkdir(house);
+    await writeFile(join(outside, "canary"), "private");
+    const env = new SandboxEnv({ cwd: house, policy: closedPolicy(house) });
+    expect((await env.writeFile("ordinary", "ok", context)).ok).toBe(true);
+    await rename(house, join(parent, "old"));
+    await symlink(outside, house);
+    try {
+        const read = await env.exec(
+            `cat '${house}/canary'; echo changed > '${house}/canary'`,
+            undefined,
+            context,
+        );
+        expect(read.ok).toBe(false);
+        expect((await env.readTextFile("canary", context)).ok).toBe(false);
+        expect((await env.writeFile("canary", "changed", context)).ok).toBe(
+            false,
+        );
+        expect((await env.createTempFile(undefined, context)).ok).toBe(false);
+        expect(await readFile(join(outside, "canary"), "utf8")).toBe("private");
+    } finally {
+        await env.cleanup(context);
+    }
+});
+
+it("refuses a linked root before starting an environment or any tree operation", async () => {
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    const root = houseOf(home.layout, MAYOR),
+        outside = scratch(),
+        stage = scratch();
+    await writeFile(join(outside, "canary"), "private");
+    await rm(root, { recursive: true });
+    await symlink(outside, root);
+    expect(
+        () => new SandboxEnv({ cwd: root, policy: closedPolicy(root) }),
+    ).toThrow(/root|directory/i);
+    await expect(listTree(home, root, ".", context)).rejects.toThrow();
+    await expect(
+        stageTree(
+            home,
+            { root, rel: "." },
+            stage,
+            { entries: 10, bytes: 100 },
+            context,
+        ),
+    ).rejects.toThrow();
+    await expect(removeTree(home, root, ["canary"], context)).rejects.toThrow();
+    await writeFile(join(stage, "new"), "new");
+    await expect(
+        deliverTree(home, { root, into: "." }, stage, ["new"], context),
+    ).rejects.toThrow();
+    expect(await readFile(join(outside, "canary"), "utf8")).toBe("private");
+});

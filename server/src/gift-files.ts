@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, readdir, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, rename, rm } from "node:fs/promises";
 import {
     basename,
     dirname,
@@ -15,7 +15,7 @@ import type { Context } from "@earendil-works/chord";
 import type { Home } from "./home.ts";
 import { MAX_GIFT_BYTES } from "./protocol.ts";
 import { SandboxEnv } from "./sandbox/env.ts";
-import { canon, within } from "./sandbox/policy.ts";
+import { canon, directoryRoot, within } from "./sandbox/policy.ts";
 import { closedPolicy } from "./sandbox/reach.ts";
 
 const deliveries = new WeakMap<Home, Promise<unknown>>();
@@ -353,6 +353,8 @@ function treeEnv(
     stage?: string,
     caps: Readonly<TreeCaps> = MERGE_CAPS,
 ): SandboxEnv {
+    directoryRoot(root);
+    if (stage !== undefined) directoryRoot(stage);
     const envRoot = stage ?? root;
     const policy = closedPolicy(envRoot, [root, process.execPath]);
     policy.rw = stage === undefined ? [] : [stage];
@@ -541,6 +543,13 @@ export async function removeHouse(home: Home, dir: string): Promise<number> {
             path = join(path, part);
             if (!(await lstat(path)).isDirectory()) throw new Error(refused);
         }
+        const erasing = join(home.layout.dir, ".erasing");
+        await mkdir(erasing, { recursive: true, mode: 0o700 });
+        if (!(await lstat(erasing)).isDirectory()) throw new Error(refused);
+        const slot = await mkdtemp(join(erasing, "house-"));
+        const detached = join(slot, "tree");
+        // Moving out of every house policy revokes lingering processes' writes.
+        await rename(absolute, detached);
         const size = async (path: string): Promise<number> => {
             const info = await lstat(path);
             if (info.isFile()) return info.size;
@@ -550,8 +559,8 @@ export async function removeHouse(home: Home, dir: string): Promise<number> {
                 bytes += await size(join(path, name));
             return bytes;
         };
-        const bytes = await size(absolute);
-        await rm(absolute, { recursive: true, force: true });
+        const bytes = await size(detached);
+        await rm(slot, { recursive: true, force: true });
         return bytes;
     } catch {
         throw new Error(refused);

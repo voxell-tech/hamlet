@@ -157,6 +157,12 @@ function profile(policy: Policy, tmp: string): Profile {
     );
     rules(
         out,
+        "ROOTS",
+        `(deny file-write-unlink file-write-create (literal (param "{}")))`,
+        policy.rw,
+    );
+    rules(
+        out,
         "LOCKED",
         `(deny file-write* (subpath (param "{}")))`,
         policy.locked,
