@@ -7,13 +7,20 @@ import {
     rename,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { Context } from "@earendil-works/chord";
+import type { Context, JsonValue } from "@earendil-works/chord";
 import { Type } from "@earendil-works/pi-ai";
 import {
     type ConversationId,
+    type DocDefinition,
+    type DocFamilyDefinition,
+    type DocFamilyToken,
+    type DocToken,
+    type DocumentReader,
     defineDoc,
     defineExtension,
     defineTool,
+    type JsonObject,
+    type SessionDocFamilyToken,
     type ToolExecutionApi,
     type Tx,
 } from "@earendil-works/pi-durable";
@@ -31,7 +38,7 @@ import { notify } from "../notice.ts";
 import type { Part } from "../parts.ts";
 import { liveHamlets, type Realm, RealmDoc, type RealmEnd } from "../realm.ts";
 import { RecordDoc } from "../record.ts";
-import { AgentConversationsDoc, PeersDoc } from "../society/docs.ts";
+import { AgentConversationsDoc, PeersDoc, VotesDoc } from "../society/docs.ts";
 import { askAgent } from "../society/letters.ts";
 import { voteOpen } from "../society/votes.ts";
 import { lapseAgent } from "../waits.ts";
@@ -145,7 +152,12 @@ async function mayor(
         throw new Error(
             "only the mayor can do this, and you are not the mayor of this hamlet",
         );
-    const held = await voteOpen(api, caller.hamlet, home.now(), context);
+    const held = await voteOpen(
+        hamletReader(tx),
+        caller.hamlet,
+        home.now(),
+        context,
+    );
     if (held) throw new Error(held);
     return caller;
 }
@@ -261,6 +273,9 @@ async function move(
         throw new Error(
             `only the mayor \`${args.agent}\` leaves and the mayor it joins decide this`,
         );
+    const other = caller.hamlet === ref.hamlet ? args.to : ref.hamlet;
+    const held = await voteOpen(hamletReader(tx), other, home.now(), context);
+    if (held) throw new Error(held);
     const old = await tx.doc(RecordDoc, ref.hamlet, ref.hamlet),
         target = await tx.doc(RecordDoc, args.to, args.to);
     if (old.mayor === ref.number)
@@ -639,4 +654,40 @@ async function nameOf(
     return (
         await home.harness.snapshot(RecordDoc, ref.hamlet, context)
     )?.agents.find((a) => a.number === ref.number)?.name;
+}
+
+function hamletReader(tx: Tx): DocumentReader {
+    return {
+        snapshot: async <T extends JsonObject, I extends JsonValue>(
+            token:
+                | DocToken<T, DocDefinition<T>>
+                | DocFamilyToken<T, I, DocFamilyDefinition<T, I>>,
+            ...args: (string | number | Context)[]
+        ): Promise<Readonly<T> | undefined> => {
+            const key = args[0];
+            if (
+                ![
+                    LimitsDoc.definition,
+                    VotesDoc.definition,
+                    RecordDoc.definition,
+                ].some((definition) =>
+                    Object.is(definition, token.definition),
+                ) ||
+                typeof key !== "string"
+            )
+                throw new Error(
+                    "Vote checks require current hamlet documents.",
+                );
+            // SAFETY: these three library tokens all use a hamlet string seed; generic token identity does not narrow I.
+            // Verified by: dealings.test.ts, stored-vote agreement tests.
+            const family = token as SessionDocFamilyToken<T, string>;
+            const value = await tx.doc(family, key, key);
+            // SAFETY: pi-durable returns the draft of T; TypeScript cannot reduce its recursive Draft<T> to Readonly<T>.
+            // Verified by: dealings.test.ts, stored-vote agreement tests.
+            return value as Readonly<T>;
+        },
+        snapshotAsOf: async () => {
+            throw new Error("Vote checks require current hamlet documents.");
+        },
+    };
 }

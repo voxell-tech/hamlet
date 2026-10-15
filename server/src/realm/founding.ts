@@ -1,3 +1,4 @@
+import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { Type } from "@earendil-works/pi-ai";
@@ -307,12 +308,15 @@ export const restoreHamlet: Deed = async (home, given, context) => {
     await finish(home, context);
     return `The hamlet \`${id}\` is restored.`;
 };
+/** Marks a removed hamlet erased and sweeps its houses for deletion. */
 export const eraseHamlet: Deed = async (home, given, context) => {
     const id = given.rest.trim();
     await home.harness.commit(async (tx) => {
-        (await controlled(tx, id, given.chief, "delete", true)).erased = true;
+        const place = await controlled(tx, id, given.chief, "delete", true);
+        refusePendingMove(await tx.doc(RealmDoc), id);
+        place.erased = true;
     }, context);
-    await removeHouse(home, join(home.layout.houses, id));
+    await finish(home, context);
     return `The hamlet \`${id}\` is deleted for good.`;
 };
 async function controlled(
@@ -332,7 +336,7 @@ async function controlled(
         throw new Error(
             `no ${removed ? "removed " : ""}hamlet named \`${id}\``,
         );
-    if (!place.chiefs.includes(chief))
+    if (place.chiefs.length > 0 && !place.chiefs.includes(chief))
         throw new Error(`only a chief of \`${id}\` can ${verb} it`);
     return place;
 }
@@ -365,26 +369,61 @@ async function tellChiefs(
         await notify(tx, currentOf(chat), words, home.now());
     }
 }
-async function finish(home: Home, context: Context): Promise<void> {
+const finishing = Symbol("hamlet cleanup");
+async function finish(
+    home: Home & { [finishing]?: Promise<void> },
+    context: Context,
+): Promise<void> {
+    const previous = home[finishing];
+    const next = (async () => {
+        await previous;
+        await finishHamlets(home, context);
+    })();
+    home[finishing] = next;
+    try {
+        await next;
+    } finally {
+        if (home[finishing] === next) delete home[finishing];
+    }
+}
+async function finishHamlets(home: Home, context: Context): Promise<void> {
     const realm = await home.harness.snapshot(RealmDoc, context);
     for (const place of realm?.hamlets ?? []) {
-        if (place.erased) {
-            await removeHouse(home, join(home.layout.houses, place.id));
-            continue;
-        }
-        const record = await home.harness.snapshot(
-            RecordDoc,
-            place.id,
-            context,
-        );
-        for (const agent of record?.agents ?? []) {
-            const ref = { hamlet: place.id, number: agent.number };
-            if (place.removed) await stopAgent(home, ref, context);
-            else if (
-                realm?.pending?.to.hamlet !== ref.hamlet ||
-                realm.pending.to.number !== ref.number
-            )
-                await buildHouse(home.layout, ref);
+        try {
+            if (place.erased) {
+                const dir = join(home.layout.houses, place.id);
+                try {
+                    await lstat(dir);
+                } catch (error) {
+                    if (
+                        error instanceof Error &&
+                        "code" in error &&
+                        error.code === "ENOENT"
+                    )
+                        continue;
+                    throw error;
+                }
+                await removeHouse(home, dir);
+                continue;
+            }
+            const record = await home.harness.snapshot(
+                RecordDoc,
+                place.id,
+                context,
+            );
+            for (const agent of record?.agents ?? []) {
+                const ref = { hamlet: place.id, number: agent.number };
+                if (place.removed) await stopAgent(home, ref, context);
+                else if (
+                    realm?.pending?.to.hamlet !== ref.hamlet ||
+                    realm.pending.to.number !== ref.number
+                )
+                    await buildHouse(home.layout, ref);
+            }
+        } catch {
+            console.error(
+                `Hamlet cleanup failed for \`${place.id}\`. Inspect its houses before the next restart; cleanup will be attempted again.`,
+            );
         }
     }
 }
@@ -494,6 +533,7 @@ export async function removeHamlet(
     if (given.hamlet === HOME)
         throw new Error("the first hamlet cannot be removed");
     const realm = await tx.doc(RealmDoc);
+    refusePendingMove(realm, given.hamlet);
     const place = liveHamlets(realm).find((h) => h.id === given.hamlet);
     if (!place) throw new Error(`no hamlet named \`${given.hamlet}\``);
     for (const agent of (await tx.doc(RecordDoc, given.hamlet, given.hamlet))
@@ -517,4 +557,14 @@ export async function removeHamlet(
         given.hamlet,
         `The hamlet \`${given.hamlet}\` was removed and its houses archived.`,
     );
+}
+
+function refusePendingMove(realm: Readonly<Realm>, id: string): void {
+    if (
+        realm.pending &&
+        [realm.pending.from.hamlet, realm.pending.to.hamlet].includes(id)
+    )
+        throw new Error(
+            `The hamlet \`${id}\` cannot be removed or erased while a house move into or out of it is still being finished. Wait for the move to finish, then try again.`,
+        );
 }

@@ -326,3 +326,172 @@ it("shows an agent its cross-hamlet road and refuses another chief's changes", a
             text: expect.stringContaining("only a chief"),
         });
 });
+
+it("keeps removal, restore and reopening working after erasing another hamlet", async () => {
+    const { submitLine } = await import("../src/chats.ts");
+    const { models, faux } = fauxModels();
+    const run = await served({ models });
+    const deed = (text: string) =>
+        send(run.connection, run.messages, {
+            type: "say",
+            id: randomUUID(),
+            to: { hamlet: "home", agent: "mayor" },
+            text,
+        });
+    await deed("/found mill miller Flour");
+    await deed("/found dock docker Boats");
+    expect(await deed("/remove-hamlet mill Done")).toMatchObject({
+        kind: "notice",
+    });
+    expect(await deed("/erase-hamlet mill")).toMatchObject({ kind: "notice" });
+    faux.setResponses([
+        fauxAssistantMessage(
+            fauxToolCall("bash", { command: "echo hello", network: true }),
+            { stopReason: "toolUse" },
+        ),
+    ]);
+    const submission = await submitLine(
+        run.home,
+        { agent: { hamlet: "dock", number: 0 }, chief: run.home.chief },
+        { id: randomUUID(), text: "Use network" },
+        context,
+    );
+    await vi.waitFor(
+        async () => expect(await openWaits(run.home)).toHaveLength(1),
+        { timeout: 10000 },
+    );
+    expect(await deed("/remove-hamlet dock Done")).toMatchObject({
+        kind: "notice",
+    });
+    expect((await submission.wait(context)).status).toBe("unanswered");
+    expect(await openWaits(run.home)).toHaveLength(0);
+    expect(await deed("/restore-hamlet dock")).toMatchObject({
+        kind: "notice",
+    });
+    await run.connection.close();
+    await run.server.close();
+    await run.home.close(context);
+    const again = await testHome(run.home.dir, { models });
+    await access(join(again.layout.houses, "dock/0/NOTES.md"));
+    await expect(access(join(again.layout.houses, "mill"))).rejects.toThrow();
+});
+
+it("logs a refused cleanup and still processes other hamlets and keeps watching the realm", async () => {
+    const { mkdir, readFile, rm, symlink, writeFile } = await import(
+        "node:fs/promises"
+    );
+    const { models } = fauxModels();
+    const run = await served({ models });
+    const deed = (text: string) =>
+        send(run.connection, run.messages, {
+            type: "say",
+            id: randomUUID(),
+            to: { hamlet: "home", agent: "mayor" },
+            text,
+        });
+    await deed("/found mill miller Flour");
+    await deed("/found dock docker Boats");
+    await deed("/remove-hamlet mill Done");
+    const outside = scratch();
+    await writeFile(join(outside, "canary"), "untouched");
+    const mill = join(run.home.layout.houses, "mill");
+    await rm(mill, { recursive: true });
+    await symlink(outside, mill);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+        expect(await deed("/erase-hamlet mill")).toMatchObject({
+            kind: "notice",
+        });
+        expect(await deed("/remove-hamlet dock Done")).toMatchObject({
+            kind: "notice",
+        });
+        expect(await deed("/restore-hamlet dock")).toMatchObject({
+            kind: "notice",
+        });
+        expect(logged).toHaveBeenCalledWith(expect.stringContaining("mill"));
+        expect(await readFile(join(outside, "canary"), "utf8")).toBe(
+            "untouched",
+        );
+        const dock = join(run.home.layout.houses, "dock/0");
+        await rm(dock, { recursive: true });
+        await run.home.harness.commit(async (tx) => {
+            const place = (await tx.doc(RealmDoc)).hamlets.find(
+                (h) => h.id === "dock",
+            );
+            if (!place) throw new Error("no dock");
+            place.title = "Dock";
+        }, context);
+        await vi.waitFor(
+            async () => {
+                await access(join(dock, "NOTES.md"));
+            },
+            { timeout: 10000 },
+        );
+    } finally {
+        logged.mockRestore();
+        await rm(mill);
+        await mkdir(mill);
+    }
+});
+
+it.each(["mill", "dock"])(
+    "refuses removing or erasing pending move endpoint %s without losing the house",
+    async (endpoint) => {
+        const { readFile, writeFile } = await import("node:fs/promises");
+        const { houseOf } = await import("../src/layout.ts");
+        const run = await served({ models: fauxModels().models });
+        await addHamlet(run.home, "mill", "miller");
+        await addHamlet(run.home, "dock", "docker");
+        const smith = await addAgent(run.home, "mill", "smith");
+        const notes = join(houseOf(run.home.layout, smith), "NOTES.md");
+        await writeFile(notes, "precious");
+        await run.home.harness.commit(async (tx) => {
+            const old = await tx.doc(RecordDoc, "mill", "mill");
+            const target = await tx.doc(RecordDoc, "dock", "dock");
+            const agent = old.agents.find((a) => a.number === smith.number);
+            if (!agent) throw new Error("no smith");
+            const next = { hamlet: "dock", number: target.next++ };
+            target.agents.push({ ...agent, number: next.number });
+            old.agents = old.agents.filter((a) => a.number !== smith.number);
+            (await tx.doc(RealmDoc)).pending = { from: smith, to: next };
+        }, context);
+        const deed = (text: string) =>
+            send(run.connection, run.messages, {
+                type: "say",
+                id: randomUUID(),
+                to: { hamlet: "home", agent: "mayor" },
+                text,
+            });
+        expect(await deed(`/remove-hamlet ${endpoint} Done`)).toMatchObject({
+            kind: "error",
+            text: expect.stringContaining("house move"),
+        });
+        expect(
+            (await run.home.harness.snapshot(RealmDoc, context))?.hamlets.find(
+                (h) => h.id === endpoint,
+            )?.removed,
+        ).toBeNull();
+        // A removed endpoint can also be left by an interrupted earlier cleanup.
+        await run.home.harness.commit(async (tx) => {
+            const place = (await tx.doc(RealmDoc)).hamlets.find(
+                (h) => h.id === endpoint,
+            );
+            if (!place) throw new Error("no endpoint");
+            place.removed = {
+                at: run.home.now(),
+                by: run.home.chief,
+                reason: "Done",
+            };
+        }, context);
+        expect(await deed(`/erase-hamlet ${endpoint}`)).toMatchObject({
+            kind: "error",
+            text: expect.stringContaining("house move"),
+        });
+        expect(await readFile(notes, "utf8")).toBe("precious");
+        expect(
+            (await run.home.harness.snapshot(RealmDoc, context))?.hamlets.find(
+                (h) => h.id === endpoint,
+            )?.erased,
+        ).toBe(false);
+    },
+);

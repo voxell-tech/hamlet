@@ -112,9 +112,26 @@ export async function chat(options: {
                                 : undefined;
                         if (kind === "hamlet" && hamlet === undefined)
                             throw new Error(`no hamlet named \`${name}\``);
-                        const next = resolve(
+                        const agent =
                             kind === "agent"
-                                ? { hamlet: target.hamlet, agent: name }
+                                ? state.agents.find(
+                                      (agent) =>
+                                          !agent.left &&
+                                          (name === "mayor"
+                                              ? agent.mayor &&
+                                                agent.ref.hamlet ===
+                                                    target.hamlet
+                                              : agent.name === name),
+                                  )
+                                : undefined;
+                        if (kind === "agent" && agent === undefined)
+                            throw new Error(`no agent named \`${name}\``);
+                        const next = resolve(
+                            agent
+                                ? {
+                                      hamlet: agent.ref.hamlet,
+                                      agent: agent.mayor ? "mayor" : agent.name,
+                                  }
                                 : {
                                       hamlet: hamlet?.id ?? name,
                                       agent: "mayor",

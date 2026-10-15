@@ -1,14 +1,18 @@
 import { randomUUID } from "node:crypto";
+import type { Context } from "@earendil-works/chord";
 import {
     fauxAssistantMessage,
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
-import { expect, it } from "vitest";
+import type { DocumentReader } from "@earendil-works/pi-durable";
+import { expect, it, vi } from "vitest";
 import { submitLine } from "../src/chats.ts";
 import type { AgentRef } from "../src/hamlet.ts";
 import type { Home } from "../src/home.ts";
+import { LimitsDoc } from "../src/limits.ts";
 import { RealmDoc, realmRoads } from "../src/realm.ts";
 import { RecordDoc } from "../src/record.ts";
+import { VotesDoc } from "../src/society/docs.ts";
 import {
     addAgent,
     addHamlet,
@@ -22,6 +26,42 @@ import {
     testHome,
     transcript,
 } from "./support.ts";
+
+vi.mock("../src/society/votes.ts", async (original) => ({
+    ...(await original<typeof import("../src/society/votes.ts")>()),
+    voteOpen: async (
+        read: DocumentReader,
+        hamlet: string,
+        _now: number,
+        context: Context,
+    ) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const lookup = async () => {
+                await read.snapshot(LimitsDoc, hamlet, context);
+                await read.snapshot(RecordDoc, hamlet, context);
+                return read.snapshot(VotesDoc, hamlet, context);
+            };
+            const votes = await Promise.race([
+                lookup(),
+                new Promise<never>((_resolve, reject) => {
+                    timer = setTimeout(
+                        () =>
+                            reject(
+                                new Error("The vote lookup never answered."),
+                            ),
+                        2000,
+                    );
+                }),
+            ]);
+            return votes?.votes.some((v) => v.standing === "open")
+                ? `A vote is open in ${hamlet}. Wait for it to finish.`
+                : undefined;
+        } finally {
+            clearTimeout(timer);
+        }
+    },
+}));
 
 async function call(
     home: Home,
@@ -246,7 +286,6 @@ it("refuses roads and moves outside the two mayors' authority or the chief's lim
     expect(await road(MAYOR, "scout", "smith")).toContain(
         "already have a road",
     );
-    const { LimitsDoc } = await import("../src/limits.ts");
     await home.harness.commit(async (tx) => {
         (await tx.doc(LimitsDoc, "home", "home")).hamlets.roadsBetween = false;
     }, context);
@@ -306,3 +345,94 @@ it("finishes a committed house move on reopening without losing the chief's chat
         JSON.stringify(await transcript(await chatWith(again, mill))),
     ).toContain("moved from `home` to `mill`");
 });
+
+async function openVote(home: Home, hamlet: string) {
+    await home.harness.commit(async (tx) => {
+        (await tx.doc(VotesDoc, hamlet, hamlet)).votes.push({
+            id: 1,
+            motion: { kind: "replace_mayor", candidate: 1 },
+            by: { chief: home.chief },
+            reason: "Change",
+            mayor: 0,
+            voters: [1],
+            answer: null,
+            ballots: [],
+            standing: "open",
+            called: home.now(),
+            task: "vote",
+        });
+    }, context);
+}
+
+it.each(["agree_road", "agree_move"])(
+    "answers %s while a stored vote is open without blocking later deeds",
+    async (tool) => {
+        const { models, faux } = fauxModels();
+        const dir = scratch();
+        let home = await testHome(dir, { models });
+        await addHamlet(home, "mill", "miller");
+        await addAgent(home, "home", "scout");
+        await addAgent(home, "mill", "smith");
+        await openVote(home, "home");
+        await home.close(context);
+        home = await testHome(dir, { models });
+        const result = await call(
+            home,
+            faux,
+            MAYOR,
+            tool,
+            tool === "agree_road"
+                ? { a: "scout", b: "smith", reason: "Trade" }
+                : { agent: "scout", to: "mill", reason: "Learn" },
+        );
+        expect(result).toContain("A vote is open");
+        await home.harness.commit(async (tx) => {
+            const place = (await tx.doc(RealmDoc)).hamlets.find(
+                (h) => h.id === "mill",
+            );
+            if (!place) throw new Error("no mill");
+            place.title = "Still answering";
+        }, context);
+        expect(
+            (
+                await home.harness.snapshot(RecordDoc, "home", context)
+            )?.agents.some((a) => a.name === "scout"),
+        ).toBe(true);
+        expect((await home.harness.snapshot(RealmDoc, context))?.roads).toEqual(
+            [],
+        );
+    },
+);
+
+it.each(["home", "mill"])(
+    "holds a move when the other mayor's hamlet %s opens a vote",
+    async (hamlet) => {
+        const { models, faux } = fauxModels();
+        const home = await testHome(scratch(), { models });
+        const mill = await addHamlet(home, "mill", "miller");
+        const scout = await addAgent(home, "home", "scout");
+        const args = { agent: "scout", to: "mill", reason: "Learn" };
+        const first = hamlet === "home" ? MAYOR : mill;
+        const second = hamlet === "home" ? mill : MAYOR;
+        expect(await call(home, faux, first, "agree_move", args)).toContain(
+            "other mayor has not yet",
+        );
+        await openVote(home, hamlet);
+        expect(await call(home, faux, second, "agree_move", args)).toContain(
+            `A vote is open in ${hamlet}`,
+        );
+        expect(
+            (await home.harness.snapshot(RecordDoc, "home", context))?.agents,
+        ).toContainEqual(
+            expect.objectContaining({ number: scout.number, name: "scout" }),
+        );
+        expect(
+            (
+                await home.harness.snapshot(RecordDoc, "mill", context)
+            )?.decisions.some((d) => d.kind === "moved_in"),
+        ).toBe(false);
+        expect(
+            (await home.harness.snapshot(RealmDoc, context))?.pending,
+        ).toBeNull();
+    },
+);

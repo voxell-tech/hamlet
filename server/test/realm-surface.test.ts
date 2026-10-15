@@ -203,6 +203,8 @@ it("starts the CLI at mayor@mill and switches back with /hamlet home", async () 
     const { models, faux } = fauxModels();
     const run = await served({ models, env: { HAMLET_REFLECT_EVERY: "0" } });
     await addHamlet(run.home, "mill", "miller");
+    const smith = await addAgent(run.home, "mill", "smith");
+    const scout = await addAgent(run.home, "home", "scout");
     fauxAgents(faux, {
         "home:0": [fauxAssistantMessage("Home answer.")],
         "mill:0": [fauxAssistantMessage("Mill answer.")],
@@ -240,6 +242,10 @@ it("starts the CLI at mayor@mill and switches back with /hamlet home", async () 
                     ref: { hamlet: "mill", number: 0 },
                     name: "miller",
                 });
+                message.agents.push(
+                    { ...mayor, ref: smith, name: "smith", mayor: false },
+                    { ...mayor, ref: scout, name: "scout", mayor: false },
+                );
             }
             if (client.readyState === WebSocket.OPEN)
                 client.send(JSON.stringify(message));
@@ -274,6 +280,20 @@ it("starts the CLI at mayor@mill and switches back with /hamlet home", async () 
     );
     expect(await named.ended).toBe(0);
     expect(named.out()).toContain("Named answer.");
+    const switched = hamlet(
+        ["chat"],
+        run.home.dir,
+        "/agent smith\n/agent miller\n/hamlet mill\n/agent scout\n/agent missing\n",
+        env,
+    );
+    expect(await switched.ended).toBe(0);
+    expect(switched.err()).toContain("talking to the agent smith");
+    expect(switched.err()).toContain("talking to the agent miller");
+    expect(switched.err()).toContain("talking to the agent scout");
+    expect(switched.err()).toContain("error: no agent named `missing`");
+    expect(switched.err()).not.toContain("error: no agent named `smith`");
+    expect(switched.err()).not.toContain("error: no agent named `miller`");
+    expect(switched.err()).not.toContain("error: no agent named `scout`");
     const { join } = await import("node:path");
     const { writeFile } = await import("node:fs/promises");
     const script = join(run.home.dir, "edit-limits.mjs");
