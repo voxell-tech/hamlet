@@ -69,17 +69,22 @@ sign-ins; other providers use keys.
 
 ### The `hamlet` command
 
-The server's package runs the commands through npm, from `server/`, using
-the Node version in `.nvmrc`: `npm run hamlet -- <command>`. For example:
+The server's package supplies `hamlet` through `server/bin/hamlet`. With
+the Node version in `server/.nvmrc`, run `npm ci` and `npm link` in
+`server/` to put it on PATH. `npm run hamlet -- <command>` runs the same
+executable from that folder. An old Cargo-installed `hamlet` can shadow it.
+After `cargo build --bin hamlet-app` at the repository root:
 
 ```sh
-HAMLET_HOME=/tmp/hamlet-try npm run hamlet -- server
+HAMLET_HOME=/tmp/hamlet-try hamlet dev
 ```
 
 | Command | Does |
 |---|---|
 | `hamlet server [--port <n>] [--faux <script.json>]` | Starts a server on a home; a faux script answers offline for tests and demos |
 | `hamlet chat [--to <agent>]` | Chats with the mayor or the named agent and answers what waits, in the terminal |
+| `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>]` | Serves a scratch home on a free port unless given one, and opens its window |
+| `hamlet window` | Opens a window connected to a running server |
 | `hamlet edit <charter\|character\|notes\|limits\|settings>` | Opens the chief's document in `$EDITOR` and saves through the server; limits and settings are JSON |
 | `hamlet login <provider> [--key]` | Gives a key or follows an offered sign-in |
 | `hamlet models [try [model]\|refresh]` | Lists models, tries a one-word hello, or refreshes the list |
@@ -94,7 +99,7 @@ end of input waits for that client's submissions and triggers no reflection.
 The step-2 commands are `/new`, `/resume [n]`, `/retry`, `/reflect`,
 `/stop [agent|all]`, `/queue`, `/allow`, `/always`, `/deny`, `/dismiss`,
 `/grants`, `/revoke`, `/budget`, `/reset-budget`, `/folder`, `/mode` and
-`/give` for starters. `/undo` says there is nothing to undo. The server
+`/give <agent> <skill> [from <agent>]`. `/undo` says there is nothing to undo. The server
 parses commands; the chat client handles only `/agent` and `/hamlet` as
 address changes. Society and realm commands come with their later steps.
 
@@ -110,10 +115,23 @@ under the chief's own git. In step 6 the folder becomes a clone Hamlet
 keeps (S9): the chief never runs git there, and Hamlet runs its own git with
 hooks off, so these files need no guard.
 
-Step 3 gives the package the `hamlet` executable, renames the Rust binary
-`hamlet-app`, and adds `hamlet dev` to start a scratch server and its window
-and `hamlet window` to open a window pointed at a server. Players still open
-an app called Hamlet; only its executable is named `hamlet-app`.
+`hamlet dev` chooses its home from `--home`, then `HAMLET_HOME`, then a
+per-user temporary folder kept between runs. It refuses `~/.hamlet` and
+sets `HAMLET_VIEW=<home>/window`. Closing its window keeps the server
+running; Ctrl-C stops both. `hamlet window` finds the app by `HAMLET_APP`,
+then PATH, then the repository's `target/release` and `target/debug`.
+It passes the server address and token through the environment, never argv.
+Players still open an app called Hamlet; only its executable is named
+`hamlet-app`. Release archives contain the window, not the server.
+
+The window has no home lock and runs no agent. It finds a local server
+through the home's `server.json` and connection token, or uses
+`HAMLET_SERVER` and `HAMLET_TOKEN`. Its own size, layout, chief's look and
+places live on its machine under `HAMLET_VIEW`, else the OS's config folder
+for Hamlet. Local links and pictures resolve there too: existing absolute
+paths or paths under the received work folder, never the server's houses.
+Charter and character edits use local temporary files, with each save sent
+through `edit`.
 
 ### Hamlet on pi-durable
 
@@ -139,25 +157,37 @@ an app called Hamlet; only its executable is named `hamlet-app`.
 ### What leaves Rust
 
 `hamlet_core`'s runtime, `hamlet_rules`, `hamlet_model`, `hamlet_home` and
-`hamlet_sandbox` are rebuilt on the server, the sandbox policy and the
-rules ported with their tests. The window keeps `hamlet_world`, `hamlet_ui`,
-`hamlet_vfx` and `hamlet_assets`, and gains a client core that fills the
-components and events the world and panels read today: `Settlement`,
-`Citizen`, `Mayor`, `Busy`, `Activity`, `Road`, `Transcript`, `Status`,
-`Usage`, `Waiting`, `RaisedBy`, and `UserMessage` and `SessionOutput` as
-messages to and from the server.
+`hamlet_sandbox` are being rebuilt on the server, the sandbox policy and
+rules ported with their tests. They remain compiled and tested as porting
+references until step 7; no window crate depends on them, guarded by
+`tests/window_is_a_client.rs`.
+
+The window keeps `hamlet_world`, `hamlet_ui`, `hamlet_desktop`, `hamlet_vfx`
+and `hamlet_assets`. `hamlet_client` fills the components and events the
+world and panels read: `Settlement`, `Citizen`, `Mayor`, `Busy`, `Activity`,
+`Transcript`, `Status`, `Usage`, `Waiting`, `RaisedBy`, and `UserMessage`
+and `SessionOutput` as messages to and from the server. Road, departure,
+letter and vote components are retained without producers until their
+server steps.
 
 ## The protocol, version 0
 
 Defined once in TypeBox in `server/src/protocol.ts`.
 `server/protocol.schema.json` is the full definition, exported by
-`npm run schema` and checked by a test. The Rust types are generated from
-it in step 3. The terminal clients use the same protocol as the window.
+`npm run schema` and checked by a test. `cargo run -p hamlet_protocol_gen`
+generates `crates/hamlet_protocol/src/v0.rs` from it, checked in and guarded
+by a schema-drift test. The terminal clients use the same protocol as the
+window. Faux sessions recorded in `server/test/frames/*.jsonl` are checked
+against the schema by the server tests and replayed by the Rust client
+tests. Re-record them in `server/` with
+`HAMLET_RECORD_FRAMES=1 npx vitest --run test/frames.test.ts`.
 
 | Direction | Message | Carries |
 |---|---|---|
 | Client -> server | `hello` | Version 0, the token, and optionally the last epoch and revision seen |
 | | `say` | A typed line to an agent: words or a command (H24) |
+| | `give` | A file manifest to an agent, or one small skill gift (H25) |
+| | `give-part` | Base64 bytes at the next offset of a file in an accepted upload |
 | | `answer` | A wait's ID, a choice and optional words (H11, H10) |
 | | `stop`, `rewind`, `new`, `resume`, `retry` | C24 to C27; resume uses a stable conversation number |
 | | `edit` | Charter, character, notes, limits, settings or a catalogue model's allowance, price and note |
@@ -203,6 +233,16 @@ and the last connection check. Providers show their available login methods.
 A server start gives a new epoch; revisions grow within it. A connecting
 client receives the current state. Changes replace or remove whole entities,
 and carry ready-made words beside numbers so the client holds no rules.
+State also carries optional `deeds`, the supported chief-command names,
+and `starters`, the shipped skill descriptions; each agent's optional
+`skills` lists its house's shelf. The window offers command deeds only
+when advertised, and sends file and skill gifts over the protocol.
+
+`hamlet_client` reconciles state and changes into entities, keeping the
+entities of hamlets and agents still present. It sends `hello` with its
+last epoch and revision when reconnecting, retains unsent requests in its
+Outbox and opens its watched chats again. A lost connection retries; a
+refused token stops retries and shows the server's words.
 
 A transcript item has ID `<entryId>:<block>`, a time and a kind: chief input,
 assistant text, reasoning, tool, notice or error. Tool items carry the name,
@@ -211,12 +251,102 @@ replace an item, append text, close a tool, change status or usage, or reset
 the transcript before sending it again. Transcripts and turns carry an
 optional stable conversation `number`, so a client can keep watching an
 older conversation after `/new`. `open` accepts `before` for paging and
-`transcript.earlier` gives the next cursor.
+`transcript.earlier` gives the next cursor. An older-page request leaves an
+existing chat watch running, even if that page cannot be read. Transcripts
+also carry optional `last` activity (`what` and `at`), as status ops do, so a
+late-opened chat shows the same last tool call, reply or error as a live one.
 
 An empty notice `reply` to a `say` acknowledges that its submission settled,
 not that all work in the conversation ended. A `rewound` reply gives the
-removed chief words back to the input field. Reflections and retries show
-as notices, as does a compaction.
+removed chief words back to the input field. A request's reply is not ordered
+against a chat's `turn` and `transcript` messages. A reset and its replacement
+transcript are sent together, with no message between them. Reflections and
+retries show as notices, as does a compaction.
+
+### Gifts and message sizes
+
+Every client message, including `hello` before authentication, is capped at
+1 MiB of wire bytes. A larger message closes the connection with code 1009.
+
+A file gift begins with `give {id, to, files: [{path, size}]}`. A folder is
+its files, with relative paths under the inbox. The server refuses more than
+32 MiB in total, more than 4096 files (including empty ones), unsafe paths,
+paths repeated after NFC normalization and case-insensitive Unicode folding,
+file/folder conflicts, and an absent agent, with an error `reply` addressed to
+that `id`. Each connection may hold at most three unfinished gifts. Across
+all connections, each receiving agent may have at most 32 MiB reserved by
+accepted gifts, including ones being delivered. A refusal creates no stage.
+The window holds none of these rules. An accepted manifest receives a notice
+`reply` with an optional `upload` id.
+
+The same connection sends `give-part {id, upload, path, offset, data}` under
+the message cap, where `data` is base64 and `offset` is that file's next byte.
+Each part gets a reply to its own id. The last part's notice names the inbox
+paths and the server notifies the agent. An all-empty gift completes with
+the manifest's reply and needs no parts. Bytes stay in private staging outside
+every house until all files are complete. Once the last bytes have been
+written and the files closed, the upload is detached from its connection,
+its idle timer is cleared, and delivery begins. A disconnect before that
+point discards the whole upload, waiting for any in-flight staging or write
+to end before removing its stage. A disconnect after that point changes
+nothing: delivery and the agent's notification finish, even though the
+client may not receive its receipt. No discard races a staging step or copy.
+
+Delivery runs through the receiving agent's `SandboxEnv.exec`, with only
+its house writable and its stage readable. A folder target is claimed with
+`mkdir --` before `cp -RP` copies its contents; a file target is claimed with
+a no-clobber open. An existing target ends delivery without changing it.
+The sandbox checks each write's resolved path, so a replaced inbox link
+cannot direct a write outside the house. A missing inbox is recreated.
+A failed copy removes only the destinations it claimed under the same policy;
+staged bytes are removed after the copy ends. Failures give words without
+server paths. An unfinished upload idle for 60 seconds is discarded as a
+disconnected one is. A new server discards staging left by its predecessor.
+Upload ids cannot be used by another connection.
+
+A skill stays one message: `give {id, to, skill: {starter}}` or
+`give {id, to, skill: {from: Address, name}}`. It shares the typed `/give`
+deed and records the resolved giver's name, with its hamlet when different.
+A skill from another agent is copied in two sandboxed steps. The first can
+read the giver's whole house, granted by its server-owned path, and write
+only a private staging folder. It copies without following links, then the
+server checks the staged tree for links, special files, more than 4096 entries
+and more than 32 MiB. The receiving agent's sandbox delivers the checked stage
+as it delivers a file gift. Shipped starters are checked and delivered from
+their server-owned folder. A missing skills folder is recreated. A 33 MiB
+sandbox file limit bounds a growing source while allowing Linux `cp` to
+probe EOF of an exactly 32 MiB file; the accepted gift still takes at most
+32 MiB.
+
+State lists starters with shipped descriptions and each agent's skill folder
+names only. State, papers and prompts share a regular-file, no-link listing,
+cached for at most one second and invalidated by gifts, commits and a turn's
+end. Houses are never watched recursively. House skill papers are never
+opened to build state. Prompts and papers list a house's shelf and read all its descriptions and
+usage in one request to a read-only sandbox over the whole house. The reader
+caches papers by device, inode, modification time, change time and size,
+checking those inside the sandbox on each request. It uses a no-follow,
+non-blocking open, accepting only regular files and reading at most 64 KiB
+each. A swapped shelf or parent folder cannot disclose outside names or
+papers. The prompt's Run command starts with `cd '<house>' &&`.
+
+Every file operation of `SandboxEnv`, including readers, watchers, metadata
+and temporary files, runs in a persistent sandboxed Node helper. The first
+file operation starts it; `cleanup()` ends it. Only Node, the helper and its
+runtime files are added to the policy's readable paths, and no ambient
+environment is inherited. The kernel checks the path actually opened.
+Environments with the same home, working directory and policy share a helper.
+A dead helper is replaced on demand. Each request has at most 30 seconds,
+or the policy's shorter wall limit; an overrun kills the helper and fails
+its in-flight requests, without retrying a possibly completed write. A helper
+idle for 30 seconds exits, and readers left open then report that they are
+closed. An active watch keeps its helper alive until closed. File size and
+core limits still hold, but a command's CPU and process limits do not apply
+to the persistent helper. Malformed frames fail their addressed request or
+watch. House skill shelves have separate read-only helpers.
+
+An approval wait requires its `danger`; fault, question and objection waits
+carry `danger: null`.
 
 ### Documents, models and logins
 
@@ -248,9 +378,13 @@ and tool-call arguments unscrubbed in pi's storage; C32 is not yet met.
    tools in the sandbox, notes and skills, queued reflection, manual and
    auto with the gate, spend and limits, models and logins. The npm terminal
    commands drive protocol v0, and interrupted work resumes on reopening.
-3. **The window's client core**, so the world and panels run on the server.
-   The Rust binary is renamed `hamlet-app` here, with the packaging script
-   and `AGENTS.md`, and `--headless` and `--repl` leave it.
+3. **The window's client core. Done.** The world and panels read
+   `hamlet_client`'s entities from protocol v0. Chats, approvals, history,
+   papers, settings, models, logins, edits and gifts go through the server.
+   The binary and packaged executable are `hamlet-app`; `--headless`,
+   `--repl`, `--insecure` and `--replay` leave it. `hamlet dev` starts the
+   pair safely; the window keeps its own view files, and closing it stops
+   no agent.
 4. **The society**: agents, roads, letters and questions, tasks, leaving and
    coming back, votes, the library, objections and questions to the chief.
 5. **The realm**: several hamlets, roads and moves between them, founding
@@ -258,6 +392,19 @@ and tool-call arguments unscrubbed in pi's storage; C32 is not yet met.
 6. **The clone and the git proxy.**
 7. **Deleting the Rust runtime crates**, once the server does everything they
    did.
+
+Step 3 leaves these to steps 4 and 5, rather than keeping rules or home
+reads in the window:
+
+- **Step 4:** agents beyond the mayor, roads, letters and questions, tasks
+  across agents, removal, merge and restore, votes and their record, the
+  shared library shelf and its record, objections and questions to the
+  chief. The corresponding command deeds stay hidden unless the server
+  advertises them. File and skill gifts already work through `give`.
+- **Step 5:** several hamlets, founding, naming, moving, closing and
+  restoring them, closed-hamlet listings, and dealings between hamlets.
+  The overview shows the hamlets and budget lines received now; it reads
+  no realm or vote records from disk.
 
 ## The spike
 

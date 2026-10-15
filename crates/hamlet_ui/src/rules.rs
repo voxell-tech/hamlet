@@ -1,14 +1,13 @@
-//! The limits of a hamlet where its chief changes them: the budget,
-//! the models and the mayor's leave. Each control writes one value of
-//! a `limits.toml`.
+//! A hamlet's received limits and the chief's edits through the
+//! server.
 
-use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
 
 use bevy::app::{App, Update};
-use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::entity::Entity;
+use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Query, Res, ResMut};
+use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, px};
 use bevy_fynix::tokens::Tone;
@@ -17,9 +16,11 @@ use bevy_fynix::views::{
     segmented,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
-use hamlet_core::agents::{Charter, Settlement};
-use hamlet_core::core::HomeDir;
-use hamlet_home::limits::{self, Limits, Period};
+use hamlet_client::messages::Response;
+use hamlet_client::outbox::Outbox;
+use hamlet_client::realm::{Bylaws, Settlement};
+use hamlet_protocol::v0::{self, Limits, Period};
+use serde_json::Value;
 
 use crate::icons::Glyph;
 use crate::looks::{
@@ -29,150 +30,141 @@ use crate::looks::{
 use crate::overview::heading;
 use crate::{AnyView, View, with_cx};
 
-/// The width of the room of a control, so that the controls stand in
-/// a line at the panel's right.
 const CONTROLS: f32 = 150.0;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Book>()
         .init_resource::<Part>()
-        .add_systems(Update, follow);
+        .add_systems(Update, follow)
+        .add_observer(answered);
 }
 
-/// The chief's limits as the window shows them.
+/// The received limits of the hamlet shown.
 #[derive(Resource, Default)]
 pub struct Book {
-    /// The limits of the hamlet shown, with the realm's own rules
-    /// as the home has them.
-    limits: Limits,
-    /// The folder of the hamlet shown. The home's until a hamlet's
-    /// bylaws are opened.
-    root: Option<PathBuf>,
+    hamlet: Option<Entity>,
+    limits: Option<Limits>,
+    fields: BTreeMap<(&'static str, &'static str), Field>,
+}
+
+#[derive(Default)]
+struct Field {
+    pending: Option<String>,
     problem: Option<String>,
-    /// The limits shown are those of `root`.
-    read: bool,
 }
 
-/// A value of the limits that is the realm's, read from the home's
-/// file for every hamlet.
-fn of_the_realm(section: &str, key: &str) -> bool {
-    matches!(section, "votes" | "hamlets")
-        || (section, key) == ("road", "grows_over_days")
-}
-
-/// A hamlet's `own` limits with the rules of the `realm`.
-fn with_realm(mut own: Limits, realm: Limits) -> Limits {
-    own.votes = realm.votes;
-    own.hamlets = realm.hamlets;
-    own.road.grows_over_days = realm.road.grows_over_days;
-    own
-}
-
-/// The limits that hold for the hamlet at `root` in the home at
-/// `home`: its own, with the realm's rules from the home's.
-fn limits_of(home: &Path, root: &Path) -> Result<Limits, String> {
-    let read =
-        |at: &Path| Limits::load(at).map_err(|e| format!("{e:#}"));
-    let limits = read(root)?;
-    if root == home {
-        return Ok(limits);
-    }
-    Ok(with_realm(limits, read(home)?))
-}
-
-/// Shows the limits as the core last read them, when another
-/// hamlet's are opened and when the hamlet's file or the home's was
-/// read again.
-pub fn follow(
-    home: Res<HomeDir>,
-    hamlets: Query<(&Settlement, Ref<Charter>)>,
-    mut book: ResMut<Book>,
-) {
-    let turned = !book.read;
-    let any = hamlets.iter().any(|(_, limits)| limits.is_changed());
-    if !turned && !any {
-        return;
-    }
-    let home = home.0.root.as_path();
-    let root =
-        book.root.clone().unwrap_or_else(|| home.to_path_buf());
-    let of = |at: &Path| {
-        hamlets
-            .iter()
-            .find(|(hamlet, _)| hamlet.record().root() == at)
-            .map(|(_, limits)| limits)
-    };
-    let (own, realm) = (of(&root), of(home));
-    let moved = [&own, &realm]
-        .into_iter()
-        .flatten()
-        .any(|limits| limits.is_changed());
-    if !turned && !moved {
-        return;
-    }
-    let held = |limits: &Option<Ref<Charter>>| {
-        limits.as_ref().and_then(|limits| limits.0.clone())
-    };
-    let limits = match (held(&own), held(&realm)) {
-        (Some(own), Some(_)) if root == home => Ok(own),
-        (Some(own), Some(realm)) => Ok(with_realm(own, realm)),
-        // The file says why it cannot be read.
-        _ => limits_of(home, &root),
-    };
-    match limits {
-        Ok(limits) => {
-            if book.limits != limits {
-                book.limits = limits;
-            }
-            if book.problem.is_some() {
-                book.problem = None;
-            }
-        }
-        Err(e) => book.problem = Some(e),
-    }
-    if turned {
-        book.read = true;
+/// The displayed limits kept in step with the received bylaws.
+pub fn follow(hamlets: Query<&Bylaws>, mut book: ResMut<Book>) {
+    let limits = book
+        .hamlet
+        .and_then(|hamlet| hamlets.get(hamlet).ok())
+        .map(|limits| &limits.0);
+    if book.limits.as_ref() != limits {
+        book.limits = limits.cloned();
     }
 }
 
-/// Sets one value of the limits, or takes it out when `value` is
-/// none, and shows the file as it then stands.
 fn put(
     world: &mut World,
-    section: &str,
-    key: &str,
-    value: Option<String>,
+    section: &'static str,
+    key: &'static str,
+    value: Value,
 ) {
-    let home = world.resource::<HomeDir>().0.root.clone();
-    let root = world
-        .resource::<Book>()
-        .root
-        .clone()
-        .unwrap_or_else(|| home.clone());
-    // A rule of the realm is the home's, whichever hamlet is shown.
-    let file = if of_the_realm(section, key) {
-        &home
-    } else {
-        &root
+    let Some(hamlet) = world.resource::<Book>().hamlet else {
+        return;
     };
-    let done = limits::set(file, section, key, value.as_deref());
+    let Some(name) = world
+        .get::<Settlement>(hamlet)
+        .map(|hamlet| hamlet.name.clone())
+    else {
+        return;
+    };
+    let Some(limits) = world.get::<Bylaws>(hamlet) else {
+        return;
+    };
+    let whole = if section.is_empty() {
+        let mut whole =
+            serde_json::to_value(&limits.0).expect("limits JSON");
+        whole[key] = value.clone();
+        Some(serde_json::from_value(whole).expect("limits document"))
+    } else {
+        None
+    };
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        v0::ClientMessage::Edit(v0::Edit::Limits(match whole {
+            Some(whole) => v0::EditLimits::Whole {
+                id,
+                hamlet: name,
+                reason: None,
+                whole,
+            },
+            None => v0::EditLimits::Set {
+                id,
+                hamlet: name,
+                reason: None,
+                set: v0::EditLimitsSetSet {
+                    section: section.into(),
+                    key: key.into(),
+                    value,
+                },
+            },
+        }))
+    });
     let mut book = world.resource_mut::<Book>();
-    match done {
-        Ok(()) => {
-            if let Ok(limits) = limits_of(&home, &root) {
-                book.limits = limits;
-            }
-            book.problem = None;
-        }
-        Err(e) => book.problem = Some(format!("{e:#}")),
-    }
+    let field = book.fields.entry((section, key)).or_default();
+    field.pending = Some(id);
+    field.problem = None;
 }
 
-/// A row of the panel: what a control sets, and the control.
+fn answered(response: On<Response>, mut book: ResMut<Book>) {
+    let Some(field) = book
+        .fields
+        .values_mut()
+        .find(|field| field.pending.as_ref() == Some(&response.to))
+    else {
+        return;
+    };
+    let problem = match &response.message {
+        v0::ServerMessage::Reply(reply) => (reply.kind
+            == v0::ReplyKind::Error)
+            .then(|| reply.text.clone()),
+        v0::ServerMessage::Fault(fault) => Some(fault.text.clone()),
+        _ => return,
+    };
+    field.pending = None;
+    field.problem = problem;
+}
+
+fn control(
+    section: &'static str,
+    key: &'static str,
+    make: impl Fn() -> AnyView + Send + Sync + 'static,
+) -> AnyView {
+    keyed(
+        resource::<Book, _>(move |book| {
+            book.fields
+                .get(&(section, key))
+                .and_then(|field| field.problem.clone())
+        }),
+        move |problem| {
+            let mut parts = vec![make()];
+            if let Some(problem) = problem {
+                parts.push(
+                    label(problem.clone())
+                        .size(12.0)
+                        .tone(Tone::Critical)
+                        .boxed(),
+                );
+            }
+            column(parts).gap(4.0).boxed()
+        },
+    )
+    .within(bare())
+    .boxed()
+}
+
 fn line(what: &'static str, control: AnyView) -> impl View {
     row((
-        // The name gives way in a narrow panel and goes on to a
-        // second line. The control keeps its width.
         row((note(what),)).fills_width(),
         row((control,)).width(px(CONTROLS)).shrink(0.0),
     ))
@@ -184,76 +176,102 @@ fn fine(text: &'static str) -> impl View {
     label(text).size(11.0).tone(Tone::Dim)
 }
 
-/// A whole number of the limits, at `key` of `section`.
 fn whole(
     section: &'static str,
     key: &'static str,
-    get: fn(&Limits) -> u64,
-    most: u64,
+    get: fn(&Limits) -> i64,
+    most: i64,
 ) -> impl View {
-    number_field(
-        resource::<Book, _>(move |book| get(&book.limits)),
-        move |world, value: u64| {
-            put(world, section, key, Some(value.to_string()));
-        },
-    )
-    .range(0u64, most)
-    .width(px(110.0))
-    .rules(well)
+    control(section, key, move || {
+        number_field(
+            resource::<Book, _>(move |book| {
+                book.limits.as_ref().map_or(0, get)
+            }),
+            move |world, value: i64| {
+                put(world, section, key, value.into())
+            },
+        )
+        .range(0, most)
+        .width(px(110.0))
+        .rules(well)
+        .boxed()
+    })
 }
 
-/// A cap on cost, in the provider's currency. 0 is no cap.
 fn cost(
     section: &'static str,
     get: fn(&Limits) -> Option<f64>,
 ) -> impl View {
-    number_field(
-        resource::<Book, _>(move |book| {
-            get(&book.limits).unwrap_or(0.0)
-        }),
-        move |world, value: f64| {
-            let value = (value > 0.0).then(|| format!("{value:.2}"));
-            put(world, section, "cost", value);
-        },
-    )
-    .range(0.0, 1_000_000.0)
-    .step(0.05)
-    .precision(2)
-    .width(px(110.0))
-    .rules(well)
+    control(section, "cost", move || {
+        number_field(
+            resource::<Book, _>(move |book| {
+                book.limits.as_ref().and_then(get).unwrap_or(0.0)
+            }),
+            move |world, value: f64| {
+                put(
+                    world,
+                    section,
+                    "cost",
+                    serde_json::json!(
+                        (value > 0.0 || section == "road")
+                            .then_some(value)
+                    ),
+                )
+            },
+        )
+        .range(0.0, 1_000_000.0)
+        .step(0.05)
+        .precision(2)
+        .width(px(110.0))
+        .rules(well)
+        .boxed()
+    })
 }
 
-/// A yes or a no of the limits.
 fn switch(
     section: &'static str,
     key: &'static str,
     get: fn(&Limits) -> bool,
 ) -> impl View {
-    tick(resource::<Book, _>(move |book| get(&book.limits)))
+    control(section, key, move || {
+        tick(resource::<Book, _>(move |book| {
+            book.limits.as_ref().is_some_and(get)
+        }))
         .on_change(move |world, on| {
-            put(world, section, key, Some(on.to_string()));
+            put(world, section, key, on.into())
         })
+        .boxed()
+    })
 }
 
 /// The budget of `hamlet` and the caps on one task.
 fn budget(hamlet: Entity) -> impl View {
-    let period = segmented(
-        ["A DAY", "A MONTH"],
-        resource::<Book, _>(|book| match book.limits.budget.period {
-            Period::Day => 0,
-            Period::Month => 1,
-        }),
-        |world, chosen| {
-            let period = if chosen == 0 { "day" } else { "month" };
-            put(
-                world,
-                "budget",
-                "period",
-                Some(format!("\"{period}\"")),
-            );
-        },
-    )
-    .boxed();
+    let period = control("budget", "period", || {
+        segmented(
+            ["A DAY", "A MONTH"],
+            resource::<Book, _>(|book| {
+                match book
+                    .limits
+                    .as_ref()
+                    .map(|limits| &limits.budget.period)
+                {
+                    Some(Period::Day) | None => 0,
+                    Some(Period::Month) => 1,
+                }
+            }),
+            |world, chosen| {
+                let period =
+                    if chosen == 0 { "day" } else { "month" };
+                put(
+                    world,
+                    "budget",
+                    "period",
+                    serde_json::json!(period),
+                );
+            },
+        )
+        .boxed()
+    });
     column((
         heading(Glyph::Meter, "THE BUDGET"),
         fine(
@@ -291,118 +309,12 @@ fn budget(hamlet: Entity) -> impl View {
         ),
         line(
             "Messages between agents",
-            whole(
-                "task",
-                "messages",
-                |l| u64::from(l.task.messages),
-                10_000,
-            )
-            .boxed(),
+            whole("task", "messages", |l| l.task.messages, 10_000)
+                .boxed(),
         ),
         line(
             "Price of a road, in dollars",
             cost("road", |l| Some(l.road.cost)).boxed(),
-        ),
-    ))
-    .gap(6.0)
-}
-
-/// The rules of votes.
-fn votes() -> impl View {
-    let pass = row((
-        number_field(
-            resource::<Book, _>(|book| book.limits.votes.pass.0),
-            |world, yes: u32| {
-                let of = world.resource::<Book>().limits.votes.pass.1;
-                put(
-                    world,
-                    "votes",
-                    "pass",
-                    Some(format!("[{yes}, {of}]")),
-                );
-            },
-        )
-        .range(1u32, 100u32)
-        .width(px(50.0))
-        .rules(well),
-        note("in"),
-        number_field(
-            resource::<Book, _>(|book| book.limits.votes.pass.1),
-            |world, of: u32| {
-                let yes =
-                    world.resource::<Book>().limits.votes.pass.0;
-                put(
-                    world,
-                    "votes",
-                    "pass",
-                    Some(format!("[{yes}, {of}]")),
-                );
-            },
-        )
-        .range(1u32, 100u32)
-        .width(px(50.0))
-        .rules(well),
-    ))
-    .gap(8.0)
-    .align(AlignItems::Center)
-    .boxed();
-    column((
-        heading(Glyph::Ballot, "VOTES"),
-        fine(
-            "Agents may vote to replace their mayor or found a \
-             hamlet. You can overturn any vote.",
-        ),
-        line("It passes with yes from", pass),
-        line(
-            "Fewest agents to hold one",
-            whole(
-                "votes",
-                "least_voters",
-                |l| l.votes.least_voters as u64,
-                100,
-            )
-            .boxed(),
-        ),
-        line(
-            "Ballots hidden until it closes",
-            switch("votes", "sealed", |l| l.votes.sealed).boxed(),
-        ),
-        line(
-            "A yes needs grounds in its house",
-            switch("votes", "grounded_only", |l| {
-                l.votes.grounded_only
-            })
-            .boxed(),
-        ),
-        line(
-            "Minutes to answer a ballot",
-            whole(
-                "votes",
-                "ballot_minutes",
-                |l| l.votes.ballot_minutes,
-                600,
-            )
-            .boxed(),
-        ),
-        line(
-            "Minutes a vote stays open",
-            whole(
-                "votes",
-                "open_minutes",
-                |l| l.votes.open_minutes,
-                100_000,
-            )
-            .boxed(),
-        ),
-        line(
-            "Minutes before calling again",
-            whole(
-                "votes",
-                "retry_minutes",
-                |l| l.votes.retry_minutes,
-                100_000,
-            )
-            .boxed(),
         ),
     ))
     .gap(6.0)
@@ -415,105 +327,56 @@ fn mayor() -> impl View {
         heading(Glyph::Mayor, "THE MAYOR MAY, WITHOUT ASKING"),
         line(
             "Create agents",
-            switch("mayor", "create_agents", |l| {
+            switch("mayor", "createAgents", |l| {
                 l.mayor.create_agents
             })
             .boxed(),
         ),
         line(
             "Remove agents",
-            switch("mayor", "remove_agents", |l| {
+            switch("mayor", "removeAgents", |l| {
                 l.mayor.remove_agents
             })
             .boxed(),
         ),
         line(
             "Merge agents",
-            switch("mayor", "merge_agents", |l| l.mayor.merge_agents)
+            switch("mayor", "mergeAgents", |l| l.mayor.merge_agents)
                 .boxed(),
         ),
         line(
             "Build roads",
-            switch("mayor", "build_roads", |l| l.mayor.build_roads)
+            switch("mayor", "buildRoads", |l| l.mayor.build_roads)
                 .boxed(),
         ),
         line(
             "Days of its decisions agents are told",
-            whole("mayor", "told_days", |l| l.mayor.told_days, 3650)
+            whole("mayor", "toldDays", |l| l.mayor.told_days, 3650)
                 .boxed(),
         ),
         heading(Glyph::Signpost, "AGENTS AND ROADS"),
         line(
             "Most agents in this hamlet",
-            whole("", "most_agents", |l| l.most_agents as u64, 1000)
-                .boxed(),
+            whole("", "mostAgents", |l| l.most_agents, 1000).boxed(),
         ),
         line(
             "Most roads the mayor builds",
-            whole("", "most_roads", |l| l.most_roads as u64, 10_000)
-                .boxed(),
+            whole("", "mostRoads", |l| l.most_roads, 10_000).boxed(),
         ),
     ))
     .gap(6.0)
 }
 
-/// The rules that hold for every hamlet of the realm, as a page of
-/// the settings.
+/// The server's scope of limits.
 pub fn realm() -> impl View {
-    let hamlets = column((
-        heading(Glyph::Signpost, "HAMLETS AND THE ROADS BETWEEN"),
-        line(
-            "Most hamlets",
-            whole("hamlets", "most", |l| l.hamlets.most as u64, 1000)
-                .boxed(),
-        ),
-        line(
-            "Agents of different hamlets may have roads",
-            switch("hamlets", "roads_between", |l| {
-                l.hamlets.roads_between
-            })
-            .boxed(),
-        ),
-        line(
-            "Mayors it takes to ask for a hamlet's removal",
-            whole(
-                "hamlets",
-                "removal_mayors",
-                |l| l.hamlets.removal_mayors as u64,
-                100,
-            )
-            .boxed(),
-        ),
-        line(
-            "Days until an unused road grows over",
-            whole(
-                "road",
-                "grows_over_days",
-                |l| l.road.grows_over_days,
-                3650,
-            )
-            .boxed(),
-        ),
-    ))
-    .gap(6.0);
-    column((fine("These apply to every hamlet."), hamlets, votes()))
-        .gap(14.0)
+    fine(
+        "This server supplies limits for each hamlet, under its \
+         bylaws.",
+    )
 }
 
 /// The bylaws of `hamlet`, for its chief to change.
 pub fn panel(hamlet: Entity) -> AnyView {
-    let problem = keyed(
-        resource::<Book, _>(|book| book.problem.clone()),
-        |problem| match problem {
-            Some(why) => label(why.clone())
-                .size(12.0)
-                .tone(Tone::Critical)
-                .boxed(),
-            None => column(()).boxed(),
-        },
-    )
-    .within(bare());
-    // The parts as rows of one list, each on a page of its own.
     let page =
         keyed(resource::<Part, _>(|part| *part), move |part| {
             if *part == Part::Front {
@@ -527,11 +390,8 @@ pub fn panel(hamlet: Entity) -> AnyView {
                         },
                     )
                 });
-                let foot = fine(
-                    "These apply to this hamlet only. Rules for \
-                     every hamlet are under Realm in Settings.",
-                )
-                .boxed();
+                let foot =
+                    fine("These apply to this hamlet only.").boxed();
                 let parts = parts.into();
                 return with_cx(move |cx| doors(cx, parts, foot));
             }
@@ -556,18 +416,17 @@ pub fn panel(hamlet: Entity) -> AnyView {
         })
         .within(bare());
     AnyView::new(move |cx: &mut crate::Cx| {
-        // The bylaws shown are this hamlet's, read from its own
-        // folder.
-        let root =
-            cx.world.get::<Settlement>(hamlet).map(|settlement| {
-                settlement.record().root().to_path_buf()
-            });
+        let limits = cx
+            .world
+            .get::<Bylaws>(hamlet)
+            .map(|limits| limits.0.clone());
         let mut book = cx.world.resource_mut::<Book>();
-        if book.root != root {
-            book.root = root;
-            book.read = false;
+        if book.hamlet != Some(hamlet) {
+            book.fields.clear();
+            book.hamlet = Some(hamlet);
         }
-        cx.build(column((problem, page)).gap(8.0))
+        book.limits = limits;
+        cx.build(page)
     })
 }
 
@@ -619,70 +478,194 @@ impl Part {
 
 #[cfg(test)]
 mod tests {
-    use hamlet_testing::Scratch;
+    use bevy::ecs::hierarchy::{ChildOf, Children};
+    use bevy::input::InputPlugin;
+    use bevy::input_focus::{
+        FocusCause, InputDispatchPlugin, InputFocus, InputFocusPlugin,
+    };
+    use bevy::text::EditableText;
+    use bevy::window::{PrimaryWindow, Window};
+    use hamlet_client::outbox::Outbox;
+    use serde_json::{Value, json};
 
     use super::*;
+    use crate::me::tests::panel_app;
 
-    #[test]
-    fn a_control_writes_one_value_and_says_when_it_cannot() {
-        let home = Scratch::new("ui-rules");
-        let mut world = World::new();
-        world.insert_resource(HomeDir(hamlet_home::Home {
-            root: home.to_path_buf(),
-            workspace: home.join("workspace"),
-        }));
-        world.init_resource::<Book>();
-        put(&mut world, "votes", "sealed", Some("false".into()));
-        put(&mut world, "budget", "tokens", None);
-        let kept = Limits::load(&home).unwrap();
-        assert!(!kept.votes.sealed);
-        assert_eq!(kept.budget.tokens, None);
-        // The window shows the file as it stands.
-        let book = world.resource::<Book>();
-        assert_eq!(book.limits, kept);
-        assert_eq!(book.problem, None);
+    fn page(part: Part) -> (App, Entity) {
+        let mut app = panel_app();
+        app.add_plugins((
+            plugin,
+            InputPlugin,
+            InputFocusPlugin,
+            InputDispatchPlugin,
+        ));
+        app.world_mut().spawn((Window::default(), PrimaryWindow));
+        let hamlet = app
+            .world_mut()
+            .query::<(Entity, &Settlement)>()
+            .iter(app.world())
+            .next()
+            .unwrap()
+            .0;
+        *app.world_mut().resource_mut::<Part>() = part;
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            panel(hamlet),
+        );
+        app.update();
+        (app, hamlet)
+    }
 
-        // A value the file cannot hold is said, and nothing changes.
-        put(&mut world, "votes", "pass", Some("[5, 3]".into()));
-        assert!(world.resource::<Book>().problem.is_some());
-        assert_eq!(Limits::load(&home).unwrap(), kept);
+    fn input(app: &mut App, label: &str) -> Entity {
+        let world = app.world_mut();
+        let mut at = world
+            .query::<(Entity, &bevy::ui::widget::Text)>()
+            .iter(world)
+            .find(|(_, text)| text.0 == label)
+            .unwrap()
+            .0;
+        loop {
+            let mut descendants = vec![at];
+            while let Some(entity) = descendants.pop() {
+                if world.get::<EditableText>(entity).is_some() {
+                    return entity;
+                }
+                if let Some(children) = world.get::<Children>(entity)
+                {
+                    descendants.extend(children.iter().copied());
+                }
+            }
+            at = world.get::<ChildOf>(at).unwrap().parent();
+        }
+    }
+
+    fn enter(app: &mut App, label: &str, value: &str) {
+        let input = input(app, label);
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(input, FocusCause::Pressed);
+        app.update();
+        app.world_mut()
+            .get_mut::<EditableText>(input)
+            .unwrap()
+            .editor_mut()
+            .set_text(value);
+        app.world_mut().resource_mut::<InputFocus>().clear();
+        for _ in 0..3 {
+            app.update();
+        }
+    }
+
+    fn edits(app: &App) -> Vec<Value> {
+        app.world()
+            .resource::<Outbox>()
+            .iter()
+            .map(|message| serde_json::to_value(message).unwrap())
+            .filter(|message| message["type"] == "edit")
+            .collect()
     }
 
     #[test]
-    fn a_hamlet_s_bylaws_are_its_own_and_the_realm_s_rules_the_home_s()
+    fn daily_cost_and_its_clear_are_limits_edits() {
+        let (mut app, _) = page(Part::Budget);
+        enter(&mut app, "May spend, in dollars", "2");
+        let sent = edits(&app);
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["doc"], "limits");
+        assert_eq!(sent[0]["hamlet"], "home");
+        assert_eq!(
+            sent[0]["set"],
+            json!({"section": "budget", "key": "cost", "value": 2.0})
+        );
+        enter(&mut app, "May spend, in dollars", "0");
+        assert_eq!(
+            edits(&app)[1]["set"],
+            json!({"section": "budget", "key": "cost", "value": null})
+        );
+    }
+    #[test]
+    fn a_refused_edit_restores_the_received_value_beside_its_words() {
+        use hamlet_protocol::v0;
+
+        use crate::me::tests::words;
+        let (mut app, _) = page(Part::Budget);
+        enter(&mut app, "May spend, in dollars", "2");
+        let to = edits(&app)[0]["id"].as_str().unwrap().to_string();
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Reply(v0::Reply {
+                to,
+                kind: v0::ReplyKind::Error,
+                text: "The daily cost was refused.".into(),
+                upload: None,
+            }),
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|word| word == "The daily cost was refused.")
+        );
+        let field = input(&mut app, "May spend, in dollars");
+        assert_eq!(
+            app.world().get::<EditableText>(field).unwrap().value(),
+            "5.00"
+        );
+        let mut hamlet = hamlet_testing::realm::hamlet("home");
+        hamlet.limits.budget.cost = Some(3.5);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Change(v0::Changes {
+                epoch: 1,
+                revision: 1,
+                changes: vec![v0::Update::Hamlet { hamlet }],
+            }),
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+        let field = input(&mut app, "May spend, in dollars");
+        assert_eq!(
+            app.world().get::<EditableText>(field).unwrap().value(),
+            "3.50"
+        );
+    }
+
+    #[test]
+    fn a_top_level_edit_keeps_the_other_received_limits_and_section_keys_are_camel_case()
      {
-        let home = Scratch::new("ui-rules-hamlet");
-        let other = home.join("hamlets").join("mill");
-        std::fs::create_dir_all(&other).unwrap();
-        let mut world = World::new();
-        world.insert_resource(HomeDir(hamlet_home::Home {
-            root: home.to_path_buf(),
-            workspace: home.join("workspace"),
-        }));
-        world.insert_resource(Book {
-            root: Some(other.clone()),
-            ..Book::default()
-        });
-        // Its budget is written to its own file and the home's is
-        // left as it was.
-        put(&mut world, "budget", "cost", Some("9.00".into()));
+        let (mut app, _) = page(Part::Mayor);
+        enter(&mut app, "Most agents in this hamlet", "8");
+        let mut expected = serde_json::to_value(
+            hamlet_testing::realm::hamlet("home").limits,
+        )
+        .unwrap();
+        expected["mostAgents"] = json!(8);
+        let sent = edits(&app);
+        assert_eq!(sent[0]["whole"], expected);
+        assert!(sent[0].get("set").is_none());
+        enter(&mut app, "Days of its decisions agents are told", "4");
         assert_eq!(
-            Limits::load(&other).unwrap().budget.cost,
-            Some(9.0)
+            edits(&app)[1]["set"],
+            json!({"section": "mayor", "key": "toldDays", "value": 4})
+        );
+    }
+
+    #[test]
+    fn period_is_text_and_a_free_road_is_not_an_uncapped_meter() {
+        use crate::me::tests::press;
+        let (mut app, _) = page(Part::Budget);
+        press(&mut app, "A MONTH");
+        enter(&mut app, "Price of a road, in dollars", "0");
+        assert_eq!(
+            edits(&app)[0]["set"],
+            json!({"section": "budget", "key": "period", "value": "month"})
         );
         assert_eq!(
-            Limits::load(&home).unwrap().budget.cost,
-            Some(5.0)
-        );
-        // A rule of the realm goes to the home's, and is shown with
-        // the hamlet's own.
-        put(&mut world, "hamlets", "most", Some("3".into()));
-        assert_eq!(Limits::load(&home).unwrap().hamlets.most, 3);
-        assert_eq!(Limits::load(&other).unwrap().hamlets.most, 6);
-        let shown = &world.resource::<Book>().limits;
-        assert_eq!(
-            (shown.budget.cost, shown.hamlets.most),
-            (Some(9.0), 3)
+            edits(&app)[1]["set"],
+            json!({"section": "road", "key": "cost", "value": 0.0})
         );
     }
 }

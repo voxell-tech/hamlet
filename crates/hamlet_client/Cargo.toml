@@ -1,0 +1,22 @@
+[package]
+name = "hamlet_client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The window's components and requests, filled from the server"
+
+[lints]
+workspace = true
+
+[dependencies]
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+futures.workspace = true
+hamlet_protocol.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+
+[dev-dependencies]
+hamlet_testing.workspace = true

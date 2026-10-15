@@ -2,7 +2,7 @@
 //! whoever calls on it.
 
 use bevy::prelude::*;
-use hamlet_core::agents::Consulted;
+use hamlet_client::realm::Consulted;
 
 use crate::Clock;
 use crate::chief::mascot::{self, Doing, Pose, Stance};

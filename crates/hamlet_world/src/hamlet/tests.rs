@@ -1,9 +1,12 @@
 use bevy::prelude::*;
-use hamlet_core::agents::{
-    Activity, Busy, Carried, Citizen, Doing, Left, Lived, LivesIn,
-    Mayor, MergedInto, Road, Settlement, Spot, Traffic, Voted,
+use hamlet_client::realm::{
+    Activity, Busy, Carried, Citizen, Doing, HOME, Left, Lived,
+    LivesIn, Mayor, MergedInto, Road, RoadUse, Settlement, Spot,
+    Traffic, Voted,
 };
-use hamlet_rules::hamlet::{HOME, RoadUse};
+use hamlet_client::{ClientPlugin, receive};
+use hamlet_protocol::v0;
+use hamlet_testing::realm;
 
 use super::housing::{
     close, come_back, house, leave, make_room, move_out, resite,
@@ -29,7 +32,8 @@ use crate::{Clock, Stage};
 /// The world's side of the hamlets, with no hamlet in it.
 fn bare() -> App {
     let mut app = App::new();
-    app.init_resource::<Stage>()
+    app.add_plugins(ClientPlugin { server: None })
+        .init_resource::<Stage>()
         .init_resource::<Society>()
         .init_resource::<Trips>()
         .init_resource::<Objecting>()
@@ -101,18 +105,48 @@ fn a_hamlet_that_is_removed_takes_its_town_with_it() {
     assert!(society.roads.is_empty());
 }
 
+pub(crate) fn receive_state(app: &mut App, state: v0::State) {
+    receive(app.world_mut(), v0::ServerMessage::State(state));
+}
+
+pub(crate) fn receive_change(app: &mut App, update: v0::Update) {
+    let seen = app.world().resource::<hamlet_client::realm::Seen>();
+    let frame = v0::ServerMessage::Change(v0::Changes {
+        epoch: seen.epoch,
+        revision: seen.revision + 1,
+        changes: vec![update],
+    });
+    receive(app.world_mut(), frame);
+}
+
 /// A hamlet with its first mayor in office.
 fn settle(app: &mut App, name: &str) -> Entity {
-    let hamlet = app
-        .world_mut()
-        .spawn(Settlement {
-            home: std::path::PathBuf::new(),
-            name: name.to_string(),
-        })
-        .id();
-    let mayor = (Citizen(0), LivesIn(hamlet), Mayor);
-    app.world_mut().spawn(mayor);
-    hamlet
+    if app
+        .world()
+        .contains_resource::<hamlet_client::realm::Seen>()
+    {
+        receive_change(
+            app,
+            v0::Update::Hamlet {
+                hamlet: realm::hamlet(name),
+            },
+        );
+        receive_change(
+            app,
+            v0::Update::Agent {
+                agent: realm::agent(name, 0, "founder"),
+            },
+        );
+    } else {
+        receive_state(app, realm::state());
+    }
+    let world = app.world_mut();
+    world
+        .query::<(Entity, &Settlement)>()
+        .iter(world)
+        .find(|(_, hamlet)| hamlet.name == name)
+        .unwrap()
+        .0
 }
 
 fn entity(app: &mut App, number: u64) -> Option<Entity> {
@@ -132,7 +166,7 @@ fn entity(app: &mut App, number: u64) -> Option<Entity> {
 }
 
 /// Sets who lives in the hamlet and who left, each by its
-/// number, as the core's sync does, and runs a frame.
+/// number, and runs a frame.
 fn tell(
     app: &mut App,
     hamlet: Entity,
@@ -304,6 +338,7 @@ fn roads_and_work_follow_the_entities() {
             doing: Doing::Fetch,
             step: 2,
             failures: 0,
+            ..default()
         },
     ));
     app.update();
@@ -508,64 +543,104 @@ fn a_town_follows_where_the_record_sets_it_down() {
 }
 
 #[test]
-fn a_move_a_chief_commands_is_replayed_on_the_next_launch() {
-    use hamlet_core::agents::AgentsPlugin;
-    use hamlet_rules::chief;
-    use hamlet_rules::realm::{Origin, Realm};
-    use hamlet_testing::Scratch;
+fn a_received_realm_houses_the_founder_in_its_hall() {
+    let mut app = bare();
+    for line in
+        include_str!("../../../../server/test/frames/hello.jsonl")
+            .lines()
+    {
+        let frame =
+            serde_json::from_str::<serde_json::Value>(line).unwrap();
+        if frame["from"] == "server" {
+            receive(
+                app.world_mut(),
+                serde_json::from_value(frame["message"].clone())
+                    .unwrap(),
+            );
+        }
+    }
+    app.update();
+    let founder = agent(&mut app, 0);
+    let society = app.world().resource::<Society>();
+    assert_eq!(society.towns.len(), 1);
+    assert_eq!(society.agents.len(), 1);
+    assert_eq!(society.towns[0].leader, founder.id);
+    assert_eq!(founder.plot, 0);
+    assert_eq!(founder.state, KState::Rest);
+}
 
-    let home = Scratch::new("world-moved");
-    let launch = || {
-        let mut app = bare();
-        app.add_plugins(AgentsPlugin {
-            home: home.to_path_buf(),
-        });
-        app.update();
-        app.update();
-        app
-    };
-    let realm = Realm::new(home.to_path_buf());
-    let origin = Origin::Human {
-        user: "alice".into(),
-    };
-    realm.found("mill", "miller", "Grinds.", origin).unwrap();
-    let mut first = launch();
-    let before = towns(&mut first);
-    assert_eq!(before.len(), 2);
-    let mill = {
-        let world = first.world_mut();
-        world
-            .query::<(Entity, &Settlement)>()
-            .iter(world)
-            .find(|(_, settlement)| settlement.name == "mill")
-            .map(|(entity, _)| entity)
-            .unwrap()
-    };
-    let to = meadow(&mut first, mill);
-
-    let said = chief::command(
-        &realm,
-        HOME,
-        "alice",
-        &format!("/move-hamlet mill {} {}", to.x, to.y),
+#[test]
+fn the_founders_robot_follows_its_own_work_and_faults() {
+    let (mut app, _) = app();
+    let mut founder = realm::agent(HOME, 0, "founder");
+    founder.busy = true;
+    founder.activity.doing = v0::Doing::Run;
+    founder.saying.text = "Checking the orchard".into();
+    founder.saying.thought = true;
+    receive_change(
+        &mut app,
+        v0::Update::Agent {
+            agent: founder.clone(),
+        },
     );
-    assert!(said.unwrap().is_ok());
-    // The world sees the record change and follows it.
-    first.update();
-    first.update();
-    let after = towns(&mut first);
-    assert_eq!(after[0], before[0]);
-    assert_eq!(after[1], ("mill".to_string(), to));
+    app.update();
+    let working = agent(&mut app, 0);
+    assert_eq!(working.state, KState::Working);
+    assert_eq!(working.work.task, Task::Run);
+    founder.faulted = true;
+    receive_change(
+        &mut app,
+        v0::Update::Agent {
+            agent: founder.clone(),
+        },
+    );
+    app.update();
+    assert_eq!(agent(&mut app, 0).state, KState::Fault);
+    founder.busy = false;
+    receive_change(
+        &mut app,
+        v0::Update::Agent {
+            agent: founder.clone(),
+        },
+    );
+    app.update();
+    assert_eq!(agent(&mut app, 0).state, KState::Fault);
+    receive_change(
+        &mut app,
+        v0::Update::Wait {
+            wait: realm::wait("orchard-command"),
+        },
+    );
+    app.update();
+    assert_eq!(agent(&mut app, 0).state, KState::Waiting);
+    receive_state(&mut app, realm::state());
+    app.update();
+    assert_eq!(agent(&mut app, 0).state, KState::Rest);
+}
 
-    let mut next = launch();
-    assert_eq!(towns(&mut next), after);
-    let people = |app: &App| {
-        let society = app.world().resource::<Society>();
-        society
-            .agents
-            .iter()
-            .map(|a| (a.id, a.town, a.plot))
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(people(&next), people(&first));
+pub(crate) fn camera(app: &mut App, eye: Vec3, target: Vec3) {
+    use bevy::camera::{ComputedCameraValues, RenderTargetInfo};
+
+    let at =
+        Transform::from_translation(eye).looking_at(target, Vec3::Y);
+    app.world_mut().spawn((
+        crate::WorldCamera,
+        Camera {
+            computed: ComputedCameraValues {
+                clip_from_view: Mat4::perspective_infinite_reverse_rh(
+                    std::f32::consts::FRAC_PI_4,
+                    4.0 / 3.0,
+                    0.1,
+                ),
+                target_info: Some(RenderTargetInfo {
+                    physical_size: UVec2::new(800, 600),
+                    scale_factor: 1.0,
+                }),
+                ..default()
+            },
+            ..default()
+        },
+        at,
+        GlobalTransform::from(at),
+    ));
 }

@@ -331,7 +331,7 @@ pub(super) fn hold_message(
     mut commands: Commands,
     rows: Query<(Entity, &chat::Rewinds, &Hovered)>,
 ) {
-    let last = rows.iter().max_by_key(|(_, row, _)| row.entry);
+    let last = rows.iter().max_by_key(|(_, row, _)| row.at);
     if let Some((row, _, hovered)) = last
         && !hovered.0
     {

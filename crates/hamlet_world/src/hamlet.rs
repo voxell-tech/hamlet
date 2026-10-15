@@ -1,4 +1,4 @@
-//! The bridge from the core's entities to the world: every hamlet,
+//! The bridge from the client's entities to the world: every hamlet,
 //! agent and road entity takes its place in the society the generator
 //! draws.
 
@@ -7,12 +7,11 @@ mod pointing;
 mod roads;
 mod state;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod view;
 
 use bevy::prelude::*;
-use hamlet_core::agents::{LivesIn, Settlement};
-use hamlet_rules::hamlet::HOME;
+use hamlet_client::realm::{HOME, LivesIn, Settlement};
 
 use crate::chief::Settling;
 use crate::generator::GenPlugin;

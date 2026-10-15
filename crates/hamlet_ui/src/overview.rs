@@ -14,16 +14,16 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::text::EditableText;
-use bevy::ui::{AlignItems, UiRect, px};
+use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row, scroll, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
-use hamlet_core::agents::{Activity, LivesIn, Settlement, Treasury};
-use hamlet_core::core::HomeDir;
-use hamlet_core::oversight::Waiting;
-use hamlet_rules::realm::Realm;
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use hamlet_client::realm::{
+    Activity, Deeds, LivesIn, Settlement, Treasury,
+};
+use hamlet_client::waits::Waiting;
 use hamlet_world::pick::{Thing, focus_on, select};
 
 pub use self::hamlet::{Naming, Page, hamlet};
@@ -31,12 +31,9 @@ use self::rows::{hamlet_rows, pressable};
 pub(crate) use self::rows::{stale, standing};
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
-    Fills, ICON, action, bad_action, bare, good_action, note, raised,
-    title, well,
+    Fills, ICON, action, bare, note, raised, title, well,
 };
 use crate::platform::DisplayText;
-use crate::roll::hamlets_moved;
-use crate::world_menu::Deed;
 use crate::{AnyView, chat, tabs, world_menu};
 
 pub fn plugin(app: &mut App) {
@@ -58,7 +55,7 @@ pub struct SearchField;
 /// Registers the components these views read, so that a shared
 /// reference can query them before anything has them.
 pub fn register(world: &mut World) {
-    hamlet_core::agents::register(world);
+    hamlet_client::realm::register(world);
     world.register_component::<Settlement>();
     world.register_component::<LivesIn>();
     world.register_component::<Activity>();
@@ -100,66 +97,6 @@ pub(super) fn heading(
     ))
     .gap(7.0)
     .align(AlignItems::Center)
-    .boxed()
-}
-
-/// The hamlets that were closed down, each to be brought back.
-fn closed() -> AnyView {
-    let names = derived(|world: &World| {
-        let home = &world.resource::<HomeDir>().0.root;
-        // Each by the name commands know it by, and by what its
-        // chief called it.
-        Realm::open(home)
-            .map(|realm| realm.closed())
-            .unwrap_or_default()
-            .into_iter()
-            .map(|place| {
-                let title =
-                    place.title.unwrap_or_else(|| place.name.clone());
-                (place.name, title)
-            })
-            .collect::<Vec<_>>()
-    })
-    .when(hamlets_moved());
-    keyed(names, |names| {
-        if names.is_empty() {
-            return column(()).boxed();
-        }
-        let mut parts = vec![heading(
-            Glyph::Gone,
-            format!("CLOSED DOWN ({})", names.len()),
-        )];
-        parts.extend(names.iter().map(|(name, title)| {
-            let back = format!("/restore-hamlet {name}");
-            let gone = name.clone();
-            row((
-                row((label(title.to_uppercase())
-                    .size(13.0)
-                    .bold(true)
-                    .tagged(DisplayText),))
-                .fills_width(),
-                good_action(
-                    Glyph::Restore,
-                    "RESTORE",
-                    move |world| chat::send(world, back.clone()),
-                ),
-                bad_action(Glyph::Delete, "DELETE", move |world| {
-                    world_menu::ask(
-                        world,
-                        Deed::EraseHamlet(gone.clone()),
-                    )
-                }),
-            ))
-            .gap(12.0)
-            .align(AlignItems::Center)
-            .boxed()
-        }));
-        column(parts)
-            .gap(6.0)
-            .padding(UiRect::top(px(10.0)))
-            .boxed()
-    })
-    .within(bare())
     .boxed()
 }
 
@@ -224,18 +161,28 @@ pub fn overview() -> AnyView {
                 .grow(1.0)
                 .rules(well)
                 .tagged(SearchField),
-            action(
-                Glyph::Plus,
-                "FOUND A HAMLET",
-                world_menu::ask_found,
-            ),
+            keyed(
+                resource::<Deeds, _>(|deeds| deeds.has("found")),
+                |allowed| {
+                    if *allowed {
+                        action(
+                            Glyph::Plus,
+                            "FOUND A HAMLET",
+                            world_menu::ask_found,
+                        )
+                    } else {
+                        column(()).boxed()
+                    }
+                },
+            )
+            .within(bare()),
         ))
         .gap(8.0)
         .align(AlignItems::Center),
         label("Search by a hamlet's name or its mayor's.")
             .size(11.0)
             .tone(Tone::Dim),
-        scroll((list, closed())).fills_height(),
+        scroll((list,)).fills_height(),
         row((
             action(
                 Glyph::Hearth,
@@ -261,4 +208,145 @@ pub(super) fn tell(world: &mut World, hamlet: Entity, text: String) {
         return;
     };
     chat::decree(world, &name, text);
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_protocol::v0;
+
+    use super::*;
+    use crate::me::tests::{panel_app, words};
+
+    #[test]
+    fn a_received_hamlet_row_follows_busy_and_waiting() {
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        app.update();
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            overview(),
+        );
+        app.update();
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|text| text == "1 agent, all at rest")
+        );
+        let mut state = hamlet_testing::realm::state();
+        state.agents[0].busy = true;
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state.clone()),
+        );
+        for _ in 0..2 {
+            app.update();
+        }
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|text| text == "1 agent, 1 at work")
+        );
+        state.waits.push(hamlet_testing::realm::wait("approval"));
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        for _ in 0..2 {
+            app.update();
+        }
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|text| text == "1 agent, 1 waiting for you")
+        );
+    }
+    #[test]
+    fn only_a_server_that_lists_the_deed_offers_to_move_a_town() {
+        use bevy::ecs::query::With;
+        use hamlet_client::realm::Deeds;
+        use hamlet_world::generator::GenSettings;
+        use hamlet_world::generator::land::Land;
+        use hamlet_world::generator::society::{Place, Society};
+        use hamlet_world::hamlet::Sited;
+        use hamlet_world::moving::Carrying;
+        use hamlet_world::palette::Palette;
+        use hamlet_world::play::Played;
+
+        use crate::me::tests::press;
+
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let hamlet = app
+            .world_mut()
+            .query_filtered::<Entity, With<Settlement>>()
+            .single(app.world())
+            .unwrap();
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            self::hamlet(hamlet),
+        );
+        app.update();
+        assert!(!words(&mut app).iter().any(|text| text == "MOVE"));
+        assert!(!words(&mut app).iter().any(|text| text == "RENAME"));
+        app.world_mut()
+            .resource_mut::<Deeds>()
+            .0
+            .push("move-hamlet".into());
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(words(&mut app).iter().any(|text| text == "MOVE"));
+        let mut land =
+            Land::new(1, GenSettings::default(), Palette::default());
+        let mut society = Society::default();
+        let town = society.found_town(&mut land);
+        app.insert_resource(land)
+            .insert_resource(society)
+            .init_resource::<Carrying>()
+            .add_message::<Played>();
+        app.world_mut().entity_mut(hamlet).insert(Sited(town));
+        press(&mut app, "MOVE");
+        assert_eq!(
+            app.world().resource::<Carrying>().0.unwrap().place,
+            Place::Town(town)
+        );
+    }
+
+    #[test]
+    fn the_record_shows_received_treasury_lines_without_disk_records()
+    {
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let mut state = hamlet_testing::realm::state();
+        state.hamlets[0].budget.lines = vec![
+            "The server's first budget line.".into(),
+            "The server's second budget line.".into(),
+        ];
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        let hamlet = app
+            .world_mut()
+            .query::<(Entity, &Settlement)>()
+            .iter(app.world())
+            .next()
+            .unwrap()
+            .0;
+        *app.world_mut().resource_mut::<Page>() = Page::Record;
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            self::hamlet(hamlet),
+        );
+        app.update();
+        let shown = words(&mut app);
+        assert!(shown.iter().any(|text| text == "The server's first budget line."));
+        assert!(
+            shown.iter().any(
+                |text| text == "The server's second budget line."
+            )
+        );
+        assert!(!shown.iter().any(|text| text.starts_with("VOTES")
+            || text == "WHO CAME AND WENT"));
+    }
 }

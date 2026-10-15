@@ -5,6 +5,8 @@ const live = "test/**/*.live.test.ts";
 
 export default defineConfig(({ mode }) => ({
     test: {
+        // Each worker starts real sandbox and CLI processes.
+        maxWorkers: 4,
         include: [mode === "live" ? live : "test/**/*.test.ts"],
         exclude:
             mode === "live"

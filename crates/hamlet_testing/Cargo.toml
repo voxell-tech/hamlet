@@ -3,7 +3,11 @@ name = "hamlet_testing"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "What the crates' tests share: a scratch directory"
+description = "Scratch directories and protocol values shared by tests"
 
 [lints]
 workspace = true
+
+[dependencies]
+hamlet_protocol.workspace = true
+serde_json.workspace = true

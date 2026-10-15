@@ -38,26 +38,50 @@ and a robot. Free and open-source forever.
 - **Any model**: Any OpenAI-compatible endpoint, a local
   [Ollama](https://ollama.com) by default.
 
-**Status:** early and moving fast.
+**Status:** early and moving fast. The agents are being rebuilt as a
+server on pi-durable that the window connects to. The mayor, tools,
+approvals, budgets, models and logins work through it; other agents,
+roads, votes, the shared library and several hamlets follow in the
+[rebuild's later steps](docs/proposals/agent-server.md#order-of-work).
+The picture above shows the earlier Rust runtime's realm.
 
 ## Running
 
-Hamlet needs an OpenAI-compatible endpoint. The default is a local
-[Ollama](https://ollama.com) with `qwen3.6:35b-a3b`, and Settings holds the
-endpoints, their keys and the model.
+Use Rust and the Node version in `server/.nvmrc`. From the repository root:
 
 ```sh
-git submodule update --init   # once after cloning, for the UI library
-cargo run                     # the window
-cargo run -- --help           # the other modes, flags and environment overrides
+git submodule update --init vendor/fynix
+cargo build --bin hamlet-app
+(cd server && npm ci && npm link)
+HAMLET_HOME=/tmp/hamlet-try hamlet dev
 ```
 
-Tools run in a sandbox on macOS and Linux. Windows has none yet and needs
-`--insecure`.
+`hamlet dev` serves a scratch home on a free port and opens its window.
+The home is kept between runs; the window's files go in `<home>/window`.
+The welcome offers API keys, Continue with ChatGPT, OpenRouter sign-in or
+a local model endpoint on the server's machine. Credentials stay on the
+server. Tools need Seatbelt on macOS or bubblewrap on Linux; the server
+cannot start on Windows, and there is no `--insecure` mode.
 
-Hamlet keeps everything in `~/.hamlet`. Set `HAMLET_HOME` to a scratch
-folder when trying things out, so that your real notes, skills and logs are
-left alone.
+Closing the window leaves `hamlet dev` serving; Ctrl-C stops it. To keep a
+server separate from the window, use two terminals:
+
+```sh
+HAMLET_HOME=/tmp/hamlet-try hamlet server
+# In the other terminal:
+HAMLET_HOME=/tmp/hamlet-try HAMLET_VIEW=/tmp/hamlet-try/window hamlet window
+```
+
+`hamlet chat` is the terminal client. `hamlet --help` lists the commands.
+An old `hamlet` installed by Cargo can shadow the npm command on PATH.
+`HAMLET_APP` selects a `hamlet-app` built outside the repository's
+`target/` folder. Release archives contain the window, not the server;
+Hamlet.app still opens as Hamlet while its executable is `hamlet-app`.
+
+The server's default home is `~/.hamlet`; use a scratch `HAMLET_HOME` when
+trying things out. The window keeps its own size, layout and look in
+`HAMLET_VIEW`, else the OS's config folder for Hamlet. When running it
+outside `hamlet dev`, set `HAMLET_VIEW` to a scratch folder too.
 
 In the window, drag the ground to slide it, drag with the right button to
 turn, and scroll to zoom. Click a robot or a house to talk to its agent,
@@ -66,10 +90,11 @@ and right-click anything for what can be done to it.
 ## Working on the code
 
 ```sh
-cargo build
+cargo +nightly fmt
+cargo build --all-targets
 cargo clippy --all-targets
 cargo test
-cargo +nightly fmt
+(cd server && npm run check && npm test)
 ```
 
 [`docs/tour.md`](docs/tour.md) is the map of the code,

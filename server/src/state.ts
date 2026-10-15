@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import {
     type AgentEventStream,
@@ -9,10 +10,13 @@ import {
 import { Activity } from "./activity.ts";
 import { ChatDoc, conversationsOf, currentOf } from "./chats.ts";
 import { choose } from "./choice.ts";
+import { DEEDS } from "./commands.ts";
 import { GrantsDoc, grantsOf } from "./grants.ts";
 import { agentKey, HOME, WorkDoc } from "./hamlet.ts";
 import type { Home } from "./home.ts";
+import { houseOf } from "./layout.ts";
 import { booksOf } from "./ledger.ts";
+import { STARTERS } from "./library.ts";
 import { LimitsDoc, limitsOf } from "./limits.ts";
 import { providersOf } from "./logins.ts";
 import { money } from "./money.ts";
@@ -28,9 +32,12 @@ import type {
 import { addressOf, named, RecordDoc } from "./record.ts";
 import { reportOf } from "./report.ts";
 import { type Settings, SettingsDoc, settingsOf } from "./settings.ts";
+import { refreshSkills, skillNames, starterSkills } from "./skills.ts";
 import { OversightDoc } from "./waits.ts";
 import { queue, says } from "./words.ts";
 import { modeWords } from "./work.ts";
+
+const starters = starterSkills(STARTERS);
 
 type Work = Pick<
     Activity,
@@ -147,13 +154,18 @@ export async function stateOf(
                 active?.saying ?? { text: "", thought: false },
             ),
             spent: { ...spent, cost: money(spent.micros) },
+            skills: await skillNames(join(houseOf(home.layout, ref), "skills")),
         });
     }
     const waits = queue(oversight).map(
         (wait): Wait => ({
             id: wait.id,
-            kind: wait.kind,
-            danger: wait.danger,
+            ...(wait.kind === "approval"
+                ? {
+                      kind: "approval" as const,
+                      danger: wait.danger ?? "unconfined",
+                  }
+                : { kind: wait.kind, danger: null }),
             by: wait.by,
             agent: wait.agent && { ...wait.agent },
             says: says(wait.danger),
@@ -197,6 +209,8 @@ export async function stateOf(
         ...at,
         chief: home.chief,
         sandbox: home.sandbox.name,
+        deeds: [...DEEDS],
+        starters: structuredClone(await starters),
         hamlets: [hamlet],
         agents,
         waits,
@@ -250,6 +264,7 @@ export async function watchState(
                 activity.set(id, work);
                 watch.start(async (events) => {
                     for (const event of events) work.note(event);
+                    if (!work.working) refreshSkills(home.layout.houses);
                     schedule();
                 });
             }
@@ -283,6 +298,7 @@ export async function watchState(
         return line;
     };
     const unsubscribe = home.harness.subscribeCommits(({ changes }) => {
+        refreshSkills(home.layout.houses);
         for (const change of changes) {
             if (change.type !== "document" || change.value === null) continue;
             if (change.record.kind === "hamlet.settings")
@@ -325,6 +341,7 @@ export async function watchState(
     await schedule();
     return {
         snapshot: async () => {
+            refreshSkills(home.layout.houses);
             await schedule();
             return structuredClone(state);
         },
@@ -332,6 +349,7 @@ export async function watchState(
         stop: async () => {
             stopped = true;
             unsubscribe();
+            refreshSkills(home.layout.houses);
             await Promise.all(
                 [...watches.values()].map((watch) => watch.stop()),
             );

@@ -13,7 +13,7 @@ use bevy::shader::ShaderRef;
 use bevy::time::Time;
 use bevy::ui::ComputedNode;
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
-use hamlet_core::oversight::Waiting;
+use hamlet_client::waits::Waiting;
 
 use super::{FeelSettings, MagicColors, ease, linear};
 use crate::me::Me;
@@ -187,14 +187,15 @@ mod tests {
         app.world_mut()
             .spawn(Waiting {
                 id: String::new(),
-                kind: hamlet_core::oversight::Kind::Question,
+                kind: hamlet_client::waits::Kind::Question,
                 by: String::new(),
                 about: String::new(),
-                since: std::time::Instant::now(),
-                order: 0,
+                since: 0,
+                says: String::new(),
+                change: None,
                 asked: 1,
                 answers: Vec::new(),
-                session: None,
+                chat: None,
             })
             .id()
     }

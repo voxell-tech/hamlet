@@ -15,7 +15,7 @@ import { installStarters, libraryPart } from "./library.ts";
 import { ManifestsDoc } from "./manifests.ts";
 import type { Part } from "./parts.ts";
 import { modelName, SettingsDoc, settingsOf } from "./settings.ts";
-import { skillsIn } from "./skills.ts";
+import { houseSkills } from "./skills.ts";
 
 /** The machine's shell tools, as the prompt names them (prompt.rs:10-17). */
 const SYSTEM =
@@ -79,10 +79,8 @@ export const Prompt: Part = (home) => {
                 part("project", project),
                 part("character", character),
                 part("notes", notes),
-                part("skills", skills),
-                part("library", ({ input, context }) =>
-                    libraryPart(input.env, home.layout.library, context),
-                ),
+                part("skills", (given) => skills(home, given)),
+                part("library", () => libraryPart(home.layout.library)),
             ],
         }),
         async start() {
@@ -189,23 +187,17 @@ async function notes({ house, input, context }: PartInput): Promise<string> {
     return `# NOTES.md\n${text}`.trimEnd();
 }
 
-/** The skills of the agent's house, each with the command that runs it from the house (prompt.rs:155-180). */
-async function skills({
-    agent,
-    house,
-    input,
-    context,
-}: PartInput): Promise<string> {
-    const work = await input.read.snapshot(WorkDoc, agent.hamlet, context);
-    const found = await skillsIn(input.env, join(house, "skills"), context);
+/** The house's skills, descriptions and commands starting in its house (C8). */
+async function skills(
+    home: Home,
+    { house, context }: PartInput,
+): Promise<string> {
+    const found = await houseSkills(house, home.sandbox, context);
     const lines = found.map(({ name, description, usage, folder }) => {
-        // Commands start in the folder while there is one.
         const run =
             usage === undefined
                 ? ""
-                : work?.folder == null
-                  ? ` Run: \`${usage}\``
-                  : ` Run: \`cd '${house}' && ${usage}\``;
+                : ` Run: \`cd '${house.replaceAll("'", "'\\''")}' && ${usage}\``;
         return `- ${name}: ${description}${run} (skills/${folder}/SKILL.md)`;
     });
     return `# Skills\n${lines.length === 0 ? "(none yet)" : lines.join("\n")}`;

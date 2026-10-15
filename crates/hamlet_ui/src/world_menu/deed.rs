@@ -12,13 +12,13 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, popup, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
-use hamlet_core::agents::{
-    self, Busy, Citizen, Left, LivesIn, Settlement,
+use hamlet_client::messages::Rewind;
+use hamlet_client::realm::{
+    self as agents, Busy, Citizen, Left, LivesIn, Settlement,
 };
-use hamlet_core::session::Rewind;
 use hamlet_world::orders;
 
-use super::close;
+use super::{close, has};
 use crate::feel::Mood;
 use crate::looks::{brass, grim, lettered};
 use crate::me::Me;
@@ -38,9 +38,6 @@ pub(crate) enum Deed {
     Close(String),
     /// Deletes what is archived of an agent that left, for good.
     Erase(Entity),
-    /// Deletes what is archived of a hamlet that was closed down,
-    /// for good.
-    EraseHamlet(String),
     /// Takes a skill out of the library.
     Unshelve(String),
     /// Puts the open conversation away and starts another.
@@ -51,7 +48,7 @@ pub(crate) enum Deed {
     /// `entry` of it.
     Rewind {
         session: Entity,
-        entry: u64,
+        entry: String,
     },
     /// Removes the home's own charter, so the built-in one stands.
     DefaultCharter,
@@ -61,6 +58,9 @@ impl Deed {
     /// Gives the chief's command that does it to the hamlet it is
     /// about.
     pub(crate) fn run(&self, world: &mut World) {
+        if !self.available(world) {
+            return;
+        }
         let name = |agent: Entity| agents::name_of(world, agent);
         match self {
             Deed::Remove(agent) => {
@@ -85,27 +85,43 @@ impl Deed {
             }
             // The hamlets and the library are the realm's, and the
             // open conversation is the open chat's.
-            Deed::Close(hamlet) => {
-                chat::send(world, format!("/remove-hamlet {hamlet}"))
-            }
-            Deed::EraseHamlet(hamlet) => {
-                chat::send(world, format!("/erase-hamlet {hamlet}"))
-            }
-            Deed::Unshelve(skill) => {
-                chat::send(world, format!("/unshelve {skill}"))
-            }
+            Deed::Close(hamlet) => chat::decree(
+                world,
+                hamlet,
+                format!("/remove-hamlet {hamlet}"),
+            ),
+            Deed::Unshelve(skill) => chat::decree(
+                world,
+                agents::HOME,
+                format!("/unshelve {skill}"),
+            ),
             Deed::NewSession => chat::send(world, "/new".into()),
             Deed::DefaultCharter => {
                 crate::settings::default_charter(world)
             }
             Deed::Rewind { session, entry } => {
                 world.trigger(Rewind {
-                    session: *session,
-                    entry: *entry,
+                    chat: *session,
+                    item: entry.clone(),
                 });
                 world.flush();
             }
         }
+    }
+
+    fn available(&self, world: &World) -> bool {
+        let command = match self {
+            Self::Remove(_) => "remove",
+            Self::Merge { .. } => "merge",
+            Self::Close(_) => "remove-hamlet",
+            Self::Erase(_) => "erase",
+            Self::Unshelve(_) => "unshelve",
+            Self::Mayor(_) => "mayor",
+            Self::NewSession
+            | Self::DefaultCharter
+            | Self::Rewind { .. } => return true,
+        };
+        has(world, command)
     }
 
     fn question(&self, world: &World) -> String {
@@ -124,9 +140,6 @@ impl Deed {
             }
             Deed::Erase(agent) => {
                 format!("DELETE {} FOR GOOD?", name(agent))
-            }
-            Deed::EraseHamlet(hamlet) => {
-                format!("DELETE {} FOR GOOD?", hamlet.to_uppercase())
             }
             Deed::Unshelve(skill) => format!(
                 "TAKE {} OUT OF THE LIBRARY?",
@@ -178,10 +191,6 @@ impl Deed {
                 "{skill} is deleted from the library for every \
                  hamlet. This cannot be undone."
             ),
-            Deed::EraseHamlet(hamlet) => format!(
-                "Everything archived of {hamlet} is deleted from \
-                 disk. This cannot be undone."
-            ),
             Deed::Mayor(agent) => format!(
                 "{} runs the hamlet from now on, and today's mayor \
                  becomes one of its agents.",
@@ -206,7 +215,7 @@ impl Deed {
             Deed::Remove(_) => "REMOVE",
             Deed::Merge { .. } => "MERGE",
             Deed::Close(_) => "CLOSE DOWN",
-            Deed::Erase(_) | Deed::EraseHamlet(_) => "DELETE",
+            Deed::Erase(_) => "DELETE",
             Deed::Unshelve(_) => "TAKE OUT",
             Deed::NewSession => "NEW SESSION",
             Deed::Mayor(_) => "MAKE MAYOR",
@@ -230,7 +239,6 @@ impl Deed {
                 busy(world, &[*absorbed, *kept])
             }
             Deed::Erase(_)
-            | Deed::EraseHamlet(_)
             | Deed::Unshelve(_)
             | Deed::NewSession
             | Deed::Mayor(_)
@@ -261,6 +269,9 @@ impl Deed {
 /// at work.
 pub(crate) fn question(deed: Deed, at: Vec2) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
+        if !deed.available(cx.world) {
+            return cx.build(frame());
+        }
         let working = deed.working(cx.world);
         let warning = match working.as_slice() {
             [] => frame().boxed(),
@@ -302,4 +313,51 @@ pub(crate) fn question(deed: Deed, at: Vec2) -> AnyView {
                 .padding(bevy::ui::UiRect::all(px(14.0))),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_client::outbox::Outbox;
+    use hamlet_protocol::v0;
+
+    use super::*;
+
+    #[test]
+    fn a_deed_goes_to_the_mayor_of_the_agents_received_hamlet() {
+        let mut app = crate::me::tests::panel_app();
+        app.add_plugins(crate::chat::plugin);
+        let mut state = hamlet_testing::realm::state();
+        state.deeds = Some(vec!["remove".into()]);
+        state.hamlets.push(hamlet_testing::realm::hamlet("mill"));
+        state
+            .agents
+            .push(hamlet_testing::realm::agent("mill", 0, "miller"));
+        state
+            .agents
+            .push(hamlet_testing::realm::agent("mill", 1, "carder"));
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        let carder =
+            agents::named(app.world_mut(), "carder").unwrap();
+        Deed::Remove(carder).run(app.world_mut());
+        app.world_mut().flush();
+        let sent = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .collect::<Vec<_>>();
+        let [v0::ClientMessage::Say(say)] = &sent[..] else {
+            panic!("one command: {sent:?}");
+        };
+        assert_eq!(
+            say.to,
+            v0::Address {
+                hamlet: "mill".into(),
+                agent: "mayor".into(),
+            }
+        );
+        assert_eq!(say.text, "/remove carder");
+    }
 }

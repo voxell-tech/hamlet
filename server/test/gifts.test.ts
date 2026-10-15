@@ -63,7 +63,10 @@ it("gives the mayor a shipped starter, keeps every file and records the chief's 
     });
     expect(
         await typed(home, "/give mayor web-search from scout"),
-    ).toMatchObject({ kind: "error", text: "usage: /give <agent> <starter>" });
+    ).toMatchObject({
+        kind: "error",
+        text: "`founder` already has a skill named `web-search`",
+    });
     expect(
         (await home.harness.snapshot(ChatDoc, "home:0", context))?.chats,
     ).toEqual({});
@@ -112,7 +115,7 @@ it("refuses a linked skills directory rather than writing outside the house", as
     await symlink(outside, skills);
     expect(await typed(home, "/give mayor web-search")).toMatchObject({
         kind: "error",
-        text: "a skill must stay in the agent's house",
+        text: expect.stringContaining("Nothing was handed over"),
     });
     expect(await readdir(outside)).toEqual([]);
 });

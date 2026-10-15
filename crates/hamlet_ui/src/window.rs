@@ -1,11 +1,11 @@
-//! Window states: full, minimal, and background (hidden, still
-//! running).
+//! The full window, the small status window and the size kept between
+//! launches.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use bevy::app::{App, AppExit, Update};
-use bevy::ecs::message::MessageReader;
+use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -28,12 +28,11 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, row,
 };
-use hamlet_core::core::HomeDir;
-use tokio::sync::mpsc::UnboundedReceiver;
+use hamlet_client::ViewDir;
 
 use crate::chrome::{self, Grip};
 use crate::icons::Glyph;
-use crate::looks::{action, bad_action, good_action};
+use crate::looks::{bad_action, good_action};
 use crate::platform::{DisplayText, Glow, Wraps};
 use crate::status::{Bar, Lately};
 use crate::{AnyView, Cx};
@@ -49,9 +48,8 @@ const LEAST_FULL: (u32, u32) = (1180, 680);
 /// The window's states and what entering and leaving each does.
 pub fn plugin(app: &mut App) {
     app.init_state::<Layout>()
-        .init_state::<Showing>()
         .add_computed_state::<WorldShown>()
-        .insert_resource(winit_settings(false))
+        .insert_resource(winit_settings())
         .add_systems(OnExit(Layout::Full), keep_size)
         .add_systems(OnEnter(Layout::Full), constrain)
         .add_systems(
@@ -65,12 +63,7 @@ pub fn plugin(app: &mut App) {
             OnEnter(Layout::Minimal),
             (constrain, resize).chain(),
         )
-        .add_systems(OnEnter(Showing::Hidden), hide)
-        .add_systems(OnEnter(Showing::Shown), show)
-        .add_systems(
-            Update,
-            (intercept_close, poll_show_requests, remember_size),
-        );
+        .add_systems(Update, (intercept_close, remember_size));
 }
 
 /// The least window size of a layout, below which its contents do not
@@ -97,27 +90,15 @@ pub enum Layout {
     Minimal,
 }
 
-/// The window on screen or in the background.
-#[derive(
-    States, Clone, Copy, PartialEq, Eq, Hash, Debug, Default,
-)]
-pub(crate) enum Showing {
-    #[default]
-    Shown,
-    /// Background: the window is hidden and the agents keep running.
-    Hidden,
-}
-
-/// The world is drawn: the window is full and on screen.
+/// The world is drawn while the window is full.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct WorldShown;
 
 impl ComputedStates for WorldShown {
-    type SourceStates = (Layout, Showing);
+    type SourceStates = Layout;
 
-    fn compute((layout, showing): (Layout, Showing)) -> Option<Self> {
-        (layout == Layout::Full && showing == Showing::Shown)
-            .then_some(WorldShown)
+    fn compute(layout: Layout) -> Option<Self> {
+        (layout == Layout::Full).then_some(WorldShown)
     }
 }
 
@@ -125,14 +106,14 @@ impl ComputedStates for WorldShown {
 #[derive(Resource)]
 pub(crate) struct FullSize(pub (u32, u32));
 
-fn size_file(home: &Path) -> PathBuf {
-    home.join("window")
+fn size_file(view: &Path) -> PathBuf {
+    view.join("window")
 }
 
 /// The plugin of the window, at the size it was last left at, for
 /// Bevy's default plugins to be set with.
-pub fn window_plugin(home: &Path) -> WindowPlugin {
-    let size = saved_size(home);
+pub fn window_plugin(view: &Path) -> WindowPlugin {
+    let size = saved_size(view);
     WindowPlugin {
         primary_window: Some(Window {
             title: "Hamlet".into(),
@@ -146,7 +127,7 @@ pub fn window_plugin(home: &Path) -> WindowPlugin {
 }
 
 /// The size the user last left the full window at.
-pub(crate) fn saved_size(home: &Path) -> (u32, u32) {
+pub(crate) fn saved_size(view: &Path) -> (u32, u32) {
     let parse = |text: String| {
         let (w, h) = text.trim().split_once('x')?;
         Some((
@@ -154,7 +135,7 @@ pub(crate) fn saved_size(home: &Path) -> (u32, u32) {
             h.parse::<u32>().ok()?.max(LEAST_FULL.1),
         ))
     };
-    std::fs::read_to_string(size_file(home))
+    std::fs::read_to_string(size_file(view))
         .ok()
         .and_then(parse)
         .unwrap_or(DEFAULT_SIZE)
@@ -164,7 +145,7 @@ pub(crate) fn saved_size(home: &Path) -> (u32, u32) {
 /// settled.
 pub(crate) fn remember_size(
     time: Res<Time>,
-    home: Res<HomeDir>,
+    view: Res<ViewDir>,
     shown: Option<Res<State<WorldShown>>>,
     mut resizes: MessageReader<WindowResized>,
     mut pending: Local<Option<(f32, (u32, u32))>>,
@@ -182,63 +163,32 @@ pub(crate) fn remember_size(
     if let Some((at, (w, h))) = *pending
         && time.elapsed_secs() - at > 0.8
     {
-        let _ = std::fs::write(
-            size_file(&home.0.root),
-            format!("{w}x{h}"),
-        );
+        if std::fs::create_dir_all(&view.0).is_ok() {
+            let _ = std::fs::write(
+                size_file(&view.0),
+                format!("{w}x{h}"),
+            );
+        }
         *pending = None;
     }
 }
 
-/// Asks from a second launch to show the window again.
-#[derive(Resource)]
-pub struct ShowRequests(pub UnboundedReceiver<()>);
-
-pub(crate) fn winit_settings(hidden: bool) -> WinitSettings {
-    if hidden {
-        WinitSettings {
-            focused_mode: UpdateMode::reactive_low_power(
-                Duration::from_millis(500),
-            ),
-            unfocused_mode: UpdateMode::reactive_low_power(
-                Duration::from_millis(500),
-            ),
-        }
-    } else {
-        // Frequent enough to stream replies; input wakes it sooner.
-        WinitSettings {
-            focused_mode: UpdateMode::reactive(
-                Duration::from_millis(50),
-            ),
-            unfocused_mode: UpdateMode::reactive_low_power(
-                Duration::from_millis(250),
-            ),
-        }
+pub(crate) fn winit_settings() -> WinitSettings {
+    // Frequent enough to stream replies; input wakes it sooner.
+    WinitSettings {
+        focused_mode: UpdateMode::reactive(Duration::from_millis(50)),
+        unfocused_mode: UpdateMode::reactive_low_power(
+            Duration::from_millis(250),
+        ),
     }
 }
 
-/// The close button sends the app to the background.
 fn intercept_close(
     mut closes: MessageReader<WindowCloseRequested>,
-    mut showing: ResMut<NextState<Showing>>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     if closes.read().count() > 0 {
-        showing.set(Showing::Hidden);
-    }
-}
-
-fn poll_show_requests(
-    mut requests: ResMut<ShowRequests>,
-    mut showing: ResMut<NextState<Showing>>,
-) {
-    let mut asked = false;
-    while requests.0.try_recv().is_ok() {
-        asked = true;
-    }
-    if asked {
-        // Set even when it is shown already, so the window takes
-        // the focus again.
-        showing.set(Showing::Shown);
+        exit.write(AppExit::Success);
     }
 }
 
@@ -254,15 +204,12 @@ fn keep_size(
 
 fn constrain(
     layout: Res<State<Layout>>,
-    showing: Res<State<Showing>>,
     mut window: Single<&mut Window, With<PrimaryWindow>>,
     mut winit: ResMut<WinitSettings>,
 ) {
     window.resize_constraints = least(*layout.get());
-    if *showing.get() == Showing::Shown {
-        *winit = winit_settings(false);
-        window.focused = true;
-    }
+    *winit = winit_settings();
+    window.focused = true;
 }
 
 fn resize(
@@ -277,36 +224,11 @@ fn resize(
     window.resolution.set(w as f32, h as f32);
 }
 
-fn hide(
-    mut window: Single<&mut Window, With<PrimaryWindow>>,
-    mut winit: ResMut<WinitSettings>,
-) {
-    *winit = winit_settings(true);
-    window.visible = false;
-}
-
-fn show(
-    mut window: Single<&mut Window, With<PrimaryWindow>>,
-    mut winit: ResMut<WinitSettings>,
-) {
-    *winit = winit_settings(false);
-    if !window.visible {
-        window.visible = true;
-    }
-    window.focused = true;
-}
-
 pub(crate) fn set_layout(
     world: &mut bevy::ecs::world::World,
     layout: Layout,
 ) {
     world.resource_mut::<NextState<Layout>>().set(layout);
-}
-
-pub(crate) fn background(world: &mut bevy::ecs::world::World) {
-    world
-        .resource_mut::<NextState<Showing>>()
-        .set(Showing::Hidden);
 }
 
 pub(crate) fn quit(world: &mut bevy::ecs::world::World) {
@@ -341,13 +263,8 @@ pub(crate) fn minimal() -> AnyView {
                     good_action(Glyph::Expand, "EXPAND", |w| {
                         set_layout(w, Layout::Full)
                     }),
-                    action(
-                        Glyph::Lower,
-                        "RUN IN BACKGROUND",
-                        background,
-                    ),
                     frame().grow(1.0),
-                    bad_action(Glyph::Power, "QUIT HAMLET", quit),
+                    bad_action(Glyph::Power, "CLOSE", quit),
                 ))
                 .gap(8.0)
                 .tagged(Wraps),
@@ -366,6 +283,7 @@ pub(crate) fn minimal() -> AnyView {
 #[cfg(test)]
 mod tests {
     use bevy::state::app::StatesPlugin;
+    use hamlet_client::ViewDir;
     use hamlet_testing::Scratch;
 
     use super::*;
@@ -377,12 +295,7 @@ mod tests {
             .add_message::<WindowCloseRequested>()
             .add_message::<WindowResized>()
             .init_resource::<Time>()
-            .insert_resource(HomeDir(
-                hamlet_home::Home::open(dir.to_path_buf(), None)
-                    .unwrap(),
-            ));
-        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        app.insert_resource(ShowRequests(rx));
+            .insert_resource(ViewDir(dir.join("view")));
         app.world_mut().spawn((Window::default(), PrimaryWindow));
         app.insert_resource(FullSize((1000, 700)))
             .add_plugins(plugin);
@@ -430,45 +343,93 @@ mod tests {
     }
 
     #[test]
-    fn a_hidden_window_keeps_its_layout_and_is_shown_on_request() {
-        let (mut app, _dir) = app("window-hidden");
+    fn the_small_window_offers_expand_and_close_only() {
+        use bevy_fynix::FynixPlugin;
+        use hamlet_assets::Tuning;
+
+        use crate::me::tests::{press, words};
+        use crate::theme::HamletTheme;
+
+        let (mut app, _dir) = app("window-minimal-actions");
+        app.add_plugins(FynixPlugin::<HamletTheme>::default())
+            .init_resource::<Bar>()
+            .init_resource::<Lately>();
+        crate::theme::insert_theme(
+            app.world_mut(),
+            HamletTheme::designed(),
+        );
         set_layout(app.world_mut(), Layout::Minimal);
         app.update();
-        background(app.world_mut());
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), minimal());
         app.update();
-        assert!(!window(&mut app).visible);
-        assert_eq!(
-            app.world().resource::<WinitSettings>().focused_mode,
-            winit_settings(true).focused_mode
+        let shown = words(&mut app);
+        assert!(
+            shown.iter().any(|word| word == "EXPAND"),
+            "{shown:?}"
         );
-
-        let ask = |app: &mut App| {
-            app.world_mut()
-                .resource_mut::<NextState<Showing>>()
-                .set(Showing::Shown);
-            app.update();
-        };
-        ask(&mut app);
-        let back = window(&mut app);
-        assert!(back.visible && back.focused);
+        assert!(
+            shown.iter().any(|word| word == "CLOSE"),
+            "{shown:?}"
+        );
+        assert!(
+            !shown.iter().any(|word| word == "RUN IN BACKGROUND"
+                || word == "QUIT HAMLET")
+        );
+        press(&mut app, "EXPAND");
+        app.update();
         assert_eq!(
             *app.world().resource::<State<Layout>>().get(),
-            Layout::Minimal
+            Layout::Full
         );
-        assert_eq!(
-            app.world().resource::<WinitSettings>().focused_mode,
-            winit_settings(false).focused_mode
-        );
+        set_layout(app.world_mut(), Layout::Minimal);
+        app.update();
+        press(&mut app, "CLOSE");
+        assert_eq!(app.should_exit(), Some(AppExit::Success));
+    }
 
-        // A second launch asks for a window that is already shown:
-        // it takes the focus again.
-        let world = app.world_mut();
-        world
-            .query_filtered::<&mut Window, With<PrimaryWindow>>()
-            .single_mut(world)
-            .unwrap()
-            .focused = false;
-        ask(&mut app);
-        assert!(window(&mut app).focused);
+    #[test]
+    fn closing_either_layout_ends_only_the_window() {
+        for layout in [Layout::Full, Layout::Minimal] {
+            let (mut app, _dir) = app("window-close");
+            set_layout(app.world_mut(), layout);
+            app.update();
+            let primary = app.world_mut()
+                .query_filtered::<bevy::ecs::entity::Entity, With<PrimaryWindow>>()
+                .single(app.world()).unwrap();
+            app.world_mut().write_message(WindowCloseRequested {
+                window: primary,
+            });
+            app.update();
+            assert_eq!(app.should_exit(), Some(AppExit::Success));
+        }
+    }
+
+    #[test]
+    fn resizing_is_kept_in_the_view_folder_and_read_at_launch() {
+        let (mut app, dir) = app("window-view-size");
+        let primary = app.world_mut()
+            .query_filtered::<bevy::ecs::entity::Entity, With<PrimaryWindow>>()
+            .single(app.world()).unwrap();
+        app.world_mut().write_message(WindowResized {
+            window: primary,
+            width: 1420.0,
+            height: 810.0,
+        });
+        app.update();
+        assert!(!dir.join("view/window").exists());
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
+        app.update();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("view/window")).unwrap(),
+            "1420x810"
+        );
+        assert!(!dir.join("window").exists());
+        let mut relaunched = App::new();
+        relaunched.add_plugins(window_plugin(&dir.join("view")));
+        let window = window(&mut relaunched);
+        assert_eq!(window.resolution.width(), 1420.0);
+        assert_eq!(window.resolution.height(), 810.0);
     }
 }

@@ -14,7 +14,7 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CharacterDoc } from "./character.ts";
 import { Credentials } from "./credentials.ts";
-import { envFor } from "./environment.ts";
+import { closeEnvironments, envFor } from "./environment.ts";
 import { agentKey, HOME, WorkDoc } from "./hamlet.ts";
 import { buildHouse, type Layout, layOut } from "./layout.ts";
 import { LimitsDoc } from "./limits.ts";
@@ -24,6 +24,7 @@ import { PARTS, type Part } from "./parts.ts";
 import { RecordDoc } from "./record.ts";
 import { platformSandbox, type Sandbox } from "./sandbox/sandbox.ts";
 import { type Overrides, readOverrides, SettingsDoc } from "./settings.ts";
+import { closeSkills, refreshSkills } from "./skills.ts";
 
 export type HomeOptions = {
     /** pi-ai's models; by default the home's own, from its settings and credentials. */
@@ -113,7 +114,13 @@ export async function openHome(
         );
         opened = harness;
         // A storage that failed closes the harness by itself.
-        void harness.closed.then(() => lock.release());
+        const released = harness.closed.then(async () => {
+            await Promise.all([
+                closeEnvironments(base, context),
+                closeSkills(base.layout.dir, context),
+                lock.release(),
+            ]);
+        });
         const running: ReturnType<Part>[] = [];
         let closing: Promise<void> | undefined;
         const home: Home = {
@@ -127,8 +134,9 @@ export async function openHome(
                     for (const part of running.reverse()) {
                         await part.stop?.(context);
                     }
+                    refreshSkills(base.layout.dir);
                     await harness.close(context);
-                    await lock.release();
+                    await released;
                 })();
                 return closing;
             },

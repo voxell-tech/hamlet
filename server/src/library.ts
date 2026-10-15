@@ -3,8 +3,6 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Context } from "@earendil-works/chord";
-import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { skillsIn } from "./skills.ts";
 
 /** The starter skills the server ships, one folder each (H33). */
@@ -68,12 +66,8 @@ export async function installStarters(root: string): Promise<string[]> {
 }
 
 /** The library's part of a prompt: where it is, and each skill with the command that runs it from there (library.rs:98-145). */
-export async function libraryPart(
-    env: ExecutionEnv | undefined,
-    root: string,
-    context: Context,
-): Promise<string | undefined> {
-    const skills = await skillsIn(env, root, context);
+export async function libraryPart(root: string): Promise<string | undefined> {
+    const skills = await skillsIn(root);
     if (skills.length === 0) return undefined;
     const lines = skills.map(({ name, description, usage, folder }) => {
         const there = `${root}/${folder}/`;

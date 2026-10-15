@@ -1,5 +1,5 @@
-//! The command center (I4): a Bevy and fynix window added to the
-//! core's app.
+//! The command center (I4): a Bevy and fynix window on the client's
+//! state.
 
 pub mod chat;
 mod chief;
@@ -44,7 +44,7 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::state::state::OnEnter;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::{Bevy, FynixPlugin};
-use hamlet_core::core::HomeDir;
+use hamlet_client::ViewDir;
 use hamlet_world::pick::Selected;
 
 pub use self::dock::{lit_panel, panel};
@@ -56,7 +56,7 @@ pub use self::roll::Roll;
 pub use self::root::toolbar;
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
-pub use self::window::{ShowRequests, window_plugin};
+pub use self::window::window_plugin;
 
 /// The context a view of the window is built in.
 pub type Cx<'a> = bevy_fynix::Cx<'a, Bevy, HamletTheme>;
@@ -84,17 +84,16 @@ pub(crate) fn with_cx<V: View>(
     })
 }
 
-/// The panels: the dock, its panels and the world's place in them.
-/// Add it to the core's app after Bevy's default plugins, set with
-/// [`window_plugin`], the world's plugin and a [`ShowRequests`]
-/// resource.
+/// The app's panels, added after the client's plugin, a [`ViewDir`],
+/// the world's plugin and Bevy's default plugins set with
+/// [`window_plugin`].
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(me::plugin);
-        let home = &app.world().resource::<HomeDir>().0.root;
-        let size = window::saved_size(home);
+        let view = &app.world().resource::<ViewDir>().0;
+        let size = window::saved_size(view);
         app.add_plugins((
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
@@ -154,5 +153,57 @@ impl Plugin for UiPlugin {
             )
                 .chain(),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::app::PluginGroup;
+    use bevy::render::RenderPlugin;
+    use bevy::render::settings::WgpuSettings;
+    use bevy::winit::WinitPlugin;
+    use hamlet_client::{ClientPlugin, ViewDir};
+    use hamlet_testing::Scratch;
+
+    use super::*;
+
+    #[test]
+    fn the_windows_files_leave_the_servers_home_empty() {
+        let home = Scratch::new("view-untouched-home");
+        for test in [
+            "window::tests::resizing_is_kept_in_the_view_folder_and_read_at_launch",
+            "remember::tests::a_changed_dock_and_view_choices_return_from_the_view_folder",
+            "chief::tests::the_chiefs_look_returns_from_the_view_folder_at_launch",
+        ] {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", test])
+                .env("HAMLET_HOME", home.as_os_str())
+                .output().unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(output.status.success() && stdout.contains("1 passed"), "{test}: {stdout}{}", String::from_utf8_lossy(&output.stderr));
+        }
+        assert_eq!(std::fs::read_dir(&*home).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn the_panels_build_with_only_a_view_folder_and_the_client() {
+        let view = Scratch::new("ui-view-only");
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::DefaultPlugins
+                .build()
+                .disable::<WinitPlugin>()
+                .set(RenderPlugin {
+                    render_creation: WgpuSettings {
+                        backends: None,
+                        ..Default::default()
+                    }
+                    .into(),
+                    ..Default::default()
+                }),
+            ClientPlugin { server: None },
+        ))
+        .insert_resource(ViewDir(view.to_path_buf()));
+        app.add_plugins(UiPlugin);
     }
 }

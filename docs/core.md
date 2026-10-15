@@ -1,7 +1,15 @@
 # The core: the hamlet as entities
 
-How the records on disk become Bevy entities, who writes them and who reads
-them. This is about `hamlet_core`, the runtime.
+The Rust runtime the TypeScript server replaces: how its records on disk
+become Bevy entities, who writes them and who reads them. `hamlet_core` and
+its runtime dependencies remain compiled and tested as a porting reference
+until [step 7](proposals/agent-server.md#order-of-work).
+
+The window uses `hamlet_client`, not this runtime. It fills its components
+from protocol v0's `state`, `change`, `transcript` and `turn` messages and
+sends the chief's deeds to the server. The current flow is in
+[`tour.md`](tour.md#how-a-change-travels). The sections below describe the
+retained runtime, not the window's client core.
 
 ## The runtime's modules
 

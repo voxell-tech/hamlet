@@ -2,8 +2,8 @@
 //! day and the chief's answers.
 
 use bevy::prelude::*;
-use hamlet_core::oversight::{Answer, Veto};
-use hamlet_rules::chief::rulings::Choice;
+use hamlet_client::messages::{Answer, Veto};
+use hamlet_client::waits::Choice;
 
 use super::{Cue, Sound};
 use crate::DayPart;
@@ -58,9 +58,7 @@ pub(super) fn hear_answer(
     mut cues: MessageWriter<Cue>,
 ) {
     let sound = match answer.choice {
-        Choice::Allow | Choice::Always | Choice::GoAhead => {
-            Sound::Allowed
-        }
+        Choice::Allow | Choice::Always | Choice::Go => Sound::Allowed,
         Choice::Deny | Choice::Withdraw => Sound::Denied,
         Choice::Reply | Choice::Dismiss => return,
     };

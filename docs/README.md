@@ -14,14 +14,20 @@ not built. What is left for later is kept outside this repository.
 3. [`../AGENTS.md`](../AGENTS.md): the checks to run before a commit and
    the rules of working here.
 
+Build `hamlet-app`, install the server command with `npm link` in
+`server/`, then run `HAMLET_HOME=/tmp/hamlet-try hamlet dev`. It starts a
+scratch server and opens the window with its own scratch view folder.
+Closing the window leaves the server running; Ctrl-C stops it. The full
+setup is in [`../README.md`](../README.md#running).
+
 Then read the page for the part you are about to touch.
 
 ## The parts
 
 | Page | What it explains |
 |---|---|
-| [`core.md`](core.md) | How the records on disk become entities, who writes them and who reads them |
-| [`home.md`](home.md) | The home on disk: every file and folder in `~/.hamlet`, the settings and the starter skills |
+| [`core.md`](core.md) | The Rust runtime the server replaces, retained as a porting reference until step 7; the window's client core is mapped in `tour.md` |
+| [`home.md`](home.md) | The retained Rust runtime's home layout; the server's home is described in [`agent-server.md`](proposals/agent-server.md#the-home-on-disk) |
 | [`sandbox.md`](sandbox.md) | What an agent's tools can reach: the sandbox, the network, a folder a hamlet works on, manual and auto |
 | [`prompt.md`](prompt.md) | What an agent is told every turn: the charter, its character, its notes, and how the chief reads and edits them |
 | [`endless-world.md`](endless-world.md) | The land with no edge, the ground everything stands on, founding and moving a town |
@@ -30,7 +36,7 @@ Then read the page for the part you are about to touch.
 | [`chief.md`](chief.md) | The chief in the world: the Hearth, the mascot and Wickstep |
 | [`sound.md`](sound.md) | Every sound and the music, all made in code |
 | [`ui-warmth.md`](ui-warmth.md) | How the panels glow and answer the hand |
-| [`chat.md`](chat.md) | What an agent's chat holds, in what order, and how it is drawn as a group chat |
+| [`chat.md`](chat.md) | Watched conversations, paging, drawing, local links and pictures, and rewinds through the server |
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
 | [`cursors.md`](cursors.md) | The pointer and its modes |
 | [`releases.md`](releases.md) | How a release is built and published for the three platforms |

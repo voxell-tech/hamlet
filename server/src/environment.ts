@@ -8,6 +8,7 @@ import { WorkDoc } from "./hamlet.ts";
 import type { HomeBase } from "./home.ts";
 import { houseOf } from "./layout.ts";
 import { SandboxEnv } from "./sandbox/env.ts";
+import { policyHash } from "./sandbox/policy.ts";
 import { closedPolicy, openPolicy } from "./sandbox/reach.ts";
 
 /** The name of the tool task memo a gate leaves for one call. */
@@ -36,6 +37,8 @@ export async function placeOf(
     const work = await read.snapshot(WorkDoc, agent.hamlet, context);
     return { house: houseOf(home.layout, agent), folder: work?.folder ?? null };
 }
+
+const environments = new WeakMap<object, Map<string, SandboxEnv>>();
 
 /**
  * The environment of a conversation's tools, under the sandbox (S12, C18). It works in the folder, or in the house
@@ -68,9 +71,28 @@ export async function envFor(
                   home: home.layout.dir,
                   shared,
               });
-    return new SandboxEnv({
-        cwd: place.folder ?? place.house,
-        policy: { ...policy, net: leave.net },
-        sandbox: home.sandbox,
-    });
+    policy.net = leave.net;
+    const cwd = place.folder ?? place.house;
+    const key = `${cwd}:${policyHash(policy, home.sandbox.name)}`;
+    let kept = environments.get(home.layout);
+    if (kept === undefined) {
+        kept = new Map();
+        environments.set(home.layout, kept);
+    }
+    let env = kept.get(key);
+    if (env === undefined) {
+        env = new SandboxEnv({ cwd, policy, sandbox: home.sandbox });
+        kept.set(key, env);
+    }
+    return env;
+}
+
+/** Closed file helpers and commands belonging to this home. */
+export async function closeEnvironments(
+    home: Pick<HomeBase, "layout">,
+    context: Context,
+): Promise<void> {
+    const kept = environments.get(home.layout);
+    environments.delete(home.layout);
+    for (const env of kept?.values() ?? []) await env.cleanup(context);
 }

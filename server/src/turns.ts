@@ -34,6 +34,7 @@ import { NoticeEntry } from "./notice.ts";
 import type {
     ChatRef,
     Item,
+    LastActivity,
     Op,
     ServerMessage,
     Transcript,
@@ -73,8 +74,7 @@ export async function watchChat(
         if (id === conversation.id || stopped) return;
         await watch?.stop();
         if (stopped) return;
-        if (id !== undefined)
-            send({ type: "turn", chat, ops: [{ op: "reset" }] });
+        const rebound = id !== undefined;
         id = conversation.id;
         watch = await conversation.watch(context);
         if (stopped) {
@@ -87,8 +87,10 @@ export async function watchChat(
         let fold = await readBack(home, conversation, watch.value, context);
         let usage = await usageOf(home, conversation.id, context);
         if (stopped) return;
+        const transcript = transcriptOf(chat, fold, usage, before);
+        if (rebound) send({ type: "turn", chat, ops: [{ op: "reset" }] });
         send({
-            ...transcriptOf(chat, fold, usage, before),
+            ...transcript,
             ...(number === undefined ? {} : { number }),
             ...(to === undefined ? {} : { to }),
         });
@@ -138,6 +140,30 @@ export async function watchChat(
     };
 }
 
+/** An older transcript page, read without changing the chat's running watch (S5). */
+export async function pageChat(
+    home: Home,
+    chat: ChatRef,
+    before: string,
+    context: Context,
+): Promise<Transcript> {
+    const conversation = await conversationOf(home, chat, context);
+    const watch = await conversation.watch(context);
+    try {
+        const fold = await readBack(home, conversation, watch.value, context);
+        const usage = await usageOf(home, conversation.id, context);
+        const number = (
+            await home.harness.snapshot(WithDoc, conversation.id, context)
+        )?.chat;
+        return {
+            ...transcriptOf(chat, fold, usage, before),
+            ...(number === undefined ? {} : { number }),
+        };
+    } finally {
+        await watch.stop();
+    }
+}
+
 function transcriptOf(
     chat: ChatRef,
     fold: Fold,
@@ -156,6 +182,7 @@ function transcriptOf(
         items: fold.items.slice(start, end),
         earlier: start === 0 ? null : (fold.items[start]?.id ?? null),
         ...fold.status,
+        last: fold.last,
         usage,
     };
 }
@@ -218,6 +245,7 @@ async function readBack(
 class Fold {
     readonly items: Item[] = [];
     status = { working: false, pending: 0 };
+    last: LastActivity | null = null;
     /** True once an answer landed without some of what it showed being written, which no op takes away. */
     stale = false;
     #ops: Op[] = [];
@@ -235,6 +263,7 @@ class Fold {
 
     /** Takes in what `view` holds beyond what was folded, and gives the ops for it. */
     advance(view: ConversationView): Op[] {
+        const previousLast = this.last;
         // A summary leads the active range ahead of older kept entries.
         const fresh = view.entries
             .filter(
@@ -256,10 +285,11 @@ class Fold {
         };
         if (
             status.working !== this.status.working ||
-            status.pending !== this.status.pending
+            status.pending !== this.status.pending ||
+            previousLast !== this.last
         ) {
             this.status = status;
-            this.#ops.push({ op: "status", ...status, last: null });
+            this.#ops.push({ op: "status", ...status, last: this.last });
         }
         return this.#ops.splice(0);
     }
@@ -281,6 +311,17 @@ class Fold {
             const live = answer ? this.#live.get(block) : undefined;
             if (answer) this.#live.delete(block);
             this.#add(item, live);
+            const what =
+                item.tool !== undefined
+                    ? `tool ${item.tool.name}`
+                    : item.kind === "assistant" &&
+                        message?.role === "assistant" &&
+                        message.stopReason !== "toolUse"
+                      ? "replied"
+                      : item.kind === "error"
+                        ? "error"
+                        : undefined;
+            if (what !== undefined) this.last = { what, at: item.at };
             if (item.tool !== undefined && message?.role === "assistant") {
                 const call = message.content[block];
                 if (call?.type === "toolCall") this.#calls.set(call.id, item);

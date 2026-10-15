@@ -48,8 +48,9 @@ export type Server = {
 const GOING = 1001;
 const REFUSED = 1008;
 const FAILED = 1011;
+const TOO_LARGE = 1009;
 
-/** The largest message a client may send, far above any a chief writes. */
+/** The wire-byte limit for every message, including hello. */
 const LARGEST = 1024 * 1024;
 
 /** Time a connection has to say hello, unless the server is given its own. */
@@ -59,6 +60,27 @@ const HELLO_MS = 10_000;
 const GRACE_MS = 1000;
 
 const BEGIN = "A connection begins with hello and the home's token.";
+
+class CappedSocket extends WebSocket {
+    override close(code?: number, data?: string | Buffer): void {
+        if (
+            code === TOO_LARGE &&
+            this.readyState === WebSocket.OPEN &&
+            data === undefined
+        )
+            this.send(
+                JSON.stringify(
+                    fault(
+                        `A message is larger than the ${LARGEST} bytes this connection takes.`,
+                    ),
+                ),
+            );
+        super.close(
+            code,
+            data ?? (code === TOO_LARGE ? "Message too large." : undefined),
+        );
+    }
+}
 
 /** Serves protocol v0 on 127.0.0.1 at `port`, to clients that say hello with `token` (S4). */
 export async function serve(options: {
@@ -72,6 +94,7 @@ export async function serve(options: {
         host: "127.0.0.1",
         port: options.port,
         maxPayload: LARGEST,
+        WebSocket: CappedSocket,
     });
     await once(sockets, "listening");
     const address = sockets.address();
@@ -148,7 +171,7 @@ function accept(
         clearTimeout(late);
         members.delete(socket);
         send(socket, fault(text));
-        socket.close(code);
+        socket.close(code, code === TOO_LARGE ? text : undefined);
     }
 
     async function receive(text: string): Promise<void> {

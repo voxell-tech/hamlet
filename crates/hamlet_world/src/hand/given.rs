@@ -1,9 +1,9 @@
-//! Letters handed to an agent, and the gift and the introduction the
-//! core's answer shows.
+//! File drops offered to the server, and gifts and introductions in
+//! the world.
 
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
-use hamlet_core::agents::Mayor;
+use hamlet_client::realm::{Deeds, Mayor};
 
 use super::toys::{self, Kind, Toys};
 use super::{Hand, Mood, PlaySettings, Wish, free, met, toward};
@@ -23,6 +23,7 @@ pub(super) fn letters(
     set: Res<PlaySettings>,
     toys: Option<Res<Toys>>,
     hovered: Res<Hovered>,
+    deeds: Option<Res<Deeds>>,
     mut dropped: MessageReader<FileDragAndDrop>,
     mut hand: ResMut<Hand>,
     boxes: Query<(Entity, &Thing, &ChildOf)>,
@@ -32,6 +33,11 @@ pub(super) fn letters(
     mut played: MessageWriter<Played>,
     mut wishes: MessageWriter<Wish>,
 ) {
+    if !deeds.is_some_and(|deeds| deeds.has("give")) {
+        dropped.clear();
+        hand.letters.clear();
+        return;
+    }
     for drop in dropped.read() {
         if let FileDragAndDrop::DroppedFile { path_buf, .. } = drop {
             hand.letters.push((path_buf.clone(), set.letter_wait));

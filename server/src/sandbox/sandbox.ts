@@ -1,5 +1,5 @@
 import { Bwrap } from "./bwrap.ts";
-import type { Policy } from "./policy.ts";
+import type { Limits, Policy } from "./policy.ts";
 import { Seatbelt } from "./seatbelt.ts";
 
 /** A command confined to a policy: the program to run and its whole environment. */
@@ -36,4 +36,42 @@ export function platformSandbox(): Sandbox {
                 `There is no sandbox for ${process.platform}, so tools cannot run here.`,
             );
     }
+}
+
+/** `argv`, run by bash once `limits` hold for it and for every process it starts. */
+export function limited(limits: Limits, argv: readonly string[]): string[] {
+    return underLimits(
+        [
+            ["t", limits.cpuSecs],
+            ["u", limits.maxProcs],
+            ["f", limits.maxFileMb * 1024],
+            ["c", 0],
+        ],
+        argv,
+    );
+}
+
+/** File and core limits for a persistent helper, without a command's CPU or process budget. */
+export function fileLimited(limits: Limits, argv: readonly string[]): string[] {
+    return underLimits(
+        [
+            ["f", limits.maxFileMb * 1024],
+            ["c", 0],
+        ],
+        argv,
+    );
+}
+
+function underLimits(
+    limits: readonly (readonly [string, number])[],
+    argv: readonly string[],
+): string[] {
+    // bash counts file sizes in KiB. A lower machine limit stays in force.
+    const script = limits
+        .map(
+            ([flag, value]) =>
+                `ulimit -${flag} ${value} 2>/dev/null || ulimit -${flag} hard`,
+        )
+        .join("\n");
+    return ["bash", "-c", `${script}\nexec "$@"`, "bash", ...argv];
 }

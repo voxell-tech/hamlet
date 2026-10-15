@@ -18,8 +18,8 @@ use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockNode, DockRegistry, DockSplit,
     DockTree, NodeId, SplitAxis,
 };
-use hamlet_core::agents::{Citizen, Left, Settlement};
-use hamlet_core::core::HomeDir;
+use hamlet_client::ViewDir;
+use hamlet_client::realm::{Citizen, Left, Settlement};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_world::chief;
 use hamlet_world::pick::{Selected, Thing, select};
@@ -253,8 +253,8 @@ fn full() -> f32 {
     1.0
 }
 
-fn file(home: &Path) -> PathBuf {
-    home.join("view.toml")
+fn file(view: &Path) -> PathBuf {
+    view.join("view.toml")
 }
 
 /// Writes the node `id` and all under it to `parts`, and gives its
@@ -407,16 +407,16 @@ fn rebuilt(
     Some(tree)
 }
 
-fn read(home: &Path) -> Option<View> {
-    let text = std::fs::read_to_string(file(home)).ok()?;
+fn read(view: &Path) -> Option<View> {
+    let text = std::fs::read_to_string(file(view)).ok()?;
     toml::from_str::<View>(&text).ok()
 }
 
 /// Puts back the kept View choices and the kept dock. False when
 /// there is no dock to put back.
 pub fn restore(world: &mut World) -> bool {
-    let home = world.resource::<HomeDir>().0.root.clone();
-    let Some(view) = read(&home) else {
+    let folder = &world.resource::<ViewDir>().0;
+    let Some(view) = read(folder) else {
         return false;
     };
     *world.resource_mut::<TimeOfDay>() = view.sky;
@@ -463,7 +463,7 @@ pub(crate) fn note_selected(
 #[allow(clippy::too_many_arguments)]
 pub fn keep(
     time: Res<Time>,
-    home: Res<HomeDir>,
+    folder: Res<ViewDir>,
     tree: Res<DockTree>,
     sky: Res<TimeOfDay>,
     sound: Res<SoundSettings>,
@@ -502,8 +502,10 @@ pub fn keep(
     if written.as_ref() == Some(&view) {
         return;
     }
-    if let Ok(text) = toml::to_string(&view) {
-        let _ = std::fs::write(file(&home.0.root), text);
+    if let Ok(text) = toml::to_string(&view)
+        && std::fs::create_dir_all(&folder.0).is_ok()
+    {
+        let _ = std::fs::write(file(&folder.0), text);
     }
     *written = Some(view);
 }
@@ -529,6 +531,93 @@ mod tests {
         tree.add_tab(side, "skills");
         tree.set_active(side, agent);
         tree
+    }
+
+    #[test]
+    fn a_changed_dock_and_view_choices_return_from_the_view_folder() {
+        use bevy_fynix::ViewExt;
+        use bevy_fynix::dock::DockWindowKind;
+        use bevy_fynix::views::column;
+        use hamlet_client::ViewDir;
+        use hamlet_testing::Scratch;
+
+        let dir = Scratch::new("view-dock");
+        let make = || {
+            let mut app = App::new();
+            app.insert_resource(ViewDir(dir.join("view")))
+                .init_resource::<Time>()
+                .init_resource::<Selected>()
+                .init_resource::<Roll>()
+                .init_resource::<DockTree>()
+                .init_resource::<TimeOfDay>()
+                .init_resource::<SoundSettings>()
+                .init_resource::<Quality>()
+                .init_resource::<KeepAwake>()
+                .init_resource::<DockRegistry<HamletTheme>>()
+                .add_plugins(plugin);
+            for name in ["world", "needs", "agent", "skills"] {
+                app.world_mut()
+                    .resource_mut::<DockRegistry<HamletTheme>>()
+                    .register(
+                        name,
+                        DockWindowKind::new(name, || {
+                            column(()).boxed()
+                        }),
+                    );
+            }
+            app
+        };
+        let mut app = make();
+        app.update();
+        *app.world_mut().resource_mut::<DockTree>() = dock();
+        *app.world_mut().resource_mut::<TimeOfDay>() =
+            TimeOfDay::Night;
+        app.world_mut().resource_mut::<SoundSettings>().music_on =
+            false;
+        *app.world_mut().resource_mut::<Quality>() = Quality::Medium;
+        app.world_mut().resource_mut::<KeepAwake>().0 = false;
+        app.update();
+        assert!(!dir.join("view/view.toml").exists());
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs(1));
+        app.update();
+        assert!(dir.join("view/view.toml").exists());
+        assert!(!dir.join("view.toml").exists());
+
+        let mut relaunched = make();
+        assert!(restore(relaunched.world_mut()));
+        assert_eq!(
+            *relaunched.world().resource::<TimeOfDay>(),
+            TimeOfDay::Night
+        );
+        assert!(
+            !relaunched.world().resource::<SoundSettings>().music_on
+        );
+        assert_eq!(
+            *relaunched.world().resource::<Quality>(),
+            Quality::Medium
+        );
+        assert!(!relaunched.world().resource::<KeepAwake>().0);
+        let tree = relaunched.world().resource::<DockTree>();
+        let needs = tree.find_leaf_with_window("needs").unwrap();
+        assert_eq!(
+            tree.get(tree.parent_of(needs).unwrap())
+                .unwrap()
+                .as_split()
+                .unwrap()
+                .fraction,
+            0.2
+        );
+        let side = tree.find_leaf_with_window("agent").unwrap();
+        assert_eq!(
+            tree.leaf(side)
+                .unwrap()
+                .tabs()
+                .map(|(name, _)| name)
+                .collect::<Vec<_>>(),
+            ["agent", "skills"]
+        );
     }
 
     #[test]

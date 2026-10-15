@@ -7,17 +7,24 @@ import { checkConnection, checkModel } from "./check.ts";
 import { type Client, type Server, serve } from "./connection.ts";
 import { edit } from "./edits.ts";
 import { answerWords } from "./gate.ts";
+import { clearStagedGifts, give, uploads } from "./gifts.ts";
 import { HOME } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import { login as signIn } from "./logins.ts";
 import { safeValue, safeWords } from "./plainly.ts";
-import type { Address, Login, LoginStep, Reply } from "./protocol.ts";
+import type {
+    Address,
+    Login,
+    LoginStep,
+    Reply,
+    ServerMessage,
+} from "./protocol.ts";
 import { read } from "./reads.ts";
 import { addressed } from "./record.ts";
 import { say } from "./say.ts";
 import { watchState } from "./state.ts";
 import { newChat, resumeChat, retry, rewind, stopAgent } from "./talk.ts";
-import { type ChatWatch, turnTools, watchChat } from "./turns.ts";
+import { type ChatWatch, pageChat, turnTools, watchChat } from "./turns.ts";
 
 /** Serves `home` over protocol v0 on 127.0.0.1 at `port`, to clients with its token (S4, S5). */
 export async function serveHome(
@@ -72,6 +79,8 @@ export async function serveHome(
             throw new Error(`no agent named \`${address.agent}\``);
         return { agent, chief: home.chief };
     };
+    await clearStagedGifts(home);
+    const gifts = uploads(home, context);
     const logins = loginConnection(home, () => state.refresh());
     server = await serve({
         token: home.credentials.token,
@@ -122,12 +131,27 @@ export async function serveHome(
             open: async (message, client) => {
                 try {
                     const chat = JSON.stringify(message.chat);
-                    await stop(client, chat);
+                    if (
+                        message.before !== undefined &&
+                        watching.get(client)?.has(chat)
+                    )
+                        return safeValue(home, {
+                            ...(await pageChat(
+                                home,
+                                message.chat,
+                                message.before,
+                                context,
+                            )),
+                            to: message.id,
+                        });
+                    const previous = watching.get(client)?.get(chat);
+                    let buffered: ServerMessage[] | undefined = [];
                     const watch = await watchChat(
                         home,
                         message.chat,
                         (message) => {
-                            if (!client.signal.aborted)
+                            if (buffered !== undefined) buffered.push(message);
+                            else if (!client.signal.aborted)
                                 client.send(safeValue(home, message));
                         },
                         message.id,
@@ -148,6 +172,12 @@ export async function serveHome(
                         });
                     }
                     watching.get(client)?.set(chat, watch);
+                    await previous?.stop();
+                    const initial = buffered;
+                    buffered = undefined;
+                    if (!client.signal.aborted)
+                        for (const message of initial)
+                            client.send(safeValue(home, message));
                     return undefined;
                 } catch (error) {
                     const reply = await deed(message.id, async () => {
@@ -167,6 +197,22 @@ export async function serveHome(
                 });
                 return undefined;
             },
+            give: async (message, client) => {
+                if (!("files" in message))
+                    return deed(message.id, () => give(home, message, context));
+                try {
+                    return safeValue(
+                        home,
+                        await gifts.begin(message, client.signal),
+                    );
+                } catch (error) {
+                    return deed(message.id, async () => {
+                        throw error;
+                    });
+                }
+            },
+            "give-part": (message, client) =>
+                deed(message.id, () => gifts.part(message, client.signal)),
             edit: (message) =>
                 deed(message.id, () =>
                     edit(home, safeValue(home, message), context),
@@ -256,6 +302,7 @@ export async function serveHome(
         close: async () => {
             await serving.close();
             await logins.stop();
+            await gifts.stop();
             await state.stop();
         },
     };

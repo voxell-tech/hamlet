@@ -1,4 +1,6 @@
-//! A directory for a test to work in.
+//! Scratch directories and protocol values for tests.
+
+pub mod realm;
 
 use std::ops::Deref;
 use std::path::{Path, PathBuf};

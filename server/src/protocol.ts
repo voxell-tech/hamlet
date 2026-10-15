@@ -2,6 +2,9 @@ import { type Static, type TProperties, type TSchema, Type } from "typebox";
 import { Compile, type Validator } from "typebox/compile";
 import type { TLocalizedValidationError } from "typebox/error";
 
+/** The most file bytes a chief can give at once (H25). */
+export const MAX_GIFT_BYTES = 32 * 1024 * 1024;
+
 /** An object schema that refuses any field it does not name. */
 function object<P extends TProperties>(properties: P) {
     return Type.Object(properties, { additionalProperties: false });
@@ -39,6 +42,15 @@ export const ChatRef = object({
     past: Type.Optional(Type.Integer()),
 });
 export type ChatRef = Static<typeof ChatRef>;
+
+/** A bounded, sequential part of an accepted file gift (H25). */
+export const GivePart = request("give-part", {
+    upload: Type.String(),
+    path: Type.String(),
+    offset: Type.Integer({ minimum: 0 }),
+    data: Type.String(),
+});
+export type GivePart = Static<typeof GivePart>;
 
 /** A chief's answer to a wait (H11). */
 export const Choice = Type.Enum([
@@ -190,6 +202,30 @@ export type Hello = Static<typeof Hello>;
 export const Say = request("say", { to: Address, text: Type.String() });
 export type Say = Static<typeof Say>;
 
+/** A chief's file or skill gift to an agent (H25). */
+export const Give = Type.Union([
+    request("give", {
+        to: Address,
+        files: Type.Array(
+            object({
+                path: Type.String(),
+                size: Type.Integer({
+                    minimum: 0,
+                    maximum: Number.MAX_SAFE_INTEGER,
+                }),
+            }),
+        ),
+    }),
+    request("give", {
+        to: Address,
+        skill: Type.Union([
+            object({ starter: Type.String() }),
+            object({ from: Address, name: Type.String() }),
+        ]),
+    }),
+]);
+export type Give = Static<typeof Give>;
+
 /** A chief's answer to what waits (H11). */
 export const Answer = request("answer", {
     wait: Type.String(),
@@ -327,6 +363,8 @@ export type Read = Static<typeof Read>;
 const FROM_CLIENT = {
     hello: Hello,
     say: Say,
+    give: Give,
+    "give-part": GivePart,
     answer: Answer,
     stop: Stop,
     rewind: Rewind,
@@ -419,23 +457,14 @@ export const Agent = object({
     }),
     saying: object({ text: Type.String(), thought: Type.Boolean() }),
     spent: object({ ...Amount.properties, cost: Type.String() }),
+    /** Skill folders in its house (H25). */
+    skills: Type.Optional(Type.Array(Type.String())),
 });
 export type Agent = Static<typeof Agent>;
 
 /** Something that waits for a chief (H11). */
-export const Wait = object({
+const waitFields = {
     id: Type.String(),
-    kind: Type.Enum(["approval", "fault", "question", "objection"]),
-    danger: nullable(
-        Type.Enum([
-            "network",
-            "unconfined",
-            "destructive",
-            "reserved",
-            "edit",
-            "command",
-        ]),
-    ),
     by: Type.String(),
     agent: nullable(AgentRef),
     says: Type.String(),
@@ -445,7 +474,33 @@ export const Wait = object({
     since: Type.Integer(),
     asked: Type.Integer(),
     chat: nullable(ChatRef),
-});
+};
+export const WaitDanger = Type.Enum([
+    "network",
+    "unconfined",
+    "destructive",
+    "reserved",
+    "edit",
+    "command",
+]);
+export const Wait = Type.Union([
+    object({
+        ...waitFields,
+        kind: Type.Literal("approval"),
+        danger: WaitDanger,
+    }),
+    object({ ...waitFields, kind: Type.Literal("fault"), danger: Type.Null() }),
+    object({
+        ...waitFields,
+        kind: Type.Literal("question"),
+        danger: Type.Null(),
+    }),
+    object({
+        ...waitFields,
+        kind: Type.Literal("objection"),
+        danger: Type.Null(),
+    }),
+]);
 export type Wait = Static<typeof Wait>;
 
 /** The home's settings, with no credential in them. */
@@ -490,6 +545,12 @@ export const State = object({
     grants: Type.Array(Grant),
     settings: SettingsView,
     providers: Type.Array(ProviderView),
+    /** The chief's command names this server carries out (H26). */
+    deeds: Type.Optional(Type.Array(Type.String())),
+    /** Shipped skills a chief can give (H25). */
+    starters: Type.Optional(
+        Type.Array(object({ name: Type.String(), description: Type.String() })),
+    ),
 });
 export type State = Static<typeof State>;
 
@@ -569,6 +630,10 @@ export const Item = object({
 });
 export type Item = Static<typeof Item>;
 
+/** A conversation's latest tool call, reply or error, in words for a chief. */
+export const LastActivity = object({ what: Type.String(), at: Type.Integer() });
+export type LastActivity = Static<typeof LastActivity>;
+
 /** One step of an open chat's transcript, as it happens. */
 export const Op = Type.Union([
     object({
@@ -595,7 +660,7 @@ export const Op = Type.Union([
         op: Type.Literal("status"),
         working: Type.Boolean(),
         pending: Type.Integer(),
-        last: nullable(object({ what: Type.String(), at: Type.Integer() })),
+        last: nullable(LastActivity),
     }),
     object({ op: Type.Literal("usage"), usage: UsageView }),
     /** The transcript is sent again next. */
@@ -623,6 +688,7 @@ export const Transcript = object({
     items: Type.Array(Item),
     /** The item the page before this one ends before, or null at the start. */
     earlier: nullable(Type.String()),
+    last: Type.Optional(nullable(LastActivity)),
     working: Type.Boolean(),
     pending: Type.Integer(),
     usage: UsageView,
@@ -636,6 +702,8 @@ export const Reply = object({
     /** `rewound` gives back the words of the message taken back. */
     kind: Type.Enum(["notice", "error", "rewound"]),
     text: Type.String(),
+    /** Accepted file-gift upload, awaiting give-part messages. */
+    upload: Type.Optional(Type.String()),
 });
 export type Reply = Static<typeof Reply>;
 
@@ -764,6 +832,8 @@ const DEFINITIONS: Record<string, TSchema> = {
     Seen,
     Hello,
     Say,
+    Give,
+    GivePart,
     Answer,
     Stop,
     Rewind,
@@ -782,6 +852,7 @@ const DEFINITIONS: Record<string, TSchema> = {
     Doing,
     Agent,
     Wait,
+    WaitDanger,
     SettingsView,
     ProviderView,
     State,

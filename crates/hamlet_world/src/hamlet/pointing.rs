@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use hamlet_core::agents::{Left, LivesIn, Mayor, Settlement};
+use hamlet_client::realm::{Left, LivesIn, Mayor, Settlement};
 
 use super::{Housed, Returning, Sited, first, view};
 use crate::generator::house::Remains;

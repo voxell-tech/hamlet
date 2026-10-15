@@ -7,8 +7,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
-use hamlet_core::agents::Works;
-use hamlet_rules::work::Mode;
+use hamlet_client::realm::{Mode, Works};
 use hamlet_vfx::inlay;
 
 use crate::generator::Common;
@@ -143,7 +142,7 @@ fn index(mode: Mode) -> usize {
 
 /// The mode a hamlet works in. None while it works on no folder.
 fn mode(works: Option<&Works>) -> Option<Mode> {
-    works.filter(|w| w.0.folder.is_some()).map(|w| w.0.mode)
+    works.filter(|w| w.folder.is_some()).map(|w| w.mode)
 }
 
 /// The bench: a plank top on four legs with a shelf under it, a
@@ -607,10 +606,10 @@ fn title(
         let folder = hamlets
             .get(top.hamlet)
             .ok()
-            .and_then(|works| works.0.folder.as_deref())
+            .and_then(|works| works.folder.as_deref())
             .map(|folder| {
-                folder.file_name().map_or_else(
-                    || folder.display().to_string(),
+                std::path::Path::new(folder).file_name().map_or_else(
+                    || folder.to_string(),
                     |name| name.to_string_lossy().into_owned(),
                 )
             });
@@ -647,5 +646,93 @@ fn click(
                 at: at.translation(),
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use bevy::prelude::*;
+    use bevy::time::TimeUpdateStrategy;
+    use hamlet_client::ClientPlugin;
+    use hamlet_client::realm::Settlement;
+    use hamlet_protocol::v0;
+    use hamlet_testing::realm;
+
+    use super::plugin;
+    use crate::generator::Common;
+    use crate::generator::society::TownId;
+    use crate::generator::testing::rehearse;
+    use crate::hamlet::Sited;
+    use crate::hamlet::tests::{receive_change, receive_state};
+    use crate::palette::Palette;
+    use crate::pick::Reads;
+
+    fn rotations(app: &mut App) -> Vec<(Entity, Quat)> {
+        let world = app.world_mut();
+        world
+            .query_filtered::<(Entity, &Transform), With<Mesh3d>>()
+            .iter(world)
+            .map(|(entity, at)| (entity, at.rotation))
+            .collect()
+    }
+
+    #[test]
+    fn received_auto_turns_the_clockwork_and_manual_stops_it() {
+        let mut app = App::new();
+        rehearse(&mut app);
+        app.add_plugins((ClientPlugin { server: None }, plugin))
+            .init_resource::<Palette>()
+            .insert_resource(TimeUpdateStrategy::ManualDuration(
+                Duration::from_secs_f32(1.0 / 60.0),
+            ));
+        let mut state = realm::state();
+        state.hamlets[0].folder = Some("/server/orchard".into());
+        receive_state(&mut app, state);
+        let world = app.world_mut();
+        let hamlet = world
+            .query_filtered::<Entity, With<Settlement>>()
+            .single(world)
+            .unwrap();
+        world.entity_mut(hamlet).insert(Sited(TownId(0)));
+        world.spawn((
+            Common { town: TownId(0) },
+            Transform::default(),
+        ));
+        app.update();
+        app.update();
+        let manual = rotations(&mut app);
+        assert!(!manual.is_empty());
+        app.update();
+        assert_eq!(rotations(&mut app), manual);
+        let mut changed = realm::hamlet("home");
+        changed.folder = Some("/server/orchard".into());
+        changed.mode = v0::HamletMode::Auto;
+        receive_change(
+            &mut app,
+            v0::Update::Hamlet {
+                hamlet: changed.clone(),
+            },
+        );
+        app.update();
+        let auto = rotations(&mut app);
+        assert_ne!(auto, manual);
+        let world = app.world_mut();
+        assert!(
+            world
+                .query::<&Reads>()
+                .iter(world)
+                .any(|reads| reads.0 == "orchard")
+        );
+        changed.mode = v0::HamletMode::Manual;
+        receive_change(
+            &mut app,
+            v0::Update::Hamlet {
+                hamlet: changed.clone(),
+            },
+        );
+        app.update();
+        assert_eq!(rotations(&mut app), auto);
     }
 }

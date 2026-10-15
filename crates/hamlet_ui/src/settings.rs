@@ -1,9 +1,8 @@
 //! The settings screen: a front page of its parts, each on a page
 //! of its own.
 
-use std::path::Path;
-
 use bevy::app::{App, Update};
+use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
@@ -16,12 +15,12 @@ use bevy_fynix::views::{
     number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_core::core::{HomeDir, SaveSettings, Settings};
-use hamlet_core::oversight::Revoke;
-use hamlet_core::oversight::grants::Grants;
+use hamlet_client::messages::{Reconnected, Response, UserMessage};
+use hamlet_client::outbox::Outbox;
+use hamlet_client::realm::{Grants, HOME, MAYOR, Settings};
 use hamlet_desktop::awake::KeepAwake;
-use hamlet_home::charter;
-use hamlet_model::config::Config;
+use hamlet_desktop::editor::{Edit, Edited};
+use hamlet_protocol::v0;
 use hamlet_world::sky::Quality;
 use hamlet_world::sound::SoundSettings;
 
@@ -30,7 +29,6 @@ use crate::looks::{
     Fills, ICON, action, bad_action, bare, buttons, doors, hairline,
     note, page_head, tick, well,
 };
-use crate::me::Me;
 use crate::platform::DisplayText;
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx, View, markdown, with_cx};
@@ -38,6 +36,17 @@ use crate::{AnyView, Cx, View, markdown, with_cx};
 pub fn plugin(app: &mut App) {
     app.init_resource::<Pane>()
         .init_resource::<Charter>()
+        .init_resource::<CharterRequests>()
+        .add_observer(charter_received)
+        .add_observer(charter_saved)
+        .add_observer(
+            |_: On<Reconnected>,
+             pane: Res<Pane>,
+             outbox: ResMut<Outbox>,
+             requests: ResMut<CharterRequests>| {
+                read_charter(pane, outbox, requests)
+            },
+        )
         .add_systems(
             Update,
             read_charter.run_if(resource_changed::<Pane>),
@@ -170,16 +179,14 @@ fn agents() -> impl View {
             "Reflect every N turns",
             told(
                 number_field(
-                    resource::<Settings, _>(|s| {
-                        s.config.reflect_every
-                    }),
+                    resource::<Settings, _>(|s| s.0.reflect_every),
                     |world, turns| {
-                        save(world, |config| {
-                            config.reflect_every = turns
+                        save(world, |set| {
+                            set.reflect_every = Some(turns)
                         })
                     },
                 )
-                .range(0usize, 1000usize)
+                .range(0i64, 1000i64)
                 .width(px(90.0))
                 .rules(well),
                 note("0 means never."),
@@ -189,13 +196,13 @@ fn agents() -> impl View {
             "Tools network access",
             told(
                 switch(
-                    resource::<Settings, _>(|s| s.config.allow_net),
+                    resource::<Settings, _>(|s| s.0.allow_net),
                     |world, on| {
-                        save(world, |config| config.allow_net = on)
+                        save(world, |set| set.allow_net = Some(on))
                     },
                 ),
                 note(resource::<Settings, _>(|s| {
-                    if s.config.allow_net {
+                    if s.0.allow_net {
                         "Agents' commands can reach the internet."
                             .to_string()
                     } else {
@@ -232,15 +239,12 @@ fn permissions() -> AnyView {
             .get_resource::<Grants>()
             .map(|grants| {
                 grants
-                    .held()
+                    .0
                     .iter()
-                    .map(|grant| {
-                        (
-                            grant.name.clone(),
-                            grant.permission,
-                            grant.by.clone(),
-                        )
+                    .filter(|grant| {
+                        grant.source == v0::GrantSource::Grant
                     })
+                    .cloned()
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default()
@@ -256,12 +260,20 @@ fn permissions() -> AnyView {
         }
         let rows = held
             .iter()
-            .map(|(agent, permission, by)| {
-                let (agent, permission) =
-                    (agent.clone(), *permission);
+            .map(|grant| {
+                let agent = grant.name.clone();
+                let permission = match grant.permission {
+                    v0::Permission::Network => "network",
+                    v0::Permission::Unconfined => "unconfined",
+                };
+                let by = grant.by.as_deref().unwrap_or("limits");
+                let hamlet = grant
+                    .agent
+                    .as_ref()
+                    .map(|agent| agent.hamlet.clone())
+                    .unwrap_or_else(|| HOME.into());
                 let says = format!(
-                    "{agent} may use: {} (given by {by})",
-                    permission.name()
+                    "{agent} may use: {permission} (given by {by})"
                 );
                 row((
                     row((label(says).size(12.0),)).fills_width(),
@@ -269,12 +281,14 @@ fn permissions() -> AnyView {
                         Glyph::Cross,
                         "REVOKE",
                         move |world| {
-                            let chief =
-                                world.resource::<Me>().user.clone();
-                            world.trigger(Revoke {
-                                agent: agent.clone(),
-                                permission,
-                                chief,
+                            world.trigger(UserMessage {
+                                to: v0::Address {
+                                    hamlet: hamlet.clone(),
+                                    agent: MAYOR.into(),
+                                },
+                                text: format!(
+                                    "/revoke {agent} {permission}"
+                                ),
                             });
                             world.flush();
                         },
@@ -299,52 +313,108 @@ pub struct Charter {
     pub own: bool,
 }
 
-impl Charter {
-    /// The charter of the home at `root`.
-    pub fn of(root: &Path) -> Self {
-        let own = charter::own(root);
-        Charter {
-            own: own.is_some(),
-            text: own.unwrap_or_else(|| charter::DEFAULT.to_string()),
-        }
-    }
+#[derive(Resource, Default)]
+struct CharterRequests {
+    read: Option<String>,
+    edit: Option<String>,
+    error: String,
+    loaded: bool,
 }
 
-/// Reads the home's charter again while its page is open.
 fn read_charter(
-    home: Option<Res<HomeDir>>,
     pane: Res<Pane>,
-    mut shown: ResMut<Charter>,
+    mut outbox: ResMut<Outbox>,
+    mut requests: ResMut<CharterRequests>,
 ) {
-    let Some(home) = home.filter(|_| *pane == Pane::Charter) else {
-        return;
-    };
-    let now = Charter::of(&home.0.root);
-    if *shown != now {
-        *shown = now;
+    if *pane == Pane::Charter {
+        requests.read = Some(outbox.send(|id| {
+            v0::ClientMessage::Read(v0::Read::Charter { id })
+        }));
     }
 }
 
-/// Opens the home's own charter in the program the system keeps for
-/// such a file, made from the built-in one if the home has none.
+fn charter_received(
+    response: On<Response>,
+    mut requests: ResMut<CharterRequests>,
+    mut charter: ResMut<Charter>,
+    mut outbox: ResMut<Outbox>,
+) {
+    let reading = requests.read.as_ref() == Some(&response.to);
+    let editing = requests.edit.as_ref() == Some(&response.to);
+    if !reading && !editing {
+        return;
+    }
+    match &response.message {
+        v0::ServerMessage::Read(v0::ReadResult::Charter {
+            charter: received,
+            ..
+        }) if reading => {
+            *charter = Charter {
+                text: received.text.clone(),
+                own: received.own,
+            };
+            requests.loaded = true;
+        }
+        v0::ServerMessage::Reply(reply)
+            if reply.kind == v0::ReplyKind::Error =>
+        {
+            requests.error.clone_from(&reply.text)
+        }
+        v0::ServerMessage::Fault(fault) => {
+            requests.error.clone_from(&fault.text)
+        }
+        v0::ServerMessage::Reply(_) if editing => {
+            requests.read = Some(outbox.send(|id| {
+                v0::ClientMessage::Read(v0::Read::Charter { id })
+            }));
+        }
+        _ => return,
+    }
+    if reading {
+        requests.read = None;
+    }
+    if editing {
+        requests.edit = None;
+    }
+}
+
 fn edit_charter(world: &mut World) {
-    let Some(home) = world.get_resource::<HomeDir>() else {
+    if !world.resource::<CharterRequests>().loaded {
         return;
-    };
-    if let Ok(file) = charter::adopt(&home.0.root) {
-        crate::links::open_file(&file);
     }
-    let _ = world.run_system_cached(read_charter);
+    let text = world.resource::<Charter>().text.clone();
+    world.trigger(Edit {
+        key: "charter".into(),
+        text,
+    });
+    world.flush();
 }
 
-/// Removes the home's own charter.
-pub(crate) fn default_charter(world: &mut World) {
-    let Some(home) = world.get_resource::<HomeDir>() else {
+fn charter_saved(
+    edited: On<Edited>,
+    mut outbox: ResMut<Outbox>,
+    mut requests: ResMut<CharterRequests>,
+) {
+    if edited.key != "charter" {
         return;
-    };
-    if charter::reset(&home.0.root).is_ok() {
-        let _ = world.run_system_cached(read_charter);
     }
+    requests.error.clear();
+    requests.edit = Some(outbox.send(|id| {
+        v0::ClientMessage::Edit(v0::Edit::Charter {
+            id,
+            text: Some(edited.text.clone()),
+        })
+    }));
+}
+
+/// A request to restore the server's default charter.
+pub(crate) fn default_charter(world: &mut World) {
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        v0::ClientMessage::Edit(v0::Edit::Charter { id, text: None })
+    });
+    let mut requests = world.resource_mut::<CharterRequests>();
+    requests.error.clear();
+    requests.edit = Some(id);
 }
 
 /// The words every agent's prompt opens with, and the ways to change
@@ -374,18 +444,40 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
         .within(bare());
     column((
         note("Every agent reads this at the start of each turn."),
+        note(resource::<Charter, _>(|charter| {
+            if charter.own {
+                "The home's own charter.".to_string()
+            } else {
+                "The default charter.".to_string()
+            }
+        })),
         actions,
+        label(resource::<CharterRequests, _>(|requests| {
+            requests.error.clone()
+        }))
+        .size(12.0)
+        .tone(Tone::Critical),
         hairline(cx.theme().palette.brass_6),
         shown,
     ))
     .gap(12.0)
 }
 
-/// Saves the settings with one value changed.
-fn save(world: &mut World, change: impl FnOnce(&mut Config)) {
-    let mut config = world.resource::<Settings>().config.clone();
-    change(&mut config);
-    world.trigger(SaveSettings(config));
+/// An edit of one received setting.
+fn save(
+    world: &mut World,
+    change: impl FnOnce(&mut v0::EditSettingsSet),
+) {
+    let mut set = v0::EditSettingsSet {
+        model: None,
+        endpoints: None,
+        reflect_every: None,
+        allow_net: None,
+    };
+    change(&mut set);
+    world.resource_mut::<Outbox>().send(|id| {
+        v0::ClientMessage::Edit(v0::Edit::Settings { id, set })
+    });
 }
 
 /// A switch and a slider: a kind of sound that is on or off, and its
@@ -490,4 +582,479 @@ pub fn screen() -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         cx.build(scroll((page,)).fills_height())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::ecs::entity::Entity;
+    use bevy::ecs::hierarchy::{ChildOf, Children};
+    use bevy::text::EditableText;
+    use bevy::ui::Checked;
+    use bevy::ui_widgets::{Checkbox, ValueChange};
+    use hamlet_client::outbox::Outbox;
+    use hamlet_protocol::v0;
+
+    use super::*;
+    use crate::me::tests::panel_app;
+
+    fn words(app: &mut App) -> Vec<String> {
+        let mut shown = crate::me::tests::words(app);
+        shown.extend(
+            app.world_mut()
+                .query::<&bevy::text::TextSpan>()
+                .iter(app.world())
+                .map(|span| span.0.clone()),
+        );
+        shown
+    }
+
+    fn page(pane: Pane) -> App {
+        let mut app = panel_app();
+        app.add_plugins(plugin)
+            .init_resource::<KeepAwake>()
+            .insert_resource(pane);
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            screen(),
+        );
+        settle(&mut app);
+        app
+    }
+
+    fn settle(app: &mut App) {
+        for _ in 0..3 {
+            app.update();
+        }
+    }
+
+    fn control<T: bevy::ecs::component::Component>(
+        app: &mut App,
+        name: &str,
+    ) -> Entity {
+        let world = app.world_mut();
+        let label = world
+            .query::<(Entity, &bevy::ui::widget::Text)>()
+            .iter(world)
+            .find(|(_, text)| text.0 == name)
+            .unwrap_or_else(|| panic!("no field says {name}"))
+            .0;
+        let mut pending =
+            vec![world.get::<ChildOf>(label).unwrap().parent()];
+        while let Some(entity) = pending.pop() {
+            if world.get::<T>(entity).is_some() {
+                return entity;
+            }
+            if let Some(children) = world.get::<Children>(entity) {
+                pending.extend(children.iter());
+            }
+        }
+        panic!("no control under {name}");
+    }
+
+    fn requests(app: &mut App) -> Vec<serde_json::Value> {
+        app.world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .map(|message| serde_json::to_value(message).unwrap())
+            .filter(|message| message["type"] != "open")
+            .map(|mut message| {
+                assert!(
+                    message["id"]
+                        .as_str()
+                        .is_some_and(|id| id.len() == 36)
+                );
+                message.as_object_mut().unwrap().remove("id");
+                message
+            })
+            .collect()
+    }
+
+    #[test]
+    fn agent_controls_send_only_the_changed_setting_and_follow_received_changes()
+     {
+        let mut app = page(Pane::Agents);
+        let network =
+            control::<Checkbox>(&mut app, "Tools network access");
+        app.world_mut().trigger(ValueChange {
+            source: network,
+            value: true,
+            is_final: true,
+        });
+        app.world_mut().flush();
+        assert_eq!(
+            requests(&mut app),
+            [serde_json::json!({
+                "type": "edit", "doc": "settings", "set": {"allowNet": true}
+            })]
+        );
+
+        let awake = control::<Checkbox>(&mut app, "Keep awake");
+        app.world_mut().trigger(ValueChange {
+            source: awake,
+            value: true,
+            is_final: true,
+        });
+        app.world_mut().flush();
+        assert!(app.world().resource::<KeepAwake>().0);
+        assert!(requests(&mut app).is_empty());
+
+        let reflection = control::<EditableText>(
+            &mut app,
+            "Reflect every N turns",
+        );
+        app.world_mut().trigger(bevy::input_focus::FocusGained {
+            entity: reflection,
+            cause: bevy::input_focus::FocusCause::Pressed,
+        });
+        app.world_mut().flush();
+        app.world_mut()
+            .get_mut::<EditableText>(reflection)
+            .unwrap()
+            .editor_mut()
+            .set_text("5");
+        app.world_mut().trigger(bevy::input_focus::FocusLost {
+            entity: reflection,
+        });
+        app.world_mut().flush();
+        assert_eq!(
+            requests(&mut app),
+            [serde_json::json!({
+                "type": "edit", "doc": "settings", "set": {"reflectEvery": 5}
+            })]
+        );
+
+        let mut settings = hamlet_testing::realm::state().settings;
+        settings.allow_net = true;
+        settings.reflect_every = 7;
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Change(v0::Changes {
+                epoch: 1,
+                revision: 2,
+                changes: vec![v0::Update::Settings { settings }],
+            }),
+        );
+        settle(&mut app);
+        assert!(app.world().get::<Checked>(network).is_some());
+        assert_eq!(
+            app.world()
+                .get::<EditableText>(reflection)
+                .unwrap()
+                .value(),
+            "7"
+        );
+        assert!(
+            words(&mut app).iter().any(|text| text
+                == "Agents' commands can reach the internet.")
+        );
+    }
+    #[test]
+    fn received_grants_show_the_giver_and_revoke_through_the_mayor() {
+        let mut app = page(Pane::Agents);
+        assert!(words(&mut app).iter().any(|text| text
+            == "None yet. Choosing Always Allow on a petition \
+                adds one."));
+        let grant = v0::Grant {
+            agent: Some(v0::AgentRef {
+                hamlet: "home".into(),
+                number: 0,
+            }),
+            name: "founder".into(),
+            permission: v0::Permission::Network,
+            by: Some("chief".into()),
+            source: v0::GrantSource::Grant,
+        };
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Change(v0::Changes {
+                epoch: 1,
+                revision: 2,
+                changes: vec![v0::Update::Grants {
+                    grants: vec![grant],
+                }],
+            }),
+        );
+        settle(&mut app);
+        assert!(words(&mut app).iter().any(|text| text
+            == "founder may use: network (given by chief)"));
+        crate::me::tests::press(&mut app, "REVOKE");
+        assert_eq!(
+            requests(&mut app),
+            [serde_json::json!({
+                "type": "say", "to": {"hamlet": "home", "agent": "mayor"}, "text": "/revoke founder network"
+            })]
+        );
+    }
+
+    #[test]
+    fn limits_permissions_belong_to_bylaws_and_cannot_be_revoked_here()
+     {
+        let mut app = page(Pane::Agents);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Change(v0::Changes {
+                epoch: 1,
+                revision: 2,
+                changes: vec![v0::Update::Grants {
+                    grants: vec![v0::Grant {
+                        agent: None,
+                        name: "founder".into(),
+                        permission: v0::Permission::Network,
+                        by: None,
+                        source: v0::GrantSource::Limits,
+                    }],
+                }],
+            }),
+        );
+        settle(&mut app);
+        let shown = words(&mut app).join("\n");
+        assert!(
+            shown.contains(
+                "None yet. Choosing Always Allow on a petition adds \
+                 one."
+            ),
+            "{shown}"
+        );
+        assert!(!shown.contains("REVOKE"));
+        assert!(!shown.contains("given by limits"));
+    }
+
+    #[test]
+    fn the_charter_page_reads_the_server_text_and_whether_the_home_keeps_its_own()
+     {
+        let mut app = page(Pane::Charter);
+        let sent = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .find_map(|message| match message {
+                v0::ClientMessage::Read(v0::Read::Charter { id }) => {
+                    Some(id.clone())
+                }
+                _ => None,
+            })
+            .expect("the charter page requests its text");
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Read(v0::ReadResult::Charter {
+                to: sent,
+                charter: v0::ReadResultCharterCharter {
+                    text: "Keep the orchard kind.".into(),
+                    own: true,
+                },
+            }),
+        );
+        settle(&mut app);
+        let shown = words(&mut app);
+        assert!(
+            shown.iter().any(|text| text == "Keep the orchard kind."),
+            "{shown:?}"
+        );
+        assert!(
+            shown
+                .iter()
+                .any(|text| text == "The home's own charter."),
+            "{shown:?}"
+        );
+        assert!(
+            shown.iter().any(|text| text == "BACK TO THE DEFAULT")
+        );
+    }
+
+    #[derive(Resource, Default)]
+    struct Edits(Vec<hamlet_desktop::editor::Edit>);
+
+    #[test]
+    fn charter_edit_saves_and_confirmed_reset_go_to_the_server_and_refusals_stay_by_the_buttons()
+     {
+        use hamlet_desktop::editor::{Edit, Edited};
+        let mut app = page(Pane::Charter);
+        let id = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .filter_map(|message| match message {
+                v0::ClientMessage::Read(v0::Read::Charter { id }) => {
+                    Some(id.clone())
+                }
+                _ => None,
+            })
+            .last()
+            .unwrap();
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Read(v0::ReadResult::Charter {
+                to: id,
+                charter: v0::ReadResultCharterCharter {
+                    text: "Keep the orchard kind.".into(),
+                    own: true,
+                },
+            }),
+        );
+        app.init_resource::<Edits>().add_observer(
+            |edit: On<Edit>, mut edits: ResMut<Edits>| {
+                edits.0.push(edit.event().clone())
+            },
+        );
+        settle(&mut app);
+        requests(&mut app);
+        crate::me::tests::press(&mut app, "EDIT");
+        let edits = &app.world().resource::<Edits>().0;
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].key, "charter");
+        assert_eq!(edits[0].text, "Keep the orchard kind.");
+        app.world_mut().trigger(Edited {
+            key: "founder-character".into(),
+            text: "Ignore this save".into(),
+        });
+        assert!(requests(&mut app).is_empty());
+        app.world_mut().trigger(Edited {
+            key: "charter".into(),
+            text: "New charter words.".into(),
+        });
+        app.world_mut().flush();
+        let edit = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .next()
+            .cloned()
+            .unwrap();
+        let v0::ClientMessage::Edit(v0::Edit::Charter { id, .. }) =
+            edit
+        else {
+            panic!("{edit:?}");
+        };
+        assert_eq!(
+            requests(&mut app),
+            [
+                serde_json::json!({"type": "edit", "doc": "charter", "text": "New charter words."})
+            ]
+        );
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Reply(v0::Reply {
+                to: id,
+                kind: v0::ReplyKind::Error,
+                text: "The charter was refused.".into(),
+                upload: None,
+            }),
+        );
+        settle(&mut app);
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|text| text == "The charter was refused.")
+        );
+
+        app.init_resource::<crate::world_menu::Open>();
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            crate::world_menu::view(),
+        );
+        crate::me::tests::press(&mut app, "BACK TO THE DEFAULT");
+        settle(&mut app);
+        assert!(requests(&mut app).is_empty());
+        assert!(words(&mut app).iter().any(|text| text == "GO BACK TO THE DEFAULT CHARTER?"));
+        crate::me::tests::press(&mut app, "USE THE DEFAULT");
+        let id = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .find_map(|message| match message {
+                v0::ClientMessage::Edit(v0::Edit::Charter {
+                    id,
+                    ..
+                }) => Some(id.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            requests(&mut app),
+            [
+                serde_json::json!({"type": "edit", "doc": "charter", "text": null})
+            ]
+        );
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Reply(v0::Reply {
+                to: id,
+                kind: v0::ReplyKind::Notice,
+                text: "The default charter is back.".into(),
+                upload: None,
+            }),
+        );
+        let read = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .find_map(|message| match message {
+                v0::ClientMessage::Read(v0::Read::Charter { id }) => {
+                    Some(id)
+                }
+                _ => None,
+            })
+            .expect("the accepted reset refreshes the charter");
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Read(v0::ReadResult::Charter {
+                to: read,
+                charter: v0::ReadResultCharterCharter {
+                    text: "The server's default words.".into(),
+                    own: false,
+                },
+            }),
+        );
+        settle(&mut app);
+        let shown = words(&mut app);
+        assert!(
+            shown.iter().any(|text| text == "The default charter.")
+        );
+        assert!(
+            shown
+                .iter()
+                .any(|text| text == "The server's default words.")
+        );
+        assert!(
+            !shown.iter().any(|text| text == "BACK TO THE DEFAULT")
+        );
+        assert!(
+            !shown
+                .iter()
+                .any(|text| text == "The charter was refused.")
+        );
+    }
+    #[test]
+    fn reconnecting_reads_the_open_charter_again_and_shows_a_read_refusal()
+     {
+        let mut app = page(Pane::Charter);
+        requests(&mut app);
+        app.world_mut()
+            .trigger(hamlet_client::messages::Reconnected);
+        app.world_mut().flush();
+        let sent = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .find_map(|message| match message {
+                v0::ClientMessage::Read(v0::Read::Charter { id }) => {
+                    Some(id.clone())
+                }
+                _ => None,
+            })
+            .expect("a fresh charter after reconnecting");
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Fault(v0::Fault {
+                to: Some(sent),
+                text: "Cannot read the charter.".into(),
+            }),
+        );
+        settle(&mut app);
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|text| text == "Cannot read the charter.")
+        );
+    }
 }

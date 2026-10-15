@@ -157,7 +157,7 @@ describe("the prompt", () => {
             `# The project\nYour hamlet works on the folder ${folder}.`,
         );
         expect(sections.skills).toContain(
-            `Run: \`cd '${house}' && sh get.sh\``,
+            `- forecast:  Run: \`cd '${house}' && sh get.sh\` (skills/forecast/SKILL.md)`,
         );
         expect(sections.project).not.toContain("git worktree");
         expect(sections.project).not.toContain("The chief approves each edit");
@@ -214,7 +214,7 @@ describe("the prompt", () => {
         expect((await sent(home, faux)).notes).toBe("# NOTES.md");
     });
 
-    it("lists the house's skills by their front matter (prompt.rs:193)", async () => {
+    it("lists the house's skills with descriptions and commands that start in its house", async () => {
         const { home, faux, house } = await mayorHome();
         const skills = join(house, "skills");
 
@@ -228,7 +228,7 @@ describe("the prompt", () => {
         writeFileSync(join(skills, "broken", "SKILL.md"), "no front matter");
 
         expect((await sent(home, faux)).skills).toBe(
-            "# Skills\n- forecast: Get the forecast Run: `sh skills/forecast/scripts/get.sh` (skills/forecast/SKILL.md)",
+            `# Skills\n- broken:  (skills/broken/SKILL.md)\n- forecast: Get the forecast Run: \`cd '${house}' && sh skills/forecast/scripts/get.sh\` (skills/forecast/SKILL.md)`,
         );
     });
 

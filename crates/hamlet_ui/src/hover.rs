@@ -28,18 +28,16 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, overlay,
 };
-use hamlet_core::agents::{
+use hamlet_client::realm::{
     Account, Activity, Busy, Citizen, Left, LivesIn, Mayor,
-    MergedInto, Purpose, Roster, Treasury, Works,
+    MergedInto, Mode, Purpose, Roster, Treasury, Works,
 };
-use hamlet_core::oversight::Waiting;
-use hamlet_rules::work::Mode;
+use hamlet_client::waits::Waiting;
 use hamlet_world::chief::{Beside, Look};
 use hamlet_world::hand::Proud;
 use hamlet_world::pick::{Following, Hovered, Thing};
 
 use crate::feel::FeelSettings;
-use crate::inspector::now;
 use crate::overview::standing;
 use crate::platform::{DisplayText, show};
 use crate::roll::Roll;
@@ -208,7 +206,7 @@ impl Told<'_, '_> {
             account: self
                 .spent
                 .get(hamlet)
-                .map(|t| t.0.summary())
+                .map(|t| t.0.summary.clone())
                 .unwrap_or_default(),
             hint: "Click its hall to talk to the mayor".to_string(),
         }
@@ -220,8 +218,8 @@ impl Told<'_, '_> {
             .works
             .get(hamlet)
             .ok()
-            .filter(|works| works.0.folder.is_some())
-            .map(|works| works.0.mode);
+            .filter(|works| works.folder.is_some())
+            .map(|works| works.mode);
         let (state, tone, purpose, hint) = match mode {
             None => (
                 "No folder",
@@ -233,13 +231,19 @@ impl Told<'_, '_> {
             Some(Mode::Manual) => (
                 "Manual",
                 Tone::Body,
-                Mode::Manual.says(),
+                self.works
+                    .get(hamlet)
+                    .map(|works| works.words.as_str())
+                    .unwrap_or_default(),
                 "Click to switch to auto",
             ),
             Some(Mode::Auto) => (
                 "Auto",
                 Tone::Accent,
-                Mode::Auto.says(),
+                self.works
+                    .get(hamlet)
+                    .map(|works| works.words.as_str())
+                    .unwrap_or_default(),
                 "Click to switch to manual",
             ),
         };
@@ -261,10 +265,10 @@ impl Told<'_, '_> {
             .works
             .get(hamlet)
             .ok()
-            .and_then(|works| works.0.folder.as_deref());
+            .and_then(|works| works.folder.as_deref());
         let (state, tone, purpose) = match folder {
             Some(folder) => (
-                folder.display().to_string(),
+                folder.to_string(),
                 Tone::Body,
                 "The folder this hamlet works on.",
             ),
@@ -349,10 +353,7 @@ impl Told<'_, '_> {
             _ => {
                 let tone =
                     if busy { Tone::Accent } else { Tone::Dim };
-                (
-                    now(busy, activity.copied().unwrap_or_default()),
-                    tone,
-                )
+                (activity.cloned().unwrap_or_default().words, tone)
             }
         };
         let followed = self.following.0 == Some(hovered);
@@ -366,9 +367,7 @@ impl Told<'_, '_> {
             purpose: purpose
                 .map(|p| short(&p.0, PURPOSE_SHOWN))
                 .unwrap_or_default(),
-            account: account
-                .map(|a| a.0.summary())
-                .unwrap_or_default(),
+            account: account.map(|a| a.summary()).unwrap_or_default(),
             hint: match (gone || ruin, followed) {
                 (true, _) => "Right-click to restore".to_string(),
                 (false, true) => "Followed. Esc lets go".to_string(),

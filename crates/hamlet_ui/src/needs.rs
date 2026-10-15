@@ -17,11 +17,12 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
-use hamlet_core::oversight::danger::Danger;
-use hamlet_core::oversight::{Answer, Kind, Need, Veto, Waiting};
-use hamlet_core::session::{Entry, Transcript};
-use hamlet_core::tools::Change;
-use hamlet_rules::chief::rulings::Choice;
+use hamlet_client::chats::{Chat, Entry, Transcript};
+use hamlet_client::messages::{Answer, Veto};
+use hamlet_client::waits::{
+    Choice, ChoiceExt, Danger, Kind, Waiting,
+};
+use hamlet_protocol::v0::Change;
 use hamlet_world::needs::{TagAnswered, TagOpened};
 
 use crate::dock::show_tab;
@@ -30,7 +31,6 @@ use crate::icons::Glyph;
 use crate::looks::{
     Fills, bad_action, brass, grim, lamp, marked, note, well,
 };
-use crate::me::Me;
 use crate::platform::{DisplayText, MonoText, Wraps};
 use crate::{AnyView, Cx, View, chat};
 
@@ -67,6 +67,48 @@ impl Queue {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct Need {
+    entity: Entity,
+    kind: Kind,
+    by: String,
+    about: String,
+    line: String,
+    waited: String,
+    asked: u32,
+    answers: Vec<Choice>,
+    change: Option<Change>,
+    chat: Option<hamlet_protocol::v0::ChatRef>,
+}
+
+impl Need {
+    fn of(entity: Entity, waiting: &Waiting) -> Self {
+        let seconds =
+            waiting.waited(crate::status::now_ms()).as_secs();
+        let waited = match seconds {
+            0..=59 => "under a minute".into(),
+            60..=3599 => format!("{} min", seconds / 60),
+            _ => format!(
+                "{} h {:02} min",
+                seconds / 3600,
+                seconds % 3600 / 60
+            ),
+        };
+        Self {
+            entity,
+            kind: waiting.kind,
+            by: waiting.by.clone(),
+            about: waiting.about.clone(),
+            line: waiting.line(80),
+            waited,
+            asked: waiting.asked,
+            answers: waiting.answers.clone(),
+            change: waiting.change.clone(),
+            chat: waiting.chat.clone(),
+        }
+    }
+}
+
 /// Keeps the [`Queue`] in step with the waits and the time each has
 /// waited.
 pub(crate) fn keep_queue(
@@ -85,7 +127,7 @@ pub(crate) fn keep_queue(
     }
     *due = now + TICK;
     let mut rows = waiting.iter().collect::<Vec<_>>();
-    rows.sort_by_key(|(_, w)| w.order);
+    rows.sort_by_key(|(_, w)| (w.since, w.id.as_str()));
     let needs = rows
         .into_iter()
         .map(|(entity, waiting)| Need::of(entity, waiting))
@@ -102,12 +144,10 @@ fn answer(world: &mut World, entity: Entity, choice: Choice) {
     if choice == Choice::Reply && text.is_empty() {
         return;
     }
-    let chief = world.resource::<Me>().user.clone();
     world.trigger(Answer {
-        entity,
+        wait: entity,
         choice,
-        text,
-        chief,
+        text: (!text.is_empty()).then_some(text),
     });
     world.flush();
     world.resource_mut::<Reason>().0.clear();
@@ -118,7 +158,6 @@ fn answer(world: &mut World, entity: Entity, choice: Choice) {
 pub(crate) fn tag_answered(
     answered: On<TagAnswered>,
     waiting: Query<&Waiting>,
-    me: Res<Me>,
     mut commands: Commands,
 ) {
     let TagAnswered { item, agree } = *answered.event();
@@ -128,10 +167,9 @@ pub(crate) fn tag_answered(
         .and_then(|need| Choice::quick(&need.answers, agree));
     if let Some(choice) = choice {
         commands.trigger(Answer {
-            entity: item,
+            wait: item,
             choice,
-            text: String::new(),
-            chief: me.user.clone(),
+            text: None,
         });
     }
 }
@@ -157,7 +195,7 @@ pub(crate) fn tag_opened(_: On<TagOpened>, mut commands: Commands) {
 }
 
 fn button(need: &Need, at: usize) -> AnyView {
-    let Some(choice) = need.answers.get(at).copied() else {
+    let Some(choice) = need.answers.get(at).cloned() else {
         return frame().boxed();
     };
     let entity = need.entity;
@@ -175,7 +213,7 @@ fn button(need: &Need, at: usize) -> AnyView {
             Choice::Allow => (Check, "ALLOW ONCE", lamp, Mood::Good),
             Choice::Always => (CheckAll, always, brass, Mood::Plain),
             Choice::Deny => (Cross, "DENY", grim, Mood::Bad),
-            Choice::GoAhead => (Check, "GO AHEAD", lamp, Mood::Good),
+            Choice::Go => (Check, "GO AHEAD", lamp, Mood::Good),
             Choice::Withdraw => {
                 (Restore, "WITHDRAW", grim, Mood::Bad)
             }
@@ -185,35 +223,49 @@ fn button(need: &Need, at: usize) -> AnyView {
     marked(which, text)
         .rules(rules)
         .tagged(mood)
-        .on_activate(move |world| answer(world, entity, choice))
+        .on_activate(move |world| {
+            answer(world, entity, choice.clone())
+        })
         .boxed()
 }
 
 /// The edit that waits as `need`: its entry in the conversation
 /// whose turn it holds, and its change.
-fn held(world: &World, need: &Need) -> Option<(Entity, u64, Change)> {
+fn held(
+    world: &World,
+    need: &Need,
+) -> Option<(Entity, String, Change)> {
     if need.kind != Kind::Approval(Danger::Edit) {
         return None;
     }
-    let session = world.get::<Waiting>(need.entity)?.session?;
-    let open = world
-        .get::<Transcript>(session)?
-        .items()
-        .iter()
-        .rev()
-        .find(|item| {
-            matches!(item.entry, Entry::Tool { exit: None, .. })
+    let waiting = world.get::<Waiting>(need.entity)?;
+    let session = need.chat.as_ref().and_then(|reference| {
+        world
+            .try_query::<(Entity, &Chat)>()?
+            .iter(world)
+            .find(|(_, chat)| &chat.0 == reference)
+            .map(|(entity, _)| entity)
+    });
+    let open = session
+        .and_then(|session| world.get::<Transcript>(session))
+        .and_then(|transcript| {
+            transcript.items().iter().rev().find(|item| {
+                matches!(item.entry, Entry::Tool { exit: None, .. })
+            })
+        });
+    let change =
+        need.change.as_ref().or_else(|| match &open?.entry {
+            Entry::Tool { change, .. } => change.as_ref(),
+            _ => None,
         })?;
-    let Entry::Tool {
-        change: Some(change),
-        ..
-    } = &open.entry
-    else {
-        return None;
-    };
-    let path = need.about.lines().next()?;
-    path.starts_with(&change.path)
-        .then(|| (session, open.id, change.clone()))
+    Some((
+        session.unwrap_or(Entity::PLACEHOLDER),
+        open.map_or_else(
+            || waiting.id.clone(),
+            |item| item.id.clone(),
+        ),
+        change.clone(),
+    ))
 }
 
 fn strip(need: &Need) -> AnyView {
@@ -228,10 +280,9 @@ fn strip(need: &Need) -> AnyView {
         };
         let what = match need.kind {
             Kind::Approval(_) => "APPROVAL",
-            Kind::Objection(_) => "OBJECTION",
+            Kind::Objection => "OBJECTION",
             Kind::Question => "QUESTION",
             Kind::Fault => "FAULT",
-            Kind::Lapsed => "UNANSWERED",
         };
         let asked = match need.asked {
             1 => String::new(),
@@ -253,7 +304,7 @@ fn strip(need: &Need) -> AnyView {
                     .bold(true)
                     .tone(tone)
                     .tagged(DisplayText),
-                label(need.line(80)).size(13.0),
+                label(need.line.clone()).size(13.0),
                 about,
                 row((
                     button(&need, 0),
@@ -299,8 +350,7 @@ pub fn screen() -> impl View {
             column((note("Reason or reply, then answer"),))
                 .fills_width(),
             bad_action(Glyph::Stop, "STOP ALL", |world| {
-                let chief = world.resource::<Me>().user.clone();
-                world.trigger(Veto { agent: None, chief });
+                world.trigger(Veto { agent: None });
                 world.flush();
             }),
         ))
@@ -317,15 +367,7 @@ pub fn screen() -> impl View {
         scroll((each(
             // The time each has waited is part of the row.
             resource::<Queue, _>(|queue| queue.0.clone()),
-            |n: &Need| {
-                format!(
-                    "{:?}|{}|{}|{}",
-                    n.entity,
-                    n.asked,
-                    n.waited,
-                    n.about.len()
-                )
-            },
+            |n: &Need| format!("{n:?}"),
             strip,
         )
         .within(column(()).gap(8.0)),))
@@ -333,4 +375,155 @@ pub fn screen() -> impl View {
     ))
     .fills_height()
     .gap(12.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_client::outbox::Outbox;
+    use hamlet_protocol::v0;
+
+    use super::*;
+    use crate::me::tests::{panel_app, press, words};
+
+    #[test]
+    fn the_tags_check_and_cross_answer_the_received_wait() {
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let mut state = hamlet_testing::realm::state();
+        state
+            .waits
+            .push(hamlet_testing::realm::wait("tag-approval"));
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        let world = app.world_mut();
+        let wait = world
+            .query::<(Entity, &Waiting)>()
+            .iter(world)
+            .find(|(_, wait)| wait.id == "tag-approval")
+            .unwrap()
+            .0;
+        world.resource_mut::<Outbox>().drain().for_each(drop);
+        for (agree, choice) in
+            [(true, Choice::Allow), (false, Choice::Deny)]
+        {
+            world.trigger(TagAnswered { item: wait, agree });
+            world.flush();
+            let sent = world
+                .resource_mut::<Outbox>()
+                .drain()
+                .collect::<Vec<_>>();
+            let [v0::ClientMessage::Answer(answer)] = &sent[..]
+            else {
+                panic!("one answer: {sent:?}");
+            };
+            assert_eq!(answer.wait, "tag-approval");
+            assert_eq!(answer.choice, choice);
+            assert_eq!(answer.text, None);
+        }
+    }
+
+    #[test]
+    fn a_received_approval_offers_its_answers_and_stop_all() {
+        let mut app = panel_app();
+        let mut state = hamlet_testing::realm::state();
+        state.waits.push(hamlet_testing::realm::wait("approve-pwd"));
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        app.add_plugins(plugin);
+        app.update();
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            screen(),
+        );
+        app.update();
+        let shown = words(&mut app);
+        assert!(shown.iter().any(|text| text.starts_with("APPROVAL FROM FOUNDER")), "{shown:?}");
+        for text in [
+            "ALLOW ONCE",
+            "FOR THIS SESSION",
+            "DENY",
+            "1 THING NEEDS YOU",
+        ] {
+            assert!(
+                shown.iter().any(|shown| shown == text),
+                "missing {text}: {shown:?}"
+            );
+        }
+        press(&mut app, "ALLOW ONCE");
+        let allowed =
+            app.world().resource::<Outbox>().iter().any(|message| {
+                matches!(message, v0::ClientMessage::Answer(answer)
+                if answer.wait == "approve-pwd"
+                    && answer.choice == Choice::Allow)
+            });
+        assert!(allowed);
+        press(&mut app, "STOP ALL");
+        let stopped =
+            app.world().resource::<Outbox>().iter().any(|message| {
+                matches!(message, v0::ClientMessage::Stop(stop)
+                if stop.agent.is_none())
+            });
+        assert!(stopped);
+        let mut state = hamlet_testing::realm::state();
+        let mut wait = hamlet_testing::realm::wait("approve-pwd");
+        if let v0::Wait::Approval { about, .. } = &mut wait {
+            *about = "git".into();
+        }
+        state.waits.push(wait);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(words(&mut app).iter().any(|text| text == "git"));
+    }
+    #[test]
+    fn a_received_edits_change_is_shown_without_its_chat_transcript()
+    {
+        let mut app = panel_app();
+        app.add_plugins((crate::chat::plugin, plugin));
+        let mut state = hamlet_testing::realm::state();
+        let mut wait = hamlet_testing::realm::wait("edit");
+        if let v0::Wait::Approval {
+            danger,
+            change,
+            about,
+            ..
+        } = &mut wait
+        {
+            *danger = v0::WaitDanger::Edit;
+            *about = "orchard.md".into();
+            *change = Some(v0::Change {
+                path: "orchard.md".into(),
+                created: true,
+                lines: vec![],
+                total: 0,
+                added: 0,
+                removed: 0,
+                count: "A received change count".into(),
+            });
+        }
+        state.waits.push(wait);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        app.update();
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            screen(),
+        );
+        app.update();
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|text| text == "A received change count")
+        );
+    }
 }

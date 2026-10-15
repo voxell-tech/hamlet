@@ -14,7 +14,7 @@ pub mod wickstep;
 use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
-use hamlet_core::core::HomeDir;
+use hamlet_client::ViewDir;
 
 pub use self::look::{Cloak, Hat, Holds, Light, Look};
 pub use self::wickstep::{Mascot, Phase, Stay};
@@ -57,7 +57,7 @@ pub(super) fn plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            keep_place.run_if(resource_exists::<HomeDir>),
+            keep_place.run_if(resource_exists::<ViewDir>),
         );
 }
 
@@ -152,14 +152,14 @@ pub struct Beside(pub Option<Entity>);
 pub struct Stands(pub Vec2);
 
 impl Stands {
-    fn file(home: &Path, user: &str) -> PathBuf {
-        Look::file(home, user).with_extension("place")
+    fn file(view: &Path, user: &str) -> PathBuf {
+        Look::file(view, user).with_extension("place")
     }
 
     /// The place the chief `user` last set its place down at, if it
     /// has.
-    pub fn read(home: &Path, user: &str) -> Option<Stands> {
-        Self::read_at(&Self::file(home, user))
+    pub fn read(view: &Path, user: &str) -> Option<Stands> {
+        Self::read_at(&Self::file(view, user))
     }
 
     /// The spot the place whose file is `file` was last set down at.
@@ -174,10 +174,10 @@ impl Stands {
 
     pub fn write(
         self,
-        home: &Path,
+        view: &Path,
         user: &str,
     ) -> std::io::Result<()> {
-        self.write_at(&Self::file(home, user))
+        self.write_at(&Self::file(view, user))
     }
 
     /// Keeps where a place was set down in `file`.
@@ -232,13 +232,13 @@ pub fn arrive(world: &mut World, user: &str, look: Look) -> Entity {
 
 /// Keeps the place a chief set down.
 fn keep_place(
-    home: Res<HomeDir>,
+    view: Res<ViewDir>,
     placed: Query<(&Chief, &Stands), Changed<Stands>>,
 ) {
     for (chief, stands) in &placed {
         // One read back at launch is as it was written.
-        if Stands::read(&home.0.root, &chief.user) != Some(*stands) {
-            let _ = stands.write(&home.0.root, &chief.user);
+        if Stands::read(&view.0, &chief.user) != Some(*stands) {
+            let _ = stands.write(&view.0, &chief.user);
         }
     }
 }
@@ -250,4 +250,42 @@ pub fn named(world: &mut World, user: &str) -> Option<Entity> {
         .iter(world)
         .find(|(_, chief)| chief.user == user)
         .map(|(entity, _)| entity)
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use hamlet_client::ViewDir;
+    use hamlet_testing::Scratch;
+
+    use super::*;
+    use crate::generator::society::Society;
+    use crate::sky::Quality;
+
+    #[test]
+    fn a_wizards_place_is_kept_under_the_view_folder() {
+        let dir = Scratch::new("wizard-view-place");
+        let mut app = App::new();
+        crate::generator::testing::rehearse(&mut app);
+        app.insert_resource(ViewDir(dir.join("view")))
+            .init_resource::<Society>()
+            .init_resource::<Quality>()
+            .add_message::<crate::play::Played>()
+            .add_plugins(plugin);
+        let chief = arrive(app.world_mut(), "wren", Look::default());
+        let at = Stands(Vec2::new(412.5, -96.0));
+        app.world_mut().entity_mut(chief).insert(at);
+        app.update();
+        assert_eq!(Stands::read(&dir.join("view"), "wren"), Some(at));
+        assert_eq!(
+            std::fs::read_to_string(
+                dir.join("view/chiefs/wren.place")
+            )
+            .unwrap(),
+            "412.5 -96\n"
+        );
+        let to = Stands(Vec2::new(-240.0, 93.5));
+        app.world_mut().entity_mut(chief).insert(to);
+        app.update();
+        assert_eq!(Stands::read(&dir.join("view"), "wren"), Some(to));
+    }
 }

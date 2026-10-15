@@ -176,7 +176,7 @@ describe("the server's end of a connection", () => {
         });
         const connection = await open(server);
 
-        connection.send({ ...hello, token: "x".repeat(2 * 1024 * 1024) });
+        connection.send({ ...hello, token: "x".repeat(1024 * 1024) });
 
         // 1009 is RFC 6455's close for a message too big to take.
         expect(await connection.closed).toBe(1009);

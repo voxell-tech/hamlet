@@ -6,9 +6,10 @@ use bevy::camera::NormalizedRenderTarget;
 use bevy::picking::backend::HitData;
 use bevy::picking::pointer::{Location, PointerId};
 use bevy::time::TimeUpdateStrategy;
-use hamlet_core::agents::{Busy, Road, Treasury};
-use hamlet_home::limits::Caps;
-use hamlet_rules::budget::{Amount, Report, Standing};
+use hamlet_client::ClientPlugin;
+use hamlet_client::realm::{Busy, Road, Settlement};
+use hamlet_protocol::v0;
+use hamlet_testing::realm;
 
 use super::pool::gauge::shade;
 use super::toys::{Kind, Toy};
@@ -20,6 +21,7 @@ use crate::generator::land::Land;
 use crate::generator::society::{AgentId, TownId};
 use crate::generator::testing::{rehearse, stand_in};
 use crate::hamlet::Sited;
+use crate::hamlet::tests::{camera, receive_change, receive_state};
 use crate::keeper::Keeper;
 use crate::pick::{PickSettings, WorldSurface};
 use crate::play::{Play, Played};
@@ -65,7 +67,11 @@ impl Cast {
         .add_message::<Played>()
         .add_systems(Update, bubble::unpin)
         .add_systems(PostUpdate, collect);
-        app.add_plugins(plugin);
+        app.insert_resource(hamlet_client::realm::Deeds(vec![
+            "give".into(),
+            "road".into(),
+        ]))
+        .add_plugins(plugin);
         let (mut agents, mut robots, mut boxes) =
             (vec![], vec![], vec![]);
         for i in 1..=count {
@@ -593,6 +599,70 @@ fn a_file_dropped_on_a_robot_or_its_house_is_handed_to_its_agent() {
 }
 
 #[test]
+fn four_files_dropped_together_send_one_manifest_with_four_roots() {
+    use hamlet_client::outbox::Outbox;
+    use hamlet_client::realm::{Citizen, Deeds, LivesIn};
+    let dir = hamlet_testing::Scratch::new("hand-four-files");
+    let mut cast = Cast::new(1);
+    cast.app
+        .add_plugins(ClientPlugin { server: None })
+        .insert_resource(Deeds(vec!["give".into()]))
+        .add_message::<crate::moving::SetDown>()
+        .add_plugins(crate::orders::plugin);
+    let hamlet = cast
+        .app
+        .world_mut()
+        .spawn(Settlement {
+            name: "home".into(),
+        })
+        .id();
+    cast.app.world_mut().entity_mut(cast.agents[0]).insert((
+        Citizen(0),
+        Name::new("founder"),
+        LivesIn(hamlet),
+    ));
+    cast.hover(Some(Thing::ResidentHouse(cast.agents[0])));
+    for n in 0..4 {
+        let path = dir.join(format!("book-{n}.txt"));
+        std::fs::write(&path, "book").unwrap();
+        cast.app.world_mut().write_message(
+            FileDragAndDrop::DroppedFile {
+                window: Entity::PLACEHOLDER,
+                path_buf: path,
+            },
+        );
+    }
+    cast.run(0.1);
+    let messages = cast
+        .app
+        .world_mut()
+        .resource_mut::<Outbox>()
+        .drain()
+        .collect::<Vec<_>>();
+    let [
+        v0::ClientMessage::Give(v0::Give::Files {
+            files, to, ..
+        }),
+    ] = &messages[..]
+    else {
+        panic!("one manifest: {messages:?}");
+    };
+    assert_eq!(to.agent, "founder");
+    assert_eq!(
+        files
+            .iter()
+            .map(|file| (file.path.as_str(), file.size))
+            .collect::<Vec<_>>(),
+        [
+            ("book-0.txt", 4),
+            ("book-1.txt", 4),
+            ("book-2.txt", 4),
+            ("book-3.txt", 4)
+        ]
+    );
+}
+
+#[test]
 fn a_click_on_a_thinking_agents_light_pins_its_thought() {
     let mut cast = Cast::new(1);
     let light = cast
@@ -733,36 +803,35 @@ fn a_gift_lands_in_the_yard_and_two_robots_greet_where_they_stand() {
     assert_eq!((cast.act(0), cast.act(1)), (Act::Idle, Act::Idle));
 }
 
-fn standing(spent: u64, cap: u64) -> Standing {
-    Standing {
-        spent: Amount {
-            tokens: spent,
-            ..Amount::default()
-        },
-        caps: Caps {
-            tokens: Some(cap),
-            ..Caps::default()
-        },
-    }
-}
-
 #[test]
 fn the_meter_follows_the_budget() {
     let mut cast = Cast::new(1);
+    cast.app.add_plugins(ClientPlugin { server: None });
+    let mut state = realm::state();
+    state.hamlets[0].budget.left = Some(0.75);
+    state.hamlets[0].budget.remains =
+        Some("125 orchard credits".into());
+    state.hamlets[0].budget.period_words = "this harvest".into();
+    receive_state(&mut cast.app, state);
     let world = cast.app.world_mut();
-    let treasury = |spent: u64| {
-        Treasury(Report {
-            hamlet: standing(spent, 1000),
-            ..Report::default()
-        })
-    };
-    let hamlet = world.spawn((Sited(TownId(0)), treasury(250))).id();
+    let hamlet = world
+        .query_filtered::<Entity, With<Settlement>>()
+        .single(world)
+        .unwrap();
+    world.entity_mut(hamlet).insert(Sited(TownId(0)));
     world.spawn((
         Common { town: TownId(0) },
         Transform::default(),
         Visibility::default(),
     ));
+    let meter = cast.set().meter_at;
+    let target = Vec3::new(meter.x, 4.0, meter.y);
+    camera(&mut cast.app, target + Vec3::new(0.0, 6.0, 16.0), target);
     cast.run(0.2);
+    let world = cast.app.world_mut();
+    assert!(world.query::<&Text>().iter(world).any(
+        |text| text.0 == "125 orchard credits LEFT THIS HARVEST"
+    ));
 
     let heap = |cast: &mut Cast| {
         let world = cast.app.world_mut();
@@ -774,17 +843,23 @@ fn the_meter_follows_the_budget() {
     };
     assert_eq!(heap(&mut cast), [(0.75, Visibility::Inherited)]);
 
-    // Empty, the whole of the meter blinks.
-    let world = cast.app.world_mut();
-    world.entity_mut(hamlet).insert(treasury(1000));
-    let mut lit = HashSet::new();
-    for _ in 0..12 {
-        cast.run(0.1);
-        let (tall, seen) = heap(&mut cast)[0];
-        assert_eq!(tall, 1.0);
-        lit.insert(seen == Visibility::Inherited);
+    // Empty or overspent, the whole of the meter blinks.
+    for left in [0.0, -0.25] {
+        let mut changed = realm::hamlet("home");
+        changed.budget.left = Some(left);
+        receive_change(
+            &mut cast.app,
+            v0::Update::Hamlet { hamlet: changed },
+        );
+        let mut lit = HashSet::new();
+        for _ in 0..12 {
+            cast.run(0.1);
+            let (tall, seen) = heap(&mut cast)[0];
+            assert_eq!(tall, 1.0);
+            lit.insert(seen == Visibility::Inherited);
+        }
+        assert_eq!(lit.len(), 2);
     }
-    assert_eq!(lit.len(), 2);
     // The light's colour follows what is left: red at nothing,
     // green at all of it, and the two between in order.
     let stops =
@@ -794,4 +869,67 @@ fn the_meter_follows_the_budget() {
     assert_eq!(shade(&stops, 2.0 / 3.0), stops[2]);
     let low = shade(&stops, 1.0 / 6.0);
     assert_eq!(low, stops[0].lerp(stops[1], 0.5));
+}
+
+#[test]
+fn a_file_dropped_on_the_founder_begins_a_protocol_gift_without_a_house()
+ {
+    use hamlet_client::outbox::Outbox;
+    use hamlet_testing::Scratch;
+
+    let dir = Scratch::new("hand-founder-file");
+    let path = dir.join("list.txt");
+    std::fs::write(&path, "Dune").unwrap();
+    let mut cast = Cast::new(1);
+    cast.app
+        .add_plugins(ClientPlugin { server: None })
+        .add_message::<crate::moving::SetDown>()
+        .add_plugins(crate::orders::plugin);
+    let mut state = realm::state();
+    state.deeds = Some(vec!["give".into()]);
+    receive_state(&mut cast.app, state);
+    let founder =
+        hamlet_client::realm::mayor(cast.app.world_mut()).unwrap();
+    cast.app
+        .world_mut()
+        .entity_mut(cast.agents[0])
+        .remove::<Housed>();
+    cast.app
+        .world_mut()
+        .entity_mut(founder)
+        .insert(Housed(AgentId(1)));
+    cast.app
+        .world_mut()
+        .entity_mut(cast.boxes[0])
+        .insert(Thing::Keeper);
+    cast.hover(Some(Thing::Keeper));
+    cast.app.world_mut().write_message(
+        FileDragAndDrop::DroppedFile {
+            window: Entity::PLACEHOLDER,
+            path_buf: path,
+        },
+    );
+    cast.run(0.1);
+    let messages = cast
+        .app
+        .world_mut()
+        .resource_mut::<Outbox>()
+        .drain()
+        .collect::<Vec<_>>();
+    let [
+        v0::ClientMessage::Give(v0::Give::Files {
+            to, files, ..
+        }),
+    ] = &messages[..]
+    else {
+        panic!("one manifest: {messages:?}");
+    };
+    assert_eq!(to.agent, "founder");
+    assert_eq!(
+        files,
+        &[v0::GiveFilesFiles {
+            path: "list.txt".into(),
+            size: 4
+        }]
+    );
 }

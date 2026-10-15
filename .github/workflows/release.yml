@@ -61,7 +61,7 @@ jobs:
             libwayland-dev libxkbcommon-dev
 
       - name: Build
-        run: cargo build --release --locked -p hamlet --target ${{ matrix.target }}
+        run: cargo build --release --locked -p hamlet --bin hamlet-app --target ${{ matrix.target }}
 
       - name: Package
         shell: bash

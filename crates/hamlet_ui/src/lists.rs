@@ -9,7 +9,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, each, keyed, resource,
 };
-use hamlet_core::core::Skills;
+use hamlet_client::realm::Skills;
 
 use crate::dock::show_tab;
 use crate::icons::Glyph;
@@ -138,4 +138,37 @@ pub fn card(
             .transition(Motion::Expand),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_protocol::v0;
+    use hamlet_world::pick::{Selected, Thing};
+
+    use super::*;
+    use crate::me::tests::{panel_app, words};
+
+    #[test]
+    fn the_library_shows_the_clients_empty_shelf_and_received_skills()
+    {
+        let mut app = panel_app();
+        app.insert_resource(Selected(Some(Thing::Library)));
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            crate::inspector::screen(),
+        );
+        app.update();
+        assert!(words(&mut app).iter().any(|text| text.starts_with("The library is empty.")));
+        app.world_mut().resource_mut::<Skills>().0.push(
+            v0::PapersSkills {
+                name: "orchard".into(),
+                description: "Tends the trees".into(),
+            },
+        );
+        app.update();
+        let shown = words(&mut app);
+        assert!(shown.iter().any(|text| text == "orchard"));
+        assert!(shown.iter().any(|text| text == "Tends the trees"));
+        assert!(!shown.iter().any(|text| text.starts_with("The library is empty.")));
+    }
 }

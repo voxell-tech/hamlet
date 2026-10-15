@@ -1,5 +1,5 @@
 //! The world in the window: the 3D scene drawn into a dock panel, the
-//! sky's hour, and the mayor's state on the stage.
+//! sky's hour.
 
 use bevy::app::{App, PreUpdate, Update};
 use bevy::asset::{Assets, RenderAssetUsages};
@@ -29,19 +29,16 @@ use bevy::window::{PrimaryWindow, Window};
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_fynix::views::{BehaviorExt, frame};
 use chrono::Timelike;
-use hamlet_core::agents::Busy;
-use hamlet_core::oversight::Waiting;
-use hamlet_core::session::{Entry, Status, Transcript};
+use hamlet_client::realm::Busy;
+use hamlet_client::waits::Waiting;
 use hamlet_world::bubble::Bubble;
 use hamlet_world::hand::Readout;
-use hamlet_world::keeper::KState;
 use hamlet_world::needs::NeedTag;
 use hamlet_world::pick::{NameTag, Sign, WorldSurface};
 use hamlet_world::sky::SkySettings;
 use hamlet_world::{Hour, Stage, WorldCamera, WorldSystems};
 
 use crate::looks::Fills;
-use crate::me::Me;
 use crate::window::WorldShown;
 use crate::{AnyView, Cx};
 
@@ -288,51 +285,31 @@ pub(crate) fn adopt_tags(
     }
 }
 
-/// Sets the stage from the session this window talks to.
+/// The sky's night state.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive(
-    me: Res<Me>,
     sky: Res<TimeOfDay>,
     sky_set: Res<SkySettings>,
-    sessions: Query<(&Status, &Transcript)>,
     mut stage: ResMut<Stage>,
 ) {
-    let (working, failed) = match sessions.get(me.mayor) {
-        Ok((status, transcript)) => (
-            status.working(),
-            matches!(transcript.last(), Some(Entry::Error(_))),
-        ),
-        Err(_) => (false, false),
-    };
-    let kstate = match (working, failed) {
-        (true, _) => KState::Working,
-        (false, true) => KState::Fault,
-        (false, false) => KState::Rest,
-    };
-    let next = Stage {
-        night: sky.night(&sky_set),
-        kstate,
-        ..stage.clone()
-    };
-    if *stage != next {
-        *stage = next;
+    let night = sky.night(&sky_set);
+    if stage.night != night {
+        stage.night = night;
     }
 }
 
 /// Draws every frame while something moves, and at the window's slow
 /// tick otherwise.
 pub fn pace(
-    stage: Res<Stage>,
     busy: Query<(), With<Busy>>,
     waiting: Query<(), With<Waiting>>,
     mut winit: ResMut<WinitSettings>,
 ) {
-    let moving =
-        stage.animating() || !busy.is_empty() || !waiting.is_empty();
+    let moving = !busy.is_empty() || !waiting.is_empty();
     let mode = if moving {
         UpdateMode::Continuous
     } else {
-        crate::window::winit_settings(false).focused_mode
+        crate::window::winit_settings().focused_mode
     };
     if winit.focused_mode != mode {
         winit.focused_mode = mode;
@@ -350,5 +327,43 @@ pub fn draw(mut cameras: WorldCameras) {
 pub fn rest(mut cameras: WorldCameras) {
     for mut camera in &mut cameras {
         camera.is_active = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_protocol::v0;
+
+    use super::*;
+
+    #[test]
+    fn drawing_pace_follows_received_work_and_waits_without_a_stage()
+    {
+        let mut app = App::new();
+        app.add_plugins(hamlet_client::ClientPlugin { server: None });
+        app.insert_resource(crate::window::winit_settings());
+        app.add_systems(Update, pace);
+        let idle = crate::window::winit_settings().focused_mode;
+        for (busy, waiting, expected) in [
+            (false, false, idle),
+            (true, false, UpdateMode::Continuous),
+            (false, true, UpdateMode::Continuous),
+            (false, false, idle),
+        ] {
+            let mut state = hamlet_testing::realm::state();
+            state.agents[0].busy = busy;
+            if waiting {
+                state.waits.push(hamlet_testing::realm::wait("pace"));
+            }
+            hamlet_client::receive(
+                app.world_mut(),
+                v0::ServerMessage::State(state),
+            );
+            app.update();
+            assert_eq!(
+                app.world().resource::<WinitSettings>().focused_mode,
+                expected
+            );
+        }
     }
 }

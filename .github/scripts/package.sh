@@ -28,7 +28,7 @@ case $target in
   *-apple-darwin)
     app=$stage/Hamlet.app
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-    cp "$built/hamlet" "$app/Contents/MacOS/hamlet"
+    cp "$built/hamlet-app" "$app/Contents/MacOS/hamlet-app"
 
     # The icon, at every size the system asks for.
     icons=$(mktemp -d)/Hamlet.iconset
@@ -49,7 +49,7 @@ case $target in
   <key>CFBundleName</key><string>Hamlet</string>
   <key>CFBundleDisplayName</key><string>Hamlet</string>
   <key>CFBundleIdentifier</key><string>gg.hamlet.app</string>
-  <key>CFBundleExecutable</key><string>hamlet</string>
+  <key>CFBundleExecutable</key><string>hamlet-app</string>
   <key>CFBundleIconFile</key><string>Hamlet</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${version#v}</string>
@@ -65,11 +65,11 @@ PLIST
     ditto -c -k --keepParent "$app" "dist/$name.zip"
     ;;
   *-pc-windows-*)
-    cp "$built/hamlet.exe" "$stage/"
+    cp "$built/hamlet-app.exe" "$stage/"
     (cd dist && 7z a -bso0 "$name.zip" "$name")
     ;;
   *)
-    cp "$built/hamlet" "$stage/"
+    cp "$built/hamlet-app" "$stage/"
     tar -C dist -czf "dist/$name.tar.gz" "$name"
     ;;
 esac

@@ -227,3 +227,20 @@ fn a_loop_has_no_seam() {
         assert!(seam <= largest, "{sound:?} {seam} {largest}");
     }
 }
+
+#[test]
+fn a_stop_sounds_once_for_one_agent_or_every_agent() {
+    use hamlet_client::messages::Veto;
+    let mut app = App::new();
+    app.add_message::<crate::play::Played>().add_plugins(plugin);
+    for agent in [None, Some(Entity::PLACEHOLDER)] {
+        app.world_mut().trigger(Veto { agent });
+        let cues = app
+            .world_mut()
+            .resource_mut::<Messages<Cue>>()
+            .drain()
+            .map(|cue| cue.sound)
+            .collect::<Vec<_>>();
+        assert_eq!(cues, [Sound::Stopped]);
+    }
+}

@@ -5,17 +5,13 @@ import {
 } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { expect, vi } from "vitest";
 import type { Script } from "../src/faux.ts";
 import { closeAfter, scratch } from "./support.ts";
 
-/** The `hamlet` command as package.json runs it, with node first. */
-export const [, ...flags] = (
-    JSON.parse(
-        readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-    ) as { scripts: { hamlet: string } }
-).scripts.hamlet.split(" ");
+const executable = fileURLToPath(new URL("../bin/hamlet", import.meta.url));
 
 /** A run of the `hamlet` command, with what it printed so far. */
 export type Run = {
@@ -33,7 +29,7 @@ export function hamlet(
     input?: string,
     env: NodeJS.ProcessEnv = {},
 ): Run {
-    const child = spawn(process.execPath, [...flags, ...args], {
+    const child = spawn(executable, args, {
         cwd: new URL("..", import.meta.url),
         env: {
             ...process.env,
@@ -129,7 +125,7 @@ finally:
 `;
     const result = await promisify(execFile)(
         "python3",
-        ["-c", python, process.execPath, ...flags, ...args],
+        ["-c", python, executable, ...args],
         {
             cwd: new URL("..", import.meta.url),
             env: {

@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use hamlet_core::agents::{
+use hamlet_client::realm::{
     Citizen, Left, Lived, LivesIn, MergedInto, Settlement, Spot,
 };
 

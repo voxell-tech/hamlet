@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
-import { access, mkdtemp, rm } from "node:fs/promises";
-import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { access, rmdir } from "node:fs/promises";
+import { delimiter, isAbsolute, resolve } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import {
     type BinaryReader,
@@ -19,6 +19,7 @@ import {
     type WatchTarget,
 } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { Files } from "./files.ts";
 import {
     type Limits,
     limitsOf,
@@ -28,32 +29,12 @@ import {
     readable,
     writable,
 } from "./policy.ts";
-import { platformSandbox, type Sandbox } from "./sandbox.ts";
+import { limited, platformSandbox, type Sandbox } from "./sandbox.ts";
 
 type Reach = "read" | "write" | "move";
 
 // A byte-order mark is kept, as the node environment keeps it.
 const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
-
-/** `argv`, run by bash once `limits` hold for it and for every process it starts. */
-function limited(limits: Limits, argv: readonly string[]): string[] {
-    // bash counts a file's size in blocks of 1024 bytes. A limit is only
-    // lowered, so where the machine allows less, its own limit stays.
-    const script = (
-        [
-            ["t", limits.cpuSecs],
-            ["u", limits.maxProcs],
-            ["f", limits.maxFileMb * 1024],
-            ["c", 0],
-        ] as const
-    )
-        .map(
-            ([flag, value]) =>
-                `ulimit -${flag} ${value} 2>/dev/null || ulimit -${flag} hard`,
-        )
-        .join("\n");
-    return ["bash", "-c", `${script}\nexec "$@"`, "bash", ...argv];
-}
 
 /** An `ExecutionEnv` whose commands and file operations keep to a policy (S12, C18). */
 export class SandboxEnv extends NodeExecutionEnv {
@@ -64,6 +45,7 @@ export class SandboxEnv extends NodeExecutionEnv {
     readonly #sandbox: Sandbox;
     readonly #tmp: string;
     readonly #scoped: boolean;
+    readonly #files: Files;
 
     constructor(options: {
         cwd: string;
@@ -79,6 +61,12 @@ export class SandboxEnv extends NodeExecutionEnv {
         this.policyHash = policyHash(options.policy, this.#sandbox.name);
         this.#tmp = privateTmp(options.policy, options.tmpScope);
         this.#scoped = options.tmpScope !== undefined;
+        this.#files = new Files(
+            this.#policy,
+            this.#sandbox,
+            this.cwd,
+            this.#tmp,
+        );
     }
 
     override async exec(
@@ -128,7 +116,11 @@ export class SandboxEnv extends NodeExecutionEnv {
         if (refused) return err(refused);
         // A lossy read would let an edit write the replacement characters
         // back over the file.
-        const bytes = await super.readBinaryFile(path, context);
+        const bytes = await this.#call<Uint8Array>(
+            "readBinaryFile",
+            [path],
+            context,
+        );
         if (!bytes.ok) return bytes;
         try {
             return ok(STRICT_UTF8.decode(bytes.value));
@@ -144,7 +136,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         context: Context,
     ): Promise<Result<TextLineReader, FileError>> {
         const refused = await this.#refused(path, "read", context);
-        return refused ? err(refused) : super.openTextLineReader(path, context);
+        return refused ? err(refused) : this.#lines(path, context);
     }
 
     override async readTextLines(
@@ -155,7 +147,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         const refused = await this.#refused(path, "read", context);
         return refused
             ? err(refused)
-            : super.readTextLines(path, options, context);
+            : this.#call("readTextLines", [path, options], context);
     }
 
     override async readBinaryFile(
@@ -163,7 +155,9 @@ export class SandboxEnv extends NodeExecutionEnv {
         context: Context,
     ): Promise<Result<Uint8Array, FileError>> {
         const refused = await this.#refused(path, "read", context);
-        return refused ? err(refused) : super.readBinaryFile(path, context);
+        return refused
+            ? err(refused)
+            : this.#call("readBinaryFile", [path], context);
     }
 
     override async openBinaryReader(
@@ -172,9 +166,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         context: Context,
     ): Promise<Result<BinaryReader, FileError>> {
         const refused = await this.#refused(path, "read", context);
-        return refused
-            ? err(refused)
-            : super.openBinaryReader(path, options, context);
+        return refused ? err(refused) : this.#binary(path, options, context);
     }
 
     override async listDir(
@@ -182,7 +174,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         context: Context,
     ): Promise<Result<FileInfo[], FileError>> {
         const refused = await this.#refused(path, "read", context);
-        return refused ? err(refused) : super.listDir(path, context);
+        return refused ? err(refused) : this.#call("listDir", [path], context);
     }
 
     override async openDirReader(
@@ -190,7 +182,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         context: Context,
     ): Promise<Result<DirReader, FileError>> {
         const refused = await this.#refused(path, "read", context);
-        return refused ? err(refused) : super.openDirReader(path, context);
+        return refused ? err(refused) : this.#dir(path, context);
     }
 
     override async watch(
@@ -202,7 +194,7 @@ export class SandboxEnv extends NodeExecutionEnv {
             const refused = await this.#refused(path, "read", context);
             if (refused) return err(refused);
         }
-        return super.watch(targets, onChange, context);
+        return this.#watch(targets, onChange, context);
     }
 
     override async writeFile(
@@ -211,7 +203,9 @@ export class SandboxEnv extends NodeExecutionEnv {
         context: Context,
     ): Promise<Result<void, FileError>> {
         const refused = await this.#refused(path, "write", context);
-        return refused ? err(refused) : super.writeFile(path, content, context);
+        return refused
+            ? err(refused)
+            : this.#call("writeFile", [path, content], context);
     }
 
     override async appendFile(
@@ -222,7 +216,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         const refused = await this.#refused(path, "write", context);
         return refused
             ? err(refused)
-            : super.appendFile(path, content, context);
+            : this.#call("appendFile", [path, content], context);
     }
 
     override async truncateFile(
@@ -231,7 +225,9 @@ export class SandboxEnv extends NodeExecutionEnv {
         context: Context,
     ): Promise<Result<void, FileError>> {
         const refused = await this.#refused(path, "write", context);
-        return refused ? err(refused) : super.truncateFile(path, size, context);
+        return refused
+            ? err(refused)
+            : this.#call("truncateFile", [path, size], context);
     }
 
     override async flushFile(
@@ -239,7 +235,9 @@ export class SandboxEnv extends NodeExecutionEnv {
         context: Context,
     ): Promise<Result<void, FileError>> {
         const refused = await this.#refused(path, "write", context);
-        return refused ? err(refused) : super.flushFile(path, context);
+        return refused
+            ? err(refused)
+            : this.#call("flushFile", [path], context);
     }
 
     override async renameFile(
@@ -252,7 +250,7 @@ export class SandboxEnv extends NodeExecutionEnv {
             (await this.#refused(destinationPath, "move", context));
         return refused
             ? err(refused)
-            : super.renameFile(sourcePath, destinationPath, context);
+            : this.#call("renameFile", [sourcePath, destinationPath], context);
     }
 
     override async createDir(
@@ -261,7 +259,9 @@ export class SandboxEnv extends NodeExecutionEnv {
         context: Context,
     ): Promise<Result<void, FileError>> {
         const refused = await this.#refused(path, "write", context);
-        return refused ? err(refused) : super.createDir(path, options, context);
+        return refused
+            ? err(refused)
+            : this.#call("createDir", [path, options], context);
     }
 
     override async remove(
@@ -270,26 +270,156 @@ export class SandboxEnv extends NodeExecutionEnv {
         context: Context,
     ): Promise<Result<void, FileError>> {
         const refused = await this.#refused(path, "move", context);
-        return refused ? err(refused) : super.remove(path, options, context);
+        return refused
+            ? err(refused)
+            : this.#call("remove", [path, options], context);
     }
 
     override async createTempDir(
         prefix: string | undefined,
         context: Context,
     ): Promise<Result<string, FileError>> {
-        if (context.abortSignal?.aborted) {
-            return err(new FileError("aborted", "aborted"));
-        }
-        try {
-            return ok(await mkdtemp(join(this.#tmp, prefix ?? "tmp-")));
-        } catch (error) {
-            return err(new FileError("unknown", String(error), this.#tmp));
-        }
+        return this.#call("createTempDir", [prefix], context);
+    }
+
+    override async createTempFile(
+        options: { prefix?: string; suffix?: string } | undefined,
+        context: Context,
+    ): Promise<Result<string, FileError>> {
+        return this.#call("createTempFile", [options], context);
+    }
+
+    override async fileInfo(
+        path: string,
+        context: Context,
+    ): Promise<Result<FileInfo, FileError>> {
+        const refused = await this.#refused(path, "read", context);
+        return refused ? err(refused) : this.#call("fileInfo", [path], context);
+    }
+
+    override async canonicalPath(
+        path: string,
+        context: Context,
+    ): Promise<Result<string, FileError>> {
+        const refused = await this.#refused(path, "read", context);
+        return refused
+            ? err(refused)
+            : this.#call("canonicalPath", [path], context);
+    }
+
+    /** A house shelf listed and read in one sandboxed call. */
+    async skillShelf(
+        path: string,
+        contents: boolean,
+        context: Context,
+    ): Promise<Result<import("../skill-paper.ts").SkillPaper[], FileError>> {
+        const refused = await this.#refused(path, "read", context);
+        return refused
+            ? err(refused)
+            : this.#call("skills", [path, contents], context);
     }
 
     override async cleanup(context: Context): Promise<void> {
         await super.cleanup(context);
-        if (this.#scoped) await rm(this.#tmp, { recursive: true, force: true });
+        await this.#files.close();
+        if (this.#scoped) {
+            await this.exec(["rm", "-rf", "--", this.#tmp], undefined, context);
+            // A mounted temp root can only be removed after its sandbox ends.
+            await rmdir(this.#tmp).catch(() => undefined);
+        }
+    }
+
+    #call<T>(
+        method: string,
+        args: unknown[],
+        context: Context,
+    ): Promise<Result<T, FileError>> {
+        return this.#files.call(method, args, context, this.cwd);
+    }
+
+    async #lines(
+        path: string,
+        context: Context,
+    ): Promise<Result<TextLineReader, FileError>> {
+        const opened = await this.#call<number>(
+            "openTextLineReader",
+            [path],
+            context,
+        );
+        if (!opened.ok) return opened;
+        const id = opened.value;
+        return ok({
+            readLine: (context) =>
+                this.#call("handle", [id, "readLine"], context),
+            close: async (context) => {
+                await this.#call("handle", [id, "close"], context);
+            },
+        });
+    }
+
+    async #binary(
+        path: string,
+        options: { noFollow?: boolean } | undefined,
+        context: Context,
+    ): Promise<Result<BinaryReader, FileError>> {
+        const opened = await this.#call<number>(
+            "openBinaryReader",
+            [path, options],
+            context,
+        );
+        if (!opened.ok) return opened;
+        const id = opened.value;
+        return ok({
+            info: (context) => this.#call("handle", [id, "info"], context),
+            read: (offset, length, context) =>
+                this.#call("handle", [id, "read", offset, length], context),
+            scanLines: (options, context) =>
+                this.#call("handle", [id, "scanLines", options], context),
+            close: async (context) => {
+                await this.#call("handle", [id, "close"], context);
+            },
+        });
+    }
+
+    async #dir(
+        path: string,
+        context: Context,
+    ): Promise<Result<DirReader, FileError>> {
+        const opened = await this.#call<number>(
+            "openDirReader",
+            [path],
+            context,
+        );
+        if (!opened.ok) return opened;
+        const id = opened.value;
+        return ok({
+            next: (maxEntries, context) =>
+                this.#call("handle", [id, "next", maxEntries], context),
+            close: async (context) => {
+                await this.#call("handle", [id, "close"], context);
+            },
+        });
+    }
+
+    async #watch(
+        targets: readonly WatchTarget[],
+        onChange: (change: WatchChange) => void,
+        context: Context,
+    ): Promise<Result<FileWatcher, FileError>> {
+        const opened = await this.#files.call<{
+            handle: number;
+            event: number;
+            mode: "native" | "polling";
+        }>("watch", [targets], context, this.cwd, onChange);
+        if (!opened.ok) return opened;
+        const { handle, event, mode } = opened.value;
+        return ok({
+            mode,
+            close: async (context) => {
+                this.#files.unlisten(event);
+                await this.#call("handle", [handle, "close"], context);
+            },
+        });
     }
 
     /** The reason the policy refuses `path` to `reach`, or `undefined` when it allows it. */

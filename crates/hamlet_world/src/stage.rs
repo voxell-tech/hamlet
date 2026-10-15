@@ -2,8 +2,6 @@
 
 use bevy::prelude::*;
 
-use crate::keeper::KState;
-
 /// Scene time. Stills freeze it so that every run renders the same
 /// frame.
 #[derive(Resource, Default)]
@@ -18,11 +16,10 @@ pub(crate) fn tick(time: Res<Time>, mut clock: ResMut<Clock>) {
     }
 }
 
-/// The sky and the mayor's state, as the owner of the app sets them.
+/// The sky and depth of field, as the owner of the app sets them.
 #[derive(Resource, Clone, PartialEq)]
 pub struct Stage {
     pub night: bool,
-    pub kstate: KState,
     /// Mild tilt-shift blur in the far views.
     pub dof: bool,
 }
@@ -31,15 +28,7 @@ impl Default for Stage {
     fn default() -> Self {
         Stage {
             night: false,
-            kstate: KState::Rest,
             dof: true,
         }
-    }
-}
-
-impl Stage {
-    /// True while the mayor moves, so frames must keep coming.
-    pub fn animating(&self) -> bool {
-        self.kstate.animates()
     }
 }

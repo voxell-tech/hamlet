@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
-use hamlet_core::agents::Treasury;
+use hamlet_client::realm::Treasury;
 
 pub(super) mod gauge;
 
@@ -105,10 +105,10 @@ pub(super) fn readouts(
         let words =
             hamlets.get(meter.hamlet).ok().and_then(|treasury| {
                 let report = &treasury.0;
-                let left = report.hamlet.remains()?;
+                let left = report.remains.as_deref()?;
                 Some(format!(
                     "{left} LEFT {}",
-                    report.period.to_uppercase()
+                    report.period_words.to_uppercase()
                 ))
             });
         let point = words
@@ -224,7 +224,7 @@ pub(super) fn meters(
     }
     let budget = |hamlet: Entity| {
         let report = &hamlets.get(hamlet).ok()?.2?.0;
-        Some((report.hamlet.left()?, report.gone))
+        Some((report.left?, report.gone as f32))
     };
     let lit = blinks(&clock, &set);
     let dark = sky.look.candle;
@@ -232,7 +232,8 @@ pub(super) fn meters(
         &mut levels
     {
         // A budget with no cap is whole.
-        let left = budget(level.hamlet).map_or(1.0, |(left, _)| left);
+        let left =
+            budget(level.hamlet).map_or(1.0, |(left, _)| left as f32);
         // Spent, the whole of it blinks red: an alarm, where a
         // dark meter would say nothing.
         let empty = left <= 0.0;

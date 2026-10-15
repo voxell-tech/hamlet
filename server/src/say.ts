@@ -3,7 +3,7 @@ import type { Submission } from "@earendil-works/pi-durable";
 import { ChatDoc, submitLine } from "./chats.ts";
 import { readCommand } from "./commands.ts";
 import { answerWords } from "./gate.ts";
-import { giveSkill } from "./gifts.ts";
+import { giftSkill } from "./gifts.ts";
 import { GrantsDoc, grantsOf, revoke } from "./grants.ts";
 import { agentKey, HOME } from "./hamlet.ts";
 import { historyOf } from "./history.ts";
@@ -128,11 +128,16 @@ export async function say(
                             command.mode,
                             context,
                         )
-                      : await giveSkill(
+                      : await giftSkill(
                             home,
-                            message.to.hamlet,
-                            command.agent,
+                            { hamlet: message.to.hamlet, agent: command.agent },
                             command.skill,
+                            command.from === undefined
+                                ? undefined
+                                : {
+                                      hamlet: message.to.hamlet,
+                                      agent: command.from,
+                                  },
                             context,
                         );
             return reply(message.id, text);

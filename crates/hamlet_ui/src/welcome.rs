@@ -1,540 +1,350 @@
-//! The first-run screen: leads the chief of a home that was never
-//! set up to a model that answers, by a provider's key or by a
-//! server on this computer.
-
-use std::path::Path;
+//! First-run setup through the server's settings, models and logins.
 
 mod pages;
+mod providers;
 
-use bevy::app::{App, Update};
+use std::collections::BTreeMap;
+
+use bevy::app::{App, PostUpdate, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::hierarchy::Children;
+use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input_focus::InputFocus;
 use bevy::text::EditableText;
-use hamlet_core::core::{
-    HomeDir, Link, ListModels, Model, SaveSettings, Settings, SignIn,
-    Signing, TestConnection, Trial, TryModel,
-};
-use hamlet_model::catalogue::{self, Catalogue, Listed};
-use hamlet_model::chatgpt;
-use hamlet_model::config::providers::{
-    LOCAL, OPENROUTER, OTHER, PROVIDERS, served,
-};
-use hamlet_model::config::{Config, Endpoint};
+use hamlet_client::Connection;
+use hamlet_client::connection::State;
+use hamlet_client::messages::{Reconnected, Response};
+use hamlet_client::outbox::Outbox;
+use hamlet_client::realm::Settings;
+use hamlet_protocol::v0;
 
 pub use self::pages::view;
-use crate::settings::Pane;
+pub use self::providers::Browser;
 
-const NOTHING_LOCAL: &str = "No model server answered here. Install \
-                             Ollama from ollama.com, download a \
-                             model, then choose Look Again.";
+/// The empty local-model search, referring to the server's machine.
+pub const NOTHING_LOCAL: &str = "No model server answered on the \
+                                 server's machine. Install Ollama \
+                                 from ollama.com there, download a \
+                                 model, then choose Look Again.";
 
-/// Opens the screen on a home that was never set up.
 pub(crate) fn plugin(app: &mut App) {
-    let home = &app.world().resource::<HomeDir>().0.root;
-    let replay = app.world().resource::<Model>().replay;
-    let welcome = Welcome::at_launch(home, replay);
-    app.insert_resource(welcome)
+    app.init_resource::<Welcome>()
         .init_resource::<Committing>()
-        .add_systems(
-            Update,
-            (
-                run_committed
-                    .run_if(|waits: Res<Committing>| waits.waits()),
-                follow,
-                read_narrow,
-            ),
-        );
+        .init_resource::<providers::Browser>()
+        .init_resource::<providers::Login>()
+        .add_observer(answered)
+        .add_observer(|_: On<Reconnected>, mut commands: Commands| {
+            commands.queue(providers::reconnected);
+        })
+        .add_systems(PostUpdate, providers::mask)
+        .add_systems(Update, (follow, run_committed, read_narrow));
 }
 
-/// The step of the screen the chief is at.
+/// A page of first-run setup.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum Step {
-    /// The two ways in.
     #[default]
     Choice,
-    /// A provider and its key.
     Key,
-    /// The chief is approving in a browser.
     SignIn,
-    /// The search for a server on this computer.
     Local,
-    /// The models of whoever answered.
     Models,
 }
 
-/// The first-run screen: its being open, and the choices and words of
-/// the chief on it.
+/// The first-run page and its received answers.
 #[derive(Resource, Default)]
 pub struct Welcome {
     pub open: bool,
-    /// It is adding a place for models to a home that has its model
-    /// already, which it then leaves as it is.
     pub adding: bool,
     pub step: Step,
-    /// The provider chosen, by its place in the list. Past the
-    /// list's end for an address the chief types.
-    pub provider: usize,
-    url: String,
-    key: String,
-    narrow: String,
-    /// The endpoint that was asked last.
-    asked: Option<Endpoint>,
-    /// The settings whose default model is being asked for a word.
-    trying: Option<Config>,
-    /// Its answer is still awaited.
     pub asking: bool,
-    /// The sign-in in the browser that is awaited.
-    pub signing: Option<SignIn>,
-    /// The server on this computer that is being tried.
-    local: usize,
-    /// The name of whoever answered, as the chief knows them, and
-    /// their models.
     pub from: String,
     pub models: Vec<String>,
-    /// The reason the last thing asked did not work, with what to
-    /// do.
     pub problem: Option<String>,
+    connection: Option<String>,
+    narrow: String,
+    manual: bool,
+    trying: bool,
+    requests: BTreeMap<String, Asked>,
 }
 
-impl Welcome {
-    /// The screen as a launch finds it: open on a home that was
-    /// never set up.
-    pub(crate) fn at_launch(home: &Path, replay: bool) -> Welcome {
-        Welcome {
-            open: !replay && unset(home),
-            ..Welcome::default()
-        }
-    }
+#[derive(Clone)]
+enum Asked {
+    Models,
+    Check(bool),
+    Pick,
 }
 
-/// Nobody chose the home's model: it has no settings of its own, and
-/// none was named for this run.
-fn unset(home: &Path) -> bool {
-    !Config::saved(home) && std::env::var_os("HAMLET_MODEL").is_none()
-}
-
-/// A step of the screen that waits for the field being edited to
-/// commit its text.
-#[derive(Clone, Copy)]
-enum Act {
-    Provider(usize),
-    Connect,
-}
-
-/// The step that runs a few frames from now, once the field that
-/// lost the focus has committed its text.
+/// A pending field commit before a button's action.
 #[derive(Resource, Default)]
-pub struct Committing(Option<(Act, u8)>);
+pub struct Committing(Option<u8>);
 
 impl Committing {
-    /// A step is about to run.
     pub fn waits(&self) -> bool {
         self.0.is_some()
     }
 }
 
-fn request(world: &mut World, act: Act) {
-    world.resource_mut::<InputFocus>().clear();
-    world.resource_mut::<Committing>().0 = Some((act, 3));
-}
-
 fn run_committed(world: &mut World) {
-    let Some((act, frames)) = world.resource::<Committing>().0 else {
+    let Some(frames) = world.resource::<Committing>().0 else {
         return;
     };
     if frames > 0 {
-        world.resource_mut::<Committing>().0 =
-            Some((act, frames - 1));
-        return;
-    }
-    world.resource_mut::<Committing>().0 = None;
-    match act {
-        Act::Provider(which) => {
-            let mut welcome = world.resource_mut::<Welcome>();
-            welcome.provider = which;
-            welcome.problem = None;
-        }
-        Act::Connect => connect(world),
+        world.resource_mut::<Committing>().0 = Some(frames - 1);
+    } else {
+        world.resource_mut::<Committing>().0 = None;
+        providers::reply(world);
     }
 }
 
-/// Opens the screen from its start.
+fn commit(world: &mut World) {
+    if let Some(mut focus) = world.get_resource_mut::<InputFocus>() {
+        focus.clear();
+    }
+    world.resource_mut::<Committing>().0 = Some(3);
+}
+
+/// The setup screen from its first page.
 pub fn again(world: &mut World) {
-    *world.resource_mut::<Welcome>() = Welcome {
-        open: true,
-        ..Welcome::default()
-    };
-}
-
-/// Opens the screen to add another place for models, by the same
-/// steps a home is first set up with.
-pub fn add(world: &mut World) {
-    *world.resource_mut::<Welcome>() = Welcome {
-        open: true,
-        adding: true,
-        ..Welcome::default()
-    };
-}
-
-/// Puts the endpoint that answered among the home's, lists what it
-/// serves, and shows the models for the chief to allow.
-fn added(world: &mut World) {
-    let Some(endpoint) = world.resource::<Welcome>().asked.clone()
-    else {
-        return;
-    };
-    let mut config = world.resource::<Settings>().config.clone();
-    settle(&mut config, endpoint);
-    world.trigger(SaveSettings(config));
-    if let Some(why) = world.resource::<Settings>().error.clone() {
-        let mut welcome = world.resource_mut::<Welcome>();
-        welcome.problem =
-            Some(format!("It could not be saved. ({why})"));
-        return;
-    }
-    world.trigger(ListModels);
-    *world.resource_mut::<Pane>() = Pane::Models;
     close(world);
+    *world.resource_mut::<Welcome>() = Welcome {
+        open: true,
+        manual: true,
+        ..Default::default()
+    };
+}
+
+/// Setup for another provider, keeping the current model.
+pub fn add(world: &mut World) {
+    again(world);
+    world.resource_mut::<Welcome>().adding = true;
 }
 
 fn close(world: &mut World) {
+    providers::cancel(world);
     *world.resource_mut::<Welcome>() = Welcome::default();
 }
 
 fn go(world: &mut World, step: Step) {
+    providers::cancel(world);
     let mut welcome = world.resource_mut::<Welcome>();
     welcome.step = step;
     welcome.asking = false;
-    welcome.signing = None;
-    welcome.trying = None;
     welcome.problem = None;
     welcome.narrow.clear();
+    welcome.requests.clear();
 }
 
-/// Asks `endpoint` for its models. The answer lands in [`Link`].
-fn test(endpoint: &Endpoint) -> TestConnection {
-    TestConnection(Config {
-        model: catalogue::named(&endpoint.name, ""),
-        endpoints: vec![endpoint.clone()],
-        ..Config::default()
-    })
-}
-
-fn ask(world: &mut World, endpoint: Endpoint, from: &str) {
-    let asking = test(&endpoint);
+fn read_models(world: &mut World, refresh: bool) {
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        v0::ClientMessage::Read(v0::Read::Models {
+            id,
+            refresh: Some(refresh),
+        })
+    });
     let mut welcome = world.resource_mut::<Welcome>();
-    welcome.asked = Some(endpoint);
-    welcome.from = from.to_string();
+    welcome.requests.insert(id, Asked::Models);
     welcome.asking = true;
-    welcome.problem = None;
-    world.trigger(asking);
 }
 
-/// Asks the provider chosen, with the key typed.
-fn connect(world: &mut World) {
-    let welcome = world.resource::<Welcome>();
-    let key = welcome.key.trim().to_string();
-    let known = PROVIDERS.get(welcome.provider);
-    let base_url = match known {
-        Some(provider) => provider.base_url.to_string(),
-        None => welcome.url.trim().to_string(),
-    };
-    let problem = if base_url.is_empty() {
-        Some("Type the address where your model runs first.")
-    } else if !base_url.contains("://") {
-        Some("The address should start with https:// or http://.")
-    } else if known.is_some() && key.is_empty() {
-        Some("Paste your key first.")
-    } else {
-        None
-    };
-    if let Some(why) = problem {
-        world.resource_mut::<Welcome>().problem = Some(why.into());
-        return;
-    }
-    let endpoint = Endpoint {
-        name: known
-            .map_or(OTHER, |provider| provider.endpoint)
-            .into(),
-        base_url,
-        chatgpt: false,
-        api_key: (!key.is_empty()).then_some(key),
-    };
-    let from = known.map_or("It", |provider| provider.name);
-    ask(world, endpoint, from);
+fn check(world: &mut World, model: bool) {
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        v0::ClientMessage::Check(if model {
+            v0::Check::Model { id, model: None }
+        } else {
+            v0::Check::Connection { id }
+        })
+    });
+    world
+        .resource_mut::<Welcome>()
+        .requests
+        .insert(id, Asked::Check(model));
 }
 
-/// Sends the chief to sign in in a browser: to OpenRouter, to come
-/// back with a key, or to ChatGPT, to come back signed in to the
-/// plan.
-fn sign_in(world: &mut World, to: SignIn) {
-    go(world, Step::SignIn);
-    world.resource_mut::<Welcome>().signing = Some(to);
-    world.trigger(to);
-}
-
-/// Looks for a server on this computer, the first of the list
-/// first.
 fn look(world: &mut World) {
     go(world, Step::Local);
-    world.resource_mut::<Welcome>().local = 0;
-    ask(world, served(&LOCAL[0]), LOCAL[0].name);
+    world.resource_mut::<Welcome>().from =
+        "The server's endpoints".into();
+    check(world, false);
+    read_models(world, true);
 }
 
-/// The reason an endpoint did not list its models, or a model of it
-/// did not answer (`tried`), in plain words with what to do next.
-fn plainly(why: &str, tried: bool) -> String {
-    let low = why.to_lowercase();
-    let said = |status: u16| low.contains(&format!("http {status}"));
-    // Its errors are written to be shown as they are.
-    if low.contains("chatgpt") {
-        why.chars().take(400).collect()
-    } else if said(401) || said(403) || low.contains("api key") {
-        "That key was not accepted. Check that you copied all of it \
-         and that it is still active."
-            .into()
-    } else if said(402)
-        || ["credit", "quota", "billing"]
-            .iter()
-            .any(|word| low.contains(word))
-    {
-        "Your provider account has no credit left. Add some, then \
-         try again."
-            .into()
-    } else if low.contains("could not reach") {
-        "Could not reach it. Check your connection and the address."
-            .into()
-    } else if low.contains("in time") {
-        "It took too long to answer. Try again, or pick a smaller \
-         model."
-            .into()
-    } else if tried {
-        let short = why.chars().take(160).collect::<String>();
-        format!(
-            "That model did not answer a hello. Pick another one. \
-             ({short})"
-        )
-    } else if said(404) {
-        "That address did not answer as a model provider. It usually \
-         ends in /v1."
-            .into()
-    } else {
-        let short = why.chars().take(160).collect::<String>();
-        format!("It answered with an error. Try again. ({short})")
-    }
-}
-
-/// Moves the screen on when the endpoint it asked has answered,
-/// and keeps the model that was tried once it has said its word.
-pub fn follow(
-    link: Res<Link>,
-    trial: Res<Trial>,
-    signing: Res<Signing>,
-    mut welcome: ResMut<Welcome>,
-    mut commands: Commands,
-) {
-    if let Some(to) = welcome.signing {
-        match (&*signing, to) {
-            (Signing::Idle | Signing::Waiting, _) => {}
-            // The key it gave is used as one that was typed.
-            (Signing::Done(key), SignIn::OpenRouter) => {
-                welcome.signing = None;
-                welcome.provider = OPENROUTER;
-                welcome.key.clone_from(key);
-                welcome.step = Step::Key;
-                commands.queue(connect);
-            }
-            (Signing::Done(_), SignIn::ChatGpt) => {
-                welcome.signing = None;
-                commands.queue(|world: &mut World| {
-                    ask(world, chatgpt::endpoint(), "ChatGPT")
-                });
-            }
-            (Signing::Failed(why), SignIn::OpenRouter) => {
-                welcome.signing = None;
-                welcome.step = Step::Key;
-                welcome.provider = OPENROUTER;
-                welcome.problem = Some(format!(
-                    "Signing in did not finish ({why}). Try again, \
-                     or make a key and paste it here."
-                ));
-            }
-            (Signing::Failed(why), SignIn::ChatGpt) => {
-                welcome.signing = None;
-                welcome.problem = Some(format!(
-                    "Signing in did not finish ({why}). Go back and \
-                     try again."
-                ));
-            }
-        }
-        return;
-    }
-    if !welcome.asking {
-        return;
-    }
-    if let Some(config) = welcome.trying.clone() {
-        match &*trial {
-            Trial::Untried | Trial::Trying => {}
-            Trial::Answered => {
-                commands.queue(move |world: &mut World| {
-                    keep(world, config)
-                });
-                welcome.trying = None;
-            }
-            Trial::Failed(why) => {
-                welcome.problem = Some(plainly(why, true));
-                welcome.trying = None;
-                welcome.asking = false;
-            }
-        }
-        return;
-    }
-    let found = match &*link {
-        Link::Unknown | Link::Testing => return,
-        Link::Ok { models } => Ok(models.clone()),
-        Link::Failed(why) => Err(why.clone()),
-    };
-    welcome.asking = false;
-    if let Ok(models) = &found
-        && !models.is_empty()
-    {
-        welcome.problem = None;
-        if welcome.adding {
-            commands.queue(added);
-            return;
-        }
-        welcome.models.clone_from(models);
-        welcome.step = Step::Models;
-        return;
-    }
-    if welcome.step != Step::Local {
-        welcome.problem = Some(match found {
-            Ok(_) => "It answered, but it has no models for this \
-                      key."
-                .into(),
-            Err(why) => plainly(&why, false),
-        });
-        return;
-    }
-    if found.is_ok() && welcome.problem.is_none() {
-        let name = LOCAL[welcome.local].name;
-        welcome.problem = Some(format!(
-            "{name} is running but has no model. Download one, then \
-             choose Look Again."
-        ));
-    }
-    welcome.local += 1;
-    match LOCAL.get(welcome.local) {
-        Some(next) => {
-            let endpoint = served(next);
-            commands.trigger(test(&endpoint));
-            welcome.asked = Some(endpoint);
-            welcome.from = next.name.into();
-            welcome.asking = true;
-        }
-        None if welcome.problem.is_none() => {
-            welcome.problem = Some(NOTHING_LOCAL.into());
-        }
-        None => {}
-    }
-}
-
-/// Puts `endpoint` among those of `config` and returns the name it
-/// has there. One at the same address, signed in to the same way, is
-/// given the key and keeps its name, and a name another has is
-/// numbered.
-fn settle(config: &mut Config, endpoint: Endpoint) -> String {
-    let at = |url: &str| url.trim_end_matches('/').to_string();
-    let same = config.endpoints.iter_mut().find(|known| {
-        at(&known.base_url) == at(&endpoint.base_url)
-            && known.chatgpt == endpoint.chatgpt
+fn pick(world: &mut World, model: &str) {
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        v0::ClientMessage::Edit(v0::Edit::Settings {
+            id,
+            set: v0::EditSettingsSet {
+                model: Some(model.into()),
+                allow_net: None,
+                reflect_every: None,
+                endpoints: None,
+            },
+        })
     });
-    if let Some(known) = same {
-        known.api_key = endpoint.api_key;
-        return known.name.clone();
-    }
-    let name = std::iter::once(endpoint.name.clone())
-        .chain((2..).map(|n| format!("{}-{n}", endpoint.name)))
-        .find(|name| config.endpoint(name).is_none())
-        .expect("the numbers do not end");
-    config.endpoints.push(Endpoint {
-        name: name.clone(),
-        ..endpoint
-    });
-    name
-}
-
-/// Asks the model `id` of the endpoint that answered for a word,
-/// as the home's default model would be asked.
-fn pick(world: &mut World, id: &str) {
-    let home = world.resource::<HomeDir>().0.root.clone();
-    let Some(endpoint) = world.resource::<Welcome>().asked.clone()
-    else {
-        return;
-    };
-    let mut config = world.resource::<Settings>().config.clone();
-    // A home that was never set up has only the endpoint it was
-    // born with, which nobody chose.
-    if !Config::saved(&home) {
-        config.endpoints.clear();
-    }
-    let name = settle(&mut config, endpoint);
-    config.model = catalogue::named(&name, id);
     let mut welcome = world.resource_mut::<Welcome>();
-    welcome.trying = Some(config.clone());
+    welcome.requests.insert(id, Asked::Pick);
+    welcome.manual = true;
+    welcome.trying = true;
     welcome.asking = true;
     welcome.problem = None;
-    world.trigger(TryModel(config));
 }
 
-/// Saves `config`, whose default model has answered, allows that
-/// model in the catalogue, and closes the screen.
-fn keep(world: &mut World, config: Config) {
-    let home = world.resource::<HomeDir>().0.root.clone();
-    world.trigger(SaveSettings(config.clone()));
-    let mut all = Catalogue::load(&home);
-    if let Some((name, id)) = catalogue::parts(&config.model) {
-        let chosen = Listed {
-            id: id.to_string(),
-            price: None,
-            context: None,
+fn answered(response: On<Response>, mut commands: Commands) {
+    let response = response.event().clone();
+    commands.queue(move |world: &mut World| {
+        if providers::receive(world, &response) {
+            return;
+        }
+        let asked = world
+            .resource_mut::<Welcome>()
+            .requests
+            .remove(&response.to);
+        let Some(asked) = asked else { return };
+        let failure = match &response.message {
+            v0::ServerMessage::Fault(fault) => {
+                Some(fault.text.clone())
+            }
+            v0::ServerMessage::Reply(reply)
+                if reply.kind == v0::ReplyKind::Error =>
+            {
+                Some(reply.text.clone())
+            }
+            _ => None,
         };
-        let local = config
-            .endpoint(name)
-            .is_some_and(|at| catalogue::is_local(&at.base_url));
-        all.take_in(name, &[chosen], local);
-    }
-    if let Some(model) = all.get_mut(&config.model) {
-        model.allowed = true;
-    }
-    let failed =
-        world.resource::<Settings>().error.clone().or_else(|| {
-            all.save(&home).err().map(|e| format!("{e:#}"))
-        });
-    if let Some(why) = failed {
-        let mut welcome = world.resource_mut::<Welcome>();
-        welcome.asking = false;
-        welcome.problem =
-            Some(format!("Your choice could not be saved. ({why})"));
-        return;
-    }
-    // The rest of what the endpoint serves, with its prices.
-    world.trigger(ListModels);
-    world.trigger(TestConnection(config));
-    close(world);
+        if let Some(problem) = failure {
+            let mut welcome = world.resource_mut::<Welcome>();
+            welcome.problem = Some(problem);
+            welcome.asking = false;
+            welcome.trying = false;
+            return;
+        }
+        match (asked, response.message) {
+            (
+                Asked::Models,
+                v0::ServerMessage::Read(v0::ReadResult::Models {
+                    models,
+                    ..
+                }),
+            ) => {
+                let filter = world
+                    .resource::<providers::Login>()
+                    .provider
+                    .clone();
+                let local =
+                    world.resource::<Welcome>().step == Step::Local;
+                let endpoints =
+                    &world.resource::<Settings>().0.endpoints;
+                let names = models
+                    .into_iter()
+                    .map(|model| model.name)
+                    .filter(|name| {
+                        if local {
+                            endpoints.iter().any(|at| {
+                                name.starts_with(&format!(
+                                    "{}::",
+                                    at.name
+                                ))
+                            })
+                        } else {
+                            filter.as_ref().is_none_or(|id| {
+                                name.starts_with(&format!("{id}::"))
+                            })
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let mut welcome = world.resource_mut::<Welcome>();
+                welcome.asking = false;
+                welcome.models = names;
+                if welcome.models.is_empty() {
+                    welcome.problem = Some(if local {
+                        NOTHING_LOCAL.into()
+                    } else {
+                        "No models were listed for this provider."
+                            .into()
+                    });
+                } else if welcome.adding {
+                    if let Some(mut pane) = world
+                        .get_resource_mut::<crate::settings::Pane>()
+                    {
+                        *pane = crate::settings::Pane::Models;
+                    }
+                    close(world);
+                } else {
+                    welcome.step = Step::Models;
+                }
+            }
+            (Asked::Pick, v0::ServerMessage::Reply(_)) => {
+                check(world, true)
+            }
+            (Asked::Check(model), v0::ServerMessage::Reply(_)) => {
+                let settings = &world.resource::<Settings>().0;
+                let finished = model
+                    && !settings.unset
+                    && settings.link.state
+                        == v0::LinkState::Connected;
+                let link = &settings.link;
+                let problem = (link.state == v0::LinkState::Failed)
+                    .then(|| link.words.clone())
+                    .flatten();
+                let mut welcome = world.resource_mut::<Welcome>();
+                welcome.asking = false;
+                if model {
+                    welcome.trying = false;
+                }
+                if finished {
+                    welcome.open = false;
+                }
+                if problem.is_some() {
+                    welcome.problem = problem;
+                }
+            }
+            _ => {}
+        }
+    });
 }
 
-/// The field the list of models is narrowed in.
+/// Setup visibility and the server's connection words.
+pub fn follow(
+    settings: Res<Settings>,
+    connection: Res<Connection>,
+    mut welcome: ResMut<Welcome>,
+) {
+    use bevy::ecs::change_detection::DetectChanges;
+    let words = (connection.state != State::Connected)
+        .then(|| connection.words.clone());
+    if welcome.connection != words {
+        welcome.connection = words;
+    }
+    if settings.is_changed() {
+        if settings.0.unset {
+            welcome.open = true;
+        } else if !welcome.manual
+            || !welcome.trying
+                && settings.0.link.state == v0::LinkState::Connected
+        {
+            welcome.open = false;
+        }
+        if settings.0.link.state == v0::LinkState::Failed
+            && (welcome.asking
+                || welcome.manual && welcome.step == Step::Models)
+        {
+            welcome.problem.clone_from(&settings.0.link.words);
+            welcome.asking = false;
+            welcome.trying = false;
+            if welcome.step == Step::Models {
+                welcome.open = true;
+            }
+        }
+    }
+}
+
 #[derive(Component)]
 pub(crate) struct Narrowing;
 
-/// Follows what narrows the models as it is typed.
 pub(crate) fn read_narrow(
     field: Query<&Children, With<Narrowing>>,
     texts: Query<&EditableText>,
@@ -551,67 +361,523 @@ pub(crate) fn read_narrow(
         welcome.narrow = text.value().to_string();
     }
 }
-
 #[cfg(test)]
-mod tests {
+pub(crate) mod server_tests {
+    use bevy::color::Alpha;
+    use bevy::ecs::entity::Entity;
+    use bevy::ecs::hierarchy::ChildOf;
+    use bevy::ui::widget::Text;
+    use bevy::ui_widgets::{Activate, Button};
+    use bevy_fynix::{FynixPlugin, mount};
+    use hamlet_assets::Tuning;
+    use hamlet_client::{ClientPlugin, receive};
+    use hamlet_protocol::v0;
+
     use super::*;
+    use crate::theme::{self, HamletTheme};
+
+    pub(crate) fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::time::TimePlugin,
+            bevy::input::InputPlugin,
+            bevy::input_focus::InputFocusPlugin,
+            bevy::ui_widgets::MenuPlugin,
+            ClientPlugin { server: None },
+            FynixPlugin::<HamletTheme>::default(),
+            plugin,
+        ));
+        theme::insert_theme(app.world_mut(), HamletTheme::designed());
+        app.insert_resource(Browser(|_, url| {
+            panic!("unexpected browser URL: {url}")
+        }));
+        app
+    }
+
+    pub(crate) fn show(app: &mut App, unset: bool) {
+        let mut state = hamlet_testing::realm::state();
+        state.settings.unset = unset;
+        receive(app.world_mut(), v0::ServerMessage::State(state));
+        app.world_mut()
+            .resource_mut::<hamlet_client::Connection>()
+            .state = hamlet_client::connection::State::Connected;
+        for _ in 0..3 {
+            app.update();
+        }
+    }
+
+    pub(crate) fn words(app: &mut App) -> String {
+        app.world_mut()
+            .query::<&Text>()
+            .iter(app.world())
+            .map(|text| text.0.clone())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub(crate) fn press(app: &mut App, text: &str) {
+        let world = app.world_mut();
+        let entity = world
+            .query::<(Entity, &Text)>()
+            .iter(world)
+            .filter(|(_, shown)| shown.0 == text)
+            .find_map(|(mut entity, _)| {
+                loop {
+                    if world.get::<Button>(entity).is_some()
+                        || world
+                            .get::<bevy::ui_widgets::MenuItem>(entity)
+                            .is_some()
+                    {
+                        return Some(entity);
+                    }
+                    entity = world.get::<ChildOf>(entity)?.parent();
+                }
+            })
+            .unwrap_or_else(|| panic!("no button {text}"));
+        world.trigger(Activate { entity });
+        for _ in 0..5 {
+            app.update();
+        }
+    }
 
     #[test]
-    fn a_chosen_endpoint_keeps_the_name_of_one_at_its_address() {
-        let mut config = Config::default();
-        let ollama = served(&LOCAL[0]);
-        assert_eq!(settle(&mut config, ollama), "local");
-        assert_eq!(config.endpoints.len(), 1);
+    fn received_settings_and_connection_choose_the_welcome_page() {
+        let mut app = app();
+        show(&mut app, true);
+        mount::<HamletTheme>(app.world_mut(), view());
+        assert!(words(&mut app).contains("WELCOME TO HAMLET"));
+        show(&mut app, false);
+        assert!(!words(&mut app).contains("WELCOME TO HAMLET"));
+        app.world_mut().insert_resource(hamlet_client::Connection {
+            state: hamlet_client::connection::State::Refused,
+            words: "The server refused this window: bad token."
+                .into(),
+        });
+        for _ in 0..3 {
+            app.update();
+        }
+        let shown = words(&mut app);
+        assert!(shown.contains("bad token"));
+        for command in
+            ["hamlet server", "hamlet window", "hamlet dev"]
+        {
+            assert!(shown.contains(command), "{shown}");
+        }
+    }
+    pub(crate) fn sent(app: &mut App) -> Vec<serde_json::Value> {
+        app.world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .map(|message| serde_json::to_value(message).unwrap())
+            .collect()
+    }
 
-        // The same name at another address is another endpoint.
-        let far = |key: &str| Endpoint {
-            name: "local".into(),
-            base_url: "https://far.example/v1/".into(),
-            chatgpt: false,
-            api_key: Some(key.into()),
-        };
-        assert_eq!(settle(&mut config, far("first")), "local-2");
-        // Chosen again, it is the same one with the new key.
-        assert_eq!(settle(&mut config, far("second")), "local-2");
-        assert_eq!(config.endpoints.len(), 2);
-        assert_eq!(
-            config.endpoints[1].api_key.as_deref(),
-            Some("second")
+    pub(crate) fn incoming(app: &mut App, value: serde_json::Value) {
+        receive(
+            app.world_mut(),
+            serde_json::from_value(value).unwrap(),
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+    }
+
+    fn providers(app: &mut App) {
+        incoming(
+            app,
+            serde_json::json!({"type":"change", "epoch":1, "revision":1, "changes":[{"type":"providers", "providers":[
+                {"id":"openrouter", "name":"OpenRouter", "label":"Sign in with OpenRouter", "configured":false, "methods":["key","subscription"]},
+                {"id":"chatgpt", "name":"ChatGPT", "label":"Continue with ChatGPT", "configured":false, "methods":["subscription"]}
+            ]}]}),
         );
     }
 
     #[test]
-    fn every_provider_is_named_as_an_endpoint_may_be() {
-        for provider in PROVIDERS.iter().chain(&LOCAL) {
-            assert!(
-                hamlet_model::config::names_endpoint(
-                    provider.endpoint
-                ),
-                "{}",
-                provider.endpoint
-            );
-            // The test asks the endpoint its own model's name tells
-            // of.
-            let asked = test(&served(provider)).0;
-            assert_eq!(
-                asked.default_endpoint().map(|e| &*e.base_url),
-                Some(provider.base_url)
-            );
+    fn a_providers_key_uses_the_servers_secret_prompt_and_answers() {
+        let mut app = app();
+        show(&mut app, true);
+        providers(&mut app);
+        mount::<HamletTheme>(app.world_mut(), view());
+        press(&mut app, "I HAVE A KEY");
+        press(&mut app, "OpenRouter");
+        let requests = sent(&mut app);
+        let start = &requests[0];
+        assert_eq!(start["type"], "login");
+        assert_eq!(
+            start["start"],
+            serde_json::json!({"provider":"openrouter", "method":"key"})
+        );
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"login", "to":start["id"], "login":"key-login", "step":{"prompt":"Paste your key", "secret":true}}),
+        );
+        assert!(words(&mut app).contains("Paste your key"));
+        let (input, ink) = app
+            .world_mut()
+            .query::<(Entity, &EditableText, &bevy::text::TextColor)>(
+            )
+            .iter(app.world())
+            .map(|(entity, _, color)| (entity, color.0))
+            .next()
+            .expect("secret field");
+        assert_eq!(ink.alpha(), 0.0);
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(input, bevy::input_focus::FocusCause::Pressed);
+        app.update();
+        app.world_mut()
+            .get_mut::<EditableText>(input)
+            .unwrap()
+            .editor_mut()
+            .set_text("fake-key");
+        press(&mut app, "SEND");
+        let requests = sent(&mut app);
+        assert_eq!(
+            requests[0]["reply"],
+            serde_json::json!({"login":"key-login", "value":"fake-key"})
+        );
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"login", "to":start["id"], "login":"key-login", "step":{"failed":"That key was refused."}}),
+        );
+        assert!(words(&mut app).contains("That key was refused."));
+        assert!(!words(&mut app).contains("fake-key"));
+    }
+
+    #[derive(Resource, Default)]
+    struct Opened(Vec<String>);
+
+    #[test]
+    fn subscription_steps_open_the_browser_show_codes_and_cancel_on_the_server()
+     {
+        let mut app = app();
+        app.init_resource::<Opened>();
+        app.world_mut().insert_resource(providers::Browser(
+            |world, url| {
+                world.resource_mut::<Opened>().0.push(url.into())
+            },
+        ));
+        show(&mut app, true);
+        providers(&mut app);
+        mount::<HamletTheme>(app.world_mut(), view());
+        press(&mut app, "CONTINUE WITH CHATGPT");
+        let start = sent(&mut app).remove(0);
+        assert_eq!(
+            start["start"],
+            serde_json::json!({"provider":"chatgpt", "method":"subscription"})
+        );
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"login", "to":start["id"], "login":"plan-login", "step":{"url":"https://login.example/authorize", "instructions":"Allow Hamlet"}}),
+        );
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"login", "to":start["id"], "login":"plan-login", "step":{"code":"ABCD-EFGH"}}),
+        );
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"login", "to":start["id"], "login":"plan-login", "step":{"progress":"Waiting for approval"}}),
+        );
+        let shown = words(&mut app);
+        for text in [
+            "https://login.example/authorize",
+            "ABCD-EFGH",
+            "Allow Hamlet",
+            "Waiting for approval",
+        ] {
+            assert!(shown.contains(text), "{shown}");
         }
-        assert!(hamlet_model::config::names_endpoint(OTHER));
+        assert_eq!(
+            app.world().resource::<Opened>().0,
+            ["https://login.example/authorize"]
+        );
+        press(&mut app, "CANCEL SIGN-IN");
+        assert_eq!(sent(&mut app)[0]["cancel"], "plan-login");
+        press(&mut app, "SIGN IN WITH OPENROUTER");
+        assert_eq!(
+            sent(&mut app)[0]["start"],
+            serde_json::json!({"provider":"openrouter", "method":"subscription"})
+        );
     }
 
     #[test]
-    fn a_refused_key_is_told_from_a_server_that_is_not_there() {
-        let refused =
-            plainly("HTTP 401 Unauthorized: {\"message\":1}", false);
-        assert!(refused.contains("key was not accepted"));
-        // Not every provider answers a bad key with the same status.
-        let invalid =
-            "HTTP 400 Bad Request: Please pass a valid API key";
-        assert_eq!(plainly(invalid, false), refused);
-        let away =
-            plainly("could not reach the endpoint: refused", true);
-        assert!(away.contains("Could not reach it"));
+    fn login_urls_open_only_https_or_loopback_http_and_always_show_the_steps_words()
+     {
+        let mut app = app();
+        app.init_resource::<Opened>().insert_resource(
+            providers::Browser(|world, url| {
+                world.resource_mut::<Opened>().0.push(url.into());
+            }),
+        );
+        show(&mut app, true);
+        providers(&mut app);
+        mount::<HamletTheme>(app.world_mut(), view());
+        press(&mut app, "CONTINUE WITH CHATGPT");
+        let start = sent(&mut app).remove(0);
+        for url in [
+            "file:///Applications/Calculator.app",
+            "vscode://file/x",
+            "mailto:chief@example.com",
+            "http://remote.example/login",
+            "http://localhost.evil/login",
+            "http://localhost@remote.example/login",
+            "https://login.example/authorize",
+            "http://localhost:1455/login",
+            "http://127.0.0.1:1455/login",
+            "http://[::1]:1455/login",
+        ] {
+            incoming(
+                &mut app,
+                serde_json::json!({"type":"login", "to":start["id"], "login":"plan-login", "step":{"url":url, "instructions":"Follow these steps yourself."}}),
+            );
+            let shown = words(&mut app);
+            assert!(shown.contains(url), "{shown}");
+            assert!(shown.contains("Follow these steps yourself."));
+        }
+        assert_eq!(
+            app.world().resource::<Opened>().0,
+            [
+                "https://login.example/authorize",
+                "http://localhost:1455/login",
+                "http://127.0.0.1:1455/login",
+                "http://[::1]:1455/login"
+            ]
+        );
+    }
+
+    #[test]
+    fn local_search_lists_the_servers_models_and_checks_a_saved_choice()
+     {
+        let mut app = app();
+        show(&mut app, true);
+        mount::<HamletTheme>(app.world_mut(), view());
+        press(&mut app, "I RUN MY OWN MODEL");
+        let requests = sent(&mut app);
+        assert_eq!(requests[0]["what"], "connection");
+        assert_eq!(requests[1]["what"], "models");
+        assert_eq!(requests[1]["refresh"], true);
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"read", "to":requests[1]["id"], "models":[]}),
+        );
+        assert!(words(&mut app).contains(
+            "No model server answered on the server's machine."
+        ));
+        press(&mut app, "LOOK AGAIN");
+        let requests = sent(&mut app);
+        app.world_mut().resource_mut::<Settings>().0.endpoints.push(
+            v0::SettingsViewEndpoints {
+                name: "local".into(),
+                base_url: "http://localhost:11434/v1".into(),
+                key: false,
+            },
+        );
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"read", "to":requests[1]["id"], "models":[
+                {"name":"local::small", "price":null, "priced":"unknown", "context":null, "allowed":false, "note":""},
+                {"name":"unconfigured::far", "price":null, "priced":"unknown", "context":null, "allowed":false, "note":""}
+            ]}),
+        );
+        assert!(!words(&mut app).contains("unconfigured::far"));
+        press(&mut app, "local::small");
+        let edit = sent(&mut app).remove(0);
+        assert_eq!(edit["doc"], "settings");
+        assert_eq!(
+            edit["set"],
+            serde_json::json!({"model":"local::small"})
+        );
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"reply", "to":edit["id"], "kind":"notice", "text":"Saved."}),
+        );
+        let check = sent(&mut app).remove(0);
+        assert_eq!(check["what"], "model");
+        app.world_mut().resource_mut::<Settings>().0.unset = false;
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(words(&mut app).contains("PICK A MODEL"));
+        app.world_mut().resource_mut::<Settings>().0.link.state =
+            v0::LinkState::Connected;
+        for _ in 0..3 {
+            app.update();
+        }
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"reply", "to":check["id"], "kind":"notice", "text":"Hello"}),
+        );
+        assert!(!words(&mut app).contains("PICK A MODEL"));
+    }
+
+    #[test]
+    fn completed_login_moves_to_its_own_models_and_a_refused_edit_stays_open()
+     {
+        let mut app = app();
+        show(&mut app, true);
+        providers(&mut app);
+        mount::<HamletTheme>(app.world_mut(), view());
+        press(&mut app, "I HAVE A KEY");
+        press(&mut app, "OpenRouter");
+        let start = sent(&mut app).remove(0);
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"login", "to":start["id"], "login":"login", "step":{"done":"openrouter"}}),
+        );
+        let read = sent(&mut app).remove(0);
+        assert_eq!(read["what"], "models");
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"read", "to":read["id"], "models":[
+                {"name":"openrouter::small", "price":null, "priced":"unknown", "context":null, "allowed":false, "note":""},
+                {"name":"other::large", "price":null, "priced":"unknown", "context":null, "allowed":false, "note":""}
+            ]}),
+        );
+        assert!(!words(&mut app).contains("other::large"));
+        press(&mut app, "openrouter::small");
+        let edit = sent(&mut app).remove(0);
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"That model cannot be chosen."}),
+        );
+        assert!(
+            words(&mut app).contains("That model cannot be chosen.")
+        );
+        assert!(sent(&mut app).is_empty());
+    }
+    #[test]
+    fn a_previous_connection_check_does_not_finish_a_model_trial() {
+        let mut app = app();
+        show(&mut app, true);
+        app.world_mut().resource_mut::<Settings>().0.link.state =
+            v0::LinkState::Connected;
+        app.world_mut().resource_mut::<Welcome>().step = Step::Models;
+        app.world_mut().resource_mut::<Welcome>().models =
+            vec!["local::small".into()];
+        mount::<HamletTheme>(app.world_mut(), view());
+        press(&mut app, "local::small");
+        let edit = sent(&mut app).remove(0);
+        app.world_mut().resource_mut::<Settings>().0.unset = false;
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            words(&mut app).contains("PICK A MODEL"),
+            "a saved choice is not a model answer"
+        );
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"reply", "to":edit["id"], "kind":"notice", "text":"Saved."}),
+        );
+        assert_eq!(sent(&mut app)[0]["what"], "model");
+        assert!(words(&mut app).contains("PICK A MODEL"));
+    }
+
+    pub(crate) fn type_field(app: &mut App, was: &str, text: &str) {
+        let input = app
+            .world_mut()
+            .query::<(Entity, &EditableText)>()
+            .iter(app.world())
+            .find(|(_, value)| value.value() == was)
+            .map(|(entity, _)| entity)
+            .expect("editable field");
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(input, bevy::input_focus::FocusCause::Pressed);
+        app.update();
+        app.world_mut()
+            .get_mut::<EditableText>(input)
+            .unwrap()
+            .editor_mut()
+            .set_text(text);
+        app.world_mut().resource_mut::<InputFocus>().clear();
+        for _ in 0..5 {
+            app.update();
+        }
+    }
+    #[test]
+    fn a_model_failure_received_after_its_check_reply_stays_on_the_page()
+     {
+        let mut app = app();
+        show(&mut app, true);
+        app.world_mut().resource_mut::<Welcome>().step = Step::Models;
+        app.world_mut().resource_mut::<Welcome>().models =
+            vec!["local::small".into()];
+        mount::<HamletTheme>(app.world_mut(), view());
+        press(&mut app, "local::small");
+        let edit = sent(&mut app).remove(0);
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"reply", "to":edit["id"], "kind":"notice", "text":"Saved."}),
+        );
+        let check = sent(&mut app).remove(0);
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"reply", "to":check["id"], "kind":"notice", "text":"That model did not answer."}),
+        );
+        app.world_mut().resource_mut::<Settings>().0.link =
+            v0::Link {
+                state: v0::LinkState::Failed,
+                models: None,
+                words: Some("That model did not answer.".into()),
+            };
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            words(&mut app).contains("That model did not answer.")
+        );
+    }
+
+    #[test]
+    fn a_cancel_before_the_first_login_step_cancels_it_when_its_id_arrives()
+     {
+        let mut app = app();
+        show(&mut app, true);
+        providers(&mut app);
+        mount::<HamletTheme>(app.world_mut(), view());
+        press(&mut app, "CONTINUE WITH CHATGPT");
+        let start = sent(&mut app).remove(0);
+        press(&mut app, "CANCEL SIGN-IN");
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"login", "to":start["id"], "login":"late-login", "step":{"url":"https://must-not-open.example"}}),
+        );
+        assert_eq!(sent(&mut app)[0]["cancel"], "late-login");
+        assert!(words(&mut app).contains("WELCOME TO HAMLET"));
+    }
+
+    #[test]
+    fn reconnecting_returns_a_cancelled_login_to_the_first_page() {
+        let mut app = app();
+        show(&mut app, true);
+        providers(&mut app);
+        mount::<HamletTheme>(app.world_mut(), view());
+        press(&mut app, "CONTINUE WITH CHATGPT");
+        sent(&mut app);
+        app.world_mut()
+            .trigger(hamlet_client::messages::Reconnected);
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(words(&mut app).contains("WELCOME TO HAMLET"));
+    }
+
+    #[test]
+    fn the_gallery_can_mount_a_key_page_without_the_setup_plugin() {
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::time::TimePlugin,
+            ClientPlugin { server: None },
+            FynixPlugin::<HamletTheme>::default(),
+        ));
+        theme::insert_theme(app.world_mut(), HamletTheme::designed());
+        app.insert_resource(Welcome {
+            open: true,
+            step: Step::Key,
+            ..Default::default()
+        });
+        mount::<HamletTheme>(app.world_mut(), view());
+        assert!(words(&mut app).contains("USE A KEY"));
     }
 }

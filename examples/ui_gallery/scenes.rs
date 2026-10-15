@@ -17,7 +17,6 @@ use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
 use hamlet_assets::Tuning;
-use hamlet_core::core::{Link, Sandboxing};
 use hamlet_ui::history::History;
 use hamlet_ui::theme::{self, HamletTheme};
 use hamlet_ui::{
@@ -39,6 +38,7 @@ pub struct GalleryPlugin(pub Scene);
 impl Plugin for GalleryPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
+            hamlet_client::ClientPlugin { server: None },
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
         ));
@@ -48,12 +48,6 @@ impl Plugin for GalleryPlugin {
             .insert_resource(PickingSettings {
                 is_hover_enabled: false,
                 ..PickingSettings::default()
-            })
-            .insert_resource(Sandboxing(
-                hamlet_sandbox::detect(true).expect("no sandbox"),
-            ))
-            .insert_resource(Link::Ok {
-                models: vec!["hearth".into()],
             })
             .insert_resource(Bar {
                 running: "Running, idle".into(),

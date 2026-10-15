@@ -33,7 +33,7 @@ const TABLE = [
         "Show or change the folder the hamlet works on",
     ],
     ["mode", "<manual|auto>", "Change whether edits and commands wait"],
-    ["give", "<agent> <starter>", "Give an agent a starter skill"],
+    ["give", "<agent> <skill> [from <agent>]", "Give an agent a skill"],
     ["undo", "", "Reverse the latest thing that can be reversed"],
 ] as const;
 
@@ -44,6 +44,9 @@ export const COMMANDS = TABLE.map(([deed, args, description]) => ({
     args,
     description,
 }));
+
+/** The chief's command names carried out by the server (H26). */
+export const DEEDS = TABLE.map(([deed]) => deed);
 
 export type Command =
     | {
@@ -63,7 +66,7 @@ export type Command =
     | { command: "revoke"; agent: string; permission: Permission }
     | { command: "folder"; path: string }
     | { command: "mode"; mode: "manual" | "auto" }
-    | { command: "give"; agent: string; skill: string };
+    | { command: "give"; agent: string; skill: string; from?: string };
 
 /** A chief's command, a usage error, or words to the agent (H24). */
 export function readCommand(
@@ -127,10 +130,20 @@ export function readCommand(
                 ? { command: "mode", mode: rest }
                 : usage("error");
         case "give": {
-            const [agent, skill, extra] = rest.split(/\s+/);
-            return agent && skill && extra === undefined
-                ? { command: "give", agent, skill }
-                : usage("error");
+            const [agent, skill, word, from, extra] = rest.split(/\s+/);
+            if (
+                !agent ||
+                !skill ||
+                extra !== undefined ||
+                (word !== undefined && (word !== "from" || !from))
+            )
+                return usage("error");
+            return {
+                command: "give",
+                agent,
+                skill,
+                ...(from === undefined ? {} : { from }),
+            };
         }
     }
 }

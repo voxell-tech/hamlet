@@ -7,7 +7,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row, scroll,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
-use hamlet_core::agents::{LivesIn, MergedInto, Purpose};
+use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
 use hamlet_world::pick::{Selected, Thing, select};
 
 use super::agent::dim;
@@ -26,7 +26,7 @@ use crate::{AnyView, Cx, View, lists, overview};
 pub(super) fn ruin(agent: Entity) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let named = |agent: Entity| {
-            hamlet_core::agents::name_of(cx.world, agent)
+            hamlet_client::realm::name_of(cx.world, agent)
         };
         let name = named(agent);
         let fate = match cx.world.get::<MergedInto>(agent) {

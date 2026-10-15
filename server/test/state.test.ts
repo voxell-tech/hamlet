@@ -1,10 +1,16 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
+import { join } from "node:path";
 import {
     fauxAssistantMessage,
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
 import { scriptedModels } from "../src/faux.ts";
+import { parseServer } from "../src/protocol.ts";
+import { stateOf, watchState } from "../src/state.ts";
 import {
     agents,
     changes,
@@ -15,7 +21,99 @@ import {
     say,
     served,
 } from "./connection-support.ts";
-import { fauxModels, scratch, setFolder } from "./support.ts";
+import {
+    context,
+    fauxModels,
+    scratch,
+    setFolder,
+    testHome,
+} from "./support.ts";
+
+it("serves a house even when recursive filesystem watches are exhausted", async () => {
+    const { models } = fauxModels();
+    const home = await testHome(scratch(), { models });
+    const original = fs.watch;
+    const watching = vi
+        .spyOn(fs, "watch")
+        .mockImplementation((...args: Parameters<typeof fs.watch>) => {
+            const options = args[1] as unknown as { recursive?: boolean };
+            if (typeof options === "object" && options?.recursive)
+                throw Object.assign(
+                    new Error("System limit for file watchers reached"),
+                    { code: "ENOSPC" },
+                );
+            return Reflect.apply(original, fs, args);
+        });
+    syncBuiltinESMExports();
+    try {
+        const state = await watchState(home, () => {}, context);
+        try {
+            expect((await state.snapshot()).agents[0]?.name).toBe("founder");
+        } finally {
+            await state.stop();
+        }
+    } finally {
+        watching.mockRestore();
+        syncBuiltinESMExports();
+    }
+});
+
+it("lists new house skills on demand after its short cache expires", async () => {
+    const { models } = fauxModels();
+    const home = await testHome(scratch(), { models });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1000);
+    try {
+        const at = { epoch: 1, revision: 0 };
+        expect((await stateOf(home, at, context)).agents[0]?.skills).toEqual(
+            [],
+        );
+        const skill = join(home.layout.houses, "home/0/skills/new");
+        await mkdir(skill);
+        await writeFile(join(skill, "SKILL.md"), "---\nname: new\n---\n");
+        clock.mockReturnValue(2001);
+        expect((await stateOf(home, at, context)).agents[0]?.skills).toEqual([
+            "new",
+        ]);
+    } finally {
+        clock.mockRestore();
+    }
+});
+
+it("lists only the chief's deeds the server carries out, while accepting older states without them (H26, S6)", async () => {
+    const run = await served({
+        models: scriptedModels({ responses: [] }),
+        env: { HAMLET_REFLECT_EVERY: "0" },
+    });
+    expect(run.state).toHaveProperty("deeds", [
+        "new",
+        "resume",
+        "retry",
+        "reflect",
+        "stop",
+        "queue",
+        "allow",
+        "always",
+        "deny",
+        "go",
+        "withdraw",
+        "reply",
+        "dismiss",
+        "grants",
+        "revoke",
+        "budget",
+        "reset-budget",
+        "folder",
+        "mode",
+        "give",
+        "undo",
+    ]);
+    expect(parseServer(JSON.stringify(run.state))).toEqual({
+        message: run.state,
+    });
+    const older = { ...run.state };
+    Reflect.deleteProperty(older, "deeds");
+    expect(parseServer(JSON.stringify(older))).toEqual({ message: older });
+});
 
 it("names a wait's current chat without past and pins it only after the chief starts a new conversation (S5, C24)", async () => {
     const { models, faux } = fauxModels();

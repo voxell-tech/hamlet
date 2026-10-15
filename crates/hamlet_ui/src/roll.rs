@@ -9,11 +9,11 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy_fynix::{Signal, derived, resource};
-use hamlet_core::agents::{
-    Account, Activity, Busy, Citizen, Left, Mayor, Purpose, Seen,
-    Settlement, Treasury,
+use hamlet_client::realm::{
+    Account, Activity, Busy, Bylaws, Citizen, Left, Mayor, Purpose,
+    Settlement, Treasury, Works,
 };
-use hamlet_core::oversight::Waiting;
+use hamlet_client::waits::Waiting;
 
 type AgentMoved = (
     With<Citizen>,
@@ -30,7 +30,12 @@ type AgentMoved = (
 
 type HamletMoved = (
     With<Settlement>,
-    Or<(Changed<Seen>, Changed<Treasury>, Changed<Name>)>,
+    Or<(
+        Changed<Bylaws>,
+        Changed<Works>,
+        Changed<Treasury>,
+        Changed<Name>,
+    )>,
 );
 
 /// The agents' components whose going changes what is shown.

@@ -1,6 +1,6 @@
 //! The few words a balloon shows of what was said or thought.
 
-use hamlet_core::agents::{Doing, Paper};
+use hamlet_client::realm::{Doing, Paper};
 
 /// The end of `text`, cut at a word, as long as fits a bubble.
 pub(super) fn tail(text: &str, most: usize) -> String {

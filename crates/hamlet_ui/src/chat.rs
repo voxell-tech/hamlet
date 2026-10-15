@@ -13,10 +13,13 @@ mod lines;
 mod rewind;
 mod timeline;
 
+use std::collections::HashSet;
+
 use bevy::app::{App, PostUpdate, Update};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::event::Event;
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
@@ -33,15 +36,16 @@ use bevy::ui::{
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, label, overlay, row, text_field,
+    BehaviorExt, FrameProps, column, label, overlay, row, text_field,
 };
 use bevy_fynix::{ScopedExt, resource};
-use hamlet_core::agents;
-use hamlet_core::session::{
-    Entry, Reply, SessionKey, SessionOutput, Transcript, UserMessage,
+use hamlet_client::chats::Chat;
+use hamlet_client::messages::{
+    Response, Rewind, ServerFault, UserMessage,
 };
-use hamlet_rules::chief::{self, Target};
-use hamlet_rules::hamlet::HOME;
+use hamlet_client::outbox::Outbox;
+use hamlet_client::realm::MAYOR;
+use hamlet_protocol::v0;
 use hamlet_world::orders::{Decree, Tell};
 
 pub(crate) use self::change::change_view;
@@ -55,13 +59,14 @@ pub use self::lines::{
 pub use self::rewind::{Rewinds, asked as rewind_asked};
 use crate::View;
 use crate::looks::well;
-use crate::me::{self, Me, talk_to, talk_to_mayor_of};
+use crate::me::{self, Me};
 
 /// The least width of the field a chief types in.
 const FIELD_LEAST: f32 = 150.0;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
+        .init_resource::<Requests>()
         .init_resource::<ChatSettings>()
         .init_resource::<Changes>()
         .init_resource::<Unfolded>()
@@ -70,7 +75,11 @@ pub fn plugin(app: &mut App) {
         .add_observer(keep_typed)
         .add_observer(decreed)
         .add_observer(told)
-        .add_plugins(rewind::plugin)
+        .add_observer(fault)
+        .add_observer(remember_said)
+        .add_observer(remember_rewind)
+        .add_observer(response)
+        .add_plugins((rewind::plugin, lines::plugin))
         .add_systems(
             Update,
             (
@@ -97,6 +106,95 @@ pub struct ChatScroll;
 pub struct Draft {
     pub(super) text: String,
     pub(super) step: u8,
+    notice: String,
+}
+
+/// A failure displayed under the chat field.
+#[derive(Event)]
+pub(crate) struct ChatError;
+
+fn fault(
+    fault: On<ServerFault>,
+    mut draft: ResMut<Draft>,
+    mut commands: Commands,
+) {
+    draft.notice.clone_from(&fault.text);
+    commands.trigger(ChatError);
+}
+
+#[derive(Resource, Default)]
+struct Requests(HashSet<String>);
+
+fn remember_said(message: On<UserMessage>, mut commands: Commands) {
+    let message = message.event().clone();
+    // The client's observers enqueue the requests before this command
+    // keeps their ids.
+    commands.queue(move |world: &mut World| {
+        remember(world, |request| match request {
+            v0::ClientMessage::Say(say)
+                if say.to == message.to
+                    && say.text == message.text =>
+            {
+                Some(say.id.clone())
+            }
+            _ => None,
+        });
+    });
+}
+
+fn remember_rewind(
+    rewind: On<Rewind>,
+    chats: Query<&Chat>,
+    mut commands: Commands,
+) {
+    let Ok(chat) = chats.get(rewind.chat) else {
+        return;
+    };
+    let (chat, item) = (chat.0.clone(), rewind.item.clone());
+    commands.queue(move |world: &mut World| {
+        remember(world, |request| match request {
+            v0::ClientMessage::Rewind(rewind)
+                if rewind.chat == chat && rewind.item == item =>
+            {
+                Some(rewind.id.clone())
+            }
+            _ => None,
+        });
+    });
+}
+
+fn remember(
+    world: &mut World,
+    request: impl Fn(&v0::ClientMessage) -> Option<String>,
+) {
+    let ids = world
+        .resource::<Outbox>()
+        .iter()
+        .filter_map(request)
+        .collect::<Vec<_>>();
+    world.resource_mut::<Requests>().0.extend(ids);
+}
+
+fn response(
+    response: On<Response>,
+    mut requests: ResMut<Requests>,
+    mut draft: ResMut<Draft>,
+    mut commands: Commands,
+) {
+    let text = match &response.message {
+        v0::ServerMessage::Reply(reply) => (reply.kind
+            == v0::ReplyKind::Error)
+            .then_some(&reply.text),
+        v0::ServerMessage::Fault(fault) => Some(&fault.text),
+        v0::ServerMessage::Transcript(_) => None,
+        _ => return,
+    };
+    if requests.0.remove(&response.to)
+        && let Some(text) = text
+    {
+        draft.notice.clone_from(text);
+        commands.trigger(ChatError);
+    }
 }
 
 /// Sends `text` to the open chat.
@@ -105,97 +203,32 @@ pub fn send(world: &mut World, text: String) {
     if text.is_empty() {
         return;
     }
-    // `/hamlet <name>` and `/agent <name>` change who the chat is
-    // with.
-    match chief::switch(&text) {
-        Some(Target::Mayor(hamlet)) => {
-            return talk_to_mayor_of(world, &hamlet);
-        }
-        Some(Target::Agent(name)) => {
-            if let Some(agent) = agents::named(world, &name) {
-                talk_to(world, agent);
-            }
-            return;
-        }
-        None => {}
+    if matches!(
+        text.split_whitespace().next(),
+        Some("/agent" | "/hamlet")
+    ) {
+        return;
     }
     let me = world.resource::<Me>();
-    let (key, user) = (me.key.clone(), me.user.clone());
-    world.trigger(UserMessage { key, user, text });
+    if world
+        .get::<hamlet_client::chats::Chat>(me.session)
+        .is_some_and(|chat| chat.0.past.is_some())
+    {
+        return;
+    }
+    let to = me.to.clone();
+    world.trigger(UserMessage { to, text });
 }
 
-/// The conversation kept under `key`.
-fn kept(world: &mut World, key: &SessionKey) -> Option<Entity> {
-    world
-        .query::<(Entity, &SessionKey)>()
-        .iter(world)
-        .find(|(_, kept)| *kept == key)
-        .map(|(session, _)| session)
-}
-
-/// The notices and errors in `session` after its first `skip`
-/// entries.
-fn answers(
-    world: &World,
-    session: Entity,
-    skip: usize,
-) -> Vec<String> {
-    world
-        .get::<Transcript>(session)
-        .into_iter()
-        .flat_map(|said| said.items().iter().skip(skip))
-        .filter_map(|item| match &item.entry {
-            Entry::Notice(text) | Entry::Error(text) => {
-                Some(text.clone())
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-fn entries(world: &World, session: Option<Entity>) -> usize {
-    session
-        .and_then(|session| world.get::<Transcript>(session))
-        .map_or(0, |said| said.items().len())
-}
-
-/// Gives a chief's command to the hamlet `hamlet`: in the open chat
-/// when it is with that hamlet, and with that hamlet's mayor
-/// otherwise. The answer is shown in the open chat either way.
+/// A chief's command addressed to a hamlet's mayor.
 pub(crate) fn decree(world: &mut World, hamlet: &str, text: String) {
-    let me = world.resource::<Me>();
-    let here = agents::hamlet_of(world, me.agent).unwrap_or(HOME);
-    let (open, user) = (me.session, me.user.clone());
-    let key = if here == hamlet {
-        me.key.clone()
-    } else {
-        SessionKey::with_mayor("app", &user, hamlet)
-    };
-    let elsewhere = key != me.key;
-    let there = kept(world, &key);
-    let before = (entries(world, there), entries(world, Some(open)));
     world.trigger(UserMessage {
-        key: key.clone(),
-        user,
+        to: v0::Address {
+            hamlet: hamlet.into(),
+            agent: MAYOR.into(),
+        },
         text,
     });
-    world.flush();
-    if !elsewhere {
-        return;
-    }
-    let Some(there) = kept(world, &key) else {
-        return;
-    };
-    // The core tells every chat of some answers itself.
-    let told = answers(world, open, before.1);
-    let answers = answers(world, there, before.0);
-    if let Some(mut said) = world.get_mut::<Transcript>(open) {
-        for answer in answers {
-            if !told.contains(&answer) {
-                said.apply(&Reply::Notice(answer));
-            }
-        }
-    }
 }
 
 /// Gives a decree of the world's as [`decree`] does.
@@ -210,11 +243,10 @@ pub(crate) fn decreed(decree: On<Decree>, mut commands: Commands) {
 fn told(tell: On<Tell>, mut commands: Commands) {
     let Tell { agent, text } = tell.event().clone();
     commands.queue(move |world: &mut World| {
-        let Some((key, _)) = me::address(world, agent) else {
+        let Some((to, _)) = me::address(world, agent) else {
             return;
         };
-        let user = world.resource::<Me>().user.clone();
-        world.trigger(UserMessage { key, user, text });
+        world.trigger(UserMessage { to, text });
         world.flush();
     });
 }
@@ -240,20 +272,13 @@ fn commit(world: &mut World, text: String) {
     if !entering {
         return;
     }
-    // Commands are not typed here: each has a button or a menu.
     if text.trim_start().starts_with('/') {
-        let me = world.resource::<Me>();
-        let (session, key) = (me.session, me.key.clone());
-        world.trigger(SessionOutput {
-            session,
-            key,
-            reply: Reply::Notice(
-                "Commands are not typed here. Use the menus, or \
-                 right-click an agent or a hamlet."
-                    .into(),
-            ),
-        });
+        world.resource_mut::<Draft>().notice =
+            "Commands are not typed here. Use the menus, or \
+             right-click an agent or a hamlet."
+                .into();
     } else {
+        world.resource_mut::<Draft>().notice.clear();
         send(world, text);
     }
     world.resource_mut::<Draft>().step = 3;
@@ -364,13 +389,607 @@ pub fn message_bar() -> impl View {
     .grow(1.0)
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
-    row((field,)).gap(8.0).align(AlignItems::Center)
+    column((
+        row((field,)).gap(8.0).align(AlignItems::Center),
+        label(resource::<Draft, _>(|draft| draft.notice.clone()))
+            .size(12.0)
+            .tone(Tone::Dim),
+    ))
+    .gap(4.0)
 }
 
 #[cfg(test)]
 mod tests {
+    use bevy::ecs::message::Messages;
+    use hamlet_world::sound::{Cue, Sound};
 
     use super::*;
+
+    fn sounding_chat() -> App {
+        let mut app = crate::me::tests::panel_app();
+        app.add_message::<Cue>()
+            .init_resource::<crate::menu::OpenMenu>()
+            .init_resource::<crate::world_menu::Open>()
+            .init_resource::<bevy_fynix::dock::DockDrag>()
+            .init_resource::<crate::inspector::Section>()
+            .init_resource::<crate::hover::Card>()
+            .add_plugins((plugin, crate::sounds::plugin));
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            message_bar(),
+        );
+        app.update();
+        app
+    }
+
+    fn heard(app: &mut App) -> Vec<Sound> {
+        app.world_mut()
+            .resource_mut::<Messages<Cue>>()
+            .drain()
+            .map(|cue| cue.sound)
+            .collect()
+    }
+
+    #[test]
+    fn an_unaddressed_fault_shows_under_the_field_and_sounds_once() {
+        let mut app = sounding_chat();
+        heard(&mut app);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Fault(v0::Fault {
+                to: None,
+                text: "The server could not keep that change.".into(),
+            }),
+        );
+        app.update();
+        assert!(
+            crate::me::tests::words(&mut app).iter().any(|text| text
+                == "The server could not keep that change.")
+        );
+        assert_eq!(heard(&mut app), [Sound::Error]);
+        app.update();
+        assert_eq!(heard(&mut app), []);
+    }
+
+    #[test]
+    fn refusals_of_chat_requests_show_and_sound_but_panel_replies_do_not()
+     {
+        use hamlet_client::messages::Rewind;
+        use hamlet_client::outbox::Outbox;
+
+        let mut app = sounding_chat();
+        let chat = app.world().resource::<Me>().session;
+        for (rewind, fault) in
+            [(false, false), (true, false), (false, true)]
+        {
+            if rewind {
+                app.world_mut().trigger(Rewind {
+                    chat,
+                    item: "chief:0".into(),
+                });
+            } else {
+                send(app.world_mut(), "Find the key".into());
+            }
+            app.world_mut().flush();
+            let id = app
+                .world_mut()
+                .resource_mut::<Outbox>()
+                .drain()
+                .find_map(|message| match message {
+                    v0::ClientMessage::Say(say) => Some(say.id),
+                    v0::ClientMessage::Rewind(rewind) => {
+                        Some(rewind.id)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            heard(&mut app);
+            let text = "This conversation cannot do that.".into();
+            let message = if fault {
+                v0::ServerMessage::Fault(v0::Fault {
+                    to: Some(id),
+                    text,
+                })
+            } else {
+                v0::ServerMessage::Reply(v0::Reply {
+                    to: id,
+                    kind: v0::ReplyKind::Error,
+                    text,
+                    upload: None,
+                })
+            };
+            hamlet_client::receive(app.world_mut(), message);
+            app.update();
+            assert!(
+                crate::me::tests::words(&mut app)
+                    .iter()
+                    .any(|text| text
+                        == "This conversation cannot do that.")
+            );
+            assert_eq!(heard(&mut app), [Sound::Error]);
+            app.update();
+            assert_eq!(heard(&mut app), []);
+        }
+        let id =
+            app.world_mut().resource_mut::<Outbox>().send(|id| {
+                v0::ClientMessage::Check(v0::Check::Connection { id })
+            });
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Reply(v0::Reply {
+                to: id,
+                kind: v0::ReplyKind::Error,
+                text: "Only the settings panel should show this."
+                    .into(),
+                upload: None,
+            }),
+        );
+        app.update();
+        assert!(
+            !crate::me::tests::words(&mut app)
+                .iter()
+                .any(|text| text
+                    == "Only the settings panel should show this.")
+        );
+        assert_eq!(heard(&mut app), []);
+    }
+
+    #[test]
+    fn typed_commands_are_refused_locally_and_address_commands_never_leave()
+     {
+        use bevy::input::ButtonState;
+        use bevy::input::keyboard::{Key, KeyCode, KeyboardInput};
+        use bevy::input_focus::InputDispatchPlugin;
+        use bevy::window::{PrimaryWindow, Window};
+
+        let mut app = sounding_chat();
+        app.add_plugins((
+            bevy::input::InputPlugin,
+            InputDispatchPlugin,
+        ));
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let world = app.world_mut();
+        let input = world
+            .query_filtered::<Entity, With<EditableText>>()
+            .single(world)
+            .unwrap();
+        for command in ["/new", "/agent founder", "/hamlet home"] {
+            app.world_mut()
+                .resource_mut::<InputFocus>()
+                .set(input, FocusCause::Pressed);
+            app.update();
+            app.world_mut()
+                .get_mut::<EditableText>(input)
+                .unwrap()
+                .editor_mut()
+                .set_text(command);
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::Enter,
+                logical_key: Key::Enter,
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window,
+            });
+            for _ in 0..4 {
+                app.update();
+            }
+            assert!(crate::me::tests::words(&mut app).iter().any(
+                |text| text
+                    == "Commands are not typed here. Use the menus, \
+                        or right-click an agent or a hamlet."
+            ));
+        }
+        send(app.world_mut(), "/agent founder".into());
+        send(app.world_mut(), "/hamlet home".into());
+        assert!(!app.world().resource::<Outbox>().iter().any(
+            |message| matches!(message, v0::ClientMessage::Say(_))
+        ));
+    }
+
+    fn paging_pages() -> Vec<v0::Transcript> {
+        include_str!("../../../server/test/frames/paging.jsonl")
+            .lines()
+            .filter_map(|line| {
+                let frame =
+                    serde_json::from_str::<serde_json::Value>(line)
+                        .unwrap();
+                (frame["from"] == "server"
+                    && frame["message"]["type"] == "transcript")
+                    .then(|| {
+                        serde_json::from_value::<v0::Transcript>(
+                            frame["message"].clone(),
+                        )
+                        .unwrap()
+                    })
+            })
+            .collect::<Vec<_>>()
+    }
+
+    #[test]
+    fn a_chat_shorter_than_the_viewport_reads_earlier_pages_without_scrolling()
+     {
+        use hamlet_client::outbox::Outbox;
+        let mut app = crate::me::tests::panel_app();
+        app.add_plugins(plugin);
+        app.update();
+        let pages = paging_pages();
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Transcript(pages[0].clone()),
+        );
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            transcript(),
+        );
+        app.update();
+        let world = app.world_mut();
+        let scroll = world
+            .query_filtered::<Entity, With<ChatScroll>>()
+            .single(world)
+            .unwrap();
+        world.entity_mut(scroll).insert(ComputedNode {
+            size: bevy::math::Vec2::new(300.0, 1000.0),
+            content_size: bevy::math::Vec2::new(300.0, 400.0),
+            inverse_scale_factor: 1.0,
+            ..Default::default()
+        });
+        for _ in 0..10 {
+            app.update();
+        }
+        let requests = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .filter_map(|message| match message {
+                v0::ClientMessage::Open(open)
+                    if open.before.is_some() =>
+                {
+                    Some(open)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(requests.len(), 1, "earlier page without scroll");
+        let mut page = pages[1].clone();
+        page.to = Some(requests[0].id.clone());
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Transcript(page),
+        );
+        for _ in 0..10 {
+            app.update();
+        }
+        let shown = crate::me::tests::words(&mut app).join("\n");
+        assert!(shown.contains("Line 1."), "{shown}");
+        assert!(
+            !shown.contains("Earlier lines. Scroll up to read them.")
+        );
+        assert!(!app.world().resource::<Outbox>().iter().any(|message| matches!(message, v0::ClientMessage::Open(open) if open.before.is_some())));
+    }
+
+    #[test]
+    fn scrolling_back_pages_once_and_shows_the_received_page_above() {
+        use hamlet_client::outbox::Outbox;
+
+        use crate::me::tests::{panel_app, words};
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        app.update();
+        let pages = paging_pages();
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Transcript(pages[0].clone()),
+        );
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            transcript(),
+        );
+        app.update();
+        let world = app.world_mut();
+        assert_eq!(
+            world
+                .query_filtered::<Entity, With<ChatRow>>()
+                .iter(world)
+                .count(),
+            24
+        );
+        let scroll = world
+            .query_filtered::<Entity, With<ChatScroll>>()
+            .single(world)
+            .unwrap();
+        world.entity_mut(scroll).insert(ComputedNode {
+            size: bevy::math::Vec2::new(300.0, 200.0),
+            content_size: bevy::math::Vec2::new(300.0, 1000.0),
+            inverse_scale_factor: 1.0,
+            ..ComputedNode::default()
+        });
+        app.update();
+        assert!(
+            words(&mut app).iter().any(|text| text
+                == "Earlier lines. Scroll up to read them.")
+        );
+        app.world_mut()
+            .get_mut::<ScrollPosition>(scroll)
+            .unwrap()
+            .y = 0.0;
+        app.update();
+        app.world_mut()
+            .get_mut::<ComputedNode>(scroll)
+            .unwrap()
+            .content_size
+            .y = 1200.0;
+        app.update();
+        app.world_mut()
+            .get_mut::<ScrollPosition>(scroll)
+            .unwrap()
+            .y = 0.0;
+        for _ in 0..4 {
+            app.update();
+        }
+        let requests = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .filter_map(|message| match message {
+                v0::ClientMessage::Open(open)
+                    if open.before.is_some() =>
+                {
+                    Some(open)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].before.as_deref(), Some("42:0"));
+        app.world_mut()
+            .trigger(hamlet_client::messages::Reconnected);
+        app.update();
+        let reopened = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .find_map(|message| match message {
+                v0::ClientMessage::Open(open)
+                    if open.before.is_none() =>
+                {
+                    Some(open)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let mut latest = pages[0].clone();
+        latest.to = Some(reopened.id);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Transcript(latest),
+        );
+        app.update();
+        let requests = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .filter_map(|message| match message {
+                v0::ClientMessage::Open(open)
+                    if open.before.is_some() =>
+                {
+                    Some(open)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            requests.len(),
+            1,
+            "paging remains available after reconnecting while a \
+             page was out"
+        );
+        let mut page = pages[1].clone();
+        page.to = Some(requests[0].id.clone());
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Transcript(page),
+        );
+        app.update();
+        app.world_mut()
+            .get_mut::<ComputedNode>(scroll)
+            .unwrap()
+            .content_size
+            .y = 1400.0;
+        app.update();
+        assert_eq!(
+            app.world().get::<ScrollPosition>(scroll).unwrap().y,
+            200.0
+        );
+        let shown = words(&mut app);
+        assert!(
+            shown.iter().any(|text| text.trim_end() == "Line 1."),
+            "{shown:?}"
+        );
+        assert!(
+            !shown.iter().any(|text| text
+                == "Earlier lines. Scroll up to read them.")
+        );
+        let world = app.world_mut();
+        let mut children = world.query::<&Children>();
+        let row_times = children
+            .query(world)
+            .iter_descendants(scroll)
+            .filter_map(|entity| {
+                world.get::<Rewinds>(entity).map(|row| row.at)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(row_times.len(), 23);
+        assert!(
+            row_times.windows(2).all(|pair| pair[0] <= pair[1]),
+            "the page precedes the kept rows"
+        );
+    }
+
+    #[test]
+    fn received_items_show_tool_outcomes_folded_steps_and_notices() {
+        use hamlet_client::chats::{Entry, Item, Transcript};
+
+        use crate::me::tests::{panel_app, press, words};
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let session = app.world().resource::<Me>().session;
+        let tool = |id: &str, exit| Item {
+            id: id.into(),
+            at: 0,
+            entry: Entry::Tool {
+                name: "bash".into(),
+                summary: "pwd".into(),
+                exit,
+                ms: Some(3),
+                failure: None,
+                change: None,
+            },
+        };
+        app.world_mut().entity_mut(session).insert(
+            Transcript::from_items(vec![
+                Item {
+                    id: "chief:0".into(),
+                    at: 0,
+                    entry: Entry::User {
+                        user: "chief".into(),
+                        text: "Go".into(),
+                    },
+                },
+                tool("done:0", Some(0)),
+                tool("failed:0", Some(7)),
+                Item {
+                    id: "reply:0".into(),
+                    at: 0,
+                    entry: Entry::Assistant("Still working.".into()),
+                },
+                tool("running:0", None),
+                Item {
+                    id: "reply:1".into(),
+                    at: 0,
+                    entry: Entry::Assistant("The next step.".into()),
+                },
+                Item {
+                    id: "notice:0".into(),
+                    at: 0,
+                    entry: Entry::Notice("A received notice".into()),
+                },
+            ]),
+        );
+        app.update();
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            transcript(),
+        );
+        app.update();
+        press(&mut app, "+  Worked, 2 steps, 1 failed");
+        press(&mut app, "+  Working, 1 step so far");
+        press(&mut app, "+  Thought it over");
+        for _ in 0..3 {
+            app.update();
+        }
+        let shown = words(&mut app);
+        for text in [
+            "Done",
+            "Failed (exit 7)",
+            "Running",
+            "A received notice",
+        ] {
+            assert!(
+                shown.iter().any(|shown| shown == text),
+                "missing {text}: {shown:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_row_rewinds_by_its_string_id_and_returns_the_words_to_the_field()
+     {
+        use bevy::ui_widgets::{Activate, Button};
+        use hamlet_client::chats::{Entry, Item, Transcript};
+        use hamlet_client::outbox::Outbox;
+
+        use crate::me::tests::{panel_app, press};
+        let mut app = panel_app();
+        app.add_plugins(plugin)
+            .init_resource::<crate::world_menu::Open>();
+        let session = app.world().resource::<Me>().session;
+        app.world_mut().entity_mut(session).insert(
+            Transcript::from_items(vec![Item {
+                id: "entry-abc:0".into(),
+                at: 1,
+                entry: Entry::User {
+                    user: "chief".into(),
+                    text: "Change these words".into(),
+                },
+            }]),
+        );
+        app.update();
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            bevy_fynix::views::column((
+                transcript(),
+                message_bar(),
+                crate::world_menu::view(),
+            )),
+        );
+        app.update();
+        let world = app.world_mut();
+        let row = world
+            .query_filtered::<Entity, With<Rewinds>>()
+            .single(world)
+            .unwrap();
+        let mark = world
+            .query_filtered::<Entity, With<Button>>()
+            .iter(world)
+            .find(|entity| {
+                let mut at = *entity;
+                while let Some(parent) = world.get::<ChildOf>(at) {
+                    at = parent.parent();
+                    if at == row {
+                        return true;
+                    }
+                }
+                false
+            })
+            .unwrap();
+        world.trigger(Activate { entity: mark });
+        app.update();
+        press(&mut app, "REWIND");
+        let request = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .find_map(|message| match message {
+                v0::ClientMessage::Rewind(request) => {
+                    Some(request.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(request.item, "entry-abc:0");
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Reply(v0::Reply {
+                to: request.id,
+                kind: v0::ReplyKind::Rewound,
+                text: "Change these words".into(),
+                upload: None,
+            }),
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            app.world_mut()
+                .query::<&EditableText>()
+                .iter(app.world())
+                .any(|field| field.value() == "Change these words")
+        );
+    }
 
     #[test]
     fn the_chat_stays_at_its_end_until_it_is_read_back() {

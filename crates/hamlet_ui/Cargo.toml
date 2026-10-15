@@ -9,12 +9,10 @@ description = "The command center window: the dock, the panels, the menus and th
 workspace = true
 
 [dependencies]
+hamlet_client.workspace = true
 hamlet_assets.workspace = true
-hamlet_core.workspace = true
 hamlet_desktop.workspace = true
-hamlet_home.workspace = true
-hamlet_model.workspace = true
-hamlet_rules.workspace = true
+hamlet_protocol.workspace = true
 hamlet_world.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true

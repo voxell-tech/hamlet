@@ -1,54 +1,36 @@
 import { randomUUID } from "node:crypto";
 import { expect, it, vi } from "vitest";
-import { chiefInput } from "../src/chats.ts";
+import { ChatDoc, chiefInput } from "../src/chats.ts";
 import { scriptedModels } from "../src/faux.ts";
 import { notify } from "../src/notice.ts";
 import type { Item, ServerMessage, UsageView } from "../src/protocol.ts";
-import { chat, mayor, request, say, served } from "./connection-support.ts";
+import {
+    chat,
+    fold,
+    mayor,
+    request,
+    say,
+    served,
+} from "./connection-support.ts";
 import { context, mayorChat } from "./support.ts";
 
 function held(messages: ServerMessage[]) {
     const items: Item[] = [];
     let usage: UsageView | undefined;
-    let working = false;
+    const status = { working: false, pending: 0 };
     for (const message of messages) {
         if (message.type === "transcript") {
             items.splice(0, items.length, ...structuredClone(message.items));
             usage = message.usage;
-            working = message.working;
+            status.working = message.working;
         }
         if (message.type !== "turn") continue;
         for (const op of message.ops) {
-            if (op.op === "reset") items.length = 0;
-            if (op.op === "add") {
-                if (op.replaces !== undefined)
-                    items.splice(
-                        items.findIndex((item) => item.id === op.replaces),
-                        1,
-                    );
-                items.push(structuredClone(op.item));
-            }
-            if (op.op === "append") {
-                const item = items.find((item) => item.id === op.item);
-                if (item === undefined) throw new Error("Append before add");
-                item.text += op.text;
-            }
-            if (op.op === "close") {
-                const item = items.find((item) => item.id === op.item);
-                if (item?.tool === undefined)
-                    throw new Error("Close before add");
-                Object.assign(item.tool, {
-                    exit: op.exit,
-                    ms: op.ms,
-                    failure: op.failure,
-                    ...(op.change === undefined ? {} : { change: op.change }),
-                });
-            }
+            fold(items, status, op);
             if (op.op === "usage") usage = op.usage;
-            if (op.op === "status") working = op.working;
         }
     }
-    return { items, usage, working };
+    return { items, usage, working: status.working };
 }
 
 async function opened(run: Awaited<ReturnType<typeof served>>) {
@@ -162,6 +144,7 @@ it("resets an open chat after rewind or new, gives back the chief's words, and n
     const before = held(run.messages).items;
     const target = before.find((item) => item.text === "two");
     expect(target?.rewindable).toBe(true);
+    const rewinding = run.messages.length;
     expect(
         await request(run.connection, run.messages, {
             type: "rewind",
@@ -176,6 +159,14 @@ it("resets an open chat after rewind or new, gives back the chief's words, and n
             "First.",
         ]),
     );
+    const rebound = run.messages.slice(rewinding);
+    const reset = rebound.findIndex(
+        (message) =>
+            message.type === "turn" &&
+            message.ops.some((op) => op.op === "reset"),
+    );
+    expect(reset).toBeGreaterThanOrEqual(0);
+    expect(rebound[reset + 1]).toMatchObject({ type: "transcript", chat });
     say(run.connection, "again");
     await vi.waitFor(() =>
         expect(held(run.messages).items.at(-1)?.text).toBe("Again."),
@@ -321,10 +312,12 @@ it("keeps credentials out of chief entries and out of answers split across strea
     });
     await opened(run);
     say(run.connection, `Chief ${secret}.`);
-    await vi.waitFor(() =>
-        expect(held(run.messages).items.at(-1)?.text).toBe(
-            `Keep [REDACTED] private.${tail}`,
-        ),
+    await vi.waitFor(
+        () =>
+            expect(held(run.messages).items.at(-1)?.text).toBe(
+                `Keep [REDACTED] private.${tail}`,
+            ),
+        { timeout: 5000 },
     );
     const chunks = new Map<string, string>();
     for (const message of run.messages) {
@@ -346,4 +339,185 @@ it("keeps credentials out of chief entries and out of answers split across strea
     expect(
         entries.items.find((entry) => entry.kind === "hamlet.chief")?.data,
     ).toMatchObject({ text: "Chief [REDACTED]." });
+}, 10_000);
+
+it("keeps the chat live after an older page is refused (S5)", async () => {
+    const run = await served({
+        env: { HAMLET_REFLECT_EVERY: "0" },
+        models: scriptedModels({ responses: [] }),
+    });
+    await opened(run);
+    expect(
+        await request(run.connection, run.messages, {
+            type: "open",
+            id: randomUUID(),
+            chat,
+            before: "unknown",
+        }),
+    ).toMatchObject({
+        type: "fault",
+        text: "There is no item `unknown` here.",
+    });
+    const conversation = await mayorChat(run.home);
+    await run.home.harness.commit(
+        (tx) => notify(tx, conversation.id, "Still watched.", run.home.now()),
+        context,
+    );
+    await vi.waitFor(() =>
+        expect(held(run.messages).items.at(-1)?.text).toBe("Still watched."),
+    );
+});
+
+it("sends last activity live and on late opens, keeping notices from replacing it (S5)", async () => {
+    const run = await served({
+        env: { HAMLET_REFLECT_EVERY: "0" },
+        models: scriptedModels({
+            responses: [
+                {
+                    calls: [
+                        { name: "bash", arguments: { command: "echo inside" } },
+                    ],
+                },
+                "Done.",
+            ],
+        }),
+    });
+    await opened(run);
+    say(run.connection, "Work.");
+    await vi.waitFor(() => {
+        expect(held(run.messages).working).toBe(false);
+        expect(held(run.messages).items.at(-1)?.text).toBe("Done.");
+    });
+    const ops = run.messages.flatMap((message) =>
+        message.type === "turn" ? message.ops : [],
+    );
+    const tool = held(run.messages).items.find((item) => item.kind === "tool");
+    const reply = held(run.messages).items.at(-1);
+    expect(ops).toContainEqual(
+        expect.objectContaining({
+            op: "status",
+            last: { what: "tool bash", at: tool?.at },
+        }),
+    );
+    expect(ops).toContainEqual(
+        expect.objectContaining({
+            op: "status",
+            last: { what: "replied", at: reply?.at },
+        }),
+    );
+    const conversation = await mayorChat(run.home);
+    await run.home.harness.commit(
+        (tx) => notify(tx, conversation.id, "A notice.", run.home.now()),
+        context,
+    );
+    expect(await opened(run)).toMatchObject({
+        last: { what: "replied", at: reply?.at },
+    });
+});
+
+it("reads back the last error after a failed turn", async () => {
+    const { fauxModels } = await import("./support.ts");
+    const { fauxAssistantMessage } = await import(
+        "@earendil-works/pi-ai/providers/faux"
+    );
+    const { models, faux } = fauxModels();
+    faux.setResponses([
+        fauxAssistantMessage("", {
+            stopReason: "error",
+            errorMessage: "Faux failure.",
+        }),
+    ]);
+    const run = await served({ models, env: { HAMLET_REFLECT_EVERY: "0" } });
+    await opened(run);
+    say(run.connection, "Fail.");
+    await vi.waitFor(() =>
+        expect(held(run.messages).items.at(-1)?.kind).toBe("error"),
+    );
+    const error = held(run.messages).items.at(-1);
+    expect(await opened(run)).toMatchObject({
+        last: { what: "error", at: error?.at },
+    });
+});
+
+it("never loses a step committed while an older page is read (S5, C30)", async () => {
+    const run = await served({ models: scriptedModels({ responses: [] }) });
+    const conversation = await mayorChat(run.home);
+    await run.home.harness.commit(async (tx) => {
+        for (let n = 0; n < 46; n++)
+            await notify(tx, conversation.id, `Earlier ${n}.`, run.home.now());
+    }, context);
+    const latest = await opened(run);
+    let committed = false;
+    const commit = async () => {
+        if (committed) return;
+        committed = true;
+        await run.home.harness.commit(
+            (tx) => notify(tx, conversation.id, "Between.", run.home.now()),
+            context,
+        );
+    };
+    const watchDoc = run.home.harness.watchDoc.bind(run.home.harness);
+    const watching = vi
+        .spyOn(run.home.harness, "watchDoc")
+        .mockImplementation(async (...args) => {
+            if (Object.is(args[0], ChatDoc)) await commit();
+            return watchDoc(...args);
+        });
+    try {
+        await request(run.connection, run.messages, {
+            type: "open",
+            id: randomUUID(),
+            chat,
+            before: latest.earlier ?? "missing",
+        });
+        await commit();
+        await vi.waitFor(() =>
+            expect(
+                run.messages.flatMap((message) =>
+                    message.type === "turn" ? message.ops : [],
+                ),
+            ).toContainEqual(
+                expect.objectContaining({
+                    op: "add",
+                    item: expect.objectContaining({ text: "Between." }),
+                }),
+            ),
+        );
+    } finally {
+        watching.mockRestore();
+    }
+});
+
+it("keeps a tool call as last activity when the same response explains the call", async () => {
+    const { fauxAssistantMessage, fauxToolCall } = await import(
+        "@earendil-works/pi-ai/providers/faux"
+    );
+    const { fauxModels } = await import("./support.ts");
+    const { models, faux } = fauxModels();
+    let finish: (() => void) | undefined;
+    faux.setResponses([
+        fauxAssistantMessage(
+            [
+                fauxToolCall("bash", { command: "true" }),
+                { type: "text", text: "I will run this." },
+            ],
+            { stopReason: "toolUse" },
+        ),
+        async () => {
+            await new Promise<void>((resolve) => {
+                finish = resolve;
+            });
+            return fauxAssistantMessage("Done.");
+        },
+    ]);
+    const run = await served({ models, env: { HAMLET_REFLECT_EVERY: "0" } });
+    await opened(run);
+    say(run.connection, "Work.");
+    try {
+        await vi.waitFor(() => expect(finish).toBeDefined());
+        const snapshot = await opened(run);
+        expect(snapshot.last?.what).toBe("tool bash");
+    } finally {
+        finish?.();
+    }
 });

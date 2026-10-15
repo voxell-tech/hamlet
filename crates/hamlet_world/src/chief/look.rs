@@ -206,9 +206,8 @@ impl Look {
         )
     }
 
-    /// The file the look of the chief `user` is kept in, under the
-    /// home at `home`.
-    pub fn file(home: &Path, user: &str) -> PathBuf {
+    /// The file for the chief's look under the window's folder.
+    pub fn file(view: &Path, user: &str) -> PathBuf {
         let name = user
             .chars()
             .map(|c| {
@@ -219,13 +218,13 @@ impl Look {
                 }
             })
             .collect::<String>();
-        home.join("chiefs").join(format!("{name}.toml"))
+        view.join("chiefs").join(format!("{name}.toml"))
     }
 
     /// The kept look of `user`, or the first look where none is
     /// kept or it cannot be read.
-    pub fn read(home: &Path, user: &str) -> Look {
-        std::fs::read_to_string(Self::file(home, user))
+    pub fn read(view: &Path, user: &str) -> Look {
+        std::fs::read_to_string(Self::file(view, user))
             .ok()
             .and_then(|text| toml::from_str::<Look>(&text).ok())
             .unwrap_or_default()
@@ -234,10 +233,10 @@ impl Look {
     /// Keeps the look of `user`.
     pub fn write(
         self,
-        home: &Path,
+        view: &Path,
         user: &str,
     ) -> std::io::Result<()> {
-        let file = Self::file(home, user);
+        let file = Self::file(view, user);
         if let Some(folder) = file.parent() {
             std::fs::create_dir_all(folder)?;
         }

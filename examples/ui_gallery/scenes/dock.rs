@@ -10,7 +10,7 @@ use bevy_fynix::dock::{
     Edge, dock,
 };
 use bevy_fynix::views::{FrameProps, column, frame, overlay};
-use hamlet_core::session::{Entry, Transcript};
+use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::feel::Lit;
 use hamlet_ui::icons::Glyph;
 use hamlet_ui::theme::HamletTheme;
@@ -123,7 +123,7 @@ fn rewind_question() -> Ui {
             .into_iter()
             .flat_map(|said| said.items().iter().rev())
             .find(|item| matches!(item.entry, Entry::User { .. }))
-            .map(|item| item.id)
+            .map(|item| item.id.clone())
             .filter(|_| {
                 *cx.world.resource::<Scene>() == Scene::Rewind
             });

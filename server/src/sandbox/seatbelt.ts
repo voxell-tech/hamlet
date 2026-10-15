@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import {
     aboveLocked,
     canon,
@@ -13,14 +14,18 @@ const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 const BASE = `(version 1)
 (deny default)
 
+; system aliases and shell selection
+(allow file-read-metadata
+  (literal "/etc") (literal "/tmp") (literal "/var")
+  (literal "/opt") (literal "/Library") (literal "/Applications")
+  (literal "/private") (literal "/private/var")
+  (subpath "/private/var/select"))
+
 ; children inherit the policy
 (allow process-exec)
 (allow process-fork)
 (allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
-
-; stat works everywhere so path traversal and getcwd succeed
-(allow file-read-metadata)
 
 (allow sysctl-read
   (sysctl-name-prefix "hw.")
@@ -116,12 +121,23 @@ function rules(
 /** The profile text and the `-D` parameters it reads, which keep paths from needing escapes. Of two rules that match, the later one decides. */
 function profile(policy: Policy, tmp: string): Profile {
     const out: Profile = { sbpl: BASE, params: [] };
+    const parents = new Set<string>();
+    for (const path of [...policy.ro, ...policy.rw, tmp]) {
+        for (const spelling of [path, canon(path)]) {
+            for (
+                let up = dirname(spelling);
+                up !== dirname(up);
+                up = dirname(up)
+            )
+                parents.add(up);
+        }
+    }
+    rules(out, "PARENTS", `(allow file-read-metadata (literal (param "{}")))`, [
+        ...parents,
+    ]);
     if (policy.open) {
         out.sbpl += "(allow file-read*)\n";
-        // Another house's temp dir is as private as the house. The base
-        // profile allows metadata by its own name, which this does not
-        // undo: a path through a hidden folder to a granted one can still
-        // be walked.
+        // Another house's temp dir is as private as the house.
         rules(
             out,
             "HIDDEN",

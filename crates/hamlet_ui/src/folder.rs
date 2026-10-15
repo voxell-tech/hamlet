@@ -14,9 +14,8 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, segmented,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
-use hamlet_core::agents::{Settlement, Works};
+use hamlet_client::realm::{Mode, Works};
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
-use hamlet_rules::work::{Mode, Work};
 use hamlet_world::pick::{Thing, select};
 use hamlet_world::works::Switched;
 
@@ -39,8 +38,7 @@ pub(crate) fn plugin(app: &mut App) {
 fn switched(switched: On<Switched>, mut commands: Commands) {
     let hamlet = switched.hamlet;
     commands.queue(move |world: &mut World| {
-        let Some(work) = world.get::<Works>(hamlet).map(|w| &w.0)
-        else {
+        let Some(work) = world.get::<Works>(hamlet) else {
             return;
         };
         if work.folder.is_none() {
@@ -51,7 +49,17 @@ fn switched(switched: On<Switched>, mut commands: Commands) {
             Mode::Manual => Mode::Auto,
             Mode::Auto => Mode::Manual,
         };
-        tell(world, hamlet, format!("/mode {}", to.name()));
+        tell(
+            world,
+            hamlet,
+            format!(
+                "/mode {}",
+                match to {
+                    Mode::Manual => "manual",
+                    Mode::Auto => "auto",
+                }
+            ),
+        );
     });
 }
 
@@ -67,28 +75,16 @@ fn work_on(world: &mut World, hamlet: Entity, folder: &Path) {
     tell(world, hamlet, format!("/folder {}", folder.display()));
 }
 
-/// The last part of `folder`, as a button names it.
-fn name_of(folder: &Path) -> String {
-    folder
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| folder.display().to_string())
-}
-
 /// The folder `hamlet` works on, with what changes it.
 pub(crate) fn section(hamlet: Entity) -> impl View {
     let work = derived(move |world: &World| {
-        let mut work = world
-            .get::<Settlement>(hamlet)
-            .map(|settlement| settlement.record().work())
-            .unwrap_or_default();
-        // One that is gone cannot be chosen again.
-        work.before.retain(|folder| folder.is_dir());
-        work.before.truncate(EARLIER);
-        work
+        world.get::<Works>(hamlet).cloned()
     })
     .when(hamlets_moved());
-    keyed(work, move |work: &Work| {
+    keyed(work, move |work| {
+        let Some(work) = work else {
+            return column(()).boxed();
+        };
         let small = |text: String| note(text).boxed();
         let choose = action(
             Glyph::Folder,
@@ -108,17 +104,13 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
             vec![heading(Glyph::Folder, "WORKS ON").boxed()];
         match &work.folder {
             Some(folder) => {
-                parts.push(
-                    label(folder.display().to_string())
-                        .size(13.0)
-                        .boxed(),
-                );
+                parts.push(label(folder.clone()).size(13.0).boxed());
                 parts.push(
                     buttons(vec![
                         choose,
                         bad_action(
                             Glyph::Cross,
-                            "STOP",
+                            "NONE",
                             move |world| {
                                 tell(
                                     world,
@@ -130,57 +122,61 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                     ])
                     .boxed(),
                 );
-                let mode = work.mode;
-                parts.push(
-                    segmented(
-                        ["MANUAL", "AUTO"],
-                        match mode {
-                            Mode::Manual => 0,
-                            Mode::Auto => 1,
-                        },
-                        move |world, chosen| {
-                            let to = match chosen {
-                                0 => Mode::Manual,
-                                _ => Mode::Auto,
-                            };
-                            if to != mode {
-                                tell(
-                                    world,
-                                    hamlet,
-                                    format!("/mode {}", to.name()),
-                                );
-                            }
-                        },
-                    )
-                    .boxed(),
-                );
-                parts.push(small(mode.says().to_string()));
             }
             None => {
-                parts.push(small(
-                    "No folder. Its agents work in their own \
-                     workspaces."
-                        .to_string(),
-                ));
+                parts.push(small("No folder selected.".to_string()));
                 parts.push(buttons(vec![choose]).boxed());
             }
         }
+        let mode = work.mode;
+        parts.push(
+            segmented(
+                ["MANUAL", "AUTO"],
+                match mode {
+                    Mode::Manual => 0,
+                    Mode::Auto => 1,
+                },
+                move |world, chosen| {
+                    let to = match chosen {
+                        0 => Mode::Manual,
+                        _ => Mode::Auto,
+                    };
+                    if to != mode {
+                        tell(
+                            world,
+                            hamlet,
+                            format!(
+                                "/mode {}",
+                                match to {
+                                    Mode::Manual => "manual",
+                                    Mode::Auto => "auto",
+                                }
+                            ),
+                        );
+                    }
+                },
+            )
+            .boxed(),
+        );
+        parts.push(small(work.words.clone()));
+        parts.push(small(
+            "Folders are paths on the server's machine.".into(),
+        ));
         if !work.before.is_empty() {
             let earlier = work
                 .before
                 .iter()
+                .take(EARLIER)
                 .map(|folder| {
                     let folder = folder.clone();
-                    bevy_fynix::views::button(
-                        label(name_of(&folder)).wrap(false),
-                    )
-                    .padding(crate::looks::pad())
-                    .rules(brass)
-                    .tagged(Mood::Plain)
-                    .on_activate(move |world| {
-                        work_on(world, hamlet, &folder)
-                    })
-                    .boxed()
+                    bevy_fynix::views::button(label(folder.clone()))
+                        .padding(crate::looks::pad())
+                        .rules(brass)
+                        .tagged(Mood::Plain)
+                        .on_activate(move |world| {
+                            work_on(world, hamlet, Path::new(&folder))
+                        })
+                        .boxed()
                 })
                 .collect::<Vec<_>>();
             parts.push(small("Worked on before:".to_string()));
@@ -189,4 +185,109 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
         column(parts).gap(6.0).align(AlignItems::FlexStart).boxed()
     })
     .within(bare())
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_client::outbox::Outbox;
+    use hamlet_client::realm::Settlement;
+    use hamlet_protocol::v0;
+
+    use super::*;
+    use crate::me::tests::{panel_app, press, words};
+
+    #[test]
+    fn the_server_folder_history_and_mode_send_commands_to_its_mayor()
+    {
+        let mut app = panel_app();
+        app.add_plugins((plugin, crate::overview::plugin));
+        let mut state = hamlet_testing::realm::state();
+        state.hamlets[0].folder =
+            Some("/on-the-server/current".into());
+        state.hamlets[0].before = (1..=4)
+            .map(|n| format!("/on-the-server/earlier-{n}"))
+            .collect();
+        state.hamlets[0].mode_words =
+            "The server holds each command for its chief.".into();
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state.clone()),
+        );
+        let hamlet = app
+            .world_mut()
+            .query::<(Entity, &Settlement)>()
+            .iter(app.world())
+            .next()
+            .unwrap()
+            .0;
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            crate::overview::hamlet(hamlet),
+        );
+        app.update();
+        let shown = words(&mut app);
+        for expected in [
+            "/on-the-server/current",
+            "/on-the-server/earlier-1",
+            "/on-the-server/earlier-2",
+            "/on-the-server/earlier-3",
+            "MANUAL",
+            "The server holds each command for its chief.",
+        ] {
+            assert!(
+                shown.iter().any(|text| text == expected),
+                "missing {expected}"
+            );
+        }
+        assert!(!shown.iter().any(|text| text.contains("earlier-4")));
+        press(&mut app, "AUTO");
+        press(&mut app, "/on-the-server/earlier-2");
+        app.world_mut().trigger(FolderChosen {
+            asker: hamlet,
+            folder: "/chosen/on-the-server/with spaces".into(),
+        });
+        app.world_mut().flush();
+        press(&mut app, "NONE");
+        let sent = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .filter_map(|message| match message {
+                v0::ClientMessage::Say(say) => {
+                    assert_eq!(
+                        say.to,
+                        v0::Address {
+                            hamlet: "home".into(),
+                            agent: "mayor".into()
+                        }
+                    );
+                    Some(say.text.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            sent,
+            [
+                "/mode auto",
+                "/folder /on-the-server/earlier-2",
+                "/folder /chosen/on-the-server/with spaces",
+                "/folder none"
+            ]
+        );
+        state.hamlets[0].folder = None;
+        state.hamlets[0].mode_words =
+            "The server says no folder is selected.".into();
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            words(&mut app).iter().any(|text| text
+                == "The server says no folder is selected.")
+        );
+    }
 }

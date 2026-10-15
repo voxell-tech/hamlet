@@ -8,16 +8,23 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, ghost, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component};
-use hamlet_core::session::{
-    Entry, SessionKey, Transcript, UserMessage,
-};
-use hamlet_rules::words;
+use hamlet_client::chats::{Chat, Entry, Transcript};
+use hamlet_client::messages::UserMessage;
 
 use super::change::change_view;
 use crate::looks::{Fills, note};
 use crate::me::Me;
 use crate::platform::{DisplayText, MonoText};
 use crate::{AnyView, Cx, View, markdown};
+
+/// A single line cut to its first `most` characters.
+fn clip_start(text: &str, most: usize) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    match flat.char_indices().nth(most) {
+        Some((cut, _)) => format!("{}...", &flat[..cut]),
+        None => flat,
+    }
+}
 
 fn clip(s: &str, max: usize) -> String {
     let flat: String =
@@ -39,49 +46,59 @@ fn tool_text(summary: &str) -> String {
     let command = serde_json::from_str::<serde_json::Value>(summary)
         .ok()
         .and_then(|v| v["command"].as_str().map(str::to_string));
-    words::clip(command.as_deref().unwrap_or(summary), 90)
+    clip_start(command.as_deref().unwrap_or(summary), 90)
 }
 
 /// How the tool call at entry `id` of `session` stands.
-pub(super) fn state(session: Entity, id: u64) -> impl View {
-    let exit = move |t: Option<&Transcript>| match t
-        .and_then(|t| t.get(id))
-    {
-        Some(Entry::Tool { exit, .. }) => *exit,
-        _ => None,
-    };
+pub(super) fn state(session: Entity, id: String) -> impl View {
+    let status_id = id.clone();
     label(component::<Transcript, _>(session, move |t| {
-        match exit(t) {
-            Some(0) => "Done".to_string(),
-            Some(code) => format!("Failed (exit {code})"),
-            None => "Running".to_string(),
+        match t
+            .and_then(|t| t.item(&status_id))
+            .map(|item| &item.entry)
+        {
+            Some(Entry::Tool { exit: Some(0), .. }) => {
+                "Done".to_string()
+            }
+            Some(Entry::Tool {
+                exit: Some(code), ..
+            }) => format!("Failed (exit {code})"),
+            _ => "Running".to_string(),
         }
     }))
     .size(12.0)
     .wrap(false)
-    .tone(component::<Transcript, _>(session, move |t| {
-        match exit(t) {
-            Some(0) => Tone::Dim,
-            Some(_) => Tone::Critical,
-            None => Tone::Accent,
-        }
-    }))
+    .tone(component::<Transcript, _>(
+        session,
+        move |t| match t
+            .and_then(|t| t.item(&id))
+            .map(|item| &item.entry)
+        {
+            Some(Entry::Tool { exit: Some(0), .. }) => Tone::Dim,
+            Some(Entry::Tool { exit: Some(_), .. }) => Tone::Critical,
+            _ => Tone::Accent,
+        },
+    ))
 }
 
-pub(crate) fn entry_view(session: Entity, id: u64) -> AnyView {
+pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let kind = cx
             .world
             .get::<Transcript>(session)
-            .and_then(|t| t.get(id))
+            .and_then(|t| t.item(&id).map(|item| &item.entry))
             .cloned();
         let speaker = match &cx.world.resource::<Me>().with {
             Some(name) => name.to_uppercase(),
             None => "MAYOR".to_string(),
         };
+        let text_id = id.clone();
         let text = move |f: fn(&Entry) -> String| {
+            let id = text_id.clone();
             component::<Transcript, _>(session, move |t| {
-                t.and_then(|t| t.get(id)).map(f).unwrap_or_default()
+                t.and_then(|t| t.item(&id).map(|item| &item.entry))
+                    .map(f)
+                    .unwrap_or_default()
             })
         };
         let view: AnyView = match kind {
@@ -163,16 +180,15 @@ pub(crate) fn entry_view(session: Entity, id: u64) -> AnyView {
                 button(label("Try again").size(12.0))
                     .rules(ghost)
                     .on_activate(move |world| {
-                        let Some(key) =
-                            world.get::<SessionKey>(session).cloned()
+                        let Some(to) = world
+                            .get::<Chat>(session)
+                            .filter(|chat| chat.0.past.is_none())
+                            .map(|chat| chat.0.with.clone())
                         else {
                             return;
                         };
-                        let user =
-                            world.resource::<Me>().user.clone();
                         world.trigger(UserMessage {
-                            key,
-                            user,
+                            to,
                             text: "/retry".into(),
                         });
                     }),

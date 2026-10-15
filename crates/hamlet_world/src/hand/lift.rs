@@ -2,7 +2,7 @@
 
 use bevy::picking::Pickable;
 use bevy::prelude::*;
-use hamlet_core::agents::{Mayor, Road};
+use hamlet_client::realm::{Mayor, Road};
 
 use super::{
     Hand, Held, Mood, PlaySettings, Wish, free, liftable, met,

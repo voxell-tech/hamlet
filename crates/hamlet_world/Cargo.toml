@@ -3,21 +3,25 @@ name = "hamlet_world"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The 3D world drawn from the core's entities"
+description = "The 3D world drawn from the client's entities"
 
 [lints]
 workspace = true
 
 [dependencies]
+base64.workspace = true
+hamlet_protocol.workspace = true
+serde_json.workspace = true
+hamlet_client.workspace = true
 hamlet_assets.workspace = true
-hamlet_core.workspace = true
-hamlet_home.workspace = true
-hamlet_rules.workspace = true
 hamlet_vfx.workspace = true
 bevy.workspace = true
 chrono.workspace = true
 serde.workspace = true
 toml.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [dev-dependencies]
 hamlet_testing.workspace = true

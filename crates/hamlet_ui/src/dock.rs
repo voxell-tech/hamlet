@@ -224,9 +224,6 @@ pub(crate) fn show_tab(world: &mut World, id: &str) {
     if let Some(tab) = tab {
         tree.set_active(leaf, tab);
     }
-    if id == "agent" {
-        world.trigger(hamlet_core::core::RefreshLists);
-    }
 }
 
 #[cfg(test)]

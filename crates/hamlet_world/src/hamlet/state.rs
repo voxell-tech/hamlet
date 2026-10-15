@@ -3,20 +3,19 @@
 use std::collections::HashSet;
 
 use bevy::prelude::*;
-use hamlet_core::agents::{
-    Activity, Busy, Doing, Left, LivesIn, Mayor, Paper, Settlement,
-    Voted,
+use hamlet_client::realm::{
+    Activity, Busy, Doing, Faulted, Left, Paper, Voted,
 };
-use hamlet_core::oversight::{Kind, Needs, RaisedBy, Waiting};
+use hamlet_client::waits::{Kind, Needs, RaisedBy, Waiting};
 
-use super::{Housed, first};
+use super::Housed;
+use crate::Clock;
 use crate::generator::society::Society;
 use crate::generator::{Objecting, Voting};
 use crate::keeper::KState;
 use crate::keeper::work::{self, Task, Work};
-use crate::{Clock, Stage};
 
-fn work(activity: Activity) -> Work {
+fn work(activity: &Activity) -> Work {
     let paper = |p: Paper| match p {
         Paper::File => work::Paper::File,
         Paper::Notes => work::Paper::Notes,
@@ -53,12 +52,10 @@ pub(super) fn vote(
 /// Shows what each agent is doing, and who is arguing with the
 /// chief.
 pub(super) fn show(
-    stage: Res<Stage>,
     mut society: ResMut<Society>,
     mut objecting: ResMut<Objecting>,
-    hamlets: Query<&Settlement>,
     agents: Query<
-        (&Housed, &LivesIn, Has<Mayor>, Has<Busy>, Has<Needs>),
+        (&Housed, Has<Busy>, Has<Faulted>, Has<Needs>),
         Without<Left>,
     >,
     working: Query<
@@ -68,13 +65,13 @@ pub(super) fn show(
     waiting: Query<(&Waiting, &RaisedBy)>,
     housed: Query<&Housed>,
 ) {
-    for (agent, lives, mayor, busy, needs) in &agents {
+    for (agent, busy, faulted, needs) in &agents {
         // Waiting for the chief shows over whatever else an agent
         // does.
         let state = if needs {
             KState::Waiting
-        } else if mayor && first(&hamlets, lives) {
-            stage.kstate
+        } else if faulted {
+            KState::Fault
         } else if busy {
             KState::Working
         } else {
@@ -85,7 +82,7 @@ pub(super) fn show(
         }
     }
     for (agent, activity) in &working {
-        let work = work(*activity);
+        let work = work(activity);
         if society.agent(agent.0).is_some_and(|a| a.work != work) {
             society.set_work(agent.0, work);
         }
@@ -93,7 +90,7 @@ pub(super) fn show(
     let arguing = waiting
         .iter()
         .filter(|(waiting, _)| {
-            matches!(waiting.kind, Kind::Objection(_))
+            matches!(waiting.kind, Kind::Objection)
         })
         .filter_map(|(_, by)| housed.get(by.0).ok())
         .map(|agent| agent.0)

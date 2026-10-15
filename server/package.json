@@ -7,10 +7,13 @@
     "engines": {
         "node": ">=24.1.0"
     },
+    "bin": {
+        "hamlet": "bin/hamlet"
+    },
     "scripts": {
         "check": "tsc --noEmit && biome check --error-on-warnings .",
         "format": "biome check --write .",
-        "hamlet": "node --enable-experimental-regexp-engine --disable-warning=ExperimentalWarning src/cli.ts",
+        "hamlet": "bin/hamlet",
         "schema": "node scripts/schema.ts && biome format --write protocol.schema.json",
         "test": "vitest --run",
         "test:live": "vitest --run --mode live"

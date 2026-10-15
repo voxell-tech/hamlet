@@ -6,16 +6,16 @@ use bevy::ecs::world::World;
 use bevy::math::Vec2;
 use bevy_fynix::ViewExt;
 use bevy_fynix::views::{BehaviorExt, label, menu_item};
-use hamlet_core::agents::{
-    self, Busy, Left, Mayor, Road, Settlement,
+use hamlet_client::messages::UserMessage;
+use hamlet_client::realm::{
+    self as agents, Busy, HOME, Left, Mayor, Road, Settlement,
 };
-use hamlet_rules::hamlet::HOME;
 use hamlet_world::generator::society::Place as Ground;
 use hamlet_world::pick::{Also, Selected, Thing, focus_on, select};
 use hamlet_world::{moving, orders};
 
 use super::deed::Deed;
-use super::{Open, close, restore, stop};
+use super::{Open, close, has, restore, stop};
 use crate::inspector::show_prompt;
 use crate::me::{talk_to, talk_to_mayor};
 use crate::{AnyView, chat};
@@ -79,8 +79,35 @@ fn focus(thing: Thing) -> AnyView {
     item("Focus".into(), move |w| focus_on(w, thing, false))
 }
 
-fn for_mayor() -> Vec<AnyView> {
+fn new_conversation(agent: Entity) -> AnyView {
+    item("New Conversation".into(), move |world| {
+        if let Some(to) = agents::address_of(world, agent) {
+            world.trigger(UserMessage {
+                to,
+                text: "/new".into(),
+            });
+            world.flush();
+        }
+    })
+}
+
+fn gifts(world: &World, agent: Entity, at: Vec2) -> Vec<AnyView> {
+    if !has(world, "give") || orders::offers(world, agent).is_empty()
+    {
+        return Vec::new();
+    }
     vec![
+        menu_item(label("Give a skill...").wrap(false))
+            .on_activate(move |world| {
+                *world.resource_mut::<Open>() =
+                    Open::Skills(agent, at);
+            })
+            .boxed(),
+    ]
+}
+
+fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
+    let mut items = vec![
         item("Talk to the Mayor".into(), talk_to_mayor),
         item("Prompt".into(), |world| {
             talk_to_mayor(world);
@@ -94,14 +121,28 @@ fn for_mayor() -> Vec<AnyView> {
         item("Undo the Last Change".into(), |world| {
             chat::decree(world, HOME, "/undo".into())
         }),
-    ]
+    ];
+    if let Some(mut mayors) = world
+        .try_query_filtered::<Entity, bevy::ecs::query::With<Mayor>>()
+        && let Some(mayor) = mayors.iter(world).find(|agent| {
+            agents::hamlet_of(world, *agent) == Some(HOME)
+        })
+    {
+        items.insert(1, new_conversation(mayor));
+        items.extend(gifts(world, mayor, at));
+    }
+    items
 }
 
 fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
-    vec![item(
-        format!("Restore {}", agents::name_of(world, agent)),
-        move |world| restore(world, agent),
-    )]
+    if has(world, "restore") {
+        vec![item(
+            format!("Restore {}", agents::name_of(world, agent)),
+            move |world| restore(world, agent),
+        )]
+    } else {
+        Vec::new()
+    }
 }
 
 fn for_resident(
@@ -115,6 +156,8 @@ fn for_resident(
         vec![item(format!("Talk to {}", name(agent)), move |w| {
             talk_to(w, agent)
         })];
+    items.push(new_conversation(agent));
+    items.extend(gifts(world, agent, at));
     items.push(item("Prompt".into(), move |w| {
         talk_to(w, agent);
         show_prompt(w);
@@ -128,6 +171,9 @@ fn for_resident(
             stop(w, agent)
         }));
     }
+    items.push(item("Undo the Last Change".into(), move |world| {
+        orders::decree(world, agent, "/undo".into())
+    }));
     let Some((_, me)) = resident(world, thing) else {
         return items;
     };
@@ -147,29 +193,20 @@ fn for_resident(
                     .iter(world)
                     .any(|road| road.has(agent) && road.has(them))
             });
-        if joined {
+        if joined && has(world, "unroad") {
             items.push(item(
                 format!("Remove the road to {other}"),
                 move |w| orders::part(w, agent, them),
             ));
-        } else {
+        } else if !joined && has(world, "road") {
             items.push(item(
                 format!("Build a road to {other}"),
                 move |w| orders::introduce(w, agent, them),
             ));
         }
     }
-    if !orders::offers(world, agent).is_empty() {
-        items.push(
-            menu_item(label("Give a skill...").wrap(false))
-                .on_activate(move |world| {
-                    *world.resource_mut::<Open>() =
-                        Open::Skills(agent, at);
-                })
-                .boxed(),
-        );
-    }
-    if let Some((them, other)) = other {
+    if let Some((them, other)) = other.filter(|_| has(world, "merge"))
+    {
         let into_me = Deed::Merge {
             absorbed: them,
             kept: agent,
@@ -192,26 +229,27 @@ fn for_resident(
     // The roads it has, besides the one to the other of
     // two that are chosen, which is offered above.
     for (peer, name) in joined(world, agent) {
-        if Some(peer) != chosen {
+        if Some(peer) != chosen && has(world, "unroad") {
             items.push(item(
                 format!("Remove the road to {name}"),
                 move |w| orders::part(w, agent, peer),
             ));
         }
     }
-    items.push(item("Undo the Last Change".into(), move |world| {
-        orders::decree(world, agent, "/undo".into())
-    }));
-    items.push(asking(
-        format!("Make {me} Mayor..."),
-        Deed::Mayor(agent),
-        at,
-    ));
-    items.push(asking(
-        format!("Remove {me}..."),
-        Deed::Remove(agent),
-        at,
-    ));
+    if has(world, "mayor") {
+        items.push(asking(
+            format!("Make {me} Mayor..."),
+            Deed::Mayor(agent),
+            at,
+        ));
+    }
+    if has(world, "remove") {
+        items.push(asking(
+            format!("Remove {me}..."),
+            Deed::Remove(agent),
+            at,
+        ));
+    }
     items
 }
 
@@ -229,10 +267,12 @@ fn for_common(
         .get::<Settlement>(hamlet)
         .map(|settlement| settlement.name.clone())
         .unwrap_or_default();
-    items.push(item(format!("Move {name}..."), move |w| {
-        orders::carry(w, hamlet)
-    }));
-    if !id.is_empty() && id != HOME {
+    if has(world, "move-hamlet") {
+        items.push(item(format!("Move {name}..."), move |w| {
+            orders::carry(w, hamlet)
+        }));
+    }
+    if !id.is_empty() && id != HOME && has(world, "remove-hamlet") {
         items.push(asking(
             format!("Close Down {name}..."),
             Deed::Close(id),
@@ -286,7 +326,7 @@ pub(super) fn items(
     at: Vec2,
 ) -> Vec<AnyView> {
     match thing {
-        Thing::Keeper | Thing::Cottage => for_mayor(),
+        Thing::Keeper | Thing::Cottage => for_mayor(world, at),
         Thing::Ruin(agent) => for_ruin(world, agent),
         Thing::Resident(agent) | Thing::ResidentHouse(agent) => {
             for_resident(world, thing, agent, at)

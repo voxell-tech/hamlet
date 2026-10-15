@@ -4,7 +4,7 @@
 use std::f32::consts::PI;
 
 use bevy::prelude::*;
-use hamlet_core::agents::Busy;
+use hamlet_client::realm::Busy;
 
 use super::toys::{self, Kind, Toys};
 use super::{Hand, Mood, PlaySettings, free, robot_of, toward};

@@ -24,8 +24,8 @@ use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
 use bevy::tasks::{AsyncComputeTaskPool, TaskPool};
-use hamlet_core::core::Tokio;
-use hamlet_core::session::JobFinished;
+use hamlet_client::Tokio;
+use hamlet_client::messages::JobFinished;
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
@@ -537,5 +537,51 @@ mod tests {
         pictures.settle(file.clone(), now, ready(2));
         assert_eq!(pictures.state(&file), ready(2));
         assert!(!pictures.waiting());
+    }
+
+    #[test]
+    fn an_absolute_local_picture_loads_without_a_house_or_work_folder()
+     {
+        use std::time::{Duration, Instant};
+
+        use bevy::ui::widget::ImageNode;
+        use bevy_fynix::tokens::Tone;
+
+        use crate::theme::HamletTheme;
+        let scratch =
+            hamlet_testing::Scratch::new("absolute-picture");
+        let file = scratch.join("pear.png");
+        std::fs::write(&file, png(UVec2::new(4, 4))).unwrap();
+        let mut app = crate::me::tests::panel_app();
+        app.init_resource::<Assets<Image>>().add_plugins(plugin);
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            crate::markdown::fixed(
+                &format!("![pear]({})", file.display()),
+                Tone::Body,
+            ),
+        );
+        let start = Instant::now();
+        loop {
+            app.update();
+            let image = app
+                .world_mut()
+                .query::<&ImageNode>()
+                .iter(app.world())
+                .find_map(|node| {
+                    app.world()
+                        .resource::<Assets<Image>>()
+                        .get(&node.image)
+                });
+            if let Some(image) = image {
+                assert_eq!(image.size(), UVec2::new(4, 4));
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "picture did not load"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 }

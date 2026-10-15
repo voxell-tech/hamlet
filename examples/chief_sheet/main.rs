@@ -15,12 +15,11 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
-use hamlet_core::agents::{
-    Citizen, Lived, LivesIn, Mayor, Settlement, Treasury,
+use hamlet_client::ViewDir;
+use hamlet_client::realm::{
+    Citizen, Consulted, HOME, Lived, LivesIn, Mayor, Settlement,
+    Treasury,
 };
-use hamlet_home::limits::Caps;
-use hamlet_rules::budget::{Amount, Report, Standing};
-use hamlet_rules::hamlet::HOME;
 use hamlet_world::chief::mascot::Doing;
 use hamlet_world::chief::{
     self, Beside, ChiefSettings, Cloak, Hat, Holds, Light, Look,
@@ -253,8 +252,10 @@ fn main() {
         PathBuf::from,
     );
     std::fs::create_dir_all(&out).expect("output folder");
+    let view = hamlet_testing::Scratch::new("chief-sheet-view");
     let mut app = App::new();
-    app.add_plugins((offscreen::plugins(SIZE), HamletPlugin));
+    app.insert_resource(ViewDir(view.to_path_buf()))
+        .add_plugins((offscreen::plugins(SIZE), HamletPlugin));
     Target::insert(&mut app, SIZE, 1.0);
     app.insert_resource(Sheet {
         out,
@@ -273,20 +274,6 @@ fn main() {
     app.run();
 }
 
-/// `spent` of a budget of a thousand.
-fn standing(spent: u64) -> Standing {
-    Standing {
-        spent: Amount {
-            tokens: spent,
-            ..Amount::default()
-        },
-        caps: Caps {
-            tokens: Some(1000),
-            ..Caps::default()
-        },
-    }
-}
-
 /// A hamlet of a mayor and four agents, and a chief. A third of the
 /// day has gone and over half the budget, so its meter shows it
 /// spending fast.
@@ -295,15 +282,14 @@ fn people(world: &mut World) {
         .spawn((
             Name::new("Pear Tree Hollow"),
             Settlement {
-                home: PathBuf::new(),
                 name: HOME.to_string(),
             },
-            Treasury(Report {
-                period: "today".into(),
-                gone: 0.33,
-                hamlet: standing(560),
-                ..Report::default()
-            }),
+            Treasury(serde_json::from_value(serde_json::json!({
+                "period": "day", "periodWords": "today", "gone": 0.33,
+                "spent": {"tokens": 560, "micros": 0, "ms": 0},
+                "caps": {"micros": null, "ms": null}, "left": 0.44,
+                "remains": "440 tokens", "summary": "", "lines": []
+            })).unwrap()),
         ))
         .id();
     world.spawn((
@@ -426,9 +412,7 @@ fn direct(
             }
         }
         Do::Consult => {
-            commands.trigger(hamlet_core::agents::Consulted {
-                agent: None,
-            });
+            commands.trigger(Consulted { agent: None });
         }
         Do::MoveLibrary => {
             commands.queue(|world: &mut World| {

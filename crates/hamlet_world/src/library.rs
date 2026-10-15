@@ -51,9 +51,9 @@ const SIZE: (f32, f32) = (7.2, 9.2);
 pub struct Stood(pub Option<Vec2>);
 
 impl Stood {
-    /// The file a home keeps the library's place in.
-    pub fn file(home: &std::path::Path) -> std::path::PathBuf {
-        home.join("library.place")
+    /// The file for the library's place under the window's folder.
+    pub fn file(view: &std::path::Path) -> std::path::PathBuf {
+        view.join("library.place")
     }
 }
 

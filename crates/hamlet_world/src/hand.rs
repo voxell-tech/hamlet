@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
-use hamlet_core::agents::Mayor;
+use hamlet_client::realm::Mayor;
 
 pub use self::given::{gifted, greet};
 use self::lift::Fall;
@@ -172,7 +172,7 @@ pub struct PlaySettings {
     pub gift_stays: f32,
 }
 
-/// Something a chief asked of the core by hand.
+/// A deed the chief asked of the server by hand.
 #[derive(Message, Clone, Debug, PartialEq)]
 pub enum Wish {
     /// A road between two agents.

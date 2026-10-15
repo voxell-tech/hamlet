@@ -11,6 +11,7 @@ import type {
 } from "../src/protocol.ts";
 import { serveHome } from "../src/server.ts";
 import { SettingsDoc } from "../src/settings.ts";
+import { fold } from "./connection-support.ts";
 import {
     CHIEF,
     closeAfter,
@@ -102,51 +103,6 @@ async function view(home: { url: string; token: string }): Promise<Viewer> {
     };
 }
 
-/** Applies `op` as a client does. */
-function fold(
-    items: Item[],
-    status: { working: boolean; pending: number },
-    op: Op,
-): void {
-    const find = (id: string) => {
-        const item = items.find((each) => each.id === id);
-        if (item === undefined) throw new Error(`No item ${id}`);
-        return item;
-    };
-    switch (op.op) {
-        case "add":
-            if (op.replaces !== undefined) {
-                items.splice(items.indexOf(find(op.replaces)), 1);
-            }
-            items.push(structuredClone(op.item));
-            return;
-        case "append":
-            find(op.item).text += op.text;
-            return;
-        case "close": {
-            const { tool } = find(op.item);
-            if (tool === undefined) throw new Error(`${op.item} is no tool`);
-            Object.assign(tool, {
-                exit: op.exit,
-                ms: op.ms,
-                failure: op.failure,
-            });
-            return;
-        }
-        case "status":
-            Object.assign(status, {
-                working: op.working,
-                pending: op.pending,
-            });
-            return;
-        case "reset":
-            items.length = 0;
-            return;
-        case "usage":
-            return;
-    }
-}
-
 /** Waits until `viewer` holds an answer and nothing runs or waits. */
 async function settled(viewer: Viewer, answers = 1): Promise<void> {
     await vi.waitFor(
@@ -235,6 +191,43 @@ describe("a served home", () => {
         ]);
         expect(viewer.ops.map((op) => op.op)).toContain("append");
         expect(await viewer.reread()).toEqual(viewer.items);
+    });
+
+    it("keeps a completed write's change on its live tool item, exactly as read back (C30)", async () => {
+        const home = await served({
+            responses: [
+                {
+                    calls: [
+                        {
+                            name: "write",
+                            arguments: {
+                                path: "result.txt",
+                                content: "approved\n",
+                            },
+                        },
+                    ],
+                },
+                "Written.",
+            ],
+        });
+        const viewer = await view(home);
+        viewer.say("Write a file in your house.");
+        await settled(viewer);
+        const live = structuredClone(viewer.items);
+        expect(live.find((item) => item.kind === "tool")).toMatchObject({
+            tool: {
+                name: "write",
+                exit: 0,
+                change: {
+                    path: "result.txt",
+                    created: true,
+                    lines: [{ mark: "+", text: "approved" }],
+                    added: 1,
+                    removed: 0,
+                },
+            },
+        });
+        expect(await viewer.reread()).toEqual(live);
     });
 
     it("gives a client that opens the chat mid-turn the transcript as it stands, then the rest live (S5)", async () => {

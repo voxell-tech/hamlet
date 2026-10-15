@@ -161,6 +161,31 @@ const fromClient: Examples<ClientMessage> = {
         },
     ],
     say: [said],
+    give: [
+        {
+            type: "give",
+            id: ID,
+            to: mayor,
+            files: [{ path: "folder/a.txt", size: 1 }],
+        },
+        { type: "give", id: ID, to: mayor, skill: { starter: "web-search" } },
+        {
+            type: "give",
+            id: ID,
+            to: mayor,
+            skill: { from: { hamlet: "home", agent: "scout" }, name: "maps" },
+        },
+    ],
+    "give-part": [
+        {
+            type: "give-part",
+            id: ID,
+            upload: "upload-1",
+            path: "folder/a.txt",
+            offset: 0,
+            data: "QQ==",
+        },
+    ],
     answer: [
         { type: "answer", id: ID, wait: "41", choice: "allow" },
         { type: "answer", id: ID, wait: "41", choice: "reply", text: "No." },
@@ -649,4 +674,24 @@ describe("the package tooling", () => {
         // biome-ignore lint/complexity/useRegexLiterals: a literal the engine refuses stops the whole file from loading
         expect(() => new RegExp("a+", "l")).not.toThrow();
     });
+});
+
+it("requires a danger for approvals and null for other waits", () => {
+    const wire = (kind: string, danger: unknown) =>
+        JSON.stringify({
+            type: "state",
+            epoch: 1,
+            revision: 0,
+            chief: "chief",
+            sandbox: "test",
+            hamlets: [],
+            agents: [],
+            waits: [{ ...wait, kind, danger }],
+            grants: [],
+            providers: [],
+            settings: fromServer.state[0]?.settings,
+        });
+    expect(parseServer(wire("approval", null))).toHaveProperty("malformed");
+    for (const kind of ["fault", "question", "objection"])
+        expect(parseServer(wire(kind, "command"))).toHaveProperty("malformed");
 });

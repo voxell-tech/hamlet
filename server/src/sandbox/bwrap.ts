@@ -1,4 +1,4 @@
-import { aboveLocked, isDir, type Service } from "./policy.ts";
+import { aboveLocked, isDir, type Service, tempRoot } from "./policy.ts";
 import type { Confined, Sandbox } from "./sandbox.ts";
 
 /** Linux bubblewrap. */
@@ -39,11 +39,12 @@ export const Bwrap: Sandbox = {
                 args.push("--ro-bind-try", `/etc/${name}`, `/etc/${name}`);
             }
         }
-        args.push("--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp");
+        args.push("--proc", "/proc", "--dev", "/dev");
+        if (!policy.open) args.push("--tmpfs", "/tmp");
         if (policy.open) {
             // An empty folder over each. One that is missing has nothing to
             // hide and cannot be mounted over.
-            for (const path of policy.hidden.filter(isDir)) {
+            for (const path of [...policy.hidden, tempRoot()].filter(isDir)) {
                 args.push("--tmpfs", path);
             }
         }

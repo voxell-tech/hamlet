@@ -1,6 +1,11 @@
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { dirname, join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { SandboxEnv } from "./sandbox/env.ts";
+import { closedPolicy } from "./sandbox/reach.ts";
+import { platformSandbox, type Sandbox } from "./sandbox/sandbox.ts";
+import { shelf as readShelf } from "./skill-paper.ts";
 
 /** A skill as the front matter of its `SKILL.md` tells of it (C8). */
 export type Skill = {
@@ -40,24 +45,110 @@ export function parseSkill(text: string): Omit<Skill, "folder"> | undefined {
     };
 }
 
-/** The skills in `dir`, one folder each, read through `env`, by name. A folder that cannot be read holds none. */
-export async function skillsIn(
-    env: ExecutionEnv | undefined,
-    dir: string,
+const SHELF_MS = 1000;
+const shelves = new Map<
+    string,
+    {
+        env: SandboxEnv;
+        until: number;
+        names?: Promise<string[]>;
+    }
+>();
+
+function houseShelf(house: string, sandbox: Sandbox) {
+    const dir = join(house, "skills");
+    let shelf = shelves.get(dir);
+    if (shelf === undefined) {
+        const policy = closedPolicy(house, [house]);
+        policy.rw = [];
+        policy.env = { PATH: "/usr/bin:/bin", HOME: house, LANG: "C.UTF-8" };
+        shelf = {
+            until: 0,
+            env: new SandboxEnv({
+                cwd: house,
+                policy,
+                sandbox,
+                tmpScope: `papers-${randomUUID()}`,
+            }),
+        };
+        shelves.set(dir, shelf);
+    }
+    return shelf;
+}
+
+/** Skill folders containing a regular SKILL.md, listed inside the house's sandbox (C8, C18). */
+export function skillNames(dir: string): Promise<string[]> {
+    const shelf = houseShelf(dirname(dir), platformSandbox());
+    if (shelf.names === undefined || shelf.until <= Date.now()) {
+        shelf.until = Date.now() + SHELF_MS;
+        shelf.names = shelf.env
+            .skillShelf(dir, false, BACKGROUND_CONTEXT)
+            .then((read) =>
+                read.ok ? read.value.map((paper) => paper.folder) : [],
+            );
+    }
+    return shelf.names;
+}
+
+/** Invalidated shelves below a changed house or home. */
+export function refreshSkills(root: string): void {
+    for (const [dir, shelf] of shelves)
+        if (dir === root || dir.startsWith(`${root}/`)) shelf.until = 0;
+}
+
+/** Closed sandbox readers belonging to a house or home. */
+export async function closeSkills(
+    root: string,
+    context: Context,
+): Promise<void> {
+    const closing = [...shelves].filter(
+        ([dir]) => dir === root || dir.startsWith(`${root}/`),
+    );
+    for (const [dir] of closing) shelves.delete(dir);
+    await Promise.all(closing.map(([, shelf]) => shelf.env.cleanup(context)));
+}
+
+/** The house's skill papers listed and read together under its own sandbox policy (C8, C18). */
+export async function houseSkills(
+    house: string,
+    sandbox: Sandbox,
     context: Context,
 ): Promise<Skill[]> {
-    const listed = await env?.listDir(dir, context);
-    const skills: Skill[] = [];
-    for (const entry of listed?.ok ? listed.value : []) {
-        if (entry.kind === "file") continue;
-        const text = await env?.readTextFile(
-            join(dir, entry.name, "SKILL.md"),
-            context,
-        );
-        const skill = text?.ok ? parseSkill(text.value) : undefined;
-        if (skill !== undefined) skills.push({ ...skill, folder: entry.name });
-    }
-    return skills.sort((a, b) =>
-        a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+    const shelf = houseShelf(house, sandbox);
+    shelf.until = 0;
+    const read = await shelf.env.skillShelf(
+        join(house, "skills"),
+        true,
+        context,
     );
+    return read.ok
+        ? read.value.map(({ folder, text }) => ({
+              name: folder,
+              description: "",
+              usage: undefined,
+              ...parseSkill(text),
+              folder,
+          }))
+        : [];
+}
+
+/** A server-owned skill shelf with bounded, regular-file papers (C8). */
+export async function skillsIn(dir: string): Promise<Skill[]> {
+    return (await readShelf(dir, true)).map(({ folder, text }) => ({
+        name: folder,
+        description: "",
+        usage: undefined,
+        ...parseSkill(text),
+        folder,
+    }));
+}
+
+/** Shipped skill names and descriptions for the chief's gift menu (H25). */
+export async function starterSkills(
+    dir: string,
+): Promise<{ name: string; description: string }[]> {
+    return (await skillsIn(dir)).map(({ folder, description }) => ({
+        name: folder,
+        description: description.split(/\r?\n/)[0] ?? "",
+    }));
 }

@@ -1,0 +1,16 @@
+[package]
+name = "hamlet_protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The messages of Hamlet protocol v0"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+hamlet_protocol_gen.workspace = true

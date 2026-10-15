@@ -8,7 +8,7 @@ use bevy::ecs::event::Event;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, NonSendMarker, Res, ResMut};
-use hamlet_core::core::Tokio;
+use hamlet_client::Tokio;
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };

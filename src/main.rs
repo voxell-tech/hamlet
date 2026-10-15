@@ -1,222 +1,203 @@
-//! The hamlet binary: picks a mode and runs the app.
+//! The Hamlet window, connected to an agent server.
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use anyhow::{Result, bail};
 use bevy::DefaultPlugins;
 use bevy::app::PluginGroup;
-use bevy_app::{
-    App, AppExit, ScheduleRunnerPlugin, TerminalCtrlCHandlerPlugin,
+use bevy_app::{App, AppExit};
+use hamlet_client::{
+    ClientPlugin, Connection, ServerAddress, Tokio, ViewDir,
 };
-use hamlet_core::agents::WatchEvery;
-use hamlet_core::core::CorePlugin;
-use hamlet_core::oversight::{OversightPlugin, Unreviewed};
-use hamlet_core::session::SessionPlugin;
-use hamlet_core::terminal::TerminalPlugin;
 use hamlet_desktop::DesktopPlugin;
-use hamlet_home::instance::{self, Instance};
-use hamlet_home::{Home, limits};
-use hamlet_model::config::Config;
-use hamlet_model::log;
-use hamlet_sandbox as sandbox;
-use hamlet_ui::{ShowRequests, UiPlugin, window_plugin};
+use hamlet_ui::{UiPlugin, window_plugin};
 use hamlet_world::hamlet::HamletPlugin;
 
 const USAGE: &str = "\
-usage: hamlet [--headless | --repl] [--insecure] [--replay \
-                     <session.jsonl>]
+usage: hamlet-app [-h]
 
-  (default)    open the command center window
-  --headless   no window, for machines without a display; Ctrl-C \
-                     stops
-  --repl       chat in the terminal (debugging)
-  --insecure   run tools without a sandbox
-  --replay     answer with the assistant messages recorded in a \
-                     session log instead of a model
+Open a window on an agent server. Closing it leaves agents working.
+Start a server with hamlet server; chat in the terminal with hamlet \
+                     chat.
 
-Settings live in <home>/config.toml and are edited from the command \
-                     center. The chief's limits (budget, models, \
-                     caps) live in <home>/limits.toml.
-env: HAMLET_HOME (~/.hamlet), HAMLET_WORKSPACE (<home>/workspace), \
-                     HAMLET_USER ($USER);
-     HAMLET_BASE_URL, HAMLET_MODEL, HAMLET_API_KEY, \
-                     HAMLET_REFLECT_EVERY, HAMLET_NET override the \
-                     settings.";
+  -h, --help   show this usage
 
-/// Time between two updates of an app with no window.
-const TICK: Duration = Duration::from_millis(30);
+env: HAMLET_SERVER and HAMLET_TOKEN select a server;
+     otherwise HAMLET_HOME (~/.hamlet) locates the local server.
+     HAMLET_VIEW selects the window's layout, size and look folder;
+     otherwise the OS's config folder for Hamlet is used.";
 
-#[derive(Debug, PartialEq)]
-enum Mode {
-    Window,
-    Headless,
-    Repl,
-}
-
-#[derive(Debug, PartialEq)]
-struct Args {
-    mode: Mode,
-    insecure: bool,
-    replay: Option<PathBuf>,
-}
-
-/// Reads the command line. `None` when it asks for the usage text.
 fn parse(
     mut args: impl Iterator<Item = String>,
-) -> Result<Option<Args>> {
-    let mut parsed = Args {
-        mode: Mode::Window,
-        insecure: false,
-        replay: None,
-    };
-    while let Some(a) = args.next() {
-        match a.as_str() {
-            "--headless" => parsed.mode = Mode::Headless,
-            "--repl" => parsed.mode = Mode::Repl,
-            "--insecure" => parsed.insecure = true,
-            "--replay" => {
-                let Some(path) = args.next() else {
-                    bail!(
-                        "--replay needs the path of a session \
-                         log\n\n{USAGE}"
-                    );
-                };
-                parsed.replay = Some(PathBuf::from(path));
-            }
+) -> Result<Option<()>> {
+    if let Some(arg) = args.next() {
+        match arg.as_str() {
             "-h" | "--help" => return Ok(None),
             other => bail!("unknown argument `{other}`\n\n{USAGE}"),
         }
     }
-    Ok(Some(parsed))
+    Ok(Some(()))
+}
+
+fn view_dir(
+    os: &str,
+    vars: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<PathBuf> {
+    if let Some(path) = vars("HAMLET_VIEW") {
+        return Ok(PathBuf::from(path));
+    }
+    let path = match os {
+        "macos" => vars("HOME").map(|home| {
+            PathBuf::from(home)
+                .join("Library/Application Support/Hamlet")
+        }),
+        "windows" => vars("APPDATA")
+            .map(|data| PathBuf::from(data).join("Hamlet")),
+        _ => vars("XDG_CONFIG_HOME")
+            .map(|config| PathBuf::from(config).join("hamlet"))
+            .or_else(|| {
+                vars("HOME").map(|home| {
+                    PathBuf::from(home).join(".config/hamlet")
+                })
+            }),
+    };
+    path.ok_or_else(|| {
+        anyhow::anyhow!("No config folder found. Set HAMLET_VIEW.")
+    })
 }
 
 fn main() -> Result<()> {
-    let Some(Args {
-        mode,
-        insecure,
-        replay,
-    }) = parse(std::env::args().skip(1))?
-    else {
+    if parse(std::env::args().skip(1))?.is_none() {
         println!("{USAGE}");
         return Ok(());
-    };
-
-    let root = std::env::var_os("HAMLET_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::home_dir().map(|h| h.join(".hamlet")))
-        .ok_or_else(|| {
-            anyhow::anyhow!("no home directory; set HAMLET_HOME")
-        })?;
-    // A relative path and an absolute one are the same home.
-    let root = std::path::absolute(&root).unwrap_or(root);
-    let home = Home::open(
-        root.clone(),
-        std::env::var_os("HAMLET_WORKSPACE").map(PathBuf::from),
-    )?;
-
-    let show_requests = match instance::claim(&home.root)? {
-        Instance::Secondary => {
-            eprintln!(
-                "hamlet is already running for {}; asked it to show \
-                 its window.",
-                home.root.display()
-            );
-            return Ok(());
-        }
-        Instance::Primary(rx) => rx,
-    };
-    limits::write_template(&home.root)?;
-    if insecure {
-        eprintln!("warning: --insecure, tools run without a sandbox");
     }
 
-    // Model streams and subprocesses run here; the app's systems only
-    // apply their results.
+    let view =
+        view_dir(std::env::consts::OS, |key| std::env::var_os(key))?;
     let rt = tokio::runtime::Runtime::new()?;
     let mut app = App::new();
-    let config = Config::load(&home.root)?;
-    let replayed = replay.is_some();
-    app.add_plugins((
-        CorePlugin {
-            sandbox: sandbox::detect(insecure)?,
-            config,
-            replay: replay
-                .map(|p| {
-                    log::read_events(&p)
-                        .map(|e| log::assistant_messages(&e))
-                })
-                .transpose()?,
-            tokio: rt.handle().clone(),
-            home,
-        },
-        SessionPlugin,
-        OversightPlugin,
-        DesktopPlugin {
-            window: mode == Mode::Window,
-        },
-    ));
-    if replayed {
-        // A recorded session holds no answers for the mayor's
-        // reviews.
-        app.insert_resource(Unreviewed);
-    }
-    let tick = ScheduleRunnerPlugin::run_loop(TICK);
-    match mode {
-        Mode::Repl => {
-            app.add_plugins((tick, TerminalPlugin)).run();
-        }
-        Mode::Headless => {
-            eprintln!("hamlet: running headless; Ctrl-C stops");
-            app.add_plugins((tick, TerminalCtrlCHandlerPlugin)).run();
-        }
-        Mode::Window => {
-            let exit = app
-                .insert_resource(ShowRequests(show_requests))
-                // A window draws far more often than the records
-                // change.
-                .insert_resource(WatchEvery(Duration::from_millis(
-                    200,
-                )))
-                .add_plugins((
-                    DefaultPlugins.set(window_plugin(&root)),
-                    HamletPlugin,
-                    UiPlugin,
-                ))
-                .run();
-            if let AppExit::Error(code) = exit {
-                bail!("the window exited with code {code}");
-            }
-        }
-    }
-    // Tasks still running are abandoned.
+    app.insert_resource(Tokio(rt.handle().clone()))
+        .insert_resource(ViewDir(view.clone()))
+        .add_plugins(DefaultPlugins.set(window_plugin(&view)));
+    client(
+        &mut app,
+        ServerAddress::find(|key| std::env::var(key).ok()),
+    );
+    let exit = app
+        .add_plugins((
+            HamletPlugin,
+            UiPlugin,
+            DesktopPlugin { window: true },
+        ))
+        .run();
     rt.shutdown_background();
+    if let AppExit::Error(code) = exit {
+        bail!("the window exited with code {code}");
+    }
     Ok(())
+}
+
+fn client(app: &mut App, server: Result<ServerAddress, String>) {
+    let (server, error) = match server {
+        Ok(server) => (Some(server), None),
+        Err(words) => (None, Some(words)),
+    };
+    app.add_plugins(ClientPlugin { server });
+    if let Some(words) = error {
+        app.insert_resource(Connection {
+            words,
+            ..Connection::default()
+        });
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn parsed(args: &[&str]) -> Result<Option<Args>> {
+    fn parsed(args: &[&str]) -> Result<Option<()>> {
         parse(args.iter().map(|a| a.to_string()))
     }
 
     #[test]
-    fn flags_are_read_and_mistakes_are_named() {
-        assert_eq!(
-            parsed(&["--repl", "--insecure", "--replay", "a.jsonl"])
-                .unwrap(),
-            Some(Args {
-                mode: Mode::Repl,
-                insecure: true,
-                replay: Some("a.jsonl".into()),
-            })
+    fn help_names_the_window_and_its_connection_and_view_settings() {
+        assert_eq!(parsed(&["-h"]).unwrap(), None);
+        assert_eq!(parsed(&["--help"]).unwrap(), None);
+        assert!(
+            USAGE.starts_with("usage: hamlet-app [-h]"),
+            "{USAGE}"
         );
-        assert_eq!(parsed(&["--headless", "-h"]).unwrap(), None);
+        for key in [
+            "HAMLET_SERVER",
+            "HAMLET_TOKEN",
+            "HAMLET_HOME",
+            "HAMLET_VIEW",
+        ] {
+            assert!(USAGE.contains(key), "{USAGE}");
+        }
+    }
+
+    fn view(os: &str, vars: &[(&str, &str)]) -> Result<PathBuf> {
+        view_dir(os, |key| {
+            vars.iter()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| value.into())
+        })
+    }
+
+    #[test]
+    fn the_view_override_wins_on_every_platform_without_a_home() {
+        for os in ["macos", "linux", "windows"] {
+            assert_eq!(
+                view(os, &[("HAMLET_VIEW", "/scratch/window")])
+                    .unwrap(),
+                PathBuf::from("/scratch/window")
+            );
+        }
+    }
+
+    #[test]
+    fn the_view_defaults_to_each_platforms_config_folder() {
+        let vars = [
+            ("HOME", "/chief"),
+            ("APPDATA", "/roaming"),
+            ("XDG_CONFIG_HOME", "/config"),
+            ("HAMLET_HOME", "/server-home"),
+        ];
+        for (os, expected) in [
+            ("macos", "/chief/Library/Application Support/Hamlet"),
+            ("linux", "/config/hamlet"),
+            ("windows", "/roaming/Hamlet"),
+        ] {
+            assert_eq!(
+                view(os, &vars).unwrap(),
+                PathBuf::from(expected)
+            );
+        }
+        assert_eq!(
+            view("linux", &[("HOME", "/chief")]).unwrap(),
+            PathBuf::from("/chief/.config/hamlet")
+        );
+        for os in ["macos", "linux", "windows"] {
+            let error = view(os, &[]).unwrap_err().to_string();
+            assert!(error.contains("HAMLET_VIEW"), "{error}");
+        }
+    }
+
+    #[test]
+    fn runtime_flags_are_unknown_and_name_the_server_commands() {
+        for flag in ["--headless", "--repl", "--insecure", "--replay"]
+        {
+            let error = parsed(&[flag]).unwrap_err().to_string();
+            assert!(
+                error.contains(&format!("unknown argument `{flag}`")),
+                "{error}"
+            );
+            assert!(error.contains("hamlet server"), "{error}");
+            assert!(error.contains("hamlet chat"), "{error}");
+        }
         let unknown = parsed(&["--hedless"]).unwrap_err().to_string();
         assert!(unknown.contains("`--hedless`"), "{unknown}");
-        let short = parsed(&["--replay"]).unwrap_err().to_string();
-        assert!(short.contains("--replay needs"), "{short}");
+        assert!(parsed(&[]).unwrap().is_some());
     }
 }

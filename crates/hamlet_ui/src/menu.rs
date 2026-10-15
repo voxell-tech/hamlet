@@ -20,7 +20,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, POPUP, button, frame, label, menu_item,
     overlay, popup, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource, style};
+use bevy_fynix::{ScopedExt, ViewExt, keyed, style};
 use hamlet_world::pick::{Orbit, Taken};
 
 use crate::feel::FootLight;
@@ -208,24 +208,23 @@ fn item(
     .boxed()
 }
 
-fn items(menu: Menu) -> Vec<AnyView> {
+fn items(menu: Menu, found: bool) -> Vec<AnyView> {
     match menu {
-        Menu::App => vec![
-            item(Glyph::Minimal, "Minimal View", |w| {
-                window::set_layout(w, Layout::Minimal)
-            }),
-            item(
-                Glyph::Plus,
-                "Found a Hamlet...",
-                crate::world_menu::ask_found,
-            ),
-            item(
-                Glyph::Lower,
-                "Run in Background",
-                window::background,
-            ),
-            item(Glyph::Power, "Quit Hamlet", window::quit),
-        ],
+        Menu::App => {
+            let mut items =
+                vec![item(Glyph::Minimal, "Minimal View", |w| {
+                    window::set_layout(w, Layout::Minimal)
+                })];
+            if found {
+                items.push(item(
+                    Glyph::Plus,
+                    "Found a Hamlet...",
+                    crate::world_menu::ask_found,
+                ));
+            }
+            items.push(item(Glyph::Power, "Close", window::quit));
+            items
+        }
         Menu::View => vec![
             item(Glyph::Aim, "Reset Camera", |w| {
                 *w.resource_mut::<Orbit>() = Orbit::default()
@@ -245,13 +244,29 @@ fn items(menu: Menu) -> Vec<AnyView> {
 
 /// The open menu's list, or nothing while none is open.
 pub fn open_menu() -> impl View {
-    keyed(resource::<OpenMenu, _>(|m| m.0), |open| match open {
-        Some((menu, anchor)) => popup(*anchor, items(*menu))
-            .on_dismiss(|world, _| dismiss(world))
-            .min_width(px(190.0))
-            .boxed(),
-        None => frame().boxed(),
-    })
+    keyed(
+        bevy_fynix::derived(|world: &World| {
+            (
+                world.resource::<OpenMenu>().0,
+                world
+                    .get_resource::<hamlet_client::realm::Deeds>()
+                    .is_some_and(|deeds| deeds.has("found")),
+            )
+        })
+        .when(crate::roll::either(
+            crate::roll::moved::<OpenMenu>(),
+            crate::roll::moved::<hamlet_client::realm::Deeds>(),
+        )),
+        |(open, found)| match open {
+            Some((menu, anchor)) => {
+                popup(*anchor, items(*menu, *found))
+                    .on_dismiss(|world, _| dismiss(world))
+                    .min_width(px(190.0))
+                    .boxed()
+            }
+            None => frame().boxed(),
+        },
+    )
     .within(overlay(()))
 }
 
@@ -260,6 +275,42 @@ mod tests {
     use bevy::math::Vec2;
 
     use super::*;
+
+    #[test]
+    fn the_app_menu_closes_only_the_window_and_offers_founding_only_when_supported()
+     {
+        let mut app = crate::me::tests::panel_app();
+        app.add_plugins(plugin).add_message::<bevy::app::AppExit>();
+        app.insert_resource(OpenMenu::under(
+            Menu::App,
+            Rect::default(),
+        ));
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            open_menu(),
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+        let shown = crate::me::tests::words(&mut app).join("\n");
+        assert!(shown.contains("Close"), "{shown}");
+        assert!(!shown.contains("Run in Background"));
+        assert!(!shown.contains("Quit Hamlet"));
+        assert!(!shown.contains("Found a Hamlet..."));
+        app.insert_resource(hamlet_client::realm::Deeds(vec![
+            "found".into(),
+        ]));
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            crate::me::tests::words(&mut app)
+                .iter()
+                .any(|text| text == "Found a Hamlet...")
+        );
+        crate::me::tests::press(&mut app, "Close");
+        assert!(app.world_mut().resource_mut::<bevy::ecs::message::Messages<bevy::app::AppExit>>().drain().any(|exit| exit == bevy::app::AppExit::Success));
+    }
 
     #[test]
     fn a_press_on_its_title_closes_a_menu_and_on_another_changes_it()

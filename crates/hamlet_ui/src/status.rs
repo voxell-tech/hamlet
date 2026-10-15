@@ -1,7 +1,7 @@
 //! The line at the foot of the window, and the words it is made
 //! of.
 
-use std::time::Instant;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
@@ -15,10 +15,13 @@ use bevy_fynix::views::{
     FrameProps, TooltipExt, column, frame, icon, label, row,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
-use hamlet_core::agents::{Settlement, Treasury};
-use hamlet_core::core::{Link, Sandboxing, Settings};
-use hamlet_core::session::{Status, Usage};
-use hamlet_rules::hamlet::HOME;
+use hamlet_client::Connection;
+use hamlet_client::chats::{Status, Usage};
+use hamlet_client::connection::State as ConnectionState;
+use hamlet_client::realm::{
+    HOME, Sandbox, Settings, Settlement, Treasury,
+};
+use hamlet_protocol::v0;
 
 use crate::icons::{Glyph, glyph};
 use crate::links::Aimed;
@@ -52,6 +55,7 @@ pub struct Bar {
     pub running_tone: Tone,
     pub model: String,
     pub link: String,
+    pub link_tone: Tone,
     /// Tokens and cost (or model time) of the current session.
     pub usage: String,
     /// The hamlet's spend against its budget.
@@ -62,7 +66,7 @@ pub(crate) fn update_status(
     me: Res<Me>,
     sessions: Query<(Ref<Status>, Ref<Usage>)>,
     settings: Res<Settings>,
-    link: Res<Link>,
+    connection: Res<Connection>,
     treasury: Query<(&Settlement, Ref<Treasury>)>,
     mut bar: ResMut<Bar>,
 ) {
@@ -73,7 +77,7 @@ pub(crate) fn update_status(
         .map(|(_, treasury)| treasury);
     let moved = me.is_changed()
         || settings.is_changed()
-        || link.is_changed()
+        || connection.is_changed()
         || session.as_ref().is_some_and(|(status, usage)| {
             status.is_changed() || usage.is_changed()
         })
@@ -90,10 +94,25 @@ pub(crate) fn update_status(
             "Running, idle".into()
         },
         running_tone: if busy { Tone::Accent } else { Tone::Dim },
-        model: settings.config.model.clone(),
-        link: link_text(&link),
+        model: settings.0.model.clone(),
+        link: if connection.state == ConnectionState::Connected {
+            settings.0.link.words.clone().unwrap_or_default()
+        } else {
+            connection.words.clone()
+        },
+        link_tone: match connection.state {
+            ConnectionState::Lost | ConnectionState::Refused => {
+                Tone::Critical
+            }
+            ConnectionState::Connected
+                if settings.0.link.state == v0::LinkState::Failed =>
+            {
+                Tone::Critical
+            }
+            _ => Tone::Dim,
+        },
         usage: session.map(|(_, u)| u.summary()).unwrap_or_default(),
-        budget: home.map(|t| t.0.summary()).unwrap_or_default(),
+        budget: home.map(|t| t.0.summary.clone()).unwrap_or_default(),
     };
     if *bar != next {
         *bar = next;
@@ -109,14 +128,15 @@ pub(crate) fn update_lately(
     me: Res<Me>,
     sessions: Query<&Status>,
     mut lately: ResMut<Lately>,
-    mut seen: Local<Option<(Instant, u64)>>,
+    mut seen: Local<Option<(u64, u64)>>,
 ) {
     let last = sessions
         .get(me.session)
         .ok()
-        .and_then(|status| status.last_activity.as_ref());
+        .and_then(|status| status.last.as_ref());
     // The words change with the second at the soonest.
-    let now = last.map(|(at, _)| (*at, at.elapsed().as_secs()));
+    let now = last
+        .map(|(at, _)| (*at, now_ms().saturating_sub(*at) / 1000));
     if *seen == now && !lately.0.is_empty() {
         return;
     }
@@ -130,29 +150,15 @@ pub(crate) fn update_lately(
     }
 }
 
-/// The state of the connection in a few words.
-pub(crate) fn link_text(link: &Link) -> String {
-    match link {
-        Link::Unknown => "Connection not tested".into(),
-        Link::Testing => "Testing connection...".into(),
-        Link::Ok { models } => format!(
-            "Connected, {} {}",
-            models.len(),
-            if models.len() == 1 { "model" } else { "models" }
-        ),
-        Link::Failed(_) => "Not connected".into(),
-    }
+pub(crate) fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
-pub(crate) fn link_tone(link: &Link) -> Tone {
-    match link {
-        Link::Failed(_) => Tone::Critical,
-        _ => Tone::Dim,
-    }
-}
-
-pub(crate) fn ago(since: Instant) -> String {
-    let s = since.elapsed().as_secs();
+fn ago(since: u64) -> String {
+    let s = now_ms().saturating_sub(since) / 1000;
     match s {
         0..=4 => "just now".into(),
         5..=59 => format!("{s}s ago"),
@@ -227,7 +233,6 @@ fn aimed() -> impl View {
 /// The bar along the foot of the window.
 pub fn status_bar() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
-        let sandbox = cx.world.resource::<Sandboxing>().0.name();
         let palette = &cx.theme().palette;
         cx.build(
             column((
@@ -235,7 +240,7 @@ pub fn status_bar() -> AnyView {
                 row((
                     pair(
                         glyph(Glyph::Shield, MARK).tone(Tone::Dim),
-                        note(sandbox),
+                        note(resource::<Sandbox, _>(|s| s.0.clone())),
                     )
                     .tooltip(|| {
                         label("The sandbox agents' commands run in")
@@ -248,14 +253,16 @@ pub fn status_bar() -> AnyView {
                     ),
                     pair(
                         glyph(Glyph::Signal, MARK).tone(resource::<
-                            Link,
+                            Bar,
                             _,
                         >(
-                            link_tone
+                            |bar| bar.link_tone,
                         )),
                         label(resource::<Bar, _>(|s| s.link.clone()))
                             .size(12.0)
-                            .tone(resource::<Link, _>(link_tone)),
+                            .tone(resource::<Bar, _>(|bar| {
+                                bar.link_tone
+                            })),
                     ),
                     fact(
                         Glyph::Coins,
@@ -306,4 +313,325 @@ pub fn status_bar() -> AnyView {
             .gap(0.0),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::me::tests::{panel_app, words};
+
+    #[test]
+    fn the_minimal_window_shows_the_chats_seconds_ago() {
+        let mut app = panel_app();
+        app.init_resource::<Bar>()
+            .init_resource::<Lately>()
+            .add_systems(Update, update_lately);
+        let chat = app
+            .world()
+            .get::<hamlet_client::chats::Chat>(
+                app.world().resource::<Me>().session,
+            )
+            .unwrap()
+            .0
+            .clone();
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Turn(v0::Turn {
+                chat,
+                number: Some(1),
+                ops: vec![v0::Op::Status {
+                    working: false,
+                    pending: 0,
+                    last: Some(v0::OpStatusLast {
+                        at: (now_ms() - 12_000) as i64,
+                        what: "Finished the plan".into(),
+                    }),
+                }],
+            }),
+        );
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            crate::window::minimal(),
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+        let shown = words(&mut app);
+        let ago = shown
+            .iter()
+            .find_map(|text| {
+                text.strip_prefix(
+                    "Last activity: Finished the plan, ",
+                )
+            })
+            .unwrap_or_else(|| panic!("{shown:?}"));
+        let seconds = ago
+            .strip_suffix("s ago")
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        assert!((12..=17).contains(&seconds), "{ago}");
+    }
+
+    #[test]
+    fn the_minimal_window_shows_recorded_live_late_and_reset_activity()
+     {
+        for recording in [
+            include_str!("../../../server/test/frames/paging.jsonl"),
+            include_str!("../../../server/test/frames/turn.jsonl"),
+            include_str!(
+                "../../../server/test/frames/new-and-resume.jsonl"
+            ),
+            include_str!("../../../server/test/frames/rewind.jsonl"),
+        ] {
+            let mut app = panel_app();
+            app.init_resource::<Bar>()
+                .init_resource::<Lately>()
+                .add_systems(Update, update_lately);
+            bevy_fynix::mount::<crate::theme::HamletTheme>(
+                app.world_mut(),
+                crate::window::minimal(),
+            );
+            for _ in 0..3 {
+                app.update();
+            }
+            assert!(
+                words(&mut app)
+                    .iter()
+                    .any(|text| text == "Last activity: None yet")
+            );
+            for line in recording.lines() {
+                let frame =
+                    serde_json::from_str::<serde_json::Value>(line)
+                        .unwrap();
+                if frame["from"] != "server" {
+                    continue;
+                }
+                let message =
+                    serde_json::from_value::<v0::ServerMessage>(
+                        frame["message"].clone(),
+                    )
+                    .unwrap();
+                let expected = match &message {
+                    v0::ServerMessage::Transcript(page) => {
+                        page.last.as_ref().map(|last| {
+                            last.as_ref()
+                                .map(|last| last.what.clone())
+                        })
+                    }
+                    v0::ServerMessage::Turn(turn) => turn
+                        .ops
+                        .iter()
+                        .filter_map(|op| match op {
+                            v0::Op::Status { last, .. } => Some(
+                                last.as_ref()
+                                    .map(|last| last.what.clone()),
+                            ),
+                            _ => None,
+                        })
+                        .next_back(),
+                    _ => None,
+                };
+                hamlet_client::receive(app.world_mut(), message);
+                for _ in 0..3 {
+                    app.update();
+                }
+                if let Some(expected) = expected {
+                    let expected = expected.map_or_else(
+                        || "Last activity: None yet".into(),
+                        |what| format!("Last activity: {what}, "),
+                    );
+                    let shown = words(&mut app);
+                    assert!(
+                        shown
+                            .iter()
+                            .any(|text| text.starts_with(&expected)),
+                        "{shown:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_mounted_bar_follows_received_sandbox_changes() {
+        use bevy_fynix::FynixPlugin;
+        use hamlet_assets::Tuning;
+
+        use crate::theme::HamletTheme;
+
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::time::TimePlugin,
+            hamlet_client::ClientPlugin { server: None },
+            FynixPlugin::<HamletTheme>::default(),
+            crate::me::plugin,
+        ));
+        crate::theme::insert_theme(
+            app.world_mut(),
+            crate::theme::HamletTheme::designed(),
+        );
+        app.init_resource::<Bar>()
+            .init_resource::<Queue>()
+            .init_resource::<crate::links::Aimed>()
+            .add_systems(Update, update_status);
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            status_bar(),
+        );
+        app.update();
+        for sandbox in ["seatbelt", "bubblewrap"] {
+            let mut state = hamlet_testing::realm::state();
+            state.sandbox = sandbox.into();
+            hamlet_client::receive(
+                app.world_mut(),
+                v0::ServerMessage::State(state),
+            );
+            for _ in 0..3 {
+                app.update();
+            }
+            let shown = words(&mut app);
+            assert!(
+                shown.iter().any(|text| text == sandbox),
+                "{shown:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_bar_shows_received_budget_usage_model_link_and_waits() {
+        let mut app = panel_app();
+        app.insert_resource(Connection {
+            state: ConnectionState::Connected,
+            words: String::new(),
+        });
+        let mut state = hamlet_testing::realm::state();
+        state.hamlets[0].budget.summary =
+            "Orchard today: $1.20 of $20.00".into();
+        state.settings.model = "server::orchard".into();
+        state.settings.link.words =
+            Some("A received link status".into());
+        state.waits.push(hamlet_testing::realm::wait("approval"));
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        let usage = serde_json::json!({
+            "calls": 1,
+            "unreported": 0,
+            "input": 10,
+            "cached": 0,
+            "output": 2,
+            "reasoning": 0,
+            "ms": 1,
+            "micros": 5,
+            "lastInput": 10,
+            "summary": "A received usage summary",
+        });
+        let usage = serde_json::from_value::<v0::UsageView>(usage)
+            .expect("received usage");
+        let session = app.world().resource::<Me>().session;
+        app.world_mut().entity_mut(session).insert(Usage(usage));
+        app.init_resource::<Bar>()
+            .init_resource::<crate::links::Aimed>()
+            .add_plugins(crate::needs::plugin)
+            .add_systems(Update, update_status);
+        app.update();
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            status_bar(),
+        );
+        app.update();
+        let shown = words(&mut app);
+        for text in [
+            "Orchard today: $1.20 of $20.00",
+            "A received usage summary",
+            "server::orchard",
+            "A received link status",
+            "1 waiting for you",
+        ] {
+            assert!(
+                shown.iter().any(|shown| shown == text),
+                "missing {text}: {shown:?}"
+            );
+        }
+    }
+    #[test]
+    fn the_bar_follows_link_changes_and_shows_connection_words_until_connected()
+     {
+        use hamlet_client::Connection;
+        use hamlet_client::connection::State;
+        let mut app = panel_app();
+        app.init_resource::<Bar>()
+            .init_resource::<Queue>()
+            .init_resource::<crate::links::Aimed>()
+            .add_systems(Update, update_status);
+        app.insert_resource(Connection {
+            state: State::Connected,
+            words: "Connected to the realm.".into(),
+        });
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            status_bar(),
+        );
+        let mut settings = hamlet_testing::realm::state().settings;
+        settings.model = "server::orchard".into();
+        settings.link = v0::Link {
+            state: v0::LinkState::Connected,
+            models: Some(2),
+            words: Some("Reached two models on the server.".into()),
+        };
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Change(v0::Changes {
+                epoch: 1,
+                revision: 2,
+                changes: vec![v0::Update::Settings { settings }],
+            }),
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+        let shown = words(&mut app);
+        assert!(shown.iter().any(|text| text == "server::orchard"));
+        assert!(
+            shown
+                .iter()
+                .any(|text| text
+                    == "Reached two models on the server.")
+        );
+        for state in [State::Lost, State::Refused, State::Connecting]
+        {
+            let text = format!("The connection is {state:?}.");
+            app.insert_resource(Connection {
+                state,
+                words: text.clone(),
+            });
+            for _ in 0..3 {
+                app.update();
+            }
+            let shown = words(&mut app);
+            assert!(
+                shown.iter().any(|shown| shown == &text),
+                "{shown:?}"
+            );
+            assert!(
+                !shown.iter().any(|text| text
+                    == "Reached two models on the server.")
+            );
+        }
+        app.insert_resource(Connection {
+            state: State::Connected,
+            words: "Connected again.".into(),
+        });
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|text| text
+                    == "Reached two models on the server.")
+        );
+    }
 }

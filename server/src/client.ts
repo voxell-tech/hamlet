@@ -21,7 +21,7 @@ export async function reachHome(
     const layout = layoutOf(resolve(dir));
     const found = await readFile(layout.server, "utf8").catch(() => {
         throw new Error(
-            `no server runs for ${layout.dir}; start one with \`npm run hamlet -- server\``,
+            `no server runs for ${layout.dir}; start one with hamlet server, or use hamlet dev for a scratch server and window.`,
         );
     });
     const { url } = JSON.parse(found) as { url: string };

@@ -1,5 +1,4 @@
-//! The endpoints and the catalogue of models, as pages of the
-//! settings.
+//! The server's endpoints and model catalogue in Settings.
 
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, px};
@@ -8,17 +7,14 @@ use bevy_fynix::views::{
     FrameProps, column, label, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
-use hamlet_core::catalogue::ModelCatalogue;
-use hamlet_core::core::{
-    HomeDir, ListModels, Listing, SaveSettings, Settings,
-    TestConnection, Tokio,
-};
-use hamlet_model::catalogue::{Model, Priced};
-use hamlet_model::chatgpt;
-use hamlet_model::config::Config;
+use hamlet_client::outbox::Outbox;
+use hamlet_client::realm::{Providers, Settings};
+use hamlet_protocol::v0;
 
 use super::choice::{chooser, home_default};
-use super::{Draft, SHOWN, Shelf};
+use super::{
+    Asked, Draft, SHOWN, Shelf, catalogue, edit, read_models,
+};
 use crate::icons::Glyph;
 use crate::looks::{
     CONTROL, Fills, action, bad_action, bare, good_action, note,
@@ -27,197 +23,159 @@ use crate::looks::{
 use crate::roll::{either, moved};
 use crate::{AnyView, View};
 
-/// Changes one model of the catalogue and writes it.
-fn change(
-    world: &mut World,
-    name: &str,
-    act: impl FnOnce(&mut Model),
-) {
-    let home = world.resource::<HomeDir>().0.root.clone();
-    let mut models = world.resource_mut::<ModelCatalogue>();
-    let Some(model) = models.catalogue.get_mut(name) else {
-        return;
-    };
-    act(model);
-    let saved = models.catalogue.save(&home);
-    models.reread();
-    world.resource_mut::<Shelf>().problem =
-        saved.err().map(|e| format!("{e:#}"));
-}
-
-fn remove(world: &mut World, name: &str) {
-    let home = world.resource::<HomeDir>().0.root.clone();
-    let mut config = world.resource::<Settings>().config.clone();
-    let signed_in = config.endpoint(name).is_some_and(|e| e.chatgpt);
-    config.endpoints.retain(|endpoint| endpoint.name != name);
-    save(world, config);
-    Config::forget_key(&home, name);
-    if signed_in {
-        let tokio = world.resource::<Tokio>().0.clone();
-        // Signed out here even when OpenAI cannot be told.
-        tokio.spawn(async move {
-            let _ = chatgpt::sign_out(&home).await;
-        });
-    }
-}
-
-fn save(world: &mut World, config: Config) {
-    world.trigger(SaveSettings(config));
-    let failed = world.resource::<Settings>().error.clone();
-    world.resource_mut::<Shelf>().problem = failed;
-}
-
 fn small(text: &'static str) -> impl View {
     label(text).size(11.0).tone(Tone::Faint)
 }
 
-/// The endpoints of the settings, and a row to add one.
+fn remove(world: &mut World, name: &str) {
+    let endpoints = world
+        .resource::<Settings>()
+        .0
+        .endpoints
+        .iter()
+        .filter(|endpoint| endpoint.name != name)
+        .map(|endpoint| v0::Endpoint {
+            name: endpoint.name.clone(),
+            base_url: endpoint.base_url.clone(),
+        })
+        .collect();
+    edit(world, |id| v0::Edit::Settings {
+        id,
+        set: v0::EditSettingsSet {
+            endpoints: Some(endpoints),
+            model: None,
+            reflect_every: None,
+            allow_net: None,
+        },
+    });
+}
+
+fn endpoint(endpoint: &v0::SettingsViewEndpoints) -> AnyView {
+    let gone = endpoint.name.clone();
+    column((
+        row((
+            row((label(endpoint.name.clone()).bold(true),))
+                .fills_width(),
+            note(if endpoint.key { "Key set" } else { "No key" }),
+            bad_action(Glyph::Gone, "REMOVE", move |world| {
+                remove(world, &gone)
+            }),
+        ))
+        .gap(12.0)
+        .align(AlignItems::Center),
+        note(endpoint.base_url.clone()),
+    ))
+    .gap(2.0)
+    .boxed()
+}
+
+/// The server's endpoints, configured providers and login entry.
 pub fn endpoints() -> impl View {
     let known = keyed(
         resource::<Settings, _>(|settings| {
-            settings
-                .config
-                .endpoints
-                .iter()
-                .map(|e| {
-                    (
-                        e.name.clone(),
-                        e.base_url.clone(),
-                        e.api_key.is_some(),
-                        e.chatgpt,
-                    )
-                })
-                .collect::<Vec<_>>()
+            settings.0.endpoints.clone()
         }),
         |endpoints| {
-            let rows = endpoints
+            column(endpoints.iter().map(endpoint).collect::<Vec<_>>())
+                .gap(6.0)
+                .boxed()
+        },
+    )
+    .within(bare());
+    let providers = keyed(
+        resource::<Providers, _>(|providers| {
+            providers
+                .0
                 .iter()
-                .map(|(name, base_url, keyed, plan)| {
-                    let gone = name.clone();
-                    let key = match (*plan, *keyed) {
-                        (true, _) => "Using ChatGPT plan",
-                        (false, true) => "Key set",
-                        (false, false) => "No key",
-                    };
-                    let mut parts = vec![
-                        row((label(name.clone()).bold(true),))
-                            .fills_width()
-                            .boxed(),
-                        note(key).boxed(),
-                    ];
-                    if *plan {
-                        parts.push(action(
-                            Glyph::Meter,
-                            "MANAGE USAGE",
-                            |_| {
-                                hamlet_desktop::open::browse(
-                                    chatgpt::USAGE,
-                                );
-                            },
-                        ));
-                    }
-                    parts.push(bad_action(
-                        Glyph::Gone,
-                        "REMOVE",
-                        move |world| remove(world, &gone),
-                    ));
-                    column((
-                        row(parts)
-                            .gap(12.0)
-                            .align(AlignItems::Center),
-                        note(base_url.clone()),
-                    ))
-                    .gap(2.0)
-                    .boxed()
-                })
-                .collect::<Vec<_>>();
-            column(rows).gap(6.0).boxed()
+                .filter(|provider| provider.configured)
+                .map(|provider| provider.label.clone())
+                .collect::<Vec<_>>()
+        }),
+        |providers| {
+            column(
+                providers
+                    .iter()
+                    .cloned()
+                    .map(note)
+                    .collect::<Vec<_>>(),
+            )
+            .gap(4.0)
+            .boxed()
         },
     )
     .within(bare());
     column((
         note(
-            "Any server that speaks the OpenAI chat protocol works. \
-             A model is named `endpoint::model`.",
+            "Models run through the server. A model is named \
+             endpoint::model. Credentials stay on the server.",
         ),
         known,
+        providers,
         row((good_action(
             Glyph::Plus,
             "ADD A PLACE FOR MODELS",
             crate::welcome::add,
-        ),))
-        .boxed(),
+        ),)),
+        crate::root::connection_test(),
     ))
     .gap(8.0)
 }
 
-/// The answers of the endpoints when they were last asked.
-fn said(listing: &Listing) -> String {
-    let mut words = listing
-        .said
-        .iter()
-        .map(|(endpoint, said)| match said {
-            Ok(count) => format!("{endpoint}: {count} models."),
-            Err(why) => format!("{endpoint}: {why}."),
-        })
-        .collect::<Vec<_>>();
-    if listing.asking > 0 {
-        words.push("Asking...".into());
-    }
-    words.join(" ")
-}
-
-/// The source of a model's price, in a word.
-fn source(priced: Priced) -> &'static str {
-    match priced {
-        Priced::Unknown => "no price",
-        Priced::Listed => "listed",
-        Priced::Assigned => "assigned",
-        Priced::Yours => "yours",
-    }
-}
-
-/// The width of a price, as a field or as words.
 const PRICE_WIDE: f32 = 84.0;
 
-/// A price of the model `name` for a million tokens: a field where
-/// nobody else has said it, and greyed words where the endpoint or
-/// the home gave it.
-fn price(
-    name: &str,
-    get: fn(&Model) -> f64,
-    set: fn(&mut Model, f64),
-) -> AnyView {
+fn price(name: &str, output: bool) -> AnyView {
     let (known, name) = (name.to_string(), name.to_string());
     keyed(
-        resource::<ModelCatalogue, _>(move |models| {
-            models.catalogue.get(&known).is_none_or(|model| {
-                matches!(
-                    model.priced,
-                    Priced::Unknown | Priced::Yours
-                )
-            })
+        resource::<Shelf, _>(move |shelf| {
+            shelf
+                .models
+                .iter()
+                .find(|model| model.name == known)
+                .cloned()
         }),
-        move |open| {
-            let (shown, changed) = (name.clone(), name.clone());
-            let value =
-                resource::<ModelCatalogue, _>(move |models| {
-                    models.catalogue.get(&shown).map_or(0.0, get)
-                });
-            if !open {
-                return row((label(
-                    value.map(|v| format!("{v:.2}")),
-                )
-                .size(12.0)
-                .tone(Tone::Faint),))
+        move |model| {
+            let Some(model) = model else {
+                return row(()).boxed();
+            };
+            let value = model.price.as_ref().map_or(0.0, |price| {
+                if output { price.output } else { price.input }
+            });
+            if !matches!(
+                model.priced,
+                v0::ListedPriced::Unknown | v0::ListedPriced::Yours
+            ) {
+                return row((label(format!("{value:.2}"))
+                    .size(12.0)
+                    .tone(Tone::Faint),))
                 .width(px(PRICE_WIDE))
                 .boxed();
             }
+            let name = name.clone();
             number_field(value, move |world, value: f64| {
-                change(world, &changed, |model| {
-                    set(model, value);
-                    model.priced = Priced::Yours;
-                });
+                let mut price = world
+                    .resource::<Shelf>()
+                    .models
+                    .iter()
+                    .find(|model| model.name == name)
+                    .and_then(|model| model.price.clone())
+                    .unwrap_or(v0::Price {
+                        input: 0.0,
+                        output: 0.0,
+                    });
+                if output {
+                    price.output = value;
+                } else {
+                    price.input = value;
+                }
+                catalogue(
+                    world,
+                    &name,
+                    v0::EditCatalogueSet {
+                        price: Some(Some(price)),
+                        allowed: None,
+                        note: None,
+                    },
+                );
             })
             .range(0.0, 10_000.0)
             .step(0.05)
@@ -231,21 +189,31 @@ fn price(
     .boxed()
 }
 
-/// One model of the catalogue: its allowance and its prices.
-fn entry(name: &str) -> AnyView {
-    let name = name.to_string();
-    let (allowed, allow) = (name.clone(), name.clone());
-    let from = name.clone();
+fn entry(model: &v0::Listed) -> AnyView {
+    let name = model.name.clone();
+    let allow = name.clone();
+    let describe = name.clone();
+    let source = match model.priced {
+        v0::ListedPriced::Unknown => "no price",
+        v0::ListedPriced::Listed => "listed",
+        v0::ListedPriced::Assigned => "assigned",
+        v0::ListedPriced::Yours => "yours",
+    };
+    let detail = model.context.map_or(source.into(), |context| {
+        format!("{source}, holds {}k", context / 1000)
+    });
     column((
         row((
-            tick(resource::<ModelCatalogue, _>(move |models| {
-                models
-                    .catalogue
-                    .get(&allowed)
-                    .is_some_and(|model| model.allowed)
-            }))
-            .on_change(move |world, on| {
-                change(world, &allow, |model| model.allowed = on);
+            tick(model.allowed).on_change(move |world, allowed| {
+                catalogue(
+                    world,
+                    &allow,
+                    v0::EditCatalogueSet {
+                        allowed: Some(allowed),
+                        price: None,
+                        note: None,
+                    },
+                )
             }),
             row((label(name.clone()),)).fills_width(),
         ))
@@ -254,34 +222,30 @@ fn entry(name: &str) -> AnyView {
         row((
             row(()).width(px(CONTROL)).shrink(0.0),
             small("IN"),
-            price(&name, |m| m.input, |m, v| m.input = v),
+            price(&name, false),
             small("OUT"),
-            price(&name, |m| m.output, |m, v| m.output = v),
-            label(resource::<ModelCatalogue, _>(move |models| {
-                let Some(model) = models.catalogue.get(&from) else {
-                    return String::new();
-                };
-                match model.context {
-                    Some(context) => format!(
-                        "{}, holds {}k",
-                        source(model.priced),
-                        context / 1000
-                    ),
-                    None => source(model.priced).to_string(),
-                }
-            }))
-            .size(11.0)
-            .tone(Tone::Faint),
+            price(&name, true),
+            label(detail).size(11.0).tone(Tone::Faint),
         ))
         .gap(8.0)
         .align(AlignItems::Center),
+        text_field(model.note.clone(), move |world, note| {
+            catalogue(
+                world,
+                &describe,
+                v0::EditCatalogueSet {
+                    note: Some(note),
+                    allowed: None,
+                    price: None,
+                },
+            )
+        })
+        .rules(well),
     ))
     .gap(4.0)
     .boxed()
 }
 
-/// The `names` that `narrow` leaves, and the count of those past what
-/// is shown.
 pub(crate) fn narrowed<N: AsRef<str>>(
     names: impl Iterator<Item = N>,
     narrow: &str,
@@ -299,30 +263,51 @@ pub(crate) fn narrowed<N: AsRef<str>>(
     (names, more)
 }
 
-/// The catalogue: every model the endpoints serve, for the chief
-/// to allow, price and describe.
+fn save_default(world: &mut World, model: &str) {
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        v0::ClientMessage::Edit(v0::Edit::Settings {
+            id,
+            set: v0::EditSettingsSet {
+                model: Some(model.into()),
+                endpoints: None,
+                reflect_every: None,
+                allow_net: None,
+            },
+        })
+    });
+    world
+        .resource_mut::<Shelf>()
+        .requests
+        .insert(id, Asked::Default);
+}
+
 pub fn shelf() -> AnyView {
     let shown = bevy_fynix::derived(|world: &World| {
-        let all = &world.resource::<ModelCatalogue>().catalogue;
-        narrowed(
-            all.models.iter().map(Model::name),
+        let shelf = world.resource::<Shelf>();
+        let (names, more) = narrowed(
+            shelf.models.iter().map(|model| &model.name),
             &world.resource::<Draft>().narrow,
+        );
+        (
+            shelf
+                .models
+                .iter()
+                .filter(|model| names.contains(&model.name))
+                .cloned()
+                .collect::<Vec<_>>(),
+            more,
         )
     })
-    .when(either(
-        moved::<ModelCatalogue>(),
-        either(moved::<Shelf>(), moved::<Draft>()),
-    ));
-    let models = keyed(shown, |(names, more)| {
-        if names.is_empty() {
+    .when(either(moved::<Shelf>(), moved::<Draft>()));
+    let models = keyed(shown, |(models, more)| {
+        if models.is_empty() {
             return note(
                 "No models yet. Choose List Models to ask the \
-                 endpoints.",
+                 server.",
             )
             .boxed();
         }
-        let mut rows =
-            names.iter().map(|name| entry(name)).collect::<Vec<_>>();
+        let mut rows = models.iter().map(entry).collect::<Vec<_>>();
         if *more > 0 {
             rows.push(
                 note(format!(
@@ -338,13 +323,7 @@ pub fn shelf() -> AnyView {
     column((
         column((
             small("DEFAULT MODEL"),
-            chooser(home_default, |world, picked| {
-                let mut config =
-                    world.resource::<Settings>().config.clone();
-                config.model = picked.to_string();
-                save(world, config.clone());
-                world.trigger(TestConnection(config));
-            }),
+            chooser(home_default, save_default),
             note(
                 "Used wherever nobody chose a model. It is always \
                  allowed.",
@@ -358,7 +337,7 @@ pub fn shelf() -> AnyView {
         ),
         row((
             action(Glyph::Restore, "LIST MODELS", |world| {
-                world.trigger(ListModels)
+                read_models(world, true)
             }),
             small("FIND"),
             text_field(
@@ -372,7 +351,13 @@ pub fn shelf() -> AnyView {
         ))
         .gap(12.0)
         .align(AlignItems::Center),
-        note(resource::<Listing, _>(said)),
+        note(resource::<Shelf, _>(|shelf| {
+            if shelf.asking {
+                "Asking...".into()
+            } else {
+                String::new()
+            }
+        })),
         label(resource::<Shelf, _>(|shelf| {
             shelf.problem.clone().unwrap_or_default()
         }))
@@ -382,32 +367,4 @@ pub fn shelf() -> AnyView {
     ))
     .gap(8.0)
     .boxed()
-}
-
-#[cfg(test)]
-mod tests {
-    use hamlet_model::catalogue::Catalogue;
-
-    use super::*;
-
-    #[test]
-    fn typing_narrows_the_catalogue_and_the_rest_is_counted() {
-        let model = |id: String| Model {
-            id,
-            ..Model::default()
-        };
-        let all = Catalogue {
-            models: (0..SHOWN + 5)
-                .map(|n| model(format!("vendor/large-{n}")))
-                .chain([model("Other/Small".into())])
-                .collect(),
-        };
-        let names = || all.models.iter().map(Model::name);
-        let (shown, more) = narrowed(names(), "");
-        assert_eq!((shown.len(), more), (SHOWN, 6));
-        assert_eq!(
-            narrowed(names(), "small other"),
-            (vec!["Other/Small".into()], 0)
-        );
-    }
 }

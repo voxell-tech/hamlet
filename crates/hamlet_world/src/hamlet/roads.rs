@@ -1,8 +1,7 @@
 //! The roads between agents, and who walks them.
 
 use bevy::prelude::*;
-use hamlet_core::agents::{Carried, Road, Traffic};
-use hamlet_rules::hamlet::RoadUse;
+use hamlet_client::realm::{Carried, Road, RoadUse, Traffic};
 
 use super::{Housed, Laid};
 use crate::generator::Traffic as Trips;

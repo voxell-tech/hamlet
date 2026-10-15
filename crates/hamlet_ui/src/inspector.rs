@@ -12,13 +12,12 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::world::World;
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
-use hamlet_core::agents::Left;
+use hamlet_client::realm::Left;
 use hamlet_world::pick::{Selected, Thing};
 
+pub(crate) use self::agent::show_prompt;
 pub use self::agent::{Briefing, Section};
-pub(crate) use self::agent::{now, show_prompt};
 pub(crate) use self::gone::{of_agent, skills_screen};
-pub(crate) use self::papers::house;
 pub use self::papers::{Papers, keep_papers};
 use crate::dock::show_tab;
 use crate::looks::filling;
@@ -29,6 +28,9 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Section>()
         .init_resource::<Papers>()
         .init_resource::<Briefing>()
+        .init_resource::<papers::Requests>()
+        .add_observer(papers::response)
+        .add_observer(papers::edited)
         .add_observer(papers::papers_on_job)
         .add_systems(
             Update,
@@ -113,7 +115,7 @@ pub(crate) fn follow_selection(world: &mut World) {
     }
     let agent = match selected.0 {
         Some(Thing::Keeper | Thing::Cottage) => {
-            match hamlet_core::agents::mayor(world) {
+            match hamlet_client::realm::mayor(world) {
                 Some(mayor) => mayor,
                 None => return,
             }

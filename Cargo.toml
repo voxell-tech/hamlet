@@ -15,6 +15,9 @@ repository = "https://github.com/voxell-tech/hamlet"
 
 [workspace.dependencies]
 # hamlet
+hamlet_client = { version = "0.1.0", path = "crates/hamlet_client" }
+hamlet_protocol = { version = "0.1.0", path = "crates/hamlet_protocol" }
+hamlet_protocol_gen = { version = "0.1.0", path = "crates/hamlet_protocol_gen" }
 hamlet_sandbox = { version = "0.1.0", path = "crates/hamlet_sandbox" }
 hamlet_model = { version = "0.1.0", path = "crates/hamlet_model" }
 hamlet_home = { version = "0.1.0", path = "crates/hamlet_home" }
@@ -54,6 +57,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+tokio-tungstenite = "0.28"
 tokio = { version = "1", features = ["full"] }
 objc2 = "0.5"
 objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
@@ -80,7 +85,11 @@ name = "hamlet"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The hamlet binary and the examples that draw the world and the panels"
+description = "The Hamlet window client and the examples that draw the world and the panels"
+
+[[bin]]
+name = "hamlet-app"
+path = "src/main.rs"
 
 [lints]
 workspace = true
@@ -88,10 +97,7 @@ workspace = true
 [dependencies]
 # Named for the `hot-reload` feature; only the examples use it.
 hamlet_assets.workspace = true
-hamlet_sandbox.workspace = true
-hamlet_model.workspace = true
-hamlet_home.workspace = true
-hamlet_core.workspace = true
+hamlet_client.workspace = true
 hamlet_desktop.workspace = true
 hamlet_ui.workspace = true
 hamlet_world.workspace = true
@@ -101,15 +107,14 @@ bevy_app.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-hamlet_rules.workspace = true
+hamlet_protocol.workspace = true
+hamlet_testing.workspace = true
 hamlet_vfx.workspace = true
 bevy_fynix.workspace = true
 serde_json.workspace = true
+toml.workspace = true
 
 [features]
-# Tests that reach a real model server or the internet. Off unless asked
-# for: `cargo test --features live-tests`.
-live-tests = ["hamlet_core/live-tests"]
 # A saved change to a file under assets/ reaches the running app:
 # `cargo run --features hot-reload`.
 hot-reload = ["hamlet_assets/hot-reload"]

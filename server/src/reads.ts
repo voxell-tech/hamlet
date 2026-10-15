@@ -12,7 +12,7 @@ import { houseOf } from "./layout.ts";
 import { refreshModels } from "./models.ts";
 import type { Listed, Read, ReadResult } from "./protocol.ts";
 import { addressed } from "./record.ts";
-import { skillsIn } from "./skills.ts";
+import { houseSkills } from "./skills.ts";
 import { told } from "./told.ts";
 
 /** A chief's view of the prompt, history, catalogue and papers (C14, C24). */
@@ -85,7 +85,7 @@ export async function read(
         papers: {
             notes: cut(notes?.ok ? notes.value : ""),
             character: cut(character?.text ?? ""),
-            skills: (await skillsIn(env, join(house, "skills"), context)).map(
+            skills: (await houseSkills(house, home.sandbox, context)).map(
                 ({ name, description }) => ({ name, description }),
             ),
         },
