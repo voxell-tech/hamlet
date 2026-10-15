@@ -150,7 +150,24 @@ export async function reportOf(
                 },
             ),
         }));
-    return report(limits, books, agents, home.now());
+    const result = report(limits, books, agents, home.now());
+    for (const [key, spent] of Object.entries(books.agents)) {
+        const [of, number] = key.split(":");
+        if (of === undefined || number === undefined) continue;
+        const source = await home.harness.snapshot(RecordDoc, of, context);
+        const agent =
+            source?.agents.find((a) => a.number === Number(number)) ??
+            source?.archive.findLast((a) => a.agent.number === Number(number))
+                ?.agent;
+        const name =
+            agent !== undefined && agent.number === source?.mayor
+                ? "mayor"
+                : (agent?.name ?? `#${number}`);
+        result.lines.push(
+            `- ${name}@${of}: ${money(spent.micros)} (paid for another hamlet)`,
+        );
+    }
+    return result;
 }
 
 /** The refusal when one more road would exceed the hamlet's budget. */

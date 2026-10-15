@@ -1,6 +1,6 @@
 import type { Context } from "@earendil-works/chord";
 import { type DocumentReader, defineDoc } from "@earendil-works/pi-durable";
-import { type AgentRef, MAYOR } from "./hamlet.ts";
+import { type AgentRef, HOME, MAYOR } from "./hamlet.ts";
 import {
     type Archived,
     type End,
@@ -17,6 +17,7 @@ export type HamletPlace = {
     id: string;
     title: string | null;
     at: { x: number; z: number } | null;
+    /** Empty means the human the home belongs to. */
     chiefs: string[];
     from: { hamlet: string; vote: number } | null;
     founded: number;
@@ -54,7 +55,18 @@ export type Realm = {
 /** The home's realm (H6). */
 export const RealmDoc = defineDoc<Realm>({
     kind: "hamlet.realm",
-    version: 1,
+    version: 2,
+    migrate: (value) => {
+        const realm = value as unknown as Realm;
+        return {
+            ...realm,
+            hamlets: realm.hamlets.map((h) =>
+                h.id === HOME && h.chiefs.length === 1
+                    ? { ...h, chiefs: [] }
+                    : h,
+            ),
+        };
+    },
     scope: "session",
     initial: () => ({
         hamlets: [],
@@ -76,7 +88,9 @@ export function isChief(
     chief: string,
 ): boolean {
     return liveHamlets(realm).some(
-        (h) => h.id === hamlet && h.chiefs.includes(chief),
+        (h) =>
+            h.id === hamlet &&
+            (h.chiefs.length === 0 || h.chiefs.includes(chief)),
     );
 }
 /** A departed agent's refusal (H28). */

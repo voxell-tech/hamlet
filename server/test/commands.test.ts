@@ -228,7 +228,8 @@ it.each(["founder", "mayor", "all"])(
             expect(await openWaits(home)).toHaveLength(1),
         );
         expect(await typed(home, "/stop nobody")).toMatchObject({
-            text: "Stopping nobody.",
+            kind: "error",
+            text: "no agent named `nobody`",
         });
         expect(await openWaits(home)).toHaveLength(1);
         expect(await typed(home, `/stop ${target}`)).toMatchObject({

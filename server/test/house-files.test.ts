@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import {
+    chmod,
     lstat,
     mkdir,
     open,
@@ -135,6 +136,33 @@ it("stages a whole house or a single tree, preserving bytes and empty folders", 
     expect(await readFile(join(one, "bytes"))).toEqual(
         Buffer.from([0, 255, 1, 2]),
     );
+});
+
+it("keeps ordinary modes through staging and delivery, clearing setuid and setgid", async () => {
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    const root = houseOf(home.layout, MAYOR);
+    await mkdir(join(root, "tool/scripts"), { recursive: true });
+    await writeFile(join(root, "tool/scripts/run"), "#!/bin/sh\necho ready\n");
+    await chmod(join(root, "tool/scripts/run"), 0o6751);
+    await chmod(join(root, "tool/scripts"), 0o2750);
+    await chmod(join(root, "tool"), 0o750);
+    const stage = scratch();
+    await stageTree(home, { root, rel: "tool" }, stage, caps, context);
+    for (const [path, mode] of [
+        ["tool", 0o750],
+        ["tool/scripts", 0o750],
+        ["tool/scripts/run", 0o751],
+    ] as const)
+        expect((await lstat(join(stage, path))).mode & 0o7777).toBe(mode);
+    await deliverTree(home, { root, into: "inbox" }, stage, ["tool"], context);
+    for (const [path, mode] of [
+        ["tool", 0o750],
+        ["tool/scripts", 0o750],
+        ["tool/scripts/run", 0o751],
+    ] as const)
+        expect((await lstat(join(root, "inbox", path))).mode & 0o7777).toBe(
+            mode,
+        );
 });
 
 it.each(["entries", "bytes"] as const)(

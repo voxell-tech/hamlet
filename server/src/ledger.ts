@@ -336,6 +336,7 @@ function hostOf(url: string | undefined, fallback: string): string {
 
 export type Books = {
     hamlet: Amount;
+    /** Local agents by number, foreign agents by hamlet:number. */
     agents: Record<string, Amount>;
     task: Amount;
 };
@@ -366,7 +367,10 @@ export async function booksOf(
                 continue;
             }
             add(books.hamlet, line);
-            const agent = String(line.agent);
+            const agent =
+                line.of === null || line.of === hamlet
+                    ? String(line.agent)
+                    : `${line.of}:${line.agent}`;
             books.agents[agent] ??= zero();
             add(books.agents[agent], line);
         }
