@@ -36,6 +36,7 @@ impl Plugin for ClientPlugin {
             .init_resource::<realm::Grants>()
             .init_resource::<realm::Deeds>()
             .init_resource::<realm::Skills>()
+            .init_resource::<realm::Closed>()
             .init_resource::<realm::Starters>()
             .add_plugins((
                 messages::plugin,

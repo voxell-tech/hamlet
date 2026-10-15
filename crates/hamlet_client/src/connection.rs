@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::future::poll_fn;
 use std::path::{Path, PathBuf};
 use std::task::Poll;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bevy_app::{App, Update};
 use bevy_ecs::prelude::*;
@@ -30,6 +30,7 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Connection>()
         .init_resource::<Retry>()
         .init_resource::<Heartbeat>()
+        .init_resource::<Discovery>()
         .add_systems(Update, update);
     if let Some(server) = app.world().get_resource::<ServerAddress>()
     {
@@ -72,7 +73,14 @@ impl ServerAddress {
             })?;
             return Ok(Self { url, token });
         }
-        let home = match vars("HAMLET_HOME") {
+        Self::in_home(&Self::local_home(vars)?)
+    }
+
+    /// The local home selected by the environment.
+    pub fn local_home(
+        vars: impl Fn(&str) -> Option<String>,
+    ) -> Result<PathBuf, String> {
+        Ok(match vars("HAMLET_HOME") {
             Some(home) => PathBuf::from(home),
             None => {
                 let home = vars("HOME")
@@ -83,7 +91,10 @@ impl ServerAddress {
                     )?;
                 PathBuf::from(home).join(".hamlet")
             }
-        };
+        })
+    }
+
+    fn in_home(home: &Path) -> Result<Self, String> {
         let server = home.join("server.json");
         let value = match std::fs::read_to_string(&server) {
             Ok(text) => {
@@ -206,7 +217,56 @@ enum Incoming {
     Frame(v0::ServerMessage),
 }
 
+#[derive(Resource, Default)]
+struct Discovery {
+    next: Option<Instant>,
+    delay: Duration,
+}
+
+fn discover(world: &mut World) {
+    if world.contains_resource::<ServerAddress>() {
+        return;
+    }
+    let Some(local) = world.get_resource::<LocalServer>() else {
+        return;
+    };
+    let now = Instant::now();
+    if world
+        .resource::<Discovery>()
+        .next
+        .is_some_and(|next| now < next)
+    {
+        return;
+    }
+    let found = ServerAddress::in_home(&local.0);
+    match found {
+        Ok(server) => {
+            world.insert_resource(Connection {
+                state: State::Connecting,
+                words: format!("Connecting to {}...", server.url),
+            });
+            world.insert_resource(server);
+        }
+        Err(words) => {
+            world.insert_resource(Connection {
+                state: State::Lost,
+                words,
+            });
+            let retry = *world.resource::<Retry>();
+            let mut discovery = world.resource_mut::<Discovery>();
+            discovery.delay = if discovery.next.is_none() {
+                retry.first
+            } else {
+                discovery.delay.saturating_mul(2)
+            }
+            .min(retry.cap);
+            discovery.next = Some(now + discovery.delay);
+        }
+    }
+}
+
 fn update(world: &mut World) {
+    discover(world);
     if !world.contains_resource::<Bridge>() {
         let (Some(server), Some(runtime)) = (
             world.get_resource::<ServerAddress>(),
@@ -562,5 +622,68 @@ impl Default for Connection {
                     server."
                 .into(),
         }
+    }
+}
+
+/// The local home searched while no server address is available.
+#[derive(Resource, Clone, Debug)]
+pub struct LocalServer(pub PathBuf);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ClientPlugin;
+
+    #[test]
+    fn a_window_started_first_discovers_its_local_server_later() {
+        let home = hamlet_testing::Scratch::new("late-server");
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let listener = runtime
+            .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
+            .unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let task = runtime.spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream)
+                .await
+                .unwrap();
+            let hello = socket.next().await.unwrap().unwrap();
+            assert!(hello.to_text().unwrap().contains("late-token"));
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        });
+        let mut app = App::new();
+        app.add_plugins(ClientPlugin { server: None })
+            .insert_resource(Tokio(runtime.handle().clone()))
+            .insert_resource(LocalServer(home.to_path_buf()))
+            .insert_resource(Retry {
+                first: Duration::ZERO,
+                cap: Duration::ZERO,
+            });
+        app.update();
+        assert!(!app.world().contains_resource::<ServerAddress>());
+        std::fs::write(
+            home.join("server.json"),
+            format!(r#"{{"url":"{url}"}}"#),
+        )
+        .unwrap();
+        std::fs::write(
+            home.join("credentials.json"),
+            r#"{"connection":{"token":"late-token"}}"#,
+        )
+        .unwrap();
+        let until = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < until
+            && app.world().resource::<Connection>().state
+                != State::Connected
+        {
+            app.update();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            app.world().resource::<Connection>().state,
+            State::Connected
+        );
+        assert_eq!(app.world().resource::<ServerAddress>().url, url);
+        task.abort();
     }
 }
