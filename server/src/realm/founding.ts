@@ -380,7 +380,11 @@ async function finish(home: Home, context: Context): Promise<void> {
         for (const agent of record?.agents ?? []) {
             const ref = { hamlet: place.id, number: agent.number };
             if (place.removed) await stopAgent(home, ref, context);
-            else await buildHouse(home.layout, ref);
+            else if (
+                realm?.pending?.to.hamlet !== ref.hamlet ||
+                realm.pending.to.number !== ref.number
+            )
+                await buildHouse(home.layout, ref);
         }
     }
 }
