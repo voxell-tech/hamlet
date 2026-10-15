@@ -616,10 +616,12 @@ describe("tools added by hand", () => {
                 .map((tool) => tool.name)
                 .sort(),
         ).toEqual([
+            "ask_chief",
             "ask_librarian",
             "bash",
             "edit",
             "find",
+            "object",
             "read",
             "search",
             "submit_skill",

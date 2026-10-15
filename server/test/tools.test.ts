@@ -90,10 +90,12 @@ describe("the mayor's tools", () => {
                 .map((tool) => tool.name)
                 .sort();
         const all = [
+            "ask_chief",
             "ask_librarian",
             "bash",
             "edit",
             "find",
+            "object",
             "read",
             "search",
             "submit_skill",
