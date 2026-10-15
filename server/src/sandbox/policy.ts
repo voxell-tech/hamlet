@@ -8,7 +8,7 @@ import {
     statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 /** A service on this machine a command reaches even without the network: a local port, and the Unix socket that serves the same (S11). */
 export type Service = {
@@ -213,25 +213,8 @@ export function writable(
     return (
         inAny(real, [...policy.rw, tmp]) &&
         !inAnyFolded(real, policy.locked) &&
-        !runByGit(real) &&
-        !(move && (isRepository(real) || holdsLocked(policy, real)))
+        !(move && holdsLocked(policy, real))
     );
-}
-
-/** True when `path` is where a repository keeps what git later runs: in its hooks, or its config. */
-function runByGit(path: string): boolean {
-    const parts = path.toLowerCase().split(sep);
-    return parts.some(
-        (part, i) =>
-            part === ".git" &&
-            (parts[i + 1] === "hooks" ||
-                (parts[i + 1] === "config" && i + 2 === parts.length)),
-    );
-}
-
-/** True when `path` is a repository's own folder, which carries its hooks and config wherever it is moved. */
-function isRepository(path: string): boolean {
-    return basename(path).toLowerCase() === ".git";
 }
 
 /** True when moving or removing `path` would carry a locked path with it. */

@@ -293,6 +293,42 @@ describe("tools added by hand", () => {
         expect(existsSync(join(tool, "changed"))).toBe(false);
     });
 
+    it.each([
+        'echo changed > "$TOOL/changed"',
+        'echo changed > "$TOOLS/changed"',
+        'python3 -c \'import os; os.rename(os.environ["HOME_DIR"], os.environ["ROOT"] + "/moved")\'',
+        'rm -rf "$TOOLS"',
+    ])(
+        "keep the tools and their ancestors locked with a writable parent: %s",
+        async (command) => {
+            const root = scratch();
+            const dir = join(root, "home");
+            const tool = manifest(dir, "readonly", {
+                name: "readonly",
+                exec: ["bash", "-c", command],
+                sandbox: {
+                    fs_rw: [root],
+                    env: {
+                        ROOT: root,
+                        HOME_DIR: dir,
+                        TOOLS: join(dir, "tools"),
+                        TOOL: join(dir, "tools", "readonly"),
+                    },
+                },
+            });
+            const { models, faux } = fauxModels();
+            const home = await testHome(dir, { models });
+
+            const [result] = await calls(home, faux, ["readonly", {}]);
+
+            expect(result?.isError).toBe(true);
+            expect(existsSync(join(tool, "manifest.json"))).toBe(true);
+            expect(existsSync(join(tool, "changed"))).toBe(false);
+            expect(existsSync(join(dir, "tools", "changed"))).toBe(false);
+            expect(existsSync(join(root, "moved"))).toBe(false);
+        },
+    );
+
     it("enforce the manifest's wall and CPU limits, keeping output and the timeout's exit code", async () => {
         const dir = scratch();
         manifest(dir, "timer", {

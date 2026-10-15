@@ -168,6 +168,7 @@ describe("the prompt", () => {
         await setFolder(home, folder, "manual");
         sections = await sent(home, faux);
         expect(sections.project).toContain("git worktree");
+        expect(sections.project).not.toContain("cannot be written");
         expect(sections.project).toContain("The chief approves each edit");
         expect(sections.project).toContain(
             "# The project's CLAUDE.md\nUse tabs.",

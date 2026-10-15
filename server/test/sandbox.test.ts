@@ -151,7 +151,7 @@ describe("a sandboxed command", () => {
         }
     });
 
-    it("in a hamlet's folder reads widely, but not the home, and keeps its locks", async () => {
+    it("in a hamlet's folder reads widely, but not the home, and writes git files", async () => {
         const { folder, home, house, env } = folderEnv();
         const outside = scratch();
 
@@ -161,6 +161,9 @@ describe("a sandboxed command", () => {
             `cat ${resolve("package.json")}`,
             "echo a > in.txt",
             "echo a > .git/HEAD",
+            "echo a > .git/hooks/pre-commit",
+            "echo a > .git/config",
+            "ln -s .git/hooks h && echo a > h/pre-commit",
             `echo a > ${house}/n && cat ${house}/n`,
         ]) {
             expect({ script, ...(await sh(env, script)) }).toMatchObject({
@@ -171,10 +174,6 @@ describe("a sandboxed command", () => {
         for (const script of [
             `echo a > ${outside}/new.txt`,
             `cat ${home}/api_key.x`,
-            "echo a > .git/hooks/pre-commit",
-            "echo a > .git/config",
-            "mv .git .git2",
-            "ln -s .git/hooks h && echo a > h/pre-commit",
         ]) {
             const ran = await sh(env, script);
             expect({ script, failed: ran.exitCode !== 0 }).toEqual({
@@ -185,13 +184,16 @@ describe("a sandboxed command", () => {
         }
         // Seatbelt refuses the listing; bubblewrap shows an empty folder.
         expect((await sh(env, `ls ${home}`)).output).not.toContain("api_key");
-        expect(existsSync(join(folder, ".git", "hooks", "pre-commit"))).toBe(
-            false,
+        expect(
+            readFileSync(join(folder, ".git", "hooks", "pre-commit"), "utf8"),
+        ).toBe("a\n");
+        expect(readFileSync(join(folder, ".git", "config"), "utf8")).toBe(
+            "a\n",
         );
     });
 
     it.each([".git", ".GIT"])(
-        "never writes a nested repository's hooks or config under %s",
+        "writes a nested repository's hooks or config under %s",
         async (name) => {
             const { folder, env } = folderEnv();
             const git = join(folder, "vendor", "lib", name);
@@ -203,19 +205,18 @@ describe("a sandboxed command", () => {
                     env,
                     `echo a > vendor/lib/${name}/${path}`,
                 );
-                expect({ path, failed: ran.exitCode !== 0 }).toEqual({
+                expect({ path, exitCode: ran.exitCode }).toEqual({
                     path,
-                    failed: true,
+                    exitCode: 0,
                 });
+                expect(readFileSync(join(git, path), "utf8")).toBe("a\n");
             }
-            expect(readdirSync(join(git, "hooks"))).toEqual([]);
-            expect(readFileSync(join(git, "config"), "utf8")).toBe("kept");
         },
     );
 
-    it("cannot move a nested repository's .git away", async () => {
+    it.each([".git", "vendor/lib/.git"])("moves %s away", async (path) => {
         const { folder, env } = folderEnv();
-        const git = join(folder, "vendor", "lib", ".git");
+        const git = join(folder, path);
         mkdirSync(join(git, "hooks"), { recursive: true });
         writeFileSync(join(git, "config"), "kept");
 
@@ -223,13 +224,44 @@ describe("a sandboxed command", () => {
             (
                 await sh(
                     env,
-                    `python3 -c "import os; os.rename('vendor/lib/.git', 'moved')"`,
+                    `python3 -c "import os; os.rename('${path}', 'moved')"`,
                 )
             ).exitCode,
-        ).not.toBe(0);
-        expect(existsSync(git)).toBe(true);
-        expect(existsSync(join(folder, "moved"))).toBe(false);
+        ).toBe(0);
+        expect(existsSync(git)).toBe(false);
+        expect(readFileSync(join(folder, "moved", "config"), "utf8")).toBe(
+            "kept",
+        );
     });
+
+    it.each(["folder", "house"] as const)(
+        "initializes and clones repositories in the %s",
+        async (place) => {
+            const [folder, home] = [scratch(), scratch()];
+            const house = join(home, "house");
+            mkdirSync(house);
+            const env = new SandboxEnv({
+                cwd: folder,
+                policy: openPolicy({ folder, house, home }),
+            });
+            const root = place === "folder" ? folder : house;
+
+            expect(
+                (
+                    await sh(
+                        env,
+                        `git init -q --template= '${root}' && git clone -q --template= '${root}' '${root}/cloned'`,
+                    )
+                ).exitCode,
+            ).toBe(0);
+            expect(existsSync(join(root, ".git", "config"))).toBe(true);
+            expect(existsSync(join(root, "cloned", ".git", "config"))).toBe(
+                true,
+            );
+            expect((await sh(env, `rm -rf '${root}/cloned'`)).exitCode).toBe(0);
+            expect(existsSync(join(root, "cloned"))).toBe(false);
+        },
+    );
 
     it("can still commit in a nested repository", async () => {
         const { folder, env } = folderEnv();
@@ -247,51 +279,51 @@ describe("a sandboxed command", () => {
         expect(ran).toEqual({ exitCode: 0, output: "nested\n" });
     });
 
-    it.skipIf(process.platform !== "darwin")(
-        "guards a repository created during the command",
-        async () => {
-            const { folder, env } = folderEnv();
-            for (const path of ["hooks/pre-commit", "config"]) {
-                const git = `vendor/${path.split("/")[0]}/.git`;
-                const parent = path === "config" ? git : `${git}/hooks`;
-                const ran = await sh(
-                    env,
-                    `mkdir -p ${parent} && echo a > ${git}/${path}`,
-                );
+    it("writes a repository created during the command", async () => {
+        const { folder, env } = folderEnv();
+        for (const path of ["hooks/pre-commit", "config"]) {
+            const git = `vendor/${path.split("/")[0]}/.git`;
+            const parent = path === "config" ? git : `${git}/hooks`;
+            const ran = await sh(
+                env,
+                `mkdir -p ${parent} && echo a > ${git}/${path}`,
+            );
 
-                expect({ path, failed: ran.exitCode !== 0 }).toEqual({
-                    path,
-                    failed: true,
-                });
-                expect(existsSync(join(folder, git))).toBe(true);
-                expect(existsSync(join(folder, git, path))).toBe(false);
-            }
-        },
-    );
+            expect({ path, exitCode: ran.exitCode }).toEqual({
+                path,
+                exitCode: 0,
+            });
+            expect(readFileSync(join(folder, git, path), "utf8")).toBe("a\n");
+        }
+    });
 
-    it.skipIf(process.platform !== "linux")(
-        "cannot carry a nested repository's locks away in a parent folder",
-        async () => {
+    it.each(["vendor/lib", "vendor"])(
+        "moves %s holding a repository",
+        async (path) => {
             const { folder, env } = folderEnv();
-            const git = join(folder, "vendor", "lib", ".git");
+            const git = join(folder, path, "nested", ".git");
             mkdirSync(join(git, "hooks"), { recursive: true });
             writeFileSync(join(git, "config"), "kept");
 
-            for (const path of ["vendor/lib", "vendor"]) {
-                expect(
-                    (
-                        await sh(
-                            env,
-                            `python3 -c "import os; os.rename('${path}', 'moved')"`,
-                        )
-                    ).exitCode,
-                ).not.toBe(0);
-                expect(existsSync(git)).toBe(true);
-            }
+            expect(
+                (
+                    await sh(
+                        env,
+                        `python3 -c "import os; os.rename('${path}', 'moved')"`,
+                    )
+                ).exitCode,
+            ).toBe(0);
+            expect(existsSync(git)).toBe(false);
+            expect(
+                readFileSync(
+                    join(folder, "moved", "nested", ".git", "config"),
+                    "utf8",
+                ),
+            ).toBe("kept");
         },
     );
 
-    it("guards repositories in a folder with regex and quote characters", async () => {
+    it("writes git files in a folder with regex and quote characters", async () => {
         const folder = join(scratch(), `folder[0](x)+.^$'"`);
         const [home, house] = [scratch(), scratch()];
         const git = join(folder, "nested", ".git");
@@ -302,10 +334,8 @@ describe("a sandboxed command", () => {
             policy: openPolicy({ folder, house, home }),
         });
 
-        expect(
-            (await sh(env, "echo a > nested/.git/config")).exitCode,
-        ).not.toBe(0);
-        expect(readFileSync(join(git, "config"), "utf8")).toBe("kept");
+        expect((await sh(env, "echo a > nested/.git/config")).exitCode).toBe(0);
+        expect(readFileSync(join(git, "config"), "utf8")).toBe("a\n");
         expect(await sh(env, "echo a > ordinary && cat ordinary")).toEqual({
             exitCode: 0,
             output: "a\n",
@@ -384,20 +414,20 @@ describe.skipIf(!foldsCase)("on a volume that ignores case", () => {
         ).toBe("ok");
     });
 
-    it("makes no repository through another case of .git", async () => {
+    it("makes a repository through another case of .git", async () => {
         const [folder, house, home] = [scratch(), scratch(), scratch()];
         const env = new SandboxEnv({
             cwd: folder,
             policy: openPolicy({ folder, house, home }),
         });
 
-        expect(outcome(await env.writeFile(".GIT/HEAD", "a", context))).toBe(
-            "permission_denied",
-        );
         expect(outcome(await env.createDir(".Git", undefined, context))).toBe(
-            "permission_denied",
+            "ok",
         );
-        expect(existsSync(join(folder, ".git"))).toBe(false);
+        expect(outcome(await env.writeFile(".GIT/HEAD", "a", context))).toBe(
+            "ok",
+        );
+        expect(readFileSync(join(folder, ".git", "HEAD"), "utf8")).toBe("a");
     });
 });
 
@@ -440,7 +470,7 @@ describe("a file operation", () => {
         );
     });
 
-    it("in a hamlet's folder reads widely, but not the home, and never writes git's hooks or config", async () => {
+    it("in a hamlet's folder reads widely, but not the home, and writes git's hooks or config", async () => {
         const { home, house, env } = folderEnv();
         const outside = scratch();
         writeFileSync(join(outside, "seen.txt"), "seen");
@@ -462,19 +492,19 @@ describe("a file operation", () => {
         );
         expect(
             outcome(await env.writeFile(".git/hooks/pre-commit", "a", context)),
-        ).toBe("permission_denied");
+        ).toBe("ok");
         expect(outcome(await env.writeFile(".git/config", "a", context))).toBe(
-            "permission_denied",
+            "ok",
         );
         expect(outcome(await env.renameFile(".git", ".git2", context))).toBe(
-            "permission_denied",
+            "ok",
         );
         expect(
-            outcome(await env.remove(".git", { recursive: true }, context)),
-        ).toBe("permission_denied");
+            outcome(await env.remove(".git2", { recursive: true }, context)),
+        ).toBe("ok");
     });
 
-    it("never writes, moves or removes git's hooks or config, in any case and in any repository", async () => {
+    it("writes, moves and removes git's hooks or config, in any case and in any repository", async () => {
         const { folder, env } = folderEnv();
         const nested = join(folder, "vendor", "lib", ".git");
         mkdirSync(nested, { recursive: true });
@@ -483,7 +513,6 @@ describe("a file operation", () => {
         symlinkSync(join(folder, ".git", "hooks"), join(folder, "sub", "h"));
         symlinkSync("b", join(folder, "sub", "c"));
         symlinkSync("../.git/hooks/pre-commit", join(folder, "sub", "b"));
-        writeFileSync(join(folder, "a.txt"), "a");
 
         for (const path of [
             ".GIT/Hooks/x",
@@ -496,36 +525,63 @@ describe("a file operation", () => {
             expect({
                 path,
                 write: outcome(await env.writeFile(path, "x", context)),
-                into: outcome(await env.renameFile("a.txt", path, context)),
-                from: outcome(await env.renameFile(path, "b.txt", context)),
+            }).toEqual({ path, write: "ok" });
+            expect(readFileSync(join(folder, path), "utf8")).toBe("x");
+            expect({
+                path,
+                from: outcome(await env.renameFile(path, "moved", context)),
+                into: outcome(await env.renameFile("moved", path, context)),
                 remove: outcome(
                     await env.remove(path, { force: true }, context),
                 ),
-            }).toEqual({
-                path,
-                write: "permission_denied",
-                into: "permission_denied",
-                from: "permission_denied",
-                remove: "permission_denied",
-            });
+            }).toEqual({ path, from: "ok", into: "ok", remove: "ok" });
         }
-        // Moved away and back, a repository would carry what was written in
-        // it meanwhile, and a folder moved into its place its own hooks.
         expect(
             outcome(await env.renameFile("vendor/lib/.git", "g", context)),
-        ).toBe("permission_denied");
+        ).toBe("ok");
         expect(
             outcome(await env.renameFile("sub", "vendor/.git", context)),
-        ).toBe("permission_denied");
+        ).toBe("ok");
         expect(
             outcome(await env.writeFile(".git/info/exclude", "x", context)),
         ).toBe("ok");
-        expect(readdirSync(join(folder, ".git", "hooks"))).toEqual([]);
-        expect(readFileSync(join(folder, ".git", "config"), "utf8")).toBe(
-            "kept",
-        );
-        expect(readFileSync(join(nested, "config"), "utf8")).toBe("kept");
-        expect(existsSync(join(folder, "a.txt"))).toBe(true);
+        expect(
+            outcome(await env.remove("vendor", { recursive: true }, context)),
+        ).toBe("ok");
+        expect(existsSync(join(folder, "vendor"))).toBe(false);
+    });
+
+    it("keeps explicit locks and their parents from being changed, moved or removed", async () => {
+        const root = scratch();
+        const tools = join(root, "home", "tools");
+        const tool = join(tools, "readonly");
+        mkdirSync(tool, { recursive: true });
+        writeFileSync(join(tool, "manifest.json"), "kept");
+        const env = new SandboxEnv({
+            cwd: root,
+            policy: { ...closedPolicy(root), locked: [tools, tool] },
+        });
+
+        expect(
+            outcome(
+                await env.writeFile(join(tool, "manifest.json"), "x", context),
+            ),
+        ).toBe("permission_denied");
+        for (const path of [tools, tool, join(root, "home")]) {
+            expect(outcome(await env.renameFile(path, "moved", context))).toBe(
+                "permission_denied",
+            );
+            expect(
+                outcome(await env.renameFile("incoming", path, context)),
+            ).toBe("permission_denied");
+            expect(
+                outcome(await env.remove(path, { recursive: true }, context)),
+            ).toBe("permission_denied");
+        }
+        expect(readFileSync(join(tool, "manifest.json"), "utf8")).toBe("kept");
+        expect(
+            outcome(await env.writeFile("home/ordinary", "a", context)),
+        ).toBe("ok");
     });
 
     it("refuses to read a file that is not UTF-8 as text, and leaves it as it was", async () => {

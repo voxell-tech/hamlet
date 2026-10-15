@@ -139,7 +139,6 @@ async function project({
         "- `read`, `write` and `edit` take a path relative to the project, or a full path.",
         "- `read`, `search` and `find` look at files without running a command. Use them rather than cat, grep and find.",
         `- Your own workspace is ${house}. NOTES.md and skills/ are there and stay there: never put notes, skills or files of your own in the project. Give \`write\` and \`edit\` their full path, and run a skill from your workspace, as shown below.`,
-        "- `.git/hooks` and `.git/config` cannot be written.",
     ];
     const git = await input.env?.exists(join(folder, ".git"), context);
     if (git?.ok && git.value) {

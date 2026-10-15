@@ -80,7 +80,7 @@ function text(result: ToolResultMessage | undefined): string {
 const OUTSIDE =
     "\n[The sandbox lets a command write only inside the workspace, which is its working directory. Use a relative path there, not /tmp or another folder.]";
 const OUTSIDE_PROJECT =
-    "\n[The sandbox lets a command write only in the project folder and in your own workspace, never in .git/hooks or .git/config, and keeps Hamlet's own folder closed to it.]";
+    "\n[The sandbox lets a command write only in the project folder and in your own workspace, and keeps Hamlet's own folder closed to it.]";
 
 describe("the mayor's tools", () => {
     it("are read, write, edit, bash, search and find, with or without a folder", async () => {
@@ -248,6 +248,40 @@ describe("the mayor's tools", () => {
         expect(existsSync(join(folder, "skills"))).toBe(false);
         expect(text(results[3])).toContain("plan");
     });
+
+    it.each([false, true])(
+        "write and edit git files with a folder: %s",
+        async (hasFolder) => {
+            const { home, faux, house } = await mayorHome();
+            const root = hasFolder ? scratch() : house;
+            if (hasFolder) await setFolder(home, root, "auto");
+
+            for (const path of [
+                ".git/hooks/pre-commit",
+                ".git/config",
+                "vendor/lib/.git/hooks/pre-commit",
+                "vendor/lib/.git/config",
+            ]) {
+                const results = await calls(
+                    home,
+                    faux,
+                    ["write", { path, content: "before\n" }],
+                    [
+                        "edit",
+                        {
+                            path,
+                            edits: [{ oldText: "before", newText: "after" }],
+                        },
+                    ],
+                );
+                expect(results.map((result) => result.isError)).toEqual([
+                    false,
+                    false,
+                ]);
+                expect(readFileSync(join(root, path), "utf8")).toBe("after\n");
+            }
+        },
+    );
 
     it.each([
         ["no folder", false],

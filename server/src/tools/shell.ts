@@ -22,7 +22,7 @@ const OUTSIDE =
 
 /** Said after a command the sandbox stopped, while the hamlet works on a folder. */
 const OUTSIDE_PROJECT =
-    "\n[The sandbox lets a command write only in the project folder and in your own workspace, never in .git/hooks or .git/config, and keeps Hamlet's own folder closed to it.]";
+    "\n[The sandbox lets a command write only in the project folder and in your own workspace, and keeps Hamlet's own folder closed to it.]";
 
 /** The value a program that calls pi's `bash` gets. */
 type Ran = {

@@ -76,16 +76,16 @@ every agent, and runs under the same sandbox and the same gate as the shell.
 
 ## What tools reach
 
-**C18. Not yet met.** Tools run in a sandbox. The built-in tools write only
+**C18.** Tools run in a sandbox. The built-in tools write only
 in the agent's house and in the folder its hamlet works on. With a folder,
 a command can read the rest of the machine, so the project's own tools run,
-but never the rest of the home. A command never writes `.git/hooks` or
-`.git/config` of the folder's repository or of a repository nested in it.
-The library and the home's tools folder are readable and never writable.
+but never the rest of the home. The library and the home's tools folder
+are readable and never writable.
 
-Under bubblewrap, the protection of a repository created during a command
-is not yet met: its hooks and config are not guarded until the next
-command. Seatbelt guards that repository during the command too.
+In a folder of the chief's own, agents may write git's files, including
+hooks or config that the chief's git later runs. The chief accepts that
+risk until the folder is a clone Hamlet keeps (S9), where the chief never
+runs git and Hamlet runs its own git with hooks off.
 
 A tool added by hand has the filesystem reach its manifest grants, rather
 than the shell's reach: its readable and writable paths, with its own

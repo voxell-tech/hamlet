@@ -104,14 +104,11 @@ commands, not edits of the agent's own house. Tools added by hand reach the
 paths their manifests grant, not the shell's paths. There is no
 `--insecure` mode yet.
 
-Seatbelt denies writes to `.git/hooks` and `.git/config` by pattern under
-the writable folders, with their paths kept as parameters. It guards nested
-repositories, including one created during the command. Bubblewrap scans
-for repositories before each command, without following symbolic links,
-and refuses the command if the scan cannot finish within 100000 entries.
-It mounts their hooks and config read-only and pins the folders above
-them. A repository created during a bubblewrap command is not guarded
-until the next command; that part of C18 is not yet met.
+Agents may write git's files in the chief's own folder, including nested
+repositories' hooks and config. The chief accepts that these may later run
+under the chief's own git. In step 6 the folder becomes a clone Hamlet
+keeps (S9): the chief never runs git there, and Hamlet runs its own git with
+hooks off, so these files need no guard.
 
 Step 3 gives the package the `hamlet` executable, renames the Rust binary
 `hamlet-app`, and adds `hamlet dev` to start a scratch server and its window
@@ -286,8 +283,6 @@ offline. They pass in `server/test/`.
 - OpenAI's login listens on port 1455, which the Codex CLI uses too; a clash
   fails the login with a clear error.
 - Windows has no sandbox, and the server offers no `--insecure` mode.
-- C18 is not yet met for repositories created during a bubblewrap command;
-  their hooks and config are not guarded until the next command.
 - C31 is not yet met: first-token timing is not recorded for every call;
   raw provider usage and each summarising call's timing, billed charge and
   end reason are not recorded. Summaries' model time is not yet charged.
