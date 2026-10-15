@@ -30,7 +30,9 @@ another agent's house.
 |---|---|
 | `/agent <name>`, `/hamlet <name>` | Talk to that agent, or to that hamlet's mayor |
 | `/to <agent> <instruction>` | Instruct an agent directly |
-| `/new`, `/resume <n>`, `/retry`, `/reflect` | A new conversation, an earlier one, carry on a stopped turn, reflect now (C24, C26, C5) |
+| `/new` | Move at once to a new conversation while the old one finishes its queue (C24) |
+| `/resume [n]` | List conversations, or go back to one by its stable number (C24) |
+| `/retry`, `/reflect` | Carry on a failed or stopped turn as a visible new input, reflect now (C26, C5) |
 | `/stop [agent\|all]` | Stop an agent's work, or everyone's (H23) |
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
 | `/undo` | Reverse the latest thing that can be reversed |
@@ -119,11 +121,22 @@ own.
 ## Budgets
 
 **H8.** A hamlet has a budget for a period of a [day] or a month, on cost
-[$5] and on model time; tokens are counted but not capped. Every model call
-and every road is charged. Before every model call the hamlet's budget and
-the task's caps are checked, and a turn that has run out stops, saying what
-ran out and who can change it. A chief can start the period again from
-nothing spent.
+[$5] and on model time; tokens are counted but not capped. Every road and
+model call is charged, including reflections, summaries and recorded
+failed or aborted attempts. A response with no reported tokens is estimated
+unless it failed or was aborted; an attempt with no reported usage costs
+nothing. The provider's billed cost is used when available, else the model's
+catalogue rates or the chief's assigned price. An unpriced model is charged
+[$0.10 per million tokens] on this machine, [$1 per million] elsewhere.
+Subscription models are charged at catalogue rates even when the chief
+pays no per-token bill. Cost is kept in integer micro-dollars, by the
+server's local day. Summaries have no recorded model time (C31).
+
+Before every model call the hamlet's budget and the task's caps are checked,
+and a turn that has run out stops, saying what ran out and who can change
+it. A chief can start the period again from nothing spent, without resetting
+a task's spend. No summary starts once the budget or the task's cap has run
+out.
 
 **H16.** An agent that does nothing costs nothing.
 
@@ -191,13 +204,15 @@ chief can take a skill out.
 - nothing confines it (no sandbox), and it looks destructive, or its agent
   may not run unconfined;
 - it is something the chief's limits reserve (H22);
-- its hamlet is in manual mode and it is an edit or a command (C21).
+- its hamlet is in manual mode and it is an edit of the folder or a
+  command, not an edit of the agent's own house (C21).
 
 A chief answers: allow it once; allow edits or commands for the rest of the
 agent's conversation; allow it always, which for the network or running
 unconfined is a lasting permission kept by the agent's number until taken
-back; or refuse. After [3] refusals in one turn, the agent's further
-requests of the kind are refused without asking.
+back; or refuse. Every refused approval counts toward the turn's cap,
+whatever its danger. After [3] refusals in one turn, further requests for
+approval are refused without asking.
 
 **H10.** An agent can talk back:
 

@@ -71,9 +71,21 @@ macOS.
 
 ## Working on Hamlet
 
-**S13.** One command starts a server on a scratch home and opens a window
-connected to it. A client in the terminal can chat with agents and answer
-what waits, with no window.
+**S13.** The terminal commands run through npm in `server/`, with the Node
+version in `.nvmrc`: `npm run hamlet -- <command>`. `HAMLET_HOME` names the
+home; development uses a scratch folder.
+
+| Command | Does |
+|---|---|
+| `server` | Serves the home; stopping it closes in order, and a second stop signal exits at once |
+| `chat [--to <agent>]` | Chats with the mayor or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
+| `edit <charter\|character\|notes\|limits\|settings>` | Opens the chief's document in `$EDITOR` and saves it through the server |
+| `login <provider> [--key]` | Gives a key, or follows an offered sign-in |
+| `models [try [model]\|refresh]` | Lists models, tries a one-word hello, or refreshes the list |
+
+One command that starts a scratch server and opens its window, `hamlet dev`,
+comes with step 3, as do `hamlet window`, the `hamlet` executable and the
+Rust binary's name `hamlet-app`.
 
 **S14.** No test contacts a model server or the internet, except those a
 developer asks for by name.

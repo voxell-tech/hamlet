@@ -6,9 +6,11 @@ reach, and the conversations it keeps. The society around it is in
 
 ## The agent and its house
 
-**C8.** An agent has a house of its own: a workspace holding its notes
-(`NOTES.md`) and its skills (one folder each, with a `SKILL.md`), an inbox
-for what a chief hands it, its character, and its conversations.
+**C8.** An agent has a house of its own: its notes (`NOTES.md`), its skills
+(one folder each, with a `SKILL.md`), an inbox for what a chief hands it, its
+character, and its conversations. The notes, skills and inbox are writable
+files; the character and conversations are kept in the home's storage,
+out of reach of file tools.
 
 **C9.** An agent is its number in its hamlet's record, kept for its whole
 life: through removal, merging and restoring. A later agent of the same name
@@ -16,8 +18,8 @@ has another number, and inherits nothing of the earlier one.
 
 **C10.** A name of an agent is lowercase letters and hyphens, at most 24 of
 them. A name a model writes in another form is put in that form
-(`FelineBiologist` becomes `feline-biologist`). `mayor`, `founder` and the
-librarian's name are no agent's.
+(`FelineBiologist` becomes `feline-biologist`). `mayor`, `founder`, `all`
+and the librarian's name are no agent's.
 
 ## What an agent is told
 
@@ -55,15 +57,16 @@ that would have had it.
 
 ## Tools
 
-**C16.** Every agent has these tools:
+**C16.** Every agent has these tools, with calls run one at a time:
 
 | Tool | Does |
 |---|---|
-| Shell | Runs a command in the workspace, or in the hamlet's folder when it has one. Says whether the command needs the network |
-| Read | Gives a text file with line numbers, up to 400 lines at a time |
-| Search | Finds a regular expression in the files under a folder |
-| Find | Lists a folder, or finds files by name under it |
-| Edit | Replaces one exact occurrence of a text in a file; with an empty text to replace and no file, creates the file |
+| `read` | pi's read: text without line numbers, up to [2000 lines] or [50 KiB], whichever comes first, with an offset and a line limit; also reads supported images |
+| `write` | pi's write: creates or replaces a whole file and makes its parent folders |
+| `edit` | pi's edit: one or more exact text replacements in one file, each matching a unique, non-overlapping part of the original |
+| `bash` | Hamlet's command tool: runs in the house, or in the hamlet's folder when it has one, and says with a `network` flag whether it needs the network. Stops after [120 s], or an earlier timeout; keeps the last [2000 lines] or [50 KiB] of stdout and stderr, and gives a file holding the whole output when it spills |
+| `search` | Finds a linear-time regular expression in files, with a name filter and optional case-insensitive matching, up to [100] hits; skips binary files, files that are not UTF-8, files over [1 MiB] and build folders |
+| `find` | Lists a folder, or finds files by name under it, up to [100] matches |
 
 The hamlet's own tools, offered by role, are in [`hamlet.md`](hamlet.md).
 
@@ -73,11 +76,17 @@ every agent, and runs under the same sandbox and the same gate as the shell.
 
 ## What tools reach
 
-**C18.** Tools run in a sandbox. An agent's tools write only in its own
-workspace and in the folder its hamlet works on. A command can read the
-rest of the machine, so a project's own tools run, but never the home, and
-never writes `.git/hooks` or `.git/config`. Where no sandbox exists, tools
-run only when the chief starts Hamlet saying so (`--insecure`).
+**C18.** Tools run in a sandbox. The built-in tools write only in the
+agent's house and in the folder its hamlet works on. With a folder, a
+command can read the rest of the machine, so the project's own tools run,
+but never the rest of the home, and never writes `.git/hooks` or
+`.git/config`, including in nested repositories. The library and the
+home's tools folder are readable and never writable.
+
+A tool added by hand has the filesystem reach its manifest grants, rather
+than the shell's reach: its readable and writable paths, with its own
+folder kept read-only. Its manifest also sets its environment and limits.
+`--insecure` is not offered yet; a server without a sandbox cannot start.
 
 **C19.** Tools have no network unless a chief turns it on for every agent or
 grants it to one (H11). A command that needs the network says so, and is
@@ -90,8 +99,9 @@ The agent's notes, skills and conversations stay in its house.
 
 **C21.** A hamlet that works on a folder is in one of two modes:
 
-- **Manual**, the mode it starts in: each edit and each command waits for a
-  chief. Reading is free.
+- **Manual**, the mode it starts in: each edit of the folder and each
+  command waits for a chief. Reading and edits of the agent's own house
+  are free.
 - **Auto**: agents edit and run without asking, and the sandbox is the
   guard.
 
@@ -110,35 +120,58 @@ waits (H30).
 **C23.** A conversation answers one message at a time. Messages that arrive
 while it works wait in order.
 
-**C24.** A chief can start a new conversation with an agent, which keeps the
-old one in history, and go back to any earlier one.
+**C24.** A chief can start a new conversation with an agent. `/new` moves
+to it at once, while the old conversation finishes its queue and reflects
+on what it owes (C5). Every conversation has a stable number in that chief's
+chat with the agent, shared by the chief's clients. `/resume` alone lists
+them; `/resume <n>` goes back to one by its number.
 
 **C25.** A chief can stop an agent's running turn, which also drops what it
 had queued. The conversation stays whole: the turn shows as stopped.
 
 **C26.** A chief can carry on a turn that failed or was stopped, from where
-it ended, as a new task.
+it ended, as a new task. A retry is shown as a notice in the conversation,
+and is an input asking "Carry on from where you stopped." A running turn,
+or one that was answered, cannot be retried.
 
 **C27.** A chief can take a conversation back to before one of its
 messages. What waited for a chief from the part taken out lapses.
 
-**C28.** A conversation that would fill more than 80% of its model's window
-is summarised, and the summary takes its place; a message not yet answered
-is kept as it is. A reply cut off for lack of room has the conversation
-summarised and is asked for once more. With no room even then, the turn
-fails, and says to start a new conversation or choose a model that holds
-more.
+**C28.** Compaction reserves [20%] of the model's window for an answer.
+pi estimates the conversation's size: above the window less that reserve,
+a request waits for a summary; [half the reserve] before that threshold,
+a summary starts in the background. Compaction needs an earlier part it can
+summarise, keeps recent context [20000 tokens] at pi's message boundaries,
+and replaces the earlier part sent to the model with its summary. The
+stored conversation stays whole, and shows a notice for the summary. A
+context-overflow error also triggers compaction and one more attempt.
+
+An empty reply cut off for length with fewer than [1024] output tokens,
+other than a reflection, has the conversation summarised and is asked for
+once more under the same task. A second such cut-off fails. With no earlier
+conversation to summarise, or no summary that succeeds, the turn fails and
+says why; when a summary cannot make room, it says to start a new
+conversation or choose a model that holds more.
 
 **C29.** A model that answers with nothing fails the turn, and says to send
 the message again.
 
-**C5.** An agent reflects: after every [10] turns of its conversations with
-chiefs (0 never), when a chief asks it to, and, for turns it has not
-reflected on, when the server stops in an orderly way. It is asked to keep
-in its notes what is worth remembering about its users and its lessons, and
-to save or improve a skill for anything likely to come up again. An agent
-other than the mayor is also asked, in one line, whether anything about how
-its hamlet is run got in its way.
+**C5.** An agent reflects after every [10] answered turns in each chief
+conversation, including retries, when a chief asks it to, and on owed turns
+when a conversation is put away or the server stops in an orderly way.
+Zero disables automatic reflection. An automatic reflection is queued
+behind inputs already waiting, and reflects on those turns too. A client's
+end of input triggers no reflection.
+
+An orderly close submits owed reflections and waits up to [120 s] for
+those able to run. A running chief turn is suspended promptly, with its
+reflection queued; unfinished work carries on at the next start. A second
+stop signal closes at once.
+
+The agent is asked to keep in its notes what is worth remembering about
+the chiefs and its lessons, and to save or improve a skill for anything
+likely to come up again. An agent other than the mayor is also asked, in
+one line, whether anything about how its hamlet is run got in its way.
 
 ## What is recorded and shown
 
@@ -147,8 +180,20 @@ call with its name, its arguments cut to 200 characters and, for an edit,
 the change, then the call's end with its exit code, its time and the first
 line of a failure, and the notices meant only for people.
 
-**C31.** Every model call records the model, where it was served, the input,
-cached, output and reasoning tokens, the provider's own charge, the time to
-the first token, the whole time, and why it ended.
+**C31.** Kept model responses record the model, where it was served, the
+input, cached, output and reasoning tokens, the whole time, why the response
+ended, and the provider's billed charge when available. Failed and aborted
+attempts with kept responses are recorded too. Charges follow H8 and belong
+to the hamlet, the agent and the task, even after a rewind.
 
-**C32.** No credential appears in a conversation as it is kept or shown.
+Time to the first token is recorded when captured, but is not available for
+every call. The provider's raw usage is not yet recorded. Summaries have
+aggregate usage and cost, without each summarising call's timing, billed
+charge or end reason.
+
+**C32. Not yet met.** No credential appears in a conversation as it is kept
+or shown. Known credentials are scrubbed from chief inputs, tool results
+(including structured output), streamed and spilled command output,
+protocol messages and the oversight record. An assistant's own text cannot
+be scrubbed before pi keeps it, so the stored conversation is not yet
+covered whole.
