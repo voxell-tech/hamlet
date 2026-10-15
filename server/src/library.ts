@@ -78,7 +78,7 @@ export async function libraryPart(root: string): Promise<string | undefined> {
         return `- ${name}: ${description}${run} (${there}SKILL.md)`;
     });
     return [
-        `# Library\nSkills every agent shares, kept in ${root}. Use one as it stands: read it and run it from there, and do not copy it into your workspace. Where its text says \`skills/<name>/\`, its files are in \`${root}/<name>/\`. You cannot write there.`,
+        `# Library\nSkills every agent shares, kept in ${root}. Use one as it stands: read it and run it from there, and do not copy it into your workspace. Where its text says \`skills/<name>/\`, its files are in \`${root}/<name>/\`. You cannot write there. To share a skill of your own, use \`submit_skill\`.`,
         ...lines,
     ].join("\n");
 }
