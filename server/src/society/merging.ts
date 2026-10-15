@@ -1,23 +1,1010 @@
+import { isUtf8 } from "node:buffer";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import type { Context } from "@earendil-works/chord";
+import { Type } from "@earendil-works/pi-ai";
+import {
+    type ConversationId,
+    defineDoc,
+    defineExtension,
+    defineTool,
+    type Tx,
+} from "@earendil-works/pi-durable";
+import { WithDoc } from "../chats.ts";
+import { runErrand, startErrand } from "../errands.ts";
+import {
+    deliverTree,
+    listTree,
+    MERGE_CAPS,
+    removeTree,
+    stageTree,
+} from "../gift-files.ts";
+import { revoke } from "../grants.ts";
+import { type AgentRef, agentKey, checkName } from "../hamlet.ts";
 import type { Home } from "../home.ts";
+import { InstructionsDoc, owed } from "../instructions.ts";
+import { houseOf } from "../layout.ts";
+import { booksOf } from "../ledger.ts";
+import { LimitsDoc } from "../limits.ts";
 import type { Deed, Part } from "../parts.ts";
-import type { Archived } from "../record.ts";
-/** Merges and their reversal. */
-export const Merging: Part = () => ({});
-export const merge: Deed = async () => {
-    throw new Error("This is not built yet.");
+import { farewell, isChief, liveHamlets, RealmDoc, roadsOf } from "../realm.ts";
+import {
+    type AgentRecord,
+    type Archived,
+    named,
+    RecordDoc,
+} from "../record.ts";
+import { stopped } from "../report.ts";
+import { SandboxEnv } from "../sandbox/env.ts";
+import { closedPolicy } from "../sandbox/reach.ts";
+import { stopAgent } from "../talk.ts";
+import { newTask, turnOf } from "../turn.ts";
+import { lapseAgent } from "../waits.ts";
+import { voteOpen } from "./votes.ts";
+
+type Planned = {
+    files: Map<string, Buffer>;
+    clashes: string[];
+    before: string;
+    after: string;
+    notes: "joined" | "rewritten" | "plain";
 };
+type Given = {
+    hamlet: string;
+    keep: string;
+    absorb: string;
+    purpose: string | null;
+    reason: string;
+    by: string;
+};
+
+const MergeCallDoc = defineDoc<{
+    errand: ConversationId | null;
+    archive: string | null;
+    text: string;
+}>({
+    kind: "hamlet.merge-call",
+    version: 1,
+    scope: "task",
+    initial: () => ({ errand: null, archive: null, text: "" }),
+});
+
+const operations = new WeakMap<Home, Promise<unknown>>();
+
+async function serial<T>(
+    home: Home,
+    context: Context,
+    action: () => Promise<T>,
+): Promise<T> {
+    const run = (operations.get(home) ?? Promise.resolve())
+        .catch(() => {})
+        .then(() => {
+            context.abortSignal?.throwIfAborted();
+            return action();
+        });
+    operations.set(home, run);
+    try {
+        return await run;
+    } finally {
+        if (operations.get(home) === run) operations.delete(home);
+    }
+}
+
+/** Merges and their reversal. */
+export const Merging: Part = (home) => ({
+    extension: defineExtension({
+        name: "hamlet.merging",
+        tools: [
+            defineTool({
+                name: "merge_agents",
+                description:
+                    "Merge two agents' houses and roads under the kept agent's new purpose. A reason is kept in the record.",
+                parameters: Type.Object({
+                    keep: Type.String(),
+                    absorb: Type.String(),
+                    purpose: Type.String(),
+                    reason: Type.String(),
+                }),
+                replay: "safe",
+                execute: async (args, api, context) =>
+                    serial(home, context, async () => {
+                        const place = await api.snapshot(
+                            WithDoc,
+                            api.conversationId,
+                            context,
+                        );
+                        if (!place)
+                            throw new Error("This conversation has no agent.");
+                        const saved = await api.snapshot(
+                            MergeCallDoc,
+                            api.taskId,
+                            context,
+                        );
+                        if (saved?.archive) {
+                            const entry = (
+                                await api.snapshot(
+                                    RecordDoc,
+                                    place.hamlet,
+                                    context,
+                                )
+                            )?.archive.find((a) => a.id === saved.archive);
+                            if (entry)
+                                await apply(home, place.hamlet, entry, context);
+                            return {
+                                output: [{ type: "text", text: saved.text }],
+                            };
+                        }
+                        const wait = await voteOpen(
+                            api,
+                            place.hamlet,
+                            home.now(),
+                            context,
+                        );
+                        if (wait)
+                            return { output: [{ type: "text", text: wait }] };
+                        const given: Given = {
+                            ...args,
+                            hamlet: place.hamlet,
+                            by: "mayor",
+                        };
+                        const agents = await api.commit(async (tx) => {
+                            const r = await tx.doc(
+                                RecordDoc,
+                                place.hamlet,
+                                place.hamlet,
+                            );
+                            if (
+                                r.mayor !== place.number ||
+                                !r.agents.some((a) => a.number === place.number)
+                            )
+                                throw new Error(
+                                    "Only the mayor can merge agents.",
+                                );
+                            return allowed(home, tx, given);
+                        }, context);
+                        const plan = await prepare(
+                            home,
+                            place.hamlet,
+                            agents,
+                            context,
+                        );
+                        let why = "";
+                        if (plan.notes === "joined") {
+                            const limits = await api.snapshot(
+                                LimitsDoc,
+                                place.hamlet,
+                                context,
+                            );
+                            if (!limits)
+                                throw new Error("The hamlet has no limits.");
+                            const turn = await turnOf(
+                                home.harness,
+                                api,
+                                context,
+                            );
+                            const task = turn?.task ?? newTask(home.now());
+                            why =
+                                stopped(
+                                    limits,
+                                    await booksOf(
+                                        home,
+                                        place.hamlet,
+                                        limits.budget.period,
+                                        task,
+                                        context,
+                                    ),
+                                ) ?? "";
+                            if (!why) {
+                                const errand = await api.commit(async (tx) => {
+                                    const call = await tx.doc(
+                                        MergeCallDoc,
+                                        api.taskId,
+                                    );
+                                    call.errand ??= await startErrand(
+                                        home,
+                                        tx,
+                                        {
+                                            agent: place,
+                                            kind: "notes",
+                                            own: false,
+                                            instructions: mergeRequest(
+                                                agents.kept,
+                                                agents.gone,
+                                                args.purpose,
+                                                limits.leaving.mergedNotes,
+                                            ),
+                                            tools: [],
+                                        },
+                                    );
+                                    return call.errand;
+                                }, context);
+                                const answer = await runErrand(
+                                    home,
+                                    errand,
+                                    {
+                                        requestId: `merge-notes:${api.taskId}`,
+                                        text: `Your NOTES.md now:\n<notes of="${args.keep}">\n${plan.before}\n</notes>\n\nThe NOTES.md of \`${args.absorb}\`:\n<notes of="${args.absorb}">\n${plan.files.get(`merged/${args.absorb}/NOTES.md`)?.toString("utf8") ?? ""}\n</notes>`,
+                                        task,
+                                    },
+                                    context,
+                                );
+                                const rewritten =
+                                    answer.status === "done"
+                                        ? accept(
+                                              answer.text,
+                                              limits.leaving.mergedNotes,
+                                          )
+                                        : undefined;
+                                if (rewritten) {
+                                    plan.after = `${rewritten}\n\n${mergedParagraph(agents.gone)}`;
+                                    plan.notes = "rewritten";
+                                } else
+                                    why =
+                                        answer.status === "done"
+                                            ? "The reply could not be used as merged notes."
+                                            : answer.text;
+                            }
+                        }
+                        const entry = await api.commit(async (tx) => {
+                            const call = await tx.doc(MergeCallDoc, api.taskId);
+                            const r = await tx.doc(
+                                RecordDoc,
+                                place.hamlet,
+                                place.hamlet,
+                            );
+                            if (r.mayor !== place.number)
+                                throw new Error(
+                                    "Only the mayor can merge agents.",
+                                );
+                            const entry = await archive(
+                                home,
+                                tx,
+                                given,
+                                agents,
+                                plan,
+                            );
+                            call.archive = entry.id;
+                            call.text =
+                                report(entry, plan.notes === "joined") +
+                                (why ? ` ${why}` : "");
+                            return entry;
+                        }, context);
+                        await apply(home, place.hamlet, entry, context);
+                        const result = await api.snapshot(
+                            MergeCallDoc,
+                            api.taskId,
+                            context,
+                        );
+                        return {
+                            output: [
+                                {
+                                    type: "text",
+                                    text:
+                                        result?.text ??
+                                        report(entry, plan.notes === "joined"),
+                                },
+                            ],
+                        };
+                    }),
+            }),
+        ],
+    }),
+    async start(context) {
+        const realm = await home.harness.snapshot(RealmDoc, context);
+        for (const { id } of liveHamlets(realm)) {
+            const record = await home.harness.snapshot(RecordDoc, id, context);
+            for (const entry of record?.archive ?? [])
+                if (entry.merge && !entry.merge.applied)
+                    await (entry.back === null ? apply : part)(
+                        home,
+                        id,
+                        entry,
+                        context,
+                    );
+        }
+    },
+});
+
+/** A chief's merge deed. */
+export const merge: Deed = async (home, given, context) =>
+    serial(home, context, async () => {
+        const [absorb = "", into, keep = "", ...reason] = given.rest
+            .trim()
+            .split(/\s+/);
+        if (into !== "into")
+            throw new Error("Use /merge <absorbed> into <kept> [reason].");
+        const args: Given = {
+            hamlet: given.hamlet,
+            keep,
+            absorb,
+            purpose: null,
+            reason: reason.join(" ") || "a chief asked",
+            by: `chief:${given.chief}`,
+        };
+        const agents = await home.harness.commit(
+            (tx) => allowed(home, tx, args),
+            context,
+        );
+        const plan = await prepare(home, args.hamlet, agents, context);
+        const entry = await home.harness.commit(
+            (tx) => archive(home, tx, args, agents, plan),
+            context,
+        );
+        await apply(home, args.hamlet, entry, context);
+        return report(entry, plan.notes === "joined");
+    });
+
+async function allowed(
+    home: Home,
+    tx: Tx,
+    given: Given,
+): Promise<{ kept: AgentRecord; gone: AgentRecord }> {
+    const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
+    if (
+        given.by.startsWith("chief:") &&
+        !isChief(await tx.doc(RealmDoc), given.hamlet, given.by.slice(6))
+    )
+        throw new Error("Only a chief of this hamlet can merge agents.");
+    if (given.keep === given.absorb)
+        throw new Error("an agent cannot be merged with itself");
+    const living = (name: string) => {
+        const agent = named(r, name);
+        if (name === "mayor" || agent?.number === r.mayor)
+            throw new Error(
+                "the mayor cannot be removed or merged; replacing a mayor takes a chief or a vote",
+            );
+        if (!agent) {
+            const gone = r.archive.findLast(
+                (a) => a.back === null && a.agent.name === name,
+            );
+            throw new Error(
+                gone ? farewell(gone, r) : `no agent named \`${name}\``,
+            );
+        }
+        return agent;
+    };
+    const kept = living(given.keep),
+        gone = living(given.absorb);
+    if (given.purpose !== null && !given.purpose.trim())
+        throw new Error("say what the merged agent is for in `purpose`");
+    if (!given.reason.trim())
+        throw new Error("give a `reason`; it is kept in the record");
+    if (given.by === "mayor") {
+        const limits = await tx.doc(LimitsDoc, given.hamlet, given.hamlet);
+        for (const agent of [kept, gone]) {
+            const key = agentKey({
+                hamlet: given.hamlet,
+                number: agent.number,
+            });
+            const i = owed(
+                await tx.doc(InstructionsDoc, key, key),
+                home.now(),
+                limits.leaving.protectedMinutes * 60_000,
+            );
+            if (i)
+                throw new Error(
+                    `\`${agent.name}\` has a task from the chief ${i.chief} ("${Array.from(i.text).slice(0, 80).join("")}") that ${i.done === null ? "is not finished" : "has only just ended"}. No agent may be removed or merged to avoid a chief's task. Wait until the chief has had the answer, or ask the chief to do this.`,
+                );
+        }
+    }
+    return { kept: { ...kept }, gone: { ...gone } };
+}
+
+function envFor(home: Home, ref: AgentRef, write: boolean): SandboxEnv {
+    const root = houseOf(home.layout, ref);
+    const policy = closedPolicy(root, [process.execPath]);
+    if (!write) {
+        policy.ro.push(root);
+        policy.rw = [];
+    }
+    return new SandboxEnv({
+        cwd: root,
+        policy,
+        sandbox: home.sandbox,
+        tmpScope: `merge-${randomUUID()}`,
+    });
+}
+
+async function notes(
+    home: Home,
+    ref: AgentRef,
+    context: Context,
+): Promise<string> {
+    const env = envFor(home, ref, false);
+    try {
+        const read = await env.readTextFile(
+            join(houseOf(home.layout, ref), "NOTES.md"),
+            context,
+        );
+        return read.ok ? read.value : "# Notes\n";
+    } finally {
+        await env.cleanup(context);
+    }
+}
+
+function substance(text: string): string {
+    return text
+        .split("\n")
+        .filter((line) => line.trim() !== "# Notes")
+        .join("\n")
+        .trim();
+}
+function digest(bytes: Buffer | string): string {
+    return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function prepare(
+    home: Home,
+    hamlet: string,
+    { kept, gone }: { kept: AgentRecord; gone: AgentRecord },
+    context: Context,
+): Promise<Planned> {
+    const source = houseOf(home.layout, { hamlet, number: gone.number });
+    const target = houseOf(home.layout, { hamlet, number: kept.number });
+    const stage = await mkdtemp(join(tmpdir(), "hamlet-merge-"));
+    try {
+        try {
+            await stageTree(
+                home,
+                { root: source, rel: "." },
+                stage,
+                MERGE_CAPS,
+                context,
+            );
+        } catch (error) {
+            if (
+                error instanceof Error &&
+                /exceeds its (entries|bytes) cap/.test(error.message)
+            )
+                throw new Error(
+                    "The absorbed house is over 512 MiB or 20000 files. Remove the agent instead.",
+                );
+            throw error;
+        }
+        const from = await listTree(home, stage, ".", context);
+        const to = await listTree(home, target, ".", context);
+        const present = new Map(to.files.map((f) => [f.path, f.sha256]));
+        const files = new Map<string, Buffer>();
+        const clashes: string[] = [];
+        const put = (rel: string, bytes: Buffer) => {
+            if (files.has(rel) || present.has(rel))
+                throw new Error(
+                    `The merge needs \`${rel}\`, which already exists; keep it aside before merging.`,
+                );
+            files.set(rel, bytes);
+        };
+        const before = await notes(
+            home,
+            { hamlet, number: kept.number },
+            context,
+        );
+        const theirs = from.files.some((f) => f.path === "NOTES.md")
+            ? await readFile(join(stage, "NOTES.md"), "utf8")
+            : "# Notes\n";
+        const both = !!substance(before) && !!substance(theirs);
+        const body = substance(theirs)
+            ? `${before.trimEnd()}\n\n## From ${gone.name}\n${substance(theirs)}`
+            : before.trimEnd();
+        const after = `${body.trimEnd()}\n\n${mergedParagraph(gone)}`;
+        put(`merged/${gone.name}/NOTES.before.md`, Buffer.from(before));
+        put(`merged/${gone.name}/NOTES.md`, Buffer.from(theirs));
+        const renamed = new Map<string, string>();
+        for (const f of from.files) {
+            const skill = /^skills\/([^/]+)\//.exec(f.path)?.[1];
+            if (!skill || renamed.has(skill)) continue;
+            const prefix = `skills/${skill}/`;
+            const theirs = from.files.filter((f) => f.path.startsWith(prefix));
+            const mine = to.files.filter((f) => f.path.startsWith(prefix));
+            const same =
+                theirs.length === mine.length &&
+                theirs.every((f) => present.get(f.path) === f.sha256);
+            if (same) renamed.set(skill, "");
+            else if (mine.length > 0) {
+                const name = `${skill}-from-${gone.name}`;
+                renamed.set(skill, name);
+                clashes.push(
+                    `skill \`${skill}\` (the absorbed one is \`${name}\`)`,
+                );
+            } else renamed.set(skill, skill);
+        }
+        for (const f of from.files) {
+            if (f.path === "NOTES.md") continue;
+            let rel = f.path;
+            let bytes: Buffer = await readFile(join(stage, f.path));
+            const skill = /^skills\/([^/]+)\//.exec(rel)?.[1];
+            if (skill) {
+                const name = renamed.get(skill);
+                if (!name) continue;
+                if (name !== skill) {
+                    rel = rel.replace(`skills/${skill}/`, `skills/${name}/`);
+                    bytes = renamedSkill(bytes, skill, name);
+                }
+            } else if (present.has(rel)) {
+                if (present.get(rel) === f.sha256) continue;
+                rel = `merged/${gone.name}/${rel}`;
+                clashes.push(
+                    `file \`${f.path}\` (the absorbed one is \`${rel}\`)`,
+                );
+            }
+            put(rel, bytes);
+        }
+        return {
+            files,
+            clashes,
+            before,
+            after,
+            notes: both ? "joined" : "plain",
+        };
+    } finally {
+        await rm(stage, { recursive: true, force: true });
+    }
+}
+
+function renamedSkill(bytes: Buffer, old: string, name: string): Buffer {
+    if (!isUtf8(bytes)) return bytes;
+    let named = false;
+    return Buffer.from(
+        bytes
+            .toString("utf8")
+            .replaceAll(`skills/${old}/`, `skills/${name}/`)
+            .split("\n")
+            .map((line) => {
+                const colon = line.indexOf(":");
+                if (
+                    !named &&
+                    line.slice(0, colon).trim() === "name" &&
+                    line
+                        .slice(colon + 1)
+                        .trim()
+                        .replace(/^"|"$/g, "") === old
+                ) {
+                    named = true;
+                    return `name: ${name}`;
+                }
+                return line;
+            })
+            .join("\n"),
+    );
+}
+
+async function broughtBytes(
+    source: string,
+    entry: Archived,
+    f: { path: string; sha256: string },
+): Promise<Buffer> {
+    const aside = `merged/${entry.agent.name}/`;
+    if (f.path === `${aside}NOTES.before.md`)
+        return Buffer.from(entry.merge?.notesBefore ?? "");
+    const rel = f.path.startsWith(aside) ? f.path.slice(aside.length) : f.path;
+    const candidates = [f.path, rel];
+    for (const path of candidates) {
+        const bytes = await readFile(join(source, path)).catch(() => undefined);
+        if (bytes && digest(bytes) === f.sha256) return bytes;
+    }
+    const renamed = /^skills\/(.+)-from-([^/]+)\//.exec(rel);
+    if (renamed && renamed[2] === entry.agent.name) {
+        const old = renamed[1] ?? "";
+        const name = `${old}-from-${entry.agent.name}`;
+        const path = rel.replace(`skills/${name}/`, `skills/${old}/`);
+        const bytes = await readFile(join(source, path)).catch(() => undefined);
+        if (bytes) {
+            const changed = renamedSkill(bytes, old, name);
+            if (digest(changed) === f.sha256) return changed;
+        }
+    }
+    if (rel === "NOTES.md" && digest("# Notes\n") === f.sha256)
+        return Buffer.from("# Notes\n");
+    throw new Error(
+        "The archived house changed before its merge could finish.",
+    );
+}
+
+async function archive(
+    home: Home,
+    tx: Tx,
+    given: Given,
+    was: { kept: AgentRecord; gone: AgentRecord },
+    plan: Planned,
+): Promise<Archived> {
+    const { kept, gone } = await allowed(home, tx, given);
+    if (kept.number !== was.kept.number || gone.number !== was.gone.number)
+        throw new Error(
+            "One of the agents left while this was decided; nothing was merged.",
+        );
+    const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
+    const at = home.now();
+    let stamp = at;
+    while (r.archive.some((a) => a.id === `${gone.name}-${stamp}`)) stamp++;
+    const roads = roadsOf(r).filter(
+        (r) => r.a === gone.number || r.b === gone.number,
+    );
+    const inherited: NonNullable<Archived["merge"]>["inherited"] = [];
+    await lapseAgent(tx, { hamlet: given.hamlet, number: gone.number }, at);
+    for (const p of ["network", "unconfined"] as const)
+        await revoke(
+            tx,
+            { hamlet: given.hamlet, number: gone.number },
+            p,
+            given.by,
+            at,
+        );
+    r.roads = r.roads.filter((r) => r.a !== gone.number && r.b !== gone.number);
+    for (const road of roads) {
+        const peer = road.a === gone.number ? road.b : road.a;
+        if (peer === kept.number) continue;
+        const existing = r.roads.find(
+            (r) =>
+                (r.a === kept.number && r.b === peer) ||
+                (r.b === kept.number && r.a === peer),
+        );
+        const fresh = !existing;
+        const lastFrom =
+            road.lastFrom === gone.number ? kept.number : road.lastFrom;
+        if (!existing)
+            r.roads.push({ ...road, a: kept.number, b: peer, lastFrom });
+        else {
+            existing.messages += road.messages;
+            if (road.lastUsed > existing.lastUsed) {
+                existing.lastUsed = road.lastUsed;
+                existing.lastFrom = lastFrom;
+            }
+        }
+        inherited.push({ peer, messages: road.messages, fresh });
+    }
+    const entry: Archived = {
+        id: `${gone.name}-${stamp}`,
+        agent: gone,
+        how: "merged",
+        into: kept.number,
+        at,
+        by: given.by,
+        reason: given.reason.trim(),
+        roads,
+        merge: {
+            kept,
+            notesBefore: plan.before,
+            notesAfter: plan.after,
+            brought: [...plan.files].map(([path, bytes]) => ({
+                path,
+                sha256: digest(bytes),
+            })),
+            clashes: plan.clashes,
+            inherited,
+            applied: false,
+        },
+        back: null,
+    };
+    r.agents = r.agents.filter((a) => a.number !== gone.number);
+    const living = r.agents.find((a) => a.number === kept.number);
+    if (living) living.purpose = given.purpose?.trim() ?? kept.purpose;
+    r.archive.push(entry);
+    r.decisions.push({
+        kind: "merged",
+        at,
+        by: given.by,
+        reason: entry.reason,
+        keep: kept.number,
+        absorb: gone.number,
+        purpose: living?.purpose ?? kept.purpose,
+        notes: plan.notes,
+    });
+    return JSON.parse(JSON.stringify(entry)) as Archived;
+}
+
+async function apply(
+    home: Home,
+    hamlet: string,
+    entry: Archived,
+    context: Context,
+): Promise<void> {
+    const merge = entry.merge;
+    if (!merge || merge.applied) return;
+    await stopAgent(home, { hamlet, number: entry.agent.number }, context);
+    await stopAgent(home, { hamlet, number: merge.kept.number }, context);
+    const source = await mkdtemp(join(tmpdir(), "hamlet-merge-source-"));
+    const delivery = await mkdtemp(join(tmpdir(), "hamlet-merge-delivery-"));
+    const target = houseOf(home.layout, { hamlet, number: merge.kept.number });
+    try {
+        await stageTree(
+            home,
+            {
+                root: houseOf(home.layout, {
+                    hamlet,
+                    number: entry.agent.number,
+                }),
+                rel: ".",
+            },
+            source,
+            MERGE_CAPS,
+            context,
+        );
+        const present = new Map(
+            (await listTree(home, target, ".", context)).files.map((f) => [
+                f.path,
+                f.sha256,
+            ]),
+        );
+        for (const f of merge.brought) {
+            if (present.get(f.path) === f.sha256) continue;
+            if (present.has(f.path))
+                throw new Error(
+                    `The pending merge cannot replace changed file \`${f.path}\`.`,
+                );
+            const bytes = await broughtBytes(source, entry, f);
+            const staged = join(delivery, f.path);
+            await mkdir(dirname(staged), { recursive: true });
+            await writeFile(staged, bytes);
+            await deliverTree(
+                home,
+                { root: target, into: dirname(f.path) },
+                dirname(staged),
+                [basename(staged)],
+                context,
+            );
+        }
+        const env = envFor(home, { hamlet, number: merge.kept.number }, true);
+        try {
+            const result = await env.writeFile(
+                join(target, "NOTES.md"),
+                merge.notesAfter,
+                context,
+            );
+            if (!result.ok)
+                throw new Error(
+                    "The merged notes could not be written safely.",
+                );
+        } finally {
+            await env.cleanup(context);
+        }
+        await home.harness.commit(async (tx) => {
+            const a = (await tx.doc(RecordDoc, hamlet, hamlet)).archive.find(
+                (a) => a.id === entry.id,
+            );
+            if (a?.merge) a.merge.applied = true;
+        }, context);
+    } finally {
+        await rm(source, { recursive: true, force: true });
+        await rm(delivery, { recursive: true, force: true });
+    }
+}
+
+function mergedParagraph(gone: AgentRecord): string {
+    return `## Merged\n- \`${gone.name}\` was merged into me. Its purpose was: ${gone.purpose} Its notes as they were are in merged/${gone.name}/NOTES.md and mine in merged/${gone.name}/NOTES.before.md. Files of its that differed from mine of the same name are under merged/${gone.name}/.\n`;
+}
+
+function mergeRequest(
+    kept: AgentRecord,
+    gone: AgentRecord,
+    purpose: string,
+    limit: number,
+): string {
+    return `You are \`${kept.name}\`, an agent in a hamlet of agents. The mayor is merging the agent \`${gone.name}\` into you: from now on you do the work of both, under your own name. Your purpose was: ${kept.purpose} Its purpose was: ${gone.purpose} Your purpose becomes: ${purpose.trim()}\nYou are writing your new NOTES.md, the memory that is shown to you on every turn.\nWrite the one NOTES.md you will keep.\n- Keep every fact, preference and lesson from both. Drop nothing because it looks minor.\n- Where both say the same thing, say it once.\n- Where they disagree, keep both and say which of you held which.\n- Speak as yourself: things \`${gone.name}\` wrote as "I" are now things you know or do.\n- Group it by subject, not by who wrote it.\n- At most ${limit} characters.\n- Start with the line \`# Notes\`. Reply with the file's text only: no code fence, no comment before or after.`;
+}
+
+function accept(reply: string, limit: number): string | undefined {
+    let text = reply.trim();
+    if (text.includes("</think>"))
+        text = text.slice(text.lastIndexOf("</think>") + 8).trim();
+    if (text.startsWith("```"))
+        text = text
+            .slice(text.indexOf("\n") + 1)
+            .replace(/```\s*$/, "")
+            .trim();
+    if (text.includes("# Notes")) text = text.slice(text.indexOf("# Notes"));
+    return substance(text) && Array.from(text).length <= limit
+        ? text
+        : undefined;
+}
+
+function report(entry: Archived, joined: boolean): string {
+    const m = entry.merge;
+    return `Merged \`${entry.agent.name}\` into \`${m?.kept.name}\`. \`${m?.kept.name}\` has the notes, skills, files and roads of both. \`${entry.agent.name}\` is archived as ${entry.id}.${joined ? ` The two notes were joined, not rewritten: ask \`${m?.kept.name}\` to tidy its NOTES.md.` : ""}${m?.clashes.length ? ` Kept apart because they differed: ${m.clashes.join("; ")}.` : ""}`;
+}
+
 /** A merged agent split back out of its kept house. */
 export async function split(
-    _home: Home,
-    _given: {
+    home: Home,
+    given: {
         hamlet: string;
         entry: Archived;
         name: string;
         reason: string;
         chief: string;
     },
-    _context: Context,
+    context: Context,
 ): Promise<string> {
-    throw new Error("This is not built yet.");
+    return serial(home, context, () => splitOnce(home, given, context));
+}
+
+async function splitOnce(
+    home: Home,
+    given: {
+        hamlet: string;
+        entry: Archived;
+        name: string;
+        reason: string;
+        chief: string;
+    },
+    context: Context,
+): Promise<string> {
+    const pending = await home.harness.commit(async (tx) => {
+        if (!isChief(await tx.doc(RealmDoc), given.hamlet, given.chief))
+            throw new Error("Only a chief of this hamlet can restore agents.");
+        const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
+        const at = r.archive.findIndex(
+            (a) => a.id === given.entry.id && a.back === null,
+        );
+        const entry = r.archive[at];
+        if (!entry?.merge)
+            throw new Error(
+                `nothing is archived under \`${given.entry.id}\`; /record lists what is`,
+            );
+        if (!entry.merge.applied)
+            throw new Error(
+                "The merge has not finished yet; try again after it finishes.",
+            );
+        const kept = r.agents.find(
+            (a) => a.number === entry.merge?.kept.number,
+        );
+        if (!kept)
+            throw new Error(
+                `\`${entry.merge.kept.name}\`, which \`${entry.agent.name}\` was merged into, has left the hamlet itself; restore that first`,
+            );
+        const later = r.archive
+            .slice(at + 1)
+            .find(
+                (a) => a.back === null && a.merge?.kept.number === kept.number,
+            );
+        if (later)
+            throw new Error(
+                `\`${later.agent.name}\` was merged into \`${kept.name}\` after \`${entry.agent.name}\`; split that one first`,
+            );
+        checkName(given.name);
+        for (const h of liveHamlets(await tx.doc(RealmDoc)))
+            if (
+                (await tx.doc(RecordDoc, h.id, h.id)).agents.some(
+                    (a) => a.name === given.name,
+                )
+            )
+                throw new Error(
+                    `an agent named \`${given.name}\` lives in the hamlet now. Restore this one under another name: /restore ${entry.id} as <new-name>`,
+                );
+        const limits = await tx.doc(LimitsDoc, given.hamlet, given.hamlet);
+        if (r.agents.length - 1 >= limits.mostAgents)
+            throw new Error(
+                `the hamlet is full (${limits.mostAgents} agents); remove one first, or raise mostAgents in the limits`,
+            );
+        kept.purpose = entry.merge.kept.purpose;
+        for (const i of entry.merge.inherited) {
+            const index = r.roads.findIndex(
+                (road) =>
+                    (road.a === kept.number && road.b === i.peer) ||
+                    (road.b === kept.number && road.a === i.peer),
+            );
+            const road = r.roads[index];
+            if (!road) continue;
+            road.messages = Math.max(0, road.messages - i.messages);
+            if (i.fresh && road.messages === 0) r.roads.splice(index, 1);
+        }
+        r.agents.push({ ...entry.agent, name: given.name });
+        for (const road of entry.roads)
+            if (
+                [road.a, road.b].every(
+                    (end) =>
+                        end === "office" ||
+                        r.agents.some((a) => a.number === end),
+                ) &&
+                !r.roads.some(
+                    (r) =>
+                        (r.a === road.a && r.b === road.b) ||
+                        (r.a === road.b && r.b === road.a),
+                )
+            )
+                r.roads.push({ ...road });
+        entry.back = given.name;
+        entry.merge.applied = false;
+        r.decisions.push({
+            kind: "restored",
+            at: home.now(),
+            by: `chief:${given.chief}`,
+            reason: given.reason,
+            agent: entry.agent.number,
+            name: given.name,
+            archive: entry.id,
+        });
+        const peers = roadsOf(r)
+            .filter(
+                (road) =>
+                    road.a === entry.agent.number ||
+                    road.b === entry.agent.number,
+            )
+            .map((road) => {
+                const end = road.a === entry.agent.number ? road.b : road.a;
+                return end === "office"
+                    ? "mayor"
+                    : (r.agents.find((a) => a.number === end)?.name ?? "");
+            });
+        const built = roadsOf(r).filter(
+            (r) => r.a !== "office" && r.b !== "office",
+        ).length;
+        return {
+            entry: JSON.parse(JSON.stringify(entry)) as Archived,
+            words: `Split \`${given.name}\` from \`${kept.name}\`. \`${given.name}\` has its house as it was before the merge, and \`${kept.name}\` its old purpose and whatever it has learned since. \`${given.name}\`'s roads lead to: ${peers.join(", ")}.${built > limits.mostRoads ? ` The hamlet now has ${built} roads between agents, more than the ${limits.mostRoads} your limits allow. They all work; the mayor can build no more until you raise mostRoads in the limits.` : ""}`,
+        };
+    }, context);
+    await part(home, given.hamlet, pending.entry, context);
+    return pending.words;
+}
+
+async function part(
+    home: Home,
+    hamlet: string,
+    entry: Archived,
+    context: Context,
+): Promise<void> {
+    const merge = entry.merge;
+    if (!merge || merge.applied) return;
+    const ref = { hamlet, number: merge.kept.number };
+    await stopAgent(home, ref, context);
+    const root = houseOf(home.layout, ref);
+    const env = envFor(home, ref, true);
+    try {
+        const current = await notes(home, ref, context);
+        const clean =
+            current === merge.notesAfter || current === merge.notesBefore;
+        const said = `\`${entry.agent.name}\` was split off again`;
+        const text = clean
+            ? merge.notesBefore
+            : current.includes(said)
+              ? current
+              : `${current.trimEnd()}\n\n## Split\n- ${said} and has its own house. What these notes hold of its work is its business now. My notes from before the merge are in merged/${entry.agent.name}/NOTES.before.md.\n`;
+        const written = await env.writeFile(
+            join(root, "NOTES.md"),
+            text,
+            context,
+        );
+        if (!written.ok)
+            throw new Error("The split notes could not be written safely.");
+        const listing = new Map(
+            (await listTree(home, root, ".", context)).files.map((f) => [
+                f.path,
+                f.sha256,
+            ]),
+        );
+        const paths = merge.brought
+            .filter(
+                (f) =>
+                    listing.get(f.path) === f.sha256 &&
+                    (clean || dirname(f.path) !== `merged/${entry.agent.name}`),
+            )
+            .map((f) => f.path);
+        if (paths.length) {
+            await removeTree(home, root, paths, context);
+            const trimmed = await env.exec(
+                [
+                    process.execPath,
+                    "-e",
+                    `const fs=require("node:fs"),p=require("node:path"); const [root,...files]=process.argv.slice(1); for(const file of files) { let dir=p.dirname(p.join(root,file)); while(dir!==root && dir.startsWith(root+p.sep)) { try { fs.rmdirSync(dir); } catch { break; } dir=p.dirname(dir); } }`,
+                    root,
+                    ...paths,
+                ],
+                undefined,
+                context,
+            );
+            if (!trimmed.ok || trimmed.value.exitCode !== 0)
+                throw new Error(
+                    "The split's empty folders could not be removed safely.",
+                );
+        }
+        await home.harness.commit(async (tx) => {
+            const a = (await tx.doc(RecordDoc, hamlet, hamlet)).archive.find(
+                (a) => a.id === entry.id,
+            );
+            if (a?.merge) a.merge.applied = true;
+        }, context);
+    } finally {
+        await env.cleanup(context);
+    }
 }

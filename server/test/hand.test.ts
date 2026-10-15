@@ -619,6 +619,7 @@ describe("tools added by hand", () => {
             "bash",
             "edit",
             "find",
+            "merge_agents",
             "read",
             "remove_agent",
             "search",

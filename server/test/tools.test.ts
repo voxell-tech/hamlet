@@ -93,6 +93,7 @@ describe("the mayor's tools", () => {
             "bash",
             "edit",
             "find",
+            "merge_agents",
             "read",
             "remove_agent",
             "search",
