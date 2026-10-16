@@ -1,0 +1,19 @@
+[package]
+name = "hamlet_assets_src"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The official assets sold at the bazaar's Asset stall, defined in code and baked for hamlet-server"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_model.workspace = true
+hamlet_core.workspace = true
+hamlet_world.workspace = true
+anyhow.workspace = true
+bevy.workspace = true
+serde.workspace = true
+serde_json.workspace = true

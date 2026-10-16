@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "hamlet-server/assets-src"]
 # The vendored fynix workspace is its own workspace.
 exclude = ["vendor"]
 # `cargo build`, `cargo test` and `cargo clippy` at the root cover every

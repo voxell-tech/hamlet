@@ -41,7 +41,9 @@ is sent to show an asset in the store.
 - `target`: `agent` or `hamlet`. `category`: `emote`, `skin` or `mesh`.
 - `priceCents`: `0` (free) or `50..=50000`.
 - `frames`: how many preview frames there are, `0..=72`, numbered from 0.
-  Frame `i` shows the asset turned `i * 360 / frames` degrees.
+  Frame `i` shows the asset turned `i * 360 / frames` degrees; for an
+  emote, the emote `i / frames` of the way through, the view turning a
+  little the while.
   `previewUrl` has `{frame}` for the client to fill in.
 - `owned` is false without auth. A free asset is owned once claimed
   (`POST .../purchase`), like a free listing.

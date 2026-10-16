@@ -3341,6 +3341,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_assets_src"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "hamlet_core",
+ "hamlet_model",
+ "hamlet_world",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hamlet_core"
 version = "0.1.0"
 dependencies = [

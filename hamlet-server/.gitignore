@@ -5,3 +5,6 @@ dist/
 coverage/
 src/generated/
 *.log
+
+# Baked official assets; published to R2, never committed.
+assets-src/out/
