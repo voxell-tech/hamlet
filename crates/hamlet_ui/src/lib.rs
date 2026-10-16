@@ -3,7 +3,6 @@
 
 mod chief;
 pub mod chrome;
-pub mod cue;
 pub mod cursor;
 mod dock;
 mod folder;
@@ -36,7 +35,7 @@ use bevy::state::state::OnEnter;
 use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
 use hamlet_core::core::HomeDir;
-pub use hamlet_sdk::{AnyView, Cx, View, theme, with_cx};
+pub use hamlet_sdk::{AnyView, Cx, View, cue, theme, with_cx};
 use hamlet_world::pick::Selected;
 
 pub use self::dock::{lit_panel, panel};

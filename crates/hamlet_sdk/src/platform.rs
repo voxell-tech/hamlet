@@ -73,7 +73,7 @@ pub fn plugin(app: &mut App) {
 
 /// The display face, for headers and buttons.
 #[derive(Resource)]
-pub struct Display(pub(crate) Handle<Font>);
+pub struct Display(pub Handle<Font>);
 
 /// A label drawn in the display face.
 #[derive(Component)]
@@ -81,7 +81,7 @@ pub struct DisplayText;
 
 /// The monospace face, kept for what the machine ran.
 #[derive(Resource)]
-pub struct Mono(pub(crate) Handle<Font>);
+pub struct Mono(pub Handle<Font>);
 
 /// A label drawn in the monospace face.
 #[derive(Component)]

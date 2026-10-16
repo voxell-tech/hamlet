@@ -1,8 +1,7 @@
 //! What every panel is built from.
 
 pub mod feel;
-pub use hamlet_sdk::icons;
-pub mod platform;
+pub use hamlet_sdk::{icons, platform};
 pub mod tabs;
 
 use bevy::app::App;

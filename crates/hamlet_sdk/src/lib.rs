@@ -2,7 +2,9 @@
 //! crate depends on this and on the crates below it, never on
 //! `hamlet_ui`.
 
+pub mod cue;
 pub mod icons;
+pub mod platform;
 pub mod theme;
 
 use bevy_fynix::Bevy;
