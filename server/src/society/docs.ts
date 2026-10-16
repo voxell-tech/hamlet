@@ -1,6 +1,5 @@
 import {
     type ConversationId,
-    defineDoc,
     defineDocFamily,
 } from "@earendil-works/pi-durable";
 import type { VoteView } from "../protocol.ts";
@@ -39,21 +38,6 @@ export const VotesDoc = defineDocFamily<{ votes: Vote[] }, string>({
     scope: "session",
     family: true,
     initial: () => ({ votes: [] }),
-});
-/** The library's decisions (H33). */
-export const LibraryDoc = defineDoc<{
-    events: {
-        kind: "shelved" | "refused" | "unshelved";
-        skill: string;
-        by: string;
-        reason: string;
-        at: number;
-    }[];
-}>({
-    kind: "hamlet.library",
-    version: 1,
-    scope: "session",
-    initial: () => ({ events: [] }),
 });
 /** Each agent's incoming conversations, by sender key (C22). */
 export const PeersDoc = defineDocFamily<

@@ -7,7 +7,7 @@ import {
     platformSandbox,
     type Sandbox,
     SandboxEnv,
-} from "./sandbox.ts";
+} from "../sandbox.ts";
 import { shelf as readShelf } from "./skill-paper.ts";
 
 /** A skill as the front matter of its `SKILL.md` tells of it (C8). */

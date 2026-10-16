@@ -8,6 +8,7 @@ import { envFor } from "./environment.ts";
 import { historyOf } from "./history.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
+import { houseSkills } from "./house.ts";
 import { refreshModels } from "./models.ts";
 import type { Address, Listed, Read, ReadResult, Reply } from "./protocol.ts";
 import {
@@ -17,7 +18,6 @@ import {
     resolve,
 } from "./realm.ts";
 import { type AgentRef, agentKey } from "./record.ts";
-import { houseSkills } from "./skills.ts";
 import { told } from "./told.ts";
 
 /** A chief's view of the prompt, history, catalogue and papers (C14, C24). */

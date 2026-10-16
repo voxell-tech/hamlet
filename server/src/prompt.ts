@@ -11,11 +11,11 @@ import type { With } from "./chats.ts";
 import { agentOf } from "./errands.ts";
 import type { Home, Part } from "./home.ts";
 import { houseOf } from "./home.ts";
+import { houseSkills } from "./house.ts";
 import { installStarters, libraryPart } from "./library.ts";
 import { ManifestsDoc } from "./manifests.ts";
 import { agentKey } from "./record.ts";
 import { modelName, SettingsDoc, settingsOf } from "./settings.ts";
-import { houseSkills } from "./skills.ts";
 import { WorkDoc } from "./work.ts";
 
 /** The machine's shell tools, as the prompt names them (prompt.rs:10-17). */

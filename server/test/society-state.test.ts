@@ -222,8 +222,8 @@ it("sends a whole state when a hamlet closes and reconciles for a late client", 
 });
 
 it("replaces the whole state when the library view changes", async () => {
-    const library = await import("../src/society/librarian.ts");
-    const { LibraryDoc } = await import("../src/society/docs.ts");
+    const library = await import("../src/library.ts");
+    const { LibraryDoc } = await import("../src/library.ts");
     const view = vi
         .spyOn(library, "libraryView")
         .mockImplementation(async (home, context) => {

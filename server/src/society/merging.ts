@@ -25,10 +25,10 @@ import {
 } from "@earendil-works/pi-durable";
 import { WithDoc } from "../chats.ts";
 import { ErrandDoc, runErrand, startErrand } from "../errands.ts";
-import { listTree, MERGE_CAPS, removeTree, stageTree } from "../gift-files.ts";
 import { revoke } from "../grants.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { houseOf, untilAborted } from "../home.ts";
+import { listTree, MERGE_CAPS, removeTree, stageTree } from "../house.ts";
 import { InstructionsDoc, owed } from "../instructions.ts";
 import { booksOf } from "../ledger.ts";
 import { LimitsDoc } from "../limits.ts";

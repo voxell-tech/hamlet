@@ -11,7 +11,7 @@ import {
     type WatchChange,
 } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { shelf } from "../skill-paper.ts";
+import { shelf } from "../house/skill-paper.ts";
 import { decode, encode, frameId } from "./wire.ts";
 
 const context = {} as Context;

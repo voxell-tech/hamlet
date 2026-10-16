@@ -12,10 +12,10 @@ import {
 import { ChatDoc, currentOf, startConversation, WithDoc } from "../chats.ts";
 import { reconfigure } from "../choice.ts";
 import { agentOf } from "../errands.ts";
-import { removeHouse } from "../gift-files.ts";
 import { GrantsDoc, grantsOf, revoke } from "../grants.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { buildHouse } from "../home.ts";
+import { removeHouse } from "../house.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
 import { notify } from "../notice.ts";
 import {

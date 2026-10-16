@@ -22,6 +22,7 @@ import { Credentials } from "./home/credentials.ts";
 import { buildHouse, type Layout, layOut } from "./home/layout.ts";
 import { claim } from "./home/lock.ts";
 import { parts } from "./home/parts.ts";
+import { closeSkills, refreshSkills } from "./house.ts";
 import { LimitsDoc } from "./limits.ts";
 import { homeModels } from "./models.ts";
 import { PeerStatistics } from "./peer-statistics.ts";
@@ -29,7 +30,6 @@ import { liveHamlets, RealmDoc } from "./realm.ts";
 import { agentKey, HOME, RecordDoc } from "./record.ts";
 import { platformSandbox, type Sandbox } from "./sandbox.ts";
 import { type Overrides, readOverrides, SettingsDoc } from "./settings.ts";
-import { closeSkills, refreshSkills } from "./skills.ts";
 import { AgentConversationsDoc } from "./society/docs.ts";
 import { WorkDoc } from "./work.ts";
 

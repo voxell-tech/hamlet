@@ -12,15 +12,15 @@ import {
     win32,
 } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import type { Home } from "./home.ts";
-import { MAX_GIFT_BYTES } from "./protocol.ts";
+import type { Home } from "../home.ts";
+import { MAX_GIFT_BYTES } from "../protocol.ts";
 import {
     canon,
     closedPolicy,
     directoryRoot,
     SandboxEnv,
     within,
-} from "./sandbox.ts";
+} from "../sandbox.ts";
 
 const deliveries = new WeakMap<Home, Promise<unknown>>();
 const REFUSED =

@@ -12,10 +12,10 @@ import {
 } from "@earendil-works/pi-durable";
 import { resetTrust } from "../asked.ts";
 import { WithDoc } from "../chats.ts";
-import { removeHouse } from "../gift-files.ts";
 import { revoke } from "../grants.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { houseOf, localDay, untilAborted } from "../home.ts";
+import { removeHouse } from "../house.ts";
 import { InstructionsDoc, owed } from "../instructions.ts";
 import { LimitsDoc } from "../limits.ts";
 import { farewell, isChief, liveHamlets, RealmDoc, roadsOf } from "../realm.ts";

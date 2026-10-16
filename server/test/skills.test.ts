@@ -1,14 +1,14 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { platformSandbox } from "../src/sandbox.ts";
 import {
     closeSkills,
     houseSkills,
     parseSkill,
     refreshSkills,
     skillNames,
-} from "../src/skills.ts";
+} from "../src/house.ts";
+import { platformSandbox } from "../src/sandbox.ts";
 import { swappingDirectory } from "./race-support.ts";
 import { closeAfter, context, scratch } from "./support.ts";
 

@@ -22,25 +22,26 @@ import {
 } from "@earendil-works/pi-durable";
 import { WithDoc } from "../chats.ts";
 import { runErrand, startErrand } from "../errands.ts";
+import type { Deed, Home, Part } from "../home.ts";
+import { houseOf } from "../home.ts";
 import {
     deliverTree,
     listTree,
+    parseSkill,
+    refreshSkills,
     removeTree,
+    skillsIn,
     stageSkill,
     type TreeListing,
-} from "../gift-files.ts";
-import type { Deed, Home, Part } from "../home.ts";
-import { houseOf } from "../home.ts";
+} from "../house.ts";
 import { booksOf } from "../ledger.ts";
-import { libraryPart } from "../library.ts";
 import { LimitsDoc, limitsOf } from "../limits.ts";
 import type { State } from "../protocol.ts";
 import { RecordDoc } from "../record.ts";
 import { stopped } from "../report.ts";
 import { closedPolicy, SandboxEnv } from "../sandbox.ts";
-import { parseSkill, refreshSkills, skillsIn } from "../skills.ts";
 import { turnOf } from "../turn.ts";
-import { LibraryDoc } from "./docs.ts";
+import { LibraryDoc, libraryPart } from "./shelf.ts";
 
 const ConsultDoc = defineDoc<{
     errand: ConversationId | null;

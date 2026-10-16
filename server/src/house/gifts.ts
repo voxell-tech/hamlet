@@ -2,30 +2,30 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, mkdtemp, open, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import { submitLine } from "./chats.ts";
-import {
-    checkShelf,
-    checkSkill,
-    deliver,
-    manifestSize,
-    stageSkill,
-} from "./gift-files.ts";
-import type { Home } from "./home.ts";
-import { houseOf } from "./home.ts";
-import { STARTERS } from "./library.ts";
+import { submitLine } from "../chats.ts";
+import type { Home } from "../home.ts";
+import { houseOf } from "../home.ts";
+import { STARTERS } from "../library.ts";
 import {
     type Address,
     type Give,
     type GivePart,
     MAX_GIFT_BYTES,
     type Reply,
-} from "./protocol.ts";
-import { type ChiefResult, chiefAccess, chiefRefusalText } from "./realm.ts";
-import type { AgentRef } from "./record.ts";
-import { named, RecordDoc } from "./record.ts";
-import { directoryRoot } from "./sandbox.ts";
-import { safeWords } from "./scrub.ts";
+} from "../protocol.ts";
+import { type ChiefResult, chiefAccess, chiefRefusalText } from "../realm.ts";
+import type { AgentRef } from "../record.ts";
+import { named, RecordDoc } from "../record.ts";
+import { directoryRoot } from "../sandbox.ts";
+import { safeWords } from "../scrub.ts";
 import { refreshSkills } from "./skills.ts";
+import {
+    checkShelf,
+    checkSkill,
+    deliver,
+    manifestSize,
+    stageSkill,
+} from "./trees.ts";
 
 const IDLE_MS = 60_000;
 const STAGE_REFUSED = "The gift could not be staged. Nothing was handed over.";

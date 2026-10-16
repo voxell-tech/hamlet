@@ -386,7 +386,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         path: string,
         contents: boolean,
         context: Context,
-    ): Promise<Result<import("../skill-paper.ts").SkillPaper[], FileError>> {
+    ): Promise<Result<import("../house.ts").SkillPaper[], FileError>> {
         const refused = await this.#refused(path, "read", context);
         return refused
             ? err(refused)

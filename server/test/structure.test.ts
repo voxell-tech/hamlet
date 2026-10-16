@@ -5,6 +5,8 @@ import { expect, test } from "vitest";
 
 const root = fileURLToPath(new URL("../src/", import.meta.url));
 const MODULES: readonly { name: string; folder: boolean }[] = [
+    { name: "house", folder: true },
+    { name: "library", folder: true },
     { name: "scrub", folder: true },
     { name: "sandbox", folder: true },
     { name: "record", folder: false },
@@ -32,6 +34,12 @@ test("concept internals are reached through their entry", () => {
             const [, operation, type, bindings, path] = match;
             if (!path?.startsWith(".")) continue;
             const target = resolve(dirname(file), path);
+            // The confined helper loads only the source files pinned in FILE_READS.
+            if (
+                file === resolve(root, "sandbox/file-helper.ts") &&
+                target === resolve(root, "house/skill-paper.ts")
+            )
+                continue;
             for (const module of MODULES) {
                 const folder = resolve(root, module.name) + sep;
                 const inside = module.folder && file.startsWith(folder);

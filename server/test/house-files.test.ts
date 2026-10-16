@@ -14,14 +14,14 @@ import {
 import { join } from "node:path";
 import { ExecutionError, err } from "@earendil-works/pi-durable/env";
 import { expect, it, vi } from "vitest";
+import { houseOf } from "../src/home.ts";
 import {
     deliverTree,
     listTree,
     removeHouse,
     removeTree,
     stageTree,
-} from "../src/gift-files.ts";
-import { houseOf } from "../src/home.ts";
+} from "../src/house.ts";
 import { closedPolicy, SandboxEnv } from "../src/sandbox.ts";
 import {
     context,

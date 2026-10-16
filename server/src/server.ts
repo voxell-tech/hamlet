@@ -8,8 +8,8 @@ import { checkConnection, checkModel } from "./check.ts";
 import { type Client, type Server, serve } from "./connection.ts";
 import { edit } from "./edits.ts";
 import { answerWords } from "./gate.ts";
-import { clearStagedGifts, give, uploads } from "./gifts.ts";
 import type { Home } from "./home.ts";
+import { clearStagedGifts, give, uploads } from "./house.ts";
 import { login as signIn } from "./logins.ts";
 import type {
     Address,
