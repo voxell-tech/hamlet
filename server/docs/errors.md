@@ -171,12 +171,14 @@ not just the scrubber in isolation.
 
 Startup must establish its recovery invariants before accepting requests.
 If `clearStagedGifts` refuses, the gift area could not be reset to an empty
-server-owned stage. If a committed house move cannot finish, the recorded
-membership and its house are not reconciled. These are startup defects:
-startup stops with the existing rendered refusal, rather than accepting
-work in that state. During a running tool call, move recovery refusals
-remain `MoveFailure` values. Hamlet cleanup returns `TreeFailure` to its
-per-hamlet reporter and continues processing other hamlets.
+server-owned stage. This is a server startup defect: serving stops with
+the existing rendered refusal, rather than accepting uploads in that state.
+If a committed house move cannot finish, recorded membership and its house
+are not reconciled. That part's startup fails under the home's existing
+part-start policy: the home stays open and reports its pending work.
+During a running tool call, move recovery refusals remain `MoveFailure`
+values. Hamlet cleanup returns `TreeFailure` to its per-hamlet reporter
+and continues processing other hamlets.
 
 ## Errors read by an agent
 

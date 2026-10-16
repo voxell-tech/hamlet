@@ -18,6 +18,7 @@ import { houseOf } from "../src/home/layout.ts";
 import {
     deliver as deliverTree,
     list as listTree,
+    MERGE_CAPS,
     erase as removeHouse,
     remove as removeTree,
     stage as stageTree,
@@ -500,7 +501,7 @@ it("accepts a merge tree larger than a gift while still enforcing the gift cap",
     expect((await lstat(join(stage, "large"))).size).toBe(33 * 1024 * 1024);
     await deliverTree(
         home,
-        { root, into: "merged" },
+        { root, into: "merged", caps: MERGE_CAPS },
         stage,
         ["large"],
         context,

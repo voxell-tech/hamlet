@@ -215,6 +215,25 @@ async function checkTree(
     }
 }
 
+function validCaps(
+    caps: Readonly<TreeCaps>,
+    operation: Operation,
+): Result<void, TreeFailure> {
+    if (
+        ![caps.entries, caps.bytes].every(
+            (n) => Number.isSafeInteger(n) && n >= 0,
+        )
+    )
+        return err({
+            operation,
+            kind: "path-invalid",
+            path: "caps",
+            constraint: "caps",
+            retrySafe: false,
+        });
+    return ok(undefined);
+}
+
 /** A no-follow copy into a separate empty stage, keeping regular bytes and modes. */
 export async function stage(
     home: Home,
@@ -228,18 +247,8 @@ export async function stage(
     staged = resolve(staged);
     const path = treeRel(source.rel, operation, true);
     if (!path.ok) return path;
-    if (
-        ![caps.entries, caps.bytes].every(
-            (n) => Number.isSafeInteger(n) && n >= 0,
-        )
-    )
-        return err({
-            operation,
-            kind: "path-invalid",
-            path: "caps",
-            constraint: "caps",
-            retrySafe: false,
-        });
+    const valid = validCaps(caps, operation);
+    if (!valid.ok) return valid;
     if (
         within(canon(staged), canon(source.root)) ||
         within(canon(source.root), canon(staged))
@@ -300,10 +309,16 @@ export async function stage(
     }
 }
 
-/** Named stage roots delivered without clobbering; failed claims are rolled back. */
+/** Named stage roots delivered without clobbering; failed claims roll back and copier limits default to gifts. */
 export async function deliver(
     home: Home,
-    target: { root: string; into: string; collision?: "number" },
+    target: {
+        root: string;
+        into: string;
+        collision?: "number";
+        /** Explicit copier limits for trees larger than gifts. */
+        caps?: Readonly<TreeCaps>;
+    },
     staged: string,
     names: string[],
     context: Context,
@@ -311,6 +326,9 @@ export async function deliver(
     const operation = "deliver-tree";
     target = { ...target, root: resolve(target.root) };
     staged = resolve(staged);
+    const caps = target.caps ?? GIFT_CAPS;
+    const valid = validCaps(caps, operation);
+    if (!valid.ok) return valid;
     const path = treeRel(target.into, operation, true);
     if (!path.ok) return path;
     for (const name of names) {
@@ -379,6 +397,7 @@ export async function deliver(
                 staged,
                 names,
                 targets,
+                caps,
                 context,
             );
         } catch {
@@ -393,13 +412,14 @@ async function copyInto(
     staged: string,
     names: string[],
     targets: string[],
+    caps: Readonly<TreeCaps>,
     context: Context,
 ): Promise<Result<string[], TreeFailure>> {
     const operation = "deliver-tree";
     const env = treeWorker(home, {
         root: staged,
         stage: root,
-        caps: GIFT_CAPS,
+        caps,
     });
     const paths = targets.map((name) => join(root, into, name));
     let claimed: string | undefined;
