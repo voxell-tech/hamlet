@@ -19,6 +19,7 @@ const LEAVES = new Set([
     "record/document.ts",
     "record/names.ts",
     "record/roads.ts",
+    "record/office.ts",
     "home/abort.ts",
     "home/clock.ts",
     "home/credentials.ts",
@@ -39,6 +40,7 @@ const LEAVES = new Set([
     "spend/ledger.ts",
     "spend/money.ts",
     "spend/usage.ts",
+    "state/activity.ts",
 ]);
 const SHARED_ENTRIES = new Set([
     "change.ts",
@@ -55,13 +57,10 @@ const SHARED_ENTRIES = new Set([
 const SHARED_CORE = new Set([
     "chats/conversations.ts",
     "chats/errands.ts",
-    "chats/roles.ts",
-    "models/choice.ts",
+    "chats/configure.ts",
+    "chats/documents.ts",
 ]);
-const ALLOWED_CYCLES = [
-    // Conversation configuration deepening (D3) removes this shared core's cycle.
-    [...SHARED_CORE],
-].map((component) => component.sort());
+const ALLOWED_CYCLES: string[][] = [];
 const MODULES: readonly { name: string; folder: boolean }[] = [
     { name: "agents", folder: true },
     { name: "change", folder: false },

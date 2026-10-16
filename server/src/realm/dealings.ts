@@ -18,10 +18,11 @@ import {
     type ToolExecutionResult,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { reconfigure } from "../chats/configure.ts";
 import {
     AgentConversationsDoc,
     ChatDoc,
-    chatOf,
+    current,
     WithDoc,
 } from "../chats/conversations.ts";
 import { PayerDoc } from "../chats/errands.ts";
@@ -30,10 +31,9 @@ import { notify } from "../chats/notice.ts";
 import { GrantsDoc, grantsOf, revoke } from "../gate.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Home, Part } from "../home.ts";
-import { removeHouse } from "../house.ts";
+import { erase as removeHouse, treeFailureText } from "../house.ts";
 import { askAgent, letterFailureText, PeersDoc } from "../letters.ts";
 import { LimitsDoc } from "../limits/rules.ts";
-import { reconfigure } from "../models.ts";
 import { lapseAgent } from "../oversight/waits.ts";
 import { CharacterDoc } from "../prompt.ts";
 import {
@@ -52,7 +52,7 @@ import {
     requireMayor,
     toolText,
 } from "../record.ts";
-import { ok, type Result } from "../result.ts";
+import { err, ok, type Result } from "../result.ts";
 import {
     chiefsOf,
     liveHamlets,
@@ -60,6 +60,11 @@ import {
     RealmDoc,
     type RealmEnd,
 } from "./places.ts";
+import {
+    type ResolveFailure,
+    resolveAddress,
+    resolveFailureText,
+} from "./roads.ts";
 
 const MOVE = Type.Object({
     agent: Type.String(),
@@ -78,7 +83,12 @@ type Agreement = {
     notice?: boolean;
     ask: { to: AgentRef; text: string } | null;
 };
-type AgreementResult = Result<Agreement, RecordRefusal | DecisionHeld>;
+type AgreementResult = Result<
+    Agreement,
+    | RecordRefusal
+    | DecisionHeld
+    | { kind: "agreement-address"; failure: ResolveFailure; name: string }
+>;
 const AgreementDoc = defineDoc<{ result: Agreement | null; notified: boolean }>(
     {
         kind: "hamlet.agreement-call",
@@ -189,27 +199,6 @@ async function mayor(
         ? ok({ hamlet: caller.hamlet, number: caller.number })
         : held;
 }
-async function locate(
-    tx: Tx,
-    address: string,
-): Promise<Result<AgentRef, RecordRefusal>> {
-    const [name, place, extra] = address.split("@");
-    if (extra === undefined)
-        for (const { id } of liveHamlets(await tx.doc(RealmDoc))) {
-            if (place !== undefined && id !== place) continue;
-            const record = await tx.doc(RecordDoc, id, id);
-            const found = record.agents.find(
-                (a) =>
-                    a.name === name ||
-                    (name === "mayor" && a.number === record.mayor),
-            );
-            if (found) return ok({ hamlet: id, number: found.number });
-        }
-    return recordRefusal("agreement", place ?? "", {
-        kind: "agent-missing",
-        name: address,
-    });
-}
 function same(a: RealmEnd, b: RealmEnd): boolean {
     return "office" in a
         ? "office" in b && a.office === b.office
@@ -229,12 +218,22 @@ async function road(
         return recordRefusal("agree-road", caller.hamlet, {
             kind: "realm-roads-closed",
         });
-    const aa = await locate(tx, args.a),
-        bb = await locate(tx, args.b);
-    if (!aa.ok) return aa;
-    if (!bb.ok) return bb;
-    const a = aa.value,
-        b = bb.value;
+    const first = await resolveAddress(tx, caller.hamlet, args.a, context);
+    if (!first.ok)
+        return err({
+            kind: "agreement-address",
+            failure: first.error,
+            name: args.a,
+        });
+    const second = await resolveAddress(tx, caller.hamlet, args.b, context);
+    if (!second.ok)
+        return err({
+            kind: "agreement-address",
+            failure: second.error,
+            name: args.b,
+        });
+    const a = first.value.ref,
+        b = second.value.ref;
     for (const ref of [a, b])
         if (
             (await tx.doc(RecordDoc, ref.hamlet, ref.hamlet)).mayor ===
@@ -316,9 +315,19 @@ async function move(
         return recordRefusal("agree-move", caller.hamlet, {
             kind: "move-pending",
         });
-    const located = await locate(tx, args.agent);
-    if (!located.ok) return located;
-    const ref = located.value;
+    const located = await resolveAddress(
+        tx,
+        caller.hamlet,
+        args.agent,
+        context,
+    );
+    if (!located.ok)
+        return err({
+            kind: "agreement-address",
+            failure: located.error,
+            name: args.agent,
+        });
+    const ref = located.value.ref;
     if (ref.hamlet === args.to)
         return recordRefusal("agree-move", args.to, {
             kind: "move-already-there",
@@ -538,7 +547,9 @@ async function finishMove(home: Home, context: Context): Promise<void> {
                         "The new house is not empty; the move is still pending.",
                     );
             }
-            await removeHouse(home, target);
+            const treeOutcome1 = await removeHouse(home, target);
+            if (!treeOutcome1.ok)
+                throw new Error(treeFailureText(treeOutcome1.error));
         }
         await mkdir(dirname(target), { recursive: true });
         await rename(source, target);
@@ -579,10 +590,16 @@ async function deliver(
     outcome: AgreementResult,
     context: Context,
 ): Promise<ToolExecutionResult> {
-    if (!outcome.ok)
-        return outcome.error.kind === "unsplit-merge"
-            ? { output: [{ type: "text", text: toolText(outcome.error) }] }
-            : refusedTool(toolText(outcome.error));
+    if (!outcome.ok) {
+        const failure = outcome.error;
+        if (failure.kind === "agreement-address")
+            return refusedTool(
+                resolveFailureText(failure.failure, failure.name),
+            );
+        return failure.kind === "unsplit-merge"
+            ? { output: [{ type: "text", text: toolText(failure) }] }
+            : refusedTool(toolText(failure));
+    }
     const result = outcome.value;
     const chats =
         result.notice === false
@@ -631,7 +648,7 @@ async function chiefChats(
         for (const chief of chiefsOf(realm, hamlet, home.chief))
             chats.push(
                 (
-                    await chatOf(
+                    await current(
                         home,
                         { agent: { hamlet, number: record.mayor }, chief },
                         context,

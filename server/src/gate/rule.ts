@@ -1,17 +1,13 @@
 import type { Leave } from "../environment.ts";
+import type { Limits } from "../limits/rules.ts";
+import { type Asked, refused } from "../oversight/asked.ts";
 import type { Danger } from "../oversight/waits.ts";
-
-/** The reach of a tool call (H11). */
-export type Reach =
-    | { kind: "read" }
-    | { kind: "other" }
-    | { kind: "edit" }
-    | { kind: "shell"; command: string; net: boolean }
-    | { kind: "custom"; net: boolean };
+import type { Call } from "./call.ts";
 
 /** The permissions and mode in force at a call. */
 export type Standing = {
     confined: boolean;
+    houseEdit?: boolean;
     net: boolean;
     unconfined: boolean;
     asksEdits: boolean;
@@ -19,7 +15,7 @@ export type Standing = {
 };
 
 /** The reach granted to a call, or the approval it must await. */
-export type Verdict = { run: Leave } | { ask: Danger };
+export type Verdict = { run: Leave } | { ask: Danger } | { block: string };
 
 const NETWORK = [
     "curl",
@@ -43,12 +39,65 @@ const NETWORK = [
     "brew install",
 ];
 
-/** The rule for whether a call runs or waits for a chief (danger.rs:172-223). */
-export function judge(reach: Reach, standing: Standing): Verdict {
-    if (reach.kind === "read" || reach.kind === "other")
+/** The H11 decision, ordered by reach, reserved acts and the turn's refusal history. */
+export function rule(
+    call: Call,
+    standing: Standing,
+    asked: Readonly<Asked> & { by: string; about: string },
+    limits: Limits,
+    mayor: boolean,
+): Verdict {
+    const verdict =
+        mayor && mayorReserved(call, limits)
+            ? { ask: "reserved" as const }
+            : reachRule(call, standing);
+    if ("run" in verdict) return verdict;
+    const block = refused(
+        asked,
+        asked.by,
+        verdict.ask,
+        asked.about,
+        limits.asking.refusals,
+    );
+    return block === undefined ? verdict : { block };
+}
+
+/** A society act reserved by the chief's current mayor limits. */
+export function mayorReserved(call: Call, limits: Limits): boolean {
+    if (call.kind !== "society") return false;
+    switch (call.name) {
+        case "create_agent":
+            return (
+                !limits.mayor.createAgents ||
+                (!limits.mayor.buildRoads &&
+                    Array.isArray(call.args.roads) &&
+                    call.args.roads.length > 0)
+            );
+        case "build_road":
+            return !limits.mayor.buildRoads;
+        case "remove_agent":
+            return !limits.mayor.removeAgents;
+        case "merge_agents":
+            return !limits.mayor.mergeAgents;
+        default:
+            return false;
+    }
+}
+
+function reachRule(
+    reach: Call,
+    standing: Standing,
+): Exclude<Verdict, { block: string }> {
+    if (
+        reach.kind === "read" ||
+        reach.kind === "society" ||
+        reach.kind === "other"
+    )
         return { run: { net: false } };
     if (reach.kind === "edit") {
-        return standing.asksEdits ? { ask: "edit" } : { run: { net: false } };
+        return standing.asksEdits && !standing.houseEdit
+            ? { ask: "edit" }
+            : { run: { net: false } };
     }
     const command: Verdict = standing.asksCommands
         ? { ask: "command" }

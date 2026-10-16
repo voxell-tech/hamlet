@@ -7,10 +7,10 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { defineExtension, section } from "@earendil-works/pi-durable";
 import { describe, expect, it, vi } from "vitest";
+import { commitEdit } from "../src/chats.ts";
 import { ManifestsDoc } from "../src/hand.ts";
 import type { Home, Part } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
-import { commitEdit } from "../src/models.ts";
 import {
     CharacterDoc,
     CharterDoc,
@@ -136,8 +136,19 @@ describe("the prompt", () => {
         const { home, faux } = await mayorHome();
         await home.harness.commit(async (tx) => {
             (await tx.doc(ManifestsDoc)).faults = [
-                "tools/a: missing name",
-                "tools/b: name 'bash' is reserved",
+                {
+                    operation: "load-tool",
+                    dir: "tools/a",
+                    retrySafe: true,
+                    kind: "missing-name",
+                },
+                {
+                    operation: "load-tool",
+                    dir: "tools/b",
+                    retrySafe: true,
+                    kind: "name-reserved",
+                    name: "bash",
+                },
             ];
         }, context);
 

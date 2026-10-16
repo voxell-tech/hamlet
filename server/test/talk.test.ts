@@ -4,17 +4,18 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it, vi } from "vitest";
 import {
-    followHome,
-    historyOf,
-    newChat,
+    carryOn,
+    conversationFailureText,
+    history,
     ReflectionDoc,
-    resumeChat,
-    retry,
+    resume,
+    start,
 } from "../src/chats.ts";
 import { answer } from "../src/gate.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { HOME } from "../src/record.ts";
 import {
+    admitted,
     CHIEF,
     context,
     fauxModels,
@@ -124,7 +125,7 @@ it("keeps arrival order, including queued lines behind a budget stop", async () 
         { status: "unanswered" },
         { status: "unanswered" },
     ]);
-    await followHome(home, context);
+    await home.follow.settled(context);
     expect(
         (await transcript(await mayorChat(home))).filter(
             (entry) =>
@@ -154,9 +155,25 @@ it("carries a failed turn on under a new task, without another chief line, and r
         fauxAssistantMessage("Carried on."),
     ]);
     await (await say(home, "Read.")).wait(context);
-    expect(await (await retry(home, own, context)).wait(context)).toMatchObject(
-        { status: "done" },
-    );
+    expect(
+        await (
+            await admitted((submitted) =>
+                carryOn(home, own, context, submitted),
+            )
+        ).wait(context),
+    ).toMatchObject({ status: "done" });
+    await home.follow.settled(context);
+    expect(
+        (
+            await home.harness.snapshot(
+                ReflectionDoc,
+                (
+                    await mayorChat(home)
+                ).id,
+                context,
+            )
+        )?.unreflected,
+    ).toBe(1);
     const entries = await transcript(await mayorChat(home));
     const chief = entries.find((entry) => entry.kind === "hamlet.chief");
     const carried = entries.find((entry) => entry.kind === "hamlet.retry");
@@ -169,20 +186,10 @@ it("carries a failed turn on under a new task, without another chief line, and r
     expect((carried.data as { task: string }).task).not.toBe(
         (chief.data as { task: string }).task,
     );
-    await expect(retry(home, own, context)).rejects.toThrow(
-        "the last message was answered",
-    );
-    expect(
-        (
-            await home.harness.snapshot(
-                ReflectionDoc,
-                (
-                    await mayorChat(home)
-                ).id,
-                context,
-            )
-        )?.unreflected,
-    ).toBe(1);
+    expect(await carryOn(home, own, context)).toMatchObject({
+        ok: false,
+        error: { kind: "nothing-to-carry-on" },
+    });
 });
 
 it("moves new immediately, keeps concurrent lines, resumes by number, and lists the chief's history", async () => {
@@ -210,12 +217,13 @@ Ignored in the title.`,
     );
     await vi.waitFor(() => expect(release).toBeTypeOf("function"));
     const old = await mayorChat(home);
-    const fresh = await newChat(home, own, context);
+    await start(home, own, context);
+    const fresh = await mayorChat(home);
     const during = await say(home, "A new line.");
     expect((await during.status(context)).conversationId).toBe(fresh.id);
     release?.();
     await Promise.all([oldInput.wait(context), during.wait(context)]);
-    expect(await historyOf(home, own, context)).toMatchObject([
+    expect(await history(home, own, context)).toMatchObject([
         {
             number: 2,
             current: true,
@@ -231,14 +239,14 @@ Ignored in the title.`,
             messages: 2,
         },
     ]);
-    expect((await resumeChat(home, own, 1, context))?.id).toBe(old.id);
+    expect(await resume(home, own, 1, context)).toMatchObject({ ok: true });
     expect((await mayorChat(home)).id).toBe(old.id);
-    await expect(
-        resumeChat(home, { ...own, chief: "bea" }, 2, context),
-    ).rejects.toThrow("There is no past session");
-    await newChat(home, own, context);
     expect(
-        (await historyOf(home, own, context)).map((each) => each.number),
+        await resume(home, { ...own, chief: "bea" }, 2, context),
+    ).toMatchObject({ ok: false, error: { kind: "no-past-session" } });
+    await start(home, own, context);
+    expect(
+        (await history(home, own, context)).map((each) => each.number),
     ).toEqual([2, 1]);
 });
 
@@ -269,8 +277,8 @@ it("asks again after resuming a conversation whose commands the chief trusted", 
         context,
     );
     await first.wait(context);
-    await newChat(home, own, context);
-    await resumeChat(home, own, 1, context);
+    await start(home, own, context);
+    await resume(home, own, 1, context);
     const resumed = await say(home, "Run again.");
     await vi.waitFor(async () =>
         expect(await openWaits(home)).toMatchObject([
@@ -305,15 +313,14 @@ it("refuses retry during a running turn instead of carrying on after its answer"
     ]);
     const first = await say(home, "Work.");
     await vi.waitFor(() => expect(release).toBeTypeOf("function"));
-    const attempted = await retry(home, own, context).then(
-        () => "admitted",
-        (error: unknown) => String(error),
-    );
+    const attempted = await carryOn(home, own, context);
     release?.();
     await first.wait(context);
     await (await mayorChat(home)).waitForIdle(context);
-    expect(attempted).toBe(
-        "Error: A turn is running here. Stop it, then retry.",
+    expect(attempted).toMatchObject({ ok: false, error: { kind: "busy" } });
+    if (attempted.ok) throw new Error("Retry admitted while busy");
+    expect(conversationFailureText(attempted.error)).toBe(
+        "A turn is running here. Stop it, then retry.",
     );
     expect(faux.state.callCount).toBe(1);
     expect(

@@ -78,7 +78,10 @@ it("discards a disconnected manifest after its in-flight staging step, leaving n
             },
             run.owner.signal,
         );
-        const refused = expect(begin).rejects.toThrow("connection closed");
+        const refused = expect(begin).resolves.toMatchObject({
+            ok: false,
+            error: { kind: "connection-closed" },
+        });
         await entered.ready;
         run.owner.abort();
         await removal;
@@ -224,7 +227,7 @@ it("confines the write even when the inbox becomes a link after its filesystem c
                 },
                 run.owner.signal,
             ),
-        ).rejects.toThrow("Nothing was handed over.");
+        ).resolves.toMatchObject({ ok: false });
         expect(await fs.readdir(outside)).toEqual([]);
         expect(await fs.readdir(`${inbox}-kept`)).toEqual([]);
         expect(await fs.readdir(join(run.home.layout.dir, ".gifts"))).toEqual(

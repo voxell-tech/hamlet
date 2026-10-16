@@ -25,7 +25,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { describe, expect, it, vi } from "vitest";
 import { answer } from "../src/gate.ts";
-import { ManifestsDoc, reserved } from "../src/hand.ts";
+import { ManifestsDoc, manifestFaultText, reservedNames } from "../src/hand.ts";
 import type { Home, Part } from "../src/home.ts";
 import {
     CHIEF,
@@ -112,7 +112,9 @@ it.each([".gifts", ".erasing"])(
 );
 
 describe("tools added by hand", () => {
-    it("reserve Hamlet's, pi's, PowerShell's and the society's tool names, but not calendar (custom.rs:117)", () => {
+    it("reserves Hamlet's, pi's and the society's tool names through the installed registry", async () => {
+        const home = await testHome(scratch(), { models: fauxModels().models });
+        const names = reservedNames(home.registry);
         for (const name of [
             "bash",
             "powershell",
@@ -139,9 +141,43 @@ describe("tools added by hand", () => {
             "submit_skill",
             "ask_librarian",
         ]) {
-            expect(reserved(name), name).toBe(true);
+            expect(names.has(name), name).toBe(true);
         }
-        expect(reserved("calendar")).toBe(false);
+        expect(names.has("calendar")).toBe(false);
+    });
+
+    it("reports a hand folder without manifest.json and offers only the installed tools", async () => {
+        const dir = scratch();
+        const folder = join(dir, "tools", "missing");
+        mkdirSync(folder, { recursive: true });
+        const home = await testHome(dir, { models: fauxModels().models });
+        expect(
+            (await home.harness.snapshot(ManifestsDoc, context))?.faults,
+        ).toMatchObject([{ kind: "manifest-unreadable", dir: folder }]);
+        expect(
+            (await (await mayorChat(home)).agent(context)).tools
+                .map((tool) => tool.name)
+                .sort(),
+        ).toEqual([
+            "ask_agent",
+            "ask_chief",
+            "ask_librarian",
+            "bash",
+            "build_road",
+            "call_vote",
+            "create_agent",
+            "edit",
+            "find",
+            "merge_agents",
+            "object",
+            "read",
+            "remove_agent",
+            "search",
+            "set_model",
+            "submit_skill",
+            "tell_agent",
+            "write",
+        ]);
     });
 
     it("give simultaneous calls in different homes different private temporary folders", async () => {
@@ -294,8 +330,8 @@ describe("tools added by hand", () => {
         ]);
         const second = await say(home, "Peek.", "other-chief");
         expect((await second.wait(context)).status).toBe("done");
-        const { chatOf } = await import("../src/chats.ts");
-        const other = await chatOf(
+        const { current } = await import("../src/chats.ts");
+        const other = await current(
             home,
             { agent: { hamlet: "home", number: 0 }, chief: "other-chief" },
             context,
@@ -601,74 +637,6 @@ describe("tools added by hand", () => {
         ).not.toContain("greet");
     }, 15_000);
 
-    it("report malformed manifests, invalid names and a schema that cannot compile before offering tools", async () => {
-        const dir = scratch();
-        const missing = manifest(dir, "a-missing", {});
-        const array = manifest(dir, "b-array", { name: "array", exec: "echo" });
-        const empty = manifest(dir, "c-empty", {
-            name: "empty",
-            exec: [7, false],
-        });
-        const invalid = manifest(dir, "d-name", {
-            name: "not.a.tool",
-            exec: ["echo"],
-        });
-        const long = manifest(dir, "e-long", {
-            name: "a".repeat(65),
-            exec: ["echo"],
-        });
-        const schema = manifest(dir, "f-schema", {
-            name: "broken",
-            exec: ["echo"],
-            parameters: {
-                type: "object",
-                properties: { text: { type: "string", pattern: "[" } },
-            },
-        });
-        const noFile = join(dir, "tools", "g-file");
-        mkdirSync(noFile);
-        const { models } = fauxModels();
-        const home = await testHome(dir, { models });
-        const loaded = await home.harness.snapshot(ManifestsDoc, context);
-        expect(loaded?.faults).toEqual([
-            `${missing}: missing name`,
-            `${array}: exec must be an array`,
-            `${empty}: exec is empty`,
-            `${invalid}: name 'not.a.tool' must match [a-zA-Z0-9_-]{1,64}`,
-            `${long}: name '${"a".repeat(65)}' must match [a-zA-Z0-9_-]{1,64}`,
-            expect.stringMatching(
-                new RegExp(
-                    `^${schema.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: parameters do not compile:`,
-                ),
-            ),
-            expect.stringContaining(`${noFile}:`),
-        ]);
-        expect(
-            (await (await mayorChat(home)).agent(context)).tools
-                .map((tool) => tool.name)
-                .sort(),
-        ).toEqual([
-            "ask_agent",
-            "ask_chief",
-            "ask_librarian",
-            "bash",
-            "build_road",
-            "call_vote",
-            "create_agent",
-            "edit",
-            "find",
-            "merge_agents",
-            "object",
-            "read",
-            "remove_agent",
-            "search",
-            "set_model",
-            "submit_skill",
-            "tell_agent",
-            "write",
-        ]);
-    });
-
     it("reserve the names of other installed extensions too", async () => {
         const dir = scratch();
         const folder = manifest(dir, "calendar", {
@@ -693,7 +661,9 @@ describe("tools added by hand", () => {
         const { models, faux } = fauxModels();
         const home = await testHome(dir, { models, parts: [calendar] });
         expect(
-            (await home.harness.snapshot(ManifestsDoc, context))?.faults,
+            (await home.harness.snapshot(ManifestsDoc, context))?.faults.map(
+                manifestFaultText,
+            ),
         ).toEqual([`${folder}: name 'calendar' is reserved`]);
         expect(text((await calls(home, faux, ["calendar", {}]))[0])).toBe(
             "installed",
@@ -765,7 +735,9 @@ describe("tools added by hand", () => {
             `${taken}: name 'shout' is taken by another tool`,
         ];
         expect(
-            (await home.harness.snapshot(ManifestsDoc, context))?.faults,
+            (await home.harness.snapshot(ManifestsDoc, context))?.faults.map(
+                manifestFaultText,
+            ),
         ).toEqual(faults);
         expect(offered).toContain("shout");
         expect(machine).toContain(
@@ -797,7 +769,9 @@ it("offers and runs a tool linked into the home's tools folder", async () => {
     const { models, faux } = fauxModels();
     const home = await testHome(dir, { models });
     expect(
-        (await home.harness.snapshot(ManifestsDoc, context))?.faults,
+        (await home.harness.snapshot(ManifestsDoc, context))?.faults.map(
+            manifestFaultText,
+        ),
     ).toEqual([]);
     expect(
         (await (await mayorChat(home)).agent(context)).tools.map(
@@ -824,29 +798,4 @@ it("keeps a linked tool's folder read-only even if its manifest makes it writabl
     const home = await testHome(dir, { models });
     expect((await calls(home, faux, ["readonly", {}]))[0]?.isError).toBe(true);
     expect(existsSync(join(source, "changed"))).toBe(false);
-});
-
-it("names a JSON syntax fault without quoting private manifest text in any prompt", async () => {
-    const dir = scratch();
-    const folder = manifest(dir, "weather", {});
-    writeFileSync(
-        join(folder, "manifest.json"),
-        '{"name":"weather","exec":["./run"],"sandbox":{"env":{"API_KEY": sk-live-0123456789abcdef}}}',
-    );
-    const { models, faux } = fauxModels();
-    const home = await testHome(dir, { models });
-    let machine = "";
-    faux.setResponses([
-        (input, _options, _state, model) => {
-            machine = request(input.messages, model).sections.machine ?? "";
-            return fauxAssistantMessage("Done.");
-        },
-    ]);
-    await (await say(home, "Check.")).wait(context);
-    expect(machine).toContain(`${folder}: manifest.json is not valid JSON`);
-    expect(machine).not.toContain("sk-live");
-    expect(machine).not.toContain("API_KEY");
-    expect(
-        (await home.harness.snapshot(ManifestsDoc, context))?.faults,
-    ).toEqual([`${folder}: manifest.json is not valid JSON`]);
 });

@@ -15,12 +15,12 @@ import {
     restore as restoreDeed,
     undo as undoDeed,
 } from "../src/agents.ts";
-import { chatOf, InstructionsDoc, submitLine, WithDoc } from "../src/chats.ts";
+import { current, InstructionsDoc, submitLine, WithDoc } from "../src/chats.ts";
 import { GrantsDoc, give, grantsOf } from "../src/gate.ts";
 import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { raise, TrustedDoc, trustKey } from "../src/oversight.ts";
-import { resolve } from "../src/realm.ts";
+import { resolveAddress } from "../src/realm.ts";
 import { agentKey, HOME, recordRefusalText } from "../src/record.ts";
 import { mayor as seatMayorDeed, VotesDoc } from "../src/votes.ts";
 import { mayor, request, served } from "./connection-support.ts";
@@ -77,10 +77,16 @@ it("archives an agent with its roads and reason, keeps its house and refuses its
     expect(
         await readFile(join(houseOf(home.layout, scout), "found.txt"), "utf8"),
     ).toBe("Dune");
-    expect(await resolve(home.harness, HOME, "scout", context)).toMatchObject({
-        gone: expect.stringContaining(
-            'was removed from the hamlet by the chief chief ("Work ended")',
-        ),
+    expect(
+        await resolveAddress(home.harness, HOME, "scout", context),
+    ).toMatchObject({
+        ok: false,
+        error: {
+            kind: "departed",
+            farewell: expect.stringContaining(
+                'was removed from the hamlet by the chief chief ("Work ended")',
+            ),
+        },
     });
     expect(grantsOf(await home.harness.snapshot(GrantsDoc, context))).toEqual(
         [],
@@ -388,7 +394,7 @@ it.each(["remove", "merge"])(
         const home = await testHome(scratch(), { models: fauxModels().models });
         const scout = await addAgent(home, HOME, "scout");
         await addAgent(home, HOME, "smith");
-        const chat = await chatOf(
+        const chat = await current(
             home,
             { agent: scout, chief: home.chief },
             context,

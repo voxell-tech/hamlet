@@ -21,8 +21,9 @@ import { SUMMARY_NOTICE } from "./chats/answers.ts";
 import {
     ChatDoc,
     ChiefEntry,
-    chatOf,
+    current,
     LetterEntry,
+    past,
     QuestionEntry,
     ReflectionEntry,
     ReplyEntry,
@@ -41,11 +42,13 @@ import type {
     Turn,
     UsageView,
 } from "./protocol.ts";
-import { type ChiefResult, chiefAccess } from "./realm/access.ts";
-import { addressed, agentKey, RecordDoc } from "./record.ts";
-import { ok } from "./result.ts";
+import { chiefAccess } from "./realm/access.ts";
+import { livingAgent } from "./realm/roads.ts";
+import { agentKey, RecordDoc } from "./record.ts";
+import { err, ok, type Result } from "./result.ts";
 import { Scrubber } from "./scrub.ts";
-import { agentConversation } from "./transcript/peer.ts";
+import type { WatchFailure } from "./transcript/failure.ts";
+import { agentConversation, peerAuthor } from "./transcript/peer.ts";
 
 /** Characters of a tool's arguments a transcript shows (agent/event.rs:10). */
 const SUMMARY = 200;
@@ -65,11 +68,14 @@ export type ChatWatch = {
 export async function watchChat(
     home: Home,
     chat: ChatRef,
-    send: (outcome: ChiefResult<Transcript | Turn>, to?: string) => void,
+    send: (
+        outcome: Result<Transcript | Turn, WatchFailure>,
+        to?: string,
+    ) => void,
     to: string | undefined,
     context: Context,
     before?: string,
-): Promise<ChiefResult<ChatWatch>> {
+): Promise<Result<ChatWatch, WatchFailure>> {
     const access = await chiefAccess(
         home,
         chat.with.hamlet,
@@ -77,6 +83,14 @@ export async function watchChat(
         context,
     );
     if (!access.ok) return access;
+    const first = await conversationOf(home, chat, context);
+    if (!first.ok) return first;
+    let opening = true;
+    let openingFailure: WatchFailure | undefined;
+    const refused = (failure: WatchFailure) => {
+        if (opening) openingFailure = failure;
+        else send(err(failure), to);
+    };
     let stopped = false;
     let watch: Awaited<ReturnType<Conversation["watch"]>> | undefined;
     let id: Conversation["id"] | undefined;
@@ -84,7 +98,7 @@ export async function watchChat(
         const outcome = await conversationOf(home, chat, context);
         if (!outcome.ok) {
             await watch?.stop();
-            send(outcome, to);
+            refused(outcome.error);
             return;
         }
         const conversation = outcome.value;
@@ -106,10 +120,14 @@ export async function watchChat(
         let usage = await usageOf(home, conversation.id, context);
         if (stopped) return;
         const transcript = transcriptOf(chat, fold, usage, before);
+        if (!transcript.ok) {
+            refused(transcript.error);
+            return;
+        }
         if (rebound) send(ok({ type: "turn", chat, ops: [{ op: "reset" }] }));
         send(
             ok({
-                ...transcript,
+                ...transcript.value,
                 ...(number === undefined ? {} : { number }),
                 ...(to === undefined ? {} : { to }),
             }),
@@ -132,19 +150,27 @@ export async function watchChat(
             const numbered = number === undefined ? {} : { number };
             if (ops.length > 0)
                 send(ok({ type: "turn", chat, ...numbered, ops }));
-            if (ops.some((op) => op.op === "reset"))
-                send(ok({ ...transcriptOf(chat, fold, usage), ...numbered }));
+            if (ops.some((op) => op.op === "reset")) {
+                const transcript = transcriptOf(chat, fold, usage);
+                if (transcript.ok)
+                    send(ok({ ...transcript.value, ...numbered }));
+                else refused(transcript.error);
+            }
         });
     };
-    const agent = await addressed(home.harness, chat.with, context);
-    if (agent === undefined)
-        throw new Error(`no agent named \`${chat.with.agent}\``);
+    const target = await livingAgent(home, chat.with, "watch chat", context);
+    if (!target.ok) return target;
     let pointer: Awaited<ReturnType<Home["harness"]["watchDoc"]>> | undefined;
     let key: string | undefined;
     const follow = async () => {
-        const agent = await addressed(home.harness, chat.with, context);
-        if (!agent || stopped) return;
-        const next = agentKey(agent);
+        const target = await livingAgent(home, chat.with, "open chat", context);
+        if (stopped) return;
+        if (!target.ok) {
+            await watch?.stop();
+            refused(target.error);
+            return;
+        }
+        const next = agentKey(target.value.ref);
         if (!chat.from && next !== key) {
             await pointer?.stop();
             pointer = await home.harness.watchDoc(ChatDoc, next, context);
@@ -159,6 +185,13 @@ export async function watchChat(
             : undefined;
     try {
         await follow();
+        if (openingFailure) {
+            await office?.stop();
+            await pointer?.stop();
+            await watch?.stop();
+            return err(openingFailure);
+        }
+        opening = false;
         office?.start(follow);
     } catch (error) {
         await office?.stop();
@@ -185,7 +218,7 @@ export async function pageChat(
     chat: ChatRef,
     before: string,
     context: Context,
-): Promise<ChiefResult<Transcript>> {
+): Promise<Result<Transcript, WatchFailure>> {
     const outcome = await conversationOf(home, chat, context);
     if (!outcome.ok) return outcome;
     const conversation = outcome.value;
@@ -197,13 +230,13 @@ export async function pageChat(
             ? undefined
             : (await home.harness.snapshot(WithDoc, conversation.id, context))
                   ?.chat;
-        return {
-            ok: true,
-            value: {
-                ...transcriptOf(chat, fold, usage, before),
-                ...(number === undefined ? {} : { number }),
-            },
-        };
+        const transcript = transcriptOf(chat, fold, usage, before);
+        return transcript.ok
+            ? ok({
+                  ...transcript.value,
+                  ...(number === undefined ? {} : { number }),
+              })
+            : transcript;
     } finally {
         await watch.stop();
     }
@@ -214,14 +247,21 @@ function transcriptOf(
     fold: Fold,
     usage: UsageView,
     before?: string,
-): Transcript {
+): Result<Transcript, WatchFailure> {
     const end =
         before === undefined
             ? fold.items.length
             : fold.items.findIndex((item) => item.id === before);
-    if (end < 0) throw new Error(`There is no item \`${before}\` here.`);
+    if (end < 0)
+        return err({
+            kind: "no-item",
+            before: before ?? "",
+            operation: "page chat",
+            chat,
+            retrySafe: true,
+        });
     const start = Math.max(0, end - 40);
-    return {
+    return ok({
         type: "transcript",
         chat,
         items: fold.items.slice(start, end),
@@ -229,7 +269,7 @@ function transcriptOf(
         ...fold.status,
         last: fold.last,
         usage,
-    };
+    });
 }
 
 /** The conversation `chat` names: the current one of the chief's chat with its agent, or a past one by number. */
@@ -237,7 +277,7 @@ async function conversationOf(
     home: Home,
     chat: ChatRef,
     context: Context,
-): Promise<ChiefResult<Conversation>> {
+): Promise<Result<Conversation, WatchFailure>> {
     const access = await chiefAccess(
         home,
         chat.with.hamlet,
@@ -246,26 +286,16 @@ async function conversationOf(
     );
     if (!access.ok) return access;
     if (chat.from) return agentConversation(home, chat, context);
-    const agent = await addressed(home.harness, chat.with, context);
-    if (agent === undefined) {
-        throw new Error(`no agent named \`${chat.with.agent}\``);
-    }
+    const target = await livingAgent(home, chat.with, "open chat", context);
+    if (!target.ok) return target;
+    const agent = target.value.ref;
     if (chat.past === undefined) {
         return {
             ok: true,
-            value: await chatOf(home, { agent, chief: home.chief }, context),
+            value: await current(home, { agent, chief: home.chief }, context),
         };
     }
-    const key = agentKey(agent);
-    const past = (await home.harness.snapshot(ChatDoc, key, context))?.chats[
-        home.chief
-    ]?.conversations.find((each) => each.number === chat.past);
-    const conversation =
-        past && (await home.harness.conversation(past.conversation, context));
-    if (!conversation) {
-        throw new Error(`There is no past session \`${chat.past}\` here.`);
-    }
-    return { ok: true, value: conversation };
+    return past(home, target.value.chat, chat.past, context);
 }
 
 /** The transcript of `conversation` as of `view`, from the whole of its history. */
@@ -472,18 +502,7 @@ async function itemsOf(
             ReplyEntry.is(entry)) &&
         message?.role === "user"
     ) {
-        const from = entry.data.from;
-        const record = await home.harness.snapshot(
-            RecordDoc,
-            from.hamlet,
-            context,
-        );
-        const agent =
-            record?.agents.find((a) => a.number === from.number) ??
-            record?.archive.find((a) => a.agent.number === from.number)?.agent;
-        const author = agent
-            ? `${agent.name}@${from.hamlet}`
-            : `${from.hamlet}#${from.number}`;
+        const author = await peerAuthor(home, entry.data.from, context);
         return [
             [
                 0,
@@ -618,3 +637,5 @@ function record(value: unknown): Record<string, unknown> {
         ? (value as Record<string, unknown>)
         : {};
 }
+
+export { type WatchFailure, watchFailureText } from "./transcript/failure.ts";

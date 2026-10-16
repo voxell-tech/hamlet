@@ -1,8 +1,3 @@
-import type { Context } from "@earendil-works/chord";
-import type { DocumentReader } from "@earendil-works/pi-durable";
-import { type AgentRef, RecordDoc } from "./record/document.ts";
-import { named } from "./record/names.ts";
-
 export {
     type AgentRecord,
     type AgentRef,
@@ -51,6 +46,7 @@ export {
     seat,
     type Vote,
     VotesDoc,
+    voteViews,
 } from "./record/office.ts";
 export {
     type RecordRefusal,
@@ -65,18 +61,6 @@ export {
     roadsOf,
     takeUpRoad,
 } from "./record/roads.ts";
-/** The agent an address names, as {@link named} finds it in its hamlet's record. */
-export async function addressed(
-    read: DocumentReader,
-    address: { hamlet: string; agent: string },
-    context: Context,
-): Promise<AgentRef | undefined> {
-    const record = await read.snapshot(RecordDoc, address.hamlet, context);
-    if (record === undefined) return undefined;
-    const found = named(record, address.agent);
-    return found && { hamlet: address.hamlet, number: found.number };
-}
-
 export {
     defineMayorTool,
     defineRecordTool,

@@ -372,22 +372,27 @@ export function forChat(waits: readonly Wait[], chat: ChatId): readonly Wait[] {
     );
 }
 
-/** Recorded endings through `at`, using local calendar days rather than 24-hour steps. */
+/** Recorded endings, with one local day of midnight headroom on each side of the raise-to-`at` range. */
 export async function ended(
     read: DocumentReader,
     ids: readonly string[],
     context: Context,
     at = Date.now(),
 ): Promise<Map<string, How>> {
-    const wanted = new Set(ids);
-    const times = ids
+    const valid = ids.filter((id) => /^\d+-\d+$/.test(id));
+    const wanted = new Set(valid);
+    const found = new Map<string, How>();
+    if (valid.length === 0) return found;
+    const times = valid
         .map((id) => Number(id.slice(0, id.lastIndexOf("-"))))
         .filter(Number.isFinite);
-    const found = new Map<string, How>();
     if (times.length === 0) return found;
     const day = new Date(Math.min(at, ...times));
-    const last = localDay(Math.max(at, ...times));
-    while (localDay(day.getTime()) <= last) {
+    day.setDate(day.getDate() - 1);
+    const last = new Date(Math.max(at, ...times));
+    last.setDate(last.getDate() + 1);
+    const through = localDay(last.getTime());
+    while (localDay(day.getTime()) <= through) {
         for (const event of (
             await read.snapshot(
                 OversightDayDoc,
@@ -398,6 +403,7 @@ export async function ended(
             if (event.type === "settled" && wanted.has(event.id))
                 found.set(event.id, event.how);
         }
+        if (found.size === wanted.size) return found;
         day.setDate(day.getDate() + 1);
     }
     return found;

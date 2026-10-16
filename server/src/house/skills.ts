@@ -1,6 +1,7 @@
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
+import type { FileErrorCode } from "@earendil-works/pi-durable/env";
 import { buildHouse, houseOf, type Layout } from "../home/layout.ts";
 import { type AgentRef, agentKey } from "../record.ts";
 import { err, ok, type Result } from "../result.ts";
@@ -45,20 +46,31 @@ export function parseSkill(text: string): Omit<Skill, "folder"> | undefined {
     };
 }
 
-/** Notes that could not be read without changing their bytes. */
-export type NotesFailure = {
-    operation: "read-notes";
-    agent: AgentRef;
-    retrySafe: true;
-} & ({ kind: "notes-not-utf8" } | { kind: "notes-unreadable" });
+/** Notes that could not be read or changed safely. */
+export type NotesFailure =
+    | ({ operation: "read-notes"; agent: AgentRef; retrySafe: true } & (
+          | { kind: "notes-missing" }
+          | { kind: "notes-not-utf8" }
+          | { kind: "notes-unreadable" }
+      ))
+    | ({ operation: "write-notes"; agent: AgentRef; retrySafe: false } & (
+          | { kind: "notes-unavailable" }
+          | { kind: "notes-write-refused"; code: FileErrorCode; text: string }
+      ));
 
-/** Safe words for a refused notes read. */
+/** Safe words for a refused notes operation. */
 export function notesFailureText(error: NotesFailure): string {
     switch (error.kind) {
+        case "notes-missing":
+            return "The agent's NOTES.md is missing. Create its notes before trying again.";
         case "notes-not-utf8":
             return "The agent's NOTES.md is not UTF-8 text. Keep its original bytes aside and correct the file.";
         case "notes-unreadable":
             return "The agent's NOTES.md could not be read safely. Inspect its house before trying again.";
+        case "notes-unavailable":
+            return "The agent's house could not be opened.";
+        case "notes-write-refused":
+            return error.text;
     }
     const unhandled: never = error;
     throw new Error(`Unclassified notes failure: ${unhandled}`);
@@ -82,7 +94,7 @@ export class House {
         reader: (agent: AgentRef, context: Context) => SandboxEnv,
     ) {
         this.#layout = layout;
-        this.#agent = agent;
+        this.#agent = { ...agent };
         this.path = houseOf(layout, agent);
         this.#reader = reader;
     }
@@ -92,24 +104,30 @@ export class House {
         return this.#env;
     }
 
-    /** Missing notes use the initial heading; invalid bytes are never replaced. */
+    /** Missing notes and invalid UTF-8 are distinct refusals; original bytes are never replaced. */
     async notes(
         context: Context,
-    ): Promise<Result<{ text: string; bytes: Buffer }, NotesFailure>> {
+    ): Promise<
+        Result<
+            { text: string; bytes: Buffer },
+            Extract<NotesFailure, { operation: "read-notes" }>
+        >
+    > {
         const read = await this.#environment(context).readBinaryFile(
             join(this.path, "NOTES.md"),
             context,
         );
-        if (!read.ok && read.error.code !== "not_found")
+        if (!read.ok)
             return err({
-                kind: "notes-unreadable",
+                kind:
+                    read.error.code === "not_found"
+                        ? "notes-missing"
+                        : "notes-unreadable",
                 operation: "read-notes",
                 agent: this.#agent,
                 retrySafe: true,
             });
-        const bytes = read.ok
-            ? Buffer.from(read.value)
-            : Buffer.from("# Notes\n");
+        const bytes = Buffer.from(read.value);
         try {
             const text = new TextDecoder("utf-8", {
                 fatal: true,
@@ -170,6 +188,7 @@ export class House {
 
     /** Bounded papers read under this house's own policy. */
     skills(context: Context): Promise<Skill[]> {
+        this.#until = 0;
         return this.#shelf(true, context);
     }
 
@@ -205,6 +224,7 @@ export class House {
 /** House readers owned and closed by one open home. */
 export class Houses {
     readonly #kept = new Map<string, House>();
+    #delivery: Promise<unknown> = Promise.resolve();
     readonly #layout: Layout;
     readonly #reader: (agent: AgentRef, context: Context) => SandboxEnv;
 
@@ -233,6 +253,13 @@ export class Houses {
         for (const house of this.#kept.values())
             if (house.path === root || house.path.startsWith(`${root}/`))
                 house.invalidate();
+    }
+
+    /** Serializes tree claims across every receiving house. */
+    async deliver<T>(work: () => Promise<T>): Promise<T> {
+        const next = this.#delivery.catch(() => {}).then(work);
+        this.#delivery = next;
+        return next;
     }
 
     /** Closes every reader, including houses no longer in the record. */

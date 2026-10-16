@@ -13,6 +13,7 @@ import {
     type State,
     type Wait,
 } from "../protocol.ts";
+import { findInState } from "../realm/roads.ts";
 import { connectChief } from "./client.ts";
 
 /** A terminal chat over the protocol, with answers on `out` and everything else on `err` (S13, C30). */
@@ -50,12 +51,11 @@ export async function chat(options: {
         const resolve = (to: Address): Address => {
             if (!state.hamlets.some((hamlet) => hamlet.id === to.hamlet))
                 throw new Error(`no hamlet named \`${to.hamlet}\``);
+            const ref = findInState(state, to);
             const agent = state.agents.find(
                 (agent) =>
-                    agent.ref.hamlet === to.hamlet &&
-                    (to.agent === "mayor"
-                        ? agent.mayor
-                        : agent.name === to.agent),
+                    agent.ref.hamlet === ref?.hamlet &&
+                    agent.ref.number === ref.number,
             );
             if (agent === undefined)
                 throw new Error(`no agent named \`${to.agent}\``);
@@ -113,18 +113,20 @@ export async function chat(options: {
                                 : undefined;
                         if (kind === "hamlet" && hamlet === undefined)
                             throw new Error(`no hamlet named \`${name}\``);
-                        const agent =
+                        const ref =
                             kind === "agent"
-                                ? state.agents.find(
-                                      (agent) =>
-                                          !agent.left &&
-                                          (name === "mayor"
-                                              ? agent.mayor &&
-                                                agent.ref.hamlet ===
-                                                    target.hamlet
-                                              : agent.name === name),
-                                  )
+                                ? findInState(state, {
+                                      agent: name,
+                                      ...(name === "mayor"
+                                          ? { hamlet: target.hamlet }
+                                          : {}),
+                                  })
                                 : undefined;
+                        const agent = state.agents.find(
+                            (agent) =>
+                                agent.ref.hamlet === ref?.hamlet &&
+                                agent.ref.number === ref.number,
+                        );
                         if (kind === "agent" && agent === undefined)
                             throw new Error(`no agent named \`${name}\``);
                         const next = resolve(

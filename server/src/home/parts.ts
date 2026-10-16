@@ -1,11 +1,11 @@
 import { Agents, Leaving, Merging } from "../agents.ts";
+import { Choice } from "../chats/configure.ts";
 import { Talk } from "../chats.ts";
 import { Gate } from "../gate.ts";
 import { Hand } from "../hand.ts";
 import type { Part } from "../home.ts";
 import { Letters } from "../letters.ts";
 import { Librarian } from "../library.ts";
-import { Choice, Providers } from "../models.ts";
 import { Objections } from "../oversight.ts";
 import { HamletBrief, Prompt } from "../prompt.ts";
 import { Dealings, Founding } from "../realm.ts";
@@ -35,5 +35,4 @@ export const PARTS: readonly Part[] = [
     Talk,
     Budget,
     Choice,
-    Providers,
 ];

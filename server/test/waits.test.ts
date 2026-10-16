@@ -5,11 +5,12 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it, vi } from "vitest";
-import { chatOf, type With } from "../src/chats.ts";
+import { current, type With } from "../src/chats.ts";
 import {
     dismiss,
     ended,
     lapse,
+    OversightDayDoc,
     raise,
     raiseFault,
     settle,
@@ -98,8 +99,35 @@ describe("what waits for a chief", () => {
         expect(
             await ended(home.harness, [wait?.id ?? ""], context, home.now()),
         ).toEqual(new Map([[wait?.id, "allow"]]));
+        expect(
+            (
+                await home.harness.snapshot(
+                    OversightDayDoc,
+                    "2026-10-14",
+                    context,
+                )
+            )?.events,
+        ).toEqual([
+            {
+                type: "raised",
+                at: NOON,
+                id: wait?.id,
+                kind: "approval",
+                by: "mayor",
+                agent: MAYOR,
+                about: "ls",
+            },
+            {
+                type: "settled",
+                at: NOON + 60_000,
+                id: wait?.id,
+                how: "allow",
+                text: "",
+                chief: CHIEF,
+            },
+        ]);
         for (const chief of [CHIEF, "bea"]) {
-            const chat = await chatOf(home, { agent: MAYOR, chief }, context);
+            const chat = await current(home, { agent: MAYOR, chief }, context);
             const result = (await transcript(chat)).find(
                 (entry) => entry.kind === "pi.tool-result",
             );
@@ -155,6 +183,31 @@ describe("what waits for a chief", () => {
                 ([, how]) => how,
             ),
         ).toEqual(["stopped", "rewound"]);
+        const events =
+            (
+                await home.harness.snapshot(
+                    OversightDayDoc,
+                    "2026-10-14",
+                    context,
+                )
+            )?.events ?? [];
+        expect(
+            events.flatMap((event) =>
+                event.type === "settled"
+                    ? [
+                          {
+                              how: event.how,
+                              chief: event.chief,
+                              at: event.at,
+                              text: event.text,
+                          },
+                      ]
+                    : [],
+            ),
+        ).toEqual([
+            { how: "stopped", chief: CHIEF, at: NOON, text: "" },
+            { how: "rewound", chief: null, at: NOON, text: "" },
+        ]);
     });
 
     it("lapses only the waits of the chat it is given, and on a rewind only those raised since the message", async () => {

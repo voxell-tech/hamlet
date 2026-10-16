@@ -9,6 +9,7 @@ import {
     section,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { reconfigure } from "../chats/configure.ts";
 import { tellChiefs, WithDoc } from "../chats/conversations.ts";
 import { agentOf } from "../chats/errands.ts";
 import { stopAgent } from "../chats.ts";
@@ -16,9 +17,8 @@ import { WorkDoc } from "../environment.ts";
 import { GrantsDoc, grantsOf, revoke } from "../gate.ts";
 import { buildHouse } from "../home/layout.ts";
 import type { Home, Part } from "../home.ts";
-import { removeHouse } from "../house.ts";
+import { erase as removeHouse, treeFailureText } from "../house.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
-import { reconfigure } from "../models.ts";
 import { lapseAgent } from "../oversight/waits.ts";
 import {
     agentKey,
@@ -431,7 +431,9 @@ async function finishHamlets(home: Home, context: Context): Promise<void> {
                         continue;
                     throw error;
                 }
-                await removeHouse(home, dir);
+                const treeOutcome1 = await removeHouse(home, dir);
+                if (!treeOutcome1.ok)
+                    throw new Error(treeFailureText(treeOutcome1.error));
                 continue;
             }
             const record = await home.harness.snapshot(

@@ -10,7 +10,7 @@ import {
 import type { Storage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { describe, expect, it } from "vitest";
-import { followHome } from "../src/chats.ts";
+
 import { localDay } from "../src/home/clock.ts";
 import { HOME } from "../src/record.ts";
 import { amountOf, booksOf, ledgerOf, resetBudget } from "../src/spend.ts";
@@ -265,11 +265,11 @@ describe("the spend ledger", () => {
             fauxAssistantMessage("Two."),
         ]);
         await (await say(home, "First.")).wait(context);
-        await followHome(home, context);
+        await home.follow.settled(context);
         scans = 0;
 
         await (await say(home, "Next.")).wait(context);
-        await followHome(home, context);
+        await home.follow.settled(context);
         const books = await booksOf(home, HOME, "day", null, context);
         const state = await stateOf(home, { epoch: 1, revision: 0 }, context);
 

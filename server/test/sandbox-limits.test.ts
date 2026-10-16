@@ -9,8 +9,7 @@ import { closedPolicy } from "../src/sandbox/reach.ts";
 import { Seatbelt } from "../src/sandbox/seatbelt.ts";
 import type { Sandbox } from "../src/sandbox.ts";
 import { probeSandbox, SandboxEnv } from "../src/sandbox.ts";
-import { houseEnv } from "./sandbox-support.ts";
-import { context, scratch, sh } from "./support.ts";
+import { context, houseEnv, scratch, sh } from "./support.ts";
 
 describe("a sandboxed command's ending", () => {
     it("passes its exit code through, and a signal as 128 and its number", async () => {
@@ -148,31 +147,38 @@ describe("a policy's hash", () => {
         ).toBe(hash);
     });
 
-    it("changes when any field, the sandbox or a limit changes", () => {
+    it("changes for different reach or a different sandbox", () => {
         const hash = policyHash(policy(), "bwrap");
-        const changes: Partial<Policy>[] = [
-            { ro: [] },
-            { rw: ["/house", "/folder"] },
-            { open: true },
-            { hidden: ["/home"] },
-            { locked: ["/house/.git"] },
-            { net: true },
-            { services: [{ port: 9418, socket: "/git.sock" }] },
-            { env: { PATH: "/bin", LANG: "C.UTF-8" } },
-            { limits: { cpuSecs: 61 } },
-            { limits: { wallSecs: 121 } },
-            { limits: { maxProcs: 4097 } },
-            { limits: { maxFileMb: 513 } },
-        ];
-
+        expect(policyHash({ ...policy(), net: true }, "bwrap")).not.toBe(hash);
         expect(policyHash(policy(), "seatbelt")).not.toBe(hash);
-        for (const change of changes) {
-            expect({
-                change,
-                hash: policyHash({ ...policy(), ...change }, "bwrap"),
-            }).not.toEqual({ change, hash });
-        }
     });
+
+    const changes: { field: string; change: Partial<Policy> }[] = [
+        { field: "ro", change: { ro: [] } },
+        { field: "rw", change: { rw: ["/house", "/folder"] } },
+        { field: "open", change: { open: true } },
+        { field: "hidden", change: { hidden: ["/home"] } },
+        { field: "locked", change: { locked: ["/house/.git"] } },
+        { field: "fixed", change: { fixed: ["/house"] } },
+        { field: "net", change: { net: true } },
+        {
+            field: "services",
+            change: { services: [{ port: 9418, socket: "/git.sock" }] },
+        },
+        { field: "env", change: { env: { PATH: "/bin", LANG: "C.UTF-8" } } },
+        { field: "cpuSecs", change: { limits: { cpuSecs: 61 } } },
+        { field: "wallSecs", change: { limits: { wallSecs: 121 } } },
+        { field: "maxProcs", change: { limits: { maxProcs: 4097 } } },
+        { field: "maxFileMb", change: { limits: { maxFileMb: 513 } } },
+    ];
+    it.each(changes)(
+        "isolates environments when $field changes",
+        ({ change }) => {
+            expect(policyHash({ ...policy(), ...change }, "bwrap")).not.toBe(
+                policyHash(policy(), "bwrap"),
+            );
+        },
+    );
 
     it("names the policy of each environment", () => {
         const house = scratch();

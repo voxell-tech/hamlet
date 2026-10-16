@@ -75,7 +75,6 @@ type RecordReason =
     | { kind: "realm-road-local" | "realm-road-neither"; a: string; b: string }
     | { kind: "move-already-there" | "move-neither"; name: string }
     | { kind: "merge-too-large" | "merge-path" }
-    | { kind: "merge-source-unsafe"; text: string }
     | { kind: "merge-path-taken"; path: string }
     | {
           kind: "unsplit-merge";
@@ -246,8 +245,6 @@ export function recordRefusalText(
             return "The absorbed house is over 512 MiB or 20000 files. Remove the agent instead.";
         case "merge-path":
             return "A merge needs ordinary relative file paths.";
-        case "merge-source-unsafe":
-            return error.text;
         case "merge-path-taken":
             return `The merge needs \`${error.path}\`, which already exists; keep it aside before merging.`;
         case "unsplit-merge":

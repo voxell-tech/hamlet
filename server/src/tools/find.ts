@@ -2,6 +2,8 @@ import type { Context } from "@earendil-works/chord";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import { err, ok, type Result } from "../result.ts";
+import { type SearchFailure, toolFailureText } from "./failure.ts";
 import {
     envOf,
     FOUND,
@@ -35,9 +37,21 @@ export const Find = defineTool({
         "List a folder, or find files by name under it. Without `name` it lists what is directly in the folder. With `name` it gives every file under the folder whose name matches, up to 100. Never waits for approval: use it rather than ls or find.",
     parameters,
     replay: "safe",
-    execute: async (args, api, context) => ({
-        output: [{ type: "text", text: await find(envOf(api), args, context) }],
-    }),
+    execute: async (args, api, context) => {
+        const env = envOf(api, "find");
+        const result = env.ok ? await find(env.value, args, context) : env;
+        return {
+            output: [
+                {
+                    type: "text",
+                    text: result.ok
+                        ? result.value
+                        : toolFailureText(result.error),
+                },
+            ],
+            ...(!result.ok && { isError: true }),
+        };
+    },
 });
 
 /** A folder's entries, sorted with `/` after each folder, or the files under it whose name `name` matches, read through `env` (reading.rs:306-345). */
@@ -45,21 +59,35 @@ export async function find(
     env: ExecutionEnv,
     args: { path?: string; name?: string },
     context: Context,
-): Promise<string> {
-    const root = await reached(env, args.path, context);
+): Promise<Result<string, SearchFailure>> {
+    const reachedRoot = await reached(env, args.path, context, "find");
+    if (!reachedRoot.ok) return reachedRoot;
+    const root = reachedRoot.value;
     if (root.info.kind !== "directory") {
-        throw new Error(`${shown(env, root.full)} is not a folder`);
+        return err({
+            kind: "not-a-folder",
+            operation: "find",
+            retrySafe: true,
+            path: shown(env, root.full),
+        });
     }
     const { name } = args;
     if (!name) {
         const listed = await env.listDir(root.full, context);
-        if (!listed.ok) throw new Error(listed.error.message);
+        if (!listed.ok)
+            return err({
+                kind: "unreadable",
+                operation: "find",
+                retrySafe: true,
+                path: shown(env, root.full),
+                reason: listed.error.code,
+            });
         const entries = listed.value
             .map((entry) =>
                 entry.kind === "directory" ? `${entry.name}/` : entry.name,
             )
             .sort();
-        return entries.length === 0 ? "(empty)" : entries.join("\n");
+        return ok(entries.length === 0 ? "(empty)" : entries.join("\n"));
     }
     const found: string[] = [];
     const capped = await walk(
@@ -72,5 +100,5 @@ export async function find(
         },
         context,
     );
-    return report(found, capped, "no file by that name");
+    return ok(report(found, capped, "no file by that name"));
 }

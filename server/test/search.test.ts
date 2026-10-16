@@ -3,10 +3,24 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openPolicy } from "../src/sandbox/reach.ts";
 import { SandboxEnv } from "../src/sandbox.ts";
-import { find } from "../src/tools/find.ts";
-import { search } from "../src/tools/search.ts";
-import { globMatches, wanted } from "../src/tools/walk.ts";
+import { find as findResult } from "../src/tools/find.ts";
+import { search as searchResult } from "../src/tools/search.ts";
+import { envOf, globMatches, wanted } from "../src/tools/walk.ts";
+import { toolFailureText } from "../src/tools.ts";
 import { context, scratch } from "./support.ts";
+
+async function search(...args: Parameters<typeof searchResult>) {
+    const result = await searchResult(...args);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("search failed");
+    return result.value;
+}
+async function find(...args: Parameters<typeof findResult>) {
+    const result = await findResult(...args);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("find failed");
+    return result.value;
+}
 
 /** A project folder beside a home, seen from the folder as an agent of the home sees it. */
 function project() {
@@ -43,17 +57,17 @@ describe("search (reading.rs:389)", () => {
     it("finds a pattern in the files under a folder, and only in text files of reasonable size outside build folders", async () => {
         const { env } = project();
 
-        expect(await search(env, { pattern: "fn\\s+main|todo" }, context)).toBe(
-            "src/main.rs:1: fn main() {\nsrc/main.rs:2:     todo!()",
-        );
+        expect(
+            await search(env, { pattern: "fn\\s+main|todo" }, context),
+        ).toEqual("src/main.rs:1: fn main() {\nsrc/main.rs:2:     todo!()");
         expect(
             await search(
                 env,
                 { pattern: "todo", ignore_case: true, name: "mod.*" },
                 context,
             ),
-        ).toBe("src/deep/mod.rs:1: // TODO later");
-        expect(await search(env, { pattern: "nowhere" }, context)).toBe(
+        ).toEqual("src/deep/mod.rs:1: // TODO later");
+        expect(await search(env, { pattern: "nowhere" }, context)).toEqual(
             "no match",
         );
     });
@@ -61,16 +75,14 @@ describe("search (reading.rs:389)", () => {
     it("names a pattern it cannot take, and refuses a backreference in words", async () => {
         const { env } = project();
 
-        await expect(search(env, { pattern: "(" }, context)).rejects.toThrow(
-            "`pattern` is not a regular expression: ",
-        );
-        await expect(
-            search(env, { pattern: "(a)\\1" }, context),
-        ).rejects.toThrow(
-            "`pattern` holds a backreference, a lookaround or another part a search in linear time cannot take",
-        );
-        await expect(search(env, { pattern: "" }, context)).rejects.toThrow(
-            "`pattern` is required",
+        expect(
+            await searchResult(env, { pattern: "(" }, context),
+        ).toMatchObject({ ok: false, error: { kind: "pattern-invalid" } });
+        expect(
+            await searchResult(env, { pattern: "(a)\\1" }, context),
+        ).toMatchObject({ ok: false, error: { kind: "pattern-not-linear" } });
+        expect(await searchResult(env, { pattern: "" }, context)).toMatchObject(
+            { ok: false, error: { kind: "pattern-empty" } },
         );
     });
 
@@ -81,7 +93,7 @@ describe("search (reading.rs:389)", () => {
         const started = Date.now();
         expect(
             await search(env, { pattern: "(a+)+$", path: "long.txt" }, context),
-        ).toBe("no match");
+        ).toEqual("no match");
         expect(Date.now() - started).toBeLessThan(1000);
     });
 
@@ -93,8 +105,8 @@ describe("search (reading.rs:389)", () => {
             await search(env, { pattern: "hit", path: "many.txt" }, context)
         ).split("\n");
         expect(hits).toHaveLength(101);
-        expect(hits[99]).toBe("many.txt:100: hit");
-        expect(hits[100]).toBe(
+        expect(hits[99]).toEqual("many.txt:100: hit");
+        expect(hits[100]).toEqual(
             "[more than 100. Narrow it with `path` or `name`]",
         );
     });
@@ -109,13 +121,17 @@ describe("search (reading.rs:389)", () => {
                 { pattern: "fn main", name: "api_key.*" },
                 context,
             ),
-        ).toBe("no match");
-        await expect(
-            search(env, { pattern: "fn main", path: home }, context),
-        ).rejects.toThrow();
+        ).toEqual("no match");
+        expect(
+            await searchResult(
+                env,
+                { pattern: "fn main", path: home },
+                context,
+            ),
+        ).toMatchObject({ ok: false, error: { kind: "unreadable" } });
         expect(
             await search(env, { pattern: "mine", path: house }, context),
-        ).toBe("home/houses/home/0/NOTES.md:1: mine");
+        ).toEqual("home/houses/home/0/NOTES.md:1: mine");
     });
 });
 
@@ -124,22 +140,25 @@ describe("find (reading.rs:389)", () => {
         const { env, folder } = project();
         mkdirSync(join(folder, "empty"));
 
-        expect(await find(env, { path: "src" }, context)).toBe(
+        expect(await find(env, { path: "src" }, context)).toEqual(
             "deep/\nmain.rs",
         );
-        expect(await find(env, { path: "empty" }, context)).toBe("(empty)");
-        await expect(
-            find(env, { path: "src/main.rs" }, context),
-        ).rejects.toThrow("src/main.rs is not a folder");
+        expect(await find(env, { path: "empty" }, context)).toEqual("(empty)");
+        expect(
+            await findResult(env, { path: "src/main.rs" }, context),
+        ).toMatchObject({
+            ok: false,
+            error: { kind: "not-a-folder", path: "src/main.rs" },
+        });
     });
 
     it("finds names under a folder in walk order, its files before its folders", async () => {
         const { env } = project();
 
-        expect(await find(env, { name: "*.rs" }, context)).toBe(
+        expect(await find(env, { name: "*.rs" }, context)).toEqual(
             "src/main.rs\nsrc/deep/mod.rs",
         );
-        expect(await find(env, { name: "nothing" }, context)).toBe(
+        expect(await find(env, { name: "nothing" }, context)).toEqual(
             "no file by that name",
         );
     });
@@ -147,13 +166,26 @@ describe("find (reading.rs:389)", () => {
 
 describe("a name a glob asks for (reading.rs:378)", () => {
     it("takes * for any run and ? for one character, and a glob with / against the path under the folder", () => {
-        expect(globMatches("*.rs", "main.rs")).toBe(true);
-        expect(globMatches("ma?n.*", "main.rs")).toBe(true);
-        expect(globMatches("*", "")).toBe(true);
-        expect(globMatches("*.rs", "main.rs.bak")).toBe(false);
-        expect(globMatches("main", "main.rs")).toBe(false);
-        expect(wanted("src/*/mod.rs", "src/a/mod.rs")).toBe(true);
-        expect(wanted("mod.rs", "src/a/lib.rs")).toBe(false);
-        expect(wanted("mod.rs", "src/a/mod.rs")).toBe(true);
+        expect(globMatches("*.rs", "main.rs")).toEqual(true);
+        expect(globMatches("ma?n.*", "main.rs")).toEqual(true);
+        expect(globMatches("*", "")).toEqual(true);
+        expect(globMatches("*.rs", "main.rs.bak")).toEqual(false);
+        expect(globMatches("main", "main.rs")).toEqual(false);
+        expect(wanted("src/*/mod.rs", "src/a/mod.rs")).toEqual(true);
+        expect(wanted("mod.rs", "src/a/lib.rs")).toEqual(false);
+        expect(wanted("mod.rs", "src/a/mod.rs")).toEqual(true);
+    });
+});
+
+it("renders a refused search with a permitted next action and reports a missing environment as an outcome", async () => {
+    const { env } = project();
+    const result = await searchResult(env, { pattern: "(a)\\1" }, context);
+    if (result.ok) throw new Error("expected refusal");
+    expect(toolFailureText(result.error)).toContain(
+        "Use a linear-time pattern.",
+    );
+    expect(envOf({ env: undefined }, "search")).toEqual({
+        ok: false,
+        error: { kind: "no-environment", operation: "search", retrySafe: true },
     });
 });

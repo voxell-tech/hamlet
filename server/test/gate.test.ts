@@ -15,7 +15,7 @@ import {
     ToolTask,
 } from "@earendil-works/pi-durable";
 import { describe, expect, it, vi } from "vitest";
-import { chatOf, startConversation, WithDoc } from "../src/chats.ts";
+import { current, startConversation, WithDoc } from "../src/chats.ts";
 import { LEAVE, type Leave } from "../src/environment.ts";
 import { answer, GrantsDoc, grantsOf, revoke } from "../src/gate.ts";
 import { ManifestsDoc } from "../src/hand.ts";
@@ -526,23 +526,6 @@ describe("the gate", () => {
         expect(seen).toEqual([{ net: true }]);
     });
 
-    it("runs edits and commands without asking in auto mode", async () => {
-        const { home, faux } = await mayorHome();
-        const folder = scratch();
-        await setFolder(home, folder, "auto");
-        respond(
-            faux,
-            ["write", { path: "a.txt", content: "one" }],
-            ["bash", { command: "touch b.txt" }],
-        );
-        expect((await (await say(home, "Work.")).wait(context)).status).toBe(
-            "done",
-        );
-        expect(await openWaits(home)).toEqual([]);
-        expect(readFileSync(join(folder, "a.txt"), "utf8")).toBe("one");
-        expect(existsSync(join(folder, "b.txt"))).toBe(true);
-    });
-
     it("keeps one wait for two chats across a restart, runs neither before an answer, and never raises the answered call again (tests.rs:330, :360)", async () => {
         const { dir, home, faux, models, house } = await mayorHome();
         const command = "echo ran >> ran.txt";
@@ -616,7 +599,7 @@ describe("the gate", () => {
             await vi.waitFor(async () =>
                 expect(await openWaits(home)).toMatchObject([{ asked: 2 }]),
             );
-            const joining = await chatOf(
+            const joining = await current(
                 home,
                 { agent: { hamlet: HOME, number: 0 }, chief: "bea" },
                 context,

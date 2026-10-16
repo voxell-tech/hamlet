@@ -8,6 +8,7 @@ export {
     trustKey,
 } from "./oversight/asked.ts";
 export { holdFor, Objections } from "./oversight/objections.ts";
+export { waitsView } from "./oversight/state.ts";
 export {
     type Change,
     type Choice,

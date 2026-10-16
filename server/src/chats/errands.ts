@@ -4,39 +4,17 @@ import {
     type ConversationId,
     configure,
     type DocumentReader,
-    defineDoc,
     type ToolRegistration,
     type Tx,
 } from "@earendil-works/pi-durable";
 import type { Home } from "../home.ts";
-import { configureAgent } from "../models/choice.ts";
 import type { AgentRef } from "../record.ts";
+import { configureAgent } from "./configure.ts";
 import { ErrandEntry, startConversation, WithDoc } from "./conversations.ts";
 
-/** The purpose of a one-off model call. */
-export type ErrandKind = "ballot" | "answer" | "librarian" | "notes" | "review";
+import { ErrandDoc, type ErrandKind, PayerDoc } from "./documents.ts";
 
-/** The role and prompt ownership of a one-off call. */
-export const ErrandDoc = defineDoc<{
-    kind: ErrandKind | null;
-    own: boolean;
-}>({
-    kind: "hamlet.errand",
-    version: 1,
-    scope: "conversation",
-    history: "latest",
-    fork: "current",
-    initial: () => ({ kind: null, own: true }),
-});
-/** A conversation's paying hamlet (H14). */
-export const PayerDoc = defineDoc<{ hamlet: string | null }>({
-    kind: "hamlet.payer",
-    version: 1,
-    scope: "conversation",
-    history: "latest",
-    fork: "current",
-    initial: () => ({ hamlet: null }),
-});
+export { ErrandDoc, type ErrandKind, PayerDoc } from "./documents.ts";
 /** The agent whose prompt belongs in a conversation. */
 export async function agentOf(
     read: DocumentReader,

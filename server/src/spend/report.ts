@@ -1,10 +1,9 @@
 import type { Context } from "@earendil-works/chord";
 import type { Home } from "../home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
-import { choose } from "../models.ts";
 import type { Report } from "../protocol.ts";
 import { RecordDoc } from "../record.ts";
-import { SettingsDoc, settingsOf } from "../settings.ts";
+import { choose, SettingsDoc, settingsOf } from "../settings.ts";
 import { type Books, booksOf } from "./ledger.ts";
 import { type Amount, type Caps, meters, micros, money } from "./money.ts";
 

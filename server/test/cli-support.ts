@@ -5,9 +5,11 @@ import {
 } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { PassThrough, Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { expect, vi } from "vitest";
+import { main } from "../src/cli.ts";
 import type { Script } from "../src/models.ts";
 import { closeAfter, scratch } from "./support.ts";
 
@@ -138,4 +140,29 @@ finally:
         },
     );
     return JSON.parse(result.stdout) as { code: number; output: string };
+}
+
+/** Runs the command's interface without mutating the process environment or streams. */
+export function inProcess(
+    args: string[],
+    home: string,
+    input = "",
+    env: NodeJS.ProcessEnv = {},
+) {
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let out = "",
+        err = "";
+    stdout.on("data", (chunk) => {
+        out += chunk;
+    });
+    stderr.on("data", (chunk) => {
+        err += chunk;
+    });
+    const ended = main(
+        args,
+        { ...process.env, HAMLET_HOME: home, HAMLET_USER: "chief", ...env },
+        { stdin: Readable.from([input]), stdout, stderr },
+    );
+    return { ended, out: () => out, err: () => err };
 }

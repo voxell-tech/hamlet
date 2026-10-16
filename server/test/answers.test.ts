@@ -1,10 +1,11 @@
 import { createProvider } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it, vi } from "vitest";
-import { followHome, reflect, TaskDoc } from "../src/chats.ts";
+import { reflect, TaskDoc } from "../src/chats.ts";
 import type { ServerMessage } from "../src/protocol.ts";
 import { watchChat } from "../src/transcript.ts";
 import {
+    admitted,
     CHIEF,
     closeAfter,
     context,
@@ -33,7 +34,7 @@ describe("answers", () => {
         expect(await (await say(home, "Answer.")).wait(context)).toMatchObject({
             status: "unanswered",
         });
-        await followHome(home, context);
+        await home.follow.settled(context);
         expect(await openWaits(home)).toMatchObject([
             {
                 kind: "fault",
@@ -75,7 +76,7 @@ describe("answers", () => {
             await vi.waitFor(() => expect(faux.state.callCount).toBe(5));
             const conversation = await mayorChat(home);
             await conversation.waitForIdle(context);
-            await followHome(home, context);
+            await home.follow.settled(context);
             const entries = await transcript(conversation);
             const chief = entries
                 .filter((entry) => entry.kind === "hamlet.chief")
@@ -263,7 +264,7 @@ it("keeps a repeated model fault until the chief dismisses it", async () => {
     faux.setResponses([failed, failed]);
     await (await say(home, "Fail.")).wait(context);
     await (await say(home, "Fail again.")).wait(context);
-    await followHome(home, context);
+    await home.follow.settled(context);
     expect(await openWaits(home)).toMatchObject([
         { kind: "fault", asked: 2, about: "Bad request" },
     ]);
@@ -343,15 +344,13 @@ it("treats a cut-off reflection as an empty answer, without summarising or retry
     ]);
     await (await say(home, "Long.")).wait(context);
     await (await say(home, "Earlier.")).wait(context);
-    const reflection = await reflect(
-        home,
-        { agent: MAYOR, chief: CHIEF },
-        context,
+    const reflection = await admitted((submitted) =>
+        reflect(home, { agent: MAYOR, chief: CHIEF }, context, submitted),
     );
     expect(await reflection?.wait(context)).toMatchObject({
         status: "unanswered",
     });
-    await followHome(home, context);
+    await home.follow.settled(context);
     expect(JSON.stringify(await transcript(await mayorChat(home)))).toContain(
         "the model answered with nothing. Send the message again",
     );

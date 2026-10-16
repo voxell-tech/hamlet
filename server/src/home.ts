@@ -23,13 +23,13 @@ import {
 } from "./chats/conversations.ts";
 import { agentEnv, Confinement, houseReader, WorkDoc } from "./environment.ts";
 import { Credentials } from "./home/credentials.ts";
-import { buildHouse, type Layout, layOut } from "./home/layout.ts";
+import { type Layout, layOut } from "./home/layout.ts";
 import { claim } from "./home/lock.ts";
 import { PARTS } from "./home/parts.ts";
 import { Houses } from "./house/skills.ts";
 import { PeerStatistics } from "./letters.ts";
 import { LimitsDoc } from "./limits/rules.ts";
-import { homeModels } from "./models.ts";
+import { ModelHome } from "./models.ts";
 import { CharacterDoc } from "./prompt.ts";
 import { liveHamlets, RealmDoc } from "./realm/places.ts";
 import { agentKey, HOME, RecordDoc } from "./record.ts";
@@ -68,15 +68,20 @@ export type HomeBase = {
     readonly credentials: Credentials;
     /** Scrubs with current credentials before storage or display. */
     readonly secrets: Secrets;
-    readonly logins: Readonly<Record<string, OAuthAuth>>;
     now(): number;
 };
 
 /** A home this process holds open (S2, ADR 0005). */
 export type Home = HomeBase & {
+    /** The gate part owns its close state through this handle. */
+    gate?: { close(): void };
+    /** Settles the follow-up work already admitted by this home. */
+    readonly follow: { settled(context: Context): Promise<void> };
     readonly harness: Harness;
     readonly registry: Registry;
     readonly models: MutableModels;
+    /** Model links and provider state owned by this open home. */
+    readonly modelHome: ModelHome;
     /** Peer counts advanced from this harness's committed entries. */
     readonly peerStatistics: PeerStatistics;
     /** Room kept free for an answer, in tokens, which compaction keeps (C28). */
@@ -118,10 +123,10 @@ export async function openHome(
             overrides,
             credentials,
             secrets: secretsFrom(credentials),
-            logins: options.logins ?? {},
             now: options.now ?? Date.now,
         };
-        const models = options.models ?? homeModels(base);
+        const modelHome = new ModelHome(base, options.models, options.logins);
+        const models = modelHome.models;
         const registry = createRegistry();
         const compaction = {
             reserveTokens: DEFAULT_COMPACTION_POLICY.reserveTokens,
@@ -152,11 +157,22 @@ export async function openHome(
         void harness.closed.then(() => peerStatistics.close());
         const running: ReturnType<Part>[] = [];
         let closing: Promise<void> | undefined;
+        let follow: Home["follow"] | undefined;
         const home: Home = {
+            get follow() {
+                if (!follow)
+                    throw new Error(
+                        "The conversation follow part is not installed.",
+                    );
+                return follow;
+            },
             ...base,
             harness,
             registry,
-            models,
+            get models() {
+                return modelHome.models;
+            },
+            modelHome,
             compaction,
             peerStatistics,
             close: (context) => {
@@ -173,8 +189,11 @@ export async function openHome(
         };
         await found(home, context);
         running.push(
-            ...[...PARTS, ...(options.parts ?? [])].map((part) => part(home)),
+            ...[...PARTS, modelHome.part, ...(options.parts ?? [])].map(
+                (part) => part(home),
+            ),
         );
+        follow = running.find((part) => part.follow !== undefined)?.follow;
         for (const part of running) {
             if (part.extension !== undefined) registry.install(part.extension);
         }
@@ -262,7 +281,7 @@ async function found(home: Home, context: Context): Promise<void> {
         }
         return agents;
     }, context);
-    for (const agent of agents) await buildHouse(home.layout, agent);
+    for (const agent of agents) await home.houses.of(agent).build();
 }
 
 /**
@@ -271,6 +290,7 @@ async function found(home: Home, context: Context): Promise<void> {
  */
 export type Part = (home: Home) => {
     readonly extension?: Extension;
+    readonly follow?: Home["follow"];
     start?(context: Context): Promise<void>;
     stop?(context: Context): Promise<void>;
 };

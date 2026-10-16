@@ -3,7 +3,6 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { describe, expect, it, vi } from "vitest";
 import { localDay } from "../src/home/clock.ts";
-import { editSettings } from "../src/models.ts";
 import { HOME } from "../src/record.ts";
 import { SettingsDoc } from "../src/settings.ts";
 import { ledgerOf } from "../src/spend.ts";
@@ -47,7 +46,7 @@ describe("the home's model providers", () => {
             type: "api_key",
             key: "forgotten",
         }));
-        await editSettings(home, { endpoints: [] }, context);
+        await home.modelHome.editSettings({ endpoints: [] }, context);
         expect(await home.credentials.read("local")).toBeUndefined();
     });
 
@@ -183,8 +182,7 @@ it("restores the stored endpoint's address and fallback price after a base URL o
         },
     });
     const savedUrl = endpoint.url.replace("127.0.0.1", "[::ffff:127.0.0.1]");
-    await editSettings(
-        home,
+    await home.modelHome.editSettings(
         {
             model: "local::org/large",
             endpoints: [{ name: "local", baseUrl: savedUrl }],
@@ -207,12 +205,14 @@ it("refuses credentials in an endpoint address without changing settings", async
     const home = await testHome(scratch(), { models });
     const before = await home.harness.snapshot(SettingsDoc, context);
     await expect(
-        editSettings(
-            home,
+        home.modelHome.editSettings(
             { endpoints: [{ name: "private", baseUrl: "http://u:p@host/v1" }] },
             context,
         ),
-    ).rejects.toThrow("Keep credentials out of an endpoint's address.");
+    ).resolves.toMatchObject({
+        ok: false,
+        error: { kind: "address-has-credentials" },
+    });
     expect(await home.harness.snapshot(SettingsDoc, context)).toEqual(before);
 });
 
@@ -231,3 +231,56 @@ it("charges a provider's explicit zero bill instead of the catalogue price", asy
         await ledgerOf(home, HOME, localDay(home.now()), context),
     ).toMatchObject([{ what: "model", tokens: 120, micros: 0, billed: 0 }]);
 });
+
+it.each(["localhost:11434/v1", "http://chief:secret@127.0.0.1:1/v1"])(
+    "books catalogue prices with an unusable default override %s",
+    async (baseUrl) => {
+        const endpoint = await openaiFake();
+        endpoint.usage({ prompt_tokens: 100, completion_tokens: 20 });
+        const dir = scratch();
+        const seed = await testHome(dir, { models: fauxModels().models });
+        expect(
+            await seed.modelHome.editSettings(
+                {
+                    endpoints: [
+                        { name: "local", baseUrl: "http://127.0.0.1:1/v1" },
+                        { name: "backup", baseUrl: endpoint.url },
+                    ],
+                },
+                context,
+            ),
+        ).toMatchObject({ ok: true });
+        await seed.close(context);
+        const home = await testHome(dir, {
+            env: {
+                HAMLET_MODEL: "local::tiny",
+                HAMLET_BASE_URL: baseUrl,
+                HAMLET_REFLECT_EVERY: "0",
+            },
+        });
+        const { LimitsDoc } = await import("../src/limits.ts");
+        await home.harness.commit(async (tx) => {
+            (await tx.doc(LimitsDoc, HOME, HOME)).model = "backup::org/large";
+        }, context);
+        expect(
+            await home.modelHome.editCatalogue(
+                "backup::org/large",
+                { price: { input: 2, output: 3 } },
+                context,
+            ),
+        ).toMatchObject({ ok: true });
+        expect(await (await say(home, "Hello.")).wait(context)).toMatchObject({
+            status: "done",
+        });
+        expect(
+            await ledgerOf(home, HOME, localDay(home.now()), context),
+        ).toMatchObject([
+            {
+                what: "model",
+                model: "backup::org/large",
+                tokens: 120,
+                micros: 260,
+            },
+        ]);
+    },
+);

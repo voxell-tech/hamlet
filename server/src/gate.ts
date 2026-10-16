@@ -4,11 +4,9 @@ import {
     defineExtension,
     hook,
     type SubmissionId,
-    type ToolHookCall,
     ToolTask,
-    type Tx,
 } from "@earendil-works/pi-durable";
-import { CHANGE, changeOf } from "./change.ts";
+import { CHANGE, changeBetween } from "./change.ts";
 import { ReflectionEntry, type With, WithDoc } from "./chats/conversations.ts";
 import { turnOf } from "./chats/turn.ts";
 import {
@@ -20,23 +18,19 @@ import {
     placeOf,
     WorkDoc,
 } from "./environment.ts";
-import { judge, type Reach, type Standing } from "./gate/danger.ts";
-import { GrantsDoc, give, grantsOf, holds } from "./gate/grants.ts";
-import { type Manifest, ManifestsDoc } from "./hand/manifests.ts";
+import { type Call, callOf, callText } from "./gate/call.ts";
+import { give } from "./gate/grants.ts";
+import { rule } from "./gate/rule.ts";
+import { standingOf } from "./gate/standing.ts";
+import { ManifestsDoc, reservedNames } from "./hand/manifests.ts";
 import { houseOf } from "./home/layout.ts";
 import type { Home, Part } from "./home.ts";
 import { LimitsDoc } from "./limits/rules.ts";
-import {
-    AskedDoc,
-    refuse,
-    refused,
-    TrustedDoc,
-    trustKey,
-} from "./oversight/asked.ts";
+import { AskedDoc, refuse, TrustedDoc, trustKey } from "./oversight/asked.ts";
 import {
     type Choice,
     type Danger,
-    OversightDoc,
+    open,
     type Ruling,
     RulingDoc,
     raise,
@@ -46,10 +40,11 @@ import {
 } from "./oversight/waits.ts";
 import { line, strip } from "./oversight/words.ts";
 import { holdFor } from "./oversight.ts";
-import { type ChiefResult, chiefAccess } from "./realm/access.ts";
+import { type ChiefRefusal, chiefAccess } from "./realm/access.ts";
 import { addressOf, RecordDoc } from "./record.ts";
+import { err, type Result } from "./result.ts";
+
 import { safeValue, safeWords } from "./scrub.ts";
-import { SettingsDoc, settingsOf } from "./settings.ts";
 
 /** The turn and decision of a call, kept until its tool task ends. */
 const CallDoc = defineDoc<{
@@ -66,13 +61,9 @@ const CallDoc = defineDoc<{
 type Decided = { run: Leave } | { block: string };
 type Decision = Decided | { wait: Danger };
 
-/** Characters of either side of an edit that a chief reads. */
-const EDIT_SHOWN = 2000;
-const closing = new WeakSet<Home>();
-
 /** Refusal of new reflection approvals while the home closes. */
 export function closeGate(home: Home): void {
-    closing.add(home);
+    home.gate?.close();
 }
 
 /** A chief's answer, with its reason. */
@@ -90,7 +81,9 @@ export function answer(
     context: Context,
 ): Promise<Wait | undefined> {
     return home.harness.commit(async (tx) => {
-        const wait = (await tx.doc(OversightDoc)).waits[given.wait];
+        const wait = (await open(tx, context)).find(
+            (wait) => wait.id === given.wait,
+        );
         if (wait === undefined || !wait.answers.includes(given.choice))
             return undefined;
         const text = safeWords(home, given.text ?? "").trim();
@@ -167,10 +160,10 @@ export async function answerWords(
     home: Home,
     given: Answer,
     context: Context,
-): Promise<ChiefResult<string>> {
-    const wait = (await home.harness.snapshot(OversightDoc, context))?.waits[
-        given.wait
-    ];
+): Promise<Result<string, ChiefRefusal["error"] | AnswerFailure>> {
+    const wait = (await open(home.harness, context)).find(
+        (wait) => wait.id === given.wait,
+    );
     if (wait === undefined)
         return { ok: true, value: "Nothing waits for you." };
     const hamlet = wait.agent?.hamlet ?? wait.chat?.hamlet;
@@ -185,7 +178,13 @@ export async function answerWords(
         if (!access.ok) return access;
     }
     if (!wait.answers.includes(given.choice))
-        throw new Error(`That cannot be answered that way:\n${strip(wait)}`);
+        return err({
+            kind: "answer-not-offered",
+            operation: "answer wait",
+            wait: wait.id,
+            retrySafe: true,
+            offered: strip(wait),
+        });
     const settled = await answer(home, given, context);
     return {
         ok: true,
@@ -196,220 +195,281 @@ export async function answerWords(
     };
 }
 
+/** An answer outside the choices offered by this wait. */
+export type AnswerFailure = {
+    kind: "answer-not-offered";
+    operation: "answer wait";
+    wait: string;
+    retrySafe: true;
+    offered: string;
+};
+
+/** The words for an unavailable answer. */
+export function answerFailureText(failure: AnswerFailure): string {
+    switch (failure.kind) {
+        case "answer-not-offered":
+            return `That cannot be answered that way:\n${failure.offered}`;
+    }
+    const unhandled: never = failure.kind;
+    throw new Error(`Unclassified answer failure: ${unhandled}`);
+}
+
 /** The gate every tool call passes before it runs (C7, H11). */
-export const Gate: Part = (home) => ({
-    extension: defineExtension({
-        name: "hamlet.gate",
-        hooks: [
-            hook(ToolTask, {
-                beforeTool: async (call, api, context) => {
-                    await holdFor(home, api, context);
-                    const place = await api.snapshot(
-                        WithDoc,
-                        api.conversationId,
-                        context,
-                    );
-                    if (place === undefined) return undefined;
-                    const turn = await turnOf(home.harness, api, context);
-                    let before: string | undefined;
-                    if (
-                        call.name === "write" &&
-                        typeof call.arguments.path === "string"
-                    ) {
-                        const location = await placeOf(
-                            home,
-                            api,
+export const Gate: Part = (home) => {
+    let closing = false;
+    home.gate = {
+        close: () => {
+            closing = true;
+        },
+    };
+    return {
+        extension: defineExtension({
+            name: "hamlet.gate",
+            hooks: [
+                hook(ToolTask, {
+                    beforeTool: async (call, api, context) => {
+                        await holdFor(home, api, context);
+                        const place = await api.snapshot(
+                            WithDoc,
                             api.conversationId,
                             context,
                         );
-                        const env = await agentEnv(
-                            home,
-                            { conversationId: api.conversationId, read: api },
-                            { net: false },
-                            context,
+                        if (place === undefined) return undefined;
+                        const turn = await turnOf(home.harness, api, context);
+                        let parsed: Call = callOf(
+                            call,
+                            [],
+                            reservedNames(home.registry),
                         );
-                        if (location !== undefined && env !== undefined) {
-                            const path = footing(call.arguments.path, location);
-                            const read = await env.readTextFile(path, context);
-                            if (read.ok) before = safeWords(home, read.value);
-                            else if (read.error.code !== "not_found") {
-                                const info = await env.fileInfo(path, context);
-                                const size = info.ok
-                                    ? `, ${info.value.size} bytes`
-                                    : "";
-                                const reason =
-                                    read.error.code === "invalid"
-                                        ? "is not UTF-8 text"
-                                        : "could not be read as text";
-                                before = `[a file that ${reason}${size}]`;
+                        let before: string | undefined;
+                        if (
+                            parsed.kind === "edit" &&
+                            parsed.source === "write"
+                        ) {
+                            const location = await placeOf(
+                                home,
+                                api,
+                                api.conversationId,
+                                context,
+                            );
+                            const env = await agentEnv(
+                                home,
+                                {
+                                    conversationId: api.conversationId,
+                                    read: api,
+                                },
+                                { net: false },
+                                context,
+                            );
+                            if (location !== undefined && env !== undefined) {
+                                const path = footing(parsed.path, location);
+                                const read = await env.readTextFile(
+                                    path,
+                                    context,
+                                );
+                                if (read.ok)
+                                    before = safeWords(home, read.value);
+                                else if (read.error.code !== "not_found") {
+                                    const info = await env.fileInfo(
+                                        path,
+                                        context,
+                                    );
+                                    const size = info.ok
+                                        ? `, ${info.value.size} bytes`
+                                        : "";
+                                    const reason =
+                                        read.error.code === "invalid"
+                                            ? "is not UTF-8 text"
+                                            : "could not be read as text";
+                                    before = `[a file that ${reason}${size}]`;
+                                }
                             }
                         }
-                    }
-                    const preview = safeValue(
-                        home,
-                        changeOf(call.name, call.arguments, before),
-                    );
-                    const change =
-                        preview === undefined
-                            ? null
-                            : await api.memo(CHANGE, preview, context);
-                    const decision = await home.harness.commit<Decision>(
-                        async (tx) => {
-                            const state = await tx.doc(CallDoc, api.taskId);
-                            if (state.block !== null)
-                                return { block: state.block };
-                            const ruled = await tx.doc(RulingDoc, api.taskId);
-                            if (ruled.how !== null)
-                                return fromRuling(
-                                    ruled,
-                                    state.leave ?? { net: false },
+                        if (parsed.kind === "edit" && parsed.source === "write")
+                            parsed = {
+                                ...parsed,
+                                old: before ?? "",
+                                created: before === undefined,
+                            };
+                        const typed = parsed;
+                        const preview = safeValue(
+                            home,
+                            typed.kind === "edit"
+                                ? changeBetween(
+                                      typed.path,
+                                      typed.old,
+                                      typed.now,
+                                      typed.source === "write" && typed.created,
+                                  )
+                                : undefined,
+                        );
+                        const change =
+                            preview === undefined
+                                ? null
+                                : await api.memo(CHANGE, preview, context);
+                        const decision = await home.harness.commit<Decision>(
+                            async (tx) => {
+                                const state = await tx.doc(CallDoc, api.taskId);
+                                if (state.block !== null)
+                                    return { block: state.block };
+                                const ruled = await tx.doc(
+                                    RulingDoc,
+                                    api.taskId,
                                 );
-                            const oversight = await tx.doc(OversightDoc);
-                            const held = Object.values(oversight.waits).find(
-                                (wait) =>
-                                    wait.calls.some(
-                                        (held) => held.task === api.taskId,
-                                    ),
-                            );
-                            if (held?.danger != null)
-                                return { wait: held.danger };
-                            if (state.leave !== null)
-                                return { run: { net: state.leave.net } };
-                            state.input = turn?.input ?? null;
-                            const standing = await standingOf(home, tx, place);
-                            const path = call.arguments.path;
-                            if (
-                                (call.name === "write" ||
-                                    call.name === "edit") &&
-                                typeof path === "string"
-                            ) {
-                                const house = houseOf(home.layout, place);
-                                const work = await tx.doc(
-                                    WorkDoc,
-                                    place.hamlet,
-                                    place.hamlet,
+                                if (ruled.how !== null)
+                                    return fromRuling(
+                                        ruled,
+                                        state.leave ?? { net: false },
+                                    );
+                                const held = (await open(tx, context)).find(
+                                    (wait) =>
+                                        wait.calls.some(
+                                            (held) => held.task === api.taskId,
+                                        ),
                                 );
-                                if (
-                                    insideHouse(
-                                        footing(path, {
+                                if (held?.danger != null)
+                                    return { wait: held.danger };
+                                if (state.leave !== null)
+                                    return { run: { net: state.leave.net } };
+                                state.input = turn?.input ?? null;
+                                const standing = await standingOf(
+                                    home,
+                                    tx,
+                                    place,
+                                );
+                                const path =
+                                    typed.kind === "edit"
+                                        ? typed.path
+                                        : undefined;
+                                if (path !== undefined) {
+                                    const house = houseOf(home.layout, place);
+                                    const work = await tx.doc(
+                                        WorkDoc,
+                                        place.hamlet,
+                                        place.hamlet,
+                                    );
+                                    if (
+                                        insideHouse(
+                                            footing(path, {
+                                                house,
+                                                folder: work.folder,
+                                            }),
                                             house,
-                                            folder: work.folder,
-                                        }),
-                                        house,
+                                        )
                                     )
-                                )
-                                    standing.asksEdits = false;
-                            }
-                            const manifests = (await tx.doc(ManifestsDoc))
-                                .tools;
-                            let verdict = judge(
-                                reachOf(call, manifests),
-                                standing,
-                            );
-                            const record = await tx.doc(
-                                RecordDoc,
-                                place.hamlet,
-                                place.hamlet,
-                            );
-                            const by = waitBy(record, place);
-                            const limits = await tx.doc(
-                                LimitsDoc,
-                                place.hamlet,
-                                place.hamlet,
-                            );
-                            if (
-                                record.mayor === place.number &&
-                                reserved(call, limits)
-                            )
-                                verdict = { ask: "reserved" };
-                            if ("run" in verdict) {
-                                state.leave = verdict.run;
-                                return verdict;
-                            }
-                            if (
-                                closing.has(home) &&
-                                turn?.kind === ReflectionEntry.kind
-                            ) {
-                                state.block =
-                                    "nobody is here to approve it; it did not run";
-                                return { block: state.block };
-                            }
-                            const asked = await tx.doc(
-                                AskedDoc,
-                                api.conversationId,
-                            );
-                            if (asked.input !== state.input)
-                                Object.assign(
-                                    asked,
-                                    AskedDoc.definition.initial(),
-                                    { input: state.input },
+                                        standing.houseEdit = true;
+                                }
+                                const record = await tx.doc(
+                                    RecordDoc,
+                                    place.hamlet,
+                                    place.hamlet,
                                 );
-                            const about = safeWords(
-                                home,
-                                aboutCall(call, before),
-                            );
-                            const block = refused(
-                                asked,
-                                by,
-                                verdict.ask,
-                                about,
-                                limits.asking.refusals,
-                            );
-                            if (block !== undefined) {
-                                state.block = block;
-                                return { block };
-                            }
-                            await raise(
-                                tx,
-                                {
-                                    kind: "approval",
-                                    danger: verdict.ask,
-                                    by,
-                                    agent: {
-                                        hamlet: place.hamlet,
-                                        number: place.number,
+                                const by = waitBy(record, place);
+                                const limits = await tx.doc(
+                                    LimitsDoc,
+                                    place.hamlet,
+                                    place.hamlet,
+                                );
+                                const asked = await tx.doc(
+                                    AskedDoc,
+                                    api.conversationId,
+                                );
+                                const effectiveAsked =
+                                    asked.input === state.input
+                                        ? asked
+                                        : {
+                                              ...AskedDoc.definition.initial(),
+                                              input: state.input,
+                                          };
+                                const about = safeWords(home, callText(typed));
+                                const manifests = (await tx.doc(ManifestsDoc))
+                                    .tools;
+                                const currentCall =
+                                    typed.kind === "society" ||
+                                    typed.kind === "other"
+                                        ? callOf(
+                                              call,
+                                              manifests,
+                                              reservedNames(home.registry),
+                                          )
+                                        : typed;
+                                const verdict = rule(
+                                    currentCall,
+                                    standing,
+                                    { ...effectiveAsked, by, about },
+                                    limits,
+                                    record.mayor === place.number,
+                                );
+                                if ("run" in verdict) {
+                                    state.leave = verdict.run;
+                                    return verdict;
+                                }
+                                Object.assign(asked, effectiveAsked);
+                                if (
+                                    closing &&
+                                    turn?.kind === ReflectionEntry.kind
+                                ) {
+                                    state.block =
+                                        "nobody is here to approve it; it did not run";
+                                    return { block: state.block };
+                                }
+                                if ("block" in verdict) {
+                                    state.block = verdict.block;
+                                    return verdict;
+                                }
+                                await raise(
+                                    tx,
+                                    {
+                                        kind: "approval",
+                                        danger: verdict.ask,
+                                        by,
+                                        agent: {
+                                            hamlet: place.hamlet,
+                                            number: place.number,
+                                        },
+                                        about,
+                                        change,
+                                        answers:
+                                            verdict.ask === "destructive" ||
+                                            verdict.ask === "reserved"
+                                                ? ["allow", "deny"]
+                                                : ["allow", "always", "deny"],
+                                        chat:
+                                            place.chief === null ? null : place,
+                                        call: {
+                                            task: api.taskId,
+                                            conversation: api.conversationId,
+                                        },
                                     },
-                                    about,
-                                    change,
-                                    answers:
-                                        verdict.ask === "destructive" ||
-                                        verdict.ask === "reserved"
-                                            ? ["allow", "deny"]
-                                            : ["allow", "always", "deny"],
-                                    chat: place.chief === null ? null : place,
-                                    call: {
-                                        task: api.taskId,
-                                        conversation: api.conversationId,
-                                    },
-                                },
-                                home.now(),
-                            );
-                            return { wait: verdict.ask };
-                        },
-                        context,
-                    );
-                    let final: Decided;
-                    if ("wait" in decision) {
-                        const ruled = await ruling(
-                            home.harness,
-                            api.taskId,
+                                    home.now(),
+                                );
+                                return { wait: verdict.ask };
+                            },
                             context,
                         );
-                        const leave = (
-                            await api.snapshot(CallDoc, api.taskId, context)
-                        )?.leave ?? { net: decision.wait === "network" };
-                        final = fromRuling(ruled, leave);
-                    } else {
-                        final = decision;
-                    }
-                    if ("block" in final) return final;
-                    await api.memo(LEAVE, final.run, context);
-                    return undefined;
-                },
-            }),
-        ],
-    }),
-});
+                        let final: Decided;
+                        if ("wait" in decision) {
+                            const ruled = await ruling(
+                                home.harness,
+                                api.taskId,
+                                context,
+                            );
+                            const leave = (
+                                await api.snapshot(CallDoc, api.taskId, context)
+                            )?.leave ?? { net: decision.wait === "network" };
+                            final = fromRuling(ruled, leave);
+                        } else {
+                            final = decision;
+                        }
+                        if ("block" in final) return final;
+                        await api.memo(LEAVE, final.run, context);
+                        return undefined;
+                    },
+                }),
+            ],
+        }),
+    };
+};
 
 function fromRuling(ruled: Readonly<Ruling>, leave: Leave): Decided {
     if (ruled.how === "allow" || ruled.how === "always")
@@ -422,96 +482,6 @@ function fromRuling(ruled: Readonly<Ruling>, leave: Leave): Decided {
     };
 }
 
-function reachOf(call: ToolHookCall, manifests: readonly Manifest[]): Reach {
-    if (call.name === "bash")
-        return {
-            kind: "shell",
-            command: String(call.arguments.command),
-            net: call.arguments.network === true,
-        };
-    if (call.name === "write" || call.name === "edit") return { kind: "edit" };
-    if (["read", "search", "find"].includes(call.name)) return { kind: "read" };
-    const manifest = manifests.find((tool) => tool.name === call.name);
-    return manifest === undefined
-        ? { kind: "other" }
-        : { kind: "custom", net: manifest.net };
-}
-
-function aboutCall(call: ToolHookCall, before?: string): string {
-    if (call.name === "bash") return String(call.arguments.command);
-    if (call.name === "write" || call.name === "edit") {
-        const path = cut(String(call.arguments.path));
-        const edits = call.arguments.edits as
-            | { oldText: string; newText: string }[]
-            | undefined;
-        const old =
-            call.name === "write"
-                ? (before ?? "")
-                : (edits ?? []).map((edit) => edit.oldText).join("\n");
-        const now =
-            call.name === "write"
-                ? String(call.arguments.content)
-                : (edits ?? []).map((edit) => edit.newText).join("\n");
-        const created =
-            call.name === "write" ? before === undefined : old === "";
-        return created
-            ? `${path}\nA new file:\n${cut(now)}`
-            : `${path}\nReplace:\n${cut(old)}\nWith:\n${cut(now)}`;
-    }
-    return `${call.name} ${JSON.stringify(call.arguments)}`;
-}
-
-function cut(text: string): string {
-    const chars = [...text];
-    return chars.length > EDIT_SHOWN
-        ? `${chars.slice(0, EDIT_SHOWN).join("")}\n[${chars.length - EDIT_SHOWN} more characters]`
-        : text;
-}
-
-async function standingOf(home: Home, tx: Tx, place: With): Promise<Standing> {
-    const work = await tx.doc(WorkDoc, place.hamlet, place.hamlet);
-    const record = await tx.doc(RecordDoc, place.hamlet, place.hamlet);
-    const by = addressOf(record, place.number);
-    const limits = await tx.doc(LimitsDoc, place.hamlet, place.hamlet);
-    const settings = settingsOf(await tx.doc(SettingsDoc), home.overrides);
-    const grants = grantsOf(await tx.doc(GrantsDoc));
-    const key = trustKey(place);
-    const trust = await tx.doc(TrustedDoc, key, key);
-    const manual = work.folder !== null && work.mode === "manual";
-    return {
-        confined: true,
-        net:
-            settings.allowNet ||
-            holds(limits.permissions, grants, by, place, "network"),
-        unconfined: holds(limits.permissions, grants, by, place, "unconfined"),
-        asksEdits: manual && !trust.edit,
-        asksCommands: manual && !trust.command,
-    };
-}
-
-/** The limits that reserve a mayor's society act (H22). */
-function reserved(
-    call: ToolHookCall,
-    limits: import("./limits.ts").Limits,
-): boolean {
-    switch (call.name) {
-        case "create_agent":
-            return (
-                !limits.mayor.createAgents ||
-                (!limits.mayor.buildRoads &&
-                    Array.isArray(call.arguments.roads) &&
-                    call.arguments.roads.length > 0)
-            );
-        case "build_road":
-            return !limits.mayor.buildRoads;
-        case "remove_agent":
-            return !limits.mayor.removeAgents;
-        case "merge_agents":
-            return !limits.mayor.mergeAgents;
-        default:
-            return false;
-    }
-}
 function waitBy(
     record: import("./record.ts").HamletRecord,
     place: With,
@@ -522,12 +492,6 @@ function waitBy(
         : name;
 }
 
-export {
-    judge,
-    type Reach,
-    type Standing,
-    type Verdict,
-} from "./gate/danger.ts";
 export {
     type Grant,
     type GrantEvent,

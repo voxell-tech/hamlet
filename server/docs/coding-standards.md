@@ -22,7 +22,7 @@ operations separate from entries that compose parts.
 |---|---|
 | chats | `chats/answers.ts`, `chats/instructions.ts`, `chats/notice.ts`, `chats/tasks.ts`, `chats/turn.ts` |
 | gate | `gate/grants.ts` |
-| record | `record/document.ts`, `record/names.ts`, `record/roads.ts` |
+| record | `record/document.ts`, `record/names.ts`, `record/roads.ts`, `record/office.ts` |
 | prompt | `prompt/character.ts` |
 | hand | `hand/manifests.ts` |
 | home | `home/abort.ts`, `home/clock.ts`, `home/credentials.ts`, `home/layout.ts` |
@@ -34,22 +34,21 @@ operations separate from entries that compose parts.
 | realm | `realm/access.ts`, `realm/places.ts`, `realm/roads.ts` |
 | sandbox | `sandbox/policy.ts`, `sandbox/reach.ts` |
 | spend | `spend/ledger.ts`, `spend/money.ts`, `spend/usage.ts` |
+| state | `state/activity.ts` |
 
 These leaves may value-import only each other, the shared entries
 `change.ts`, `commands.ts`, `connection.ts`, `protocol.ts`, `record.ts`,
 `result.ts`, `sandbox.ts`, `scrub.ts`, `settings.ts`, and the legacy shared
 conversation core: `chats/conversations.ts`, `chats/errands.ts`,
-`chats/roles.ts`, `models/choice.ts`. That core is also directly importable
+`chats/configure.ts`, `chats/documents.ts`. That core is also directly importable
 and follows the same dependency rule. Type-only imports may reach the
 owning entries. Shared entries and their folders follow the same leaf rule. Only `cli/serving.ts` value-imports the composition root
 `home.ts`; home helpers are imported from their leaves.
 
 `test/structure.test.ts` checks these paths and the value-import graph,
 including named re-exports, side-effect imports and literal dynamic
-imports. Only the explicitly listed legacy conversation configuration cycle
-is allowed.
-Files in a listed cycle may import each other directly, keeping the cycle
-off their entries. Adding a member or joining cycles fails the check.
+imports. Value-import cycles are forbidden; dependency leaves keep composed
+entries out of the value graph.
 
 ## Check values according to their source
 

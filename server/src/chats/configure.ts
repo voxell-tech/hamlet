@@ -6,51 +6,29 @@ import {
     DEFAULT_COMPACTION_POLICY,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { AgentConversationsDoc, WithDoc } from "../chats/conversations.ts";
-import { configureRole } from "../chats/roles.ts";
 import type { Home, Part } from "../home.ts";
-import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
+import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import { liveHamlets, RealmDoc } from "../realm/places.ts";
 import {
     type AgentRef,
     agentKey,
     HOME,
-    MAYOR,
     RecordDoc,
 } from "../record/document.ts";
 import {
+    choose,
     modelName,
     modelRef,
-    type Settings,
     SettingsDoc,
     settingsOf,
 } from "../settings.ts";
+import { AgentConversationsDoc, ErrandDoc, WithDoc } from "./documents.ts";
 
 /** The share of the window of the mayor's model kept free for an answer (C28). */
 const RESERVE = 0.2;
 
 /** The reason a choice of model is recorded with when its edit gives none. */
 const CHOSEN = "The chief chose it.";
-
-/** The model an agent runs: the chief's pin, an allowed mayor choice, the hamlet's model or the home's default (H29). */
-export function choose(
-    limits: Readonly<Limits>,
-    settings: Readonly<Settings>,
-    agent: { name: string; mayor: boolean; model?: string | null },
-): string {
-    const name = agent.mayor ? MAYOR : agent.name;
-    const pinned = Object.hasOwn(limits.pinned, name)
-        ? limits.pinned[name]
-        : undefined;
-    return (
-        pinned ??
-        (agent.model && limits.models.includes(agent.model)
-            ? agent.model
-            : undefined) ??
-        limits.model ??
-        settings.model
-    );
-}
 
 /** A chief's edit of the documents a choice of model reads, made by `change`. */
 export type Edit = {
@@ -206,4 +184,78 @@ export async function reconfigure(home: Home, tx: Tx): Promise<void> {
     for (const agent of await agentsOf(tx))
         for (const conversation of await chatsOf(tx, agent))
             await configureAgent(home, tx, conversation);
+}
+
+const MAYOR = [
+    "create_agent",
+    "build_road",
+    "set_model",
+    "remove_agent",
+    "merge_agents",
+];
+const REALM = ["agree_road", "agree_move", "ask_removal"];
+const EVERY = [
+    "tell_agent",
+    "ask_agent",
+    "call_vote",
+    "submit_skill",
+    "ask_librarian",
+];
+/** Society tools governed by the role table (H35). */
+export const SOCIETY_TOOLS = [
+    ...MAYOR,
+    ...REALM,
+    ...EVERY,
+    "request_road",
+    "object",
+    "ask_chief",
+    "cast_ballot",
+];
+/** The role's tool filter, applied to enabled tools as well as model offers. */
+export async function configureRole(
+    home: Home,
+    tx: Tx,
+    conversation: ConversationId,
+): Promise<void> {
+    const place = await tx.doc(WithDoc, conversation);
+    const errand = await tx.doc(ErrandDoc, conversation);
+    const record = await tx.doc(RecordDoc, place.hamlet, place.hamlet);
+    const allowed = new Set(
+        errand.kind !== null
+            ? errand.kind === "ballot"
+                ? ["cast_ballot"]
+                : []
+            : [
+                  ...EVERY,
+                  "ask_chief",
+                  ...(place.chief === null ? [] : ["object"]),
+                  ...(record.mayor === place.number
+                      ? [
+                            ...MAYOR,
+                            ...(liveHamlets(await tx.doc(RealmDoc)).length > 1
+                                ? REALM
+                                : []),
+                        ]
+                      : ["request_road"]),
+              ],
+    );
+    const tools = home.registry
+        .snapshot()
+        .tools()
+        .map(({ tool }) => tool);
+    await configure(
+        tx,
+        conversation,
+        errand.kind !== null
+            ? { tools: tools.filter((t) => allowed.has(t.name)) }
+            : {
+                  tools: {
+                      remove: tools.filter(
+                          (t) =>
+                              SOCIETY_TOOLS.includes(t.name) &&
+                              !allowed.has(t.name),
+                      ),
+                  },
+              },
+    );
 }

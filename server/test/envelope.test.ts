@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { expect, it, vi } from "vitest";
+import { expect, expectTypeOf, it, vi } from "vitest";
 import { readCommand } from "../src/commands.ts";
+import type { ManifestFault } from "../src/hand.ts";
 import {
     type ClientMessage,
     parseClient,
@@ -12,11 +13,13 @@ import {
     type Transcript,
     type Turn,
 } from "../src/protocol.ts";
-import { type ChiefResult, RealmDoc } from "../src/realm.ts";
+import { RealmDoc } from "../src/realm.ts";
 import { RecordDoc } from "../src/record.ts";
-import { err, ok } from "../src/result.ts";
+import { err, ok, type Result } from "../src/result.ts";
+import type { ChiefFailure } from "../src/server/envelope.ts";
 import { faultFor, replyFor } from "../src/server.ts";
-import { watchChat } from "../src/transcript.ts";
+import type { ToolFailure } from "../src/tools.ts";
+import { type WatchFailure, watchChat } from "../src/transcript.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,
@@ -206,7 +209,7 @@ it("keeps the recorded refusal envelopes byte-identical for legacy owner excepti
 
 it("lets the envelope render a watch's returned failure without a prebuilt fault", async () => {
     const home = await testHome(scratch(), { models: fauxModels().models });
-    const updates: ChiefResult<Transcript | Turn>[] = [];
+    const updates: Result<Transcript | Turn, WatchFailure>[] = [];
     const outcome = await watchChat(
         home,
         { with: { hamlet: "home", agent: "mayor" } },
@@ -327,6 +330,31 @@ it.each([
     ["/found all miller Work", "`all` is reserved"],
 ])(
     "keeps the chief's error reply for the returned record refusal %s",
+    async (text, expected) => {
+        const run = await served({ models: fauxModels().models });
+        const id = randomUUID();
+        expect(
+            await request(run.connection, run.messages, {
+                type: "say",
+                id,
+                to: mayor,
+                text,
+            }),
+        ).toEqual({ type: "reply", to: id, kind: "error", text: expected });
+    },
+);
+
+it("keeps agent-only tool and manifest failures out of the chief envelope", () => {
+    expectTypeOf<
+        Extract<ChiefFailure, ManifestFault | ToolFailure>
+    >().toEqualTypeOf<never>();
+});
+
+it.each([
+    ["/unshelve ../invalid", "usage: /unshelve <skill>"],
+    ["/unshelve absent", "the library has no skill named `absent`"],
+])(
+    "keeps the library deed's refusal as an error reply: %s",
     async (text, expected) => {
         const run = await served({ models: fauxModels().models });
         const id = randomUUID();

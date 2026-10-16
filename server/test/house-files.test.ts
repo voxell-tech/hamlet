@@ -16,11 +16,11 @@ import { ExecutionError, err } from "@earendil-works/pi-durable/env";
 import { expect, it, vi } from "vitest";
 import { houseOf } from "../src/home/layout.ts";
 import {
-    deliverTree,
-    listTree,
-    removeHouse,
-    removeTree,
-    stageTree,
+    deliver as deliverTree,
+    list as listTree,
+    erase as removeHouse,
+    remove as removeTree,
+    stage as stageTree,
 } from "../src/house.ts";
 import { closedPolicy } from "../src/sandbox/reach.ts";
 import { SandboxEnv } from "../src/sandbox.ts";
@@ -97,16 +97,23 @@ it("stages regular files without following links or copying special files, namin
     await writeFile(join(root, "tree/regular"), "Allowed");
     await symlink(join(outside, "canary"), join(root, "tree/link"));
     execFileSync("mkfifo", [join(root, "tree/pipe")]);
-    let words = "";
-    try {
-        await stageTree(home, { root, rel: "tree" }, stage, caps, context);
-    } catch (error) {
-        words = String(error);
-    }
-    expect(words).toContain("link");
-    expect(words).toContain("pipe");
-    expect(words).not.toContain(root);
-    expect(words).not.toContain(outside);
+    const outcome = await stageTree(
+        home,
+        { root, rel: "tree" },
+        stage,
+        caps,
+        context,
+    );
+    expect(outcome).toMatchObject({
+        ok: false,
+        error: {
+            kind: "unsafe-entry",
+            skipped: [
+                { path: "tree/link", kind: "link" },
+                { path: "tree/pipe", kind: "special" },
+            ],
+        },
+    });
     expect(await readdir(join(stage, "tree"))).toEqual(["regular"]);
     expect(await readFile(join(stage, "tree/regular"), "utf8")).toBe("Allowed");
     expect(await readFile(join(outside, "canary"), "utf8")).toBe(
@@ -184,7 +191,10 @@ it.each(["entries", "bytes"] as const)(
                 },
                 context,
             ),
-        ).rejects.toThrow(meter);
+        ).resolves.toMatchObject({
+            ok: false,
+            error: { kind: `${meter}-cap` },
+        });
         expect(await readdir(join(root, "inbox"))).toEqual([]);
     },
 );
@@ -206,7 +216,7 @@ it("delivers without clobbering files, directories or links and rolls back only 
             ["first", "parcel"],
             context,
         ),
-    ).rejects.toThrow();
+    ).resolves.toMatchObject({ ok: false });
     expect(await readdir(join(root, "inbox"))).toEqual(["parcel"]);
     expect(await readdir(join(root, "inbox/parcel"))).toEqual(["mine"]);
     const outside = scratch();
@@ -214,12 +224,12 @@ it("delivers without clobbering files, directories or links and rolls back only 
     await symlink(outside, join(root, "inbox/linked"));
     await expect(
         deliverTree(home, { root, into: "inbox" }, stage, ["linked"], context),
-    ).rejects.toThrow();
+    ).resolves.toMatchObject({ ok: false });
     expect(await readdir(outside)).toEqual([]);
     await writeFile(join(root, "inbox/first"), "Keep file");
     await expect(
         deliverTree(home, { root, into: "inbox" }, stage, ["first"], context),
-    ).rejects.toThrow();
+    ).resolves.toMatchObject({ ok: false });
     expect(await readFile(join(root, "inbox/first"), "utf8")).toBe("Keep file");
     await deliverTree(
         home,
@@ -268,7 +278,7 @@ it("does not write through a linked destination parent, even when it is swapped 
                 ["file"],
                 context,
             ),
-        ).rejects.toThrow();
+        ).resolves.toMatchObject({ ok: false });
     } finally {
         copying.mockRestore();
     }
@@ -306,7 +316,7 @@ it("removes only claimed targets when the sandbox reports failure after copying"
     try {
         await expect(
             deliverTree(home, { root, into: "inbox" }, stage, ["new"], context),
-        ).rejects.toThrow();
+        ).resolves.toMatchObject({ ok: false });
     } finally {
         copying.mockRestore();
     }
@@ -324,21 +334,27 @@ it("lists regular files with their size and SHA-256, reporting links and special
     await symlink(outside, join(root, "tree/link"));
     execFileSync("mkfifo", [join(root, "tree/pipe")]);
     expect(await listTree(home, root, "tree", context)).toEqual({
-        files: [
-            {
-                path: "tree/file",
-                size: 5,
-                sha256: createHash("sha256").update("hello").digest("hex"),
-            },
-        ],
-        skipped: [
-            { path: "tree/link", kind: "link" },
-            { path: "tree/pipe", kind: "special" },
-        ],
+        ok: true,
+        value: {
+            files: [
+                {
+                    path: "tree/file",
+                    size: 5,
+                    sha256: createHash("sha256").update("hello").digest("hex"),
+                },
+            ],
+            skipped: [
+                { path: "tree/link", kind: "link" },
+                { path: "tree/pipe", kind: "special" },
+            ],
+        },
     });
     expect(await listTree(home, root, "tree/link", context)).toEqual({
-        files: [],
-        skipped: [{ path: "tree/link", kind: "link" }],
+        ok: true,
+        value: {
+            files: [],
+            skipped: [{ path: "tree/link", kind: "link" }],
+        },
     });
 });
 
@@ -354,7 +370,9 @@ it("removes a link itself without touching the folder outside and refuses unsafe
     ).toBeUndefined();
     expect(await readFile(join(outside, "canary"), "utf8")).toBe("keep");
     for (const rel of [".", "../canary", "/tmp/canary", "inbox/../../canary"])
-        await expect(removeTree(home, root, [rel], context)).rejects.toThrow();
+        await expect(
+            removeTree(home, root, [rel], context),
+        ).resolves.toMatchObject({ ok: false });
     for (const dir of [
         home.dir,
         home.layout.houses,
@@ -362,14 +380,19 @@ it("removes a link itself without touching the folder outside and refuses unsafe
         `${home.layout.houses}/home/../home/0`,
         outside,
     ])
-        await expect(removeHouse(home, dir)).rejects.toThrow();
+        await expect(removeHouse(home, dir)).resolves.toMatchObject({
+            ok: false,
+        });
     await symlink(outside, join(home.layout.houses, "linked"));
     await expect(
         removeHouse(home, join(home.layout.houses, "linked")),
-    ).rejects.toThrow();
+    ).resolves.toMatchObject({ ok: false });
     await mkdir(join(home.layout.houses, "gone"));
     await writeFile(join(home.layout.houses, "gone/notes"), "four");
-    expect(await removeHouse(home, join(home.layout.houses, "gone"))).toBe(4);
+    expect(await removeHouse(home, join(home.layout.houses, "gone"))).toEqual({
+        ok: true,
+        value: 4,
+    });
     expect(await readdir(outside)).toEqual(["canary"]);
 });
 
@@ -392,7 +415,7 @@ it("keeps list operations read-only and remove operations confined to their root
             if (
                 Array.isArray(command) &&
                 command.includes(root) &&
-                command.includes("-e")
+                command.some((part) => part.endsWith("/tree-helper.ts"))
             ) {
                 const mode = command.includes("remove") ? "remove" : "list";
                 const probe =
@@ -453,7 +476,7 @@ it("removes nested files, broken links and empty folders, and refuses a linked p
     await symlink(outside, join(root, "linked"));
     await expect(
         removeTree(home, root, ["linked/canary"], context),
-    ).rejects.toThrow();
+    ).resolves.toMatchObject({ ok: false });
     expect(await readFile(join(outside, "canary"), "utf8")).toBe("keep");
 });
 
@@ -487,5 +510,5 @@ it("accepts a merge tree larger than a gift while still enforcing the gift cap",
     );
     await expect(
         stageTree(home, { root, rel: "large" }, scratch(), caps, context),
-    ).rejects.toThrow("bytes");
+    ).resolves.toMatchObject({ ok: false, error: { kind: "bytes-cap" } });
 });

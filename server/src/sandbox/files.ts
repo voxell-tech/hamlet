@@ -31,7 +31,7 @@ export const FILE_READS = [
     ),
     fileURLToPath(new URL("../../package.json", import.meta.url)),
     FILE_HELPER,
-    fileURLToPath(new URL("../house/skill-paper.ts", import.meta.url)),
+    fileURLToPath(new URL("./tree-helper.ts", import.meta.url)),
     fileURLToPath(new URL("./wire.ts", import.meta.url)),
 ];
 

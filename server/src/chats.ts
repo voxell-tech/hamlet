@@ -11,18 +11,27 @@ export {
     SUMMARY_NOTICE,
 } from "./chats/answers.ts";
 export {
+    Choice,
+    commitEdit,
+    configureAgent,
+    configureRole,
+    reconfigure,
+    SOCIETY_TOOLS,
+} from "./chats/configure.ts";
+export {
     AgentConversationsDoc,
     type Chat,
     type ChatConversation,
     ChatDoc,
     type ChatId,
     ChiefEntry,
-    chatOf,
     chiefInput,
-    conversationsOf,
+    current,
+    currentNumber,
     currentOf,
     ErrandEntry,
     LetterEntry,
+    past,
     QuestionEntry,
     ReflectionEntry,
     ReplyEntry,
@@ -36,6 +45,15 @@ export {
     WithDoc,
 } from "./chats/conversations.ts";
 export {
+    carryOn,
+    reflect,
+    resume,
+    start,
+    stop,
+    stopAgent,
+    takeBack,
+} from "./chats/deeds.ts";
+export {
     agentOf,
     ErrandDoc,
     type ErrandKind,
@@ -44,7 +62,12 @@ export {
     runErrand,
     startErrand,
 } from "./chats/errands.ts";
-export { entriesOf, historyOf, LineageDoc, usageOf } from "./chats/history.ts";
+export {
+    type ConversationFailure,
+    conversationFailureText,
+} from "./chats/failure.ts";
+export { Talk } from "./chats/follow.ts";
+export { entriesOf, history, LineageDoc, usageOf } from "./chats/history.ts";
 export {
     type Instruction,
     InstructionsDoc,
@@ -59,17 +82,6 @@ export {
     reflectEvery,
     requestReflection,
 } from "./chats/reflection.ts";
-export { configureRole, SOCIETY_TOOLS } from "./chats/roles.ts";
-export {
-    followHome,
-    newChat,
-    reflect,
-    resumeChat,
-    retry,
-    rewind,
-    stopAgent,
-    stopChiefAgents,
-    Talk,
-} from "./chats/talk.ts";
+export { chatState, chatStateDocs, conversationIds } from "./chats/state.ts";
 export { TaskDoc } from "./chats/tasks.ts";
 export { newTask, type Turn, turnOf } from "./chats/turn.ts";

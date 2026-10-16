@@ -2,6 +2,9 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import type { ExecutionEnv, FileInfo } from "@earendil-works/pi-durable/env";
 
+import { err, ok, type Result } from "../result.ts";
+import type { SearchFailure } from "./failure.ts";
+
 /** Folders a walk does not go into. */
 const SKIPPED = new Set([
     ".git",
@@ -19,13 +22,15 @@ const SKIPPED = new Set([
 const VISITED = 20_000;
 
 /** The environment a tool's call runs in. */
-export function envOf(api: {
-    readonly env: ExecutionEnv | undefined;
-}): ExecutionEnv {
-    if (api.env === undefined) {
-        throw new Error("No execution environment is configured");
-    }
-    return api.env;
+export function envOf(
+    api: {
+        readonly env: ExecutionEnv | undefined;
+    },
+    operation: "search" | "find",
+): Result<ExecutionEnv, SearchFailure> {
+    return api.env === undefined
+        ? err({ kind: "no-environment", operation, retrySafe: true })
+        : ok(api.env);
 }
 
 /** The most hits or names a search gives. */
@@ -68,21 +73,30 @@ export async function reached(
     env: ExecutionEnv,
     path: string | undefined,
     context: Context,
-): Promise<{ full: string; info: FileInfo }> {
+    operation: "search" | "find",
+): Promise<Result<{ full: string; info: FileInfo }, SearchFailure>> {
     const given = (path ?? "").trim();
     const full = isAbsolute(given) ? given : join(env.cwd, given);
     const info = await env.fileInfo(full, context);
-    if (!info.ok) throw new Error(info.error.message);
+    const failed = (reason: string) =>
+        err({
+            kind: "unreadable" as const,
+            operation,
+            retrySafe: true as const,
+            path: shown(env, full),
+            reason,
+        });
+    if (!info.ok) return failed(info.error.code);
     // A folder's reach is its listing's, and a file's its opening's.
     if (info.value.kind === "directory") {
         const listed = await env.listDir(full, context);
-        if (!listed.ok) throw new Error(listed.error.message);
+        if (!listed.ok) return failed(listed.error.code);
     } else {
         const opened = await env.openBinaryReader(full, undefined, context);
-        if (!opened.ok) throw new Error(opened.error.message);
+        if (!opened.ok) return failed(opened.error.code);
         await opened.value.close(context);
     }
-    return { full, info: info.value };
+    return ok({ full, info: info.value });
 }
 
 /** `path` as a search shows it: under the folder commands run in where it lies there. */

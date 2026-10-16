@@ -1,7 +1,6 @@
 import { lstat, mkdir, mkdtemp, readdir, rename, rm } from "node:fs/promises";
 import {
     basename,
-    dirname,
     extname,
     isAbsolute,
     join,
@@ -10,258 +9,407 @@ import {
     sep,
     win32,
 } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Context } from "@earendil-works/chord";
+import { type Static, Type } from "typebox";
+import { Value } from "typebox/value";
 import { treeWorker } from "../environment.ts";
 import type { Home } from "../home.ts";
 import { MAX_GIFT_BYTES } from "../protocol.ts";
+import { err, ok, type Result } from "../result.ts";
 import { canon, within } from "../sandbox/policy.ts";
 import type { SandboxEnv } from "../sandbox.ts";
 
-const deliveries = new WeakMap<Home, Promise<unknown>>();
-const REFUSED =
-    "The gift could not be delivered inside the inbox or skills folder. Nothing was handed over.";
-
-const MAX_GIFT_FILES = 4096;
-const TREE_REFUSED = "The tree operation could not finish safely.";
-
-/** Safe, distinct inbox paths and their total byte reservation (H25). */
-export function manifestSize(files: { path: string; size: number }[]): number {
-    if (files.length === 0)
-        throw new Error("Choose a file or folder to hand over.");
-    if (files.length > MAX_GIFT_FILES)
-        throw new Error(
-            `A gift takes at most ${MAX_GIFT_FILES} files at once.`,
-        );
-    let size = 0;
-    const paths = new Set<string>();
-    for (const file of files) {
-        const parts = file.path.split("/");
-        if (
-            isAbsolute(file.path) ||
-            win32.isAbsolute(file.path) ||
-            file.path.includes("\\") ||
-            file.path.includes("\0") ||
-            parts.some(
-                (part) =>
-                    part === "" ||
-                    part === "." ||
-                    part === ".." ||
-                    Buffer.byteLength(part) > 255,
-            )
-        )
-            throw new Error(
-                "A gift's path must be relative to the inbox, with ordinary file and folder names.",
-            );
-        size += file.size;
-        if (size > MAX_GIFT_BYTES)
-            throw new Error(
-                "The gift is larger than the 32 MB an inbox takes at once.",
-            );
-        // Uppercasing expands folds such as sharp s; the final NFC joins decomposed names.
-        const folded = file.path
-            .normalize("NFC")
-            .toLowerCase()
-            .toUpperCase()
-            .toLowerCase()
-            .normalize("NFC");
-        if (paths.has(folded))
-            throw new Error(
-                "The gift repeats a path, ignoring case and Unicode spelling.",
-            );
-        paths.add(folded);
-    }
-    for (const path of paths) {
-        for (
-            let parent = dirname(path);
-            parent !== ".";
-            parent = dirname(parent)
-        ) {
-            if (paths.has(parent))
-                throw new Error(
-                    "The gift uses one path as both a file and a folder.",
-                );
-        }
-    }
-    return size;
-}
-
-/** An inbox or skills shelf with no linked roots, including a shelf not yet made. */
-export async function checkShelf(
-    house: string,
-    shelf: string,
-    roots: string[],
-): Promise<void> {
-    const dir = join(house, shelf);
-    const info = await lstat(dir).catch(() => undefined);
-    if (info !== undefined && !info.isDirectory()) throw new Error(REFUSED);
-    for (const root of roots) {
-        if (
-            (
-                await lstat(join(dir, root)).catch(() => undefined)
-            )?.isSymbolicLink()
-        )
-            throw new Error(REFUSED);
-    }
-}
-
-/** Caps on a staged tree, including its root entry. */
+/** Caps include a staged tree's root entry. */
 export type TreeCaps = { entries: number; bytes: number };
-/** The inbox and library's tree caps (H25). */
+/** Inbox and skill gift caps (H25). */
 export const GIFT_CAPS: Readonly<TreeCaps> = {
-    entries: MAX_GIFT_FILES,
+    entries: 4096,
     bytes: MAX_GIFT_BYTES,
 };
-/** A merge's tree caps. */
+/** A merge's bounded tree. */
 export const MERGE_CAPS: Readonly<TreeCaps> = {
     entries: 20000,
     bytes: 512 * 1024 * 1024,
 };
 
-class TreeError extends Error {
-    readonly why: "entries" | "bytes" | "unsafe";
+const Report = Type.Object({
+    files: Type.Array(
+        Type.Object({
+            path: Type.String(),
+            size: Type.Number(),
+            sha256: Type.String(),
+        }),
+    ),
+    skipped: Type.Array(
+        Type.Object({
+            path: Type.String(),
+            kind: Type.Union([Type.Literal("link"), Type.Literal("special")]),
+        }),
+    ),
+    limit: Type.Optional(
+        Type.Union([Type.Literal("entries"), Type.Literal("bytes")]),
+    ),
+    failed: Type.Optional(Type.Boolean()),
+});
+type TreeReport = Static<typeof Report>;
+/** Unsafe entries are reported without reading their contents. */
+export type TreeListing = Pick<TreeReport, "files" | "skipped">;
+type Operation =
+    | "stage-tree"
+    | "deliver-tree"
+    | "list-tree"
+    | "remove-tree"
+    | "erase-house";
+/** A tree refusal may follow partial work; inspect its target before retrying. */
+export type TreeFailure = { operation: Operation; retrySafe: false } & (
+    | { kind: "entries-cap" | "bytes-cap"; cap: number }
+    | { kind: "unsafe-entry"; skipped: TreeListing["skipped"] }
+    | {
+          kind:
+              | "stage-not-empty"
+              | "stage-overlaps-source"
+              | "shelf-linked"
+              | "refused";
+      }
+    | {
+          kind: "path-invalid";
+          path: string;
+          constraint: "relative" | "top-level" | "distinct" | "caps";
+      }
+    | { kind: "clobber"; name: string }
+);
 
-    constructor(why: "entries" | "bytes" | "unsafe", message: string) {
-        super(message);
-        this.why = why;
+/** Safe wording for a tree operation's classified refusal. */
+export function treeFailureText(error: TreeFailure): string {
+    switch (error.kind) {
+        case "entries-cap":
+            return "The tree exceeds its entries cap.";
+        case "bytes-cap":
+            return "The tree exceeds its bytes cap.";
+        case "unsafe-entry":
+            return `A tree cannot include links or special files: ${error.skipped.map((e) => `${JSON.stringify(e.path)} (${e.kind})`).join(", ")}.`;
+        case "stage-not-empty":
+            return "The private stage must be an empty directory.";
+        case "stage-overlaps-source":
+            return "A private stage must be separate from its source.";
+        case "clobber":
+            return "The tree could not be delivered inside its target. Nothing was handed over.";
+        case "shelf-linked":
+            return "The gift could not be delivered inside the inbox or skills folder. Nothing was handed over.";
+        case "path-invalid": {
+            switch (error.constraint) {
+                case "relative":
+                    return "A tree path must stay relative to its root, without dot or parent components.";
+                case "top-level":
+                    return "A delivery names top-level stage entries.";
+                case "distinct":
+                    return "A delivery cannot repeat a stage entry.";
+                case "caps":
+                    return "Tree caps are whole counts of zero or more entries and bytes.";
+            }
+            const constraint: never = error.constraint;
+            throw new Error(`Unclassified tree constraint: ${constraint}`);
+        }
+        case "refused": {
+            switch (error.operation) {
+                case "stage-tree":
+                    return "The tree could not be staged safely.";
+                case "deliver-tree":
+                    return "The tree could not be delivered inside its target. Nothing was handed over.";
+                case "erase-house":
+                    return "Only a server-owned folder strictly inside houses or the librarian can be erased.";
+                case "list-tree":
+                case "remove-tree":
+                    return "The tree operation could not finish safely.";
+            }
+            const operation: never = error.operation;
+            throw new Error(`Unclassified tree operation: ${operation}`);
+        }
     }
+    const unhandled: never = error;
+    throw new Error(`Unclassified tree failure: ${unhandled}`);
 }
-
-/** A no-link skill tree of regular files with bounded bytes and entry count. */
-export async function checkSkill(dir: string): Promise<void> {
-    try {
-        await checkTree(dir, GIFT_CAPS);
-    } catch (error) {
-        throw skillError(error);
-    }
+function failure(
+    operation: Operation,
+    kind:
+        | "refused"
+        | "shelf-linked"
+        | "stage-not-empty"
+        | "stage-overlaps-source",
+): Result<never, TreeFailure> {
+    return err({ operation, kind, retrySafe: false });
 }
-
+function treeRel(
+    path: string,
+    operation: Operation,
+    whole = false,
+): Result<void, TreeFailure> {
+    if (whole && path === ".") return ok(undefined);
+    if (
+        !path ||
+        isAbsolute(path) ||
+        win32.isAbsolute(path) ||
+        path.includes("\\") ||
+        path.includes("\0") ||
+        path.split("/").some((part) => !part || part === "." || part === "..")
+    )
+        return err({
+            kind: "path-invalid",
+            path,
+            constraint: "relative",
+            operation,
+            retrySafe: false,
+        });
+    return ok(undefined);
+}
 async function checkTree(
-    dir: string,
+    path: string,
+    operation: Operation,
     caps?: Readonly<TreeCaps>,
-): Promise<void> {
-    let bytes = 0,
-        entries = 0;
-    const walk = async (path: string): Promise<void> => {
+): Promise<Result<void, TreeFailure>> {
+    const root = path;
+    let entries = 0,
+        bytes = 0;
+    const walk = async (path: string): Promise<Result<void, TreeFailure>> => {
         if (caps && ++entries > caps.entries)
-            throw new TreeError("entries", "The tree exceeds its entries cap.");
+            return err({
+                kind: "entries-cap",
+                cap: caps.entries,
+                operation,
+                retrySafe: false,
+            });
         const info = await lstat(path);
-        if (info.isDirectory())
-            for (const name of await readdir(path))
-                await walk(join(path, name));
-        else if (info.isFile()) {
+        if (info.isDirectory()) {
+            for (const name of await readdir(path)) {
+                const next = await walk(join(path, name));
+                if (!next.ok) return next;
+            }
+        } else if (info.isFile()) {
             bytes += info.size;
             if (caps && bytes > caps.bytes)
-                throw new TreeError("bytes", "The tree exceeds its bytes cap.");
+                return err({
+                    kind: "bytes-cap",
+                    cap: caps.bytes,
+                    operation,
+                    retrySafe: false,
+                });
         } else
-            throw new TreeError(
-                "unsafe",
-                "A tree cannot include links or special files.",
-            );
+            return err({
+                kind: "unsafe-entry",
+                operation,
+                retrySafe: false,
+                skipped: [
+                    {
+                        path: relative(root, path) || ".",
+                        kind: info.isSymbolicLink() ? "link" : "special",
+                    },
+                ],
+            });
+        return ok(undefined);
     };
-    await walk(dir);
-}
-
-function skillError(error: unknown): Error {
-    if (!(error instanceof TreeError)) return new Error(REFUSED);
-    return new Error(
-        error.why === "entries"
-            ? `A skill gift takes at most ${MAX_GIFT_FILES} files and folders at once.`
-            : error.why === "bytes"
-              ? "The skill gift is larger than 32 MB."
-              : "A skill gift cannot include links or special files.",
-    );
-}
-
-/** A giver's skill copied into a server-owned stage under the giver's house read policy. */
-export async function stageSkill(
-    home: Home,
-    house: string,
-    skill: string,
-    stage: string,
-    context: Context,
-): Promise<void> {
     try {
-        await stageTree(
-            home,
-            { root: house, rel: `skills/${skill}` },
-            stage,
-            GIFT_CAPS,
-            context,
-        );
-    } catch (error) {
-        throw skillError(error);
+        return await walk(path);
+    } catch {
+        return failure(operation, "refused");
     }
 }
 
-/** A gift copied under the receiving house's kernel-enforced write policy. */
+/** A no-follow copy into a separate empty stage, keeping regular bytes and modes. */
+export async function stage(
+    home: Home,
+    source: { root: string; rel: string },
+    staged: string,
+    caps: Readonly<TreeCaps>,
+    context: Context,
+): Promise<Result<void, TreeFailure>> {
+    const operation = "stage-tree";
+    source = { ...source, root: resolve(source.root) };
+    staged = resolve(staged);
+    const path = treeRel(source.rel, operation, true);
+    if (!path.ok) return path;
+    if (
+        ![caps.entries, caps.bytes].every(
+            (n) => Number.isSafeInteger(n) && n >= 0,
+        )
+    )
+        return err({
+            operation,
+            kind: "path-invalid",
+            path: "caps",
+            constraint: "caps",
+            retrySafe: false,
+        });
+    if (
+        within(canon(staged), canon(source.root)) ||
+        within(canon(source.root), canon(staged))
+    )
+        return failure(operation, "stage-overlaps-source");
+    try {
+        if (
+            !(await lstat(staged)).isDirectory() ||
+            (await readdir(staged)).length
+        )
+            return failure(operation, "stage-not-empty");
+        const env = treeWorker(home, {
+            root: source.root,
+            stage: staged,
+            caps,
+        });
+        let outcome: Result<TreeReport, TreeFailure>;
+        try {
+            outcome = await runTree(
+                env,
+                [
+                    "stage",
+                    source.root,
+                    join(source.root, source.rel),
+                    staged,
+                    String(caps.entries),
+                    String(caps.bytes),
+                ],
+                operation,
+                context,
+            );
+        } finally {
+            await env.cleanup(context);
+        }
+        if (!outcome.ok) return outcome;
+        const report = outcome.value;
+        if (report.limit)
+            return err({
+                kind: report.limit === "entries" ? "entries-cap" : "bytes-cap",
+                cap: caps[report.limit],
+                operation,
+                retrySafe: false,
+            });
+        if (report.skipped.length)
+            return err({
+                kind: "unsafe-entry",
+                skipped: report.skipped,
+                operation,
+                retrySafe: false,
+            });
+        return checkTree(
+            source.rel === "." ? staged : join(staged, basename(source.rel)),
+            operation,
+            caps,
+        );
+    } catch {
+        return failure(operation, "refused");
+    }
+}
+
+/** Named stage roots delivered without clobbering; failed claims are rolled back. */
 export async function deliver(
     home: Home,
-    house: string,
-    shelf: "inbox" | "skills",
-    source: string,
-    roots: string[],
+    target: { root: string; into: string; collision?: "number" },
+    staged: string,
+    names: string[],
     context: Context,
-): Promise<string[]> {
-    return serial(home, async () => {
-        await checkShelf(house, shelf, roots);
-        const targets: string[] = [];
-        for (const root of roots) {
-            let name = root;
-            let number = 1;
-            while (
-                await lstat(join(house, shelf, name)).catch(() => undefined)
-            ) {
-                if (shelf === "skills")
-                    throw new Error("The agent already has that skill.");
-                const ext = extname(root);
-                name = `${root.slice(0, root.length - ext.length)}-${++number}${ext}`;
+): Promise<Result<string[], TreeFailure>> {
+    const operation = "deliver-tree";
+    target = { ...target, root: resolve(target.root) };
+    staged = resolve(staged);
+    const path = treeRel(target.into, operation, true);
+    if (!path.ok) return path;
+    for (const name of names) {
+        const path = treeRel(name, operation);
+        if (!path.ok) return path;
+        if (name.includes("/"))
+            return err({
+                operation,
+                kind: "path-invalid",
+                path: name,
+                constraint: "top-level",
+                retrySafe: false,
+            });
+    }
+    if (new Set(names).size !== names.length)
+        return err({
+            operation,
+            kind: "path-invalid",
+            path: names.join(","),
+            constraint: "distinct",
+            retrySafe: false,
+        });
+    return home.houses.deliver(async () => {
+        try {
+            let path = target.root;
+            for (const part of target.into === "."
+                ? []
+                : target.into.split("/")) {
+                path = join(path, part);
+                const stat = await lstat(path).catch(
+                    (error: NodeJS.ErrnoException) => {
+                        if (error.code !== "ENOENT") throw error;
+                        return undefined;
+                    },
+                );
+                if (stat && !stat.isDirectory())
+                    return failure(operation, "shelf-linked");
             }
-            targets.push(name);
+            const targets: string[] = [];
+            for (const name of names) {
+                const tree = await checkTree(join(staged, name), operation);
+                if (!tree.ok) return tree;
+                let into = name,
+                    number = 1;
+                while (
+                    await lstat(join(target.root, target.into, into)).catch(
+                        () => undefined,
+                    )
+                ) {
+                    if (target.collision !== "number")
+                        return err({
+                            operation,
+                            kind: "clobber",
+                            name,
+                            retrySafe: false,
+                        });
+                    const ext = extname(name);
+                    into = `${name.slice(0, name.length - ext.length)}-${++number}${ext}`;
+                }
+                targets.push(into);
+            }
+            return await copyInto(
+                home,
+                target.root,
+                target.into,
+                staged,
+                names,
+                targets,
+                context,
+            );
+        } catch {
+            return failure(operation, "refused");
         }
-        await copyInto(
-            home,
-            house,
-            shelf,
-            source,
-            roots,
-            targets,
-            GIFT_CAPS,
-            context,
-        );
-        return targets;
     });
 }
-
-async function serial<T>(home: Home, work: () => Promise<T>): Promise<T> {
-    const before = deliveries.get(home) ?? Promise.resolve();
-    const next = before.catch(() => {}).then(work);
-    deliveries.set(home, next);
-    try {
-        return await next;
-    } finally {
-        if (deliveries.get(home) === next) deliveries.delete(home);
-    }
-}
-
 async function copyInto(
     home: Home,
     root: string,
     into: string,
-    source: string,
+    staged: string,
     names: string[],
     targets: string[],
-    caps: Readonly<TreeCaps>,
     context: Context,
-): Promise<void> {
-    const env = treeWorker(home, { root: source, stage: root, caps });
+): Promise<Result<string[], TreeFailure>> {
+    const operation = "deliver-tree";
+    const env = treeWorker(home, {
+        root: staged,
+        stage: root,
+        caps: MERGE_CAPS,
+    });
     const paths = targets.map((name) => join(root, into, name));
     let claimed: string | undefined;
+    let completed = false;
     try {
         const journal = await env.createTempFile(
             { prefix: "claimed-" },
             context,
         );
-        if (!journal.ok) throw new Error(REFUSED);
+        if (!journal.ok) return failure(operation, "refused");
         claimed = journal.value;
         const copied = await env.exec(
             [
@@ -284,246 +432,110 @@ while [ "$#" -gt 0 ]; do
   printf '%s\\0' "$target" >> "$claimed"
   cp -RPp -- "$copy" "$target"
 done`,
-                "gift",
+                "tree",
                 claimed,
                 join(root, into),
                 ...names.flatMap((name, i) => [
-                    join(source, name),
+                    join(staged, name),
                     paths[i] ?? "",
                 ]),
             ],
             undefined,
             context,
         );
-        if (!copied.ok || copied.value.exitCode !== 0) throw new Error(REFUSED);
-    } catch {
-        if (claimed !== undefined) {
-            const journal = await env.readTextFile(claimed, context);
-            const made = journal.ok
-                ? journal.value
+        completed = copied.ok && copied.value.exitCode === 0;
+        return completed ? ok(targets) : failure(operation, "refused");
+    } finally {
+        if (!completed && claimed !== undefined) {
+            const journalRead = await env.readTextFile(claimed, context);
+            const made = journalRead.ok
+                ? journalRead.value
                       .split("\0")
                       .filter((path) => paths.includes(path))
                 : [];
-            if (made.length > 0)
+            if (made.length)
                 await env.exec(
                     ["/bin/rm", "-rf", "--", ...made],
                     undefined,
                     context,
                 );
         }
-        throw new Error(REFUSED);
-    } finally {
         await env.cleanup(context);
     }
 }
 
-/** A regular file listed without following links, relative to the source root. */
-export type TreeFile = { path: string; size: number; sha256: string };
-/** A tree's regular files and entries that cannot be copied. */
-export type TreeListing = {
-    files: TreeFile[];
-    skipped: { path: string; kind: "link" | "special" }[];
-};
-type TreeReport = TreeListing & {
-    limit?: "entries" | "bytes";
-    failed?: boolean;
-};
-
-function treeRel(rel: string, whole = false): void {
-    if (whole && rel === ".") return;
-    if (
-        !rel ||
-        isAbsolute(rel) ||
-        win32.isAbsolute(rel) ||
-        rel.includes("\\") ||
-        rel.includes("\0") ||
-        rel
-            .split("/")
-            .some((part) => part === "" || part === "." || part === "..")
-    )
-        throw new Error(
-            "A tree path must stay relative to its root, without dot or parent components.",
-        );
-}
-
-/** A no-follow copy into a private stage, using the source's basename or the whole root for `rel: "."`. */
-export async function stageTree(
-    home: Home,
-    source: { root: string; rel: string },
-    stage: string,
-    caps: Readonly<TreeCaps>,
-    context: Context,
-): Promise<void> {
-    source = { ...source, root: resolve(source.root) };
-    stage = resolve(stage);
-    treeRel(source.rel, true);
-    if (
-        ![caps.entries, caps.bytes].every(
-            (n) => Number.isSafeInteger(n) && n >= 0,
-        )
-    )
-        throw new Error(
-            "Tree caps are whole counts of zero or more entries and bytes.",
-        );
-    if (
-        within(canon(stage), canon(source.root)) ||
-        within(canon(source.root), canon(stage))
-    )
-        throw new Error("A private stage must be separate from its source.");
-    try {
-        if (
-            !(await lstat(stage)).isDirectory() ||
-            (await readdir(stage)).length !== 0
-        )
-            throw new Error("The private stage must be an empty directory.");
-        const env = treeWorker(home, { root: source.root, stage, caps });
-        let report: TreeReport;
-        try {
-            report = await runTree(
-                env,
-                [
-                    "stage",
-                    source.root,
-                    join(source.root, source.rel),
-                    stage,
-                    String(caps.entries),
-                    String(caps.bytes),
-                ],
-                context,
-            );
-        } finally {
-            await env.cleanup(context);
-        }
-        if (report.limit)
-            throw new TreeError(
-                report.limit,
-                `The tree exceeds its ${report.limit} cap.`,
-            );
-        if (report.skipped.length > 0)
-            throw new TreeError(
-                "unsafe",
-                `A tree cannot include links or special files: ${report.skipped.map((e) => `${JSON.stringify(e.path)} (${e.kind})`).join(", ")}.`,
-            );
-        if (source.rel === ".") await checkTree(stage, caps);
-        else await checkTree(join(stage, basename(source.rel)), caps);
-    } catch (error) {
-        if (error instanceof TreeError) throw error;
-        throw new Error("The tree could not be staged safely.");
-    }
-}
-
-/** A no-clobber delivery of named stage roots into the target, with rollback of its claims. */
-export async function deliverTree(
-    home: Home,
-    target: { root: string; into: string },
-    stage: string,
-    names: string[],
-    context: Context,
-): Promise<void> {
-    target = { ...target, root: resolve(target.root) };
-    stage = resolve(stage);
-    treeRel(target.into, true);
-    for (const name of names) {
-        treeRel(name);
-        if (name.includes("/"))
-            throw new Error("A delivery names top-level stage entries.");
-    }
-    if (new Set(names).size !== names.length)
-        throw new Error("A delivery cannot repeat a stage entry.");
-    return serial(home, async () => {
-        try {
-            let path = target.root;
-            for (const part of target.into === "."
-                ? []
-                : target.into.split("/")) {
-                path = join(path, part);
-                const stat = await lstat(path).catch(
-                    (error: NodeJS.ErrnoException) => {
-                        if (error.code !== "ENOENT") throw error;
-                        return undefined;
-                    },
-                );
-                if (stat && !stat.isDirectory()) throw new Error(REFUSED);
-            }
-            for (const name of names) await checkTree(join(stage, name));
-            await copyInto(
-                home,
-                target.root,
-                target.into,
-                stage,
-                names,
-                names,
-                MERGE_CAPS,
-                context,
-            );
-        } catch {
-            throw new Error(
-                "The tree could not be delivered inside its target. Nothing was handed over.",
-            );
-        }
-    });
-}
-
-/** Regular files with sizes and SHA-256, and the links or special files left unread. */
-export async function listTree(
+/** Regular files and digests, with unsafe entries left unread. */
+export async function list(
     home: Home,
     root: string,
     rel: string,
     context: Context,
-): Promise<TreeListing> {
+): Promise<Result<TreeListing, TreeFailure>> {
+    const path = treeRel(rel, "list-tree", true);
+    if (!path.ok) return path;
     root = resolve(root);
-    treeRel(rel, true);
     const report = await treeOperation(
         home,
         root,
         ["list", root, join(root, rel)],
+        "list-tree",
         context,
     );
-    return { files: report.files, skipped: report.skipped };
+    return report.ok
+        ? ok({ files: report.value.files, skipped: report.value.skipped })
+        : report;
 }
 
-/** Paths removed under their root's sole write policy, with links removed as links. */
-export async function removeTree(
+/** Removes paths under their sole root's write policy, removing links as links. */
+export async function remove(
     home: Home,
     root: string,
     rels: string[],
     context: Context,
-): Promise<void> {
+): Promise<Result<void, TreeFailure>> {
+    for (const rel of rels) {
+        const path = treeRel(rel, "remove-tree");
+        if (!path.ok) return path;
+    }
     root = resolve(root);
-    for (const rel of rels) treeRel(rel);
-    await treeOperation(
+    const report = await treeOperation(
         home,
         root,
         ["remove", root, ...rels.map((rel) => join(root, rel))],
+        "remove-tree",
         context,
         root,
     );
+    return report.ok ? ok(undefined) : report;
 }
 
-/** A server-owned folder erased from houses or the librarian, with its regular bytes freed. */
-export async function removeHouse(home: Home, dir: string): Promise<number> {
-    const refused =
-        "Only a server-owned folder strictly inside houses or the librarian can be erased.";
+/** Detaches only server-owned house folders before freeing their regular bytes. */
+export async function erase(
+    home: Home,
+    dir: string,
+): Promise<Result<number, TreeFailure>> {
+    const operation = "erase-house";
     if (!isAbsolute(dir) || dir.split(sep).includes(".."))
-        throw new Error(refused);
+        return failure(operation, "refused");
     const absolute = resolve(dir);
-    const roots = [home.layout.houses, home.layout.librarian];
-    const root = roots.find(
+    const root = [home.layout.houses, home.layout.librarian].find(
         (root) => absolute !== resolve(root) && within(absolute, resolve(root)),
     );
-    if (!root || !within(canon(dir), canon(root))) throw new Error(refused);
+    if (!root || !within(canon(dir), canon(root)))
+        return failure(operation, "refused");
     try {
         let path = root;
         for (const part of relative(root, absolute).split(sep)) {
             path = join(path, part);
-            if (!(await lstat(path)).isDirectory()) throw new Error(refused);
+            if (!(await lstat(path)).isDirectory())
+                return failure(operation, "refused");
         }
         const erasing = home.layout.erasing;
         await mkdir(erasing, { recursive: true, mode: 0o700 });
-        if (!(await lstat(erasing)).isDirectory()) throw new Error(refused);
+        if (!(await lstat(erasing)).isDirectory())
+            return failure(operation, "refused");
         const slot = await mkdtemp(join(erasing, "house-"));
         const detached = join(slot, "tree");
-        // Moving out of every house policy revokes lingering processes' writes.
         await rename(absolute, detached);
         const size = async (path: string): Promise<number> => {
             const info = await lstat(path);
@@ -536,19 +548,19 @@ export async function removeHouse(home: Home, dir: string): Promise<number> {
         };
         const bytes = await size(detached);
         await rm(slot, { recursive: true, force: true });
-        return bytes;
+        return ok(bytes);
     } catch {
-        throw new Error(refused);
+        return failure(operation, "refused");
     }
 }
-
 async function treeOperation(
     home: Home,
     root: string,
     args: string[],
+    operation: Operation,
     context: Context,
     writable?: string,
-): Promise<TreeReport> {
+): Promise<Result<TreeReport, TreeFailure>> {
     try {
         const env = treeWorker(home, {
             root,
@@ -556,23 +568,30 @@ async function treeOperation(
             caps: MERGE_CAPS,
         });
         try {
-            return await runTree(env, args, context);
+            return await runTree(env, args, operation, context);
         } finally {
             await env.cleanup(context);
         }
     } catch {
-        throw new Error(TREE_REFUSED);
+        return failure(operation, "refused");
     }
 }
-
 async function runTree(
     env: SandboxEnv,
     args: string[],
+    operation: Operation,
     context: Context,
-): Promise<TreeReport> {
+): Promise<Result<TreeReport, TreeFailure>> {
     let output = "";
     const result = await env.exec(
-        [process.execPath, "-e", TREE_SCRIPT, ...args],
+        [
+            process.execPath,
+            "--disable-warning=ExperimentalWarning",
+            fileURLToPath(
+                new URL("../sandbox/tree-helper.ts", import.meta.url),
+            ),
+            ...args,
+        ],
         {
             onOutput: (text) => {
                 output += text;
@@ -581,90 +600,14 @@ async function runTree(
         context,
     );
     if (!result.ok || result.value.exitCode !== 0)
-        throw new Error(TREE_REFUSED);
+        return failure(operation, "refused");
+    let report: unknown;
     try {
-        const report = JSON.parse(output) as TreeReport;
-        if (
-            report.failed ||
-            !Array.isArray(report.files) ||
-            !Array.isArray(report.skipped)
-        )
-            throw new Error();
-        return report;
+        report = JSON.parse(output);
     } catch {
-        throw new Error(TREE_REFUSED);
+        return failure(operation, "refused");
     }
+    if (!Value.Check(Report, report) || report.failed)
+        return failure(operation, "refused");
+    return ok(report);
 }
-
-const TREE_SCRIPT = `
-const fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto");
-const [mode, root, source, stage, entryCap, byteCap] = process.argv.slice(1);
-const report = { files: [], skipped: [] };
-const rel = (p) => path.relative(root, p).split(path.sep).join("/") || ".";
-let entries = 0, bytes = 0;
-function parents(p) {
-    const parts = path.relative(root, p).split(path.sep);
-    let current = root;
-    for (const part of parts.slice(0, -1)) {
-        if (!part) continue;
-        current = path.join(current, part);
-        const info = fs.lstatSync(current);
-        if (info.isSymbolicLink() || !info.isDirectory()) {
-            report.skipped.push({ path: rel(current), kind: info.isSymbolicLink() ? "link" : "special" });
-            return false;
-        }
-    }
-    return true;
-}
-function visit(p, dest) {
-    if (report.limit) return;
-    if (mode === "stage" && ++entries > Number(entryCap)) { report.limit = "entries"; return; }
-    const info = fs.lstatSync(p);
-    if (info.isDirectory()) {
-        if (dest && dest !== stage) fs.mkdirSync(dest, { mode: 0o700 });
-        for (const name of fs.readdirSync(p).sort()) visit(path.join(p, name), dest && path.join(dest, name));
-        if (dest) fs.chmodSync(dest, info.mode & 0o777);
-    } else if (info.isFile()) {
-        const file = fs.openSync(p, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
-        let output;
-        try {
-            const opened = fs.fstatSync(file);
-            if (!opened.isFile() || opened.dev !== info.dev || opened.ino !== info.ino) throw new Error();
-            if (mode === "stage" && bytes + opened.size > Number(byteCap)) { report.limit = "bytes"; return; }
-            if (dest) output = fs.openSync(dest, "wx", opened.mode & 0o777);
-            const digest = mode === "list" ? crypto.createHash("sha256") : undefined, chunk = Buffer.alloc(128 * 1024);
-            let length = 0, count;
-            while ((count = fs.readSync(file, chunk, 0, chunk.length, null)) > 0) {
-                bytes += count; length += count;
-                if (mode === "stage" && bytes > Number(byteCap)) { report.limit = "bytes"; return; }
-                digest?.update(chunk.subarray(0, count));
-                if (output !== undefined) {
-                    let written = 0;
-                    while (written < count) written += fs.writeSync(output, chunk, written, count - written);
-                }
-            }
-            if (output !== undefined) fs.fchmodSync(output, opened.mode & 0o777);
-            if (mode === "list") report.files.push({ path: rel(p), size: length, sha256: digest.digest("hex") });
-        } finally { if (output !== undefined) fs.closeSync(output); fs.closeSync(file); }
-    } else report.skipped.push({ path: rel(p), kind: info.isSymbolicLink() ? "link" : "special" });
-}
-function remove(p) {
-    let info;
-    try { info = fs.lstatSync(p); } catch (error) { if (error.code === "ENOENT") return; throw error; }
-    if (info.isDirectory()) {
-        for (const name of fs.readdirSync(p)) remove(path.join(p, name));
-        fs.rmdirSync(p);
-    } else fs.unlinkSync(p);
-}
-try {
-    if (mode === "remove") {
-        for (const p of process.argv.slice(3)) {
-            if (parents(p)) remove(p);
-        }
-        if (report.skipped.length) report.failed = true;
-    } else if (parents(source)) {
-        visit(source, mode === "stage" ? source === root ? stage : path.join(stage, path.basename(source)) : undefined);
-    }
-} catch { report.failed = true; }
-process.stdout.write(JSON.stringify(report));
-`;

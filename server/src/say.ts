@@ -1,20 +1,25 @@
 import type { Context } from "@earendil-works/chord";
 import type { Submission } from "@earendil-works/pi-durable";
 import * as agents from "./agents.ts";
-import { ChatDoc, submitLine } from "./chats/conversations.ts";
+import { submitLine } from "./chats/conversations.ts";
 import {
-    historyOf,
-    newChat,
+    carryOn,
+    currentNumber,
+    history,
     reflect,
-    resumeChat,
-    retry,
-    stopAgent,
-    stopChiefAgents,
+    resume,
+    start,
+    stop,
 } from "./chats.ts";
 import { readCommand } from "./commands.ts";
-import { connectionFailureText } from "./connection.ts";
 import { folder, setMode } from "./environment.ts";
-import { answerWords, GrantsDoc, grantsOf, revoke } from "./gate.ts";
+import {
+    answerFailureText,
+    answerWords,
+    GrantsDoc,
+    grantsOf,
+    revoke,
+} from "./gate.ts";
 import type { Deed, Home } from "./home.ts";
 import { giftSkill } from "./house.ts";
 import * as library from "./library.ts";
@@ -22,10 +27,9 @@ import { LimitsDoc, limitsOf } from "./limits/rules.ts";
 import { forAgent, forChat, open } from "./oversight/waits.ts";
 import { strip } from "./oversight/words.ts";
 import type { Say } from "./protocol.ts";
-import { chiefAccess, legacyRefusal } from "./realm/access.ts";
-import { resolve } from "./realm/roads.ts";
+import { chiefAccess } from "./realm/access.ts";
+import { livingAgent } from "./realm/roads.ts";
 import * as founding from "./realm.ts";
-import { addressed, agentKey } from "./record.ts";
 import { err, ok, type Result } from "./result.ts";
 import type { ChiefFailure, Receipt } from "./server.ts";
 import { resetBudget } from "./spend/ledger.ts";
@@ -60,34 +64,20 @@ export async function say(
         );
     }
     if (command?.command === "to") {
-        const target = await resolve(
-            home.harness,
-            message.to.hamlet,
-            command.agent,
-            context,
-        );
-        if (!target)
-            return err({ kind: "agent-missing", agent: command.agent });
-        if ("gone" in target)
-            return err({ kind: "agent-gone", farewell: target.gone });
-        const access = await chiefAccess(
+        const target = await livingAgent(
             home,
-            target.hamlet,
+            { from: message.to.hamlet, text: command.agent },
             "instruct",
             context,
         );
-        if (!access.ok) return access;
-        // D3 replaces this line-admission compatibility catch with ConversationFailure.
+        if (!target.ok) return target;
         const sub = await submitLine(
             home,
-            { agent: target.ref, chief: home.chief },
+            target.value.chat,
             { id: message.id, text: command.text },
             context,
-        )
-            .then(ok)
-            .catch(legacyRefusal);
-        if (!sub.ok) return sub;
-        submitted?.(sub.value);
+        );
+        submitted?.(sub);
         return undefined;
     }
     if (command?.command === "budget") {
@@ -125,17 +115,19 @@ export async function say(
     }
     if (command?.command === "revoke") {
         const hamlet = message.to.hamlet;
-        const agent =
-            (await addressed(
-                home.harness,
-                { hamlet, agent: command.agent },
-                context,
-            )) ??
-            grantsOf(await home.harness.snapshot(GrantsDoc, context)).find(
-                (grant) =>
-                    grant.agent.hamlet === hamlet &&
-                    grant.name === command.agent,
-            )?.agent;
+        const target = await livingAgent(
+            home,
+            { hamlet, agent: command.agent },
+            "revoke",
+            context,
+        );
+        const agent = target.ok
+            ? target.value.ref
+            : grantsOf(await home.harness.snapshot(GrantsDoc, context)).find(
+                  (grant) =>
+                      grant.agent.hamlet === hamlet &&
+                      grant.name === command.agent,
+              )?.agent;
         if (agent !== undefined)
             await home.harness.commit(
                 (tx) =>
@@ -167,68 +159,36 @@ export async function say(
         return result.ok ? receipt(result.value) : result;
     }
     if (command?.command === "mode" || command?.command === "give") {
-        // D8 replaces this gift compatibility catch with GiftRefusal.
-        try {
-            const text =
-                command.command === "mode"
-                    ? await setMode(
-                          home,
-                          message.to.hamlet,
-                          command.mode,
-                          context,
-                      )
-                    : await giftSkill(
-                          home,
-                          { hamlet: message.to.hamlet, agent: command.agent },
-                          command.skill,
-                          command.from === undefined
-                              ? undefined
-                              : {
-                                    hamlet: message.to.hamlet,
-                                    agent: command.from,
-                                },
-                          context,
-                      );
-            return receipt(text);
-        } catch (cause) {
-            return legacyRefusal(cause);
-        }
+        const text =
+            command.command === "mode"
+                ? await setMode(home, message.to.hamlet, command.mode, context)
+                : await giftSkill(
+                      home,
+                      { hamlet: message.to.hamlet, agent: command.agent },
+                      command.skill,
+                      command.from === undefined
+                          ? undefined
+                          : { hamlet: message.to.hamlet, agent: command.from },
+                      context,
+                  );
+        return receipt(text);
     }
+
     if (command?.command === "stop") {
-        if (command.agent === null) {
-            // D3 replaces this stop-call compatibility catch with ConversationFailure.
-            return receipt(
-                await stopChiefAgents(home, context).catch(legacyRefusal),
-            );
-        }
-        const target = await resolve(
-            home.harness,
-            message.to.hamlet,
-            command.agent,
+        if (command.agent === null) return stop(home, "all", context);
+        const living = await livingAgent(
+            home,
+            { from: message.to.hamlet, text: command.agent },
+            "stop",
             context,
         );
-        if (!target)
-            return err({ kind: "agent-missing", agent: command.agent });
-        if ("gone" in target)
-            return err({ kind: "agent-gone", farewell: target.gone });
-        const access = await chiefAccess(home, target.hamlet, "stop", context);
-        if (!access.ok) return access;
-        // D3 replaces this stop-call compatibility catch with ConversationFailure.
-        return receipt(
-            await stopAgent(home, target.ref, context)
-                .then(() => ok(`Stopping ${command.agent}.`))
-                .catch(legacyRefusal),
-        );
+        if (!living.ok) return living;
+        const outcome = await stop(home, living.value.ref, context);
+        return outcome.ok ? receipt(`Stopping ${command.agent}.`) : outcome;
     }
-    const target = await resolve(
-        home.harness,
-        message.to.hamlet,
-        `${message.to.agent}@${message.to.hamlet}`,
-        context,
-    );
-    if (target && "gone" in target)
-        return err({ kind: "agent-gone", farewell: target.gone });
-    const agent = target && "ref" in target ? target.ref : undefined;
+    const target = await livingAgent(home, message.to, "say", context);
+    if (!target.ok && target.error.kind !== "agent-missing") return target;
+    const agent = target.ok ? target.value.ref : undefined;
     if (
         agent !== undefined &&
         (command?.command === "new" ||
@@ -238,84 +198,46 @@ export async function say(
     ) {
         const chat = { agent, chief: home.chief };
 
-        // D3 replaces this conversation-call compatibility catch with ConversationFailure.
-        try {
-            switch (command.command) {
-                case "new":
-                    await newChat(home, chat, context);
-                    return receipt("Started a new session.");
-                case "resume":
-                    if (command.number === null) {
-                        const past = (
-                            await historyOf(home, chat, context)
-                        ).filter((each) => !each.current);
-                        return receipt(
-                            past.length === 0
-                                ? "There are no past sessions here."
-                                : past
-                                      .map(
-                                          (each) =>
-                                              `${each.number}: ${each.title} (${each.messages} messages, ${each.tokens} tokens; ${new Date(each.began).toISOString()})`,
-                                      )
-                                      .join("\n"),
-                        );
-                    }
-                    if (
-                        !(
-                            await home.harness.snapshot(
-                                ChatDoc,
-                                agentKey(agent),
-                                context,
-                            )
-                        )?.chats[home.chief]?.conversations.some(
-                            (each) => each.number === command.number,
-                        )
-                    )
-                        return receipt(
-                            `There is no past session \`${command.number}\` here.`,
-                        );
-                    await resumeChat(home, chat, command.number, context);
-                    return receipt("Went back to an earlier session.");
-                case "reflect":
-                    {
-                        const reflection = await reflect(home, chat, context);
-                        if (reflection !== undefined) submitted?.(reflection);
-                    }
-                    return undefined;
-                case "retry":
-                    if (
-                        !(
-                            await home.harness.snapshot(
-                                ChatDoc,
-                                agentKey(agent),
-                                context,
-                            )
-                        )?.chats[home.chief]
-                    )
-                        return receipt(
-                            "the last message was answered, so there is nothing to carry on",
-                        );
-                    {
-                        const continued = await retry(home, chat, context);
-                        submitted?.(continued);
-                    }
-                    return undefined;
+        switch (command.command) {
+            case "new":
+                return start(home, chat, context);
+            case "resume": {
+                if (command.number !== null)
+                    return resume(home, chat, command.number, context);
+                const past = (await history(home, chat, context)).filter(
+                    (each) => !each.current,
+                );
+                return receipt(
+                    past.length === 0
+                        ? "There are no past sessions here."
+                        : past
+                              .map(
+                                  (each) =>
+                                      `${each.number}: ${each.title} (${each.messages} messages, ${each.tokens} tokens; ${new Date(each.began).toISOString()})`,
+                              )
+                              .join("\n"),
+                );
             }
-        } catch (cause) {
-            return receipt(connectionFailureText({ kind: "defect", cause }));
+            case "reflect": {
+                const outcome = await reflect(home, chat, context, submitted);
+                return outcome.ok ? undefined : outcome;
+            }
+            case "retry": {
+                const outcome = await carryOn(home, chat, context, submitted);
+                return outcome.ok ? undefined : outcome;
+            }
         }
     }
     const waits = await open(home.harness, context);
-    const chat =
+    const number =
         agent === undefined
             ? undefined
-            : (await home.harness.snapshot(ChatDoc, agentKey(agent), context))
-                  ?.chats[home.chief];
+            : await currentNumber(home, { agent, chief: home.chief }, context);
     const own =
         agent === undefined
             ? undefined
             : (forChat(waits, { agent, chief: home.chief }).find(
-                  (wait) => wait.chat?.chat === chat?.current,
+                  (wait) => wait.chat?.chat === number,
               ) ?? forAgent(waits, agent)[0]);
     if (command?.command === "queue")
         return receipt(
@@ -332,30 +254,26 @@ export async function say(
         const wait = own ?? waits[0];
         if (wait === undefined) return receipt("Nothing waits for you.");
 
-        // D6 replaces this answer-call compatibility catch with answer-not-offered.
-        try {
-            const outcome = await answerWords(
-                home,
-                {
-                    wait: wait.id,
-                    choice: command.choice,
-                    text: command.text,
-                    chief: home.chief,
-                },
-                context,
-            );
-            return receipt(outcome);
-        } catch (cause) {
-            return receipt(connectionFailureText({ kind: "defect", cause }));
-        }
+        const outcome = await answerWords(
+            home,
+            {
+                wait: wait.id,
+                choice: command.choice,
+                text: command.text,
+                chief: home.chief,
+            },
+            context,
+        );
+        return !outcome.ok && outcome.error.kind === "answer-not-offered"
+            ? receipt(answerFailureText(outcome.error))
+            : receipt(outcome);
     }
     if (!command && own?.kind === "question") {
-        // D6 replaces this plain-answer compatibility catch with an answer failure.
         const outcome = await answerWords(
             home,
             { wait: own.id, choice: "reply", text, chief: home.chief },
             context,
-        ).catch(legacyRefusal);
+        );
         return receipt(outcome);
     }
     if (
@@ -367,19 +285,16 @@ export async function say(
             `Not sent. ${own.by} is waiting for your answer:\n${strip(own)}`,
         );
     if (agent === undefined) {
-        return err({ kind: "agent-missing", agent: message.to.agent });
+        if (!target.ok) return target;
+        throw new Error("Resolved agent disappeared");
     }
-    // D3 replaces this line-admission compatibility catch with ConversationFailure.
     const submission = await submitLine(
         home,
         { agent, chief: home.chief },
         { id: message.id, text },
         context,
-    )
-        .then(ok)
-        .catch(legacyRefusal);
-    if (!submission.ok) return submission;
-    submitted?.(submission.value);
+    );
+    submitted?.(submission);
     return undefined;
 }
 
@@ -406,12 +321,7 @@ const DEED_HANDLERS: Record<
     votes: voting.votes,
     overturn: voting.overturn,
     mayor: voting.mayor,
-    // The library still reports its shelf refusals as exceptions.
-    unshelve: (...args) =>
-        library
-            .unshelve(...args)
-            .then(ok)
-            .catch(legacyRefusal),
+    unshelve: library.unshelve,
     found: founding.found,
     hamlets: founding.hamlets,
     "name-hamlet": founding.nameHamlet,

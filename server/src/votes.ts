@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Type } from "@earendil-works/pi-ai";
@@ -15,10 +14,11 @@ import {
     type TaskId,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { reconfigure } from "./chats/configure.ts";
 import {
     AgentConversationsDoc,
     ChiefEntry,
-    chatOf,
+    current,
     LetterEntry,
     QuestionEntry,
     tellChiefs,
@@ -26,15 +26,17 @@ import {
 } from "./chats/conversations.ts";
 import { ErrandDoc, runErrand, startErrand } from "./chats/errands.ts";
 import { newTask } from "./chats/turn.ts";
-import { houseReader } from "./environment.ts";
 import { untilAborted } from "./home/abort.ts";
-import { houseOf } from "./home/layout.ts";
 import type { Home, Part } from "./home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "./limits/rules.ts";
-import { reconfigure } from "./models.ts";
 import type { VoteView } from "./protocol.ts";
 import { isChief, liveHamlets, RealmDoc } from "./realm/places.ts";
 import { foundHamlet, mayFound, removeHamlet } from "./realm.ts";
+import {
+    voteBy as byName,
+    voteSummary as summary,
+    voteTally as tally,
+} from "./record/office.ts";
 import {
     type AgentRef,
     agentKey,
@@ -53,6 +55,7 @@ import {
     toolText,
     type Vote,
     VotesDoc,
+    voteViews,
 } from "./record.ts";
 import { ok, type Result } from "./result.ts";
 
@@ -953,47 +956,6 @@ function runKey(hamlet: string, id: number): string {
 function clip(text: string, length: number): string {
     return Array.from(text).slice(0, length).join("");
 }
-function byName(v: Vote, r: Readonly<HamletRecord> | undefined): string {
-    return "chief" in v.by ? `chief:${v.by.chief}` : nameOf(r, v.by.agent);
-}
-function tally(v: Vote, l: Readonly<Limits>) {
-    const yes = v.ballots.filter((b) => b.choice === "yes").length,
-        no = v.ballots.filter((b) => b.choice === "no").length,
-        abstain = v.ballots.filter((b) => b.choice === "abstain").length;
-    return {
-        yes,
-        no,
-        abstain,
-        silent: v.voters.length - yes - no - abstain,
-        counted: v.ballots.filter(
-            (b) => b.choice === "yes" && (!l.votes.groundedOnly || b.grounded),
-        ).length,
-        needed: Math.max(
-            1,
-            Math.ceil((v.voters.length * l.votes.passYes) / l.votes.passOf),
-        ),
-    };
-}
-function summary(v: Vote, limits: Readonly<Limits>): string {
-    const t = tally(v, limits);
-    return `Vote ${v.id} ${v.standing === "passed" ? "passed" : v.standing === "open" ? "is open" : v.standing === "overturned" ? "was overturned" : "failed"}: ${t.yes} yes of ${v.voters.length} agents (${t.needed} needed), ${t.no} no, ${t.abstain} abstained, ${t.silent} did not answer${typeof v.standing === "object" && t.counted >= t.needed ? `; ${v.standing.failed}` : ""}. The chief has been told and may overturn it.`;
-}
-function report(
-    v: Vote,
-    r: Readonly<HamletRecord> | undefined,
-    limits: Readonly<Limits>,
-): string {
-    const t = tally(v, limits),
-        standing =
-            v.standing === "open"
-                ? "Open"
-                : v.standing === "passed"
-                  ? "Passed"
-                  : v.standing === "overturned"
-                    ? "Passed, then overturned by a chief"
-                    : `Failed (${v.standing.failed})`;
-    return `Vote ${v.id}: ${motionText(v, r)}.\nCalled by \`${byName(v, r)}\`: ${v.reason}${v.answer ? `\nThe mayor answered: ${v.answer}` : ""}\n${standing}: ${t.yes} yes of ${v.voters.length} agents (${t.needed} needed), ${t.no} no, ${t.abstain} abstained, ${t.silent} did not answer.\n${v.ballots.map((b) => `- ${nameOf(r, b.voter)}: ${b.choice ?? "no answer"}. ${b.reason}${b.evidence ? ` [${b.grounded ? "found in" : "not found in"} its house: "${b.evidence}"]` : ""}`).join("\n")}`;
-}
 function grounded(evidence: string, corpus: string): boolean {
     const words = (s: string) =>
         s
@@ -1027,14 +989,16 @@ async function notesOf(
     ref: AgentRef,
     context: Context,
 ): Promise<string> {
-    const root = houseOf(home.layout, ref);
-    const env = houseReader(home, ref, context);
-    try {
-        const result = await env.readTextFile(join(root, "NOTES.md"), context);
-        return result.ok ? result.value : "";
-    } finally {
-        await env.cleanup(context);
+    const read = await home.houses.of(ref).notes(context);
+    if (read.ok) return read.value.text;
+    switch (read.error.kind) {
+        case "notes-missing":
+        case "notes-not-utf8":
+        case "notes-unreadable":
+            return "";
     }
+    const unhandled: never = read.error;
+    throw new Error(`Unclassified notes read: ${unhandled}`);
 }
 async function historyOf(
     home: Home,
@@ -1123,7 +1087,7 @@ export const vote: RecordDeed = async (home, given, context) => {
         context,
     );
     if (!expired.ok) return expired;
-    const conversation = await chatOf(
+    const conversation = await current(
         home,
         {
             agent: { hamlet: given.hamlet, number: r.mayor },
@@ -1268,34 +1232,9 @@ export {
     type DecisionHeld,
     type Vote,
     VotesDoc,
+    voteViews,
 } from "./record.ts";
-/** The latest votes for the window. */
-export async function voteViews(
-    home: Home,
-    hamlet: string,
-    context: Context,
-): Promise<VoteWords[]> {
-    const r = await home.harness.snapshot(RecordDoc, hamlet, context),
-        limits = limitsOf(
-            await home.harness.snapshot(LimitsDoc, hamlet, context),
-        );
-    return (
-        (await home.harness.snapshot(VotesDoc, hamlet, context))?.votes ?? []
-    ).map((v) => ({
-        id: v.id,
-        motion: motionText(v, r),
-        by: byName(v, r),
-        open: v.standing === "open",
-        overturnable: v.standing === "open" || v.standing === "passed",
-        report: report(v, r, limits),
-        voters: v.voters.map((number) => ({
-            agent: { hamlet, number },
-            cast:
-                v.ballots.find((b) => b.voter === number)?.choice ??
-                (v.ballots.some((b) => b.voter === number) ? "none" : null),
-        })),
-    }));
-}
+
 async function seat(
     home: Home,
     tx: Tx,

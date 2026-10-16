@@ -34,20 +34,22 @@ import type { Home, Part } from "./home.ts";
 import { PeersDoc } from "./letters/peers.ts";
 import { LimitsDoc } from "./limits/rules.ts";
 import { liveHamlets, RealmDoc, type RealmEnd } from "./realm/places.ts";
-import { carryRealmRoad, realmRoads, resolve } from "./realm/roads.ts";
+import {
+    carryRealmRoad,
+    type ResolveFailure,
+    realmRoads,
+    resolveAddress,
+    resolveFailureText,
+} from "./realm/roads.ts";
 import {
     type AgentRef,
     addressOf,
     agentKey,
     carryRoad,
-    type DecisionHeld,
     type HamletRecord,
     hasRoad,
     memoised,
     RecordDoc,
-    type RecordRefusal,
-    recordRefusal,
-    toolText as recordToolText,
 } from "./record.ts";
 import { err, ok, type Result } from "./result.ts";
 import { safeWords } from "./scrub.ts";
@@ -63,6 +65,7 @@ export type LetterFailure = { operation: "letters"; retrySafe: false } & (
               | "letter-departed"
               | "letter-no-road";
       }
+    | { kind: "letter-address"; failure: ResolveFailure; name: string }
     | { kind: "letter-cross-hamlet" | "letter-unreachable"; name: string }
     | { kind: "letter-messages-full"; most: number }
     | { kind: "letter-unfinished"; address: string; text: string }
@@ -75,6 +78,8 @@ function letterRefusal<
 /** Agent-facing recovery words for letters and questions. */
 export function letterFailureText(error: LetterFailure): string {
     switch (error.kind) {
+        case "letter-address":
+            return resolveFailureText(error.failure, error.name);
         case "letter-no-place":
             return "not in a hamlet";
         case "letter-waiting":
@@ -99,24 +104,6 @@ export function letterFailureText(error: LetterFailure): string {
     const unhandled: never = error;
     throw new Error(`Unclassified letter refusal: ${unhandled}`);
 }
-function toolText(error: LetterFailure | RecordRefusal | DecisionHeld): string {
-    switch (error.kind) {
-        case "letter-no-place":
-        case "letter-waiting":
-        case "letter-cross-hamlet":
-        case "letter-mayor-road":
-        case "letter-empty":
-        case "letter-departed":
-        case "letter-no-road":
-        case "letter-unreachable":
-        case "letter-messages-full":
-        case "letter-unfinished":
-            return letterFailureText(error);
-        default:
-            return recordToolText(error);
-    }
-}
-
 type Delivery = {
     id: string;
     conversation: ConversationId;
@@ -315,7 +302,7 @@ export const Letters: Part = (home) => {
                                 });
                             const resolved = await targetOf(
                                 api,
-                                place,
+                                place.hamlet,
                                 name,
                                 context,
                             );
@@ -388,7 +375,7 @@ export const Letters: Part = (home) => {
                                 });
                             const resolved = await targetOf(
                                 api,
-                                place,
+                                place.hamlet,
                                 name,
                                 context,
                             );
@@ -437,7 +424,7 @@ export const Letters: Part = (home) => {
                                 });
                             const resolved = await targetOf(
                                 api,
-                                place,
+                                place.hamlet,
                                 to,
                                 context,
                             );
@@ -523,37 +510,33 @@ export const Letters: Part = (home) => {
     };
 };
 
-async function words(
-    run: () => Promise<Result<string, LetterFailure | RecordRefusal>>,
-) {
+async function words(run: () => Promise<Result<string, LetterFailure>>) {
     const result = await run();
     return {
         output: [
             {
                 type: "text" as const,
-                text: result.ok ? result.value : toolText(result.error),
+                text: result.ok
+                    ? result.value
+                    : letterFailureText(result.error),
             },
         ],
     };
 }
 async function targetOf(
     read: DocumentReader,
-    place: AgentRef,
+    from: string,
     name: string,
     context: Context,
 ) {
-    const target = await resolve(read, place.hamlet, name, context);
-    if (!target)
-        return recordRefusal("letters", place.hamlet, {
-            kind: "agent-missing",
-            name,
-        });
-    if ("gone" in target)
-        return recordRefusal("letters", place.hamlet, {
-            kind: "agent-departed",
-            farewell: target.gone,
-        });
-    return ok(target);
+    const result = await resolveAddress(read, from, name, context);
+    return result.ok
+        ? result
+        : letterRefusal({
+              kind: "letter-address",
+              failure: result.error,
+              name,
+          });
 }
 
 async function connected(

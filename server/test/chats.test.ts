@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "vitest";
 import {
-    chatOf,
+    current,
     notify,
     reflectionInput,
     retryInput,
@@ -56,7 +56,7 @@ describe("a chief's chat with the mayor", () => {
         const home = await testHome(scratch(), { models });
 
         const own = await mayorChat(home);
-        const other = await chatOf(
+        const other = await current(
             home,
             { agent: MAYOR, chief: "bea" },
             context,

@@ -1,4 +1,10 @@
-export { Librarian, libraryView, unshelve } from "./library/librarian.ts";
+export {
+    Librarian,
+    type LibraryRefusal,
+    libraryRefusalText,
+    libraryView,
+    unshelve,
+} from "./library/librarian.ts";
 export {
     installStarters,
     LibraryDoc,

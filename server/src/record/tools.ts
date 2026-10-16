@@ -11,6 +11,7 @@ import {
 import { WithDoc } from "../chats/conversations.ts";
 import { turnOf } from "../chats/turn.ts";
 import type { Home } from "../home.ts";
+import type { TreeFailure } from "../house.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
 import type { Result } from "../result.ts";
 import { booksOf } from "../spend/ledger.ts";
@@ -175,7 +176,7 @@ export type RecordDeed = (
     home: Home,
     given: { hamlet: string; rest: string; chief: string },
     context: Context,
-) => Promise<Result<string, RecordRefusal | DecisionHeld>>;
+) => Promise<Result<string, RecordRefusal | DecisionHeld | TreeFailure>>;
 
 /** A returned refusal in the model's tool-error diagnostic channel. */
 export function refusedTool(text: string): ToolExecutionResult {

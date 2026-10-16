@@ -16,7 +16,7 @@ import { untilAborted } from "../home/abort.ts";
 import { localDay } from "../home/clock.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Home, Part } from "../home.ts";
-import { removeHouse } from "../house.ts";
+import { erase as removeHouse } from "../house.ts";
 import { lapseAgent } from "../oversight/waits.ts";
 import { isChief, liveHamlets, RealmDoc } from "../realm/places.ts";
 import { farewell } from "../realm/roads.ts";
@@ -399,8 +399,9 @@ export const erase: RecordDeed = async (home, given, context) =>
                 number: entry.number,
             }),
         );
+        if (!bytes.ok) return bytes;
         return ok(
-            `Deleted \`${entry.name}\` for good. Freed ${bytes} bytes. It cannot be restored.`,
+            `Deleted \`${entry.name}\` for good. Freed ${bytes.value} bytes. It cannot be restored.`,
         );
     });
 

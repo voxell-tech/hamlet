@@ -1,9 +1,9 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension } from "@earendil-works/pi-durable";
+import { commitEdit } from "../chats/configure.ts";
 import { buildHouse } from "../home/layout.ts";
 import type { Part } from "../home.ts";
 import { LimitsDoc, limitsOf } from "../limits/rules.ts";
-import { choose, commitEdit } from "../models.ts";
 import {
     admit,
     defineMayorTool,
@@ -17,7 +17,7 @@ import {
     tidyName,
 } from "../record.ts";
 import { ok } from "../result.ts";
-import { SettingsDoc, settingsOf } from "../settings.ts";
+import { choose, SettingsDoc, settingsOf } from "../settings.ts";
 import { booksOf } from "../spend/ledger.ts";
 /** The agent lifecycle and road tools (H27, H3, H29). */
 export const Agents: Part = (home) => ({
