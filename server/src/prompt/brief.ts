@@ -10,8 +10,9 @@ import {
     addressOf,
     agentKey,
     type Decision,
-    type End,
+    endName,
     type HamletRecord,
+    nameOf,
     RecordDoc,
 } from "../record.ts";
 
@@ -126,7 +127,7 @@ export const HamletBrief: Part = (home) => ({
                                 ),
                             );
                         }
-                        return lines.join("\n") + votes;
+                        return `${lines.join("\n") + votes}\n${standing(record, place.number, home.now(), limits.mayor.toldDays)}`;
                     }
                     const roads = roadsOf(record).flatMap((r) =>
                         r.a === place.number
@@ -225,16 +226,6 @@ function farewells(record: Readonly<HamletRecord>, reader?: number): string[] {
 function clip(text: string) {
     return [...text].slice(0, 160).join("");
 }
-function agentName(record: Readonly<HamletRecord>, number: number): string {
-    return (
-        record.agents.find((a) => a.number === number)?.name ??
-        record.archive.findLast((a) => a.agent.number === number)?.agent.name ??
-        `agent #${number}`
-    );
-}
-function endName(record: Readonly<HamletRecord>, end: End) {
-    return end === "office" ? "mayor" : agentName(record, end);
-}
 function standing(
     record: Readonly<HamletRecord>,
     reader: number,
@@ -242,11 +233,11 @@ function standing(
     days: number,
 ): string {
     const since = Math.max(0, now - days * 86400000);
-    const counts = new Map<string, number>();
+    let count = 0;
     const decided: string[] = [],
         mine: string[] = [];
     for (const d of [...record.decisions].reverse()) {
-        if (d.at < since || (counts.get(d.kind) ?? 0) >= 6) continue;
+        if (d.at < since || count >= 6) continue;
         if (d.kind === "road_refused" && d.from !== reader) continue;
         const by =
             "by" in d
@@ -259,7 +250,7 @@ function standing(
         const reason = "reason" in d ? clip(d.reason) || "no reason given" : "";
         const words = decisionWords(record, d, by);
         if (!words) continue;
-        counts.set(d.kind, (counts.get(d.kind) ?? 0) + 1);
+        count++;
         (d.kind === "road_refused" ? mine : decided).push(
             `- ${words}: ${reason}`,
         );
@@ -287,16 +278,16 @@ function decisionWords(
         case "erased":
             return `${by} ${d.kind} \`${d.name}\``;
         case "merged":
-            return `${by} merged \`${agentName(record, d.absorb)}\` into \`${agentName(record, d.keep)}\``;
+            return `${by} merged \`${nameOf(record, d.absorb)}\` into \`${nameOf(record, d.keep)}\``;
         case "road_built":
         case "road_removed":
             return `${by} ${d.kind === "road_built" ? "built" : "took up"} a road between \`${endName(record, d.a)}\` and \`${endName(record, d.b)}\``;
         case "road_refused":
             return `The mayor did not build the road you asked for to \`${d.to}\``;
         case "mayor_changed":
-            return `${by} made \`${agentName(record, d.to)}\` mayor in place of \`${agentName(record, d.from)}\``;
+            return `${by} made \`${nameOf(record, d.to)}\` mayor in place of \`${nameOf(record, d.from)}\``;
         case "model":
-            return `${by} chose ${d.model || "the hamlet's own model"} for \`${agentName(record, d.agent)}\``;
+            return `${by} chose ${d.model || "the hamlet's own model"} for \`${nameOf(record, d.agent)}\``;
         case "moved_in":
         case "moved_out":
             return `${by} moved \`${d.name}\` ${d.kind === "moved_in" ? "from" : "to"} \`${d.hamlet}\``;

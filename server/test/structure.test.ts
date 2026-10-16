@@ -61,8 +61,6 @@ const SHARED_CORE = new Set([
 const ALLOWED_CYCLES = [
     // Conversation configuration deepening (D3) removes this shared core's cycle.
     [...SHARED_CORE],
-    // Record deepening (D4) owns departure and merge invariants together.
-    ["agents/leaving.ts", "agents/merging.ts"],
 ].map((component) => component.sort());
 const MODULES: readonly { name: string; folder: boolean }[] = [
     { name: "agents", folder: true },
@@ -353,6 +351,14 @@ test("value-import cycles stay within the explicit allowlist", () => {
             (component) =>
                 !ALLOWED_CYCLES.some(
                     (allowed) => allowed.join() === component.join(),
+                ),
+        ),
+    ).toEqual([]);
+    expect(
+        ALLOWED_CYCLES.filter(
+            (allowed) =>
+                !components.some(
+                    (component) => component.join() === allowed.join(),
                 ),
         ),
     ).toEqual([]);

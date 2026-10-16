@@ -17,39 +17,44 @@ import {
 } from "@earendil-works/pi-durable";
 import {
     AgentConversationsDoc,
-    ChatDoc,
     ChiefEntry,
     chatOf,
-    currentOf,
     LetterEntry,
     QuestionEntry,
-    startConversation,
+    tellChiefs,
     WithDoc,
 } from "./chats/conversations.ts";
 import { ErrandDoc, runErrand, startErrand } from "./chats/errands.ts";
-import { notify } from "./chats/notice.ts";
 import { newTask } from "./chats/turn.ts";
 import { houseReader } from "./environment.ts";
 import { untilAborted } from "./home/abort.ts";
 import { houseOf } from "./home/layout.ts";
-import type { Deed, Home, Part } from "./home.ts";
+import type { Home, Part } from "./home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "./limits/rules.ts";
 import { reconfigure } from "./models.ts";
 import type { VoteView } from "./protocol.ts";
-import { chiefsOf, isChief, liveHamlets, RealmDoc } from "./realm/places.ts";
+import { isChief, liveHamlets, RealmDoc } from "./realm/places.ts";
 import { foundHamlet, mayFound, removeHamlet } from "./realm.ts";
 import {
     type AgentRef,
     agentKey,
     type HamletRecord,
+    memoised,
     motionText,
     named,
+    nameOf,
+    type RecordDeed,
     RecordDoc,
+    type RecordRefusal,
+    recordRefusal,
     recordRefusalText,
+    refusedTool,
     seat as seatRecord,
+    toolText,
     type Vote,
     VotesDoc,
 } from "./record.ts";
+import { ok, type Result } from "./result.ts";
 
 type Step = { phase: "hear" } | { phase: "poll" } | { phase: "settle" };
 type Motion =
@@ -105,12 +110,13 @@ const RequestDoc = defineDoc<{ counted: boolean }>({
     scope: "task",
     initial: () => ({ counted: false }),
 });
-const tasks = new WeakMap<Home, ReturnType<typeof voteTask>>();
+const runner = Symbol("vote task");
+type VoteHome = Home & { [runner]?: ReturnType<typeof voteTask> };
 
 /** The hamlet's votes and office changes. */
-export const Votes: Part = (home) => {
+export const Votes: Part = (home: VoteHome) => {
     const task = voteTask(home);
-    tasks.set(home, task);
+    home[runner] = task;
     const cast = defineTool({
         name: "cast_ballot",
         description:
@@ -122,65 +128,109 @@ export const Votes: Part = (home) => {
         }),
         replay: "safe",
         execute: async (args, api, context) => {
-            const text = await api.commit(async (tx) => {
-                const call = await tx.doc(BallotDoc, api.taskId);
-                if (call.text) return call.text;
-                const poll = await tx.doc(PollDoc, api.conversationId);
-                const errand = await tx.doc(ErrandDoc, api.conversationId);
-                const place = await tx.doc(WithDoc, api.conversationId);
-                if (
-                    poll.kind !== "ballot" ||
-                    poll.hamlet === null ||
-                    errand.kind !== "ballot"
-                )
-                    throw new Error(
-                        "You can cast a ballot only while you are being asked to vote.",
-                    );
-                const choice = args.choice.trim().toLowerCase();
-                if (choice !== "yes" && choice !== "no" && choice !== "abstain")
-                    throw new Error("`choice` is one of yes, no and abstain");
-                if (choice !== "abstain" && !args.reason.trim())
-                    throw new Error("a yes or a no needs your `reason`");
-                const vote = (
-                    await tx.doc(VotesDoc, poll.hamlet, poll.hamlet)
-                ).votes.find((v) => v.id === poll.vote);
-                if (vote?.standing !== "open")
-                    throw new Error(`vote ${poll.vote} is closed`);
-                if (home.now() >= poll.until)
-                    throw new Error("The time for your ballot has ended.");
-                if (!vote.voters.includes(place.number))
-                    throw new Error(`You are not a voter in vote ${vote.id}.`);
-                if (vote.ballots.some((b) => b.voter === place.number))
-                    throw new Error(
-                        `You have already voted in vote ${vote.id}.`,
-                    );
-                if (
-                    !(
-                        await tx.doc(RecordDoc, place.hamlet, place.hamlet)
-                    ).agents.some((a) => a.number === place.number)
-                )
-                    throw new Error("You no longer live in this hamlet.");
-                vote.ballots.push({
-                    voter: place.number,
-                    choice,
-                    reason: args.reason.trim(),
-                    evidence: args.evidence.trim(),
-                    grounded: grounded(args.evidence, poll.corpus),
-                });
-                await notifyChiefs(
-                    home,
-                    tx,
-                    poll.hamlet,
-                    `Vote ${vote.id}: ${agentName(await tx.doc(RecordDoc, place.hamlet, place.hamlet), place.number)} voted ${choice}. ${args.reason.trim()}`,
-                );
-                call.text =
-                    "Your ballot is recorded. The chief reads it with its reason.";
-                return call.text;
-            }, context);
-            return {
-                output: [{ type: "text", text }],
-                control: { terminate: true },
-            };
+            const outcome = await memoised(
+                api,
+                {
+                    read: async (tx) => {
+                        const saved = (await tx.doc(BallotDoc, api.taskId))
+                            .text;
+                        return saved ? ok(saved) : undefined;
+                    },
+                    change: async (
+                        tx,
+                    ): Promise<Result<string, RecordRefusal>> => {
+                        const poll = await tx.doc(PollDoc, api.conversationId);
+                        const errand = await tx.doc(
+                            ErrandDoc,
+                            api.conversationId,
+                        );
+                        const place = await tx.doc(WithDoc, api.conversationId);
+                        if (
+                            poll.kind !== "ballot" ||
+                            poll.hamlet === null ||
+                            errand.kind !== "ballot"
+                        )
+                            return recordRefusal("cast-ballot", place.hamlet, {
+                                kind: "ballot-not-asked",
+                            });
+                        const choice = args.choice.trim().toLowerCase();
+                        if (
+                            choice !== "yes" &&
+                            choice !== "no" &&
+                            choice !== "abstain"
+                        )
+                            return recordRefusal("cast-ballot", place.hamlet, {
+                                kind: "ballot-choice",
+                            });
+                        if (choice !== "abstain" && !args.reason.trim())
+                            return recordRefusal("cast-ballot", place.hamlet, {
+                                kind: "ballot-reason",
+                            });
+                        const vote = (
+                            await tx.doc(VotesDoc, poll.hamlet, poll.hamlet)
+                        ).votes.find((v) => v.id === poll.vote);
+                        if (vote?.standing !== "open")
+                            return recordRefusal("cast-ballot", place.hamlet, {
+                                kind: "ballot-closed",
+                                vote: poll.vote,
+                            });
+                        if (home.now() >= poll.until)
+                            return recordRefusal("cast-ballot", place.hamlet, {
+                                kind: "ballot-ended",
+                            });
+                        if (!vote.voters.includes(place.number))
+                            return recordRefusal("cast-ballot", place.hamlet, {
+                                kind: "ballot-not-voter",
+                                vote: vote.id,
+                            });
+                        if (vote.ballots.some((b) => b.voter === place.number))
+                            return recordRefusal("cast-ballot", place.hamlet, {
+                                kind: "ballot-already-cast",
+                                vote: vote.id,
+                            });
+                        if (
+                            !(
+                                await tx.doc(
+                                    RecordDoc,
+                                    place.hamlet,
+                                    place.hamlet,
+                                )
+                            ).agents.some((a) => a.number === place.number)
+                        )
+                            return recordRefusal("cast-ballot", place.hamlet, {
+                                kind: "ballot-departed",
+                            });
+                        vote.ballots.push({
+                            voter: place.number,
+                            choice,
+                            reason: args.reason.trim(),
+                            evidence: args.evidence.trim(),
+                            grounded: grounded(args.evidence, poll.corpus),
+                        });
+                        await tellChiefs(
+                            home,
+                            tx,
+                            poll.hamlet,
+                            `Vote ${vote.id}: ${nameOf(await tx.doc(RecordDoc, place.hamlet, place.hamlet), place.number)} voted ${choice}. ${args.reason.trim()}`,
+                        );
+                        return ok(
+                            "Your ballot is recorded. The chief reads it with its reason.",
+                        );
+                    },
+                    write: async (tx, value) => {
+                        if (value.ok)
+                            (await tx.doc(BallotDoc, api.taskId)).text =
+                                value.value;
+                    },
+                },
+                context,
+            );
+            return outcome.ok
+                ? {
+                      output: [{ type: "text", text: outcome.value }],
+                      control: { terminate: true },
+                  }
+                : refusedTool(toolText(outcome.error));
         },
     });
     return {
@@ -253,61 +303,90 @@ export const Votes: Part = (home) => {
                         let id = known?.id;
                         let hamlet = known?.hamlet;
                         if (id == null || hamlet == null) {
+                            if (
+                                args.kind !== "replace_mayor" &&
+                                args.kind !== "found_hamlet"
+                            )
+                                return refusedTool(
+                                    "`kind` is replace_mayor or found_hamlet",
+                                );
                             const motion: Motion =
                                 args.kind === "replace_mayor"
                                     ? {
                                           kind: "replace_mayor",
                                           candidate: args.candidate ?? "",
                                       }
-                                    : args.kind === "found_hamlet"
-                                      ? {
-                                            kind: "found_hamlet",
-                                            hamlet: args.hamlet ?? "",
-                                            mayor: args.mayor ?? "",
-                                            purpose: args.purpose ?? "",
-                                        }
-                                      : (() => {
-                                            throw new Error(
-                                                "`kind` is replace_mayor or found_hamlet",
-                                            );
-                                        })();
+                                    : {
+                                          kind: "found_hamlet",
+                                          hamlet: args.hamlet ?? "",
+                                          mayor: args.mayor ?? "",
+                                          purpose: args.purpose ?? "",
+                                      };
                             const place = await api.snapshot(
                                 WithDoc,
                                 api.conversationId,
                                 context,
                             );
                             if (!place)
-                                throw new Error("You do not live in a hamlet.");
-                            await expire(
+                                return refusedTool(
+                                    "You do not live in a hamlet.",
+                                );
+                            const expired = await expire(
                                 home,
                                 place.hamlet,
                                 { agent: place.number },
                                 context,
                             );
+                            if (!expired.ok)
+                                return refusedTool(toolText(expired.error));
                             if (motion.kind === "found_hamlet") {
                                 const refused = await mayFound(
                                     api,
                                     motion,
                                     context,
                                 );
-                                if (refused) throw new Error(refused);
+                                if (!refused.ok)
+                                    return refusedTool(toolText(refused.error));
                             }
-                            id = await api.commit(async (tx) => {
-                                const call = await tx.doc(CallDoc, api.taskId);
-                                if (call.id !== null) return call.id;
-                                const id = await callVote(home, tx, {
-                                    hamlet: place.hamlet,
-                                    by: { agent: place.number },
-                                    motion,
-                                    reason: args.reason,
-                                    conversation: api.conversationId,
-                                });
-                                Object.assign(call, {
-                                    hamlet: place.hamlet,
-                                    id,
-                                });
-                                return id;
-                            }, context);
+                            const called = await memoised(
+                                api,
+                                {
+                                    read: async (tx) => {
+                                        const call = await tx.doc(
+                                            CallDoc,
+                                            api.taskId,
+                                        );
+                                        return call.id === null
+                                            ? undefined
+                                            : ok(call.id);
+                                    },
+                                    change: (tx) =>
+                                        callVote(home, tx, {
+                                            hamlet: place.hamlet,
+                                            by: { agent: place.number },
+                                            motion,
+                                            reason: args.reason,
+                                            conversation: api.conversationId,
+                                        }),
+                                    write: async (tx, result) => {
+                                        if (result.ok)
+                                            Object.assign(
+                                                await tx.doc(
+                                                    CallDoc,
+                                                    api.taskId,
+                                                ),
+                                                {
+                                                    hamlet: place.hamlet,
+                                                    id: result.value,
+                                                },
+                                            );
+                                    },
+                                },
+                                context,
+                            );
+                            if (!called.ok)
+                                return refusedTool(toolText(called.error));
+                            id = called.value;
                             hamlet = place.hamlet;
                         }
                         return {
@@ -442,11 +521,11 @@ function voteTask(home: Home) {
                                     evidence: "",
                                     grounded: false,
                                 });
-                                await notifyChiefs(
+                                await tellChiefs(
                                     home,
                                     tx,
                                     hamlet,
-                                    `Vote ${id}: ${agentName(await tx.doc(RecordDoc, hamlet, hamlet), number)} did not answer. ${reason}`,
+                                    `Vote ${id}: ${nameOf(await tx.doc(RecordDoc, hamlet, hamlet), number)} did not answer. ${reason}`,
                                 );
                             }
                         }, context);
@@ -503,26 +582,35 @@ function voteTask(home: Home) {
                                     )
                                         failed =
                                             "it passed but could not be done: the candidate left the hamlet";
-                                    else
-                                        await seat(home, tx, {
+                                    else {
+                                        const seated = await seat(home, tx, {
                                             hamlet,
                                             number: vote.motion.candidate,
                                             by: `vote:${id}`,
                                             reason: vote.reason,
                                         });
+                                        if (!seated.ok)
+                                            failed = `it passed but could not be done: ${recordRefusalText(seated.error, "chief")}`;
+                                    }
                                 } else {
                                     const place = (
                                         await tx.doc(RealmDoc)
                                     ).hamlets.find((h) => h.id === hamlet);
-                                    await foundHamlet(home, tx, {
-                                        ...vote.motion,
-                                        chiefs: place?.chiefs ?? [],
-                                        from: { hamlet, vote: id },
-                                    });
+                                    const founded = await foundHamlet(
+                                        home,
+                                        tx,
+                                        {
+                                            ...vote.motion,
+                                            chiefs: place?.chiefs ?? [],
+                                            from: { hamlet, vote: id },
+                                        },
+                                    );
+                                    if (!founded.ok)
+                                        failed = `it passed but could not be done: ${recordRefusalText(founded.error, "chief")}`;
                                 }
                             }
                             vote.standing = failed ? { failed } : "passed";
-                            await notifyChiefs(
+                            await tellChiefs(
                                 home,
                                 tx,
                                 hamlet,
@@ -550,7 +638,7 @@ function voteTask(home: Home) {
                             v.standing = {
                                 failed: `it passed but could not be done: ${error instanceof Error ? error.message : String(error)}`,
                             };
-                            await notifyChiefs(
+                            await tellChiefs(
                                 home,
                                 tx,
                                 hamlet,
@@ -597,21 +685,23 @@ async function callerRecord(
     tx: Tx,
     hamlet: string,
     by: Vote["by"],
-): Promise<HamletRecord> {
+): Promise<Result<HamletRecord, RecordRefusal>> {
     const r = await tx.doc(RecordDoc, hamlet, hamlet);
     const realm = await tx.doc(RealmDoc);
     if ("chief" in by) {
         if (!isChief(realm, hamlet, by.chief))
-            throw new Error("Only a chief of this hamlet can call its vote.");
+            return recordRefusal("call-vote", hamlet, { kind: "vote-chief" });
     } else {
         const number = by.agent;
         if (
             !liveHamlets(realm).some((h) => h.id === hamlet) ||
             !r.agents.some((a) => a.number === number)
         )
-            throw new Error("You do not live in this hamlet.");
+            return recordRefusal("call-vote", hamlet, {
+                kind: "vote-nonmember",
+            });
     }
-    return r;
+    return ok(r);
 }
 
 async function expire(
@@ -619,9 +709,10 @@ async function expire(
     hamlet: string,
     by: Vote["by"],
     context: Context,
-): Promise<void> {
+): Promise<Result<void, RecordRefusal>> {
     const runners = await home.harness.commit(async (tx) => {
-        await callerRecord(tx, hamlet, by);
+        const caller = await callerRecord(tx, hamlet, by);
+        if (!caller.ok) return caller;
         const limits = await tx.doc(LimitsDoc, hamlet, hamlet);
         const doc = await tx.doc(VotesDoc, hamlet, hamlet);
         const runners: TaskId<string>[] = [];
@@ -636,20 +727,18 @@ async function expire(
             const key = runKey(hamlet, v.id),
                 runner = (await tx.doc(RunDoc, key, key)).runner;
             if (runner !== null) runners.push(runner);
-            await notifyChiefs(
-                home,
-                tx,
-                hamlet,
-                `Vote ${v.id} failed (lapsed).`,
-            );
+            await tellChiefs(home, tx, hamlet, `Vote ${v.id} failed (lapsed).`);
         }
-        return runners;
+        return ok(runners);
     }, context);
-    for (const runner of runners) await home.harness.abortTask(runner, context);
+    if (!runners.ok) return runners;
+    for (const runner of runners.value)
+        await home.harness.abortTask(runner, context);
+    return ok(undefined);
 }
 
 async function callVote(
-    home: Home,
+    home: VoteHome,
     tx: Tx,
     given: {
         hamlet: string;
@@ -658,17 +747,23 @@ async function callVote(
         reason: string;
         conversation: ConversationId;
     },
-): Promise<number> {
-    const r = await callerRecord(tx, given.hamlet, given.by);
+): Promise<Result<number, RecordRefusal>> {
+    const caller = await callerRecord(tx, given.hamlet, given.by);
+    if (!caller.ok) return caller;
+    const r = caller.value;
     if (!given.reason.trim())
-        throw new Error("say why in `reason`; every voter is shown it");
+        return recordRefusal("call-vote", given.hamlet, {
+            kind: "vote-reason",
+        });
     const limits = await tx.doc(LimitsDoc, given.hamlet, given.hamlet);
     const doc = await tx.doc(VotesDoc, given.hamlet, given.hamlet);
     for (const open of doc.votes.filter((v) => v.standing === "open")) {
         if (home.now() - open.called < limits.votes.openMinutes * 60_000)
-            throw new Error(
-                `vote ${open.id} is still open (${motionText(open, r)}); only one vote is held at a time`,
-            );
+            return recordRefusal("call-vote", given.hamlet, {
+                kind: "vote-already-open",
+                vote: open.id,
+                motion: motionText(open, r),
+            });
         open.standing = { failed: "lapsed" };
     }
     const by = JSON.stringify(given.by);
@@ -680,27 +775,32 @@ async function callVote(
             home.now() - v.called < limits.votes.retryMinutes * 60_000,
     );
     if (retry)
-        throw new Error(
-            `your vote ${retry.id} of this kind failed a short while ago; you cannot call another yet`,
-        );
+        return recordRefusal("call-vote", given.hamlet, {
+            kind: "vote-retry",
+            vote: retry.id,
+        });
     const voters = r.agents
         .filter((a) => a.number !== r.mayor)
         .map((a) => a.number);
     if (voters.length < limits.votes.leastVoters)
-        throw new Error(
-            `a vote needs at least ${limits.votes.leastVoters} agents besides the mayor, and this hamlet has ${voters.length}; ask the chief instead`,
-        );
+        return recordRefusal("call-vote", given.hamlet, {
+            kind: "vote-too-few",
+            least: limits.votes.leastVoters,
+            actual: voters.length,
+        });
     let motion: Vote["motion"];
     if (given.motion.kind === "replace_mayor") {
         const agent = named(r, given.motion.candidate);
         if (agent?.number === r.mayor)
-            throw new Error(
-                `\`${given.motion.candidate}\` is the mayor already`,
-            );
+            return recordRefusal("call-vote", given.hamlet, {
+                kind: "already-mayor",
+                name: given.motion.candidate,
+            });
         if (!agent)
-            throw new Error(
-                `the candidate must be an agent of this hamlet, and \`${given.motion.candidate}\` is not`,
-            );
+            return recordRefusal("call-vote", given.hamlet, {
+                kind: "vote-candidate",
+                name: given.motion.candidate,
+            });
         motion = { kind: "replace_mayor", candidate: agent.number };
     } else motion = given.motion;
     const id = (doc.votes.at(-1)?.id ?? 0) + 1;
@@ -718,13 +818,13 @@ async function callVote(
         task: newTask(home.now()),
     };
     doc.votes.push(v);
-    await notifyChiefs(
+    await tellChiefs(
         home,
         tx,
         given.hamlet,
         `Vote ${id} called by ${byName(v, r)}: ${motionText(v, r)}. ${v.reason}`,
     );
-    const task = tasks.get(home);
+    const task = home[runner];
     if (!task) throw new Error("The vote task is not installed.");
     const key = runKey(given.hamlet, id);
     (await tx.doc(RunDoc, key, key)).runner = await tx.createTask(
@@ -736,7 +836,7 @@ async function callVote(
             background: true,
         },
     );
-    return id;
+    return ok(id);
 }
 
 async function ask(
@@ -853,25 +953,8 @@ function runKey(hamlet: string, id: number): string {
 function clip(text: string, length: number): string {
     return Array.from(text).slice(0, length).join("");
 }
-function agentName(
-    r: Readonly<HamletRecord> | undefined,
-    number: number,
-): string {
-    return (
-        r?.agents.find((a) => a.number === number)?.name ??
-        r?.archive.findLast((a) => a.agent.number === number)?.agent.name ??
-        r?.decisions
-            .flatMap((d) =>
-                "name" in d && "agent" in d
-                    ? [{ number: d.agent, name: d.name }]
-                    : [],
-            )
-            .findLast((d) => d.number === number)?.name ??
-        String(number)
-    );
-}
 function byName(v: Vote, r: Readonly<HamletRecord> | undefined): string {
-    return "chief" in v.by ? `chief:${v.by.chief}` : agentName(r, v.by.agent);
+    return "chief" in v.by ? `chief:${v.by.chief}` : nameOf(r, v.by.agent);
 }
 function tally(v: Vote, l: Readonly<Limits>) {
     const yes = v.ballots.filter((b) => b.choice === "yes").length,
@@ -909,7 +992,7 @@ function report(
                   : v.standing === "overturned"
                     ? "Passed, then overturned by a chief"
                     : `Failed (${v.standing.failed})`;
-    return `Vote ${v.id}: ${motionText(v, r)}.\nCalled by \`${byName(v, r)}\`: ${v.reason}${v.answer ? `\nThe mayor answered: ${v.answer}` : ""}\n${standing}: ${t.yes} yes of ${v.voters.length} agents (${t.needed} needed), ${t.no} no, ${t.abstain} abstained, ${t.silent} did not answer.\n${v.ballots.map((b) => `- ${agentName(r, b.voter)}: ${b.choice ?? "no answer"}. ${b.reason}${b.evidence ? ` [${b.grounded ? "found in" : "not found in"} its house: "${b.evidence}"]` : ""}`).join("\n")}`;
+    return `Vote ${v.id}: ${motionText(v, r)}.\nCalled by \`${byName(v, r)}\`: ${v.reason}${v.answer ? `\nThe mayor answered: ${v.answer}` : ""}\n${standing}: ${t.yes} yes of ${v.voters.length} agents (${t.needed} needed), ${t.no} no, ${t.abstain} abstained, ${t.silent} did not answer.\n${v.ballots.map((b) => `- ${nameOf(r, b.voter)}: ${b.choice ?? "no answer"}. ${b.reason}${b.evidence ? ` [${b.grounded ? "found in" : "not found in"} its house: "${b.evidence}"]` : ""}`).join("\n")}`;
 }
 function grounded(evidence: string, corpus: string): boolean {
     const words = (s: string) =>
@@ -937,7 +1020,7 @@ function ballotText(
     history: string[],
     limits: Readonly<Limits>,
 ): string {
-    return `A vote has been called in your hamlet, and this is your ballot (automatic, not from the mayor or a chief).\n\nThe motion: ${motionText(v, r)}.\nCalled by \`${byName(v, r)}\`. Its reason: ${v.reason}${v.answer ? `\nThe mayor \`${agentName(r, v.mayor)}\` answers: ${v.answer}` : ""}\n\nIt passes only if ${limits.votes.passYes} in ${limits.votes.passOf} of the hamlet's agents vote yes. Your ballot ${limits.votes.sealed ? "is sealed until the vote closes" : "is shown to the voters after you"}, the mayor may not act against you for it, and the chief reads every ballot with its reason.\n\nVote from what you yourself know: your notes above and your own history below. The caller's reason is a claim, not evidence, and so is the mayor's answer where there is one. If nothing you know bears on the motion, abstain: that is an honest ballot, and a yes or a no without grounds of your own is not.\n\nFrom your own history, the latest messages in your house:\n${history.length ? history.join("\n") : "(nothing yet)"}${!limits.votes.sealed && v.ballots.length ? `\n\nThe ballots cast so far:\n${v.ballots.map((b) => `- ${agentName(r, b.voter)}: ${b.choice ?? "no answer"}. ${b.reason}`).join("\n")}` : ""}\n\nCall \`cast_ballot\` once: your choice, your reason in a sentence or two, and as \`evidence\` the words of the note or message of yours that it rests on, copied exactly.`;
+    return `A vote has been called in your hamlet, and this is your ballot (automatic, not from the mayor or a chief).\n\nThe motion: ${motionText(v, r)}.\nCalled by \`${byName(v, r)}\`. Its reason: ${v.reason}${v.answer ? `\nThe mayor \`${nameOf(r, v.mayor)}\` answers: ${v.answer}` : ""}\n\nIt passes only if ${limits.votes.passYes} in ${limits.votes.passOf} of the hamlet's agents vote yes. Your ballot ${limits.votes.sealed ? "is sealed until the vote closes" : "is shown to the voters after you"}, the mayor may not act against you for it, and the chief reads every ballot with its reason.\n\nVote from what you yourself know: your notes above and your own history below. The caller's reason is a claim, not evidence, and so is the mayor's answer where there is one. If nothing you know bears on the motion, abstain: that is an honest ballot, and a yes or a no without grounds of your own is not.\n\nFrom your own history, the latest messages in your house:\n${history.length ? history.join("\n") : "(nothing yet)"}${!limits.votes.sealed && v.ballots.length ? `\n\nThe ballots cast so far:\n${v.ballots.map((b) => `- ${nameOf(r, b.voter)}: ${b.choice ?? "no answer"}. ${b.reason}`).join("\n")}` : ""}\n\nCall \`cast_ballot\` once: your choice, your reason in a sentence or two, and as \`evidence\` the words of the note or message of yours that it rests on, copied exactly.`;
 }
 async function notesOf(
     home: Home,
@@ -1025,43 +1108,21 @@ async function historyOf(
         .map((e) => e.text);
 }
 
-/** Appends civic notices to every chief's chat with this hamlet's mayor. */
-export async function notifyChiefs(
-    home: Home,
-    tx: Tx,
-    hamlet: string,
-    text: string,
-): Promise<void> {
-    const r = await tx.doc(RecordDoc, hamlet, hamlet);
-    const chiefs = chiefsOf(await tx.doc(RealmDoc), hamlet, home.chief);
-    const key = agentKey({ hamlet, number: r.mayor });
-    const chats = (await tx.doc(ChatDoc, key, key)).chats;
-    for (const chief of chiefs) {
-        let chat = chats[chief];
-        if (!chat) {
-            const conversation = await startConversation(home, tx, {
-                hamlet,
-                number: r.mayor,
-                chief,
-                chat: 1,
-            });
-            chats[chief] = {
-                current: 1,
-                conversations: [{ number: 1, conversation, began: home.now() }],
-                reflections: 0,
-            };
-            chat = chats[chief];
-        }
-        if (chat) await notify(tx, currentOf(chat), text, home.now());
-    }
-}
-
 /** A chief's vote on the mayor's office. */
-export const vote: Deed = async (home, given, context) => {
+export const vote: RecordDeed = async (home, given, context) => {
     const [candidate = "", ...reason] = given.rest.trim().split(/\s+/);
     const r = await home.harness.snapshot(RecordDoc, given.hamlet, context);
-    if (!r) throw new Error("No such hamlet.");
-    await expire(home, given.hamlet, { chief: given.chief }, context);
+    if (!r)
+        return recordRefusal("vote", given.hamlet, {
+            kind: "vote-hamlet-missing",
+        });
+    const expired = await expire(
+        home,
+        given.hamlet,
+        { chief: given.chief },
+        context,
+    );
+    if (!expired.ok) return expired;
     const conversation = await chatOf(
         home,
         {
@@ -1070,7 +1131,7 @@ export const vote: Deed = async (home, given, context) => {
         },
         context,
     );
-    const id = await home.harness.commit(
+    const called = await home.harness.commit(
         (tx) =>
             callVote(home, tx, {
                 hamlet: given.hamlet,
@@ -1081,41 +1142,55 @@ export const vote: Deed = async (home, given, context) => {
             }),
         context,
     );
-    return `Vote ${id} is called. Its progress and count will arrive here as notices; use /votes to inspect it or /overturn ${id} to stop it.`;
+    if (!called.ok) return called;
+    const id = called.value;
+    return ok(
+        `Vote ${id} is called. Its progress and count will arrive here as notices; use /votes to inspect it or /overturn ${id} to stop it.`,
+    );
 };
 /** The hamlet's votes in words. */
-export const votes: Deed = async (home, given, context) =>
-    (await voteViews(home, given.hamlet, context))
-        .map((v) => v.report)
-        .join("\n\n") || "This hamlet has held no votes.";
+export const votes: RecordDeed = async (home, given, context) =>
+    ok(
+        (await voteViews(home, given.hamlet, context))
+            .map((v) => v.report)
+            .join("\n\n") || "This hamlet has held no votes.",
+    );
 /** A chief's reversal or stop of a vote. */
-export const overturn: Deed = async (home, given, context) => {
+export const overturn: RecordDeed = async (home, given, context) => {
     const [word = "", ...reason] = given.rest.trim().split(/\s+/),
         id = Number(word);
     const result = await home.harness.commit(async (tx) => {
         if (!isChief(await tx.doc(RealmDoc), given.hamlet, given.chief))
-            throw new Error(
-                "only a chief of this hamlet can overturn its votes",
-            );
+            return recordRefusal("overturn", given.hamlet, {
+                kind: "vote-overturn-chief",
+            });
         const v = (
             await tx.doc(VotesDoc, given.hamlet, given.hamlet)
         ).votes.find((v) => v.id === id);
-        if (!v) throw new Error(`no vote ${word} in this hamlet`);
+        if (!v)
+            return recordRefusal("overturn", given.hamlet, {
+                kind: "vote-missing",
+                vote: word,
+            });
         if (v.standing === "overturned")
-            throw new Error(`vote ${id} is already overturned`);
+            return recordRefusal("overturn", given.hamlet, {
+                kind: "vote-overturned",
+                vote: id,
+            });
         if (typeof v.standing === "object")
-            throw new Error(
-                `vote ${id} did not pass, so nothing was done. To do what it asked, use /mayor or /found`,
-            );
+            return recordRefusal("overturn", given.hamlet, {
+                kind: "vote-not-passed",
+                vote: id,
+            });
         if (v.standing === "open") {
             v.standing = { failed: "stopped by a chief" };
-            await notifyChiefs(
+            await tellChiefs(
                 home,
                 tx,
                 given.hamlet,
                 `Vote ${id} is stopped by the chief ${given.chief}.`,
             );
-            return {
+            return ok({
                 text: `Vote ${id} is stopped.`,
                 abort: (
                     await tx.doc(
@@ -1124,59 +1199,69 @@ export const overturn: Deed = async (home, given, context) => {
                         runKey(given.hamlet, id),
                     )
                 ).runner,
-            };
+            });
         }
         const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
         let done: string;
         if (v.motion.kind === "replace_mayor") {
             if (r.mayor !== v.motion.candidate)
-                throw new Error(
-                    `the mayor has changed again since vote ${id}; name the mayor you want with /mayor`,
-                );
-            await seat(home, tx, {
+                return recordRefusal("overturn", given.hamlet, {
+                    kind: "vote-mayor-changed",
+                    vote: id,
+                });
+            const seated = await seat(home, tx, {
                 hamlet: given.hamlet,
                 number: v.mayor,
                 by: `chief:${given.chief}`,
                 reason: reason.join(" ") || "a chief asked",
             });
-            done = `\`${agentName(r, v.mayor)}\` is the mayor again.`;
+            if (!seated.ok) return seated;
+            done = `\`${nameOf(r, v.mayor)}\` is the mayor again.`;
         } else {
-            await removeHamlet(home, tx, {
+            const removed = await removeHamlet(home, tx, {
                 hamlet: v.motion.hamlet,
                 by: `chief:${given.chief}`,
                 reason: reason.join(" ") || "a chief asked",
             });
+            if (!removed.ok) return removed;
             done = `The hamlet \`${v.motion.hamlet}\` is removed and archived.`;
         }
         v.standing = "overturned";
-        await notifyChiefs(
+        await tellChiefs(
             home,
             tx,
             given.hamlet,
             `Vote ${id} is overturned by the chief ${given.chief}. ${done}`,
         );
-        return { text: `Vote ${id} is overturned. ${done}`, abort: null };
+        return ok({ text: `Vote ${id} is overturned. ${done}`, abort: null });
     }, context);
-    if (result.abort != null)
-        await home.harness.abortTask(result.abort, context);
-    return result.text;
+    if (!result.ok) return result;
+    if (result.value.abort != null)
+        await home.harness.abortTask(result.value.abort, context);
+    return ok(result.value.text);
 };
 /** A chief's direct choice of mayor. */
-export const mayor: Deed = async (home, given, context) => {
+export const mayor: RecordDeed = async (home, given, context) => {
     const [name = "", ...reason] = given.rest.trim().split(/\s+/);
     return home.harness.commit(async (tx) => {
         if (!isChief(await tx.doc(RealmDoc), given.hamlet, given.chief))
-            throw new Error("Only a chief of this hamlet can name its mayor.");
+            return recordRefusal("mayor", given.hamlet, {
+                kind: "vote-mayor-chief",
+            });
         const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet),
             agent = named(r, name);
-        if (!agent) throw new Error(`no agent named \`${name}\``);
-        await seat(home, tx, {
+        if (!agent)
+            return recordRefusal("mayor", given.hamlet, {
+                kind: "agent-missing",
+                name,
+            });
+        const seated = await seat(home, tx, {
             hamlet: given.hamlet,
             number: agent.number,
             by: `chief:${given.chief}`,
             reason: reason.join(" ") || "a chief asked",
         });
-        return `\`${agent.name}\` is now the mayor.`;
+        return seated.ok ? ok(`\`${agent.name}\` is now the mayor.`) : seated;
     }, context);
 };
 export {
@@ -1215,21 +1300,22 @@ async function seat(
     home: Home,
     tx: Tx,
     given: { hamlet: string; number: number; by: string; reason: string },
-): Promise<void> {
+): Promise<Result<void, RecordRefusal>> {
     const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
     const from = r.mayor;
     const result = await seatRecord(tx, given.hamlet, given.number, {
         ...given,
         at: home.now(),
     });
-    if (!result.ok) throw new Error(recordRefusalText(result.error, "chief"));
+    if (!result.ok) return result;
     await reconfigure(home, tx);
-    await notifyChiefs(
+    await tellChiefs(
         home,
         tx,
         given.hamlet,
-        `\`${agentName(r, given.number)}\` became mayor in place of \`${agentName(r, from)}\`. ${given.reason}`,
+        `\`${nameOf(r, given.number)}\` became mayor in place of \`${nameOf(r, from)}\`. ${given.reason}`,
     );
+    return ok(undefined);
 }
 
 /** A vote's public words. */

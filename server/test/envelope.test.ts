@@ -315,3 +315,28 @@ it("answers typed /stop for unknown and departed agents with error replies and n
     }
     expect(diagnostic).not.toHaveBeenCalled();
 });
+
+it.each([
+    ["/remove nobody Finished", "no agent named `nobody`"],
+    ["/road nobody nobody Needed", "no agent named `nobody` in this hamlet"],
+    ["/mayor nobody Needed", "no agent named `nobody`"],
+    [
+        "/merge founder into founder Needed",
+        "an agent cannot be merged with itself",
+    ],
+    ["/found all miller Work", "`all` is reserved"],
+])(
+    "keeps the chief's error reply for the returned record refusal %s",
+    async (text, expected) => {
+        const run = await served({ models: fauxModels().models });
+        const id = randomUUID();
+        expect(
+            await request(run.connection, run.messages, {
+                type: "say",
+                id,
+                to: mayor,
+                text,
+            }),
+        ).toEqual({ type: "reply", to: id, kind: "error", text: expected });
+    },
+);

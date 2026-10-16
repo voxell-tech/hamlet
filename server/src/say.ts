@@ -48,7 +48,6 @@ export async function say(
         const deed = DEED_HANDLERS[command.deed];
         if (!deed) return receipt("Choose that address in your client.");
         return receipt(
-            // D4 replaces this deed-call compatibility catch with RecordRefusal.
             await deed(
                 home,
                 {
@@ -57,7 +56,7 @@ export async function say(
                     chief: home.chief,
                 },
                 context,
-            ).catch(legacyRefusal),
+            ),
         );
     }
     if (command?.command === "to") {
@@ -391,7 +390,10 @@ function receipt(
     return outcome.ok ? ok({ text: outcome.value }) : outcome;
 }
 
-const DEED_HANDLERS: Record<string, Deed> = {
+const DEED_HANDLERS: Record<
+    string,
+    (...args: Parameters<Deed>) => Promise<Result<string, ChiefFailure>>
+> = {
     road: agents.road,
     unroad: agents.unroad,
     remove: agents.remove,
@@ -404,7 +406,12 @@ const DEED_HANDLERS: Record<string, Deed> = {
     votes: voting.votes,
     overturn: voting.overturn,
     mayor: voting.mayor,
-    unshelve: library.unshelve,
+    // The library still reports its shelf refusals as exceptions.
+    unshelve: (...args) =>
+        library
+            .unshelve(...args)
+            .then(ok)
+            .catch(legacyRefusal),
     found: founding.found,
     hamlets: founding.hamlets,
     "name-hamlet": founding.nameHamlet,

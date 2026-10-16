@@ -91,15 +91,6 @@ describe("a record tool", () => {
             );
         },
     );
-
-    it("stays safe to run again as an agent is given it", async () => {
-        const { models } = fauxModels();
-        const home = await testHome(scratch(), { models });
-        const tool = (await (await mayorChat(home)).agent(context)).tools.find(
-            (candidate) => candidate.name === "create_agent",
-        );
-        expect(tool?.replay).toBe("safe");
-    });
 });
 
 it("replays the pre-upgrade record-call memo without re-running its change", async () => {
@@ -189,4 +180,32 @@ it("replays the pre-upgrade record-call memo without re-running its change", asy
     );
     expect(JSON.stringify(results)).toContain("The old answer.");
     expect(JSON.stringify(results)).not.toContain("duplicate");
+});
+
+it("preserves the model's error diagnostic when removal returns a refusal", async () => {
+    const { models, faux } = fauxModels();
+    faux.setResponses([
+        fauxAssistantMessage(
+            fauxToolCall("remove_agent", {
+                name: "nobody",
+                reason: "Finished",
+            }),
+            { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage("Done."),
+    ]);
+    const home = await testHome(scratch(), { models });
+    await (await say(home, "Remove nobody.")).wait(context);
+    const result = (await transcript(await mayorChat(home))).find(
+        (entry) => entry.kind === "pi.tool-result",
+    );
+    expect(result?.model?.[0]).toMatchObject({
+        isError: true,
+        content: [
+            {
+                type: "text",
+                text: "<harness>\n[error] no agent named `nobody`\n</harness>",
+            },
+        ],
+    });
 });

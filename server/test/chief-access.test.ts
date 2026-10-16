@@ -96,6 +96,8 @@ it("refuses /to across a chief boundary before recording an instruction or start
         if (!place) throw new Error("No mill");
         place.chiefs = ["another-chief"];
     }, context);
+    const { ChatDoc } = await import("../src/chats.ts");
+    const before = await run.home.harness.snapshot(ChatDoc, "mill:0", context);
     expect(
         await request(run.connection, run.messages, {
             type: "say",
@@ -109,10 +111,9 @@ it("refuses /to across a chief boundary before recording an instruction or start
         text: expect.stringContaining("Only a chief"),
     });
     expect(faux.state.callCount).toBe(0);
-    const { ChatDoc } = await import("../src/chats.ts");
-    expect(
-        await run.home.harness.snapshot(ChatDoc, "mill:0", context),
-    ).toBeUndefined();
+    expect(await run.home.harness.snapshot(ChatDoc, "mill:0", context)).toEqual(
+        before,
+    );
 });
 
 it.each(["removed", "foreign", "erased"] as const)(

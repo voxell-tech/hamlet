@@ -34,22 +34,88 @@ import type { Home, Part } from "./home.ts";
 import { PeersDoc } from "./letters/peers.ts";
 import { LimitsDoc } from "./limits/rules.ts";
 import { liveHamlets, RealmDoc, type RealmEnd } from "./realm/places.ts";
-import {
-    carryRealmRoad,
-    carryRoad,
-    hasRoad,
-    realmRoads,
-    resolve,
-    roadsOf,
-} from "./realm/roads.ts";
+import { carryRealmRoad, realmRoads, resolve } from "./realm/roads.ts";
 import {
     type AgentRef,
     addressOf,
     agentKey,
+    carryRoad,
+    type DecisionHeld,
     type HamletRecord,
+    hasRoad,
+    memoised,
     RecordDoc,
+    type RecordRefusal,
+    recordRefusal,
+    toolText as recordToolText,
 } from "./record.ts";
+import { err, ok, type Result } from "./result.ts";
 import { safeWords } from "./scrub.ts";
+
+/** A refused letter or question, with its safe address and replay context. */
+export type LetterFailure = { operation: "letters"; retrySafe: false } & (
+    | {
+          kind:
+              | "letter-no-place"
+              | "letter-waiting"
+              | "letter-mayor-road"
+              | "letter-empty"
+              | "letter-departed"
+              | "letter-no-road";
+      }
+    | { kind: "letter-cross-hamlet" | "letter-unreachable"; name: string }
+    | { kind: "letter-messages-full"; most: number }
+    | { kind: "letter-unfinished"; address: string; text: string }
+);
+function letterRefusal<
+    const T extends Omit<LetterFailure, "operation" | "retrySafe">,
+>(reason: T): Result<never, T & { operation: "letters"; retrySafe: false }> {
+    return err({ ...reason, operation: "letters", retrySafe: false });
+}
+/** Agent-facing recovery words for letters and questions. */
+export function letterFailureText(error: LetterFailure): string {
+    switch (error.kind) {
+        case "letter-no-place":
+            return "not in a hamlet";
+        case "letter-waiting":
+            return "another agent is waiting on your reply, so you cannot wait for a later one. Use ask_agent.";
+        case "letter-cross-hamlet":
+            return `\`${error.name}\` lives in another hamlet; use ask_agent to reach it`;
+        case "letter-mayor-road":
+            return "The mayor builds roads with build_road.";
+        case "letter-empty":
+            return "`message` is empty";
+        case "letter-departed":
+            return "The agent has left.";
+        case "letter-no-road":
+            return "There is no road between those agents.";
+        case "letter-unreachable":
+            return `you have no road to \`${error.name}\`. Ask the mayor to pass a single message on, or ask it for a road with request_road.`;
+        case "letter-messages-full":
+            return `this task has used all ${error.most} of its messages between agents; finish with what you have and report. The chief can raise it under One Task on the hamlet's Bylaws page`;
+        case "letter-unfinished":
+            return `\`${error.address}\` could not finish: ${error.text}`;
+    }
+    const unhandled: never = error;
+    throw new Error(`Unclassified letter refusal: ${unhandled}`);
+}
+function toolText(error: LetterFailure | RecordRefusal | DecisionHeld): string {
+    switch (error.kind) {
+        case "letter-no-place":
+        case "letter-waiting":
+        case "letter-cross-hamlet":
+        case "letter-mayor-road":
+        case "letter-empty":
+        case "letter-departed":
+        case "letter-no-road":
+        case "letter-unreachable":
+        case "letter-messages-full":
+        case "letter-unfinished":
+            return letterFailureText(error);
+        default:
+            return recordToolText(error);
+    }
+}
 
 type Delivery = {
     id: string;
@@ -235,33 +301,41 @@ export const Letters: Part = (home) => {
                                 await api.snapshot(SentDoc, api.taskId, context)
                             )?.delivery;
                             if (known)
-                                return `Sent. \`${known.address}\` is working on it; its reply will come to you as a new message.`;
+                                return ok(
+                                    `Sent. \`${known.address}\` is working on it; its reply will come to you as a new message.`,
+                                );
                             const place = await api.snapshot(
                                 WithDoc,
                                 api.conversationId,
                                 context,
                             );
-                            if (!place) throw new Error("not in a hamlet");
-                            const target = await targetOf(
+                            if (!place)
+                                return letterRefusal({
+                                    kind: "letter-no-place",
+                                });
+                            const resolved = await targetOf(
                                 api,
                                 place,
                                 name,
                                 context,
                             );
+                            if (!resolved.ok) return resolved;
+                            const target = resolved.value;
                             const turn = await turnOf(
                                 home.harness,
                                 api,
                                 context,
                             );
                             if (turn?.kind === QuestionEntry.kind)
-                                throw new Error(
-                                    "another agent is waiting on your reply, so you cannot wait for a later one. Use ask_agent.",
-                                );
+                                return letterRefusal({
+                                    kind: "letter-waiting",
+                                });
                             if (target.ref.hamlet !== place.hamlet)
-                                throw new Error(
-                                    `\`${name}\` lives in another hamlet; use ask_agent to reach it`,
-                                );
-                            const sent = await prepare(
+                                return letterRefusal({
+                                    kind: "letter-cross-hamlet",
+                                    name,
+                                });
+                            const prepared = await prepare(
                                 home,
                                 api,
                                 target.ref,
@@ -269,7 +343,10 @@ export const Letters: Part = (home) => {
                                 "letters",
                                 context,
                             );
-                            return `Sent. \`${sent.address}\` is working on it; its reply will come to you as a new message.`;
+                            if (!prepared.ok) return prepared;
+                            return ok(
+                                `Sent. \`${prepared.value.address}\` is working on it; its reply will come to you as a new message.`,
+                            );
                         }),
                 }),
                 defineTool({
@@ -286,20 +363,37 @@ export const Letters: Part = (home) => {
                             const known = (
                                 await api.snapshot(SentDoc, api.taskId, context)
                             )?.delivery;
-                            if (known)
-                                return `\`${known.address}\`: ${await askAgent(home, api, known.to, message, context)}`;
+                            if (known) {
+                                const answer = await askAgent(
+                                    home,
+                                    api,
+                                    known.to,
+                                    message,
+                                    context,
+                                );
+                                return answer.ok
+                                    ? ok(
+                                          `\`${known.address}\`: ${answer.value}`,
+                                      )
+                                    : answer;
+                            }
                             const place = await api.snapshot(
                                 WithDoc,
                                 api.conversationId,
                                 context,
                             );
-                            if (!place) throw new Error("not in a hamlet");
-                            const target = await targetOf(
+                            if (!place)
+                                return letterRefusal({
+                                    kind: "letter-no-place",
+                                });
+                            const resolved = await targetOf(
                                 api,
                                 place,
                                 name,
                                 context,
                             );
+                            if (!resolved.ok) return resolved;
+                            const target = resolved.value;
                             const answer = await askAgent(
                                 home,
                                 api,
@@ -307,7 +401,9 @@ export const Letters: Part = (home) => {
                                 message,
                                 context,
                             );
-                            return `\`${target.address}\`: ${answer}`;
+                            return answer.ok
+                                ? ok(`\`${target.address}\`: ${answer.value}`)
+                                : answer;
                         }),
                 }),
                 defineTool({
@@ -326,22 +422,27 @@ export const Letters: Part = (home) => {
                                 api.conversationId,
                                 context,
                             );
-                            if (!place) throw new Error("not in a hamlet");
+                            if (!place)
+                                return letterRefusal({
+                                    kind: "letter-no-place",
+                                });
                             const record = await api.snapshot(
                                 RecordDoc,
                                 place.hamlet,
                                 context,
                             );
                             if (!record || place.number === record.mayor)
-                                throw new Error(
-                                    "The mayor builds roads with build_road.",
-                                );
-                            const target = await targetOf(
+                                return letterRefusal({
+                                    kind: "letter-mayor-road",
+                                });
+                            const resolved = await targetOf(
                                 api,
                                 place,
                                 to,
                                 context,
                             );
+                            if (!resolved.ok) return resolved;
+                            const target = resolved.value;
                             const known = (
                                 await api.snapshot(SentDoc, api.taskId, context)
                             )?.delivery;
@@ -354,19 +455,25 @@ export const Letters: Part = (home) => {
                                     context,
                                 ))
                             )
-                                return `You already have a road to \`${to}\`.`;
+                                return ok(
+                                    `You already have a road to \`${to}\`.`,
+                                );
                             const me = addressOf(record, place.number);
-                            const reply = await askAgent(
+                            const answer = await askAgent(
                                 home,
                                 api,
                                 { hamlet: place.hamlet, number: record.mayor },
                                 `\`${me}\` asks for a road to \`${to}\`. Its reason: ${reason}\nDecide. To agree, call build_road with your reason, or agree_road if \`${to}\` lives in another hamlet. To refuse, say why in a sentence.`,
                                 context,
                             );
+                            if (!answer.ok) return answer;
+                            const reply = answer.value;
                             if (
                                 await connected(api, place, target.ref, context)
                             )
-                                return `The mayor built the road. You can now ask_agent \`${to}\`.`;
+                                return ok(
+                                    `The mayor built the road. You can now ask_agent \`${to}\`.`,
+                                );
                             await api.commit(async (tx) => {
                                 const record = await tx.doc(
                                     RecordDoc,
@@ -388,7 +495,7 @@ export const Letters: Part = (home) => {
                                     sent.refused = true;
                                 }
                             }, context);
-                            return `The mayor did not build it: ${reply}`;
+                            return ok(`The mayor did not build it: ${reply}`);
                         }),
                 }),
             ],
@@ -416,22 +523,19 @@ export const Letters: Part = (home) => {
     };
 };
 
-async function words(run: () => Promise<string>) {
-    try {
-        return { output: [{ type: "text" as const, text: await run() }] };
-    } catch (error) {
-        return {
-            output: [
-                {
-                    type: "text" as const,
-                    text:
-                        error instanceof Error ? error.message : String(error),
-                },
-            ],
-        };
-    }
+async function words(
+    run: () => Promise<Result<string, LetterFailure | RecordRefusal>>,
+) {
+    const result = await run();
+    return {
+        output: [
+            {
+                type: "text" as const,
+                text: result.ok ? result.value : toolText(result.error),
+            },
+        ],
+    };
 }
-
 async function targetOf(
     read: DocumentReader,
     place: AgentRef,
@@ -439,9 +543,17 @@ async function targetOf(
     context: Context,
 ) {
     const target = await resolve(read, place.hamlet, name, context);
-    if (!target) throw new Error(`no agent named \`${name}\``);
-    if ("gone" in target) throw new Error(target.gone);
-    return target;
+    if (!target)
+        return recordRefusal("letters", place.hamlet, {
+            kind: "agent-missing",
+            name,
+        });
+    if ("gone" in target)
+        return recordRefusal("letters", place.hamlet, {
+            kind: "agent-departed",
+            farewell: target.gone,
+        });
+    return ok(target);
 }
 
 async function connected(
@@ -478,27 +590,19 @@ async function carry(
     to: AgentRef,
     task: string,
     reply: boolean,
-) {
+): Promise<Result<void, LetterFailure>> {
     const doc = await tx.doc(TaskDoc, task, task);
     const limits = await tx.doc(LimitsDoc, from.hamlet, from.hamlet);
     if (!reply && doc.messages >= limits.task.messages)
-        throw new Error(
-            `this task has used all ${limits.task.messages} of its messages between agents; finish with what you have and report. The chief can raise it under One Task on the hamlet's Bylaws page`,
-        );
+        return letterRefusal({
+            kind: "letter-messages-full",
+            most: limits.task.messages,
+        });
     if (from.hamlet === to.hamlet) {
         const record = await tx.doc(RecordDoc, from.hamlet, from.hamlet);
         if (hasRoad(record, from.number, to.number)) {
-            const a = from.number === record.mayor ? "office" : from.number;
-            const b = to.number === record.mayor ? "office" : to.number;
-            const joins = (r: { a: number | "office"; b: number | "office" }) =>
-                (r.a === a && r.b === b) || (r.a === b && r.b === a);
-            if (!record.roads.some(joins)) {
-                const office = roadsOf(record).find(joins);
-                if (office) record.roads.push(office);
-            }
             carryRoad(record, from.number, to.number, home.now());
-        } else if (!reply)
-            throw new Error("There is no road between those agents.");
+        } else if (!reply) return letterRefusal({ kind: "letter-no-road" });
     } else {
         const realm = await tx.doc(RealmDoc);
         const records: Record<string, HamletRecord> = {};
@@ -539,10 +643,10 @@ async function carry(
                 endMatches(road.a, from) ? road.a : road.b,
                 home.now(),
             );
-        else if (!reply)
-            throw new Error("There is no road between those agents.");
+        else if (!reply) return letterRefusal({ kind: "letter-no-road" });
     }
     doc.messages++;
+    return ok(undefined);
 }
 
 async function prepare(
@@ -552,58 +656,77 @@ async function prepare(
     text: string,
     kind: "letters" | "questions",
     context: Context,
-): Promise<Delivery> {
+): Promise<Result<Delivery, LetterFailure>> {
     const saved = (await api.snapshot(SentDoc, api.taskId, context))?.delivery;
-    if (saved) return saved;
-    if (!text.trim()) throw new Error("`message` is empty");
+    if (saved) return ok(saved);
+    if (!text.trim()) return letterRefusal({ kind: "letter-empty" });
     const from = await api.snapshot(WithDoc, api.conversationId, context);
-    if (!from) throw new Error("not in a hamlet");
+    if (!from) return letterRefusal({ kind: "letter-no-place" });
     const record = await api.snapshot(RecordDoc, to.hamlet, context);
     const name = record && addressOf(record, to.number);
-    if (!name) throw new Error("The agent has left.");
+    if (!name) return letterRefusal({ kind: "letter-departed" });
     if (!(await connected(api, from, to, context)))
-        throw new Error(
-            `you have no road to \`${name}\`. Ask the mayor to pass a single message on, or ask it for a road with request_road.`,
-        );
+        return letterRefusal({ kind: "letter-unreachable", name });
     const task =
         (await turnOf(home.harness, api, context))?.task ??
         `message:${api.taskId}`;
-    return api.commit(async (tx) => {
-        const sent = await tx.doc(SentDoc, api.taskId);
-        if (sent.delivery) return sent.delivery;
-        await carry(home, tx, from, to, task, false);
-        const key = agentKey(to);
-        const peers = await tx.doc(PeersDoc, key, key);
-        const sender = agentKey(from);
-        let id = peers[kind][sender];
-        if (id === undefined) {
-            id = await startConversation(home, tx, {
-                ...to,
-                chief: null,
-                chat: 0,
-            });
-            peers[kind][sender] = id;
-            (await tx.doc(PayerDoc, id)).hamlet = from.hamlet;
-        }
-        const delivery: Delivery = {
-            id: `${kind === "letters" ? "letter" : "ask"}:${api.taskId}`,
-            conversation: id,
-            replyTo: api.conversationId,
-            from: { hamlet: from.hamlet, number: from.number },
-            to,
-            address: from.hamlet === to.hamlet ? name : `${name}@${to.hamlet}`,
-            task,
-            text: safeWords(home, text),
-            at: home.now(),
-        };
-        sent.delivery = delivery;
-        if (kind === "letters")
-            (await tx.doc(PendingDoc)).letters.push({
-                ...delivery,
-                counted: false,
-            });
-        return delivery;
-    }, context);
+    return memoised(
+        api,
+        {
+            read: async (tx) => {
+                const saved = (await tx.doc(SentDoc, api.taskId)).delivery;
+                return saved
+                    ? ok({
+                          ...saved,
+                          from: { ...saved.from },
+                          to: { ...saved.to },
+                      })
+                    : undefined;
+            },
+            change: async (tx) => {
+                const carried = await carry(home, tx, from, to, task, false);
+                if (!carried.ok) return carried;
+                const key = agentKey(to);
+                const peers = await tx.doc(PeersDoc, key, key);
+                const sender = agentKey(from);
+                let id = peers[kind][sender];
+                if (id === undefined) {
+                    id = await startConversation(home, tx, {
+                        ...to,
+                        chief: null,
+                        chat: 0,
+                    });
+                    peers[kind][sender] = id;
+                    (await tx.doc(PayerDoc, id)).hamlet = from.hamlet;
+                }
+                const delivery: Delivery = {
+                    id: `${kind === "letters" ? "letter" : "ask"}:${api.taskId}`,
+                    conversation: id,
+                    replyTo: api.conversationId,
+                    from: { hamlet: from.hamlet, number: from.number },
+                    to,
+                    address:
+                        from.hamlet === to.hamlet
+                            ? name
+                            : `${name}@${to.hamlet}`,
+                    task,
+                    text: safeWords(home, text),
+                    at: home.now(),
+                };
+                if (kind === "letters")
+                    (await tx.doc(PendingDoc)).letters.push({
+                        ...delivery,
+                        counted: false,
+                    });
+                return ok(delivery);
+            },
+            write: async (tx, value) => {
+                if (value.ok)
+                    (await tx.doc(SentDoc, api.taskId)).delivery = value.value;
+            },
+        },
+        context,
+    );
 }
 async function inputOf(
     home: Home,
@@ -652,28 +775,27 @@ async function answerOf(
     home: Home,
     id: SubmissionId,
     context: Context,
-): Promise<{ ok: boolean; text: string }> {
+): Promise<Result<string, { kind: "answer-unfinished"; text: string }>> {
     const settled = await (await home.harness.submission(id, context))?.wait(
         context,
     );
     if (settled?.type !== "input" || settled.status !== "done")
-        return {
-            ok: false,
+        return err({
+            kind: "answer-unfinished",
             text: safeWords(
                 home,
                 settled && "reason" in settled
                     ? settled.reason
                     : "It could not finish.",
             ),
-        };
+        });
     const entry = await home.harness.commit(
         (tx) => tx.entry(AssistantEntry, settled.answer),
         context,
     );
     const message = entry?.model?.[0];
-    return {
-        ok: true,
-        text: safeWords(
+    return ok(
+        safeWords(
             home,
             message?.role === "assistant"
                 ? message.content
@@ -681,7 +803,7 @@ async function answerOf(
                       .join("\n")
                 : "",
         ),
-    };
+    );
 }
 
 /** A question to an agent, with its answer. */
@@ -691,13 +813,17 @@ export async function askAgent(
     to: AgentRef,
     text: string,
     context: Context,
-): Promise<string> {
-    const sent = await prepare(home, api, to, text, "questions", context);
+): Promise<Result<string, LetterFailure>> {
+    const prepared = await prepare(home, api, to, text, "questions", context);
+    if (!prepared.ok) return prepared;
+    const sent = prepared.value;
     const admitted = await admitQuestion(home, api, sent, context);
     if (!admitted.ok) {
         switch (admitted.error.kind) {
             case "question-cycle":
-                return `\`${admitted.error.address}\` is waiting on your answer through this chain of questions. Answer it in your reply instead of asking it again.`;
+                return ok(
+                    `\`${admitted.error.address}\` is waiting on your answer through this chain of questions. Answer it in your reply instead of asking it again.`,
+                );
         }
         const unhandled: never = admitted.error.kind;
         throw new Error(`Unclassified question refusal: ${unhandled}`);
@@ -715,16 +841,30 @@ export async function askAgent(
         const graph = await tx.doc(AskingDoc);
         graph.edges = graph.edges.filter((e) => e.call !== api.taskId);
     }, context);
-    await api.commit(async (tx) => {
+    const carried = await api.commit(async (tx) => {
         const sentDoc = await tx.doc(SentDoc, api.taskId);
         if (!sentDoc.answered) {
-            await carry(home, tx, sent.to, sent.from, sent.task, true);
+            const result = await carry(
+                home,
+                tx,
+                sent.to,
+                sent.from,
+                sent.task,
+                true,
+            );
+            if (!result.ok) return result;
             sentDoc.answered = true;
         }
+        return ok(undefined);
     }, context);
+    if (!carried.ok) return carried;
     if (!answer.ok)
-        throw new Error(`\`${sent.address}\` could not finish: ${answer.text}`);
-    return answer.text;
+        return letterRefusal({
+            kind: "letter-unfinished",
+            address: sent.address,
+            text: answer.error.text,
+        });
+    return ok(answer.value);
 }
 
 async function deliveryAgent(
@@ -785,7 +925,7 @@ async function deliverReply(home: Home, sent: Delivery, context: Context) {
         {
             type: "input",
             requestId: `reply:${submission.id}`,
-            content: `Reply from \`${sent.address}\`: ${answer.ok ? answer.text : `it could not finish: ${answer.text}`}`,
+            content: `Reply from \`${sent.address}\`: ${answer.ok ? answer.value : `it could not finish: ${answer.error.text}`}`,
             entry: {
                 kind: ReplyEntry.kind,
                 data: { from: sent.to, task: sent.task, at: home.now() },

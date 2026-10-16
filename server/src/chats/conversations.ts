@@ -12,8 +12,15 @@ import {
 } from "@earendil-works/pi-durable";
 import type { Home } from "../home.ts";
 import { configureAgent } from "../models/choice.ts";
-import { type AgentRef, agentKey, HOME } from "../record/document.ts";
+import { chiefsOf, RealmDoc } from "../realm/places.ts";
+import {
+    type AgentRef,
+    agentKey,
+    HOME,
+    RecordDoc,
+} from "../record/document.ts";
 import { InstructionsDoc } from "./instructions.ts";
+import { notify } from "./notice.ts";
 import { TaskDoc } from "./tasks.ts";
 /** The agent a conversation is with, the chief who talks to it, and its number in their chat (C22). */
 export type With = {
@@ -275,3 +282,34 @@ export const AgentConversationsDoc = defineDocFamily<
     family: true,
     initial: () => ({ ids: [] }),
 });
+
+/** Appends civic notices to every chief's chat with this hamlet's mayor. */
+export async function tellChiefs(
+    home: Home,
+    tx: Tx,
+    hamlet: string,
+    text: string,
+): Promise<void> {
+    const r = await tx.doc(RecordDoc, hamlet, hamlet);
+    const chiefs = chiefsOf(await tx.doc(RealmDoc), hamlet, home.chief);
+    const key = agentKey({ hamlet, number: r.mayor });
+    const chats = (await tx.doc(ChatDoc, key, key)).chats;
+    for (const chief of chiefs) {
+        let chat = chats[chief];
+        if (!chat) {
+            const conversation = await startConversation(home, tx, {
+                hamlet,
+                number: r.mayor,
+                chief,
+                chat: 1,
+            });
+            chats[chief] = {
+                current: 1,
+                conversations: [{ number: 1, conversation, began: home.now() }],
+                reflections: 0,
+            };
+            chat = chats[chief];
+        }
+        if (chat) await notify(tx, currentOf(chat), text, home.now());
+    }
+}

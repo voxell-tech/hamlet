@@ -83,8 +83,10 @@ exceptions, listed in
 [`server/docs/coding-standards.md`](../server/docs/coding-standards.md#modules-and-folders).
 They are imported directly so that helpers do not load composed parts.
 
-`agents` owns membership and roads, `letters` peer exchanges, `votes` the
-office, `library` the shared shelf and `oversight` waits for a chief.
+`record` owns membership, names, local roads and the mayor's office.
+`agents` composes lifecycle tools, deeds and house work, `letters` peer
+exchanges, `votes` elections, `library` the shared shelf and `oversight`
+waits for a chief.
 `realm` owns places, founding, closing and agreements between hamlets.
 Their documents live with their owners; `record.ts` holds the hamlet
 record and stable agent identity. `home` composes the parts and owns the

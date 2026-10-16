@@ -6,7 +6,7 @@ import {
 import { expect, it } from "vitest";
 import { localDay } from "../src/home/clock.ts";
 import { LimitsDoc } from "../src/limits.ts";
-import { RecordDoc } from "../src/record.ts";
+import { RecordDoc, recordRefusalText } from "../src/record.ts";
 import { ledgerOf } from "../src/spend.ts";
 import { chat, mayor, request, served } from "./connection-support.ts";
 import {
@@ -90,12 +90,21 @@ it("checks simultaneous chief roads against one budget, in their charge transact
     await home.harness.commit(async (tx) => {
         (await tx.doc(LimitsDoc, "home", "home")).budget.cost = 0.015;
     }, context);
-    const results = await Promise.allSettled(
+    const results = await Promise.all(
         ["scout smith", "scout cook"].map((rest) =>
             road(home, { hamlet: "home", chief: home.chief, rest }, context),
         ),
     );
-    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    const refused = results.find((r) => !r.ok);
+    expect(refused).toMatchObject({
+        ok: false,
+        error: { kind: "road-budget" },
+    });
+    if (refused && !refused.ok && refused.error.kind === "road-budget")
+        expect(recordRefusalText(refused.error, "chief")).toBe(
+            "the hamlet cannot pay for it today: it costs $0.01 and would bring the hamlet to $0.02 of $0.01. Only the chief can raise the budget, on the hamlet's Bylaws page",
+        );
     expect(
         (await home.harness.snapshot(RecordDoc, "home", context))?.roads,
     ).toHaveLength(1);

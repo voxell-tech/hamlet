@@ -67,7 +67,10 @@ export function carryRoad(
     let road = record.roads.find((r) => joins(r, a, b));
     if (!road && hasRoad(record, from, to)) {
         road = roadsOf(record).find((r) => joins(r, a, b));
-        if (road) record.roads.push(road);
+        if (road) {
+            record.roads.push(road);
+            road = record.roads.find((r) => joins(r, a, b));
+        }
     }
     if (!road) throw new Error("There is no road between those agents.");
     road.messages++;

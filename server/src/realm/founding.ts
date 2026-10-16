@@ -9,19 +9,13 @@ import {
     section,
     type Tx,
 } from "@earendil-works/pi-durable";
-import {
-    ChatDoc,
-    currentOf,
-    startConversation,
-    WithDoc,
-} from "../chats/conversations.ts";
+import { tellChiefs, WithDoc } from "../chats/conversations.ts";
 import { agentOf } from "../chats/errands.ts";
-import { notify } from "../chats/notice.ts";
 import { stopAgent } from "../chats.ts";
 import { WorkDoc } from "../environment.ts";
 import { GrantsDoc, grantsOf, revoke } from "../gate.ts";
 import { buildHouse } from "../home/layout.ts";
-import type { Deed, Home, Part } from "../home.ts";
+import type { Home, Part } from "../home.ts";
 import { removeHouse } from "../house.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
 import { reconfigure } from "../models.ts";
@@ -30,11 +24,17 @@ import {
     agentKey,
     checkName,
     defineRecordTool,
+    foundRecord,
     HOME,
+    type RecordDeed,
     RecordDoc,
+    type RecordRefusal,
+    recordRefusal,
 } from "../record.ts";
+import { ok, type Result } from "../result.ts";
 import { awaiting } from "./dealings.ts";
-import { chiefsOf, liveHamlets, type Realm, RealmDoc } from "./places.ts";
+import type { HamletPlace } from "./places.ts";
+import { liveHamlets, type Realm, RealmDoc } from "./places.ts";
 import { realmRoads } from "./roads.ts";
 
 /** The realm's founding and closing tools and prompt. */
@@ -229,11 +229,11 @@ export const Founding: Part = (home) => {
 };
 
 /** Founds a hamlet for the chief and builds its mayor's house. */
-export const found: Deed = async (home, given, context) => {
+export const found: RecordDeed = async (home, given, context) => {
     const [hamlet = "", mayor = "", ...purpose] = given.rest
         .trim()
         .split(/\s+/);
-    await home.harness.commit(
+    const result = await home.harness.commit(
         (tx) =>
             foundHamlet(home, tx, {
                 hamlet,
@@ -244,29 +244,37 @@ export const found: Deed = async (home, given, context) => {
             }),
         context,
     );
+    if (!result.ok) return result;
     await buildHouse(home.layout, { hamlet, number: 0 });
-    return `The hamlet \`${hamlet}\` is founded under the mayor \`${mayor}\`, and it is yours. /hamlet ${hamlet} talks to it.`;
+    return ok(
+        `The hamlet \`${hamlet}\` is founded under the mayor \`${mayor}\`, and it is yours. /hamlet ${hamlet} talks to it.`,
+    );
 };
 /** Lists the realm's living hamlets by title and id. */
-export const hamlets: Deed = async (home, _given, context) => {
-    const realm = await home.harness.snapshot(RealmDoc, context);
-    return liveHamlets(realm)
-        .map((h) => `- ${h.title ?? h.id} (\`${h.id}\`)`)
-        .join("\n");
-};
+export const hamlets: RecordDeed = async (home, _given, context) =>
+    ok(
+        liveHamlets(await home.harness.snapshot(RealmDoc, context))
+            .map((h) => `- ${h.title ?? h.id} (\`${h.id}\`)`)
+            .join("\n"),
+    );
 /** Sets or clears a chief-controlled hamlet's displayed title. */
-export const nameHamlet: Deed = async (home, given, context) => {
+export const nameHamlet: RecordDeed = async (home, given, context) => {
     const [id = "", ...words] = given.rest.trim().split(/\s+/);
     const title = words.join(" ");
     if ([...title].length > 32)
-        throw new Error("a hamlet's name is at most 32 letters");
-    await home.harness.commit(async (tx) => {
-        (await controlled(tx, id, given.chief, "name")).title = title || null;
+        return recordRefusal("name", id, { kind: "hamlet-title-long" });
+    const result = await home.harness.commit(async (tx) => {
+        const controlledHamlet = await controlled(tx, id, given.chief, "name");
+        if (!controlledHamlet.ok) return controlledHamlet;
+        controlledHamlet.value.title = title || null;
+        return ok(undefined);
     }, context);
-    return `The hamlet \`${id}\` is shown as ${title || id}.`;
+    return result.ok
+        ? ok(`The hamlet \`${id}\` is shown as ${title || id}.`)
+        : result;
 };
 /** Sets a chief-controlled hamlet's position in the world. */
-export const moveHamlet: Deed = async (home, given, context) => {
+export const moveHamlet: RecordDeed = async (home, given, context) => {
     const [id = "", x, z, extra] = given.rest.trim().split(/\s+/);
     if (
         x === undefined ||
@@ -275,38 +283,56 @@ export const moveHamlet: Deed = async (home, given, context) => {
         !Number.isFinite(Number(x)) ||
         !Number.isFinite(Number(z))
     )
-        throw new Error("a place in the world is two numbers");
-    await home.harness.commit(async (tx) => {
-        (await controlled(tx, id, given.chief, "move")).at = {
-            x: Number(x),
-            z: Number(z),
-        };
+        return recordRefusal("move", id, { kind: "hamlet-position" });
+    const result = await home.harness.commit(async (tx) => {
+        const controlledHamlet = await controlled(tx, id, given.chief, "move");
+        if (!controlledHamlet.ok) return controlledHamlet;
+        controlledHamlet.value.at = { x: Number(x), z: Number(z) };
+        return ok(undefined);
     }, context);
-    return `The town of \`${id}\` is set down at ${x}, ${z}.`;
+    return result.ok
+        ? ok(`The town of \`${id}\` is set down at ${x}, ${z}.`)
+        : result;
 };
 /** Archives a chief-controlled hamlet and finishes its pending house work. */
-export const removeHamletDeed: Deed = async (home, given, context) => {
+export const removeHamletDeed: RecordDeed = async (home, given, context) => {
     const [hamlet = "", ...reason] = given.rest.trim().split(/\s+/);
-    await home.harness.commit(async (tx) => {
-        await controlled(tx, hamlet, given.chief, "remove");
-        await removeHamlet(home, tx, {
+    const result = await home.harness.commit(async (tx) => {
+        const controlledHamlet = await controlled(
+            tx,
+            hamlet,
+            given.chief,
+            "remove",
+        );
+        if (!controlledHamlet.ok) return controlledHamlet;
+        return removeHamlet(home, tx, {
             hamlet,
             by: given.chief,
             reason: reason.join(" "),
         });
     }, context);
+    if (!result.ok) return result;
     await finish(home, context);
-    return `The hamlet \`${hamlet}\` was removed and its houses archived.`;
+    return ok(`The hamlet \`${hamlet}\` was removed and its houses archived.`);
 };
 /** Restores a chief-controlled hamlet and its recorded agents and roads. */
-export const restoreHamlet: Deed = async (home, given, context) => {
+export const restoreHamlet: RecordDeed = async (home, given, context) => {
     const id = given.rest.trim();
-    await home.harness.commit(async (tx) => {
-        const place = await controlled(tx, id, given.chief, "restore", true);
+    const result = await home.harness.commit(async (tx) => {
+        const controlledHamlet = await controlled(
+            tx,
+            id,
+            given.chief,
+            "restore",
+            true,
+        );
+        if (!controlledHamlet.ok) return controlledHamlet;
         const realm = await tx.doc(RealmDoc);
         const live = liveHamlets(realm);
         if (live.length >= (await tx.doc(LimitsDoc, HOME, HOME)).hamlets.most)
-            throw new Error("the chief's limits allow no more hamlets");
+            return recordRefusal("restore-hamlet", id, {
+                kind: "hamlets-full",
+            });
         const record = await tx.doc(RecordDoc, id, id);
         for (const other of live) {
             const names = (
@@ -314,27 +340,40 @@ export const restoreHamlet: Deed = async (home, given, context) => {
             ).agents.map((a) => a.name);
             const taken = record.agents.find((a) => names.includes(a.name));
             if (taken)
-                throw new Error(
-                    `an agent named \`${taken.name}\` exists now, so \`${id}\` cannot come back as it was`,
-                );
+                return recordRefusal("restore-hamlet", id, {
+                    kind: "hamlet-restore-name",
+                    name: taken.name,
+                });
         }
-        place.removed = null;
+        controlledHamlet.value.removed = null;
         realm.removals = realm.removals.filter((r) => r.hamlet !== id);
         await reconfigure(home, tx);
+        return ok(undefined);
     }, context);
+    if (!result.ok) return result;
     await finish(home, context);
-    return `The hamlet \`${id}\` is restored.`;
+    return ok(`The hamlet \`${id}\` is restored.`);
 };
 /** Marks a removed hamlet erased and sweeps its houses for deletion. */
-export const eraseHamlet: Deed = async (home, given, context) => {
+export const eraseHamlet: RecordDeed = async (home, given, context) => {
     const id = given.rest.trim();
-    await home.harness.commit(async (tx) => {
-        const place = await controlled(tx, id, given.chief, "delete", true);
-        refusePendingMove(await tx.doc(RealmDoc), id);
-        place.erased = true;
+    const result = await home.harness.commit(async (tx) => {
+        const controlledHamlet = await controlled(
+            tx,
+            id,
+            given.chief,
+            "delete",
+            true,
+        );
+        if (!controlledHamlet.ok) return controlledHamlet;
+        const move = refusePendingMove(await tx.doc(RealmDoc), id);
+        if (!move.ok) return move;
+        controlledHamlet.value.erased = true;
+        return ok(undefined);
     }, context);
+    if (!result.ok) return result;
     await finish(home, context);
-    return `The hamlet \`${id}\` is deleted for good.`;
+    return ok(`The hamlet \`${id}\` is deleted for good.`);
 };
 async function controlled(
     tx: Tx,
@@ -342,7 +381,7 @@ async function controlled(
     chief: string,
     verb: string,
     removed = false,
-) {
+): Promise<Result<HamletPlace, RecordRefusal>> {
     const place = (await tx.doc(RealmDoc)).hamlets.find(
         (h) =>
             h.id === id &&
@@ -350,41 +389,13 @@ async function controlled(
             (removed ? h.removed !== null : h.removed === null),
     );
     if (!place)
-        throw new Error(
-            `no ${removed ? "removed " : ""}hamlet named \`${id}\``,
-        );
+        return recordRefusal(verb, id, {
+            kind: "record-hamlet-missing",
+            removed,
+        });
     if (place.chiefs.length > 0 && !place.chiefs.includes(chief))
-        throw new Error(`only a chief of \`${id}\` can ${verb} it`);
-    return place;
-}
-async function tellChiefs(
-    home: Home,
-    tx: Tx,
-    hamlet: string,
-    words: string,
-): Promise<void> {
-    const realm = await tx.doc(RealmDoc);
-    const record = await tx.doc(RecordDoc, hamlet, hamlet);
-    const key = agentKey({ hamlet, number: record.mayor });
-    for (const chief of chiefsOf(realm, hamlet, home.chief)) {
-        const chats = (await tx.doc(ChatDoc, key, key)).chats;
-        let chat = chats[chief];
-        if (!chat) {
-            const conversation = await startConversation(home, tx, {
-                hamlet,
-                number: record.mayor,
-                chief,
-                chat: 1,
-            });
-            chat = {
-                current: 1,
-                conversations: [{ number: 1, conversation, began: home.now() }],
-                reflections: 0,
-            };
-            chats[chief] = chat;
-        }
-        await notify(tx, currentOf(chat), words, home.now());
-    }
+        return recordRefusal(verb, id, { kind: "record-hamlet-chief", verb });
+    return ok(place);
 }
 const finishing = Symbol("hamlet cleanup");
 async function finish(
@@ -457,7 +468,7 @@ export async function foundHamlet(
     home: Home,
     tx: Tx,
     given: FoundingRequest,
-): Promise<void> {
+): Promise<Result<void, RecordRefusal>> {
     const realm = await tx.doc(RealmDoc);
     const refusal = await refusalOf(
         given,
@@ -466,7 +477,7 @@ export async function foundHamlet(
         async (id) =>
             (await tx.doc(RecordDoc, id, id)).agents.map((a) => a.name),
     );
-    if (refusal) throw new Error(refusal);
+    if (!refusal.ok) return refusal;
     const chiefs = given.from
         ? (realm.hamlets.find((h) => h.id === given.from?.hamlet)?.chiefs ?? [])
         : given.chiefs;
@@ -480,16 +491,13 @@ export async function foundHamlet(
         removed: null,
         erased: false,
     });
-    const record = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
-    record.agents = [
-        {
-            number: 0,
-            name: given.mayor,
-            purpose: given.purpose.trim(),
-            since: home.now(),
-            model: null,
-        },
-    ];
+    const founded = await foundRecord(tx, given.hamlet, {
+        name: given.mayor,
+        purpose: given.purpose,
+        at: home.now(),
+    });
+    if (!founded.ok)
+        throw new Error("The founding check and record admission disagree.");
     await tx.doc(WorkDoc, given.hamlet, given.hamlet);
     await tx.doc(LimitsDoc, given.hamlet, given.hamlet);
     await reconfigure(home, tx);
@@ -499,13 +507,14 @@ export async function foundHamlet(
         given.hamlet,
         `The hamlet \`${given.hamlet}\` was founded under the mayor \`${given.mayor}\`. /hamlet ${given.hamlet} talks to it.`,
     );
+    return ok(undefined);
 }
 /** The refusal of a proposed founding. */
 export async function mayFound(
     read: DocumentReader,
     given: { hamlet: string; mayor: string; purpose: string },
     context: Context,
-): Promise<string | undefined> {
+): Promise<Result<void, RecordRefusal>> {
     return refusalOf(
         given,
         await read.snapshot(RealmDoc, context),
@@ -521,38 +530,50 @@ async function refusalOf(
     realm: Readonly<Realm> | undefined,
     limits: Readonly<Limits>,
     names: (id: string) => Promise<string[]>,
-): Promise<string | undefined> {
-    try {
-        checkName(given.hamlet);
-        checkName(given.mayor);
-    } catch (error) {
-        return error instanceof Error ? error.message : String(error);
+): Promise<Result<void, RecordRefusal>> {
+    for (const name of [given.hamlet, given.mayor]) {
+        const checked = checkName(name, given.hamlet, "found");
+        if (!checked.ok) return checked;
     }
     if (!given.purpose.trim())
-        return "say what the new hamlet is for in `purpose`";
+        return recordRefusal("found", given.hamlet, { kind: "hamlet-purpose" });
     if (realm?.hamlets.some((h) => h.id === given.hamlet))
-        return `a hamlet named \`${given.hamlet}\` already exists or was used before`;
+        return recordRefusal("found", given.hamlet, { kind: "hamlet-used" });
     const live = liveHamlets(realm);
     if (live.length >= limits.hamlets.most)
-        return `the chief's limits allow no more hamlets (${live.length} of ${limits.hamlets.most})`;
+        return recordRefusal("found", given.hamlet, {
+            kind: "hamlets-full",
+            actual: live.length,
+            most: limits.hamlets.most,
+        });
     for (const { id } of live) {
         if ((await names(id)).includes(given.mayor))
-            return `a new hamlet gets a new mayor, and an agent named \`${given.mayor}\` already exists`;
+            return recordRefusal("found", given.hamlet, {
+                kind: "founder-taken",
+                name: given.mayor,
+            });
     }
-    return undefined;
+    return ok(undefined);
 }
 /** A hamlet closed in one commit. */
 export async function removeHamlet(
     home: Home,
     tx: Tx,
     given: { hamlet: string; by: string; reason: string },
-): Promise<void> {
+): Promise<Result<void, RecordRefusal>> {
     if (given.hamlet === HOME)
-        throw new Error("the first hamlet cannot be removed");
+        return recordRefusal("remove-hamlet", given.hamlet, {
+            kind: "first-hamlet",
+        });
     const realm = await tx.doc(RealmDoc);
-    refusePendingMove(realm, given.hamlet);
+    const move = refusePendingMove(realm, given.hamlet);
+    if (!move.ok) return move;
     const place = liveHamlets(realm).find((h) => h.id === given.hamlet);
-    if (!place) throw new Error(`no hamlet named \`${given.hamlet}\``);
+    if (!place)
+        return recordRefusal("remove-hamlet", given.hamlet, {
+            kind: "record-hamlet-missing",
+            removed: false,
+        });
     for (const agent of (await tx.doc(RecordDoc, given.hamlet, given.hamlet))
         .agents) {
         const ref = { hamlet: given.hamlet, number: agent.number };
@@ -574,14 +595,19 @@ export async function removeHamlet(
         given.hamlet,
         `The hamlet \`${given.hamlet}\` was removed and its houses archived.`,
     );
+    return ok(undefined);
 }
 
-function refusePendingMove(realm: Readonly<Realm>, id: string): void {
+function refusePendingMove(
+    realm: Readonly<Realm>,
+    id: string,
+): Result<void, RecordRefusal> {
     if (
         realm.pending &&
         [realm.pending.from.hamlet, realm.pending.to.hamlet].includes(id)
     )
-        throw new Error(
-            `The hamlet \`${id}\` cannot be removed or erased while a house move into or out of it is still being finished. Wait for the move to finish, then try again.`,
-        );
+        return recordRefusal("remove-hamlet", id, {
+            kind: "house-move-pending",
+        });
+    return ok(undefined);
 }

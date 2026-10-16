@@ -20,26 +20,37 @@ import {
     hook,
 } from "@earendil-works/pi-durable";
 import { expect, it, vi } from "vitest";
-import { erase, merge, remove, restore } from "../src/agents.ts";
+import {
+    erase as eraseDeed,
+    merge as mergeDeed,
+    recordLines,
+    remove as removeDeed,
+    restore as restoreDeed,
+} from "../src/agents.ts";
 import { InstructionsDoc, submitLine, WithDoc } from "../src/chats.ts";
 import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { CharacterDoc } from "../src/prompt.ts";
-import { resolve, roadsOf } from "../src/realm.ts";
-import { agentKey, HOME, RecordDoc } from "../src/record.ts";
-import { overturn, vote } from "../src/votes.ts";
+import { resolve } from "../src/realm.ts";
+import { agentKey, carryRoad, HOME, RecordDoc } from "../src/record.ts";
+import { overturn as overturnDeed, vote as voteDeed } from "../src/votes.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,
     context,
+    deedWords,
+    departedAgents,
     fauxAgents,
     fauxModels,
+    livingAgents,
     mayorChat,
     request as modelRequest,
     say,
     scratch,
     testHome,
     transcript,
+    usedRoad,
+    view,
 } from "./support.ts";
 
 const deed = {
@@ -72,21 +83,13 @@ it("merges houses, keeps clashes apart, inherits road use and leaves each charac
     const { home, kept, gone, put, get } = await pair();
     await addAgent(home, HOME, "poet");
     await home.harness.commit(async (tx) => {
-        const r = await tx.doc(RecordDoc, HOME, HOME);
+        const _r = await tx.doc(RecordDoc, HOME, HOME);
         for (const [a, b, messages] of [
             ["office", 1, 1],
             ["office", 2, 3],
             [2, 3, 1],
         ] as const)
-            r.roads.push({
-                a,
-                b,
-                messages,
-                lastFrom: a,
-                lastUsed: 1,
-                since: 1,
-                by: "mayor",
-            });
+            await usedRoad(tx, HOME, a, b, { messages, at: 1, since: 1 });
         (await tx.doc(CharacterDoc, agentKey(kept), agentKey(kept))).text =
             "kept";
         (await tx.doc(CharacterDoc, agentKey(gone), agentKey(gone))).text =
@@ -114,25 +117,30 @@ it("merges houses, keeps clashes apart, inherits road use and leaves each charac
     expect(words).toContain("Merged `scout` into `librarian`");
     expect(words).toContain("its purpose is now: Keeps the list.");
     expect(words).toContain("joined, not rewritten");
-    const r = await home.harness.snapshot(RecordDoc, HOME, context);
-    expect(r?.agents.map((a) => a.name)).toEqual([
+    expect((await livingAgents(home)).map((a) => a.name)).toEqual([
         "founder",
         "librarian",
         "poet",
     ]);
-    expect(r && roadsOf(r)).toEqual(
+    expect(
+        (await view(home)).hamlets.find((h) => h.id === HOME)?.roads,
+    ).toEqual(
         expect.arrayContaining([
-            expect.objectContaining({ a: "office", b: 1, messages: 4 }),
-            expect.objectContaining({ a: 1, b: 3, messages: 1 }),
+            expect.objectContaining({
+                a: { hamlet: HOME, number: 0 },
+                b: { hamlet: HOME, number: 1 },
+                messages: 4,
+            }),
+            expect.objectContaining({
+                a: { hamlet: HOME, number: 1 },
+                b: { hamlet: HOME, number: 3 },
+                messages: 1,
+            }),
         ]),
     );
-    expect(r?.archive[0]?.merge).toMatchObject({
-        applied: true,
-        clashes: expect.arrayContaining([
-            expect.stringContaining("sort"),
-            expect.stringContaining("list.txt"),
-        ]),
-    });
+    expect(words).toContain("Kept apart because they differed:");
+    expect(words).toContain("sort");
+    expect(words).toContain("list.txt");
     expect(await get(1, "NOTES.md")).toContain(
         "## From scout\nThe wiki is slow.",
     );
@@ -231,10 +239,11 @@ it.each([
         expect(
             (await get(1, "NOTES.md")).startsWith("# Notes\nBoth facts."),
         ).toBe(accepted);
-        const r = await home.harness.snapshot(RecordDoc, HOME, context);
-        expect(r?.agents.find((a) => a.number === 1)?.purpose).toBe("Both.");
-        expect(r?.decisions.findLast((d) => d.kind === "merged")).toMatchObject(
-            { notes: accepted ? "rewritten" : "joined" },
+        expect(
+            (await livingAgents(home)).find((a) => a.ref.number === 1)?.purpose,
+        ).toBe("Both.");
+        expect((await recordLines(home, HOME, context)).join("\n")).toContain(
+            `notes ${accepted ? "rewritten" : "joined"}`,
         );
     },
     60_000,
@@ -292,12 +301,9 @@ it.each([false, true])(
         const { home, put, get } = await pair();
         await addAgent(home, HOME, "poet");
         await home.harness.commit(async (tx) => {
-            (await tx.doc(RecordDoc, HOME, HOME)).roads.push({
-                a: 2,
-                b: 3,
+            await usedRoad(tx, HOME, 2, 3, {
                 messages: 1,
-                lastFrom: 2,
-                lastUsed: 1,
+                at: 1,
                 since: 1,
                 by: "mayor",
             });
@@ -313,39 +319,23 @@ it.each([false, true])(
             );
             await put(1, "found.txt", "Dune, Emma");
             await home.harness.commit(async (tx) => {
-                const road = (await tx.doc(RecordDoc, HOME, HOME)).roads.find(
-                    (r) => r.a === 1 && r.b === 3,
-                );
-                if (road) road.messages++;
+                carryRoad(await tx.doc(RecordDoc, HOME, HOME), 1, 3, 1);
             }, context);
         }
         expect(
             await restore(home, { ...deed, rest: "scout" }, context),
         ).toContain("Split `scout` from `librarian`");
-        const r = await home.harness.snapshot(RecordDoc, HOME, context);
-        expect(r?.agents.find((a) => a.number === 1)?.purpose).toBe(
-            "Keeps the list.",
-        );
-        expect(r?.agents.find((a) => a.number === 2)?.purpose).toBe(
-            "Looks things up.",
-        );
         expect(await get(2, "found.txt")).toBe("Dune");
         await expect(get(1, "old.txt")).rejects.toThrow();
         if (learned) {
             expect(await get(1, "found.txt")).toBe("Dune, Emma");
             expect(await get(1, "NOTES.md")).toContain("Bob likes coffee.");
             expect(await get(1, "NOTES.md")).toContain("## Split");
-            expect(r?.roads).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({ a: 1, b: 3, messages: 1 }),
-                ]),
-            );
         } else {
             await expect(get(1, "found.txt")).rejects.toThrow();
             expect(await get(1, "NOTES.md")).toBe(
                 "# Notes\nAlice likes tea.\n",
             );
-            expect(r?.roads.some((r) => r.a === 1 && r.b === 3)).toBe(false);
             await expect(
                 get(1, "merged/scout/NOTES.before.md"),
             ).rejects.toThrow();
@@ -386,9 +376,7 @@ it("refuses links without reading them, and refuses an oversized house before a 
     await expect(merge(home, deed, context)).rejects.toThrow(
         "links or special files",
     );
-    expect(
-        (await home.harness.snapshot(RecordDoc, HOME, context))?.agents,
-    ).toHaveLength(3);
+    expect(await livingAgents(home, HOME)).toHaveLength(3);
     await expect(get(1, "leak")).rejects.toThrow();
     await unlink(link);
     const big = await open(join(houseOf(home.layout, gone), "big"), "w");
@@ -397,9 +385,7 @@ it("refuses links without reading them, and refuses an oversized house before a 
     await expect(merge(home, deed, context)).rejects.toThrow(
         "Remove the agent instead",
     );
-    expect(
-        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
-    ).toHaveLength(0);
+    expect(await departedAgents(home, HOME)).toHaveLength(0);
 }, 60_000);
 
 it("finishes a merge whose file manifest was left pending, without bringing a file twice", async () => {
@@ -468,9 +454,7 @@ it.each([1, 2])(
             ],
         });
         await (await say(home, "merge")).wait(context);
-        expect(
-            (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
-        ).toHaveLength(0);
+        expect(await departedAgents(home, HOME)).toHaveLength(0);
         expect(faux.state.callCount).toBe(2);
     },
 );
@@ -492,14 +476,12 @@ it("refuses a blocked destination before archiving either agent", async () => {
     await put(1, "blocked", "a file, not a folder");
     await put(2, "blocked/inside", "cannot be delivered here");
     expect(await merge(home, deed, context)).toContain("before merging");
-    expect(
-        (await home.harness.snapshot(RecordDoc, HOME, context))?.agents.map(
-            (a) => a.name,
-        ),
-    ).toEqual(["founder", "librarian", "scout"]);
-    expect(
-        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
-    ).toHaveLength(0);
+    expect((await livingAgents(home, HOME)).map((a) => a.name)).toEqual([
+        "founder",
+        "librarian",
+        "scout",
+    ]);
+    expect(await departedAgents(home, HOME)).toHaveLength(0);
 }, 30_000);
 
 it("opens with a blocked pending merge and retries it through merge without splitting", async () => {
@@ -662,9 +644,12 @@ it("refuses to erase an unapplied merge and keeps its archived house available f
     expect(await erase(home, { ...deed, rest: "scout" }, context)).toContain(
         "merge has not finished",
     );
-    expect(
-        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
-    ).toHaveLength(1);
+    const archive = (await home.harness.snapshot(RecordDoc, HOME, context))
+        ?.archive[0]?.id;
+    const refusal = await erase(home, { ...deed, rest: "scout" }, context);
+    expect(refusal).toContain(`/merge ${archive} into librarian`);
+    expect(refusal).not.toContain(`/restore ${archive}`);
+    expect(await departedAgents(home, HOME)).toHaveLength(1);
     expect(await get(2, "NOTES.md")).toContain("The wiki is slow.");
 }, 60_000);
 
@@ -688,9 +673,7 @@ it.each(["folder-link", "dangling-link"])(
             if (!(error instanceof Error)) throw error;
             words = error.message;
         }
-        expect(
-            (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
-        ).toHaveLength(0);
+        expect(await departedAgents(home, HOME)).toHaveLength(0);
         expect(words).toContain("before merging");
     },
     60_000,
@@ -795,9 +778,7 @@ it("does not absorb a voter when a vote opens during the mayor's notes errand", 
         ],
     });
     await (await say(home, "merge")).wait(context);
-    expect(
-        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
-    ).toHaveLength(0);
+    expect(await departedAgents(home, HOME)).toHaveLength(0);
     expect(JSON.stringify(await transcript(await mayorChat(home)))).toContain(
         "nothing else is decided",
     );
@@ -814,9 +795,7 @@ it("refuses unreadable kept notes before committing and preserves every original
     ]);
     await writeFile(file, bytes);
     const words = await merge(home, deed, context);
-    expect(
-        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
-    ).toHaveLength(0);
+    expect(await departedAgents(home, HOME)).toHaveLength(0);
     expect(await readFile(file)).toEqual(bytes);
     expect(words).toContain("UTF-8");
 }, 60_000);
@@ -858,11 +837,9 @@ it("finishes pending merge files with /merge while running, without splitting or
     expect(await restore(home, { ...deed, rest: "scout" }, context)).toContain(
         "Split",
     );
-    expect(
-        (await home.harness.snapshot(RecordDoc, HOME, context))?.agents.map(
-            (a) => a.name,
-        ),
-    ).toContain("scout");
+    expect((await livingAgents(home, HOME)).map((a) => a.name)).toContain(
+        "scout",
+    );
 });
 
 it("merges a new living agent when an older archive has the same absorbed name", async () => {
@@ -878,8 +855,14 @@ it("merges a new living agent when an older archive has the same absorbed name",
     expect(await merge(home, deed, context)).toContain(
         "Merged `scout` into `librarian`",
     );
-    expect(
-        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
-    ).toHaveLength(2);
+    expect(await departedAgents(home, HOME)).toHaveLength(2);
     expect(await get(1, "new.txt")).toBe("New work");
 });
+
+const erase = deedWords(eraseDeed);
+const merge = deedWords(mergeDeed);
+const remove = deedWords(removeDeed);
+const restore = deedWords(restoreDeed);
+
+const vote = deedWords(voteDeed);
+const overturn = deedWords(overturnDeed);

@@ -219,14 +219,14 @@ it("uses the mayor's allowed choice and reconfigures another hamlet when that al
     const { models, faux } = fauxModels(["faux-1", "faux-2", "faux-3"]);
     const home = await testHome(scratch(), { models });
     const miller = await addHamlet(home, "mill", "miller");
-    await home.harness.commit(async (tx) => {
+    await edit(home, async (tx) => {
         const limits = await tx.doc(LimitsDoc, "mill", "mill");
         limits.models = ["faux::faux-2"];
         limits.model = "faux::faux-3";
         const agent = (await tx.doc(RecordDoc, "mill", "mill")).agents[0];
         if (!agent) throw new Error("no miller");
         agent.model = "faux::faux-2";
-    }, context);
+    });
     const chat = await chatWith(home, miller);
     const seen: string[] = [];
     const step: FauxResponseFactory = (_prompt, _options, _state, model) => {

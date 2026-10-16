@@ -16,14 +16,17 @@ import {
     addHamlet,
     chatWith,
     context,
+    deedWords,
     type Faux,
     fauxAgents,
     fauxModels,
+    livingAgents,
     MAYOR,
     request,
     scratch,
     testHome,
     transcript,
+    usedRoad,
 } from "./support.ts";
 
 async function call(
@@ -147,14 +150,10 @@ it("moves the house and conversations to a new number and keeps only roads both 
             "Curious";
         await give(tx, scout, "scout", "network", home.chief, home.now());
         for (const b of [baker.number, clerk.number])
-            (await tx.doc(RecordDoc, "home", "home")).roads.push({
-                a: scout.number,
-                b,
+            await usedRoad(tx, "home", scout.number, b, {
                 messages: 4,
-                lastFrom: scout.number,
-                lastUsed: home.now(),
+                at: home.now(),
                 since: 1,
-                by: "mayor",
             });
     }, context);
     await call(home, faux, MAYOR, "agree_move", {
@@ -195,15 +194,11 @@ it("moves the house and conversations to a new number and keeps only roads both 
     );
     const moved = { hamlet: "mill", number: 2 };
     expect(
-        (await home.harness.snapshot(RecordDoc, "home", context))?.agents.some(
-            (a) => a.name === "scout",
-        ),
+        (await livingAgents(home, "home")).some((a) => a.name === "scout"),
     ).toBe(false);
     expect(
-        (await home.harness.snapshot(RecordDoc, "mill", context))?.agents.find(
-            (a) => a.name === "scout",
-        ),
-    ).toMatchObject({ number: 2, purpose: "" });
+        (await livingAgents(home, "mill")).find((a) => a.name === "scout"),
+    ).toMatchObject({ ref: { hamlet: "mill", number: 2 }, purpose: "" });
     expect(
         await readFile(`${houseOf(home.layout, moved)}/NOTES.md`, "utf8"),
     ).toBe("Remember the mill");
@@ -381,9 +376,7 @@ it.each(["agree_road", "agree_move"])(
             place.title = "Still answering";
         }, context);
         expect(
-            (
-                await home.harness.snapshot(RecordDoc, "home", context)
-            )?.agents.some((a) => a.name === "scout"),
+            (await livingAgents(home, "home")).some((a) => a.name === "scout"),
         ).toBe(true);
         expect((await home.harness.snapshot(RealmDoc, context))?.roads).toEqual(
             [],
@@ -408,10 +401,11 @@ it.each(["home", "mill"])(
         expect(await call(home, faux, second, "agree_move", args)).toContain(
             "vote 1 is open",
         );
-        expect(
-            (await home.harness.snapshot(RecordDoc, "home", context))?.agents,
-        ).toContainEqual(
-            expect.objectContaining({ number: scout.number, name: "scout" }),
+        expect(await livingAgents(home, "home")).toContainEqual(
+            expect.objectContaining({
+                ref: { hamlet: "home", number: scout.number },
+                name: "scout",
+            }),
         );
         expect(
             (
@@ -434,12 +428,9 @@ it("charges a moved sender's next question to its new hamlet without replacing t
     const scout = await addAgent(home, "home", "scout");
     const baker = await addAgent(home, "home", "baker");
     await home.harness.commit(async (tx) => {
-        (await tx.doc(RecordDoc, "home", "home")).roads.push({
-            a: scout.number,
-            b: baker.number,
+        await usedRoad(tx, "home", scout.number, baker.number, {
             messages: 0,
-            lastFrom: null,
-            lastUsed: 0,
+            at: 0,
             since: 1,
             by: "chief",
         });
@@ -537,12 +528,11 @@ it("keeps an unsplit merge in its hamlet until the chief splits or erases it", a
             "split or erase",
         );
     expect((await home.harness.snapshot(RealmDoc, context))?.moves).toEqual([]);
-    expect(
-        (await home.harness.snapshot(RecordDoc, "home", context))?.agents.map(
-            (a) => a.name,
-        ),
-    ).toContain("librarian");
-    const { restore } = await import("../src/agents.ts");
+    expect((await livingAgents(home, "home")).map((a) => a.name)).toContain(
+        "librarian",
+    );
+    const { restore: restoreDeed } = await import("../src/agents.ts");
+    const restore = deedWords(restoreDeed);
     expect(
         await restore(
             home,

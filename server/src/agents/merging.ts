@@ -23,39 +23,44 @@ import {
     ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { WithDoc } from "../chats/conversations.ts";
+import { tellChiefs, WithDoc } from "../chats/conversations.ts";
 import { ErrandDoc, runErrand, startErrand } from "../chats/errands.ts";
-import { InstructionsDoc, owed } from "../chats/instructions.ts";
 import { newTask, turnOf } from "../chats/turn.ts";
 import { stopAgent } from "../chats.ts";
 import { houseReader, treeWorker } from "../environment.ts";
-import { revoke } from "../gate.ts";
 import { untilAborted } from "../home/abort.ts";
 import { houseOf } from "../home/layout.ts";
-import type { Deed, Home, Part } from "../home.ts";
+import type { Home, Part } from "../home.ts";
 import { listTree, MERGE_CAPS, removeTree, stageTree } from "../house.ts";
 import { LimitsDoc } from "../limits/rules.ts";
-import { lapseAgent } from "../oversight/waits.ts";
 import { chiefAccess, chiefRefusalText } from "../realm/access.ts";
 import { isChief, liveHamlets, RealmDoc } from "../realm/places.ts";
-import { farewell, roadsOf } from "../realm/roads.ts";
 import {
     type AgentRecord,
     type AgentRef,
     type Archived,
     agentKey,
-    checkName,
-    decisionText,
+    copyArchive,
+    type DecisionHeld,
+    depart,
     mayDecide,
+    memoised,
+    mergeable,
     named,
+    type RecordDeed,
     RecordDoc,
+    type RecordRefusal,
+    recordRefusal,
+    refusedTool,
+    requireMayor,
+    restore as restoreRecord,
+    toolText,
 } from "../record.ts";
+import { err, ok, type Result } from "../result.ts";
 import type { SandboxEnv } from "../sandbox.ts";
 import { safeWords } from "../scrub.ts";
 import { booksOf } from "../spend/ledger.ts";
 import { stopped } from "../spend.ts";
-import { notifyChiefs } from "../votes.ts";
-import { lapseTrust } from "./leaving.ts";
 
 type Planned = {
     files: Map<string, Buffer>;
@@ -78,10 +83,9 @@ type PrepareFailure =
           path: string;
           retrySafe: true;
       }
-    | NotesFailure;
-type Prepared =
-    | { ok: true; value: Planned }
-    | { ok: false; error: PrepareFailure };
+    | NotesFailure
+    | RecordRefusal;
+type Prepared = Result<Planned, PrepareFailure>;
 
 function prepareText(error: PrepareFailure): string {
     switch (error.kind) {
@@ -90,8 +94,7 @@ function prepareText(error: PrepareFailure): string {
         case "destination-blocked":
             return `The merge cannot safely deliver \`${error.path}\`; keep its destination and any linked parent aside before merging.`;
     }
-    const unhandled: never = error;
-    throw new Error(`Unclassified merge preparation failure: ${unhandled}`);
+    return toolText(error);
 }
 
 type Given = {
@@ -148,25 +151,25 @@ async function stoppedHouses<T>(
     }
 }
 
-const operations = new WeakMap<Home, Promise<unknown>>();
+const operations = Symbol("house work");
 
 /** Serializes merge, split and erasure file work within one home. */
 export async function serialHouseWork<T>(
-    home: Home,
+    home: Home & { [operations]?: Promise<unknown> },
     context: Context,
     action: () => Promise<T>,
 ): Promise<T> {
-    const run = (operations.get(home) ?? Promise.resolve())
+    const run = (home[operations] ?? Promise.resolve())
         .catch(() => {})
         .then(() => {
             context.abortSignal?.throwIfAborted();
             return action();
         });
-    operations.set(home, run);
+    home[operations] = run;
     try {
         return await run;
     } finally {
-        if (operations.get(home) === run) operations.delete(home);
+        if (home[operations] === run) delete home[operations];
     }
 }
 
@@ -256,7 +259,9 @@ export const Merging: Part = (home) => ({
                             context,
                         );
                         if (!place)
-                            throw new Error("This conversation has no agent.");
+                            return refusedTool(
+                                "This conversation has no agent.",
+                            );
                         const saved = await api.snapshot(
                             MergeCallDoc,
                             api.taskId,
@@ -298,29 +303,36 @@ export const Merging: Part = (home) => ({
                             hamlet: place.hamlet,
                             by: "mayor",
                         };
-                        const agents = await api.commit(async (tx) => {
+                        const checked = await api.commit(async (tx) => {
                             const held = await mayDecide(
                                 tx,
                                 place.hamlet,
                                 home.now(),
                                 "merge",
                             );
-                            if (!held.ok)
-                                throw new Error(decisionText(held.error));
-                            const r = await tx.doc(
-                                RecordDoc,
-                                place.hamlet,
-                                place.hamlet,
-                            );
-                            if (
-                                r.mayor !== place.number ||
-                                !r.agents.some((a) => a.number === place.number)
-                            )
-                                throw new Error(
-                                    "Only the mayor can merge agents.",
-                                );
-                            return allowed(home, tx, given);
+                            if (!held.ok) return held;
+                            const mayor = await requireMayor(tx, place);
+                            if (!mayor.ok)
+                                return recordRefusal("merge", place.hamlet, {
+                                    kind: "not-mayor",
+                                });
+                            return mergeable(tx, given.hamlet, {
+                                ...given,
+                                at: home.now(),
+                            });
                         }, context);
+                        if (!checked.ok)
+                            return checked.error.kind === "vote-open"
+                                ? {
+                                      output: [
+                                          {
+                                              type: "text",
+                                              text: toolText(checked.error),
+                                          },
+                                      ],
+                                  }
+                                : refusedTool(toolText(checked.error));
+                        const agents = checked.value;
                         return stoppedHouses(
                             home,
                             place.hamlet,
@@ -334,16 +346,23 @@ export const Merging: Part = (home) => ({
                                     context,
                                 );
                                 if (!prepared.ok)
-                                    return {
-                                        output: [
-                                            {
-                                                type: "text",
-                                                text: prepareText(
-                                                    prepared.error,
-                                                ),
-                                            },
-                                        ],
-                                    };
+                                    return prepared.error.kind ===
+                                        "notes-unreadable" ||
+                                        prepared.error.kind ===
+                                            "destination-blocked"
+                                        ? {
+                                              output: [
+                                                  {
+                                                      type: "text",
+                                                      text: prepareText(
+                                                          prepared.error,
+                                                      ),
+                                                  },
+                                              ],
+                                          }
+                                        : refusedTool(
+                                              prepareText(prepared.error),
+                                          );
                                 const plan = prepared.value;
                                 let why = "";
                                 if (plan.notes === "joined") {
@@ -375,33 +394,39 @@ export const Merging: Part = (home) => ({
                                             ),
                                         ) ?? "";
                                     if (!why) {
-                                        const errand = await api.commit(
-                                            async (tx) => {
-                                                const call = await tx.doc(
-                                                    MergeCallDoc,
-                                                    api.taskId,
-                                                );
-                                                call.errand ??=
-                                                    await startErrand(
-                                                        home,
-                                                        tx,
-                                                        {
-                                                            agent: place,
-                                                            kind: "notes",
-                                                            own: false,
-                                                            instructions:
-                                                                mergeRequest(
-                                                                    agents.kept,
-                                                                    agents.gone,
-                                                                    args.purpose,
-                                                                    limits
-                                                                        .leaving
-                                                                        .mergedNotes,
-                                                                ),
-                                                            tools: [],
-                                                        },
-                                                    );
-                                                return call.errand;
+                                        const errand = await memoised(
+                                            api,
+                                            {
+                                                read: async (tx) =>
+                                                    (
+                                                        await tx.doc(
+                                                            MergeCallDoc,
+                                                            api.taskId,
+                                                        )
+                                                    ).errand ?? undefined,
+                                                change: (tx) =>
+                                                    startErrand(home, tx, {
+                                                        agent: place,
+                                                        kind: "notes",
+                                                        own: false,
+                                                        instructions:
+                                                            mergeRequest(
+                                                                agents.kept,
+                                                                agents.gone,
+                                                                args.purpose,
+                                                                limits.leaving
+                                                                    .mergedNotes,
+                                                            ),
+                                                        tools: [],
+                                                    }),
+                                                write: async (tx, value) => {
+                                                    (
+                                                        await tx.doc(
+                                                            MergeCallDoc,
+                                                            api.taskId,
+                                                        )
+                                                    ).errand = value;
+                                                },
                                             },
                                             context,
                                         );
@@ -433,63 +458,96 @@ export const Merging: Part = (home) => ({
                                                     : answer.text;
                                     }
                                 }
-                                const committed = await api.commit(
-                                    async (tx) => {
-                                        const decision = await mayDecide(
+                                const committed = await memoised(
+                                    api,
+                                    {
+                                        read: async (
                                             tx,
-                                            place.hamlet,
-                                            home.now(),
-                                            "merge",
-                                        );
-                                        if (!decision.ok) return decision;
-                                        const call = await tx.doc(
-                                            MergeCallDoc,
-                                            api.taskId,
-                                        );
-                                        const r = await tx.doc(
-                                            RecordDoc,
-                                            place.hamlet,
-                                            place.hamlet,
-                                        );
-                                        if (r.mayor !== place.number)
-                                            throw new Error(
-                                                "Only the mayor can merge agents.",
+                                        ): Promise<
+                                            | Result<
+                                                  Archived,
+                                                  RecordRefusal | DecisionHeld
+                                              >
+                                            | undefined
+                                        > => {
+                                            const call = await tx.doc(
+                                                MergeCallDoc,
+                                                api.taskId,
                                             );
-                                        const entry = await archive(
-                                            home,
-                                            tx,
-                                            given,
-                                            agents,
-                                            plan,
-                                        );
-                                        call.archive = entry.id;
-                                        call.text =
-                                            report(
-                                                entry,
-                                                plan.notes === "joined",
-                                                args.purpose,
-                                            ) + (why ? ` ${why}` : "");
-                                        return {
-                                            ok: true,
-                                            value: entry,
-                                        } satisfies {
-                                            ok: true;
-                                            value: Archived;
-                                        };
+                                            if (!call.archive) return undefined;
+                                            const entry = (
+                                                await tx.doc(
+                                                    RecordDoc,
+                                                    place.hamlet,
+                                                    place.hamlet,
+                                                )
+                                            ).archive.find(
+                                                (a) => a.id === call.archive,
+                                            );
+                                            if (!entry)
+                                                throw new Error(
+                                                    "A merge memo lost its archive.",
+                                                );
+                                            return ok(copyArchive(entry));
+                                        },
+                                        change: async (tx) => {
+                                            const decision = await mayDecide(
+                                                tx,
+                                                place.hamlet,
+                                                home.now(),
+                                                "merge",
+                                            );
+                                            if (!decision.ok) return decision;
+                                            const mayor = await requireMayor(
+                                                tx,
+                                                place,
+                                            );
+                                            if (!mayor.ok)
+                                                return recordRefusal(
+                                                    "merge",
+                                                    place.hamlet,
+                                                    { kind: "not-mayor" },
+                                                );
+                                            return archive(
+                                                home,
+                                                tx,
+                                                given,
+                                                agents,
+                                                plan,
+                                            );
+                                        },
+                                        write: async (tx, result) => {
+                                            if (!result.ok) return;
+                                            const call = await tx.doc(
+                                                MergeCallDoc,
+                                                api.taskId,
+                                            );
+                                            call.archive = result.value.id;
+                                            call.text =
+                                                report(
+                                                    result.value,
+                                                    plan.notes === "joined",
+                                                    args.purpose,
+                                                ) + (why ? ` ${why}` : "");
+                                        },
                                     },
                                     context,
                                 );
                                 if (!committed.ok)
-                                    return {
-                                        output: [
-                                            {
-                                                type: "text",
-                                                text: decisionText(
-                                                    committed.error,
-                                                ),
-                                            },
-                                        ],
-                                    };
+                                    return committed.error.kind === "vote-open"
+                                        ? {
+                                              output: [
+                                                  {
+                                                      type: "text",
+                                                      text: toolText(
+                                                          committed.error,
+                                                      ),
+                                                  },
+                                              ],
+                                          }
+                                        : refusedTool(
+                                              toolText(committed.error),
+                                          );
                                 const entry = committed.value;
                                 const outcome = await retryFiles(
                                     home,
@@ -548,13 +606,16 @@ export const Merging: Part = (home) => ({
 });
 
 /** A chief's merge deed. */
-export const merge: Deed = async (home, given, context) =>
+export const merge: RecordDeed = async (home, given, context) =>
     serialHouseWork(home, context, async () => {
         const [absorb = "", into, keep = "", ...reason] = given.rest
             .trim()
             .split(/\s+/);
         if (into !== "into")
-            throw new Error("Use /merge <absorbed> into <kept> [reason].");
+            return recordRefusal("merge", given.hamlet, {
+                kind: "record-usage",
+                command: "merge",
+            });
         const args: Given = {
             hamlet: given.hamlet,
             keep,
@@ -570,7 +631,7 @@ export const merge: Deed = async (home, given, context) =>
             context,
             given.chief,
         );
-        if (!access.ok) return chiefRefusalText(access);
+        if (!access.ok) return ok(chiefRefusalText(access));
         const record = await home.harness.snapshot(
             RecordDoc,
             given.hamlet,
@@ -596,20 +657,24 @@ export const merge: Deed = async (home, given, context) =>
                 pending,
                 context,
             );
-            if (!outcome.ok) return pendingText(outcome.error);
+            if (!outcome.ok) return ok(pendingText(outcome.error));
             const kept = record.agents.find(
                 (agent) => agent.number === pending.merge?.kept.number,
             );
-            return report(
-                pending,
-                false,
-                kept?.purpose ?? pending.merge.kept.purpose,
+            return ok(
+                report(
+                    pending,
+                    false,
+                    kept?.purpose ?? pending.merge.kept.purpose,
+                ),
             );
         }
-        const agents = await home.harness.commit(
-            (tx) => allowed(home, tx, args),
+        const checked = await home.harness.commit(
+            (tx) => mergeable(tx, args.hamlet, { ...args, at: home.now() }),
             context,
         );
+        if (!checked.ok) return checked;
+        const agents = checked.value;
         return stoppedHouses(
             home,
             args.hamlet,
@@ -622,83 +687,33 @@ export const merge: Deed = async (home, given, context) =>
                     agents,
                     context,
                 );
-                if (!prepared.ok) return prepareText(prepared.error);
+                if (!prepared.ok) {
+                    const failure = prepared.error;
+                    return failure.kind === "notes-unreadable" ||
+                        failure.kind === "destination-blocked"
+                        ? ok(prepareText(failure))
+                        : err(failure);
+                }
                 const plan = prepared.value;
-                const entry = await home.harness.commit(
+                const archived = await home.harness.commit(
                     (tx) => archive(home, tx, args, agents, plan),
                     context,
                 );
+                if (!archived.ok) return archived;
+                const entry = archived.value;
                 const outcome = await retryFiles(
                     home,
                     args.hamlet,
                     entry,
                     context,
                 );
-                if (!outcome.ok) return pendingText(outcome.error);
-                return report(
-                    entry,
-                    plan.notes === "joined",
-                    agents.kept.purpose,
+                if (!outcome.ok) return ok(pendingText(outcome.error));
+                return ok(
+                    report(entry, plan.notes === "joined", agents.kept.purpose),
                 );
             },
         );
     });
-
-async function allowed(
-    home: Home,
-    tx: Tx,
-    given: Given,
-): Promise<{ kept: AgentRecord; gone: AgentRecord }> {
-    const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
-    if (
-        given.by.startsWith("chief:") &&
-        !isChief(await tx.doc(RealmDoc), given.hamlet, given.by.slice(6))
-    )
-        throw new Error("Only a chief of this hamlet can merge agents.");
-    if (given.keep === given.absorb)
-        throw new Error("an agent cannot be merged with itself");
-    const living = (name: string) => {
-        const agent = named(r, name);
-        if (name === "mayor" || agent?.number === r.mayor)
-            throw new Error(
-                "the mayor cannot be removed or merged; replacing a mayor takes a chief or a vote",
-            );
-        if (!agent) {
-            const gone = r.archive.findLast(
-                (a) => a.back === null && a.agent.name === name,
-            );
-            throw new Error(
-                gone ? farewell(gone, r) : `no agent named \`${name}\``,
-            );
-        }
-        return agent;
-    };
-    const kept = living(given.keep),
-        gone = living(given.absorb);
-    if (given.purpose !== null && !given.purpose.trim())
-        throw new Error("say what the merged agent is for in `purpose`");
-    if (!given.reason.trim())
-        throw new Error("give a `reason`; it is kept in the record");
-    if (given.by === "mayor") {
-        const limits = await tx.doc(LimitsDoc, given.hamlet, given.hamlet);
-        for (const agent of [kept, gone]) {
-            const key = agentKey({
-                hamlet: given.hamlet,
-                number: agent.number,
-            });
-            const i = owed(
-                await tx.doc(InstructionsDoc, key, key),
-                home.now(),
-                limits.leaving.protectedMinutes * 60_000,
-            );
-            if (i)
-                throw new Error(
-                    `\`${agent.name}\` has a task from the chief ${i.chief} ("${Array.from(i.text).slice(0, 80).join("")}") that ${i.done === null ? "is not finished" : "has only just ended"}. No agent may be removed or merged to avoid a chief's task. Wait until the chief has had the answer, or ask the chief to do this.`,
-                );
-        }
-    }
-    return { kept: { ...kept }, gone: { ...gone } };
-}
 
 function envFor(home: Home, ref: AgentRef, write: boolean): SandboxEnv {
     return write
@@ -715,10 +730,7 @@ async function notes(
     ref: AgentRef,
     context: Context,
     operation: "merge" | "split" = "merge",
-): Promise<
-    | { ok: true; value: { text: string; bytes: Buffer } }
-    | { ok: false; error: NotesFailure }
-> {
+): Promise<Result<{ text: string; bytes: Buffer }, NotesFailure>> {
     const env = envFor(home, ref, false);
     try {
         const read = await env.readBinaryFile(
@@ -798,13 +810,17 @@ async function prepare(
                 context,
             );
         } catch (error) {
-            if (
-                error instanceof Error &&
-                /exceeds its (entries|bytes) cap/.test(error.message)
-            )
-                throw new Error(
-                    "The absorbed house is over 512 MiB or 20000 files. Remove the agent instead.",
-                );
+            if (error instanceof Error && "why" in error) {
+                if (error.why === "entries" || error.why === "bytes")
+                    return recordRefusal("merge", hamlet, {
+                        kind: "merge-too-large",
+                    });
+                if (error.why === "unsafe")
+                    return recordRefusal("merge", hamlet, {
+                        kind: "merge-source-unsafe",
+                        text: error.message,
+                    });
+            }
             throw error;
         }
         const from = await listTree(home, stage, ".", context);
@@ -812,19 +828,24 @@ async function prepare(
         const present = new Map(to.files.map((f) => [f.path, f.sha256]));
         const files = new Map<string, Buffer>();
         const clashes: string[] = [];
-        const put = (rel: string, bytes: Buffer) => {
+        const put = (
+            rel: string,
+            bytes: Buffer,
+        ): Result<void, RecordRefusal> => {
             if (
                 rel.startsWith("/") ||
                 rel.includes("\\") ||
                 rel.includes("\0") ||
                 rel.split("/").some((p) => !p || p === "." || p === "..")
             )
-                throw new Error("A merge needs ordinary relative file paths.");
+                return recordRefusal("merge", hamlet, { kind: "merge-path" });
             if (files.has(rel) || present.has(rel))
-                throw new Error(
-                    `The merge needs \`${rel}\`, which already exists; keep it aside before merging.`,
-                );
+                return recordRefusal("merge", hamlet, {
+                    kind: "merge-path-taken",
+                    path: rel,
+                });
             files.set(rel, bytes);
+            return ok(undefined);
         };
         const keptNotes = await notes(
             home,
@@ -842,8 +863,13 @@ async function prepare(
             ? `${before.trimEnd()}\n\n## From ${gone.name}\n${substance(theirs)}`
             : before.trimEnd();
         const after = `${body.trimEnd()}\n\n${mergedParagraph(gone)}`;
-        put(`merged/${gone.name}/NOTES.before.md`, keptNotes.value.bytes);
-        put(`merged/${gone.name}/NOTES.md`, theirBytes);
+        const beforeSaved = put(
+            `merged/${gone.name}/NOTES.before.md`,
+            keptNotes.value.bytes,
+        );
+        if (!beforeSaved.ok) return beforeSaved;
+        const theirsSaved = put(`merged/${gone.name}/NOTES.md`, theirBytes);
+        if (!theirsSaved.ok) return theirsSaved;
         const renamed = new Map<string, string>();
         for (const f of from.files) {
             const skill = /^skills\/([^/]+)\//.exec(f.path)?.[1];
@@ -882,7 +908,8 @@ async function prepare(
                     `file \`${f.path}\` (the absorbed one is \`${rel}\`)`,
                 );
             }
-            put(rel, bytes);
+            const placed = put(rel, bytes);
+            if (!placed.ok) return placed;
         }
         for (const rel of files.keys()) {
             const parts = rel.split("/");
@@ -956,7 +983,7 @@ async function broughtBytes(
     source: string,
     entry: Archived,
     f: { path: string; sha256: string },
-): Promise<Buffer> {
+): Promise<Buffer | undefined> {
     const aside = `merged/${entry.agent.name}/`;
     if (f.path === `${aside}NOTES.before.md`)
         return Buffer.from(entry.merge?.notesBefore ?? "");
@@ -979,9 +1006,7 @@ async function broughtBytes(
     }
     if (rel === "NOTES.md" && digest("# Notes\n") === f.sha256)
         return Buffer.from("# Notes\n");
-    throw new Error(
-        "The archived house changed before its merge could finish.",
-    );
+    return undefined;
 }
 
 async function archive(
@@ -990,64 +1015,24 @@ async function archive(
     given: Given,
     was: { kept: AgentRecord; gone: AgentRecord },
     plan: Planned,
-): Promise<Archived> {
-    const { kept, gone } = await allowed(home, tx, given);
+): Promise<Result<Archived, RecordRefusal>> {
+    const allowedNow = await mergeable(tx, given.hamlet, {
+        ...given,
+        at: home.now(),
+    });
+    if (!allowedNow.ok) return allowedNow;
+    const { kept, gone } = allowedNow.value;
     if (kept.number !== was.kept.number || gone.number !== was.gone.number)
-        throw new Error(
-            "One of the agents left while this was decided; nothing was merged.",
-        );
-    const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
-    const at = home.now();
-    let stamp = at;
-    while (r.archive.some((a) => a.id === `${gone.name}-${stamp}`)) stamp++;
-    const roads = roadsOf(r).filter(
-        (r) => r.a === gone.number || r.b === gone.number,
-    );
-    const inherited: NonNullable<Archived["merge"]>["inherited"] = [];
-    await lapseAgent(tx, { hamlet: given.hamlet, number: gone.number }, at);
-    await lapseTrust(tx, { hamlet: given.hamlet, number: gone.number });
-    for (const p of ["network", "unconfined"] as const)
-        await revoke(
-            tx,
-            { hamlet: given.hamlet, number: gone.number },
-            p,
-            given.by,
-            at,
-        );
-    r.roads = r.roads.filter((r) => r.a !== gone.number && r.b !== gone.number);
-    for (const road of roads) {
-        const peer = road.a === gone.number ? road.b : road.a;
-        if (peer === kept.number) continue;
-        const existing = r.roads.find(
-            (r) =>
-                (r.a === kept.number && r.b === peer) ||
-                (r.b === kept.number && r.a === peer),
-        );
-        const fresh = !existing;
-        const lastFrom =
-            road.lastFrom === gone.number ? kept.number : road.lastFrom;
-        if (!existing)
-            r.roads.push({ ...road, a: kept.number, b: peer, lastFrom });
-        else {
-            existing.messages += road.messages;
-            if (road.lastUsed > existing.lastUsed) {
-                existing.lastUsed = road.lastUsed;
-                existing.lastFrom = lastFrom;
-            }
-        }
-        inherited.push({ peer, messages: road.messages, fresh });
-    }
-    const entry: Archived = {
-        id: `${gone.name}-${stamp}`,
-        agent: gone,
+        return recordRefusal("merge", given.hamlet, { kind: "merge-changed" });
+    return depart(tx, given.hamlet, given.absorb, {
+        by: given.by,
+        reason: given.reason,
         how: "merged",
         into: kept.number,
-        at,
-        by: given.by,
-        reason: given.reason.trim(),
-        roads,
+        purpose: given.purpose,
+        notes: plan.notes,
+        at: home.now(),
         merge: {
-            kept,
             notesBefore: plan.before,
             notesAfter: plan.after,
             brought: [...plan.files].map(([path, bytes]) => ({
@@ -1055,26 +1040,8 @@ async function archive(
                 sha256: digest(bytes),
             })),
             clashes: plan.clashes,
-            inherited,
-            applied: false,
         },
-        back: null,
-    };
-    r.agents = r.agents.filter((a) => a.number !== gone.number);
-    const living = r.agents.find((a) => a.number === kept.number);
-    if (living) living.purpose = given.purpose?.trim() ?? kept.purpose;
-    r.archive.push(entry);
-    r.decisions.push({
-        kind: "merged",
-        at,
-        by: given.by,
-        reason: entry.reason,
-        keep: kept.number,
-        absorb: gone.number,
-        purpose: living?.purpose ?? kept.purpose,
-        notes: plan.notes,
     });
-    return JSON.parse(JSON.stringify(entry)) as Archived;
 }
 
 async function apply(
@@ -1084,7 +1051,7 @@ async function apply(
     context: Context,
 ): Promise<FileResult> {
     const merge = entry.merge;
-    if (!merge || merge.applied) return { ok: true };
+    if (!merge || merge.applied) return ok(undefined);
     await stopAgent(home, { hamlet, number: entry.agent.number }, context);
     await stopAgent(home, { hamlet, number: merge.kept.number }, context);
     const source = await mkdtemp(join(tmpdir(), "hamlet-merge-source-"));
@@ -1113,11 +1080,9 @@ async function apply(
         const pending: string[] = [];
         for (const f of merge.brought) {
             if (present.get(f.path) === f.sha256) continue;
-            if (present.has(f.path))
-                throw new Error(
-                    `The pending merge cannot replace changed file \`${f.path}\`.`,
-                );
+            if (present.has(f.path)) return pendingFiles(hamlet, entry);
             const bytes = await broughtBytes(source, entry, f);
+            if (!bytes) return pendingFiles(hamlet, entry);
             const staged = join(delivery, "tree", f.path);
             await mkdir(dirname(staged), { recursive: true });
             await writeFile(staged, bytes);
@@ -1202,10 +1167,7 @@ for (const rel of JSON.parse(fs.readFileSync(p.join(stage, "manifest.json"), "ut
                 merge.notesAfter,
                 context,
             );
-            if (!result.ok)
-                throw new Error(
-                    "The merged notes could not be written safely.",
-                );
+            if (!result.ok) return pendingFiles(hamlet, entry);
         } finally {
             await env.cleanup(context);
         }
@@ -1219,7 +1181,7 @@ for (const rel of JSON.parse(fs.readFileSync(p.join(stage, "manifest.json"), "ut
         await rm(source, { recursive: true, force: true });
         await rm(delivery, { recursive: true, force: true });
     }
-    return { ok: true };
+    return ok(undefined);
 }
 
 function mergedParagraph(gone: AgentRecord): string {
@@ -1266,7 +1228,7 @@ export async function split(
         chief: string;
     },
     context: Context,
-): Promise<string> {
+): Promise<Result<string, RecordRefusal>> {
     return serialHouseWork(home, context, async () => {
         if (given.entry.merge && !given.entry.merge.applied) {
             const outcome = await retryFiles(
@@ -1275,9 +1237,11 @@ export async function split(
                 given.entry,
                 context,
             );
-            if (!outcome.ok) return pendingText(outcome.error);
+            if (!outcome.ok) return ok(pendingText(outcome.error));
             if (given.entry.back !== null)
-                return `Split of \`${given.entry.agent.name}\` is finished. Read /record to inspect it.`;
+                return ok(
+                    `Split of \`${given.entry.agent.name}\` is finished. Read /record to inspect it.`,
+                );
         }
         return splitOnce(home, given, context);
     });
@@ -1293,119 +1257,33 @@ async function splitOnce(
         chief: string;
     },
     context: Context,
-): Promise<string> {
+): Promise<Result<string, RecordRefusal>> {
     const pending = await home.harness.commit(async (tx) => {
         if (!isChief(await tx.doc(RealmDoc), given.hamlet, given.chief))
-            throw new Error("Only a chief of this hamlet can restore agents.");
-        const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
-        const at = r.archive.findIndex(
-            (a) => a.id === given.entry.id && a.back === null,
-        );
-        const entry = r.archive[at];
-        if (!entry?.merge)
-            throw new Error(
-                `nothing is archived under \`${given.entry.id}\`; /record lists what is`,
-            );
-        if (!entry.merge.applied)
-            throw new Error(
-                "The merge has not finished yet; try again after it finishes.",
-            );
-        const kept = r.agents.find(
-            (a) => a.number === entry.merge?.kept.number,
-        );
-        if (!kept)
-            throw new Error(
-                `\`${entry.merge.kept.name}\`, which \`${entry.agent.name}\` was merged into, has left the hamlet itself; restore that first`,
-            );
-        const later = r.archive
-            .slice(at + 1)
-            .find(
-                (a) => a.back === null && a.merge?.kept.number === kept.number,
-            );
-        if (later)
-            throw new Error(
-                `\`${later.agent.name}\` was merged into \`${kept.name}\` after \`${entry.agent.name}\`; split that one first`,
-            );
-        if (given.name !== entry.agent.name) checkName(given.name);
-        for (const h of liveHamlets(await tx.doc(RealmDoc)))
-            if (
-                (await tx.doc(RecordDoc, h.id, h.id)).agents.some(
-                    (a) => a.name === given.name,
-                )
-            )
-                throw new Error(
-                    `an agent named \`${given.name}\` lives in the hamlet now. Restore this one under another name: /restore ${entry.id} as <new-name>`,
-                );
-        const limits = await tx.doc(LimitsDoc, given.hamlet, given.hamlet);
-        if (r.agents.length - 1 >= limits.mostAgents)
-            throw new Error(
-                `the hamlet is full (${limits.mostAgents} agents); remove one first, or raise mostAgents in the limits`,
-            );
-        kept.purpose = entry.merge.kept.purpose;
-        for (const i of entry.merge.inherited) {
-            const index = r.roads.findIndex(
-                (road) =>
-                    (road.a === kept.number && road.b === i.peer) ||
-                    (road.b === kept.number && road.a === i.peer),
-            );
-            const road = r.roads[index];
-            if (!road) continue;
-            road.messages = Math.max(0, road.messages - i.messages);
-            if (i.fresh && road.messages === 0) r.roads.splice(index, 1);
-        }
-        r.agents.push({ ...entry.agent, name: given.name });
-        for (const road of entry.roads)
-            if (
-                [road.a, road.b].every(
-                    (end) =>
-                        end === "office" ||
-                        r.agents.some((a) => a.number === end),
-                ) &&
-                !r.roads.some(
-                    (r) =>
-                        (r.a === road.a && r.b === road.b) ||
-                        (r.a === road.b && r.b === road.a),
-                )
-            )
-                r.roads.push({ ...road });
-        entry.back = given.name;
-        entry.merge.applied = false;
-        r.decisions.push({
-            kind: "restored",
-            at: home.now(),
-            by: `chief:${given.chief}`,
-            reason: given.reason,
-            agent: entry.agent.number,
-            name: given.name,
-            archive: entry.id,
-        });
-        const peers = roadsOf(r)
-            .filter(
-                (road) =>
-                    road.a === entry.agent.number ||
-                    road.b === entry.agent.number,
-            )
-            .map((road) => {
-                const end = road.a === entry.agent.number ? road.b : road.a;
-                return end === "office"
-                    ? "mayor"
-                    : (r.agents.find((a) => a.number === end)?.name ?? "");
+            return recordRefusal("restore", given.hamlet, {
+                kind: "record-chief",
             });
-        const built = roadsOf(r).filter(
-            (r) => r.a !== "office" && r.b !== "office",
-        ).length;
-        return {
-            entry: JSON.parse(JSON.stringify(entry)) as Archived,
-            words: `Split \`${given.name}\` from \`${kept.name}\`. \`${given.name}\` has its house as it was before the merge, and \`${kept.name}\` its old purpose and whatever it has learned since. \`${given.name}\`'s roads lead to: ${peers.join(", ")}.${built > limits.mostRoads ? ` The hamlet now has ${built} roads between agents, more than the ${limits.mostRoads} your limits allow. They all work; the mayor can build no more until you raise mostRoads in the limits.` : ""}`,
-        };
+        const restored = await restoreRecord(tx, given.hamlet, given.entry.id, {
+            name: given.name,
+            reason: given.reason,
+            by: `chief:${given.chief}`,
+            at: home.now(),
+        });
+        if (!restored.ok) return restored;
+        const entry = restored.value.archive;
+        const kept = entry.merge?.kept;
+        if (!kept)
+            throw new Error("A split requires its checked merge manifest.");
+        return ok({ entry: copyArchive(entry), words: restored.value.text });
     }, context);
+    if (!pending.ok) return pending;
     const outcome = await retryFiles(
         home,
         given.hamlet,
-        pending.entry,
+        pending.value.entry,
         context,
     );
-    return outcome.ok ? pending.words : pendingText(outcome.error);
+    return ok(outcome.ok ? pending.value.words : pendingText(outcome.error));
 }
 
 async function part(
@@ -1415,7 +1293,7 @@ async function part(
     context: Context,
 ): Promise<FileResult> {
     const merge = entry.merge;
-    if (!merge || merge.applied) return { ok: true };
+    if (!merge || merge.applied) return ok(undefined);
     const ref = { hamlet, number: merge.kept.number };
     await stopAgent(home, ref, context);
     const root = houseOf(home.layout, ref);
@@ -1437,8 +1315,7 @@ async function part(
             text,
             context,
         );
-        if (!written.ok)
-            throw new Error("The split notes could not be written safely.");
+        if (!written.ok) return pendingFiles(hamlet, entry);
         const listing = new Map(
             (await listTree(home, root, ".", context)).files.map((f) => [
                 f.path,
@@ -1466,9 +1343,7 @@ async function part(
                 context,
             );
             if (!trimmed.ok || trimmed.value.exitCode !== 0)
-                throw new Error(
-                    "The split's empty folders could not be removed safely.",
-                );
+                return pendingFiles(hamlet, entry);
         }
         await home.harness.commit(async (tx) => {
             const a = (await tx.doc(RecordDoc, hamlet, hamlet)).archive.find(
@@ -1479,7 +1354,7 @@ async function part(
     } finally {
         await env.cleanup(context);
     }
-    return { ok: true };
+    return ok(undefined);
 }
 
 type PendingFiles = {
@@ -1492,9 +1367,27 @@ type PendingFiles = {
     retrySafe: true;
 };
 
-type FileResult =
-    | { ok: true }
-    | { ok: false; error: PendingFiles | NotesFailure };
+type FileResult = Result<void, PendingFiles | NotesFailure>;
+
+function pendingFiles(
+    hamlet: string,
+    entry: Archived,
+): { ok: false; error: PendingFiles } {
+    const merge = entry.merge;
+    if (!merge) throw new Error("File work requires a checked merge manifest.");
+    return {
+        ok: false,
+        error: {
+            kind: "pending-files",
+            operation: entry.back === null ? "merge" : "split",
+            hamlet,
+            archive: entry.id,
+            kept: merge.kept.name,
+            absorbed: entry.agent.name,
+            retrySafe: true,
+        },
+    };
+}
 
 function pendingText(error: PendingFiles | NotesFailure): string {
     switch (error.kind) {
@@ -1514,7 +1407,7 @@ async function retryFiles(
     hamlet: string,
     entry: Archived,
     context: Context,
-): Promise<{ ok: true } | { ok: false; error: PendingFiles | NotesFailure }> {
+): Promise<FileResult> {
     const merge = entry.merge;
     if (!merge) throw new Error("File work needs a merge archive.");
     let failure: PendingFiles | NotesFailure | undefined;
@@ -1534,26 +1427,18 @@ async function retryFiles(
             },
         );
     } catch {
-        failure = {
-            kind: "pending-files",
-            operation: entry.back === null ? "merge" : "split",
-            hamlet,
-            archive: entry.id,
-            kept: merge.kept.name,
-            absorbed: entry.agent.name,
-            retrySafe: true,
-        };
+        failure = pendingFiles(hamlet, entry).error;
     }
     if (failure) {
         const text = safeWords(home, pendingText(failure));
         console.error(text);
         await home.harness.commit(
-            (tx) => notifyChiefs(home, tx, hamlet, text),
+            (tx) => tellChiefs(home, tx, hamlet, text),
             context,
         );
         return { ok: false, error: failure };
     }
-    return { ok: true };
+    return ok(undefined);
 }
 
 function notesFailureText(error: NotesFailure): string {

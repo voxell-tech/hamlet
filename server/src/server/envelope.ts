@@ -12,6 +12,12 @@ import {
     type LegacyRefusal,
 } from "../realm/access.ts";
 import { type AddressFailure, addressFailureText } from "../realm/roads.ts";
+import {
+    type DecisionHeld,
+    decisionText,
+    type RecordRefusal,
+    recordRefusalText,
+} from "../record.ts";
 import type { Result } from "../result.ts";
 import type { Secrets } from "../scrub.ts";
 
@@ -24,6 +30,8 @@ export type Receipt = {
 
 /** Chief-facing failures whose wording is chosen at the protocol seam. */
 export type ChiefFailure =
+    | RecordRefusal
+    | DecisionHeld
     | WorkFailure
     | NotesFailure
     | LegacyRefusal
@@ -66,6 +74,88 @@ function rendered(failure: ChiefFailure): {
     kind: "notice" | "error";
 } {
     switch (failure.kind) {
+        case "vote-open":
+            return { text: decisionText(failure), kind: "error" };
+        case "agent-departed":
+        case "name-format":
+        case "name-reserved":
+        case "name-taken":
+        case "hamlet-full":
+        case "not-mayor":
+        case "vote-chief":
+        case "vote-nonmember":
+        case "vote-reason":
+        case "vote-hamlet-missing":
+        case "vote-overturn-chief":
+        case "vote-mayor-chief":
+        case "vote-already-open":
+        case "vote-retry":
+        case "vote-overturned":
+        case "vote-not-passed":
+        case "vote-mayor-changed":
+        case "vote-too-few":
+        case "vote-candidate":
+        case "vote-missing":
+        case "ballot-not-asked":
+        case "ballot-choice":
+        case "ballot-reason":
+        case "ballot-ended":
+        case "ballot-departed":
+        case "ballot-closed":
+        case "ballot-not-voter":
+        case "ballot-already-cast":
+        case "hamlet-title-long":
+        case "hamlet-position":
+        case "hamlet-purpose":
+        case "hamlet-used":
+        case "first-hamlet":
+        case "house-move-pending":
+        case "record-hamlet-missing":
+        case "record-hamlet-chief":
+        case "hamlets-full":
+        case "hamlet-restore-name":
+        case "founder-taken":
+        case "agreement-mayor":
+        case "realm-roads-closed":
+        case "realm-road-office":
+        case "road-agreed":
+        case "move-pending":
+        case "move-mayor":
+        case "realm-road-local":
+        case "realm-road-neither":
+        case "move-already-there":
+        case "move-neither":
+        case "merge-too-large":
+        case "merge-path":
+        case "merge-source-unsafe":
+        case "merge-path-taken":
+        case "unsplit-merge":
+        case "record-chief":
+        case "merge-self":
+        case "merged-purpose-empty":
+        case "proposed-kept-missing":
+        case "merge-changed":
+        case "record-usage":
+        case "erase-missing":
+        case "model-pinned":
+        case "model-not-allowed":
+        case "proposed-mayor-missing":
+        case "already-mayor":
+        case "road-budget":
+        case "mayor-untouchable":
+        case "protected":
+        case "purpose-empty":
+        case "reason-empty":
+        case "archive-missing":
+        case "merge-unfinished":
+        case "kept-departed":
+        case "later-merge":
+        case "road-exists":
+        case "road-missing":
+        case "roads-full":
+        case "office-road":
+        case "road-self":
+            return { text: recordRefusalText(failure, "chief"), kind: "error" };
         case "folder-not-absolute":
         case "folder-not-directory":
         case "folder-overlaps-home":
@@ -74,6 +164,13 @@ function rendered(failure: ChiefFailure): {
         case "notes-unreadable":
             return { text: notesFailureText(failure), kind: "error" };
         case "agent-missing":
+            return {
+                text:
+                    "name" in failure
+                        ? recordRefusalText(failure, "chief")
+                        : addressFailureText(failure),
+                kind: "error",
+            };
         case "agent-gone":
             return { text: addressFailureText(failure), kind: "error" };
         case "hamlet-missing":

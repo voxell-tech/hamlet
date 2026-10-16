@@ -46,8 +46,8 @@ owning entries. Shared entries and their folders follow the same leaf rule. Only
 
 `test/structure.test.ts` checks these paths and the value-import graph,
 including named re-exports, side-effect imports and literal dynamic
-imports. Only its two explicitly listed legacy cycles are allowed:
-conversation configuration and departure/merge.
+imports. Only the explicitly listed legacy conversation configuration cycle
+is allowed.
 Files in a listed cycle may import each other directly, keeping the cycle
 off their entries. Adding a member or joining cycles fails the check.
 

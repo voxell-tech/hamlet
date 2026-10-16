@@ -4,6 +4,7 @@ import {
     defineDoc,
     defineTool,
     type ToolExecutionApi,
+    type ToolExecutionResult,
     type ToolRegistration,
     type Tx,
 } from "@earendil-works/pi-durable";
@@ -167,4 +168,20 @@ export function defineMayorTool<P extends TSchema>(
             return result;
         },
     });
+}
+
+/** A chief's record operation, returning expected refusals for the protocol envelope. */
+export type RecordDeed = (
+    home: Home,
+    given: { hamlet: string; rest: string; chief: string },
+    context: Context,
+) => Promise<Result<string, RecordRefusal | DecisionHeld>>;
+
+/** A returned refusal in the model's tool-error diagnostic channel. */
+export function refusedTool(text: string): ToolExecutionResult {
+    return {
+        output: [],
+        isError: true,
+        diagnostics: [{ severity: "error", code: "tool_error", message: text }],
+    };
 }

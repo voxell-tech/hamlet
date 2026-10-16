@@ -15,6 +15,7 @@ import {
     defineExtension,
     defineTool,
     type ToolExecutionApi,
+    type ToolExecutionResult,
     type Tx,
 } from "@earendil-works/pi-durable";
 import {
@@ -30,7 +31,7 @@ import { GrantsDoc, grantsOf, revoke } from "../gate.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Home, Part } from "../home.ts";
 import { removeHouse } from "../house.ts";
-import { askAgent, PeersDoc } from "../letters.ts";
+import { askAgent, letterFailureText, PeersDoc } from "../letters.ts";
 import { LimitsDoc } from "../limits/rules.ts";
 import { reconfigure } from "../models.ts";
 import { lapseAgent } from "../oversight/waits.ts";
@@ -38,11 +39,20 @@ import { CharacterDoc } from "../prompt.ts";
 import {
     type AgentRef,
     agentKey,
-    decisionText,
+    type DecisionHeld,
     HOME,
     mayDecide,
+    memoised,
+    moveMember,
+    moving,
     RecordDoc,
+    type RecordRefusal,
+    recordRefusal,
+    refusedTool,
+    requireMayor,
+    toolText,
 } from "../record.ts";
+import { ok, type Result } from "../result.ts";
 import {
     chiefsOf,
     liveHamlets,
@@ -68,27 +78,7 @@ type Agreement = {
     notice?: boolean;
     ask: { to: AgentRef; text: string } | null;
 };
-type MoveFailure = {
-    kind: "unsplit-merge";
-    operation: "agree-move";
-    agent: AgentRef;
-    name: string;
-    absorbed: string;
-    archive: string;
-    retrySafe: true;
-    recovery: "split-or-erase";
-};
-type AgreementResult =
-    | { ok: true; value: Agreement }
-    | { ok: false; error: MoveFailure };
-function moveFailureText(error: MoveFailure): string {
-    switch (error.kind) {
-        case "unsplit-merge":
-            return `Cannot move \`${error.name}\`: \`${error.absorbed}\` is still merged into it. Ask a chief to split or erase that archive first: /restore ${error.archive} or /erase ${error.archive}.`;
-    }
-    const unhandled: never = error.kind;
-    throw new Error(`Unclassified move failure: ${unhandled}`);
-}
+type AgreementResult = Result<Agreement, RecordRefusal | DecisionHeld>;
 const AgreementDoc = defineDoc<{ result: Agreement | null; notified: boolean }>(
     {
         kind: "hamlet.agreement-call",
@@ -117,10 +107,7 @@ export const Dealings: Part = (home) => {
                     execute: async (args, api, context) => {
                         const result = await decide(
                             api,
-                            async (tx) => ({
-                                ok: true,
-                                value: await road(home, tx, api, args, context),
-                            }),
+                            (tx) => road(home, tx, api, args, context),
                             context,
                         );
                         return deliver(home, api, result, context);
@@ -155,63 +142,73 @@ async function decide(
     change: (tx: Tx) => Promise<AgreementResult>,
     context: Context,
 ): Promise<AgreementResult> {
-    return api.commit(async (tx) => {
-        const call = await tx.doc(AgreementDoc, api.taskId);
-        if (!call.result) {
-            const outcome = await change(tx);
-            if (!outcome.ok) return outcome;
-            call.result = outcome.value;
-        }
-        return {
-            ok: true,
-            value: {
-                ...call.result,
-                hamlets: [...call.result.hamlets],
-                ask: call.result.ask
-                    ? {
-                          to: { ...call.result.ask.to },
-                          text: call.result.ask.text,
-                      }
-                    : null,
+    return memoised(
+        api,
+        {
+            read: async (tx) => {
+                const saved = (await tx.doc(AgreementDoc, api.taskId)).result;
+                return saved
+                    ? ok({
+                          ...saved,
+                          hamlets: [...saved.hamlets],
+                          ask: saved.ask
+                              ? { ...saved.ask, to: { ...saved.ask.to } }
+                              : null,
+                      })
+                    : undefined;
             },
-        };
-    }, context);
+            change,
+            write: async (tx, result) => {
+                if (result.ok)
+                    (await tx.doc(AgreementDoc, api.taskId)).result =
+                        result.value;
+            },
+        },
+        context,
+    );
 }
 async function mayor(
     home: Home,
     tx: Tx,
     api: ToolExecutionApi,
     _context: Context,
-) {
+): Promise<Result<AgentRef, RecordRefusal | DecisionHeld>> {
     const caller = await tx.doc(WithDoc, api.conversationId);
     const realm = await tx.doc(RealmDoc);
-    const record = await tx.doc(RecordDoc, caller.hamlet, caller.hamlet);
+    const office = await requireMayor(tx, caller);
     if (
-        record.mayor !== caller.number ||
+        !office.ok ||
         !liveHamlets(realm).some((h) => h.id === caller.hamlet) ||
         liveHamlets(realm).length < 2
     )
-        throw new Error(
-            "only the mayor can do this, and you are not the mayor of this hamlet",
-        );
+        return recordRefusal("agreement", caller.hamlet, {
+            kind: "agreement-mayor",
+        });
     const held = await mayDecide(tx, caller.hamlet, home.now(), "agreement");
-    if (!held.ok) throw new Error(decisionText(held.error));
-    return caller;
+    return held.ok
+        ? ok({ hamlet: caller.hamlet, number: caller.number })
+        : held;
 }
-async function locate(tx: Tx, address: string): Promise<AgentRef> {
+async function locate(
+    tx: Tx,
+    address: string,
+): Promise<Result<AgentRef, RecordRefusal>> {
     const [name, place, extra] = address.split("@");
-    if (extra !== undefined) throw new Error(`no agent named \`${address}\``);
-    for (const { id } of liveHamlets(await tx.doc(RealmDoc))) {
-        if (place !== undefined && id !== place) continue;
-        const record = await tx.doc(RecordDoc, id, id);
-        const found = record.agents.find(
-            (a) =>
-                a.name === name ||
-                (name === "mayor" && a.number === record.mayor),
-        );
-        if (found) return { hamlet: id, number: found.number };
-    }
-    throw new Error(`no agent named \`${address}\``);
+    if (extra === undefined)
+        for (const { id } of liveHamlets(await tx.doc(RealmDoc))) {
+            if (place !== undefined && id !== place) continue;
+            const record = await tx.doc(RecordDoc, id, id);
+            const found = record.agents.find(
+                (a) =>
+                    a.name === name ||
+                    (name === "mayor" && a.number === record.mayor),
+            );
+            if (found) return ok({ hamlet: id, number: found.number });
+        }
+    return recordRefusal("agreement", place ?? "", {
+        kind: "agent-missing",
+        name: address,
+    });
 }
 function same(a: RealmEnd, b: RealmEnd): boolean {
     return "office" in a
@@ -224,38 +221,54 @@ async function road(
     api: ToolExecutionApi,
     args: { a: string; b: string; reason: string },
     context: Context,
-): Promise<Agreement> {
-    const caller = await mayor(home, tx, api, context);
+): Promise<AgreementResult> {
+    const office = await mayor(home, tx, api, context);
+    if (!office.ok) return office;
+    const caller = office.value;
     if (!(await tx.doc(LimitsDoc, HOME, HOME)).hamlets.roadsBetween)
-        throw new Error("the chief's limits allow no roads between hamlets");
-    const a = await locate(tx, args.a),
-        b = await locate(tx, args.b);
+        return recordRefusal("agree-road", caller.hamlet, {
+            kind: "realm-roads-closed",
+        });
+    const aa = await locate(tx, args.a),
+        bb = await locate(tx, args.b);
+    if (!aa.ok) return aa;
+    if (!bb.ok) return bb;
+    const a = aa.value,
+        b = bb.value;
     for (const ref of [a, b])
         if (
             (await tx.doc(RecordDoc, ref.hamlet, ref.hamlet)).mayor ===
             ref.number
         )
-            throw new Error(
-                "name two agents; mayors already have roads to each other",
-            );
+            return recordRefusal("agree-road", caller.hamlet, {
+                kind: "realm-road-office",
+            });
     if (a.hamlet === b.hamlet)
-        throw new Error(
-            `\`${args.a}\` and \`${args.b}\` live in the same hamlet; its mayor builds that road with build_road`,
-        );
+        return recordRefusal("agree-road", caller.hamlet, {
+            kind: "realm-road-local",
+            a: args.a,
+            b: args.b,
+        });
     if (![a.hamlet, b.hamlet].includes(caller.hamlet))
-        throw new Error(
-            `neither \`${args.a}\` nor \`${args.b}\` lives in your hamlet`,
-        );
+        return recordRefusal("agree-road", caller.hamlet, {
+            kind: "realm-road-neither",
+            a: args.a,
+            b: args.b,
+        });
     const realm = await tx.doc(RealmDoc);
     let road = realm.roads.find(
         (r) => (same(r.a, a) && same(r.b, b)) || (same(r.a, b) && same(r.b, a)),
     );
     if (road?.agreed.includes(a.hamlet) && road.agreed.includes(b.hamlet))
-        throw new Error(`\`${args.a}\` and \`${args.b}\` already have a road`);
+        return recordRefusal("agree-road", caller.hamlet, {
+            kind: "road-exists",
+            a: args.a,
+            b: args.b,
+        });
     if (road?.agreed.includes(caller.hamlet))
-        throw new Error(
-            "you have agreed already; the road waits for the other mayor",
-        );
+        return recordRefusal("agree-road", caller.hamlet, {
+            kind: "road-agreed",
+        });
     if (!road) {
         road = {
             a,
@@ -274,7 +287,7 @@ async function road(
     const words = built
         ? `A road now joins \`${args.a}\` and \`${args.b}\` across hamlets.`
         : `One mayor agreed to a road between \`${args.a}\` and \`${args.b}\`; the other has not yet.`;
-    return {
+    return ok({
         words,
         hamlets: [a.hamlet, b.hamlet],
         ask: built
@@ -286,7 +299,7 @@ async function road(
                   },
                   text: `The mayor of \`${caller.hamlet}\` agrees to a road between \`${args.a}\` and \`${args.b}\`. Its reason: ${args.reason}\nDecide. To agree, call agree_road with the same two names and your reason. To refuse, say why in a sentence.`,
               },
-    };
+    });
 }
 async function move(
     home: Home,
@@ -295,53 +308,40 @@ async function move(
     args: { agent: string; to: string; keep_roads?: string[]; reason: string },
     context: Context,
 ): Promise<AgreementResult> {
-    const caller = await mayor(home, tx, api, context);
+    const office = await mayor(home, tx, api, context);
+    if (!office.ok) return office;
+    const caller = office.value;
     const realm = await tx.doc(RealmDoc);
     if (realm.pending)
-        throw new Error(
-            "A house move is still being finished. Try again shortly.",
-        );
-    const ref = await locate(tx, args.agent);
+        return recordRefusal("agree-move", caller.hamlet, {
+            kind: "move-pending",
+        });
+    const located = await locate(tx, args.agent);
+    if (!located.ok) return located;
+    const ref = located.value;
     if (ref.hamlet === args.to)
-        throw new Error(`\`${args.agent}\` already lives in \`${args.to}\``);
+        return recordRefusal("agree-move", args.to, {
+            kind: "move-already-there",
+            name: args.agent,
+        });
     if (!liveHamlets(realm).some((h) => h.id === args.to))
-        throw new Error(`no hamlet named \`${args.to}\``);
+        return recordRefusal("agree-move", args.to, {
+            kind: "record-hamlet-missing",
+            removed: false,
+        });
     if (![ref.hamlet, args.to].includes(caller.hamlet))
-        throw new Error(
-            `only the mayor \`${args.agent}\` leaves and the mayor it joins decide this`,
-        );
+        return recordRefusal("agree-move", caller.hamlet, {
+            kind: "move-neither",
+            name: args.agent,
+        });
     const other = caller.hamlet === ref.hamlet ? args.to : ref.hamlet;
     const held = await mayDecide(tx, other, home.now(), "move");
-    if (!held.ok) throw new Error(decisionText(held.error));
+    if (!held.ok) return held;
     const old = await tx.doc(RecordDoc, ref.hamlet, ref.hamlet),
         target = await tx.doc(RecordDoc, args.to, args.to);
-    if (old.mayor === ref.number)
-        throw new Error("a mayor never leaves its hamlet");
-    if (
-        target.agents.length >=
-        (await tx.doc(LimitsDoc, args.to, args.to)).mostAgents
-    )
-        throw new Error(`the hamlet \`${args.to}\` is full`);
-    const agent = old.agents.find((a) => a.number === ref.number);
-    if (!agent) throw new Error(`no agent named \`${args.agent}\``);
-    const merged = old.archive.find(
-        (entry) =>
-            entry.back === null && entry.merge?.kept.number === ref.number,
-    );
-    if (merged)
-        return {
-            ok: false,
-            error: {
-                kind: "unsplit-merge",
-                operation: "agree-move",
-                agent: ref,
-                name: agent.name,
-                absorbed: merged.agent.name,
-                archive: merged.id,
-                retrySafe: true,
-                recovery: "split-or-erase",
-            },
-        };
+    const permitted = await moving(tx, ref, args.to);
+    if (!permitted.ok) return permitted;
+    const agent = permitted.value;
     const keep = old.agents
         .filter(
             (a) =>
@@ -389,7 +389,8 @@ async function move(
             },
         };
     }
-    const next = { hamlet: args.to, number: target.next++ };
+    const nextNumber = target.next;
+    const next = { hamlet: args.to, number: nextNumber };
     const kept: string[] = [],
         lapsed: string[] = [];
     const retained = old.roads.filter(
@@ -420,29 +421,15 @@ async function move(
         } else lapsed.push(name);
     }
     const name = agent.name;
-    target.agents.push({ ...agent, number: next.number });
-    old.agents = old.agents.filter((a) => a.number !== ref.number);
-    old.roads = old.roads.filter(
-        (r) => r.a !== ref.number && r.b !== ref.number,
-    );
-    old.decisions.push({
-        kind: "moved_out",
-        agent: ref.number,
-        name,
-        hamlet: args.to,
-        at: home.now(),
+    const moved = await moveMember(tx, ref, args.to, {
         by: `mayor@${caller.hamlet}`,
         reason: args.reason,
-    });
-    target.decisions.push({
-        kind: "moved_in",
-        agent: next.number,
-        name,
-        hamlet: ref.hamlet,
         at: home.now(),
-        by: `mayor@${caller.hamlet}`,
-        reason: args.reason,
     });
+    if (!moved.ok)
+        throw new Error(
+            "The checked membership changed inside one agreement transaction.",
+        );
     await transfer(home, tx, ref, next);
     realm.moves = realm.moves.filter((m) => !same(m.agent, ref));
     realm.pending = { from: ref, to: next };
@@ -591,13 +578,11 @@ async function deliver(
     api: ToolExecutionApi,
     outcome: AgreementResult,
     context: Context,
-) {
+): Promise<ToolExecutionResult> {
     if (!outcome.ok)
-        return {
-            output: [
-                { type: "text" as const, text: moveFailureText(outcome.error) },
-            ],
-        };
+        return outcome.error.kind === "unsplit-merge"
+            ? { output: [{ type: "text", text: toolText(outcome.error) }] }
+            : refusedTool(toolText(outcome.error));
     const result = outcome.value;
     const chats =
         result.notice === false
@@ -612,17 +597,16 @@ async function deliver(
     }, context);
     let answer: string | undefined;
     if (result.ask) {
-        try {
-            answer = await askAgent(
-                home,
-                api,
-                result.ask.to,
-                result.ask.text,
-                context,
-            );
-        } catch (error) {
-            answer = error instanceof Error ? error.message : String(error);
-        }
+        const response = await askAgent(
+            home,
+            api,
+            result.ask.to,
+            result.ask.text,
+            context,
+        );
+        answer = response.ok
+            ? response.value
+            : letterFailureText(response.error);
     }
     return {
         output: [

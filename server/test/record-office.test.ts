@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { LimitsDoc } from "../src/limits.ts";
 import {
     admit,
+    carryRoad,
     decisionText,
     layRoad,
     mayDecide,
@@ -89,5 +90,24 @@ test("decision checks read current vote limits in the same transaction", async (
             ok: true,
             value: undefined,
         });
+    }, context);
+});
+
+test("the first use of an implied office road is counted in its stored road", async () => {
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    await home.harness.commit(async (tx) => {
+        await admit(tx, "home", {
+            name: "scout",
+            purpose: "Works",
+            by: "mayor",
+            reason: "Needed",
+            at: 100,
+        });
+        const r = await tx.doc(RecordDoc, "home", "home");
+        carryRoad(r, 0, 1, 101);
+        carryRoad(r, 1, 0, 102);
+        expect(r.roads).toMatchObject([
+            { a: "office", b: 1, messages: 2, lastFrom: 1, lastUsed: 102 },
+        ]);
     }, context);
 });

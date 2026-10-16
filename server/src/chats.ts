@@ -31,6 +31,7 @@ export {
     retryInput,
     startConversation,
     submitLine,
+    tellChiefs,
     type With,
     WithDoc,
 } from "./chats/conversations.ts";

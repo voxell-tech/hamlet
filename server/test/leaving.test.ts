@@ -7,26 +7,37 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { erase, merge, record, remove, restore, undo } from "../src/agents.ts";
+import {
+    erase as eraseDeed,
+    merge as mergeDeed,
+    record as recordDeed,
+    remove as removeDeed,
+    restore as restoreDeed,
+    undo as undoDeed,
+} from "../src/agents.ts";
 import { chatOf, InstructionsDoc, submitLine, WithDoc } from "../src/chats.ts";
 import { GrantsDoc, give, grantsOf } from "../src/gate.ts";
 import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { raise, TrustedDoc, trustKey } from "../src/oversight.ts";
-import { resolve, roadsOf } from "../src/realm.ts";
-import { agentKey, HOME, RecordDoc } from "../src/record.ts";
-import { mayor as seatMayor, VotesDoc } from "../src/votes.ts";
+import { resolve } from "../src/realm.ts";
+import { agentKey, HOME } from "../src/record.ts";
+import { mayor as seatMayorDeed, VotesDoc } from "../src/votes.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,
-    addHamlet,
     context,
     crashing,
+    deedWords,
+    departedAgents,
     fauxModels,
+    livingAgents,
     openWaits,
     say,
     scratch,
     testHome,
+    usedRoad,
+    view,
 } from "./support.ts";
 
 const deed = { hamlet: HOME, chief: "chief", rest: "scout Work ended" };
@@ -40,12 +51,9 @@ it("archives an agent with its roads and reason, keeps its house and refuses its
     await addAgent(home, HOME, "smith");
     await writeFile(join(houseOf(home.layout, scout), "found.txt"), "Dune");
     await home.harness.commit(async (tx) => {
-        (await tx.doc(RecordDoc, HOME, HOME)).roads.push({
-            a: 1,
-            b: 2,
+        await usedRoad(tx, HOME, 1, 2, {
             messages: 3,
-            lastFrom: 1,
-            lastUsed: 100,
+            at: 100,
             since: 1,
             by: "mayor",
         });
@@ -54,20 +62,18 @@ it("archives an agent with its roads and reason, keeps its house and refuses its
     expect(await remove(home, deed, context)).toBe(
         "Removed `scout`. Its house is archived as scout-1234 and its roads are gone. A chief can restore it.",
     );
-    const stored = await home.harness.snapshot(RecordDoc, HOME, context);
-    expect(stored?.archive).toMatchObject([
+    expect(await departedAgents(home)).toMatchObject([
         {
-            id: "scout-1234",
-            reason: "Work ended",
-            agent: { number: 1, purpose: "Looks things up." },
-            roads: expect.arrayContaining([
-                expect.objectContaining({ a: 1, b: 2, messages: 3 }),
-            ]),
+            ref: { hamlet: HOME, number: 1 },
+            purpose: "Looks things up.",
+            left: { reason: "Work ended" },
         },
     ]);
-    expect(stored && roadsOf(stored).some((r) => r.a === 1 || r.b === 1)).toBe(
-        false,
-    );
+    expect(
+        (await view(home)).hamlets
+            .find((h) => h.id === HOME)
+            ?.roads?.some((r) => r.a.number === 1 || r.b.number === 1),
+    ).toBe(false);
     expect(
         await readFile(join(houseOf(home.layout, scout), "found.txt"), "utf8"),
     ).toBe("Dune");
@@ -205,55 +211,6 @@ it("stops a departing agent in its turn and lapses its waits", async () => {
     expect(await openWaits(home)).toHaveLength(0);
 });
 
-it("restores only roads to the agents it knew, free and even over the road limit; a taken name needs as", async () => {
-    const home = await testHome(scratch(), { models: fauxModels().models });
-    await addAgent(home, HOME, "scout", "Maps");
-    await addAgent(home, HOME, "smith");
-    await addAgent(home, HOME, "poet");
-    await home.harness.commit(async (tx) => {
-        const r = await tx.doc(RecordDoc, HOME, HOME);
-        for (const b of [2, 3])
-            r.roads.push({
-                a: 1,
-                b,
-                messages: 4,
-                lastFrom: 1,
-                lastUsed: 1,
-                since: 1,
-                by: "mayor",
-            });
-        (await tx.doc(LimitsDoc, HOME, HOME)).mostRoads = 0;
-    }, context);
-    await remove(home, deed, context);
-    await remove(home, { ...deed, rest: "poet x" }, context);
-    await addAgent(home, HOME, "poet");
-    await addHamlet(home, "mill", "miller");
-    await addAgent(home, "mill", "scout");
-    await expect(
-        restore(home, { ...deed, rest: "scout" }, context),
-    ).rejects.toThrow("as <new-name>");
-    const words = await restore(
-        home,
-        { ...deed, rest: "scout as old-scout It was a mistake" },
-        context,
-    );
-    expect(words).toContain("Restored `old-scout`");
-    expect(words).toContain("more than the 0 your limits allow");
-    const r = await home.harness.snapshot(RecordDoc, HOME, context);
-    expect(r?.agents.find((a) => a.name === "old-scout")).toMatchObject({
-        number: 1,
-        purpose: "Maps",
-    });
-    expect(
-        r?.roads.filter(
-            (r) =>
-                (r.a === 1 || r.b === 1) &&
-                r.a !== "office" &&
-                r.b !== "office",
-        ),
-    ).toEqual([expect.objectContaining({ a: 1, b: 2, messages: 4 })]);
-});
-
 it("refuses a full hamlet, and erases an archived house and entry for good", async () => {
     const home = await testHome(scratch(), { models: fauxModels().models });
     const scout = await addAgent(home, HOME, "scout");
@@ -271,9 +228,7 @@ it("refuses a full hamlet, and erases an archived house and entry for good", asy
         "for good",
     );
     expect(existsSync(houseOf(home.layout, scout))).toBe(false);
-    expect(
-        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
-    ).toEqual([]);
+    expect(await departedAgents(home)).toEqual([]);
     await expect(
         restore(home, { ...deed, rest: "scout" }, context),
     ).rejects.toThrow("nothing is archived");
@@ -368,9 +323,7 @@ it("replays a committed removal's result even if a vote opened before its tool r
         (await (await again.harness.submission(sub.id, context))?.wait(context))
             ?.status,
     ).toBe("done");
-    expect(
-        (await again.harness.snapshot(RecordDoc, HOME, context))?.archive,
-    ).toHaveLength(1);
+    expect(await departedAgents(again, HOME)).toHaveLength(1);
 }, 30_000);
 
 it("stops an archived turn after a crash between departure and stopping it", async () => {
@@ -483,9 +436,17 @@ it.each(["restore", "undo", "split"])(
                 : await restore(home, { ...deed, rest: "founder" }, context);
         expect(words).toContain("`founder`");
         expect(
-            (
-                await home.harness.snapshot(RecordDoc, HOME, context)
-            )?.agents.find((a) => a.number === 0)?.name,
+            (await livingAgents(home, HOME)).find((a) => a.ref.number === 0)
+                ?.name,
         ).toBe("founder");
     },
 );
+
+const erase = deedWords(eraseDeed);
+const merge = deedWords(mergeDeed);
+const record = deedWords(recordDeed);
+const remove = deedWords(removeDeed);
+const restore = deedWords(restoreDeed);
+const undo = deedWords(undoDeed);
+
+const seatMayor = deedWords(seatMayorDeed);

@@ -1,5 +1,7 @@
+import { ok, type Result } from "../result.ts";
 import type { AgentRecord, Archived, End, HamletRecord } from "./document.ts";
 import { FOUNDER, MAYOR } from "./document.ts";
+import { type RecordRefusal, refusal } from "./refusals.ts";
 /** The agent `agent` names in `record`: `mayor` for whoever holds the office, otherwise by name. */
 export function named(
     record: Readonly<HamletRecord>,
@@ -32,14 +34,17 @@ export function tidyName(name: string): string {
     return tidy.replace(/^-+|-+$/g, "");
 }
 
-/** Validation of an agent's name (C10). */
-export function checkName(name: string): void {
+/** Validates the name alphabet and reserved addresses (C10). */
+export function checkName(
+    name: string,
+    hamlet = "",
+    operation = "name",
+): Result<void, RecordRefusal> {
     if (!/^[a-z-]{1,24}$/.test(name))
-        throw new Error(
-            "a name is 1 to 24 lowercase letters and hyphens, such as `librarian`",
-        );
+        return refusal(operation, hamlet, { kind: "name-format" });
     if ([MAYOR, FOUNDER, "all"].includes(name))
-        throw new Error(`\`${name}\` is reserved`);
+        return refusal(operation, hamlet, { kind: "name-reserved", name });
+    return ok(undefined);
 }
 
 /** The living or last recorded name of a stable agent number. */

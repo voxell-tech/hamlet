@@ -191,3 +191,51 @@ it("adds the civic reflection question for an agent, but not for the mayor", asy
         expect((await sub?.wait(context))?.status).toBe("done");
     }
 });
+
+it("tells mayors the recent record and caps mixed decisions at six in total (H17)", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), { models, now: () => 1000 });
+    const scout = await addAgent(home, "home", "scout", "Finds things");
+    await home.harness.commit(async (tx) => {
+        const r = await tx.doc(RecordDoc, "home", "home");
+        r.decisions = [];
+        for (let n = 0; n < 4; n++) {
+            r.decisions.push({
+                kind: "created",
+                name: `agent-${n}`,
+                purpose: "Works",
+                agent: 10 + n,
+                at: 100 + n,
+                by: "mayor",
+                reason: `created-${n}`,
+            });
+            r.decisions.push({
+                kind: "model",
+                agent: scout.number,
+                model: "faux::faux-1",
+                at: 200 + n,
+                by: "mayor",
+                reason: `model-${n}`,
+            });
+        }
+    }, context);
+    for (const agent of [{ hamlet: "home", number: 0 }, scout]) {
+        let section = "";
+        faux.setResponses([
+            (prompt, _options, _state, model) => {
+                section = request(prompt.messages, model).sections.hamlet ?? "";
+                return fauxAssistantMessage("ok");
+            },
+        ]);
+        await (
+            await submitLine(
+                home,
+                { agent, chief: home.chief },
+                { id: `summary-${agent.number}`, text: "Hello" },
+                context,
+            )
+        ).wait(context);
+        expect(section).toContain("# How your hamlet was run lately");
+        expect(section.match(/: (?:created|model)-\d/g) ?? []).toHaveLength(6);
+    }
+});

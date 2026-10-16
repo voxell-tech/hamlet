@@ -17,7 +17,21 @@ export {
     RecordDoc,
     type RoadRecord,
 } from "./record/document.ts";
-export { admit, depart, type Restored, restore } from "./record/membership.ts";
+export {
+    type Admission,
+    admit,
+    copyArchive,
+    depart,
+    departing,
+    foundRecord,
+    lapseTrust,
+    mergeable,
+    moveMember,
+    moving,
+    type Restored,
+    restore,
+    roomFor,
+} from "./record/membership.ts";
 export {
     addressOf,
     byWords,
@@ -38,7 +52,11 @@ export {
     type Vote,
     VotesDoc,
 } from "./record/office.ts";
-export { type RecordRefusal, recordRefusalText } from "./record/refusals.ts";
+export {
+    type RecordRefusal,
+    recordRefusalText,
+    refusal as recordRefusal,
+} from "./record/refusals.ts";
 export {
     carryRoad,
     hasRoad,
@@ -63,5 +81,7 @@ export {
     defineMayorTool,
     defineRecordTool,
     memoised,
+    type RecordDeed,
+    refusedTool,
     toolText,
 } from "./record/tools.ts";

@@ -77,8 +77,8 @@ it("founds and reopens the realm, builds every living house, and normalizes name
         "founder",
         "all",
     ])
-        expect(() => checkName(bad)).toThrow();
-    checkName("feline-biologist");
+        expect(checkName(bad).ok).toBe(false);
+    expect(checkName("feline-biologist").ok).toBe(true);
 });
 
 it("keeps instructions until settlement and for the protected interval", async () => {

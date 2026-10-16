@@ -10,32 +10,37 @@ import {
     ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { AgentConversationsDoc, WithDoc } from "../chats/conversations.ts";
-import { InstructionsDoc, owed } from "../chats/instructions.ts";
+import { WithDoc } from "../chats/conversations.ts";
 import { stopAgent } from "../chats.ts";
-import { revoke } from "../gate.ts";
 import { untilAborted } from "../home/abort.ts";
 import { localDay } from "../home/clock.ts";
 import { houseOf } from "../home/layout.ts";
-import type { Deed, Home, Part } from "../home.ts";
+import type { Home, Part } from "../home.ts";
 import { removeHouse } from "../house.ts";
-import { LimitsDoc } from "../limits/rules.ts";
-import { resetTrust } from "../oversight/asked.ts";
 import { lapseAgent } from "../oversight/waits.ts";
 import { isChief, liveHamlets, RealmDoc } from "../realm/places.ts";
-import { farewell, roadsOf } from "../realm/roads.ts";
+import { farewell } from "../realm/roads.ts";
 import {
-    type AgentRef,
     type Archived,
-    agentKey,
-    checkName,
+    byWords,
+    copyArchive,
     type Decision,
-    decisionText,
+    depart,
+    endName,
     type HamletRecord,
+    lapseTrust,
     mayDecide,
-    named,
+    memoised,
+    type RecordDeed,
     RecordDoc,
+    type RecordRefusal,
+    recordRefusal,
+    refusedTool,
+    requireMayor,
+    restore as restoreRecord,
+    toolText,
 } from "../record.ts";
+import { err, ok, type Result } from "../result.ts";
 import { serialHouseWork, split } from "./merging.ts";
 
 const RemovalDoc = defineDoc<{ number: number | null; text: string }>({
@@ -101,48 +106,82 @@ export const Leaving: Part = (home) => ({
                 }),
                 replay: "safe",
                 execute: async (args, api, context) => {
-                    const result = await api.commit(async (tx) => {
-                        const saved = await tx.doc(RemovalDoc, api.taskId);
-                        if (saved.text) return { ...saved };
-                        const place = await tx.doc(WithDoc, api.conversationId);
-                        const r = await tx.doc(
-                            RecordDoc,
-                            place.hamlet,
-                            place.hamlet,
-                        );
-                        if (
-                            !r.agents.some((a) => a.number === place.number) ||
-                            r.mayor !== place.number
-                        )
-                            return {
-                                number: null,
-                                text: "Only the mayor can remove an agent.",
-                            };
-                        const decision = await mayDecide(
-                            tx,
-                            place.hamlet,
-                            home.now(),
-                            "remove",
-                        );
-                        if (!decision.ok)
-                            return {
-                                number: null,
-                                text: decisionText(decision.error),
-                            };
-                        const gone = await depart(
-                            home,
-                            tx,
-                            place.hamlet,
-                            args.name,
-                            args.reason,
-                            "mayor",
-                        );
-                        Object.assign(saved, {
-                            number: gone.agent.number,
-                            text: removedWords(gone),
-                        });
-                        return { ...saved };
-                    }, context);
+                    const result = await memoised(
+                        api,
+                        {
+                            read: async (tx) => {
+                                const saved = await tx.doc(
+                                    RemovalDoc,
+                                    api.taskId,
+                                );
+                                return saved.text
+                                    ? {
+                                          number: saved.number,
+                                          text: saved.text,
+                                          isError: false,
+                                      }
+                                    : undefined;
+                            },
+                            change: async (tx) => {
+                                const place = await tx.doc(
+                                    WithDoc,
+                                    api.conversationId,
+                                );
+                                const mayor = await requireMayor(tx, place);
+                                if (!mayor.ok)
+                                    return {
+                                        number: null,
+                                        isError: false,
+                                        text: "Only the mayor can remove an agent.",
+                                    };
+                                const decision = await mayDecide(
+                                    tx,
+                                    place.hamlet,
+                                    home.now(),
+                                    "remove",
+                                );
+                                if (!decision.ok)
+                                    return {
+                                        number: null,
+                                        isError: false,
+                                        text: toolText(decision.error),
+                                    };
+                                const gone = await depart(
+                                    tx,
+                                    place.hamlet,
+                                    args.name,
+                                    {
+                                        by: "mayor",
+                                        reason: args.reason,
+                                        how: "removed",
+                                        at: home.now(),
+                                    },
+                                );
+                                return gone.ok
+                                    ? {
+                                          number: gone.value.agent.number,
+                                          isError: false,
+                                          text: removedWords(gone.value),
+                                      }
+                                    : {
+                                          number: null,
+                                          isError: true,
+                                          text: toolText(gone.error),
+                                      };
+                            },
+                            write: async (tx, result) => {
+                                if (result.number !== null)
+                                    Object.assign(
+                                        await tx.doc(RemovalDoc, api.taskId),
+                                        {
+                                            number: result.number,
+                                            text: result.text,
+                                        },
+                                    );
+                            },
+                        },
+                        context,
+                    );
                     const place = await api.snapshot(
                         WithDoc,
                         api.conversationId,
@@ -154,7 +193,9 @@ export const Leaving: Part = (home) => ({
                             { hamlet: place.hamlet, number: result.number },
                             context,
                         );
-                    return { output: [{ type: "text", text: result.text }] };
+                    return result.isError
+                        ? refusedTool(result.text)
+                        : { output: [{ type: "text", text: result.text }] };
                 },
             }),
         ],
@@ -183,108 +224,34 @@ export const Leaving: Part = (home) => ({
 });
 
 /** A chief's removal deed. */
-export const remove: Deed = async (home, given, context) => {
+export const remove: RecordDeed = async (home, given, context) => {
     const [name = "", ...reason] = given.rest.trim().split(/\s+/);
     const gone = await home.harness.commit(async (tx) => {
-        await chief(tx, given.hamlet, given.chief);
-        return depart(
-            home,
-            tx,
-            given.hamlet,
-            name,
-            reason.join(" "),
-            `chief:${given.chief}`,
-        );
+        const access = await chief(tx, given.hamlet, given.chief);
+        if (!access.ok) return access;
+        return depart(tx, given.hamlet, name, {
+            by: `chief:${given.chief}`,
+            reason: reason.join(" "),
+            how: "removed",
+            at: home.now(),
+        });
     }, context);
+    if (!gone.ok) return gone;
     await stopAgent(
         home,
-        { hamlet: given.hamlet, number: gone.agent.number },
+        { hamlet: given.hamlet, number: gone.value.agent.number },
         context,
     );
-    return removedWords(gone);
+    return ok(removedWords(gone.value));
 };
-
-async function chief(tx: Tx, hamlet: string, name: string): Promise<void> {
-    if (!isChief(await tx.doc(RealmDoc), hamlet, name))
-        throw new Error("Only a chief of this hamlet can do this.");
-}
-
-async function depart(
-    home: Home,
+async function chief(
     tx: Tx,
     hamlet: string,
     name: string,
-    reason: string,
-    by: string,
-): Promise<Archived> {
-    const r = await tx.doc(RecordDoc, hamlet, hamlet);
-    const agent = named(r, name);
-    if (agent?.number === r.mayor || name === "mayor")
-        throw new Error(
-            "the mayor cannot be removed or merged; replacing a mayor takes a chief or a vote",
-        );
-    if (!agent) {
-        const gone = r.archive.findLast(
-            (a) => a.agent.name === name && a.back === null,
-        );
-        throw new Error(
-            gone ? farewell(gone, r) : `no agent named \`${name}\``,
-        );
-    }
-    if (!reason.trim())
-        throw new Error("give a `reason`; it is kept in the record");
-    if (by === "mayor") {
-        const limits = await tx.doc(LimitsDoc, hamlet, hamlet);
-        const i = owed(
-            await tx.doc(
-                InstructionsDoc,
-                agentKey({ hamlet, number: agent.number }),
-                agentKey({ hamlet, number: agent.number }),
-            ),
-            home.now(),
-            limits.leaving.protectedMinutes * 60_000,
-        );
-        if (i)
-            throw new Error(
-                `\`${name}\` has a task from the chief ${i.chief} ("${Array.from(i.text).slice(0, 80).join("")}") that ${i.done === null ? "is not finished" : "has only just ended"}. No agent may be removed or merged to avoid a chief's task. Wait until the chief has had the answer, or ask the chief to do this.`,
-            );
-    }
-    const at = home.now();
-    let stamp = at;
-    while (r.archive.some((a) => a.id === `${name}-${stamp}`)) stamp++;
-    const entry: Archived = {
-        id: `${name}-${stamp}`,
-        agent: { ...agent },
-        how: "removed",
-        into: null,
-        at,
-        by,
-        reason: reason.trim(),
-        roads: roadsOf(r).filter(
-            (r) => r.a === agent.number || r.b === agent.number,
-        ),
-        merge: null,
-        back: null,
-    };
-    await lapseAgent(tx, { hamlet, number: agent.number }, at);
-    await lapseTrust(tx, { hamlet, number: agent.number });
-    for (const permission of ["network", "unconfined"] as const)
-        await revoke(tx, { hamlet, number: agent.number }, permission, by, at);
-    r.agents = r.agents.filter((a) => a.number !== agent.number);
-    r.roads = r.roads.filter(
-        (r) => r.a !== agent.number && r.b !== agent.number,
-    );
-    r.archive.push(entry);
-    r.decisions.push({
-        kind: "removed",
-        at,
-        by,
-        reason: entry.reason,
-        agent: agent.number,
-        name,
-        archive: entry.id,
-    });
-    return JSON.parse(JSON.stringify(entry)) as Archived;
+): Promise<Result<void, RecordRefusal>> {
+    return isChief(await tx.doc(RealmDoc), hamlet, name)
+        ? ok(undefined)
+        : recordRefusal("chief", hamlet, { kind: "record-chief" });
 }
 
 function removedWords(entry: Archived): string {
@@ -292,97 +259,52 @@ function removedWords(entry: Archived): string {
 }
 
 /** A chief's restoration deed. */
-export const restore: Deed = async (home, given, context) => {
+export const restore: RecordDeed = async (home, given, context) => {
     const [which = "", ...rest] = given.rest.trim().split(/\s+/);
     const rename = rest[0] === "as";
-    const entry = await home.harness.commit(async (tx) => {
-        await chief(tx, given.hamlet, given.chief);
+    const archived = await home.harness.commit(async (tx) => {
+        const access = await chief(tx, given.hamlet, given.chief);
+        if (!access.ok) return access;
         const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
         const entry = r.archive.findLast(
             (a) =>
                 (a.back === null || (a.merge && !a.merge.applied)) &&
                 (a.id === which || a.agent.name === which),
         );
-        if (!entry)
-            throw new Error(
-                `nothing is archived under \`${which}\`; /record lists what is`,
-            );
-        return JSON.parse(JSON.stringify(entry)) as Archived;
+        return entry
+            ? ok(copyArchive(entry))
+            : recordRefusal("restore", given.hamlet, {
+                  kind: "archive-missing",
+                  archive: which,
+              });
     }, context);
+    if (!archived.ok) return archived;
+    const entry = archived.value;
     const name = rename ? (rest[1] ?? "") : entry.agent.name;
     const reason = rest.slice(rename ? 2 : 0).join(" ") || "a chief asked";
     if (entry.how === "merged")
         return split(
             home,
-            { hamlet: given.hamlet, entry, name, reason, chief: given.chief },
+            {
+                hamlet: given.hamlet,
+                entry,
+                name,
+                reason,
+                chief: given.chief,
+            },
             context,
         );
     return home.harness.commit(async (tx) => {
-        await chief(tx, given.hamlet, given.chief);
-        const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
-        const archived = r.archive.find(
-            (a) => a.id === entry.id && a.back === null,
-        );
-        if (!archived)
-            throw new Error(
-                `nothing is archived under \`${which}\`; /record lists what is`,
-            );
-        if (name !== archived.agent.name) checkName(name);
-        for (const h of liveHamlets(await tx.doc(RealmDoc)))
-            if (
-                (await tx.doc(RecordDoc, h.id, h.id)).agents.some(
-                    (a) => a.name === name,
-                )
-            )
-                throw new Error(
-                    `an agent named \`${name}\` lives in the hamlet now. Restore this one under another name: /restore ${which} as <new-name>`,
-                );
-        const limits = await tx.doc(LimitsDoc, given.hamlet, given.hamlet);
-        if (r.agents.length - 1 >= limits.mostAgents)
-            throw new Error(
-                `the hamlet is full (${limits.mostAgents} agents); remove one first, or raise mostAgents in the limits`,
-            );
-        archived.back = name;
-        r.agents.push({ ...archived.agent, name });
-        for (const road of archived.roads)
-            if (
-                [road.a, road.b].every(
-                    (end) =>
-                        end === "office" ||
-                        r.agents.some((a) => a.number === end),
-                ) &&
-                !r.roads.some(
-                    (r) =>
-                        (r.a === road.a && r.b === road.b) ||
-                        (r.a === road.b && r.b === road.a),
-                )
-            )
-                r.roads.push({ ...road });
-        r.decisions.push({
-            kind: "restored",
-            at: home.now(),
+        const access = await chief(tx, given.hamlet, given.chief);
+        if (!access.ok) return access;
+        const restored = await restoreRecord(tx, given.hamlet, entry.id, {
+            name,
             by: `chief:${given.chief}`,
             reason,
-            agent: entry.agent.number,
-            name,
-            archive: entry.id,
+            at: home.now(),
         });
-        const peers = roadsOf(r)
-            .filter(
-                (road) =>
-                    road.a === entry.agent.number ||
-                    road.b === entry.agent.number,
-            )
-            .map((road) => {
-                const end = road.a === entry.agent.number ? road.b : road.a;
-                return end === "office"
-                    ? "mayor"
-                    : (r.agents.find((a) => a.number === end)?.name ?? "");
-            });
-        const built = roadsOf(r).filter(
-            (r) => r.a !== "office" && r.b !== "office",
-        ).length;
-        return `Restored \`${name}\` with its house as it was. Its roads lead to: ${peers.join(", ")}.${built > limits.mostRoads ? ` The hamlet now has ${built} roads between agents, more than the ${limits.mostRoads} your limits allow. They all work; the mayor can build no more until you raise mostRoads in the limits.` : ""}`;
+        if (!restored.ok) return restored;
+        return ok(restored.value.text);
     }, context);
 };
 
@@ -391,11 +313,12 @@ type EraseFailure = {
     operation: "erase";
     hamlet: string;
     archive: string;
+    kept: string;
     retrySafe: true;
 };
 
 /** A chief's permanent erasure deed. */
-export const erase: Deed = async (home, given, context) =>
+export const erase: RecordDeed = async (home, given, context) =>
     serialHouseWork(home, context, async () => {
         const which = given.rest.trim();
         const outcome = await home.harness.commit(
@@ -406,9 +329,10 @@ export const erase: Deed = async (home, given, context) =>
                       ok: true;
                       value: Pick<Archived["agent"], "name" | "number">;
                   }
-                | { ok: false; error: EraseFailure }
+                | { ok: false; error: EraseFailure | RecordRefusal }
             > => {
-                await chief(tx, given.hamlet, given.chief);
+                const access = await chief(tx, given.hamlet, given.chief);
+                if (!access.ok) return access;
                 const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
                 const entry = r.archive.findLast(
                     (a) =>
@@ -416,9 +340,10 @@ export const erase: Deed = async (home, given, context) =>
                         (a.id === which || a.agent.name === which),
                 );
                 if (!entry)
-                    throw new Error(
-                        `nothing is archived under \`${which}\`. Only an agent that was removed or merged can be deleted for good; /remove it first`,
-                    );
+                    return recordRefusal("erase", given.hamlet, {
+                        kind: "erase-missing",
+                        archive: which,
+                    });
                 if (entry.merge && !entry.merge.applied)
                     return {
                         ok: false,
@@ -427,6 +352,9 @@ export const erase: Deed = async (home, given, context) =>
                             operation: "erase",
                             hamlet: given.hamlet,
                             archive: entry.id,
+                            kept:
+                                r.agents.find((a) => a.number === entry.into)
+                                    ?.name ?? entry.merge.kept.name,
                             retrySafe: true,
                         },
                     };
@@ -452,11 +380,14 @@ export const erase: Deed = async (home, given, context) =>
         );
         if (!outcome.ok) {
             const error = outcome.error;
+            if (error.kind !== "merge-pending") return err(error);
             switch (error.kind) {
                 case "merge-pending":
-                    return `Cannot erase \`${error.archive}\`: its merge has not finished. Inspect its houses and use /restore ${error.archive} to finish or split it first.`;
+                    return ok(
+                        `Cannot erase \`${error.archive}\`: its merge has not finished. Inspect its houses and use /merge ${error.archive} into ${error.kept} to finish it first.`,
+                    );
             }
-            const unhandled: never = error.kind;
+            const unhandled: never = error;
             throw new Error(`Unclassified erasure failure: ${unhandled}`);
         }
         const entry = outcome.value;
@@ -467,28 +398,33 @@ export const erase: Deed = async (home, given, context) =>
                 number: entry.number,
             }),
         );
-        return `Deleted \`${entry.name}\` for good. Freed ${bytes} bytes. It cannot be restored.`;
+        return ok(
+            `Deleted \`${entry.name}\` for good. Freed ${bytes} bytes. It cannot be restored.`,
+        );
     });
 
 /** The hamlet's history and archived agents. */
-export const record: Deed = async (home, given, context) => {
-    await home.harness.commit(
+export const record: RecordDeed = async (home, given, context) => {
+    const access = await home.harness.commit(
         (tx) => chief(tx, given.hamlet, given.chief),
         context,
     );
-    return (
+    if (!access.ok) return access;
+    return ok(
         (await recordLines(home, given.hamlet, context)).join("\n") ||
-        "The record is empty."
+            "The record is empty.",
     );
 };
 
 /** The latest archived agent's restoration. */
-export const undo: Deed = async (home, given, context) => {
+export const undo: RecordDeed = async (home, given, context) => {
     const r = await home.harness.snapshot(RecordDoc, given.hamlet, context);
     const latest = r?.archive.findLast((a) => a.back === null);
     return latest
         ? restore(home, { ...given, rest: latest.id }, context)
-        : "Nothing to undo. Only a removal or a merge can be undone (the archive keeps the house); a permission is taken back with /revoke. A command that ran, a file that was changed and what was spent cannot be undone.";
+        : ok(
+              "Nothing to undo. Only a removal or a merge can be undone (the archive keeps the house); a permission is taken back with /revoke. A command that ran, a file that was changed and what was spent cannot be undone.",
+          );
 };
 
 /** The hamlet's history in words. */
@@ -499,15 +435,7 @@ export async function recordLines(
 ): Promise<string[]> {
     const r = await home.harness.snapshot(RecordDoc, hamlet, context);
     if (!r) return [];
-    const name = (n: number | "office") =>
-        n === "office"
-            ? "mayor"
-            : (r.agents.find((a) => a.number === n)?.name ??
-              r.archive.findLast((a) => a.agent.number === n)?.agent.name ??
-              r.decisions
-                  .filter((d) => d.kind === "created")
-                  .find((d) => d.agent === n)?.name ??
-              String(n));
+    const name = (n: number | "office") => endName(r, n);
     const lines = r.decisions.flatMap((d) => {
         const text = history(d, r, name);
         return text
@@ -526,14 +454,7 @@ function history(
     r: Readonly<HamletRecord>,
     name: (n: number | "office") => string,
 ): string | undefined {
-    const by =
-        "by" in d
-            ? d.by === "mayor"
-                ? "the mayor"
-                : d.by.startsWith("chief:")
-                  ? `the chief ${d.by.slice(6)}`
-                  : d.by
-            : "";
+    const by = "by" in d ? byWords(d.by) : "";
     switch (d.kind) {
         case "created":
             return `the mayor created \`${d.name}\` (${d.purpose}): ${d.reason}`;
@@ -558,11 +479,4 @@ function history(
         default:
             return undefined;
     }
-}
-
-/** Takes edit and command trust back from every conversation of a departing agent. */
-export async function lapseTrust(tx: Tx, agent: AgentRef): Promise<void> {
-    const key = agentKey(agent);
-    for (const id of (await tx.doc(AgentConversationsDoc, key, key)).ids)
-        await resetTrust(tx, await tx.doc(WithDoc, id));
 }

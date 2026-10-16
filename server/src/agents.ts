@@ -1,7 +1,6 @@
 export {
     erase,
     Leaving,
-    lapseTrust,
     record,
     recordLines,
     remove,

@@ -12,27 +12,33 @@ import { ChatDoc, submitLine } from "../src/chats.ts";
 import { localDay } from "../src/home/clock.ts";
 import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
-import { RealmDoc, roadsOf } from "../src/realm.ts";
-import { decisionText, HOME, mayDecide, RecordDoc } from "../src/record.ts";
+import { RealmDoc } from "../src/realm.ts";
+import { decisionText, HOME, mayDecide } from "../src/record.ts";
 import { ledgerOf } from "../src/spend.ts";
 import {
-    vote as callVote,
-    overturn,
-    mayor as seatMayor,
+    vote as callVoteDeed,
+    overturn as overturnDeed,
+    mayor as seatMayorDeed,
     VotesDoc,
-    votes,
+    votes as votesDeed,
+    voteViews,
 } from "../src/votes.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,
     context,
+    deedWords,
     fauxAgents,
     fauxModels,
+    livingAgents,
+    mayorNumber,
     request as modelRequest,
     say,
     scratch,
     testHome,
     transcript,
+    usedRoad,
+    view,
 } from "./support.ts";
 
 const deed = { hamlet: HOME, chief: "chief", rest: "scout A new direction" };
@@ -42,15 +48,13 @@ async function settledVote(
 ): Promise<string> {
     const [home, given, context] = args;
     await callVote(...args);
-    const id = (
-        await home.harness.snapshot(VotesDoc, given.hamlet, context)
-    )?.votes.at(-1)?.id;
+    const id = (await voteViews(home, given.hamlet, context)).at(-1)?.id;
     await vi.waitFor(
         async () => {
-            const v = (
-                await home.harness.snapshot(VotesDoc, given.hamlet, context)
-            )?.votes.find((v) => v.id === id);
-            expect(v?.standing).not.toBe("open");
+            const vote = (await voteViews(home, given.hamlet, context)).find(
+                (v) => v.id === id,
+            );
+            expect(vote?.open).toBe(false);
         },
         { timeout: 10_000 },
     );
@@ -107,9 +111,7 @@ it("needs two thirds of every voter, so silence is not a yes", async () => {
     expect(await settledVote(home, deed, context)).toContain(
         "2 yes of 4 agents (3 needed), 0 no, 1 abstained, 1 did not answer.",
     );
-    expect((await home.harness.snapshot(RecordDoc, HOME, context))?.mayor).toBe(
-        0,
-    );
+    expect(await mayorNumber(home, HOME)).toBe(0);
     expect(await votes(home, deed, context)).toContain("3 needed");
 }, 30_000);
 
@@ -120,26 +122,32 @@ it("passes, moves the office without removing its old holder, and a chief overtu
     expect(await settledVote(home, deed, context)).toContain(
         "Passed: 2 yes of 3 agents (2 needed)",
     );
-    const r = await home.harness.snapshot(RecordDoc, HOME, context);
-    expect(r?.mayor).toBe(1);
-    expect(r?.agents.map((a) => a.number)).toEqual([0, 1, 2, 3]);
-    expect(r && roadsOf(r)).toEqual(
+    expect(await mayorNumber(home)).toBe(1);
+    expect((await livingAgents(home)).map((a) => a.ref.number)).toEqual([
+        0, 1, 2, 3,
+    ]);
+    expect(
+        (await view(home)).hamlets.find((h) => h.id === HOME)?.roads,
+    ).toEqual(
         expect.arrayContaining([
-            expect.objectContaining({ a: "office", b: 0 }),
+            expect.objectContaining({
+                a: { hamlet: HOME, number: 1 },
+                b: { hamlet: HOME, number: 0 },
+            }),
         ]),
     );
     expect(
         await overturn(home, { ...deed, rest: "1 Not yet" }, context),
     ).toContain("`founder` is the mayor again");
-    expect((await home.harness.snapshot(RecordDoc, HOME, context))?.mayor).toBe(
-        0,
-    );
+    expect(await mayorNumber(home, HOME)).toBe(0);
     await expect(
         overturn(home, { ...deed, rest: "1" }, context),
     ).rejects.toThrow("already overturned");
-    expect(
-        (await home.harness.snapshot(VotesDoc, HOME, context))?.votes[0],
-    ).toMatchObject({ standing: "overturned", answer: "I laid the roads." });
+    const overturned = (await voteViews(home, HOME, context))[0];
+    expect(overturned?.report).toContain("Passed, then overturned by a chief");
+    expect(overturned?.report).toContain(
+        "The mayor answered: I laid the roads.",
+    );
 }, 30_000);
 
 it("runs a chief's vote and mayor commands over a WebSocket", async () => {
@@ -164,9 +172,8 @@ it("runs a chief's vote and mayor commands over a WebSocket", async () => {
     await vi.waitFor(
         async () =>
             expect(
-                (await run.home.harness.snapshot(VotesDoc, HOME, context))
-                    ?.votes[0]?.standing,
-            ).toBe("passed"),
+                (await voteViews(run.home, HOME, context))[0]?.report,
+            ).toContain("Passed:"),
         { timeout: 10_000 },
     );
     expect(await command("/votes")).toMatchObject({
@@ -176,17 +183,13 @@ it("runs a chief's vote and mayor commands over a WebSocket", async () => {
         kind: "notice",
         text: expect.stringContaining("mayor"),
     });
-    expect(
-        (await run.home.harness.snapshot(RecordDoc, HOME, context))?.mayor,
-    ).toBe(0);
+    expect(await mayorNumber(run.home, HOME)).toBe(0);
     await seatMayor(
         run.home,
         { ...deed, rest: "smith New direction" },
         context,
     );
-    expect(
-        (await run.home.harness.snapshot(RecordDoc, HOME, context))?.mayor,
-    ).toBe(2);
+    expect(await mayorNumber(run.home, HOME)).toBe(2);
 }, 30_000);
 
 it("refuses bad calls before any model is asked", async () => {
@@ -225,9 +228,7 @@ it("refuses bad calls before any model is asked", async () => {
         ],
     });
     await (await say(home, "call a vote")).wait(context);
-    expect(
-        (await home.harness.snapshot(VotesDoc, HOME, context))?.votes ?? [],
-    ).toEqual([]);
+    expect(await voteViews(home, HOME, context)).toEqual([]);
     expect(faux.state.callCount).toBe(2);
 });
 
@@ -311,10 +312,7 @@ it("keeps a vote open while its ballots wait, holds decisions, and lets a chief 
     const pending = settledVote(home, deed, context);
     await vi.waitFor(
         async () =>
-            expect(
-                (await home.harness.snapshot(VotesDoc, HOME, context))?.votes[0]
-                    ?.standing,
-            ).toBe("open"),
+            expect((await voteViews(home, HOME, context))[0]?.open).toBe(true),
         { timeout: 10_000 },
     );
     expect(
@@ -327,9 +325,7 @@ it("keeps a vote open while its ballots wait, holds decisions, and lets a chief 
         settledVote(home, { ...deed, rest: "smith Another" }, context),
     ).rejects.toThrow("only one vote");
     await (await say(home, "remove scout")).wait(context);
-    expect(
-        (await home.harness.snapshot(RecordDoc, HOME, context))?.agents,
-    ).toHaveLength(4);
+    expect(await livingAgents(home, HOME)).toHaveLength(4);
     expect(await overturn(home, { ...deed, rest: "1 Stop now" }, context)).toBe(
         "Vote 1 is stopped.",
     );
@@ -422,10 +418,9 @@ it("an agent calls a durable vote and gets the count; the mayor's own call needs
     expect((await (await say(home, "call a vote")).wait(context)).status).toBe(
         "done",
     );
-    expect(
-        (await home.harness.snapshot(VotesDoc, HOME, context))?.votes[0]
-            ?.answer,
-    ).toBeNull();
+    expect((await voteViews(home, HOME, context))[0]?.report).not.toContain(
+        "The mayor answered:",
+    );
     expect(faux.state.callCount).toBe(5);
 }, 30_000);
 
@@ -448,8 +443,9 @@ it("resumes between unsealed ballots without asking a finished voter again", asy
     await vi.waitFor(
         async () =>
             expect(
-                (await home.harness.snapshot(VotesDoc, HOME, context))?.votes[0]
-                    ?.ballots,
+                (await voteViews(home, HOME, context))[0]?.voters.filter(
+                    (v) => v.cast !== null,
+                ),
             ).toHaveLength(1),
         { timeout: 10_000 },
     );
@@ -461,17 +457,14 @@ it("resumes between unsealed ballots without asking a finished voter again", asy
     await vi.waitFor(
         async () =>
             expect(
-                (await again.harness.snapshot(VotesDoc, HOME, context))
-                    ?.votes[0]?.standing,
-            ).toBe("passed"),
+                (await voteViews(again, HOME, context))[0]?.report,
+            ).toContain("Passed:"),
         { timeout: 15_000 },
     );
     expect(firstCalls).toBe(1);
     expect(
-        (
-            await again.harness.snapshot(VotesDoc, HOME, context)
-        )?.votes[0]?.ballots.map((b) => b.voter),
-    ).toEqual([1, 2, 3]);
+        (await voteViews(again, HOME, context))[0]?.report.match(/^- [^:]+:/gm),
+    ).toEqual(["- scout:", "- smith:", "- poet:"]);
 }, 30_000);
 
 it("does not replace a mayor the chief changed while the vote was open", async () => {
@@ -497,9 +490,7 @@ it("does not replace a mayor the chief changed while the vote was open", async (
     expect(await pending).toContain(
         "the mayor changed while the vote was open",
     );
-    expect((await home.harness.snapshot(RecordDoc, HOME, context))?.mayor).toBe(
-        2,
-    );
+    expect(await mayorNumber(home, HOME)).toBe(2);
 }, 30_000);
 
 it("grounds a ballot in that voter's own history and offers no file tools", async () => {
@@ -582,10 +573,9 @@ it("lapses an old open vote before starting another and refuses a recent failed 
     expect(await settledVote(home, deed, context)).toContain(
         "Passed: 3 yes of 3 agents",
     );
-    expect(
-        (await home.harness.snapshot(VotesDoc, HOME, context))?.votes[0]
-            ?.standing,
-    ).toEqual({ failed: "lapsed" });
+    expect((await voteViews(home, HOME, context))[0]?.report).toContain(
+        "Failed (lapsed)",
+    );
     await home.harness.commit(async (tx) => {
         (await tx.doc(VotesDoc, HOME, HOME)).votes.push({
             ...old,
@@ -641,14 +631,14 @@ it("records only the first ballot, cuts the hearing to 600 characters, and rejec
         ],
     });
     await (await say(home, "cast a ballot")).wait(context);
-    expect(
-        (await home.harness.snapshot(VotesDoc, HOME, context))?.votes ?? [],
-    ).toEqual([]);
+    expect(await voteViews(home, HOME, context)).toEqual([]);
     await settledVote(home, deed, context);
-    const v = (await home.harness.snapshot(VotesDoc, HOME, context))?.votes[0];
-    expect(v?.answer).toHaveLength(600);
-    expect(v?.ballots).toHaveLength(3);
-    expect(v?.ballots.map((b) => b.choice)).toEqual(["yes", "yes", "yes"]);
+    const v = (await voteViews(home, HOME, context))[0];
+    expect(v?.report.match(/The mayor answered: ([^\n]+)/)?.[1]).toHaveLength(
+        600,
+    );
+    expect(v?.voters.filter((voter) => voter.cast !== null)).toHaveLength(3);
+    expect(v?.voters.map((voter) => voter.cast)).toEqual(["yes", "yes", "yes"]);
 }, 30_000);
 
 it("keeps the chief's mayor address on the new office holder, while the new mayor's own roads sleep", async () => {
@@ -657,22 +647,22 @@ it("keeps the chief's mayor address on the new office holder, while the new mayo
     await addAgent(run.home, HOME, "scout");
     await addAgent(run.home, HOME, "smith");
     await run.home.harness.commit(async (tx) => {
-        (await tx.doc(RecordDoc, HOME, HOME)).roads.push({
-            a: 1,
-            b: 2,
+        await usedRoad(tx, HOME, 1, 2, {
             messages: 7,
-            lastFrom: 1,
-            lastUsed: 1,
+            at: 1,
             since: 1,
             by: "mayor",
         });
     }, context);
     await seatMayor(run.home, deed, context);
-    const r = await run.home.harness.snapshot(RecordDoc, HOME, context);
     expect(
-        r &&
-            roadsOf(r).some(
-                (r) => (r.a === 1 && r.b === 2) || (r.a === 2 && r.b === 1),
+        (await view(run.home)).hamlets
+            .find((h) => h.id === HOME)
+            ?.roads?.some(
+                (r) =>
+                    ((r.a.number === 1 && r.b.number === 2) ||
+                        (r.a.number === 2 && r.b.number === 1)) &&
+                    r.messages === 7,
             ),
     ).toBe(false);
     fauxAgents(faux, {
@@ -693,9 +683,14 @@ it("keeps the chief's mayor address on the new office holder, while the new mayo
         id && JSON.stringify(await transcript(id, run.home.harness)),
     ).toContain("I am the new mayor.");
     await seatMayor(run.home, { ...deed, rest: "founder Back" }, context);
-    const after = await run.home.harness.snapshot(RecordDoc, HOME, context);
-    expect(after && roadsOf(after)).toContainEqual(
-        expect.objectContaining({ a: 1, b: 2, messages: 7 }),
+    expect(
+        (await view(run.home)).hamlets.find((h) => h.id === HOME)?.roads,
+    ).toContainEqual(
+        expect.objectContaining({
+            a: { hamlet: HOME, number: 1 },
+            b: { hamlet: HOME, number: 2 },
+            messages: 7,
+        }),
     );
 }, 30_000);
 
@@ -748,8 +743,9 @@ it("resumes call_vote itself without calling a second vote", async () => {
     await vi.waitFor(
         async () =>
             expect(
-                (await home.harness.snapshot(VotesDoc, HOME, context))?.votes[0]
-                    ?.ballots,
+                (await voteViews(home, HOME, context))[0]?.voters.filter(
+                    (v) => v.cast !== null,
+                ),
             ).toHaveLength(1),
         { timeout: 10_000 },
     );
@@ -767,13 +763,10 @@ it("resumes call_vote itself without calling a second vote", async () => {
             )?.wait(context)
         )?.status,
     ).toBe("done");
-    expect(
-        (await again.harness.snapshot(VotesDoc, HOME, context))?.votes,
-    ).toHaveLength(1);
-    expect(
-        (await again.harness.snapshot(VotesDoc, HOME, context))?.votes[0]
-            ?.standing,
-    ).toBe("passed");
+    expect(await voteViews(again, HOME, context)).toHaveLength(1);
+    expect((await voteViews(again, HOME, context))[0]?.report).toContain(
+        "Passed:",
+    );
 }, 30_000);
 
 it("accepts a chief's vote without holding its connection, so that chief can stop it", async () => {
@@ -803,3 +796,8 @@ it("accepts a chief's vote without holding its connection, so that chief can sto
     });
     expect(await stopped).toMatchObject({ text: "Vote 1 is stopped." });
 }, 5_000);
+
+const callVote = deedWords(callVoteDeed);
+const overturn = deedWords(overturnDeed);
+const seatMayor = deedWords(seatMayorDeed);
+const votes = deedWords(votesDeed);
