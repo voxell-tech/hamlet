@@ -89,7 +89,18 @@ describe("the mayor's tools", () => {
             (await (await mayorChat(home)).agent(context)).tools
                 .map((tool) => tool.name)
                 .sort();
-        const all = ["bash", "edit", "find", "read", "search", "write"];
+        const all = [
+            "ask_chief",
+            "ask_librarian",
+            "bash",
+            "edit",
+            "find",
+            "object",
+            "read",
+            "search",
+            "submit_skill",
+            "write",
+        ];
 
         expect(await offered()).toEqual(all);
         await setFolder(home, scratch(), "auto");

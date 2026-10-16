@@ -13,17 +13,19 @@ type Refused = { kind: Danger } | { exact: string };
 export type Asked = {
     input: SubmissionId | null;
     strikes: number;
+    questions: number;
     refused: { by: string; what: Refused; reason: string }[];
 };
 
 /** Per-turn asking state, reset when the input changes and kept through a restart. */
 export const AskedDoc = defineDoc<Asked>({
     kind: "hamlet.asked",
-    version: 1,
+    version: 2,
+    migrate: (value) => ({ ...value, questions: 0 }) as Asked,
     scope: "conversation",
     history: "latest",
     fork: "initial",
-    initial: () => ({ input: null, strikes: 0, refused: [] }),
+    initial: () => ({ input: null, strikes: 0, questions: 0, refused: [] }),
 });
 
 /** The denial of a repeated or excess request in a turn (decide.rs:271-299). */
