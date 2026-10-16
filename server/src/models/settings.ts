@@ -23,29 +23,19 @@ export function validateSettings(
         (!Number.isSafeInteger(set.reflectEvery) || set.reflectEvery < 0)
     )
         return err({ ...facts, kind: "reflect-every-not-whole" });
-    const names = validateEndpointNames(set.endpoints ?? []);
-    if (!names.ok) return names;
-    for (const endpoint of set.endpoints ?? []) {
-        let url: URL;
-        try {
-            url = new URL(endpoint.baseUrl);
-        } catch {
-            return err({
-                ...facts,
-                kind: "address-scheme",
-                reason: "invalid-url",
-            });
-        }
-        if (url.protocol !== "http:" && url.protocol !== "https:")
-            return err({ ...facts, kind: "address-scheme", reason: "scheme" });
-        if (url.username || url.password)
-            return err({ ...facts, kind: "address-has-credentials" });
-    }
-    return ok(undefined);
+    return validateEndpoints(set.endpoints ?? [], true);
 }
+
 /** Endpoint identities checked during sync, independently of process-only address overrides. */
 export function validateEndpointNames(
     endpoints: readonly Endpoint[],
+): Result<void, SettingsFailure> {
+    return validateEndpoints(endpoints, false);
+}
+
+function validateEndpoints(
+    endpoints: readonly Endpoint[],
+    addresses: boolean,
 ): Result<void, SettingsFailure> {
     const facts = { operation: "edit-settings", retrySafe: true } as const;
     const names = new Set<string>();
@@ -69,7 +59,23 @@ export function validateEndpointNames(
                 name: endpoint.name,
             });
         names.add(endpoint.name);
+        if (!addresses) continue;
+        let url: URL;
+        try {
+            url = new URL(endpoint.baseUrl);
+        } catch {
+            return err({
+                ...facts,
+                kind: "address-scheme",
+                reason: "invalid-url",
+            });
+        }
+        if (url.protocol !== "http:" && url.protocol !== "https:")
+            return err({ ...facts, kind: "address-scheme", reason: "scheme" });
+        if (url.username || url.password)
+            return err({ ...facts, kind: "address-has-credentials" });
     }
     return ok(undefined);
 }
+
 export { type SettingsFailure, settingsFailureText } from "./failure.ts";

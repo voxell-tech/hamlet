@@ -231,3 +231,56 @@ it("charges a provider's explicit zero bill instead of the catalogue price", asy
         await ledgerOf(home, HOME, localDay(home.now()), context),
     ).toMatchObject([{ what: "model", tokens: 120, micros: 0, billed: 0 }]);
 });
+
+it.each(["localhost:11434/v1", "http://chief:secret@127.0.0.1:1/v1"])(
+    "books catalogue prices with an unusable default override %s",
+    async (baseUrl) => {
+        const endpoint = await openaiFake();
+        endpoint.usage({ prompt_tokens: 100, completion_tokens: 20 });
+        const dir = scratch();
+        const seed = await testHome(dir, { models: fauxModels().models });
+        expect(
+            await seed.modelHome.editSettings(
+                {
+                    endpoints: [
+                        { name: "local", baseUrl: "http://127.0.0.1:1/v1" },
+                        { name: "backup", baseUrl: endpoint.url },
+                    ],
+                },
+                context,
+            ),
+        ).toMatchObject({ ok: true });
+        await seed.close(context);
+        const home = await testHome(dir, {
+            env: {
+                HAMLET_MODEL: "local::tiny",
+                HAMLET_BASE_URL: baseUrl,
+                HAMLET_REFLECT_EVERY: "0",
+            },
+        });
+        const { LimitsDoc } = await import("../src/limits.ts");
+        await home.harness.commit(async (tx) => {
+            (await tx.doc(LimitsDoc, HOME, HOME)).model = "backup::org/large";
+        }, context);
+        expect(
+            await home.modelHome.editCatalogue(
+                "backup::org/large",
+                { price: { input: 2, output: 3 } },
+                context,
+            ),
+        ).toMatchObject({ ok: true });
+        expect(await (await say(home, "Hello.")).wait(context)).toMatchObject({
+            status: "done",
+        });
+        expect(
+            await ledgerOf(home, HOME, localDay(home.now()), context),
+        ).toMatchObject([
+            {
+                what: "model",
+                model: "backup::org/large",
+                tokens: 120,
+                micros: 260,
+            },
+        ]);
+    },
+);

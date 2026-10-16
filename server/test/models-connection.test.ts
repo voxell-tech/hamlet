@@ -434,3 +434,27 @@ it("knows this machine without confusing a private network for localhost", () =>
     ])
         expect(isLocal(address)).toBe(false);
 });
+
+it.each([
+    { baseUrl: "localhost:11434/v1", kind: "address-scheme" },
+    {
+        baseUrl: "http://chief:secret@127.0.0.1:1/v1",
+        kind: "address-has-credentials",
+    },
+])(
+    "reports the first endpoint's $kind before a later endpoint name failure",
+    async ({ baseUrl, kind }) => {
+        const run = await served({ models: fauxModels().models });
+        expect(
+            await run.home.modelHome.editSettings(
+                {
+                    endpoints: [
+                        { name: "first", baseUrl },
+                        { name: "openai", baseUrl: "http://127.0.0.1:1/v1" },
+                    ],
+                },
+                context,
+            ),
+        ).toMatchObject({ ok: false, error: { kind } });
+    },
+);
