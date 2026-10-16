@@ -28,6 +28,7 @@ Then read the page for the part you are about to touch.
 | [`working-alone.md`](working-alone.md) | What a robot does in its yard while its agent works |
 | [`chief.md`](chief.md) | The chief in the world: the Hearth, the mascot and Wickstep |
 | [`sound.md`](sound.md) | Every sound and the music, all made in code |
+| [`sdk.md`](sdk.md) | What a feature of the window is built with, how to add a panel, and where plugins meet |
 | [`ui-warmth.md`](ui-warmth.md) | How the panels glow and answer the hand |
 | [`chat.md`](chat.md) | What an agent's chat holds, in what order, and how it is drawn as a group chat |
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
