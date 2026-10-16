@@ -3,35 +3,28 @@ import type { Conversation } from "@earendil-works/pi-durable";
 import type { Home } from "../home.ts";
 import { PeersDoc } from "../letters.ts";
 import type { ChatRef } from "../protocol.ts";
-import { type ChiefResult, chiefAccess } from "../realm/access.ts";
-import { resolve } from "../realm/roads.ts";
+
+import { type AddressFailure, livingAgent } from "../realm/roads.ts";
 import { agentKey } from "../record.ts";
+import type { Result } from "../result.ts";
 
 /** A chief's read-only conversation between two agents. */
 export async function agentConversation(
     home: Home,
     chat: ChatRef,
     context: Context,
-): Promise<ChiefResult<Conversation>> {
+): Promise<Result<Conversation, AddressFailure>> {
     if (!chat.from) throw new Error("Choose the other agent's conversation.");
-    const access = await chiefAccess(
+    const target = await livingAgent(
         home,
-        chat.with.hamlet,
+        chat.with,
         "watch conversations",
         context,
     );
-    if (!access.ok) return access;
-    const target = await resolve(
-        home.harness,
-        chat.with.hamlet,
-        `${chat.with.agent}@${chat.with.hamlet}`,
-        context,
-    );
-    if (!target) throw new Error(`no agent named \`${chat.with.agent}\``);
-    if ("gone" in target) throw new Error(target.gone);
+    if (!target.ok) return target;
     const peers = await home.harness.snapshot(
         PeersDoc,
-        agentKey(target.ref),
+        agentKey(target.value.ref),
         context,
     );
     const key = agentKey(chat.from);

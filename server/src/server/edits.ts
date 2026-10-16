@@ -8,8 +8,10 @@ import { editLimits } from "../limits.ts";
 import { editCatalogue, editSettings } from "../models.ts";
 import { CharacterDoc, editCharter } from "../prompt.ts";
 import type { Edit } from "../protocol.ts";
-import { type ChiefResult, chiefAccess } from "../realm/access.ts";
+import { chiefAccess } from "../realm/access.ts";
+import type { AddressFailure } from "../realm/roads.ts";
 import { agentKey } from "../record.ts";
+import type { Result } from "../result.ts";
 import { readableAgent } from "./reads.ts";
 
 /** A chief's validated document edit, applied before its reply (S6). */
@@ -17,7 +19,7 @@ export async function edit(
     home: Home,
     message: Edit,
     context: Context,
-): Promise<ChiefResult<string>> {
+): Promise<Result<string, AddressFailure>> {
     message = home.secrets.value(message);
     switch (message.doc) {
         case "charter":

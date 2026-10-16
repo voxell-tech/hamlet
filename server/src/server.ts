@@ -24,8 +24,8 @@ import { clearStagedGifts, give, uploads } from "./house.ts";
 import { checkConnection, checkModel, login as signIn } from "./models.ts";
 import type { Address, Login, LoginStep, ServerMessage } from "./protocol.ts";
 import { chiefAccess, legacyRefusal } from "./realm/access.ts";
-import { resolve } from "./realm/roads.ts";
-import { err, ok, type Result } from "./result.ts";
+import { livingAgent } from "./realm/roads.ts";
+import { ok, type Result } from "./result.ts";
 import { say } from "./say.ts";
 import { edit } from "./server/edits.ts";
 import {
@@ -76,24 +76,8 @@ export async function serveHome(
     const chatOf = async (
         address: Address,
     ): Promise<Result<ChatId, ChiefFailure>> => {
-        const access = await chiefAccess(
-            home,
-            address.hamlet,
-            "change chat",
-            context,
-        );
-        if (!access.ok) return access;
-        const target = await resolve(
-            home.harness,
-            address.hamlet,
-            `${address.agent}@${address.hamlet}`,
-            context,
-        );
-        if (!target)
-            return err({ kind: "agent-missing", agent: address.agent });
-        if ("gone" in target)
-            return err({ kind: "agent-gone", farewell: target.gone });
-        return ok({ agent: target.ref, chief: home.chief });
+        const target = await livingAgent(home, address, "change chat", context);
+        return target.ok ? ok(target.value.chat) : target;
     };
     await clearStagedGifts(home);
     const gifts = uploads(home, context);

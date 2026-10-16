@@ -41,9 +41,10 @@ import type {
     Turn,
     UsageView,
 } from "./protocol.ts";
-import { type ChiefResult, chiefAccess } from "./realm/access.ts";
-import { addressed, agentKey, RecordDoc } from "./record.ts";
-import { ok } from "./result.ts";
+import { chiefAccess } from "./realm/access.ts";
+import { type AddressFailure, livingAgent } from "./realm/roads.ts";
+import { agentKey, RecordDoc } from "./record.ts";
+import { ok, type Result } from "./result.ts";
 import { Scrubber } from "./scrub.ts";
 import { agentConversation } from "./transcript/peer.ts";
 
@@ -65,11 +66,14 @@ export type ChatWatch = {
 export async function watchChat(
     home: Home,
     chat: ChatRef,
-    send: (outcome: ChiefResult<Transcript | Turn>, to?: string) => void,
+    send: (
+        outcome: Result<Transcript | Turn, AddressFailure>,
+        to?: string,
+    ) => void,
     to: string | undefined,
     context: Context,
     before?: string,
-): Promise<ChiefResult<ChatWatch>> {
+): Promise<Result<ChatWatch, AddressFailure>> {
     const access = await chiefAccess(
         home,
         chat.with.hamlet,
@@ -136,15 +140,19 @@ export async function watchChat(
                 send(ok({ ...transcriptOf(chat, fold, usage), ...numbered }));
         });
     };
-    const agent = await addressed(home.harness, chat.with, context);
-    if (agent === undefined)
-        throw new Error(`no agent named \`${chat.with.agent}\``);
+    const target = await livingAgent(home, chat.with, "watch chat", context);
+    if (!target.ok) return target;
     let pointer: Awaited<ReturnType<Home["harness"]["watchDoc"]>> | undefined;
     let key: string | undefined;
     const follow = async () => {
-        const agent = await addressed(home.harness, chat.with, context);
-        if (!agent || stopped) return;
-        const next = agentKey(agent);
+        const target = await livingAgent(home, chat.with, "open chat", context);
+        if (stopped) return;
+        if (!target.ok) {
+            await watch?.stop();
+            send(target, to);
+            return;
+        }
+        const next = agentKey(target.value.ref);
         if (!chat.from && next !== key) {
             await pointer?.stop();
             pointer = await home.harness.watchDoc(ChatDoc, next, context);
@@ -185,7 +193,7 @@ export async function pageChat(
     chat: ChatRef,
     before: string,
     context: Context,
-): Promise<ChiefResult<Transcript>> {
+): Promise<Result<Transcript, AddressFailure>> {
     const outcome = await conversationOf(home, chat, context);
     if (!outcome.ok) return outcome;
     const conversation = outcome.value;
@@ -237,7 +245,7 @@ async function conversationOf(
     home: Home,
     chat: ChatRef,
     context: Context,
-): Promise<ChiefResult<Conversation>> {
+): Promise<Result<Conversation, AddressFailure>> {
     const access = await chiefAccess(
         home,
         chat.with.hamlet,
@@ -246,10 +254,9 @@ async function conversationOf(
     );
     if (!access.ok) return access;
     if (chat.from) return agentConversation(home, chat, context);
-    const agent = await addressed(home.harness, chat.with, context);
-    if (agent === undefined) {
-        throw new Error(`no agent named \`${chat.with.agent}\``);
-    }
+    const target = await livingAgent(home, chat.with, "open chat", context);
+    if (!target.ok) return target;
+    const agent = target.value.ref;
     if (chat.past === undefined) {
         return {
             ok: true,

@@ -23,7 +23,7 @@ import { OversightDoc } from "./oversight/waits.ts";
 import { queue, strip } from "./oversight/words.ts";
 import type { Say } from "./protocol.ts";
 import { chiefAccess, legacyRefusal } from "./realm/access.ts";
-import { resolve } from "./realm/roads.ts";
+import { livingAgent } from "./realm/roads.ts";
 import * as founding from "./realm.ts";
 import { addressed, agentKey } from "./record.ts";
 import { err, ok, type Result } from "./result.ts";
@@ -61,27 +61,17 @@ export async function say(
         );
     }
     if (command?.command === "to") {
-        const target = await resolve(
-            home.harness,
-            message.to.hamlet,
-            command.agent,
-            context,
-        );
-        if (!target)
-            return err({ kind: "agent-missing", agent: command.agent });
-        if ("gone" in target)
-            return err({ kind: "agent-gone", farewell: target.gone });
-        const access = await chiefAccess(
+        const target = await livingAgent(
             home,
-            target.hamlet,
+            { from: message.to.hamlet, text: command.agent },
             "instruct",
             context,
         );
-        if (!access.ok) return access;
+        if (!target.ok) return target;
         // D3 replaces this line-admission compatibility catch with ConversationFailure.
         const sub = await submitLine(
             home,
-            { agent: target.ref, chief: home.chief },
+            target.value.chat,
             { id: message.id, text: command.text },
             context,
         )
@@ -204,34 +194,23 @@ export async function say(
                 await stopChiefAgents(home, context).catch(legacyRefusal),
             );
         }
-        const target = await resolve(
-            home.harness,
-            message.to.hamlet,
-            command.agent,
+        const living = await livingAgent(
+            home,
+            { from: message.to.hamlet, text: command.agent },
+            "stop",
             context,
         );
-        if (!target)
-            return err({ kind: "agent-missing", agent: command.agent });
-        if ("gone" in target)
-            return err({ kind: "agent-gone", farewell: target.gone });
-        const access = await chiefAccess(home, target.hamlet, "stop", context);
-        if (!access.ok) return access;
+        if (!living.ok) return living;
         // D3 replaces this stop-call compatibility catch with ConversationFailure.
         return receipt(
-            await stopAgent(home, target.ref, context)
+            await stopAgent(home, living.value.ref, context)
                 .then(() => ok(`Stopping ${command.agent}.`))
                 .catch(legacyRefusal),
         );
     }
-    const target = await resolve(
-        home.harness,
-        message.to.hamlet,
-        `${message.to.agent}@${message.to.hamlet}`,
-        context,
-    );
-    if (target && "gone" in target)
-        return err({ kind: "agent-gone", farewell: target.gone });
-    const agent = target && "ref" in target ? target.ref : undefined;
+    const target = await livingAgent(home, message.to, "say", context);
+    if (!target.ok && target.error.kind !== "agent-missing") return target;
+    const agent = target.ok ? target.value.ref : undefined;
     if (
         agent !== undefined &&
         (command?.command === "new" ||
@@ -379,7 +358,8 @@ export async function say(
             `Not sent. ${own.by} is waiting for your answer:\n${strip(own)}`,
         );
     if (agent === undefined) {
-        return err({ kind: "agent-missing", agent: message.to.agent });
+        if (!target.ok) return target;
+        throw new Error("Resolved agent disappeared");
     }
     // D3 replaces this line-admission compatibility catch with ConversationFailure.
     const submission = await submitLine(

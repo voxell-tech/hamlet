@@ -1,5 +1,8 @@
 import type { Context } from "@earendil-works/chord";
 import type { DocumentReader } from "@earendil-works/pi-durable";
+import type { ChatId } from "../chats/conversations.ts";
+import type { Home } from "../home.ts";
+import type { Address, State } from "../protocol.ts";
 import {
     type AgentRef,
     type Archived,
@@ -10,6 +13,8 @@ import {
     RecordDoc,
     type RoadRecord,
 } from "../record.ts";
+import { err, ok, type Result } from "../result.ts";
+import { type ChiefRefusal, chiefAccess, chiefRefusalText } from "./access.ts";
 import {
     liveHamlets,
     type Realm,
@@ -20,8 +25,11 @@ import {
 
 /** An unavailable agent address, retaining a departed agent's farewell verbatim. */
 export type AddressFailure =
-    | { kind: "agent-missing"; agent: string }
-    | { kind: "agent-gone"; farewell: string };
+    | ChiefRefusal["error"]
+    | ({ operation: string; hamlet: string; agent: string } & (
+          | { kind: "agent-missing"; retrySafe: true }
+          | { kind: "agent-gone"; farewell: string; retrySafe: false }
+      ));
 
 /** Chief-facing wording for an unavailable agent address. */
 export function addressFailureText(failure: AddressFailure): string {
@@ -30,9 +38,97 @@ export function addressFailureText(failure: AddressFailure): string {
             return `no agent named \`${failure.agent}\``;
         case "agent-gone":
             return failure.farewell;
+        case "hamlet-missing":
+        case "hamlet-removed":
+        case "not-chief":
+            return chiefRefusalText({ ok: false, error: failure });
     }
     const unhandled: never = failure;
     throw new Error(`Unclassified address failure: ${unhandled}`);
+}
+
+/** Resolves the office and checks the receiving hamlet's chief before exposing a living chat. */
+export async function livingAgent(
+    home: Home,
+    address: Address | { from: string; text: string },
+    operation: string,
+    context: Context,
+): Promise<Result<{ ref: AgentRef; chat: ChatId }, AddressFailure>> {
+    const hamlet = "from" in address ? address.from : address.hamlet;
+    const agent = "from" in address ? address.text : address.agent;
+    if (!("from" in address)) {
+        const access = await chiefAccess(home, hamlet, operation, context);
+        if (!access.ok) return access;
+    }
+    const target = await resolveAddress(
+        home.harness,
+        hamlet,
+        "from" in address ? address.text : `${agent}@${hamlet}`,
+        context,
+    );
+    const facts = { operation, hamlet, agent };
+    if (!target.ok) {
+        if (target.error.kind === "departed")
+            return err({
+                ...facts,
+                kind: "agent-gone",
+                farewell: target.error.farewell,
+                retrySafe: false,
+            });
+        return err({ ...facts, kind: "agent-missing", retrySafe: true });
+    }
+    if ("from" in address) {
+        const access = await chiefAccess(
+            home,
+            target.value.hamlet,
+            operation,
+            context,
+        );
+        if (!access.ok) return access;
+    }
+    return ok({
+        ref: target.value.ref,
+        chat: { agent: target.value.ref, chief: home.chief },
+    });
+}
+
+/** A living address in a client's received state; archived agents never resolve. */
+export function findInState(
+    state: State,
+    address: Address,
+): AgentRef | undefined {
+    return state.agents.find(
+        (agent) =>
+            !agent.left &&
+            agent.ref.hamlet === address.hamlet &&
+            (address.agent === MAYOR
+                ? agent.mayor
+                : agent.name === address.agent),
+    )?.ref;
+}
+
+/** A tool address refused before any work is admitted. */
+export type ResolveFailure =
+    | { kind: "malformed" }
+    | { kind: "unknown"; address: string }
+    | { kind: "departed"; farewell: string };
+
+/** Resolves a name across the realm, keeping an unqualified office local to its sender. */
+export async function resolveAddress(
+    read: DocumentReader,
+    from: string,
+    text: string,
+    context: Context,
+): Promise<
+    Result<{ ref: AgentRef; address: string; hamlet: string }, ResolveFailure>
+> {
+    const [name, , extra] = text.split("@");
+    if (!name || extra !== undefined) return err({ kind: "malformed" });
+    const target = await resolve(read, from, text, context);
+    if (!target) return err({ kind: "unknown", address: text });
+    if ("gone" in target)
+        return err({ kind: "departed", farewell: target.gone });
+    return ok(target);
 }
 
 /** A departed agent's refusal (H28). */

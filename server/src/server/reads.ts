@@ -9,17 +9,17 @@ import { houseSkills } from "../house/skills.ts";
 import { catalogueOf, refreshModels } from "../models.ts";
 import { CharacterDoc, CharterDoc, charterOf, told } from "../prompt.ts";
 import type { Address, Listed, Read, ReadResult } from "../protocol.ts";
-import { type ChiefResult, chiefAccess } from "../realm/access.ts";
-import { resolve } from "../realm/roads.ts";
+
+import { type AddressFailure, livingAgent } from "../realm/roads.ts";
 import { type AgentRef, agentKey } from "../record.ts";
-import { ok } from "../result.ts";
+import { ok, type Result } from "../result.ts";
 
 /** A chief's view of the prompt, history, catalogue and papers (C14, C24). */
 export async function read(
     home: Home,
     message: Read,
     context: Context,
-): Promise<ChiefResult<ReadResult>> {
+): Promise<Result<ReadResult, AddressFailure>> {
     const reply = { type: "read", to: message.id } as const;
     if (message.what === "charter")
         return ok({
@@ -97,21 +97,12 @@ export async function readableAgent(
     home: Home,
     address: Address,
     context: Context,
-): Promise<ChiefResult<AgentRef>> {
-    const access = await chiefAccess(
+): Promise<Result<AgentRef, AddressFailure>> {
+    const target = await livingAgent(
         home,
-        address.hamlet,
+        address,
         "read or edit papers",
         context,
     );
-    if (!access.ok) return access;
-    const resolved = await resolve(
-        home.harness,
-        address.hamlet,
-        `${address.agent}@${address.hamlet}`,
-        context,
-    );
-    if (!resolved) throw new Error(`no agent named \`${address.agent}\``);
-    if ("gone" in resolved) throw new Error(resolved.gone);
-    return { ok: true, value: resolved.ref };
+    return target.ok ? ok(target.value.ref) : target;
 }
