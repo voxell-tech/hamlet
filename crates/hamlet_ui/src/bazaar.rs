@@ -59,6 +59,13 @@ pub(crate) fn plugin(app: &mut App) {
     )
     .init_resource::<Browsing>()
     .init_resource::<StallShown>()
+    .add_plugins((
+        artisans::plugin,
+        counter::plugin,
+        hamlets::plugin,
+        plugins::plugin,
+        skills::plugin,
+    ))
     .add_systems(
         Update,
         (

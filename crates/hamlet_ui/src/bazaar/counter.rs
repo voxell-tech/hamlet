@@ -8,6 +8,8 @@ use hamlet_world::bazaar::Stall;
 use crate::AnyView;
 use crate::looks::{headed, note, title};
 
+pub(super) fn plugin(_app: &mut bevy::app::App) {}
+
 /// The counter of `stall`.
 pub(super) fn counter(stall: Stall) -> AnyView {
     let keeper = stall.keeper();
