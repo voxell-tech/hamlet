@@ -10,6 +10,7 @@ it elsewhere.
   bazaar.json     what OpenRouter and the endpoints offer, asked again each day; safe to delete
   skills_sh.json  the skills skills.sh lists, asked again each day; safe to delete
   bought.json     what was bought at the bazaar's server and written into the home, at which version
+  looks.json      what each agent and hamlet wears of the official assets, by name
   library/        the skills every agent shares, one folder each
   library.jsonl   what was shelved there, refused and taken out
   charter.md      your own charter, the words every agent's prompt opens with; absent until you edit it
@@ -45,7 +46,7 @@ model) shows every model OpenRouter offers, with its price, context,
 abilities and benchmark scores, and the models of each other endpoint.
 OpenRouter's list needs no key and is kept in `bazaar.json` for a day.
 In the world the bazaar is a market beside the first town: a
-merchant's pavilion and five stalls round it, each with its keeper.
+merchant's pavilion and six stalls round it, each with its keeper.
 Select the pavilion to see the models the home bought; select a stall
 and the Inspector shows what it sells, the same page as that stall's
 tab in the bazaar's panel. Far from the camera the bazaar is drawn
@@ -59,11 +60,22 @@ plain and its small things are hidden, as towns and robots are. Where a chief se
 | Plugins | Tobias Cogsworth | Tools other chiefs put up at the bazaar's server | Adds the tools to the house of the agent chosen, under its `tools/` |
 | Skills | Sister Marjoram | Skills listed on skills.sh | Shelves the skill in `library/`, recorded in `library.jsonl` with `from` its source; no librarian is asked, since the chief chose it |
 | Hamlet Templates | Lady Ashgrove | Hamlets other chiefs put up at the bazaar's server, each shown as a turning diorama | Founds the hamlet: its mayor, its agents and their characters, notes and skills |
+| Official Assets | Madame Perpetua | Skins, emotes and meshes made by the Hamlet team, each turned on a turntable of its pictures | Owns it, to be worn by any agent or hamlet; nothing is written into the home |
 
 Adding a model writes it to `models.toml`, allowed; one from OpenRouter
 first signs the chief in to OpenRouter when the home has no endpoint
 there. Only added models are in `models.toml`: List Models updates
 their prices and drops those an endpoint no longer serves.
+
+### Looks
+
+What the Asset stall sells is worn from the Inspector: an agent's
+CHARACTER tab and a hamlet's LOOKS tab choose, for each kind, one of the
+owned assets that fit, or none; an agent wearing an emote can play it at
+once. What each wears is kept by name in `looks.json`: an agent by its
+name, a hamlet by the name it is kept on disk by. The assets' files are
+downloaded each run and never written to disk. [`looks.md`](looks.md)
+has their formats.
 
 
 ## Buying and selling at the bazaar's server
@@ -74,7 +86,8 @@ routes are in [`hamlet-server/docs/api.md`](../hamlet-server/docs/api.md).
 The server is `HAMLET_BAZAAR_URL`, else `bazaar_url` in `config.toml`,
 else `http://localhost:8787`.
 
-A chief signs in with GitHub from any of the three stalls; the token is
+A chief signs in with GitHub from any of these stalls or the Asset stall,
+which sells the official assets on the same account; the token is
 kept like an API key, under `bazaar_token`. Paid listings are paid on
 Stripe's page in the browser; the seller receives 90% and the bazaar
 keeps 10%. A free one is owned at once.

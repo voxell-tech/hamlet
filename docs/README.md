@@ -29,6 +29,7 @@ Then read the page for the part you are about to touch.
 | [`chief.md`](chief.md) | The chief in the world: the Hearth, the mascot and Wickstep |
 | [`sound.md`](sound.md) | Every sound and the music, all made in code |
 | [`ui-warmth.md`](ui-warmth.md) | How the panels glow and answer the hand |
+| [`looks.md`](looks.md) | What agents and hamlets wear from the Asset stall: the formats of skins, emotes and meshes, how each is worn, and how the official assets are made and published |
 | [`chat.md`](chat.md) | What an agent's chat holds, in what order, and how it is drawn as a group chat |
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
 | [`cursors.md`](cursors.md) | The pointer and its modes |

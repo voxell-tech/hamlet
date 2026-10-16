@@ -106,6 +106,8 @@ Paths are under `crates/`.
 | The bazaar's server, where chiefs sell agents, hamlets and plugins | `hamlet-server/`, a TypeScript Worker; its routes in `hamlet-server/docs/api.md`, its client in `hamlet_model/src/market/client.rs` |
 | Packing what is sold, and writing what is bought into the home | `hamlet_rules/src/market/`; the package format in `hamlet_model/src/market/package.rs` |
 | The seller's desk and the box a listing is bought from | `hamlet_ui/src/bazaar/desk.rs`, `hamlet_ui/src/bazaar/trade.rs` |
+| The Asset stall: its shelves, an asset's turntable and the deal | `hamlet_ui/src/bazaar/wardrobe.rs`, `wardrobe/turntable.rs`; bought through `hamlet_core/src/wardrobe.rs`; its booth in the world in `hamlet_world/src/bazaar/build/stall/costumier.rs` |
+| What an agent or a hamlet wears, chosen in the Inspector | `hamlet_ui/src/bazaar/wardrobe/fitting.rs`; kept in `looks.json` by `hamlet_model/src/wardrobe.rs`; [`looks.md`](looks.md) |
 | A hamlet drawn small, apart from the world | `hamlet_world/src/diorama.rs` |
 | Founding a bought hamlet whole | `Realm::found_bought` in `hamlet_rules/src/realm/bought.rs` |
 | The model client | `hamlet_model/src/provider/` |
@@ -122,6 +124,7 @@ Paths are under `crates/`.
 | A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`. What each value means is beside its field in the code |
 | The height something stands at | `LandData::surface`: the ground as it is drawn, never the smooth `height` |
 | How a house looks | `hamlet_world/src/generator/house.rs` |
+| What a hamlet's houses wear: skins, meshes, emotes | `hamlet_world/src/generator/attire.rs`; [`looks.md`](looks.md) |
 | How a robot moves | `hamlet_world/src/keeper/acts/`; [`robots.md`](robots.md) |
 | An effect | `hamlet_vfx/src/`; when it is set off, `hamlet_world/src/generator/magic.rs` |
 | A sound or the music | `hamlet_world/src/sound/`; [`sound.md`](sound.md) |
