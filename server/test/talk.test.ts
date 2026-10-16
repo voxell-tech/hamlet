@@ -3,7 +3,14 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it, vi } from "vitest";
-import { carryOn, history, resume, start } from "../src/chats.ts";
+import {
+    carryOn,
+    conversationFailureText,
+    history,
+    ReflectionDoc,
+    resume,
+    start,
+} from "../src/chats.ts";
 import { answer } from "../src/gate.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { HOME } from "../src/record.ts";
@@ -155,6 +162,18 @@ it("carries a failed turn on under a new task, without another chief line, and r
             )
         ).wait(context),
     ).toMatchObject({ status: "done" });
+    await home.follow.settled(context);
+    expect(
+        (
+            await home.harness.snapshot(
+                ReflectionDoc,
+                (
+                    await mayorChat(home)
+                ).id,
+                context,
+            )
+        )?.unreflected,
+    ).toBe(1);
     const entries = await transcript(await mayorChat(home));
     const chief = entries.find((entry) => entry.kind === "hamlet.chief");
     const carried = entries.find((entry) => entry.kind === "hamlet.retry");
@@ -299,6 +318,10 @@ it("refuses retry during a running turn instead of carrying on after its answer"
     await first.wait(context);
     await (await mayorChat(home)).waitForIdle(context);
     expect(attempted).toMatchObject({ ok: false, error: { kind: "busy" } });
+    if (attempted.ok) throw new Error("Retry admitted while busy");
+    expect(conversationFailureText(attempted.error)).toBe(
+        "A turn is running here. Stop it, then retry.",
+    );
     expect(faux.state.callCount).toBe(1);
     expect(
         (await transcript(await mayorChat(home))).some(

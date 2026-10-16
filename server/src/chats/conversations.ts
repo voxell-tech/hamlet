@@ -154,6 +154,16 @@ export async function submitLine(
     return conversation.submit(chiefInput(chat.chief, line, task, at), context);
 }
 
+/** The selected session number, without creating a conversation or reading its entries. */
+export async function currentNumber(
+    home: Home,
+    chat: ChatId,
+    context: Context,
+): Promise<number | undefined> {
+    return (await home.harness.snapshot(ChatDoc, agentKey(chat.agent), context))
+        ?.chats[chat.chief]?.current;
+}
+
 /** The current conversation of `chat`, which its first use starts. */
 export async function current(
     home: Home,

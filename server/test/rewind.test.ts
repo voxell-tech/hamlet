@@ -3,7 +3,15 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it, vi } from "vitest";
-import { carryOn, history, start, takeBack, usageOf } from "../src/chats.ts";
+import {
+    carryOn,
+    conversationFailureText,
+    history,
+    ReflectionDoc,
+    start,
+    takeBack,
+    usageOf,
+} from "../src/chats.ts";
 import { answer } from "../src/gate.ts";
 import { raiseFault } from "../src/oversight.ts";
 import {
@@ -64,6 +72,10 @@ describe("rewind", () => {
         ).toMatchObject({ ok: true, value: { text: "two", kind: "rewound" } });
         const fork = await mayorChat(home);
         expect(fork.id).not.toBe(old.id);
+        expect(
+            (await home.harness.snapshot(ReflectionDoc, fork.id, context))
+                ?.unreflected,
+        ).toBe(1);
         expect(await openWaits(home)).toEqual([]);
         expect(
             (await fork.context(context)).messages
@@ -128,10 +140,13 @@ describe("rewind", () => {
         const second = await say(home, "two");
         await vi.waitFor(() => expect(release).toBeTypeOf("function"));
         await say(home, "three");
-        expect(
-            await takeBack(home, chat, `${first.id}:0`, context),
-        ).toMatchObject({ ok: false, error: { kind: "busy" } });
+        const busy = await takeBack(home, chat, `${first.id}:0`, context);
         release?.();
+        expect(busy).toMatchObject({ ok: false, error: { kind: "busy" } });
+        if (busy.ok) throw new Error("Rewind admitted while busy");
+        expect(conversationFailureText(busy.error)).toBe(
+            "A turn is running here. Stop it, then rewind.",
+        );
         await second.wait(context);
         await (await mayorChat(home)).waitForIdle(context);
         const entries = await transcript(await mayorChat(home));
@@ -277,8 +292,10 @@ it("refuses a rewind with only a queued write and no running turn", async () => 
     expect(
         (await home.harness.snapshot(LiveDoc, conversation.id, context))?.run,
     ).toBeUndefined();
-    expect(await takeBack(home, chat, `${target}:0`, context)).toMatchObject({
-        ok: false,
-        error: { kind: "busy" },
-    });
+    const busy = await takeBack(home, chat, `${target}:0`, context);
+    expect(busy).toMatchObject({ ok: false, error: { kind: "busy" } });
+    if (busy.ok) throw new Error("Rewind admitted with a queued write");
+    expect(conversationFailureText(busy.error)).toBe(
+        "A turn is running here. Stop it, then rewind.",
+    );
 });

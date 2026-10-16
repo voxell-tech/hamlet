@@ -2,7 +2,15 @@ import type { Context } from "@earendil-works/chord";
 import type { Submission } from "@earendil-works/pi-durable";
 import * as agents from "./agents.ts";
 import { submitLine } from "./chats/conversations.ts";
-import { carryOn, history, reflect, resume, start, stop } from "./chats.ts";
+import {
+    carryOn,
+    currentNumber,
+    history,
+    reflect,
+    resume,
+    start,
+    stop,
+} from "./chats.ts";
 import { readCommand } from "./commands.ts";
 import { connectionFailureText } from "./connection.ts";
 import { folder, setMode } from "./environment.ts";
@@ -234,9 +242,7 @@ export async function say(
     const number =
         agent === undefined
             ? undefined
-            : (await history(home, { agent, chief: home.chief }, context)).find(
-                  (each) => each.current,
-              )?.number;
+            : await currentNumber(home, { agent, chief: home.chief }, context);
     const own =
         waits.find(
             (wait) =>

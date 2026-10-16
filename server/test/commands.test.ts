@@ -507,3 +507,111 @@ it("holds words to founder at its mayor's wait and answers that conversation bef
         (await transcript(await mayorChat(home))).filter(ChiefEntry.is),
     ).toHaveLength(1);
 });
+
+it("answers the current session's question even before it has a chief line", async () => {
+    const { current, QuestionEntry, start, TaskDoc } = await import(
+        "../src/chats.ts"
+    );
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), {
+        models,
+        env: { HAMLET_REFLECT_EVERY: "0" },
+    });
+    const chat = { agent: { hamlet: "home", number: 0 }, chief: home.chief };
+    faux.setResponses([
+        fauxAssistantMessage(
+            fauxToolCall("ask_chief", { question: "Old question?" }),
+            { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage(
+            fauxToolCall("ask_chief", { question: "Current question?" }),
+            { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage("Answered"),
+    ]);
+    await chiefSay(home, "Old work");
+    await vi.waitFor(async () => expect(await openWaits(home)).toHaveLength(1));
+    await start(home, chat, context);
+    const conversation = await current(home, chat, context);
+    await home.harness.commit(async (tx) => {
+        (
+            await tx.doc(
+                TaskDoc,
+                "question-without-chief-line",
+                "question-without-chief-line",
+            )
+        ).chief = home.chief;
+    }, context);
+    await conversation.submit(
+        {
+            type: "input",
+            content: "A question from another mayor",
+            entry: {
+                kind: QuestionEntry.kind,
+                data: {
+                    from: { hamlet: "home", number: 0 },
+                    task: "question-without-chief-line",
+                    at: home.now(),
+                },
+            },
+        },
+        context,
+    );
+    await vi.waitFor(async () => expect(await openWaits(home)).toHaveLength(2));
+    expect(await typed(home, "Wheat")).toMatchObject({
+        kind: "notice",
+        text: expect.stringContaining("Answered /reply"),
+    });
+    expect((await openWaits(home)).map((wait) => wait.about)).toEqual([
+        "Old question?",
+    ]);
+    await conversation.waitForIdle(context);
+});
+
+it.each([
+    { path: "typed", kind: "notice" },
+    { path: "protocol", kind: "error" },
+] as const)(
+    "returns a $kind reply for $path retry while busy",
+    async ({ path, kind }) => {
+        const { request, served, mayor } = await import(
+            "./connection-support.ts"
+        );
+        const { models, faux } = fauxModels();
+        const run = await served({
+            models,
+            env: { HAMLET_REFLECT_EVERY: "0" },
+        });
+        let release: (() => void) | undefined;
+        faux.setResponses([
+            async () => {
+                await new Promise<void>((resolve) => {
+                    release = resolve;
+                });
+                return fauxAssistantMessage("Answered");
+            },
+        ]);
+        const input = await chiefSay(run.home, "Work");
+        try {
+            await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+            const id = randomUUID();
+            expect(
+                await request(
+                    run.connection,
+                    run.messages,
+                    path === "typed"
+                        ? { type: "say", id, to: mayor, text: "/retry" }
+                        : { type: "retry", id, to: mayor },
+                ),
+            ).toEqual({
+                type: "reply",
+                to: id,
+                kind,
+                text: "A turn is running here. Stop it, then retry.",
+            });
+        } finally {
+            release?.();
+            await input.wait(context);
+        }
+    },
+);

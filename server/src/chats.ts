@@ -28,6 +28,7 @@ export {
     chiefInput,
     conversationsOf,
     current,
+    currentNumber,
     currentOf,
     ErrandEntry,
     LetterEntry,

@@ -451,7 +451,12 @@ it("does not reread old peer entries on state refresh and updates counts after n
 it("keeps the writer of an earlier peer message named after successive moves", async () => {
     const { addHamlet, MAYOR } = await import("./support.ts");
     const { models, faux } = fauxModels();
-    const run = await served({ models, env: { HAMLET_REFLECT_EVERY: "0" } });
+    let clock = Date.now();
+    const run = await served({
+        models,
+        now: () => clock++,
+        env: { HAMLET_REFLECT_EVERY: "0" },
+    });
     const scout = await addAgent(run.home, "home", "scout");
     const mill = await addHamlet(run.home, "mill", "miller");
     const dock = await addHamlet(run.home, "dock", "docker");

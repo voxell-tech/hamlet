@@ -429,12 +429,13 @@ async function move(
     old.roads = old.roads.filter(
         (r) => r.a !== ref.number && r.b !== ref.number,
     );
+    const at = home.now();
     old.decisions.push({
         kind: "moved_out",
         agent: ref.number,
         name,
         hamlet: args.to,
-        at: home.now(),
+        at,
         by: `mayor@${caller.hamlet}`,
         reason: args.reason,
     });
@@ -443,7 +444,7 @@ async function move(
         agent: next.number,
         name,
         hamlet: ref.hamlet,
-        at: home.now(),
+        at,
         by: `mayor@${caller.hamlet}`,
         reason: args.reason,
     });
