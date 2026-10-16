@@ -29,7 +29,7 @@ operations separate from entries that compose parts.
 | models | `models/endpoints.ts` |
 | oversight | `oversight/asked.ts`, `oversight/waits.ts`, `oversight/words.ts` |
 | realm | `realm/access.ts`, `realm/places.ts`, `realm/roads.ts` |
-| sandbox | `sandbox/policy.ts` |
+| sandbox | `sandbox/policy.ts`, `sandbox/reach.ts` |
 | spend | `spend/ledger.ts`, `spend/money.ts`, `spend/usage.ts` |
 
 These leaves may value-import only each other, the shared entries
@@ -38,7 +38,7 @@ These leaves may value-import only each other, the shared entries
 conversation core: `chats/conversations.ts`, `chats/errands.ts`,
 `chats/roles.ts`, `models/choice.ts`. That core is also directly importable
 and follows the same dependency rule. Type-only imports may reach the
-owning entries. Only `cli/serving.ts` value-imports the composition root
+owning entries. Shared entries and their folders follow the same leaf rule. Only `cli/serving.ts` value-imports the composition root
 `home.ts`; home helpers are imported from their leaves.
 
 `test/structure.test.ts` checks these paths and the value-import graph,

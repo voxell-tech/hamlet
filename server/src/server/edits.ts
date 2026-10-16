@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { chatOf } from "../chats/conversations.ts";
-import { envFor } from "../environment.ts";
+import { agentEnv } from "../environment.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Home } from "../home.ts";
 import { editLimits } from "../limits.ts";
@@ -40,7 +40,7 @@ export async function edit(
                     { agent, chief: home.chief },
                     context,
                 );
-                const env = await envFor(
+                const env = await agentEnv(
                     home,
                     { conversationId: conversation.id, read: home.harness },
                     { net: false },

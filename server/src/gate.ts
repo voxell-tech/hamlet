@@ -12,8 +12,9 @@ import { CHANGE, changeOf } from "./change.ts";
 import { ReflectionEntry, type With, WithDoc } from "./chats/conversations.ts";
 import { turnOf } from "./chats/turn.ts";
 import {
-    envFor,
+    agentEnv,
     footing,
+    insideHouse,
     LEAVE,
     type Leave,
     placeOf,
@@ -47,7 +48,6 @@ import { line, strip } from "./oversight/words.ts";
 import { holdFor } from "./oversight.ts";
 import { type ChiefResult, chiefAccess } from "./realm/access.ts";
 import { addressOf, RecordDoc } from "./record.ts";
-import { canon, within } from "./sandbox.ts";
 import { safeValue, safeWords } from "./scrub.ts";
 import { SettingsDoc, settingsOf } from "./settings.ts";
 
@@ -222,7 +222,7 @@ export const Gate: Part = (home) => ({
                             api.conversationId,
                             context,
                         );
-                        const env = await envFor(
+                        const env = await agentEnv(
                             home,
                             { conversationId: api.conversationId, read: api },
                             { net: false },
@@ -290,14 +290,12 @@ export const Gate: Part = (home) => ({
                                     place.hamlet,
                                 );
                                 if (
-                                    within(
-                                        canon(
-                                            footing(path, {
-                                                house,
-                                                folder: work.folder,
-                                            }),
-                                        ),
-                                        canon(house),
+                                    insideHouse(
+                                        footing(path, {
+                                            house,
+                                            folder: work.folder,
+                                        }),
+                                        house,
                                     )
                                 )
                                     standing.asksEdits = false;

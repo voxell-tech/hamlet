@@ -381,18 +381,6 @@ export class SandboxEnv extends NodeExecutionEnv {
             : this.#call("canonicalPath", [path], context);
     }
 
-    /** A house shelf listed and read in one sandboxed call. */
-    async skillShelf(
-        path: string,
-        contents: boolean,
-        context: Context,
-    ): Promise<Result<import("../house.ts").SkillPaper[], FileError>> {
-        const refused = await this.#refused(path, "read", context);
-        return refused
-            ? err(refused)
-            : this.#call("skills", [path, contents], context);
-    }
-
     /** Closes the helper and removes temp contents owned by this scope. */
     override async cleanup(context: Context): Promise<void> {
         await super.cleanup(context);

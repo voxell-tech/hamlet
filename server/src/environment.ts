@@ -1,17 +1,17 @@
+import { randomUUID } from "node:crypto";
 import type { Context } from "@earendil-works/chord";
 import type {
     ConversationId,
     DocumentReader,
 } from "@earendil-works/pi-durable";
 import { placeOf } from "./environment/place.ts";
+import type { Manifest } from "./hand/manifests.ts";
+import { houseOf } from "./home/layout.ts";
 import type { HomeBase } from "./home.ts";
-import {
-    closedPolicy,
-    directoryRoot,
-    openPolicy,
-    policyHash,
-    SandboxEnv,
-} from "./sandbox.ts";
+import type { AgentRef } from "./record.ts";
+import { canon, directoryRoot, policyHash, within } from "./sandbox/policy.ts";
+import { closedPolicy, openPolicy } from "./sandbox/reach.ts";
+import { SandboxEnv } from "./sandbox.ts";
 
 /** The name of the tool task memo a gate leaves for one call. */
 export const LEAVE = "hamlet.leave";
@@ -21,15 +21,35 @@ export type Leave = {
     net: boolean;
 };
 
-const environments = new WeakMap<object, Map<string, SandboxEnv>>();
+/** Conversation environments whose helpers close with their home. */
+export class Confinement {
+    readonly #environments = new Map<string, SandboxEnv>();
+
+    /** Reuses only environments with the same working directory and complete policy. */
+    keep(key: string, create: () => SandboxEnv): SandboxEnv {
+        let env = this.#environments.get(key);
+        if (env === undefined) {
+            env = create();
+            this.#environments.set(key, env);
+        }
+        return env;
+    }
+
+    /** Closes every cached file helper. */
+    async close(context: Context): Promise<void> {
+        for (const env of this.#environments.values())
+            await env.cleanup(context);
+        this.#environments.clear();
+    }
+}
 
 /**
  * The environment of a conversation's tools, under the sandbox (S12, C18). It works in the folder, or in the house
  * when there is none; writes the house and the folder; reads the tools added by hand and the library; and never reads
  * the rest of the home. It reaches the network only with `leave`.
  */
-export async function envFor(
-    home: Pick<HomeBase, "layout" | "sandbox">,
+export async function agentEnv(
+    home: Pick<HomeBase, "layout" | "sandbox" | "confinement">,
     target: {
         readonly conversationId: ConversationId;
         readonly read: DocumentReader;
@@ -59,27 +79,96 @@ export async function envFor(
     policy.net = leave.net;
     const cwd = place.folder ?? place.house;
     const key = `${cwd}:${policyHash(policy, home.sandbox.name)}`;
-    let kept = environments.get(home.layout);
-    if (kept === undefined) {
-        kept = new Map();
-        environments.set(home.layout, kept);
-    }
-    let env = kept.get(key);
-    if (env === undefined) {
-        env = new SandboxEnv({ cwd, policy, sandbox: home.sandbox });
-        kept.set(key, env);
-    }
-    return env;
+    return home.confinement.keep(
+        key,
+        () => new SandboxEnv({ cwd, policy, sandbox: home.sandbox }),
+    );
 }
 
-/** Closed file helpers and commands belonging to this home. */
-export async function closeEnvironments(
-    home: Pick<HomeBase, "layout">,
-    context: Context,
-): Promise<void> {
-    const kept = environments.get(home.layout);
-    environments.delete(home.layout);
-    for (const env of kept?.values() ?? []) await env.cleanup(context);
+/** A read-only house environment; the caller closes its helper. */
+export function houseReader(
+    home: Pick<HomeBase, "layout" | "sandbox">,
+    agent: AgentRef | { path: string },
+    _context: Context,
+): SandboxEnv {
+    const root = "path" in agent ? agent.path : houseOf(home.layout, agent);
+    directoryRoot(root);
+    const policy = closedPolicy(root, [root, process.execPath]);
+    policy.rw = [];
+    return new SandboxEnv({
+        cwd: root,
+        policy,
+        sandbox: home.sandbox,
+        tmpScope: `papers-${randomUUID()}`,
+    });
+}
+
+/** A closed tree worker; only its stage is writable and its source is readable. */
+export function treeWorker(
+    home: Pick<HomeBase, "sandbox">,
+    options: {
+        root: string;
+        stage?: string;
+        caps: { bytes: number; entries: number };
+    },
+): SandboxEnv {
+    const { root, stage, caps } = options;
+    directoryRoot(root);
+    if (stage !== undefined) directoryRoot(stage);
+    const cwd = stage ?? root;
+    const policy = closedPolicy(cwd, [root, process.execPath]);
+    policy.rw = stage === undefined ? [] : [stage];
+    policy.env = { PATH: "/usr/bin:/bin", HOME: cwd, LANG: "C.UTF-8" };
+    policy.limits = {
+        maxFileMb: Math.max(1, Math.ceil(caps.bytes / (1024 * 1024)) + 1),
+        wallSecs: 120,
+    };
+    return new SandboxEnv({
+        cwd,
+        policy,
+        sandbox: home.sandbox,
+        tmpScope: `trees-${randomUUID()}`,
+    });
+}
+
+/** A hand tool's declared reach with server-owned folders protected from writes. */
+export function toolRunner(
+    home: Pick<HomeBase, "layout" | "sandbox">,
+    manifest: Manifest,
+    net: boolean,
+    scope: string,
+): SandboxEnv {
+    return new SandboxEnv({
+        cwd: manifest.dir,
+        sandbox: home.sandbox,
+        tmpScope: scope,
+        policy: {
+            ro: manifest.ro,
+            rw: manifest.rw,
+            open: false,
+            hidden: [],
+            locked: [
+                home.layout.tools,
+                manifest.dir,
+                home.layout.gifts,
+                home.layout.erasing,
+            ],
+            net: manifest.net && net,
+            services: [],
+            env: { ...home.sandbox.baseEnv(), ...manifest.env },
+            limits: {
+                ...(manifest.wallSecs !== null && {
+                    wallSecs: manifest.wallSecs,
+                }),
+                ...(manifest.cpuSecs !== null && { cpuSecs: manifest.cpuSecs }),
+            },
+        },
+    });
+}
+
+/** Canonical house containment for the manual-mode edit exemption. */
+export function insideHouse(path: string, house: string): boolean {
+    return within(canon(path), canon(house));
 }
 
 export { footing } from "./environment/footing.ts";
@@ -90,4 +179,6 @@ export {
     setMode,
     type Work,
     WorkDoc,
+    type WorkFailure,
+    workFailureText,
 } from "./environment/work.ts";

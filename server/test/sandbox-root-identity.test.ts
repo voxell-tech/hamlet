@@ -13,7 +13,8 @@ import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import { getOrThrow } from "@earendil-works/pi-durable/env";
 import { expect, it, vi } from "vitest";
-import { closedPolicy, openPolicy, SandboxEnv } from "../src/sandbox.ts";
+import { closedPolicy, openPolicy } from "../src/sandbox/reach.ts";
+import { SandboxEnv } from "../src/sandbox.ts";
 import { context, scratch, sh } from "./support.ts";
 
 const kinds = [

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readdir, rename, rm } from "node:fs/promises";
 import {
     basename,
@@ -12,15 +11,11 @@ import {
     win32,
 } from "node:path";
 import type { Context } from "@earendil-works/chord";
+import { treeWorker } from "../environment.ts";
 import type { Home } from "../home.ts";
 import { MAX_GIFT_BYTES } from "../protocol.ts";
-import {
-    canon,
-    closedPolicy,
-    directoryRoot,
-    SandboxEnv,
-    within,
-} from "../sandbox.ts";
+import { canon, within } from "../sandbox/policy.ts";
+import type { SandboxEnv } from "../sandbox.ts";
 
 const deliveries = new WeakMap<Home, Promise<unknown>>();
 const REFUSED =
@@ -258,7 +253,7 @@ async function copyInto(
     caps: Readonly<TreeCaps>,
     context: Context,
 ): Promise<void> {
-    const env = treeEnv(home, source, root, caps);
+    const env = treeWorker(home, { root: source, stage: root, caps });
     const paths = targets.map((name) => join(root, into, name));
     let claimed: string | undefined;
     try {
@@ -351,30 +346,6 @@ function treeRel(rel: string, whole = false): void {
         );
 }
 
-function treeEnv(
-    home: Home,
-    root: string,
-    stage?: string,
-    caps: Readonly<TreeCaps> = MERGE_CAPS,
-): SandboxEnv {
-    directoryRoot(root);
-    if (stage !== undefined) directoryRoot(stage);
-    const envRoot = stage ?? root;
-    const policy = closedPolicy(envRoot, [root, process.execPath]);
-    policy.rw = stage === undefined ? [] : [stage];
-    policy.env = { PATH: "/usr/bin:/bin", HOME: envRoot, LANG: "C.UTF-8" };
-    policy.limits = {
-        maxFileMb: Math.max(1, Math.ceil(caps.bytes / (1024 * 1024)) + 1),
-        wallSecs: 120,
-    };
-    return new SandboxEnv({
-        cwd: envRoot,
-        policy,
-        sandbox: home.sandbox,
-        tmpScope: `trees-${randomUUID()}`,
-    });
-}
-
 /** A no-follow copy into a private stage, using the source's basename or the whole root for `rel: "."`. */
 export async function stageTree(
     home: Home,
@@ -405,7 +376,7 @@ export async function stageTree(
             (await readdir(stage)).length !== 0
         )
             throw new Error("The private stage must be an empty directory.");
-        const env = treeEnv(home, source.root, stage, caps);
+        const env = treeWorker(home, { root: source.root, stage, caps });
         let report: TreeReport;
         try {
             report = await runTree(
@@ -579,7 +550,11 @@ async function treeOperation(
     writable?: string,
 ): Promise<TreeReport> {
     try {
-        const env = treeEnv(home, root, writable);
+        const env = treeWorker(home, {
+            root,
+            ...(writable === undefined ? {} : { stage: writable }),
+            caps: MERGE_CAPS,
+        });
         try {
             return await runTree(env, args, context);
         } finally {

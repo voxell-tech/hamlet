@@ -12,7 +12,8 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { houseOf } from "../src/home/layout.ts";
 import { deliverTree, listTree, removeTree, stageTree } from "../src/house.ts";
-import { closedPolicy, openPolicy, SandboxEnv } from "../src/sandbox.ts";
+import { closedPolicy, openPolicy } from "../src/sandbox/reach.ts";
+import { SandboxEnv } from "../src/sandbox.ts";
 import {
     context,
     fauxModels,

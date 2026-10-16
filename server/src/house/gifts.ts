@@ -15,10 +15,9 @@ import {
 import { type ChiefResult, chiefAccess } from "../realm/access.ts";
 import type { AgentRef } from "../record.ts";
 import { named, RecordDoc } from "../record.ts";
-import { directoryRoot } from "../sandbox.ts";
+import { directoryRoot } from "../sandbox/policy.ts";
 import { safeWords } from "../scrub.ts";
 import type { Receipt } from "../server.ts";
-import { refreshSkills } from "./skills.ts";
 import {
     checkShelf,
     checkSkill,
@@ -408,7 +407,7 @@ export async function giftSkill(
                 throw giftError(error);
             });
     }
-    refreshSkills(house);
+    home.houses.invalidate(house);
     await home.harness.commit(async (tx) => {
         (await tx.doc(RecordDoc, to.hamlet, to.hamlet)).decisions.push({
             kind: "skill_given",

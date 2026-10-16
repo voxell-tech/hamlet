@@ -22,7 +22,8 @@ import {
     removeTree,
     stageTree,
 } from "../src/house.ts";
-import { closedPolicy, SandboxEnv } from "../src/sandbox.ts";
+import { closedPolicy } from "../src/sandbox/reach.ts";
+import { SandboxEnv } from "../src/sandbox.ts";
 import {
     context,
     fauxModels,

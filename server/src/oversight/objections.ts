@@ -32,6 +32,7 @@ import { InstructionsDoc } from "../chats/instructions.ts";
 import { notify } from "../chats/notice.ts";
 import { TaskDoc } from "../chats/tasks.ts";
 import { turnOf } from "../chats/turn.ts";
+import { houseReader } from "../environment.ts";
 import { untilAborted } from "../home/abort.ts";
 import { localDay } from "../home/clock.ts";
 import { houseOf } from "../home/layout.ts";
@@ -40,7 +41,6 @@ import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import { choose } from "../models.ts";
 import { liveHamlets, RealmDoc } from "../realm/places.ts";
 import { type AgentRef, addressOf, agentKey, RecordDoc } from "../record.ts";
-import { closedPolicy, SandboxEnv } from "../sandbox.ts";
 import { modelRef, SettingsDoc, settingsOf } from "../settings.ts";
 import { booksOf } from "../spend/ledger.ts";
 import { stopped } from "../spend.ts";
@@ -524,9 +524,7 @@ async function reviewNotes(
     context: Context,
 ): Promise<string> {
     const house = houseOf(home.layout, agent);
-    const policy = closedPolicy(house, [house]);
-    policy.rw = [];
-    const env = new SandboxEnv({ cwd: house, policy, sandbox: home.sandbox });
+    const env = houseReader(home, agent, context);
     try {
         const read = await env.readTextFile(join(house, "NOTES.md"), context);
         return read.ok ? [...read.value].slice(0, 6000).join("") : "";

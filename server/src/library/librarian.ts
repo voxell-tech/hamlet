@@ -23,9 +23,10 @@ import {
 import { WithDoc } from "../chats/conversations.ts";
 import { runErrand, startErrand } from "../chats/errands.ts";
 import { turnOf } from "../chats/turn.ts";
+import { houseReader } from "../environment.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Deed, Home, Part } from "../home.ts";
-import { parseSkill, refreshSkills, skillsIn } from "../house/skills.ts";
+import { parseSkill, skillsIn } from "../house/skills.ts";
 import {
     deliverTree,
     listTree,
@@ -36,7 +37,6 @@ import {
 import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import type { State } from "../protocol.ts";
 import { RecordDoc } from "../record.ts";
-import { closedPolicy, SandboxEnv } from "../sandbox.ts";
 import { booksOf } from "../spend/ledger.ts";
 import { stopped } from "../spend.ts";
 import { LibraryDoc, libraryPart } from "./shelf.ts";
@@ -334,7 +334,7 @@ async function consult(
                     cleanupWarning = cleanupFailureText(removed.error);
             }
         }
-        refreshSkills(home.dir);
+        home.houses.invalidate(home.dir);
     }
     const result = taken
         ? `The librarian took \`${job.skill}\`: ${why} ${cleanupWarning ?? (keptChanges ? "It is in the library now; your later changes stayed in your house." : "It is in the library now and no longer in your house.")} Use the library's, as every agent can.`
@@ -523,9 +523,7 @@ async function removableSkill(
     skill: string,
     context: Context,
 ): Promise<CleanupResult> {
-    const policy = closedPolicy(house, [house, process.execPath]);
-    policy.rw = [];
-    const env = new SandboxEnv({ cwd: house, policy, sandbox: home.sandbox });
+    const env = houseReader(home, { path: house }, context);
     try {
         const result = await env.exec(
             [

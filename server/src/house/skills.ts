@@ -1,13 +1,10 @@
-import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { lstat } from "node:fs/promises";
+import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import {
-    closedPolicy,
-    platformSandbox,
-    type Sandbox,
-    SandboxEnv,
-} from "../sandbox.ts";
+import { buildHouse, houseOf, type Layout } from "../home/layout.ts";
+import { type AgentRef, agentKey } from "../record.ts";
+import { err, ok, type Result } from "../result.ts";
+import type { SandboxEnv } from "../sandbox.ts";
 import { shelf as readShelf } from "./skill-paper.ts";
 
 /** A skill as the front matter of its `SKILL.md` tells of it (C8). */
@@ -48,91 +45,203 @@ export function parseSkill(text: string): Omit<Skill, "folder"> | undefined {
     };
 }
 
-const SHELF_MS = 1000;
-const shelves = new Map<
-    string,
-    {
-        env: SandboxEnv;
-        until: number;
-        names?: Promise<string[]>;
-    }
->();
+/** Notes that could not be read without changing their bytes. */
+export type NotesFailure = {
+    operation: "read-notes";
+    agent: AgentRef;
+    retrySafe: true;
+} & ({ kind: "notes-not-utf8" } | { kind: "notes-unreadable" });
 
-function houseShelf(house: string, sandbox: Sandbox) {
-    const dir = join(house, "skills");
-    let shelf = shelves.get(dir);
-    if (shelf === undefined) {
-        const policy = closedPolicy(house, [house]);
-        policy.rw = [];
-        policy.env = { PATH: "/usr/bin:/bin", HOME: house, LANG: "C.UTF-8" };
-        shelf = {
-            until: 0,
-            env: new SandboxEnv({
-                cwd: house,
-                policy,
-                sandbox,
-                tmpScope: `papers-${randomUUID()}`,
-            }),
-        };
-        shelves.set(dir, shelf);
+/** Safe words for a refused notes read. */
+export function notesFailureText(error: NotesFailure): string {
+    switch (error.kind) {
+        case "notes-not-utf8":
+            return "The agent's NOTES.md is not UTF-8 text. Keep its original bytes aside and correct the file.";
+        case "notes-unreadable":
+            return "The agent's NOTES.md could not be read safely. Inspect its house before trying again.";
     }
-    return shelf;
+    const unhandled: never = error;
+    throw new Error(`Unclassified notes failure: ${unhandled}`);
 }
 
-/** Skill folders containing a regular SKILL.md, listed inside the house's sandbox (C8, C18). */
-export function skillNames(dir: string): Promise<string[]> {
-    const shelf = houseShelf(dirname(dir), platformSandbox());
-    if (shelf.names === undefined || shelf.until <= Date.now()) {
-        shelf.until = Date.now() + SHELF_MS;
-        shelf.names = shelf.env
-            .skillShelf(dir, false, BACKGROUND_CONTEXT)
-            .then((read) =>
-                read.ok ? read.value.map((paper) => paper.folder) : [],
+/** One house's bounded read-only notes and skill papers. */
+export class House {
+    /** The stable location of this agent's house. */
+    readonly path: string;
+    readonly #agent: AgentRef;
+    readonly #layout: Layout;
+    readonly #reader: (agent: AgentRef, context: Context) => SandboxEnv;
+    #env: SandboxEnv | undefined;
+    #names: Promise<string[]> | undefined;
+    #until = 0;
+
+    /** Readers are supplied by the home's confinement seam. */
+    constructor(
+        layout: Layout,
+        agent: AgentRef,
+        reader: (agent: AgentRef, context: Context) => SandboxEnv,
+    ) {
+        this.#layout = layout;
+        this.#agent = agent;
+        this.path = houseOf(layout, agent);
+        this.#reader = reader;
+    }
+
+    #environment(context: Context): SandboxEnv {
+        this.#env ??= this.#reader(this.#agent, context);
+        return this.#env;
+    }
+
+    /** Missing notes use the initial heading; invalid bytes are never replaced. */
+    async notes(
+        context: Context,
+    ): Promise<Result<{ text: string; bytes: Buffer }, NotesFailure>> {
+        const read = await this.#environment(context).readBinaryFile(
+            join(this.path, "NOTES.md"),
+            context,
+        );
+        if (!read.ok && read.error.code !== "not_found")
+            return err({
+                kind: "notes-unreadable",
+                operation: "read-notes",
+                agent: this.#agent,
+                retrySafe: true,
+            });
+        const bytes = read.ok
+            ? Buffer.from(read.value)
+            : Buffer.from("# Notes\n");
+        try {
+            const text = new TextDecoder("utf-8", {
+                fatal: true,
+                ignoreBOM: true,
+            }).decode(bytes);
+            return ok({ text, bytes });
+        } catch {
+            return err({
+                kind: "notes-not-utf8",
+                operation: "read-notes",
+                agent: this.#agent,
+                retrySafe: true,
+            });
+        }
+    }
+
+    async #shelf(contents: boolean, context: Context): Promise<Skill[]> {
+        if (!(await lstat(this.path).catch(() => undefined))?.isDirectory())
+            return [];
+        const env = this.#environment(context);
+        const dir = join(this.path, "skills");
+        const listed = await env.listDir(dir, context);
+        if (!listed.ok) return [];
+        const found: Skill[] = [];
+        for (const entry of listed.value) {
+            if (entry.kind !== "directory") continue;
+            const path = join(dir, entry.name, "SKILL.md");
+            const opened = await env.openBinaryReader(
+                path,
+                { noFollow: true },
+                context,
             );
+            if (!opened.ok) continue;
+            let text = "";
+            try {
+                const info = await opened.value.info(context);
+                if (!info.ok || info.value.kind !== "file") continue;
+                if (contents) {
+                    const read = await opened.value.read(0, 64 * 1024, context);
+                    if (read.ok)
+                        text = Buffer.from(read.value).toString("utf8");
+                }
+            } finally {
+                await opened.value.close(context);
+            }
+            found.push({
+                name: entry.name,
+                description: "",
+                usage: undefined,
+                ...parseSkill(text),
+                folder: entry.name,
+            });
+        }
+        return found.sort((a, b) =>
+            a.folder < b.folder ? -1 : a.folder > b.folder ? 1 : 0,
+        );
     }
-    return shelf.names;
+
+    /** Bounded papers read under this house's own policy. */
+    skills(context: Context): Promise<Skill[]> {
+        return this.#shelf(true, context);
+    }
+
+    /** Names cached briefly until an observed house change invalidates them. */
+    skillNames(context: Context): Promise<string[]> {
+        if (this.#names === undefined || this.#until <= Date.now()) {
+            this.#until = Date.now() + 1000;
+            this.#names = this.#shelf(false, context).then((skills) =>
+                skills.map((skill) => skill.folder),
+            );
+        }
+        return this.#names;
+    }
+
+    /** Creates only missing initial files. */
+    build(): Promise<string> {
+        return buildHouse(this.#layout, this.#agent);
+    }
+
+    /** Invalidates the names without replacing a live helper. */
+    invalidate(): void {
+        this.#until = 0;
+    }
+
+    /** Releases the read-only helper owned by this house. */
+    async close(context: Context): Promise<void> {
+        await this.#env?.cleanup(context);
+        this.#env = undefined;
+        this.#names = undefined;
+    }
 }
 
-/** Invalidated shelves below a changed house or home. */
-export function refreshSkills(root: string): void {
-    for (const [dir, shelf] of shelves)
-        if (dir === root || dir.startsWith(`${root}/`)) shelf.until = 0;
-}
+/** House readers owned and closed by one open home. */
+export class Houses {
+    readonly #kept = new Map<string, House>();
+    readonly #layout: Layout;
+    readonly #reader: (agent: AgentRef, context: Context) => SandboxEnv;
 
-/** Closed sandbox readers belonging to a house or home. */
-export async function closeSkills(
-    root: string,
-    context: Context,
-): Promise<void> {
-    const closing = [...shelves].filter(
-        ([dir]) => dir === root || dir.startsWith(`${root}/`),
-    );
-    for (const [dir] of closing) shelves.delete(dir);
-    await Promise.all(closing.map(([, shelf]) => shelf.env.cleanup(context)));
-}
+    /** Takes the home's layout and its read-only constructor. */
+    constructor(
+        layout: Layout,
+        reader: (agent: AgentRef, context: Context) => SandboxEnv,
+    ) {
+        this.#layout = layout;
+        this.#reader = reader;
+    }
 
-/** The house's skill papers listed and read together under its own sandbox policy (C8, C18). */
-export async function houseSkills(
-    house: string,
-    sandbox: Sandbox,
-    context: Context,
-): Promise<Skill[]> {
-    const shelf = houseShelf(house, sandbox);
-    shelf.until = 0;
-    const read = await shelf.env.skillShelf(
-        join(house, "skills"),
-        true,
-        context,
-    );
-    return read.ok
-        ? read.value.map(({ folder, text }) => ({
-              name: folder,
-              description: "",
-              usage: undefined,
-              ...parseSkill(text),
-              folder,
-          }))
-        : [];
+    /** Returns the same house handle for an agent's stable identity. */
+    of(agent: AgentRef): House {
+        const key = agentKey(agent);
+        let house = this.#kept.get(key);
+        if (house === undefined) {
+            house = new House(this.#layout, agent, this.#reader);
+            this.#kept.set(key, house);
+        }
+        return house;
+    }
+
+    /** Invalidates every shelf below a changed root. */
+    invalidate(root: string): void {
+        for (const house of this.#kept.values())
+            if (house.path === root || house.path.startsWith(`${root}/`))
+                house.invalidate();
+    }
+
+    /** Closes every reader, including houses no longer in the record. */
+    async close(context: Context): Promise<void> {
+        await Promise.all(
+            [...this.#kept.values()].map((house) => house.close(context)),
+        );
+        this.#kept.clear();
+    }
 }
 
 /** A server-owned skill shelf with bounded, regular-file papers (C8). */

@@ -1,15 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { expect, it, vi } from "vitest";
+import { closedPolicy } from "../src/sandbox/reach.ts";
 import { encode } from "../src/sandbox/wire.ts";
-import { closedPolicy, platformSandbox, SandboxEnv } from "../src/sandbox.ts";
+import { platformSandbox, SandboxEnv } from "../src/sandbox.ts";
 import { houseEnv } from "./sandbox-support.ts";
 import { closeAfter, context, scratch } from "./support.ts";
 
-it("keeps every character in file paths, text lines and skill papers", async () => {
-    const { house, env } = houseEnv();
+it("keeps every character in file paths and text lines", async () => {
+    const { env } = houseEnv();
     closeAfter(() => env.cleanup(context));
     const name = 'a\u2028b\u2029\t\r\n\\".txt';
     const text = "one\u2028two\u2029three\nlast";
@@ -28,12 +29,6 @@ it("keeps every character in file paths, text lines and skill papers", async () 
     expect(await env.listDir(".", context)).toMatchObject({
         ok: true,
         value: [{ name }],
-    });
-    mkdirSync(join(house, "skills", "a\u2028b\u2029"), { recursive: true });
-    writeFileSync(join(house, "skills", "a\u2028b\u2029", "SKILL.md"), text);
-    expect(await env.skillShelf("skills", true, context)).toEqual({
-        ok: true,
-        value: [{ folder: "a\u2028b\u2029", text }],
     });
 });
 
