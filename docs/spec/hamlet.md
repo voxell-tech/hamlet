@@ -7,10 +7,10 @@ library, and what waits for a chief. One agent on its own is in
 
 ## Chiefs
 
-**H23. Rule one.** A chief can overrule anything: stop any agent or every
-agent, reverse a vote that passed or stop an open one, remove and restore any
-agent or hamlet, take back any permission, and undo the latest thing that
-can be undone.
+**H23. Rule one.** A chief can overrule anything in its hamlets: stop any
+or all of their agents, reverse a vote that passed or stop an open one,
+remove and restore their agents or the hamlets themselves, take back any
+permission, and undo the latest thing that can be undone.
 
 **H22.** A chief's limits bound a hamlet, and only a human changes them;
 every check reads them as they are now. They can reserve to a chief what the
@@ -36,12 +36,12 @@ another agent's house.
 | `/new` | Move at once to a new conversation while the old one finishes its queue (C24) |
 | `/resume [n]` | List earlier conversations, or go back to one by its stable number (C24) |
 | `/retry`, `/reflect` | Carry on a failed or stopped turn as a visible new input, reflect now (C26, C5) |
-| `/stop [agent\|all]` | Stop an agent's work, or everyone's (H23) |
+| `/stop [agent\|all]` | Stop an agent's work, or all agents of the chief's hamlets (H23) |
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
 | `/undo` | Reverse the latest thing that can be reversed |
 | `/grants`, `/revoke <agent> <network\|unconfined>` | The lasting permissions, and taking one back |
 | `/remove <agent> [reason]` | Remove an agent and archive its house (H5) |
-| `/merge <absorbed> into <kept> [reason]` | Merge two agents (H5) |
+| `/merge <absorbed> into <kept> [reason]` | Merge two agents, or finish a pending merge named by its archive ID (H5) |
 | `/restore <agent> [as <new-name>] [reason]`, `/erase <agent>` | Restore, split or permanently erase an archived agent (H20); an archive ID also names it |
 | `/road <agent> <agent> [reason]`, `/unroad <agent> <agent> [reason]` | Build or take up a road between two agents (H3) |
 | `/give <agent> <skill> [from <agent>]` | Give a skill (H25) |
@@ -80,20 +80,23 @@ subject to the chief's limits (H22) and tasks (H7). A departure needs a
 reason. The record archives the departed agent; its house stays where it
 is, including after a merge, until a chief erases it.
 
-In a merge the agent kept takes the new purpose, copies of both houses'
-contents and their roads. Their notes are rewritten into one by a model,
-at most [6000] characters, or joined end to end. Files of the same name
-that differ are kept aside. The archive keeps the merge's manifest, the
-notes before and after, and the inherited roads for splitting (H20).
+In a merge the kept agent takes copies of both houses' contents and their
+roads. When the mayor merges, the kept agent takes the purpose the mayor
+gives, and their notes are rewritten into one by a model, at most [6000]
+characters, or else joined end to end. A chief's merge keeps the kept
+agent's purpose and joins the notes. Files of the same name that differ
+are kept aside. The archive keeps the merge's manifest, the notes before
+and after, and the inherited roads for splitting (H20).
 Both agents are stopped while their houses are being merged or split.
 A merge whose absorbed house exceeds 512 MiB or 20000 file and folder
 entries is refused, with words saying to remove the agent instead.
 
 A merge or split that cannot finish stays recorded as pending and tells
-the chief how to inspect it and retry safely with `/restore`. A conflict
-never overwrites changed files or notes. Pending work does not stop the
-home from opening, and its archived house cannot be erased until it
-finishes.
+the chief how to inspect it and retry safely: a pending merge with
+`/merge <archive> into <kept>`, a pending split with `/restore <archive>`.
+A conflict never overwrites changed files or notes. Pending work is tried
+again when the home opens and does not stop it opening. Its archived
+house cannot be erased until it finishes.
 
 **H7.** An agent working on a chief's task cannot be removed or merged by
 the mayor until it has answered, nor for [0] minutes after.
@@ -107,6 +110,11 @@ learned since. The kept agent must be living, and later merges into it
 must be split first. Archived houses stay in place until erasure; a chief
 can delete what is archived of an agent or a hamlet for good, after which
 it cannot come back.
+
+A removed hamlet comes back as it was only while none of its agents' names
+belongs to a living agent elsewhere and the realm is under its hamlet cap
+(H6). Otherwise it is refused, saying which name or limit stands in the
+way.
 
 **H28.** A message to an agent that has left is refused, with how it left
 and why. What it waited for lapses and what it was granted is taken back; if
@@ -220,12 +228,21 @@ Its spend and records belong only to it.
   conversations and instructions move with it in one recorded change;
   an unfinished house move is completed when the home opens again.
   Its waits lapse and its lasting permissions are taken back, so it asks
-  again under its new hamlet's chiefs.
+  again under its new hamlet's chiefs. A mayor never moves, and an agent
+  that absorbed another in a merge not yet split cannot move until a chief
+  splits or erases that archive (H20).
 - Living agent names are unique across the realm (C10). An agent is
   reached by `name` or `name@<hamlet>`; `mayor` reaches the local office,
-  and `mayor@<hamlet>` reaches another hamlet's office. A wait from another
-  hamlet's mayor names it as `mayor@<hamlet>`.
-- A message between hamlets is paid for by the sender's hamlet.
+  and `mayor@<hamlet>` reaches another hamlet's office. A wait from the
+  mayor of any hamlet but `home` names it as `mayor@<hamlet>`; `home`'s
+  mayor is named `mayor`.
+- A message between hamlets is paid for by the sender's current hamlet;
+  after a move, its new hamlet pays for the conversations it started.
+
+The chiefs of each hamlet concerned are told, in their conversation with
+its mayor, when a hamlet is founded or removed, its mayor changes, a road
+between hamlets is agreed, or an agent moves. A hamlet that answers to
+whoever runs the server (C7) sends these notices to that human.
 
 **H19.** A mayor can ask for its own hamlet to be removed, and [3] mayors of
 other hamlets together can ask for another's. Nothing is removed until a
@@ -235,10 +252,10 @@ mayor. A ready request names `/remove-hamlet <hamlet>` to confirm it; it
 is not an approval wait. Every house of a removed hamlet stays where it
 is, archived with its record.
 
-The first hamlet, `home`, cannot be removed. Another hamlet's founder is
-an ordinary agent once it no longer holds the office and can leave like
-any other agent. A chief can bring back a removed hamlet as it was, or
-delete it for good (H20).
+The first hamlet, `home`, cannot be removed. Every founder, `home`'s
+included, is an ordinary agent once it no longer holds the office, and
+can leave like any other agent. A chief can bring back a removed hamlet
+under H20's conditions, or delete it for good.
 
 **H32.** A chief can give a hamlet a name to be shown by, while its own name
 stays for commands, and set its town down elsewhere in the world.

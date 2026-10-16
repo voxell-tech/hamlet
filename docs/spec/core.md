@@ -125,11 +125,20 @@ The agent's notes, skills and conversations stay in its house.
   guard.
 
 **C7.** A hamlet answers to its chiefs: the human who founded it, or, for a
-hamlet founded by a vote, the chiefs of the hamlet that voted. An empty
-chiefs list means the human the home belongs to, under the name used to run
-the server. The first hamlet has an empty list. Every tool call of its
-agents passes a gate before it runs, which lets it run, refuses it, or holds
-it for a chief (H11).
+hamlet founded by a vote, the chiefs of the hamlet that voted. The first
+hamlet, and any hamlet founded by its votes, answers to whoever runs the
+server, under the name the server runs as.
+
+A chief talks to, instructs, watches, stops, gives to and answers for only
+the agents of living hamlets it is chief of. Reading and editing an agent's
+papers or a hamlet's limits needs the same authority. Giving a skill from
+another agent needs authority over that agent too. A removed hamlet's
+agents are out of reach until it is restored; a refused request says why
+it was removed and to restore it first. Requests naming a missing hamlet
+or a hamlet the human is not chief of are refused.
+
+Every tool call of a hamlet's agents passes a gate before it runs, which
+lets it run, refuses it, or holds it for a chief (H11).
 
 ## Conversations
 
@@ -137,8 +146,8 @@ it for a chief (H11).
 conversation with each chief who talks to it, one with each agent that
 writes it letters, and one with each agent that asks it something and
 waits (H30). A chief can watch either kind of peer conversation read-only,
-with paging. A peer watch selects the receiving agent, the sender and
-letters or questions through `kind`; without a kind it opens letters.
+with paging. The chief chooses the receiving agent, the sender, and letters
+or questions; letters are shown unless the chief chooses questions.
 
 **C23.** A conversation answers one message at a time. Messages that arrive
 while it works wait in order.
@@ -204,9 +213,10 @@ one line, whether anything about how its hamlet is run got in its way.
 call with its name, its arguments cut to 200 characters and, for an edit,
 the change, then the call's end with its exit code, its time and the first
 line of a failure, and the notices meant only for people. Letters,
-questions and replies carry their `author` as `name@hamlet`, or
-`hamlet#number` if its record is gone. They are shown as agents' words,
-never as a chief's words that can be taken back.
+questions and replies are shown with their writer as `name@hamlet`, or
+`hamlet#number` when that hamlet no longer holds the agent's record,
+including after erasure or a move. They are shown as agents' words, never
+as a chief's words that can be taken back.
 
 **C31. Not yet met.** Every model call, including each summarising call,
 records the model, where it was served, the input, cached, output and

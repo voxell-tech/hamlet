@@ -26,11 +26,10 @@ the token.
 the state of the realm (hamlets, living and departed agents, roads,
 budgets, votes, the shared library, closed hamlets and what waits) and its
 changes, the live events of turns (C30), and conversations on request,
-including read-only peer conversations selected by sender and kind (C22).
-A window that joins late or connects again starts from the state as it is
-now. A library shelf change, a closed-list change or a hamlet leaving the
-live list sends a whole replacement state. The window keeps surviving
-hamlets and agents and removes those no longer sent.
+including read-only letters and questions between agents (C22). A window
+that joins late or connects again starts from the state as it is now.
+A window always matches what the server last sent, including a skill
+leaving the library, a hamlet closing or coming back, and an agent leaving.
 
 **S6.** Everything a chief does goes to the server: typed lines and
 commands, answers to what waits, stopping, taking a conversation back, the
@@ -39,9 +38,8 @@ limits and settings.
 
 **S15.** Local chat links and pictures resolve on the window's machine,
 from existing absolute paths or paths under the received work folder.
-The state supplies the server machine's houses folder as `houses`.
-A path inside it stays plain text, including when reached through a
-symbolic link.
+A path inside the server's houses folder is never a link, even when
+reached through a symbolic link.
 
 ## Credentials
 
