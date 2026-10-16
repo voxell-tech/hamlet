@@ -44,8 +44,8 @@ export {
     type Resolved,
     type ResolveFailure,
     realmRoads,
-    resolve,
     resolveAddress,
+    resolveFailureText,
     roadsOf,
 } from "./realm/roads.ts";
 

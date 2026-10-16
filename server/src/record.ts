@@ -1,7 +1,5 @@
-import type { Context } from "@earendil-works/chord";
 import type { Static, TSchema } from "@earendil-works/pi-ai";
 import {
-    type DocumentReader,
     defineDoc,
     defineTool,
     type ToolRegistration,
@@ -194,18 +192,6 @@ export function addressOf(
 ): string {
     if (record.mayor === number) return MAYOR;
     return record.agents.find((each) => each.number === number)?.name ?? "";
-}
-
-/** The agent an address names, as {@link named} finds it in its hamlet's record. */
-export async function addressed(
-    read: DocumentReader,
-    address: { hamlet: string; agent: string },
-    context: Context,
-): Promise<AgentRef | undefined> {
-    const record = await read.snapshot(RecordDoc, address.hamlet, context);
-    if (record === undefined) return undefined;
-    const found = named(record, address.agent);
-    return found && { hamlet: address.hamlet, number: found.number };
 }
 
 /** The answer a record tool's call gave the model, once its change is made. */

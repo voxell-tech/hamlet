@@ -26,7 +26,7 @@ import {
 } from "../src/chats.ts";
 import { defaultLimits } from "../src/limits.ts";
 import { raise } from "../src/oversight.ts";
-import { level, RealmDoc, resolve, roadsOf } from "../src/realm.ts";
+import { level, RealmDoc, resolveAddress, roadsOf } from "../src/realm.ts";
 import {
     agentKey,
     checkName,
@@ -62,10 +62,10 @@ it("founds and reopens the realm, builds every living house, and normalizes name
     expect(existsSync(join(dir, "librarian/NOTES.md"))).toBe(true);
     expect(existsSync(join(dir, "houses/mill/1/NOTES.md"))).toBe(true);
     expect(
-        await resolve(again.harness, HOME, "miller@mill", context),
+        await resolveAddress(again.harness, HOME, "miller@mill", context),
     ).toMatchObject({
-        ref: { hamlet: "mill", number: 0 },
-        address: "mayor@mill",
+        ok: true,
+        value: { ref: { hamlet: "mill", number: 0 }, address: "mayor@mill" },
     });
     expect(tidyName(" FelineBiologist__ ")).toBe("feline-biologist");
     for (const bad of [

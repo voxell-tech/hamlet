@@ -33,7 +33,7 @@ export type ChiefFailure =
     | Malformed
     | ConnectionFailure;
 
-/** Correlates and scrubs an operation's outcome exactly once for display. */
+/** Correlates and scrubs once; typed conversation refusals remain notices. */
 export function replyFor(
     to: string,
     outcome: Result<Receipt, ChiefFailure>,

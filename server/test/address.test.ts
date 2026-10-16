@@ -79,3 +79,22 @@ it("resolves the office at use time and classifies missing and departed agents",
         await resolveAddress(home.harness, "home", "baker@home@extra", context),
     ).toMatchObject({ ok: false, error: { kind: "malformed" } });
 });
+
+it("uses the sender's office and current records when resolving inside a commit", async () => {
+    const { addHamlet } = await import("./support.ts");
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    const mill = await addHamlet(home, "mill", "miller");
+    const scout = await addAgent(home, "home", "scout");
+    await home.harness.commit(async (tx) => {
+        (await tx.doc(RecordDoc, "home", "home")).mayor = scout.number;
+        expect(
+            await resolveAddress(tx, "home", "mayor", context),
+        ).toMatchObject({ ok: true, value: { ref: scout } });
+        expect(
+            await resolveAddress(tx, "home", "mayor@mill", context),
+        ).toMatchObject({ ok: true, value: { ref: mill } });
+        expect(
+            await resolveAddress(tx, "mill", "scout", context),
+        ).toMatchObject({ ok: true, value: { ref: scout } });
+    }, context);
+});

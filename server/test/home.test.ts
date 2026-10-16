@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openHome } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
-import { addressed, addressOf, HOME, RecordDoc } from "../src/record.ts";
+import { HOME, RecordDoc } from "../src/record.ts";
 import { SettingsDoc, settingsOf } from "../src/settings.ts";
 import { context, fauxModels, scratch, testHome } from "./support.ts";
 
@@ -48,36 +48,6 @@ describe("opening a home", () => {
         expect(await again.harness.snapshot(RecordDoc, HOME, context)).toEqual(
             record,
         );
-    });
-
-    it("gives the address mayor to whoever holds the office (H27)", async () => {
-        const { models } = fauxModels();
-        const home = await testHome(scratch(), { models });
-        const to = (agent: string) =>
-            addressed(home.harness, { hamlet: HOME, agent }, context);
-
-        expect(await to("mayor")).toEqual({ hamlet: HOME, number: 0 });
-        await home.harness.commit(async (tx) => {
-            const record = await tx.doc(RecordDoc, HOME, HOME);
-            record.agents.push({
-                number: 1,
-                name: "scout",
-                purpose: "Looks around.",
-                model: null,
-                since: 1,
-            });
-            record.mayor = 1;
-        }, context);
-
-        expect(await to("mayor")).toEqual({ hamlet: HOME, number: 1 });
-        expect(await to("founder")).toEqual({ hamlet: HOME, number: 0 });
-        expect(await to("nobody")).toBeUndefined();
-        const record = await home.harness.snapshot(RecordDoc, HOME, context);
-        if (record === undefined) throw new Error("no record");
-        expect([addressOf(record, 0), addressOf(record, 1)]).toEqual([
-            "founder",
-            "mayor",
-        ]);
     });
 
     it("starts every shared document at Rust's defaults", async () => {

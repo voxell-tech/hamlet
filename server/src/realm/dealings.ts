@@ -51,6 +51,7 @@ import {
     RealmDoc,
     type RealmEnd,
 } from "./places.ts";
+import { resolveAddress, resolveFailureText } from "./roads.ts";
 
 const MOVE = Type.Object({
     agent: Type.String(),
@@ -204,21 +205,6 @@ async function mayor(
     if (held) throw new Error(held);
     return caller;
 }
-async function locate(tx: Tx, address: string): Promise<AgentRef> {
-    const [name, place, extra] = address.split("@");
-    if (extra !== undefined) throw new Error(`no agent named \`${address}\``);
-    for (const { id } of liveHamlets(await tx.doc(RealmDoc))) {
-        if (place !== undefined && id !== place) continue;
-        const record = await tx.doc(RecordDoc, id, id);
-        const found = record.agents.find(
-            (a) =>
-                a.name === name ||
-                (name === "mayor" && a.number === record.mayor),
-        );
-        if (found) return { hamlet: id, number: found.number };
-    }
-    throw new Error(`no agent named \`${address}\``);
-}
 function same(a: RealmEnd, b: RealmEnd): boolean {
     return "office" in a
         ? "office" in b && a.office === b.office
@@ -234,8 +220,12 @@ async function road(
     const caller = await mayor(home, tx, api, context);
     if (!(await tx.doc(LimitsDoc, HOME, HOME)).hamlets.roadsBetween)
         throw new Error("the chief's limits allow no roads between hamlets");
-    const a = await locate(tx, args.a),
-        b = await locate(tx, args.b);
+    const first = await resolveAddress(tx, caller.hamlet, args.a, context);
+    if (!first.ok) throw new Error(resolveFailureText(first.error, args.a));
+    const second = await resolveAddress(tx, caller.hamlet, args.b, context);
+    if (!second.ok) throw new Error(resolveFailureText(second.error, args.b));
+    const a = first.value.ref,
+        b = second.value.ref;
     for (const ref of [a, b])
         if (
             (await tx.doc(RecordDoc, ref.hamlet, ref.hamlet)).mayor ===
@@ -307,7 +297,15 @@ async function move(
         throw new Error(
             "A house move is still being finished. Try again shortly.",
         );
-    const ref = await locate(tx, args.agent);
+    const resolved = await resolveAddress(
+        tx,
+        caller.hamlet,
+        args.agent,
+        context,
+    );
+    if (!resolved.ok)
+        throw new Error(resolveFailureText(resolved.error, args.agent));
+    const ref = resolved.value.ref;
     if (ref.hamlet === args.to)
         throw new Error(`\`${args.agent}\` already lives in \`${args.to}\``);
     if (!liveHamlets(realm).some((h) => h.id === args.to))

@@ -1,5 +1,5 @@
 import type { Context } from "@earendil-works/chord";
-import type { DocumentReader } from "@earendil-works/pi-durable";
+import type { DocumentReader, Tx } from "@earendil-works/pi-durable";
 import type { ChatId } from "../chats/conversations.ts";
 import type { Home } from "../home.ts";
 import type { Address, State } from "../protocol.ts";
@@ -116,24 +116,6 @@ export type ResolveFailure =
     | { kind: "unknown"; address: string }
     | { kind: "departed"; farewell: string };
 
-/** Resolves a name across the realm, keeping an unqualified office local to its sender. */
-export async function resolveAddress(
-    read: DocumentReader,
-    from: string,
-    text: string,
-    context: Context,
-): Promise<
-    Result<{ ref: AgentRef; address: string; hamlet: string }, ResolveFailure>
-> {
-    const [name, , extra] = text.split("@");
-    if (!name || extra !== undefined) return err({ kind: "malformed" });
-    const target = await resolve(read, from, text, context);
-    if (!target) return err({ kind: "unknown", address: text });
-    if ("gone" in target)
-        return err({ kind: "departed", farewell: target.gone });
-    return ok(target);
-}
-
 /** A departed agent's refusal (H28). */
 export function farewell(
     entry: Archived,
@@ -155,49 +137,77 @@ export function farewell(
     return `\`${name}\` was merged into \`${kept}\` by ${by} ("${entry.reason}"). \`${kept}\` has its notes, skills and roads; talk to \`${kept}\`.`;
 }
 
-/** An address resolved in the sender's realm, or a departed agent's farewell. */
-export type Resolved =
-    | { ref: AgentRef; address: string; hamlet: string }
-    | { gone: string };
+/** A living name or office, resolved in the sender's realm. */
+export type Resolved = { ref: AgentRef; address: string; hamlet: string };
 
-/** A name or office resolved across living hamlets. */
-export async function resolve(
-    read: DocumentReader,
+/** Tool-facing wording for a refused address, with the original spelling when malformed. */
+export function resolveFailureText(
+    failure: ResolveFailure,
+    text: string,
+): string {
+    switch (failure.kind) {
+        case "malformed":
+            return `no agent named \`${text}\``;
+        case "unknown":
+            return `no agent named \`${failure.address}\``;
+        case "departed":
+            return failure.farewell;
+    }
+    const unhandled: never = failure;
+    throw new Error(`Unclassified resolved address failure: ${unhandled}`);
+}
+
+/** Resolves current transaction records or committed snapshots, keeping the unqualified office local. */
+export async function resolveAddress(
+    read: DocumentReader | Tx,
     from: string,
     address: string,
     context: Context,
-): Promise<Resolved | undefined> {
+): Promise<Result<Resolved, ResolveFailure>> {
     const [name, place, extra] = address.split("@");
-    if (extra !== undefined) return undefined;
-    if (!name) return undefined;
-    const realm = await read.snapshot(RealmDoc, context);
-    const places = liveHamlets(realm).filter((h) =>
-        place === undefined ? name !== MAYOR || h.id === from : h.id === place,
+    if (!name || extra !== undefined || place === "")
+        return err({ kind: "malformed" });
+    const realm =
+        "doc" in read
+            ? await read.doc(RealmDoc)
+            : await read.snapshot(RealmDoc, context);
+    const places = liveHamlets(realm).filter((hamlet) =>
+        place === undefined
+            ? name !== MAYOR || hamlet.id === from
+            : hamlet.id === place,
     );
-    for (const h of places) {
-        const record = await read.snapshot(RecordDoc, h.id, context);
+    const records = await Promise.all(
+        places.map(async (hamlet) => ({
+            hamlet: hamlet.id,
+            record:
+                "doc" in read
+                    ? await read.doc(RecordDoc, hamlet.id, hamlet.id)
+                    : await read.snapshot(RecordDoc, hamlet.id, context),
+        })),
+    );
+    for (const { hamlet, record } of records) {
         if (!record) continue;
         const agent = named(record, name);
         if (agent)
-            return {
-                ref: { hamlet: h.id, number: agent.number },
-                hamlet: h.id,
+            return ok({
+                ref: { hamlet, number: agent.number },
+                hamlet,
                 address:
                     agent.number === record.mayor
-                        ? h.id === from
+                        ? hamlet === from
                             ? MAYOR
-                            : `${MAYOR}@${h.id}`
+                            : `${MAYOR}@${hamlet}`
                         : agent.name,
-            };
+            });
     }
-    for (const h of places) {
-        const record = await read.snapshot(RecordDoc, h.id, context);
+    for (const { record } of records) {
         const gone = record?.archive.findLast(
-            (a) => a.agent.name === name && a.back === null,
+            (entry) => entry.agent.name === name && entry.back === null,
         );
-        if (gone && record) return { gone: farewell(gone, record) };
+        if (gone && record)
+            return err({ kind: "departed", farewell: farewell(gone, record) });
     }
-    return undefined;
+    return err({ kind: "unknown", address });
 }
 
 /** The hamlet's active roads, including implied roads to the office. */

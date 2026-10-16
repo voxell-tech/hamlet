@@ -17,7 +17,6 @@ import type { Say } from "./protocol.ts";
 import { chiefAccess, legacyRefusal } from "./realm/access.ts";
 import { livingAgent } from "./realm/roads.ts";
 import * as founding from "./realm.ts";
-import { addressed } from "./record.ts";
 import { err, ok, type Result } from "./result.ts";
 import type { ChiefFailure, Receipt } from "./server.ts";
 import { resetBudget } from "./spend/ledger.ts";
@@ -104,17 +103,19 @@ export async function say(
     }
     if (command?.command === "revoke") {
         const hamlet = message.to.hamlet;
-        const agent =
-            (await addressed(
-                home.harness,
-                { hamlet, agent: command.agent },
-                context,
-            )) ??
-            grantsOf(await home.harness.snapshot(GrantsDoc, context)).find(
-                (grant) =>
-                    grant.agent.hamlet === hamlet &&
-                    grant.name === command.agent,
-            )?.agent;
+        const target = await livingAgent(
+            home,
+            { hamlet, agent: command.agent },
+            "revoke",
+            context,
+        );
+        const agent = target.ok
+            ? target.value.ref
+            : grantsOf(await home.harness.snapshot(GrantsDoc, context)).find(
+                  (grant) =>
+                      grant.agent.hamlet === hamlet &&
+                      grant.name === command.agent,
+              )?.agent;
         if (agent !== undefined)
             await home.harness.commit(
                 (tx) =>
