@@ -38,6 +38,7 @@ import {
 } from "./connection-support.ts";
 import { swappingDirectory } from "./race-support.ts";
 import {
+    addAgent,
     addHamlet,
     closeAfter,
     context,
@@ -1863,3 +1864,44 @@ it.each(
     },
     15_000,
 );
+
+for (const gift of ["typed", "skill", "files"] as const) {
+    it(`gives a departed recipient's farewell for a ${gift} gift (H28)`, async () => {
+        const run = await served({ models: fauxModels().models });
+        await addAgent(run.home, "home", "poet");
+        await sendRequest(run.connection, run.messages, {
+            type: "say",
+            id: randomUUID(),
+            to: mayor,
+            text: "/remove poet Work ended",
+        });
+        const message =
+            gift === "typed"
+                ? {
+                      type: "say" as const,
+                      to: mayor,
+                      text: "/give poet weather",
+                  }
+                : gift === "skill"
+                  ? {
+                        type: "give" as const,
+                        to: { hamlet: "home", agent: "poet" },
+                        skill: { starter: "weather" },
+                    }
+                  : {
+                        type: "give" as const,
+                        to: { hamlet: "home", agent: "poet" },
+                        files: [{ path: "note.txt", size: 0 }],
+                    };
+        expect(
+            await sendRequest(run.connection, run.messages, {
+                ...message,
+                id: randomUUID(),
+            }),
+        ).toMatchObject({
+            type: "reply",
+            kind: "error",
+            text: '`poet` was removed from the hamlet by the chief chief ("Work ended"). Its house is archived and its roads went with it; only a chief can restore it.',
+        });
+    });
+}

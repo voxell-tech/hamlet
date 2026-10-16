@@ -242,7 +242,6 @@ function rendered(
         case "upload-unknown":
         case "connection-closed":
         case "recipient-changed":
-        case "gift-agent-missing":
         case "skill-exists":
         case "skill-missing":
         case "gift-manifest":

@@ -17,7 +17,6 @@ export type GiftRefusal = { operation: "give"; retrySafe: false } & (
               | "connection-closed"
               | "recipient-changed";
       }
-    | { kind: "gift-agent-missing"; agent: string }
     | { kind: "skill-exists"; agent: string; skill: string }
     | {
           kind: "skill-missing";
@@ -58,8 +57,6 @@ export function giftRefusalText(error: GiftRefusal): string {
             return "The gift's connection closed.";
         case "recipient-changed":
             return "The receiving agent is no longer present.";
-        case "gift-agent-missing":
-            return `no agent named \`${error.agent}\``;
         case "skill-exists":
             return `\`${error.agent}\` already has a skill named \`${error.skill}\``;
         case "skill-missing":

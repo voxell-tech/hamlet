@@ -12,8 +12,8 @@ import {
     type GivePart,
     MAX_GIFT_BYTES,
 } from "../protocol.ts";
-import { type ChiefRefusal, chiefAccess } from "../realm/access.ts";
-import { type AgentRef, named, RecordDoc } from "../record.ts";
+import { type AddressFailure, livingAgent } from "../realm/roads.ts";
+import { type AgentRef, nameOf, RecordDoc } from "../record.ts";
 import { err, ok, type Result } from "../result.ts";
 import { directoryRoot } from "../sandbox/policy.ts";
 import { safeWords } from "../scrub.ts";
@@ -21,7 +21,7 @@ import type { Receipt } from "../server.ts";
 import { checkShelf, type GiftRefusal, manifestSize } from "./gift-rules.ts";
 import { deliver, GIFT_CAPS, stage } from "./trees.ts";
 
-type GiftResult<T> = Result<T, GiftRefusal | ChiefRefusal["error"]>;
+type GiftResult<T> = Result<T, GiftRefusal | AddressFailure>;
 const IDLE_MS = 60_000;
 function refuse(
     kind:
@@ -51,20 +51,13 @@ async function resolved(
     to: Address,
     context: Context,
 ): Promise<GiftResult<{ ref: AgentRef; name: string }>> {
-    const access = await chiefAccess(home, to.hamlet, "give", context);
-    if (!access.ok) return access;
+    const target = await livingAgent(home, to, "give", context);
+    if (!target.ok) return target;
     const record = await home.harness.snapshot(RecordDoc, to.hamlet, context);
-    const agent = record === undefined ? undefined : named(record, to.agent);
-    if (agent === undefined)
-        return err({
-            kind: "gift-agent-missing",
-            agent: to.agent,
-            operation: "give",
-            retrySafe: false,
-        });
+    if (!record) throw new Error("A resolved gift recipient has no record.");
     return ok({
-        ref: { hamlet: to.hamlet, number: agent.number },
-        name: agent.name,
+        ref: target.value.ref,
+        name: nameOf(record, target.value.ref.number),
     });
 }
 
