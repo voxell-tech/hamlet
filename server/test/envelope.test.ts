@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { expect, it, vi } from "vitest";
@@ -16,8 +17,9 @@ import { RecordDoc } from "../src/record.ts";
 import { err, ok } from "../src/result.ts";
 import { faultFor, replyFor } from "../src/server.ts";
 import { watchChat } from "../src/transcript.ts";
-import { request, served } from "./connection-support.ts";
+import { mayor, request, served } from "./connection-support.ts";
 import {
+    addAgent,
     closeAfter,
     context,
     fauxModels,
@@ -108,7 +110,7 @@ it("keeps command usage wording and the historical notice or error policy behind
     }
 });
 
-it("keeps returned refusals as replies and turns a thrown handler failure into a scrubbed correlated fault", async () => {
+it("keeps legacy read refusals as scrubbed correlated error replies without a failed-request log", async () => {
     const run = await served({ models: fauxModels().models });
     await run.home.credentials.modify("test", async () => ({
         type: "api_key",
@@ -125,11 +127,12 @@ it("keeps returned refusals as replies and turns a thrown handler failure into a
             agent: { hamlet: "home", agent: "missing-secret-agent" },
         }),
     ).toEqual({
-        type: "fault",
+        type: "reply",
+        kind: "error",
         to: id,
         text: "no agent named `[REDACTED]`",
     });
-    expect(diagnostic).toHaveBeenCalledWith(expect.stringContaining(id));
+    expect(diagnostic).not.toHaveBeenCalled();
     expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(
         "missing-secret-agent",
     );
@@ -161,7 +164,7 @@ const recordedFrame = Type.Object({
     message: Type.Unknown(),
 });
 
-it("keeps the recorded refusal text bytes when legacy owner exceptions reach the fault path", async () => {
+it("keeps the recorded refusal envelopes byte-identical for legacy owner exceptions", async () => {
     const run = await served({ models: fauxModels().models });
     for (const name of ["reads-and-edits", "give"]) {
         const text = await readFile(
@@ -194,9 +197,8 @@ it("keeps the recorded refusal text bytes when legacy owner exceptions reach the
                     id,
                 }),
             ).toEqual({
-                type: "fault",
+                ...message,
                 to: id,
-                text: message.text,
             });
         }
     }
@@ -239,4 +241,77 @@ it("lets the envelope render a watch's returned failure without a prebuilt fault
         type: "fault",
         text: "Cannot open chat: Only a chief of that hamlet may reach its agents. Ask one of its chiefs.",
     });
+});
+
+it("answers typed /retry with a notice after the last message was answered", async () => {
+    const { models, faux } = fauxModels();
+    faux.setResponses([fauxAssistantMessage("Done.")]);
+    const run = await served({ models, env: { HAMLET_REFLECT_EVERY: "0" } });
+    await request(run.connection, run.messages, {
+        type: "say",
+        id: randomUUID(),
+        to: mayor,
+        text: "Work.",
+    });
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    closeAfter(() => diagnostic.mockRestore());
+    const id = randomUUID();
+    expect(
+        await request(run.connection, run.messages, {
+            type: "say",
+            id,
+            to: mayor,
+            text: "/retry",
+        }),
+    ).toEqual({
+        type: "reply",
+        to: id,
+        kind: "notice",
+        text: "the last message was answered, so there is nothing to carry on",
+    });
+    const wire = randomUUID();
+    expect(
+        await request(run.connection, run.messages, {
+            type: "retry",
+            id: wire,
+            to: mayor,
+        }),
+    ).toEqual({
+        type: "reply",
+        to: wire,
+        kind: "error",
+        text: "the last message was answered, so there is nothing to carry on",
+    });
+    expect(diagnostic).not.toHaveBeenCalled();
+});
+
+it("answers typed /stop for unknown and departed agents with error replies and no failed-request log", async () => {
+    const run = await served({ models: fauxModels().models });
+    await addAgent(run.home, "home", "scout");
+    await request(run.connection, run.messages, {
+        type: "say",
+        id: randomUUID(),
+        to: mayor,
+        text: "/remove scout Finished",
+    });
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    closeAfter(() => diagnostic.mockRestore());
+    for (const [name, text] of [
+        ["nobody", "no agent named `nobody`"],
+        [
+            "scout",
+            '`scout` was removed from the hamlet by the chief chief ("Finished"). Its house is archived and its roads went with it; only a chief can restore it.',
+        ],
+    ]) {
+        const id = randomUUID();
+        expect(
+            await request(run.connection, run.messages, {
+                type: "say",
+                id,
+                to: mayor,
+                text: `/stop ${name}`,
+            }),
+        ).toEqual({ type: "reply", to: id, kind: "error", text });
+    }
+    expect(diagnostic).not.toHaveBeenCalled();
 });

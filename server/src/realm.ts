@@ -3,6 +3,8 @@ export {
     type ChiefResult,
     chiefAccess,
     chiefRefusalText,
+    type LegacyRefusal,
+    legacyRefusal,
 } from "./realm/access.ts";
 export { awaiting, Dealings } from "./realm/dealings.ts";
 export {
@@ -30,6 +32,8 @@ export {
     type RealmRoad,
 } from "./realm/places.ts";
 export {
+    type AddressFailure,
+    addressFailureText,
     carryRealmRoad,
     carryRoad,
     farewell,

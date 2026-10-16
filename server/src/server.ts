@@ -4,6 +4,7 @@ import { withAbortSignal } from "@earendil-works/chord/context";
 import type { AuthPrompt } from "@earendil-works/pi-ai";
 import type { Submission } from "@earendil-works/pi-durable";
 import {
+    type ChatId,
     newChat,
     resumeChat,
     retry,
@@ -22,9 +23,9 @@ import type { Home } from "./home.ts";
 import { clearStagedGifts, give, uploads } from "./house.ts";
 import { checkConnection, checkModel, login as signIn } from "./models.ts";
 import type { Address, Login, LoginStep, ServerMessage } from "./protocol.ts";
-import { type ChiefResult, chiefAccess } from "./realm/access.ts";
+import { chiefAccess, legacyRefusal } from "./realm/access.ts";
 import { resolve } from "./realm/roads.ts";
-import { ok, type Result } from "./result.ts";
+import { err, ok, type Result } from "./result.ts";
 import { say } from "./say.ts";
 import { edit } from "./server/edits.ts";
 import {
@@ -64,7 +65,7 @@ export async function serveHome(
         watches?.delete(chat);
     };
     const changed = async (
-        outcome: string | ChiefResult<string>,
+        outcome: string | Result<string, ChiefFailure>,
     ): Promise<Result<Receipt, ChiefFailure>> => {
         if (typeof outcome !== "string" && !outcome.ok) return outcome;
         await state.refresh();
@@ -72,7 +73,9 @@ export async function serveHome(
             text: typeof outcome === "string" ? outcome : outcome.value,
         });
     };
-    const chatOf = async (address: Address) => {
+    const chatOf = async (
+        address: Address,
+    ): Promise<Result<ChatId, ChiefFailure>> => {
         const access = await chiefAccess(
             home,
             address.hamlet,
@@ -86,8 +89,10 @@ export async function serveHome(
             `${address.agent}@${address.hamlet}`,
             context,
         );
-        if (!target) throw new Error(`no agent named \`${address.agent}\``);
-        if ("gone" in target) throw new Error(target.gone);
+        if (!target)
+            return err({ kind: "agent-missing", agent: address.agent });
+        if ("gone" in target)
+            return err({ kind: "agent-gone", farewell: target.gone });
         return ok({ agent: target.ref, chief: home.chief });
     };
     await clearStagedGifts(home);
@@ -196,17 +201,27 @@ export async function serveHome(
                 return undefined;
             },
             login: async (message, client) => {
-                const outcome = await logins.handle(message, client);
+                // D9 replaces this sign-in-call compatibility catch with LoginFailure.
+                const outcome = await logins
+                    .handle(message, client)
+                    .catch(legacyRefusal);
                 return outcome === undefined
                     ? undefined
                     : replyFor(message.id, outcome, home.secrets);
             },
             check: (message, client) => {
                 void (async () => {
+                    // D9 replaces these model-check compatibility catches with model failures.
                     const outcome = await changed(
                         message.what === "connection"
-                            ? await checkConnection(home, context)
-                            : await checkModel(home, message.model, context),
+                            ? await checkConnection(home, context).catch(
+                                  legacyRefusal,
+                              )
+                            : await checkModel(
+                                  home,
+                                  message.model,
+                                  context,
+                              ).catch(legacyRefusal),
                     );
                     if (!client.signal.aborted)
                         client.send(
@@ -218,36 +233,55 @@ export async function serveHome(
                 return undefined;
             },
             give: async (message, client) => {
+                // D8 replaces these gift-call compatibility catches with GiftRefusal.
                 if (!("files" in message))
                     return replyFor(
                         message.id,
-                        await changed(await give(home, message, context)),
+                        await changed(
+                            await give(home, message, context).catch(
+                                legacyRefusal,
+                            ),
+                        ),
                         home.secrets,
                     );
                 return replyFor(
                     message.id,
-                    await gifts.begin(message, client.signal),
+                    await gifts
+                        .begin(message, client.signal)
+                        .catch(legacyRefusal),
                     home.secrets,
                 );
             },
+            // D8 replaces this gift-part compatibility catch with GiftRefusal.
             "give-part": async (message, client) =>
                 replyFor(
                     message.id,
-                    await changed(await gifts.part(message, client.signal)),
+                    await changed(
+                        await gifts
+                            .part(message, client.signal)
+                            .catch(legacyRefusal),
+                    ),
                     home.secrets,
                 ),
+            // D9/D11 replace this edit-call compatibility catch with settings and limits failures.
             edit: async (message) =>
                 replyFor(
                     message.id,
-                    await changed(await edit(home, message, context)),
+                    await changed(
+                        await edit(home, message, context).catch(legacyRefusal),
+                    ),
                     home.secrets,
                 ),
             read: async (message) => {
-                const outcome = await read(home, message, context);
+                // D2/D3 replace this read-call compatibility catch with address and watch failures.
+                const outcome = await read(home, message, context).catch(
+                    legacyRefusal,
+                );
                 return outcome.ok
                     ? home.secrets.value(outcome.value)
                     : replyFor(message.id, outcome, home.secrets);
             },
+            // D6 replaces this answer-call compatibility catch with answer-not-offered.
             answer: async (message) =>
                 replyFor(
                     message.id,
@@ -256,15 +290,20 @@ export async function serveHome(
                             home,
                             { ...message, chief: home.chief },
                             context,
-                        ),
+                        ).catch(legacyRefusal),
                     ),
                     home.secrets,
                 ),
             stop: async (message) => {
+                // D3 replaces these stop-call compatibility catches with ConversationFailure.
                 if (message.agent === undefined)
                     return replyFor(
                         message.id,
-                        await changed(await stopChiefAgents(home, context)),
+                        await changed(
+                            await stopChiefAgents(home, context).catch(
+                                legacyRefusal,
+                            ),
+                        ),
                         home.secrets,
                     );
                 const chat = await chatOf(message.agent);
@@ -272,7 +311,9 @@ export async function serveHome(
                 return replyFor(
                     message.id,
                     await changed(
-                        await stopAgent(home, chat.value.agent, context),
+                        await stopAgent(home, chat.value.agent, context).catch(
+                            legacyRefusal,
+                        ),
                     ),
                     home.secrets,
                 );
@@ -280,43 +321,81 @@ export async function serveHome(
             new: async (message) => {
                 const chat = await chatOf(message.to);
                 if (!chat.ok) return replyFor(message.id, chat, home.secrets);
-                await newChat(home, chat.value, context);
+                // D3 replaces this new-session compatibility catch with ConversationFailure.
+                const outcome = await newChat(home, chat.value, context)
+                    .then(() => ok("Started a new session."))
+                    .catch(legacyRefusal);
                 return replyFor(
                     message.id,
-                    await changed("Started a new session."),
+                    await changed(outcome),
                     home.secrets,
                 );
             },
             resume: async (message) => {
                 const chat = await chatOf(message.to);
                 if (!chat.ok) return replyFor(message.id, chat, home.secrets);
-                await resumeChat(home, chat.value, message.number, context);
+                // D3 replaces this resume-call compatibility catch with ConversationFailure.
+                const outcome = await resumeChat(
+                    home,
+                    chat.value,
+                    message.number,
+                    context,
+                )
+                    .then(() => ok("Went back to an earlier session."))
+                    .catch(legacyRefusal);
                 return replyFor(
                     message.id,
-                    await changed("Went back to an earlier session."),
+                    await changed(outcome),
                     home.secrets,
                 );
             },
             retry: async (message) => {
                 const chat = await chatOf(message.to);
                 if (!chat.ok) return replyFor(message.id, chat, home.secrets);
-                await retry(home, chat.value, context);
+                // D3 replaces this retry-call compatibility catch with ConversationFailure.
+                const outcome = await retry(home, chat.value, context)
+                    .then(() => ok("Carrying on from where it stopped."))
+                    .catch(legacyRefusal);
                 return replyFor(
                     message.id,
-                    await changed("Carrying on from where it stopped."),
+                    await changed(outcome),
                     home.secrets,
                 );
             },
             rewind: async (message) => {
+                const access = await chiefAccess(
+                    home,
+                    message.chat.with.hamlet,
+                    "change chat",
+                    context,
+                );
+                if (!access.ok)
+                    return replyFor(message.id, access, home.secrets);
+                // D3 replaces this writable-chat compatibility catch with WatchFailure.
+                try {
+                    requireWritable(message.chat);
+                } catch (cause) {
+                    return replyFor(
+                        message.id,
+                        legacyRefusal(cause),
+                        home.secrets,
+                    );
+                }
+                if (message.chat.past !== undefined)
+                    return replyFor(
+                        message.id,
+                        legacyRefusal(
+                            "Open the current conversation to rewind it.",
+                        ),
+                        home.secrets,
+                    );
                 const chat = await chatOf(message.chat.with);
                 if (!chat.ok) return replyFor(message.id, chat, home.secrets);
-                requireWritable(message.chat);
-                if (message.chat.past !== undefined)
-                    throw new Error(
-                        "Open the current conversation to rewind it.",
-                    );
+                // D3 replaces this rewind-call compatibility catch with ConversationFailure.
                 const outcome = await changed(
-                    await rewind(home, chat.value, message.item, context),
+                    await rewind(home, chat.value, message.item, context).catch(
+                        legacyRefusal,
+                    ),
                 );
                 return replyFor(
                     message.id,

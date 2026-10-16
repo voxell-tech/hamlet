@@ -1,7 +1,15 @@
 import type { Context } from "@earendil-works/chord";
 import type { Home } from "../home.ts";
-import type { Result } from "../result.ts";
+import { err, type Result } from "../result.ts";
 import { isChief, RealmDoc } from "./places.ts";
+
+/** An owner refusal whose classification has not yet replaced its thrown form. */
+export type LegacyRefusal = { kind: "legacy-refusal"; cause: unknown };
+
+/** Retains a legacy owner's error reply without catching unrelated handler defects. */
+export function legacyRefusal(cause: unknown): Result<never, LegacyRefusal> {
+    return err({ kind: "legacy-refusal", cause });
+}
 
 /** A refused chief operation, safe to repeat after the named recovery. */
 export type ChiefRefusal = {

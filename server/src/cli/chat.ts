@@ -386,7 +386,22 @@ class Screen {
         view: { items: Item[]; working: boolean; pending: number },
         op: Op,
     ): void {
-        applyOp(view.items, view, op);
+        if (op.op === "append" || op.op === "close") {
+            const item = view.items.find((item) => item.id === op.item);
+            if (
+                item === undefined ||
+                (op.op === "close" && item.tool === undefined)
+            )
+                return;
+        }
+        // A page or a temporarily hidden past view may lack the replaced live item.
+        if (
+            op.op === "add" &&
+            op.replaces !== undefined &&
+            !view.items.some((item) => item.id === op.replaces)
+        )
+            applyOp(view.items, view, { op: "add", item: op.item });
+        else applyOp(view.items, view, op);
         if (op.op === "add") this.#add(op.item, op.replaces);
         if (op.op === "append") {
             const item = view.items.find((item) => item.id === op.item);

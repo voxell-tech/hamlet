@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createProvider } from "@earendil-works/pi-ai/models";
 import {
+    createFauxCore,
     fauxAssistantMessage,
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
@@ -285,4 +288,80 @@ it("prints the answer to its own line even when /new puts that conversation away
     expect(await chat.ended).toBe(0);
     expect(chat.out(), chat.err()).toContain("From the old conversation.\n");
     expect(chat.out().match(/From the new conversation\./g)).toHaveLength(1);
+});
+
+it("keeps chatting when a pinned past view missed live items while that session was current", async () => {
+    const { models } = fauxModels();
+    const faux = createFauxCore({
+        models: [{ id: "faux-1" }],
+        tokenSize: { min: 1, max: 1 },
+        tokensPerSecond: 100,
+    });
+    const begin = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    const stream: typeof faux.stream = (model, input, options) => {
+        const out = createAssistantMessageEventStream();
+        void (async () => {
+            await begin.promise;
+            const source = faux.stream(model, input, options);
+            let deltas = 0;
+            for await (const event of source) {
+                // The faux provider shares partial content across events; snapshot before pausing it.
+                const snapshot = structuredClone(event);
+                if (event.type === "text_delta" && deltas++ > 0)
+                    await finish.promise;
+                out.push(snapshot);
+            }
+            out.end(await source.result());
+        })();
+        return out;
+    };
+    models.setProvider(
+        createProvider({
+            id: "faux",
+            models: faux.models,
+            auth: {
+                apiKey: { name: "Faux", resolve: async () => ({ auth: {} }) },
+            },
+            api: { stream, streamSimple: stream },
+        }),
+    );
+    faux.setResponses([fauxAssistantMessage("From the first session.")]);
+    const run = await served({ models, env: { HAMLET_REFLECT_EVERY: "0" } });
+    const chat = hamlet(["chat"], run.home.dir, undefined, {
+        HAMLET_SERVER: run.server.url,
+        HAMLET_TOKEN: run.home.credentials.token,
+    });
+    try {
+        chat.child.stdin.write("Work.\n/new\n");
+        await vi.waitFor(
+            () =>
+                expect(
+                    chat.err().match(/\(Started a new session\.\)/g),
+                ).toHaveLength(2),
+            { timeout: 5000 },
+        );
+        chat.child.stdin.write("/resume 1\n");
+        await vi.waitFor(() =>
+            expect(
+                chat.err().match(/\(Went back to an earlier session\.\)/g),
+            ).toHaveLength(2),
+        );
+        begin.resolve();
+        await vi.waitFor(() => expect(chat.out()).toContain("From"));
+        chat.child.stdin.write("/new\n");
+        await vi.waitFor(() =>
+            expect(
+                chat.err().match(/\(Started a new session\.\)/g),
+            ).toHaveLength(4),
+        );
+        finish.resolve();
+        chat.child.stdin.end();
+        expect(await chat.ended, chat.err()).toBe(0);
+        expect(chat.err()).not.toContain("No item");
+        expect(chat.out().replaceAll("\n", "")).toBe("From the first session.");
+    } finally {
+        begin.resolve();
+        finish.resolve();
+    }
 });

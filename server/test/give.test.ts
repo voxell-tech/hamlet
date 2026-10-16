@@ -203,7 +203,8 @@ it.each([
         ],
     });
     expect(reply).toMatchObject({
-        type: "fault",
+        type: "reply",
+        kind: "error",
         text: expect.stringMatching(/path|inbox/),
     });
     expect(
@@ -231,7 +232,8 @@ it.each([false, true])(
             ],
         });
         expect(reply).toMatchObject({
-            type: "fault",
+            type: "reply",
+            kind: "error",
             text: expect.stringContaining("inbox"),
         });
         expect(await readdir(outside)).toEqual([]);
@@ -267,7 +269,8 @@ it.each([
                 files,
             }),
         ).toMatchObject({
-            type: "fault",
+            type: "reply",
+            kind: "error",
             text: expect.any(String),
         });
         expect(
@@ -332,7 +335,8 @@ it("lists starters and house skills, installs a starter and sends the changed sk
             skill: { starter: "web-search" },
         }),
     ).toMatchObject({
-        type: "fault",
+        type: "reply",
+        kind: "error",
         text: "`founder` already has a skill named `web-search`",
     });
     expect(
@@ -343,7 +347,8 @@ it("lists starters and house skills, installs a starter and sends the changed sk
             skill: { starter: "nothing" },
         }),
     ).toMatchObject({
-        type: "fault",
+        type: "reply",
+        kind: "error",
         text: "no starter skill named `nothing`. Say whose it is: /give founder nothing from <agent>",
     });
     expect(faux.state.callCount).toBe(0);
@@ -426,7 +431,8 @@ it("copies another agent's whole skill, keeps the giver's and records its source
             },
         }),
     ).toMatchObject({
-        type: "fault",
+        type: "reply",
+        kind: "error",
         text: "`scout` has no skill named `missing`",
     });
     expect(faux.state.callCount).toBe(0);
@@ -452,7 +458,8 @@ it.each(["file", "starter"])(
                 ...gift,
             }),
         ).toMatchObject({
-            type: "fault",
+            type: "reply",
+            kind: "error",
             text: "no agent named `mayor`",
         });
         expect(
@@ -548,7 +555,8 @@ it.each(["skill", "nested"])(
                 },
             }),
         ).toMatchObject({
-            type: "fault",
+            type: "reply",
+            kind: "error",
             text: "A skill gift cannot include links or special files.",
         });
         expect(
@@ -613,7 +621,7 @@ it.each(["skills", "skills/maps"])(
             });
             expect(swapped).toBe(true);
             expect(reply).toMatchObject({
-                type: "fault",
+                kind: "error",
                 text: expect.stringMatching(
                     /skill gift|could not be delivered/,
                 ),
@@ -701,7 +709,7 @@ it.each(
                           }),
                 }),
             ).toMatchObject({
-                type: "fault",
+                kind: "error",
                 text: "The gift could not be delivered inside the inbox or skills folder. Nothing was handed over.",
             });
             expect(created).toBe(true);
@@ -750,7 +758,7 @@ it("rolls back claimed destinations when the copy's execution reports failure af
                 ],
             }),
         ).toMatchObject({
-            type: "fault",
+            kind: "error",
             text: "The gift could not be delivered inside the inbox or skills folder. Nothing was handed over.",
         });
         expect(failed).toBe(true);
@@ -813,7 +821,7 @@ it.each(["link", "pipe", "large", "many"])(
             });
             expect(changed).toBe(true);
             expect(reply).toMatchObject({
-                type: "fault",
+                kind: "error",
                 text:
                     kind === "large"
                         ? "The skill gift is larger than 32 MB."
@@ -983,7 +991,7 @@ async function recordGive(): Promise<Frame[]> {
             to: mayor,
             skill: { starter: "nothing" },
         }),
-    ).toMatchObject({ type: "fault" });
+    ).toMatchObject({ kind: "error" });
     expect(
         await request(connection, messages, {
             type: "open",
@@ -1177,8 +1185,9 @@ it("refuses a 40 MiB manifest in words addressed to give before receiving bytes"
             files: [{ path: "large.bin", size: 40 * 1024 * 1024 }],
         }),
     ).toMatchObject({
-        type: "fault",
+        type: "reply",
         to: id,
+        kind: "error",
         text: expect.stringContaining("32 MB"),
     });
     expect(
@@ -1207,7 +1216,8 @@ it.each([
             ],
         });
         expect(reply).toMatchObject({
-            type: "fault",
+            type: "reply",
+            kind: "error",
             text: expect.stringMatching(/repeats|both/),
         });
         expect(JSON.stringify(reply)).not.toContain(run.home.layout.dir);
@@ -1283,14 +1293,14 @@ it("keeps a partial upload out of the inbox, drops a bad part and hides server p
     expect(await readdir(inbox)).toEqual([]);
     const refused = await part(0);
     expect(refused).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: expect.stringContaining("offset"),
     });
     expect(JSON.stringify(refused)).not.toContain(run.home.layout.dir);
     expect(await readdir(inbox)).toEqual([]);
     expect(await readdir(join(run.home.layout.dir, ".gifts"))).toEqual([]);
     expect(await part(1)).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: expect.stringContaining("upload id"),
     });
     expect(faux.state.callCount).toBe(0);
@@ -1351,7 +1361,7 @@ it("drops an idle upload and refuses its late parts", async () => {
             data: "QQ==",
         }),
     ).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: expect.stringContaining("expired"),
     });
 });
@@ -1376,7 +1386,7 @@ it("drops disconnected uploads and keeps another window from using them", async 
             offset: 0,
             data: "QQ==",
         }),
-    ).toMatchObject({ type: "fault" });
+    ).toMatchObject({ kind: "error" });
     await other.connection.close();
     await expect
         .poll(async () => readdir(join(run.home.layout.dir, ".gifts")))
@@ -1462,7 +1472,7 @@ it("refuses delivery after the agent replaces an accepted inbox with an outside 
         data: "QQ==",
     });
     expect(reply).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: "The gift could not be delivered inside the inbox or skills folder. Nothing was handed over.",
     });
     expect(JSON.stringify(reply)).not.toContain(run.home.layout.dir);
@@ -1554,7 +1564,7 @@ it("rolls back earlier roots when a later delivery fails, with no server paths i
         ],
     });
     expect(reply).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: expect.stringContaining("Nothing was handed over"),
     });
     expect(JSON.stringify(reply)).not.toContain(run.home.layout.dir);
@@ -1600,7 +1610,7 @@ it("refuses a manifest through a linked inbox before accepting any bytes", async
             to: mayor,
             files: [{ path: "a", size: 1 }],
         }),
-    ).toMatchObject({ type: "fault", text: expect.stringContaining("inbox") });
+    ).toMatchObject({ kind: "error", text: expect.stringContaining("inbox") });
     expect(await readdir(outside)).toEqual([]);
 });
 
@@ -1626,7 +1636,7 @@ it.each(["file", "skill"])(
             ...gift,
         });
         expect(reply).toMatchObject({
-            type: "fault",
+            kind: "error",
             text:
                 kind === "file"
                     ? "The gift could not be staged. Nothing was handed over."
@@ -1656,7 +1666,7 @@ it("limits a connection to three pending gifts and frees its places on disconnec
             upload: expect.any(String),
         });
     expect(await manifest(other)).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: "This connection already has three file gifts waiting. Finish one before starting another.",
     });
     expect(await readdir(join(run.home.layout.dir, ".gifts"))).toHaveLength(3);
@@ -1688,7 +1698,7 @@ it("reserves no more than 32 MiB for an agent across every connection and releas
         });
     const refused = await manifest(run, 1);
     expect(refused).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: "This agent already has 32 MB of file gifts waiting. Finish or discard one before starting another.",
     });
     expect(JSON.stringify(refused)).not.toContain(run.home.layout.dir);
@@ -1720,7 +1730,7 @@ it("bounds even empty-file manifests before making staging entries", async () =>
             })),
         }),
     ).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: "A gift takes at most 4096 files at once.",
     });
     expect(
@@ -1771,7 +1781,7 @@ it.each(["special", "large", "many"])(
                 },
             }),
         ).toMatchObject({
-            type: "fault",
+            kind: "error",
             text:
                 kind === "special"
                     ? "A skill gift cannot include links or special files."

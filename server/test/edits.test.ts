@@ -51,7 +51,8 @@ it("edits one limits key or the whole document, sends the new budget, and refuse
     expect(
         await edit({ set: { section: "budget", key: "cost", value: -1 } }),
     ).toMatchObject({
-        type: "fault",
+        type: "reply",
+        kind: "error",
         text: "budget.cost: a cost is a number of zero or more",
     });
     expect(changes(run.messages)).toHaveLength(count);

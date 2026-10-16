@@ -101,24 +101,24 @@ it("refuses taken names, empty purposes, used ids and the home's hamlet cap", as
         ["/found mill founder Work", "reserved"],
     ])
         expect(await deed(text ?? "")).toMatchObject({
-            type: "fault",
+            kind: "error",
             text: expect.stringContaining(words ?? ""),
         });
     await deed("/found mill miller Flour");
     expect(await deed("/found dock miller Ships")).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: expect.stringContaining("already exists"),
     });
     await run.home.harness.commit(async (tx) => {
         (await tx.doc(LimitsDoc, "home", "home")).hamlets.most = 2;
     }, context);
     expect(await deed("/found dock docker Ships")).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: expect.stringContaining("no more hamlets"),
     });
     await deed("/remove-hamlet mill Done");
     expect(await deed("/found mill another Flour")).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: expect.stringContaining("used before"),
     });
 });
@@ -134,7 +134,7 @@ it("names, places, removes, restores and erases a hamlet without reusing its id"
         });
     await deed("/found mill miller Flour");
     expect(await deed(`/name-hamlet mill ${"x".repeat(33)}`)).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: expect.stringContaining("32 letters"),
     });
     expect(await deed("/name-hamlet mill The   Mill")).toMatchObject({
@@ -147,17 +147,17 @@ it("names, places, removes, restores and erases a hamlet without reusing its id"
         (await run.home.harness.snapshot(RealmDoc, context))?.hamlets[1],
     ).toMatchObject({ title: "The Mill", at: { x: -12.5, z: 40 } });
     expect(await deed("/move-hamlet mill Infinity 0")).toMatchObject({
-        type: "fault",
+        kind: "error",
     });
     expect(await deed("/name-hamlet mill")).toMatchObject({ kind: "notice" });
     expect(
         (await run.home.harness.snapshot(RealmDoc, context))?.hamlets[1]?.title,
     ).toBeNull();
     expect(await deed("/remove-hamlet home")).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: expect.stringContaining("cannot be removed"),
     });
-    expect(await deed("/erase-hamlet mill")).toMatchObject({ type: "fault" });
+    expect(await deed("/erase-hamlet mill")).toMatchObject({ kind: "error" });
     expect(await deed("/remove-hamlet mill Done")).toMatchObject({
         kind: "notice",
     });
@@ -170,7 +170,7 @@ it("names, places, removes, restores and erases a hamlet without reusing its id"
     await expect(
         access(join(run.home.layout.houses, "mill")),
     ).rejects.toThrow();
-    expect(await deed("/restore-hamlet mill")).toMatchObject({ type: "fault" });
+    expect(await deed("/restore-hamlet mill")).toMatchObject({ kind: "error" });
 });
 
 it("records removal asks without removing and counts only distinct live mayors since restore", async () => {
@@ -281,7 +281,7 @@ it("stops removed work, lapses waits and refuses restore if a name was taken", a
     expect(await openWaits(run.home)).toHaveLength(0);
     await addAgent(run.home, "home", "miller");
     expect(await deed("/restore-hamlet mill")).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: expect.stringContaining("exists now"),
     });
 });
@@ -333,7 +333,7 @@ it("shows an agent its cross-hamlet road and refuses another chief's changes", a
                 text,
             }),
         ).toMatchObject({
-            type: "fault",
+            kind: "error",
             text: expect.stringContaining("only a chief"),
         });
 });
@@ -474,7 +474,7 @@ it.each(["mill", "dock"])(
                 text,
             });
         expect(await deed(`/remove-hamlet ${endpoint} Done`)).toMatchObject({
-            type: "fault",
+            kind: "error",
             text: expect.stringContaining("house move"),
         });
         expect(
@@ -495,7 +495,7 @@ it.each(["mill", "dock"])(
             };
         }, context);
         expect(await deed(`/erase-hamlet ${endpoint}`)).toMatchObject({
-            type: "fault",
+            kind: "error",
             text: expect.stringContaining("house move"),
         });
         expect(await readFile(notes, "utf8")).toBe("precious");

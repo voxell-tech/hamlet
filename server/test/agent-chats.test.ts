@@ -170,7 +170,7 @@ it("watches questions live, pages them and refuses rewind without changing the c
             item: open.items[0]?.id ?? "missing",
         }),
     ).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: "Conversations between agents are read-only.",
     });
     expect(await transcript(peer)).toEqual(before);

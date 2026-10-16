@@ -99,17 +99,20 @@ it("refuses Hamlet's home, its children and parents, links to it and relative or
     const alias = join(outer, "alias");
     await symlink(home.dir, alias);
     for (const folder of [home.dir, join(home.dir, "inside"), outer, alias]) {
-        await expect(typed(home, `/folder ${folder}`)).rejects.toThrow(
-            `a hamlet cannot work on Hamlet's own folder (${home.dir}), or on one that holds it`,
-        );
+        expect(await typed(home, `/folder ${folder}`)).toMatchObject({
+            kind: "error",
+            text: `a hamlet cannot work on Hamlet's own folder (${home.dir}), or on one that holds it`,
+        });
         expect((await work(home))?.folder).toBeNull();
     }
-    await expect(typed(home, "/folder relative")).rejects.toThrow(
-        "give the folder's full path, such as /Users/you/code/project",
-    );
-    await expect(typed(home, `/folder ${outer}/missing`)).rejects.toThrow(
-        `\`${outer}/missing\` is not a folder`,
-    );
+    expect(await typed(home, "/folder relative")).toMatchObject({
+        kind: "error",
+        text: "give the folder's full path, such as /Users/you/code/project",
+    });
+    expect(await typed(home, `/folder ${outer}/missing`)).toMatchObject({
+        kind: "error",
+        text: `\`${outer}/missing\` is not a folder`,
+    });
     expect((await work(home))?.folder).toBeNull();
     expect(await typed(home, "/folder ~")).toMatchObject({ kind: "notice" });
     expect((await work(home))?.folder).toBe(realpathSync(homedir()));

@@ -155,9 +155,10 @@ it("holds plain words at an approval and answers it from any chat without starti
         kind: "notice",
         text: "Not sent. mayor is waiting for your answer:\n[approval] mayor wants to run `echo allowed`\n    echo allowed\n    answer with: /allow /always /deny",
     });
-    await expect(typed(home, "/go")).rejects.toThrow(
-        "That cannot be answered that way:\n[approval] mayor wants to run `echo allowed`\n    echo allowed\n    answer with: /allow /always /deny",
-    );
+    expect(await typed(home, "/go")).toMatchObject({
+        kind: "notice",
+        text: "That cannot be answered that way:\n[approval] mayor wants to run `echo allowed`\n    echo allowed\n    answer with: /allow /always /deny",
+    });
     expect(await typed(home, "/queue", "nowhere")).toMatchObject({
         text: expect.stringContaining(
             "[approval] mayor wants to run `echo allowed`",
@@ -227,9 +228,10 @@ it.each(["founder", "mayor", "all"])(
         await vi.waitFor(async () =>
             expect(await openWaits(home)).toHaveLength(1),
         );
-        await expect(typed(home, "/stop nobody")).rejects.toThrow(
-            "no agent named `nobody`",
-        );
+        expect(await typed(home, "/stop nobody")).toMatchObject({
+            kind: "error",
+            text: "no agent named `nobody`",
+        });
         expect(await openWaits(home)).toHaveLength(1);
         expect(await typed(home, `/stop ${target}`)).toMatchObject({
             text:
@@ -288,9 +290,10 @@ it("routes new, resume, reflect and retry through the existing conversation deed
             (entry) => entry.kind === "hamlet.retry",
         ),
     ).toHaveLength(1);
-    await expect(typed(home, "/retry")).rejects.toThrow(
-        "the last message was answered, so there is nothing to carry on",
-    );
+    expect(await typed(home, "/retry")).toMatchObject({
+        kind: "notice",
+        text: "the last message was answered, so there is nothing to carry on",
+    });
     expect(faux.state.callCount).toBe(4);
 });
 

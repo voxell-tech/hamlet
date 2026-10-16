@@ -4,7 +4,12 @@ import {
     connectionFailureText,
 } from "../connection.ts";
 import type { Fault, Malformed, Reply } from "../protocol.ts";
-import { type ChiefRefusal, chiefRefusalText } from "../realm/access.ts";
+import {
+    type ChiefRefusal,
+    chiefRefusalText,
+    type LegacyRefusal,
+} from "../realm/access.ts";
+import { type AddressFailure, addressFailureText } from "../realm/roads.ts";
 import type { Result } from "../result.ts";
 import type { Secrets } from "../scrub.ts";
 
@@ -17,6 +22,8 @@ export type Receipt = {
 
 /** Chief-facing failures whose wording is chosen at the protocol seam. */
 export type ChiefFailure =
+    | LegacyRefusal
+    | AddressFailure
     | ChiefRefusal["error"]
     | CommandFailure
     | Malformed
@@ -55,6 +62,9 @@ function rendered(failure: ChiefFailure): {
     kind: "notice" | "error";
 } {
     switch (failure.kind) {
+        case "agent-missing":
+        case "agent-gone":
+            return { text: addressFailureText(failure), kind: "error" };
         case "hamlet-missing":
         case "hamlet-removed":
         case "not-chief":
@@ -71,6 +81,14 @@ function rendered(failure: ChiefFailure): {
             };
         case "needs-number":
             return { text: commandFailureText(failure), kind: "notice" };
+        case "legacy-refusal":
+            return {
+                text: connectionFailureText({
+                    kind: "defect",
+                    cause: failure.cause,
+                }),
+                kind: "error",
+            };
         case "defect":
         case "connection":
             return { text: connectionFailureText(failure), kind: "error" };

@@ -151,7 +151,7 @@ it("reads and edits the catalogue and settings and forgets an endpoint's credent
             set: { price: { input: -1, output: 3 } },
         }),
     ).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: "a cost is a number of zero or more",
     });
     await run.home.credentials.modify("local", async () => ({
@@ -182,7 +182,7 @@ it("reads and edits the catalogue and settings and forgets an endpoint's credent
             set: { reflectEvery: -1 },
         }),
     ).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: "reflectEvery must be a whole number",
     });
     expect(

@@ -198,7 +198,8 @@ it("dispatches road refusals and /to over a WebSocket to another agent and hamle
         text: "/road scout smith",
     });
     expect(stub).toMatchObject({
-        type: "fault",
+        type: "reply",
+        kind: "error",
         text: "no agent named `smith` in this hamlet",
     });
     faux.setResponses([
@@ -328,7 +329,8 @@ it("refuses a departed agent with its farewell and answers an agent's own questi
             text: "Work",
         }),
     ).toMatchObject({
-        type: "fault",
+        type: "reply",
+        kind: "error",
         text: expect.stringContaining(
             'was removed from the hamlet by the mayor ("Work ended")',
         ),

@@ -81,6 +81,9 @@ or faults and scrubs each envelope once. Its exhaustive switch delegates
 wording to the owning family. A thrown handler error reaches the
 connection as a defect: the server logs its cause with the request id and
 sends a correlated fault. Detached handler work uses the same defect path.
+Narrow compatibility catches at owner calls retain error replies for
+unclassified refusals. Typed conversation commands and typed answers retain
+their notice receipts for those refusals. Scrubbing stays in the envelope.
 
 Translate internal errors deliberately before sending them. Keep richer
 diagnostics on the server, subject to the same rules about safe data.

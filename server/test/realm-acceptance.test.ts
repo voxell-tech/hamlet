@@ -219,7 +219,7 @@ it("collects three mayor requests and lets only the chief close, restore and era
         access(join(run.home.layout.houses, "mill")),
     ).rejects.toThrow();
     expect(await deed(run, "/found mill another Work")).toMatchObject({
-        type: "fault",
+        kind: "error",
         text: expect.stringContaining("used before"),
     });
 });

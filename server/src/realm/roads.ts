@@ -18,6 +18,23 @@ import {
     type RealmRoad,
 } from "./places.ts";
 
+/** An unavailable agent address, retaining a departed agent's farewell verbatim. */
+export type AddressFailure =
+    | { kind: "agent-missing"; agent: string }
+    | { kind: "agent-gone"; farewell: string };
+
+/** Chief-facing wording for an unavailable agent address. */
+export function addressFailureText(failure: AddressFailure): string {
+    switch (failure.kind) {
+        case "agent-missing":
+            return `no agent named \`${failure.agent}\``;
+        case "agent-gone":
+            return failure.farewell;
+    }
+    const unhandled: never = failure;
+    throw new Error(`Unclassified address failure: ${unhandled}`);
+}
+
 /** A departed agent's refusal (H28). */
 export function farewell(
     entry: Archived,
