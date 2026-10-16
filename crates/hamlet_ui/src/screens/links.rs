@@ -25,9 +25,9 @@ use hamlet_home::Home;
 use hamlet_rules::hamlet::Hamlet;
 use hamlet_world::sound::{Cue, Sound};
 
+use crate::cue;
 use crate::me::Me;
 use crate::roll::Roll;
-use crate::sounds;
 
 /// The most paths whose files are remembered.
 const REMEMBERED: usize = 4096;
@@ -219,7 +219,7 @@ fn tap(
     if press.button == PointerButton::Primary
         && anchors.contains(press.entity)
     {
-        sounds::write(&mut cues, &mut turn, Sound::Tap);
+        cue::write(&mut cues, &mut turn, Sound::Tap);
     }
 }
 
@@ -243,7 +243,7 @@ fn follow(
         Anchor::File(path) => open::show(path, &roots.folders),
     };
     if !went {
-        sounds::write(&mut cues, &mut turn, Sound::Deny);
+        cue::write(&mut cues, &mut turn, Sound::Deny);
     }
 }
 

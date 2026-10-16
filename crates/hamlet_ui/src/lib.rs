@@ -3,6 +3,7 @@
 
 mod chief;
 pub mod chrome;
+pub mod cue;
 pub mod cursor;
 mod dock;
 mod folder;

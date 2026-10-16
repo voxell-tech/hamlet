@@ -29,7 +29,7 @@ use bevy_fynix::Focused;
 use hamlet_world::sound::{Cue, Sound};
 
 use super::{FeelSettings, MagicColors, Mood, ease, linear, waver};
-use crate::sounds;
+use crate::cue;
 use crate::theme::Themed;
 
 /// A button's state of feel, each 0 to 1.
@@ -120,7 +120,7 @@ pub(super) fn hover_tick(
         hovered.0 && mood.is_some_and(|mood| mood.ticks())
     };
     if buttons.iter().any(heard) {
-        sounds::write(&mut cues, &mut turn, Sound::Tick);
+        cue::write(&mut cues, &mut turn, Sound::Tick);
     }
 }
 
@@ -130,7 +130,7 @@ pub(super) fn press_tap(
     mut turn: Local<u32>,
 ) {
     if !pressed.is_empty() {
-        sounds::write(&mut cues, &mut turn, Sound::Tap);
+        cue::write(&mut cues, &mut turn, Sound::Tap);
     }
 }
 
@@ -215,7 +215,7 @@ pub(super) fn answer(
         Mood::Quiet | Mood::Plain | Mood::Ink => feel.pulse = 1.0,
         Mood::Good => {
             feel.pulse = 1.0;
-            sounds::write(&mut cues, &mut turn, Sound::Confirm);
+            cue::write(&mut cues, &mut turn, Sound::Confirm);
             if let Some((node, at)) = node.zip(at) {
                 let scale = node.inverse_scale_factor;
                 kindle(
@@ -229,7 +229,7 @@ pub(super) fn answer(
         }
         Mood::Bad => {
             feel.shake = 1.0;
-            sounds::write(&mut cues, &mut turn, Sound::Deny);
+            cue::write(&mut cues, &mut turn, Sound::Deny);
         }
     }
 }

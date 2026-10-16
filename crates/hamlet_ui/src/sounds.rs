@@ -8,13 +8,13 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, With};
 use bevy::ecs::system::{Local, Query, Res};
 use bevy::ecs::world::World;
-use bevy::math::Vec3;
 use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
 use hamlet_core::session::{Reply, SessionOutput, UserMessage};
 use hamlet_world::sound::{Cue, Sound};
 
 use crate::chat::Unfolded;
+use crate::cue::{self, write};
 use crate::hover::Card;
 use crate::inspector::Section;
 use crate::menu::OpenMenu;
@@ -26,31 +26,9 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(Update, (menus, tabs, folds));
 }
 
-fn cue(sound: Sound) -> Cue {
-    Cue {
-        sound,
-        at: Vec3::ZERO,
-        turn: 0,
-    }
-}
-
 /// One of the window's own buttons was pressed.
 pub(crate) fn window_button(world: &mut World) {
-    world.write_message(cue(Sound::Sash));
-}
-
-/// Writes a cue with a number of its own, so that it is not played
-/// twice alike.
-pub(crate) fn write(
-    cues: &mut MessageWriter<Cue>,
-    turn: &mut u32,
-    sound: Sound,
-) {
-    *turn = turn.wrapping_add(1);
-    cues.write(Cue {
-        turn: *turn,
-        ..cue(sound)
-    });
+    world.write_message(cue::of(Sound::Sash));
 }
 
 /// A menu of the top bar or a question over the world, as it opens
@@ -140,14 +118,14 @@ fn folds(
 /// A message sent from the command line.
 fn sent(message: On<UserMessage>, mut cues: MessageWriter<Cue>) {
     if message.key.channel == "app" {
-        cues.write(cue(Sound::Send));
+        cues.write(cue::of(Sound::Send));
     }
 }
 
 /// A reply that could not be finished.
 fn failed(output: On<SessionOutput>, mut cues: MessageWriter<Cue>) {
     if matches!(output.reply, Reply::Error(_)) {
-        cues.write(cue(Sound::Error));
+        cues.write(cue::of(Sound::Error));
     }
 }
 
