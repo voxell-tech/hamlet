@@ -555,3 +555,74 @@ it("keeps an unsplit merge in its hamlet until the chief splits or erases it", a
         "moved from",
     );
 });
+
+it.each(["agree_road", "agree_move"] as const)(
+    "%s refuses a departed name with its farewell",
+    async (tool) => {
+        const { remove } = await import("../src/agents.ts");
+        const { models, faux } = fauxModels();
+        const home = await testHome(scratch(), {
+            models,
+            env: { HAMLET_REFLECT_EVERY: "0" },
+        });
+        await addHamlet(home, "mill", "miller");
+        await addAgent(home, "home", "scout");
+        await addAgent(home, "mill", "smith");
+        await remove(
+            home,
+            { hamlet: "home", chief: home.chief, rest: "scout Work ended" },
+            context,
+        );
+        const result = await call(
+            home,
+            faux,
+            MAYOR,
+            tool,
+            tool === "agree_road"
+                ? { a: "scout", b: "smith", reason: "Trade" }
+                : { agent: "scout", to: "mill", reason: "Learn" },
+        );
+        const farewell =
+            '`scout` was removed from the hamlet by the chief chief ("Work ended"). Its house is archived and its roads went with it; only a chief can restore it.';
+        expect(result).toContain(JSON.stringify(farewell).slice(1, -1));
+    },
+);
+
+it.each([
+    { to: "mill", text: "`mayor` already lives in `mill`" },
+    { to: "home", text: "a mayor never leaves its hamlet" },
+])(
+    "agree_move resolves the caller's unqualified office when joining $to",
+    async ({ to, text }) => {
+        const { models, faux } = fauxModels();
+        const home = await testHome(scratch(), {
+            models,
+            env: { HAMLET_REFLECT_EVERY: "0" },
+        });
+        const mill = await addHamlet(home, "mill", "miller");
+        expect(
+            await call(home, faux, mill, "agree_move", {
+                agent: "mayor",
+                to,
+                reason: "Learn",
+            }),
+        ).toContain(text);
+    },
+);
+
+it("agree_road refuses an unqualified office as an agent road end", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), {
+        models,
+        env: { HAMLET_REFLECT_EVERY: "0" },
+    });
+    const mill = await addHamlet(home, "mill", "miller");
+    await addAgent(home, "home", "scout");
+    expect(
+        await call(home, faux, mill, "agree_road", {
+            a: "mayor",
+            b: "scout",
+            reason: "Trade",
+        }),
+    ).toContain("name two agents; mayors already have roads to each other");
+});
