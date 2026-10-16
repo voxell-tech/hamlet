@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, readdir, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, rename, rm } from "node:fs/promises";
 import {
     basename,
     dirname,
@@ -15,7 +15,7 @@ import type { Context } from "@earendil-works/chord";
 import type { Home } from "./home.ts";
 import { MAX_GIFT_BYTES } from "./protocol.ts";
 import { SandboxEnv } from "./sandbox/env.ts";
-import { canon, within } from "./sandbox/policy.ts";
+import { canon, directoryRoot, within } from "./sandbox/policy.ts";
 import { closedPolicy } from "./sandbox/reach.ts";
 
 const deliveries = new WeakMap<Home, Promise<unknown>>();
@@ -283,7 +283,7 @@ while [ "$#" -gt 0 ]; do
     set +C
   fi
   printf '%s\\0' "$target" >> "$claimed"
-  cp -RP -- "$copy" "$target"
+  cp -RPp -- "$copy" "$target"
 done`,
                 "gift",
                 claimed,
@@ -353,6 +353,8 @@ function treeEnv(
     stage?: string,
     caps: Readonly<TreeCaps> = MERGE_CAPS,
 ): SandboxEnv {
+    directoryRoot(root);
+    if (stage !== undefined) directoryRoot(stage);
     const envRoot = stage ?? root;
     const policy = closedPolicy(envRoot, [root, process.execPath]);
     policy.rw = stage === undefined ? [] : [stage];
@@ -541,6 +543,13 @@ export async function removeHouse(home: Home, dir: string): Promise<number> {
             path = join(path, part);
             if (!(await lstat(path)).isDirectory()) throw new Error(refused);
         }
+        const erasing = home.layout.erasing;
+        await mkdir(erasing, { recursive: true, mode: 0o700 });
+        if (!(await lstat(erasing)).isDirectory()) throw new Error(refused);
+        const slot = await mkdtemp(join(erasing, "house-"));
+        const detached = join(slot, "tree");
+        // Moving out of every house policy revokes lingering processes' writes.
+        await rename(absolute, detached);
         const size = async (path: string): Promise<number> => {
             const info = await lstat(path);
             if (info.isFile()) return info.size;
@@ -550,8 +559,8 @@ export async function removeHouse(home: Home, dir: string): Promise<number> {
                 bytes += await size(join(path, name));
             return bytes;
         };
-        const bytes = await size(absolute);
-        await rm(absolute, { recursive: true, force: true });
+        const bytes = await size(detached);
+        await rm(slot, { recursive: true, force: true });
         return bytes;
     } catch {
         throw new Error(refused);
@@ -633,8 +642,9 @@ function visit(p, dest) {
     if (mode === "stage" && ++entries > Number(entryCap)) { report.limit = "entries"; return; }
     const info = fs.lstatSync(p);
     if (info.isDirectory()) {
-        if (dest && dest !== stage) fs.mkdirSync(dest);
+        if (dest && dest !== stage) fs.mkdirSync(dest, { mode: 0o700 });
         for (const name of fs.readdirSync(p).sort()) visit(path.join(p, name), dest && path.join(dest, name));
+        if (dest) fs.chmodSync(dest, info.mode & 0o777);
     } else if (info.isFile()) {
         const file = fs.openSync(p, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
         let output;
@@ -642,7 +652,7 @@ function visit(p, dest) {
             const opened = fs.fstatSync(file);
             if (!opened.isFile() || opened.dev !== info.dev || opened.ino !== info.ino) throw new Error();
             if (mode === "stage" && bytes + opened.size > Number(byteCap)) { report.limit = "bytes"; return; }
-            if (dest) output = fs.openSync(dest, "wx");
+            if (dest) output = fs.openSync(dest, "wx", opened.mode & 0o777);
             const digest = mode === "list" ? crypto.createHash("sha256") : undefined, chunk = Buffer.alloc(128 * 1024);
             let length = 0, count;
             while ((count = fs.readSync(file, chunk, 0, chunk.length, null)) > 0) {
@@ -654,6 +664,7 @@ function visit(p, dest) {
                     while (written < count) written += fs.writeSync(output, chunk, written, count - written);
                 }
             }
+            if (output !== undefined) fs.fchmodSync(output, opened.mode & 0o777);
             if (mode === "list") report.files.push({ path: rel(p), size: length, sha256: digest.digest("hex") });
         } finally { if (output !== undefined) fs.closeSync(output); fs.closeSync(file); }
     } else report.skipped.push({ path: rel(p), kind: info.isSymbolicLink() ? "link" : "special" });

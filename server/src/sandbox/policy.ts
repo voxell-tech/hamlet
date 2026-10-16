@@ -44,6 +44,8 @@ export type Policy = {
     hidden: string[];
     /** Paths inside `rw` that cannot be written, renamed or removed. */
     locked: string[];
+    /** Extra roots whose own location is fixed, without granting reads or writes. */
+    fixed?: string[];
     net: boolean;
     services: Service[];
     /** The complete environment; everything else is cleared. */
@@ -86,6 +88,7 @@ export function policyHash(policy: Policy, sandbox: string): string {
     if (policy.open) field("open", true);
     for (const path of policy.hidden) field("hidden", path);
     for (const path of policy.locked) field("locked", path);
+    for (const path of policy.fixed ?? []) field("fixed", path);
     field("net", policy.net);
     for (const { port, socket } of policy.services) {
         field("port", port);
@@ -165,6 +168,20 @@ function cased(real: string): string {
     }
 }
 
+/** A directory root's canonical spelling. Links and special files are refused. */
+export function directoryRoot(path: string): string {
+    const absolute = resolve(path);
+    try {
+        if (!lstatSync(absolute).isDirectory())
+            throw new Error(
+                `The sandbox root must be a real directory: ${path}`,
+            );
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    return canon(absolute);
+}
+
 /** The folder that holds every private temp dir. */
 export function tempRoot(): string {
     return join(canon(tmpdir()), "hamlet-sandbox-tmp");
@@ -180,9 +197,31 @@ export function privateTmp(policy: Policy, scope?: string): string {
     // No path is empty, so a second NUL tells the scope from another path.
     if (scope !== undefined) digest.update(`\0${scope}`);
     const dir = join(tempRoot(), digest.digest("hex").slice(0, 16));
+    directoryRoot(tempRoot());
+    directoryRoot(dir);
     mkdirSync(dir, { recursive: true });
+    directoryRoot(dir);
     chmodSync(dir, 0o700);
     return dir;
+}
+
+/** The writable roots of a policy, including its private temp folder. */
+export function writeRoots(policy: Policy, tmp: string): string[] {
+    return [...policy.rw, tmp];
+}
+
+/** Every granted or fixed root, including the private temp folder. */
+export function fixedRoots(policy: Policy, tmp: string): string[] {
+    return [
+        ...new Set([
+            ...writeRoots(policy, tmp),
+            ...policy.ro,
+            ...policy.locked,
+            ...policy.hidden,
+            ...policy.services.map(({ socket }) => socket),
+            ...(policy.fixed ?? []),
+        ]),
+    ];
 }
 
 function inAny(path: string, paths: readonly string[]): boolean {
@@ -198,7 +237,7 @@ function inAnyFolded(path: string, paths: readonly string[]): boolean {
 /** True when `policy` lets a command with `tmp` as its temp folder read `path`. */
 export function readable(policy: Policy, tmp: string, path: string): boolean {
     const real = canon(path);
-    if (inAny(real, [...policy.ro, ...policy.rw, tmp])) return true;
+    if (inAny(real, [...policy.ro, ...writeRoots(policy, tmp)])) return true;
     return policy.open && !inAnyFolded(real, [...policy.hidden, tempRoot()]);
 }
 
@@ -211,17 +250,14 @@ export function writable(
 ): boolean {
     const real = canon(path);
     return (
-        inAny(real, [...policy.rw, tmp]) &&
+        inAny(real, writeRoots(policy, tmp)) &&
         !inAnyFolded(real, policy.locked) &&
-        !(move && holdsLocked(policy, real))
-    );
-}
-
-/** True when moving or removing `path` would carry a locked path with it. */
-function holdsLocked(policy: Policy, path: string): boolean {
-    const folded = path.toLowerCase();
-    return policy.locked.some((locked) =>
-        within(canon(locked).toLowerCase(), folded),
+        !(
+            move &&
+            fixedRoots(policy, tmp).some((root) =>
+                within(canon(root).toLowerCase(), real.toLowerCase()),
+            )
+        )
     );
 }
 
@@ -234,14 +270,15 @@ export function isDir(path: string): boolean {
     }
 }
 
-/** The folders inside `rw` that hold a locked path: moving one would carry the lock away. */
-export function aboveLocked(policy: Policy): string[] {
+/** Writable ancestors whose move would carry a fixed root away. */
+export function aboveRoots(policy: Policy, tmp: string): string[] {
     const above = new Set<string>();
-    for (const locked of policy.locked) {
-        for (let up = dirname(locked); up !== dirname(up); up = dirname(up)) {
-            if (policy.rw.some((rw) => within(up, rw) && up !== rw)) {
+    const writes = writeRoots(policy, tmp).map(canon);
+    for (const root of fixedRoots(policy, tmp)) {
+        for (let up = dirname(root); up !== dirname(up); up = dirname(up)) {
+            const real = canon(up);
+            if (writes.some((rw) => within(real, rw) && real !== rw))
                 above.add(up);
-            }
         }
     }
     return [...above].sort();

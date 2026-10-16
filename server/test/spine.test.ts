@@ -47,7 +47,7 @@ it("founds and reopens the realm, builds every living house, and normalizes name
     const models = fauxModels().models;
     const home = await testHome(dir, { models });
     expect(await home.harness.snapshot(RealmDoc, context)).toMatchObject({
-        hamlets: [{ id: HOME, chiefs: [home.chief] }],
+        hamlets: [{ id: HOME, chiefs: [] }],
     });
     await addHamlet(home, "mill", "miller");
     await addAgent(home, "mill", "scout");

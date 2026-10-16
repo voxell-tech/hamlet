@@ -2,6 +2,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it } from "vitest";
 import { PayerDoc, runErrand, startErrand } from "../src/errands.ts";
 import { booksOf, ledgerOf } from "../src/ledger.ts";
+import { reportOf } from "../src/report.ts";
 import { localDay } from "../src/time.ts";
 import {
     addHamlet,
@@ -52,6 +53,13 @@ it("runs bare and owned errands, charges the payer and task, and reuses the kept
     const books = await booksOf(home, "mill", "day", input.task, context);
     expect(books.hamlet.micros).toBeGreaterThan(0);
     expect(books.task).toEqual(books.hamlet);
+    expect(books.agents["0"]?.micros ?? 0).toBe(0);
+    expect(books.agents["home:0"]).toEqual(books.hamlet);
+    const report = await reportOf(home, "mill", context);
+    expect(report.lines).toContain("- mayor: faux::faux-1, $0.00");
+    expect(report.lines).toContain(
+        "- mayor@home: $0.19 (paid for another hamlet)",
+    );
     expect(
         (await booksOf(home, "home", "day", null, context)).hamlet.micros,
     ).toBe(0);

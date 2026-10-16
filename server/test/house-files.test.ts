@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import * as fs from "node:fs/promises";
 import {
+    chmod,
     lstat,
     mkdir,
     open,
@@ -21,9 +23,69 @@ import {
 } from "../src/gift-files.ts";
 import { houseOf } from "../src/layout.ts";
 import { SandboxEnv } from "../src/sandbox/env.ts";
-import { context, fauxModels, MAYOR, scratch, testHome } from "./support.ts";
+import { closedPolicy } from "../src/sandbox/reach.ts";
+import {
+    context,
+    fauxModels,
+    MAYOR,
+    scratch,
+    sh,
+    testHome,
+} from "./support.ts";
+
+vi.mock("node:fs/promises", async (original) => ({
+    ...(await original<typeof import("node:fs/promises")>()),
+}));
 
 const caps = { entries: 4096, bytes: 32 * 1024 * 1024 };
+
+it.skipIf(process.platform !== "darwin")(
+    "revokes a lingering process's writes before traversing an erased house",
+    async () => {
+        const home = await testHome(scratch(), { models: fauxModels().models });
+        const house = houseOf(home.layout, MAYOR);
+        const outside = scratch();
+        await mkdir(join(house, "work"));
+        await writeFile(join(house, "work/canary"), "mine");
+        await writeFile(join(outside, "canary"), "private");
+        const env = new SandboxEnv({ cwd: house, policy: closedPolicy(house) });
+        const tmp = (await sh(env, 'printf %s "$TMPDIR"')).output;
+        await sh(
+            env,
+            `(cd '${house}'; (while [ ! -e '${tmp}/release' ]; do sleep 0.01; done; mv work moved && ln -s '${outside}' work; echo $? > '${tmp}/done') >/dev/null 2>&1 &)`,
+        );
+        await env.cleanup(context);
+        const original = fs.readdir;
+        let attempted = false;
+        const walking = vi
+            .spyOn(fs, "readdir")
+            .mockImplementation(
+                async (...args: Parameters<typeof fs.readdir>) => {
+                    if (String(args[0]).endsWith("/work") && !attempted) {
+                        attempted = true;
+                        await writeFile(join(tmp, "release"), "go");
+                        await vi.waitFor(async () =>
+                            expect(
+                                await readFile(join(tmp, "done"), "utf8"),
+                            ).toBeTruthy(),
+                        );
+                    }
+                    return original(...args);
+                },
+            );
+        try {
+            await removeHouse(home, house);
+            expect(attempted).toBe(true);
+            expect(await readFile(join(tmp, "done"), "utf8")).not.toBe("0\n");
+            expect(await readFile(join(outside, "canary"), "utf8")).toBe(
+                "private",
+            );
+        } finally {
+            walking.mockRestore();
+            await writeFile(join(tmp, "release"), "go");
+        }
+    },
+);
 
 it("stages regular files without following links or copying special files, naming every refused entry", async () => {
     const home = await testHome(scratch(), { models: fauxModels().models });
@@ -74,6 +136,33 @@ it("stages a whole house or a single tree, preserving bytes and empty folders", 
     expect(await readFile(join(one, "bytes"))).toEqual(
         Buffer.from([0, 255, 1, 2]),
     );
+});
+
+it("keeps ordinary modes through staging and delivery, clearing setuid and setgid", async () => {
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    const root = houseOf(home.layout, MAYOR);
+    await mkdir(join(root, "tool/scripts"), { recursive: true });
+    await writeFile(join(root, "tool/scripts/run"), "#!/bin/sh\necho ready\n");
+    await chmod(join(root, "tool/scripts/run"), 0o6751);
+    await chmod(join(root, "tool/scripts"), 0o2750);
+    await chmod(join(root, "tool"), 0o750);
+    const stage = scratch();
+    await stageTree(home, { root, rel: "tool" }, stage, caps, context);
+    for (const [path, mode] of [
+        ["tool", 0o750],
+        ["tool/scripts", 0o750],
+        ["tool/scripts/run", 0o751],
+    ] as const)
+        expect((await lstat(join(stage, path))).mode & 0o7777).toBe(mode);
+    await deliverTree(home, { root, into: "inbox" }, stage, ["tool"], context);
+    for (const [path, mode] of [
+        ["tool", 0o750],
+        ["tool/scripts", 0o750],
+        ["tool/scripts/run", 0o751],
+    ] as const)
+        expect((await lstat(join(root, "inbox", path))).mode & 0o7777).toBe(
+            mode,
+        );
 });
 
 it.each(["entries", "bytes"] as const)(

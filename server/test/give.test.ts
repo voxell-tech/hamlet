@@ -2,6 +2,8 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import {
+    chmod,
+    lstat,
     mkdir,
     open,
     readdir,
@@ -360,6 +362,7 @@ it("copies another agent's whole skill, keeps the giver's and records its source
         "---\nname: maps\ndescription: Read maps.\n---\nA map.",
     );
     await writeFile(join(source, "skills/maps/scripts/run.sh"), "echo maps");
+    await chmod(join(source, "skills/maps/scripts/run.sh"), 0o755);
     await run.home.harness.commit(async (tx) => {
         (await tx.doc(RecordDoc, "home", "home")).agents.push({
             number: 1,
@@ -380,6 +383,16 @@ it("copies another agent's whole skill, keeps the giver's and records its source
         kind: "notice",
         text: "Gave `mayor` the skill `maps`.",
     });
+    expect(
+        (
+            await lstat(
+                join(
+                    houseOf(run.home.layout, MAYOR),
+                    "skills/maps/scripts/run.sh",
+                ),
+            )
+        ).mode & 0o7777,
+    ).toBe(0o755);
     for (const file of ["SKILL.md", "scripts/run.sh"]) {
         expect(
             await readFile(

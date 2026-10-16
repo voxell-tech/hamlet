@@ -13,6 +13,28 @@ import { limitsOf, type Policy } from "./policy.ts";
 import { fileLimited, type Sandbox } from "./sandbox.ts";
 import { decode, encode, frameId } from "./wire.ts";
 
+const FILE_HELPER = fileURLToPath(new URL("./file-helper.ts", import.meta.url));
+
+/** The file helper's runtime and source files. */
+export const FILE_READS = [
+    process.execPath,
+    dirname(
+        fileURLToPath(
+            import.meta.resolve("@earendil-works/pi-durable/env/node"),
+        ),
+    ),
+    fileURLToPath(
+        new URL(
+            "../../package.json",
+            import.meta.resolve("@earendil-works/pi-durable/env/node"),
+        ),
+    ),
+    fileURLToPath(new URL("../../package.json", import.meta.url)),
+    FILE_HELPER,
+    fileURLToPath(new URL("../skill-paper.ts", import.meta.url)),
+    fileURLToPath(new URL("./wire.ts", import.meta.url)),
+];
+
 /** File operations in one policy-confined process, started on its first request. */
 export class Files {
     readonly #start: () => ChildProcessWithoutNullStreams;
@@ -28,47 +50,26 @@ export class Files {
     >();
     readonly #events = new Map<number, (change: WatchChange) => void>();
 
-    constructor(policy: Policy, sandbox: Sandbox, cwd: string, tmp: string) {
+    constructor(
+        policy: Policy,
+        sandbox: Sandbox,
+        cwd: string,
+        tmp: string,
+        output: string,
+    ) {
         this.#requestMs = Math.min(30, limitsOf(policy).wallSecs) * 1000;
-        const helper = fileURLToPath(
-            new URL("./file-helper.ts", import.meta.url),
-        );
-        const runtime = dirname(
-            fileURLToPath(
-                import.meta.resolve("@earendil-works/pi-durable/env/node"),
-            ),
-        );
         this.#start = () => {
             const confined = sandbox.command(
                 {
                     ...policy,
-                    ro: [
-                        ...policy.ro,
-                        process.execPath,
-                        runtime,
-                        fileURLToPath(
-                            new URL(
-                                "../../package.json",
-                                import.meta.resolve(
-                                    "@earendil-works/pi-durable/env/node",
-                                ),
-                            ),
-                        ),
-                        fileURLToPath(
-                            new URL("../../package.json", import.meta.url),
-                        ),
-                        helper,
-                        fileURLToPath(
-                            new URL("../skill-paper.ts", import.meta.url),
-                        ),
-                        fileURLToPath(new URL("./wire.ts", import.meta.url)),
-                    ],
+                    ro: [...policy.ro, ...FILE_READS],
                 },
                 fileLimited(limitsOf(policy), [
                     process.execPath,
                     "--experimental-strip-types",
-                    helper,
+                    FILE_HELPER,
                     tmp,
+                    output,
                 ]),
                 cwd,
                 tmp,

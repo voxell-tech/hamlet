@@ -1,7 +1,8 @@
 import { dirname } from "node:path";
 import {
-    aboveLocked,
+    aboveRoots,
     canon,
+    fixedRoots,
     hostEnv,
     type Policy,
     tempRoot,
@@ -157,6 +158,12 @@ function profile(policy: Policy, tmp: string): Profile {
     );
     rules(
         out,
+        "ROOTS",
+        `(deny file-write-unlink file-write-create (literal (param "{}")))`,
+        fixedRoots(policy, tmp),
+    );
+    rules(
+        out,
         "LOCKED",
         `(deny file-write* (subpath (param "{}")))`,
         policy.locked,
@@ -165,7 +172,7 @@ function profile(policy: Policy, tmp: string): Profile {
         out,
         "ABOVE",
         `(deny file-write-unlink (literal (param "{}")))`,
-        aboveLocked(policy),
+        aboveRoots(policy, tmp),
     );
     if (policy.net) {
         out.sbpl += NET;

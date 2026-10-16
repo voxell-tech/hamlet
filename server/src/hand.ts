@@ -15,10 +15,10 @@ import { record } from "./catalogue.ts";
 import { LEAVE, type Leave } from "./environment.ts";
 import type { Home } from "./home.ts";
 import { type Manifest, ManifestsDoc } from "./manifests.ts";
+import { shellOutput } from "./output.ts";
 import type { Part } from "./parts.ts";
 import { SandboxEnv } from "./sandbox/env.ts";
 import { limitsOf, type Policy } from "./sandbox/policy.ts";
-import { shellOutput } from "./tools/output.ts";
 
 const NAME = "hamlet.hand";
 const RESERVED = new Set([
@@ -243,7 +243,12 @@ function policyFor(home: Home, manifest: Manifest, net: boolean): Policy {
         rw: manifest.rw,
         open: false,
         hidden: [],
-        locked: [home.layout.tools, manifest.dir],
+        locked: [
+            home.layout.tools,
+            manifest.dir,
+            home.layout.gifts,
+            home.layout.erasing,
+        ],
         net: manifest.net && net,
         services: [],
         env: { ...home.sandbox.baseEnv(), ...manifest.env },
