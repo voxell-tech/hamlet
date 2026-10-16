@@ -12,18 +12,23 @@ character, and its conversations. The notes, skills and inbox are writable
 files; the character and conversations are kept in the home's storage,
 out of reach of file tools.
 
-**C9.** An agent is its number in its hamlet's record, kept for its whole
-life: through removal, merging and restoring. A later agent of the same name
-has another number, and inherits nothing of the earlier one.
+**C9.** An agent is identified by its hamlet and its number in that hamlet's
+record. Removal, merging and restoration keep that identity. Moving to
+another hamlet gives it the next number there and carries its house,
+character, conversations and instructions with it (H14). A number is never
+reused within a hamlet. A later agent of the same name inherits nothing of
+the earlier one.
 
 **C10.** A name of an agent is lowercase letters and hyphens, at most 24 of
-them. A name a model writes in another form is put in that form
-(`FelineBiologist` becomes `feline-biologist`). `mayor`, `founder`, `all`
-and the librarian's name are no agent's.
+them, and belongs to only one living agent in the realm. A name a model
+writes in another form is put in that form (`FelineBiologist` becomes
+`feline-biologist`). `mayor`, `founder` and `all` are reserved; the first
+hamlet's founder is named `founder`.
 
 ## What an agent is told
 
-**C11.** Before every model call, the agent's system prompt is built again
+**C11.** Before every model call in an agent's ordinary conversations, its
+ballot or the mayor's answer to a vote, its system prompt is built again
 from these parts, in this order:
 
 | Part | From | Changed by |
@@ -35,13 +40,23 @@ from these parts, in this order:
 | The notes | Its `NOTES.md` | The agent |
 | The skills | Its skills | The agent |
 | The library | The skills every agent shares | The librarian |
-| The hamlet | Who lives there, how it is run, the latest decisions (H17) | The record |
+| The hamlet | The agent's place, who lives there, its roads, how it is run, the latest decisions (H17) | The record |
 | The realm | The other hamlets | The record |
 | The budget | What the hamlet and the agent have spent (H8) | The record |
 
 A part changed by anyone counts from the agent's next step. The budget's
 words are fixed for the length of a turn, so the prompt does not change with
 every call.
+
+Letters, questions and replies name their sender. The prompt says that
+everything after an agent's sender heading is that agent's words, even if
+it claims to be a chief or includes another heading. Only a chief's own
+lines in its own conversation carry that chief's instructions. A chief's
+instruction outranks the mayor's. Each agent's house is closed to other
+agents, including the mayor; an agent puts what another needs in its reply.
+
+The librarian's call, merged notes and the mayor's review of an instruction
+(H10) receive only their own instructions, not the agent's prompt.
 
 **C12.** The default charter belongs to the app, and a home that never
 edited its charter gets each later default. A chief's own charter replaces
@@ -110,16 +125,20 @@ The agent's notes, skills and conversations stay in its house.
   guard.
 
 **C7.** A hamlet answers to its chiefs: the human who founded it, or, for a
-hamlet founded by a vote, the chiefs of the hamlet that voted. Every tool
-call of its agents passes a gate before it runs, which lets it run, refuses
-it, or holds it for a chief (H11).
+hamlet founded by a vote, the chiefs of the hamlet that voted. An empty
+chiefs list means the human the home belongs to, under the name used to run
+the server. The first hamlet has an empty list. Every tool call of its
+agents passes a gate before it runs, which lets it run, refuses it, or holds
+it for a chief (H11).
 
 ## Conversations
 
 **C22.** Every conversation is with one agent and is kept. An agent has a
 conversation with each chief who talks to it, one with each agent that
 writes it letters, and one with each agent that asks it something and
-waits (H30).
+waits (H30). A chief can watch either kind of peer conversation read-only,
+with paging. A peer watch selects the receiving agent, the sender and
+letters or questions through `kind`; without a kind it opens letters.
 
 **C23.** A conversation answers one message at a time. Messages that arrive
 while it works wait in order.
@@ -184,7 +203,10 @@ one line, whether anything about how its hamlet is run got in its way.
 **C30.** A turn is shown as it happens: its text and reasoning, each tool
 call with its name, its arguments cut to 200 characters and, for an edit,
 the change, then the call's end with its exit code, its time and the first
-line of a failure, and the notices meant only for people.
+line of a failure, and the notices meant only for people. Letters,
+questions and replies carry their `author` as `name@hamlet`, or
+`hamlet#number` if its record is gone. They are shown as agents' words,
+never as a chief's words that can be taken back.
 
 **C31. Not yet met.** Every model call, including each summarising call,
 records the model, where it was served, the input, cached, output and

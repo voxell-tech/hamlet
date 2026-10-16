@@ -23,15 +23,25 @@ on one machine as across a network. A server refuses a connection without
 the token.
 
 **S5.** A window shows what the server sends and holds no rules of its own:
-the state of the realm (hamlets, agents, roads, budgets, what waits) and its
-changes, the live events of turns (C30), and conversations on request. A
-window that joins late or connects again starts from the state as it is
-now.
+the state of the realm (hamlets, living and departed agents, roads,
+budgets, votes, the shared library, closed hamlets and what waits) and its
+changes, the live events of turns (C30), and conversations on request,
+including read-only peer conversations selected by sender and kind (C22).
+A window that joins late or connects again starts from the state as it is
+now. A library shelf change, a closed-list change or a hamlet leaving the
+live list sends a whole replacement state. The window keeps surviving
+hamlets and agents and removes those no longer sent.
 
 **S6.** Everything a chief does goes to the server: typed lines and
 commands, answers to what waits, stopping, taking a conversation back, the
 hand's deeds in the world, and edits to the charter, characters, notes,
 limits and settings.
+
+**S15.** Local chat links and pictures resolve on the window's machine,
+from existing absolute paths or paths under the received work folder.
+The state supplies the server machine's houses folder as `houses`.
+A path inside it stays plain text, including when reached through a
+symbolic link.
 
 ## Credentials
 
