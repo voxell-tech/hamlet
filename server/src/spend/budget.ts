@@ -1,3 +1,4 @@
+import type { Context } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
     CompactionTask,
@@ -5,21 +6,24 @@ import {
     defineDoc,
     defineExtension,
     GenerationTask,
+    type HookApi,
     hook,
     SessionFailed,
     section,
 } from "@earendil-works/pi-durable";
 import { WithDoc } from "../chats/conversations.ts";
-import { agentOf, payerOf } from "../chats/errands.ts";
+import { agentOf } from "../chats/errands.ts";
 import { notify } from "../chats/notice.ts";
 import { turnOf } from "../chats/turn.ts";
 import { untilAborted } from "../home/abort.ts";
 import type { Part } from "../home.ts";
 import { LimitsDoc, limitsOf } from "../limits/rules.ts";
-import { RecordDoc } from "../record.ts";
+import { agentKey, RecordDoc } from "../record.ts";
+import { ok, type Result } from "../result.ts";
+import { canSpend, type SpendFailure, spendFailureText } from "./afford.ts";
 import { booksOf, markUncounted, reconcile } from "./ledger.ts";
 import { micros, money } from "./money.ts";
-import { reportOf, stopped } from "./report.ts";
+import { reportOf } from "./report.ts";
 
 const WordsDoc = defineDoc<{ input: number | null; words: string }>({
     kind: "hamlet.budget-words",
@@ -34,6 +38,16 @@ const WordsDoc = defineDoc<{ input: number | null; words: string }>({
 export const Budget: Part = (home) => {
     let unsubscribe: (() => void) | undefined;
     let pending = Promise.resolve();
+    const beforeCall = async (
+        api: HookApi,
+        context: Context,
+    ): Promise<Result<void, SpendFailure>> => {
+        if (!(await api.snapshot(WithDoc, api.conversationId, context)))
+            return ok(undefined);
+        const allowed = await canSpend(home, api, {}, context);
+        if (allowed.ok) await markUncounted(home, api.conversationId, context);
+        return allowed;
+    };
     return {
         extension: defineExtension({
             name: "hamlet.budget",
@@ -93,7 +107,7 @@ export const Budget: Part = (home) => {
                         );
                         const words = mayor
                             ? `# Budget\nOnly the chief changes this shared budget.\n${[report.summary, ...report.lines].join("\n")}\nA road costs ${money(micros(limits.road.cost))}. Models you may choose: ${limits.models.join(", ") || "the hamlet's own model"}.`
-                            : `# Budget\nEveryone in the hamlet spends from its one budget. Your spend: ${money(books.agents[String(place.number)]?.micros ?? 0)}.`;
+                            : `# Budget\nEveryone in the hamlet spends from its one budget. Your spend: ${money(books.agents.get(agentKey(place))?.micros ?? 0)}.`;
                         if (turn !== undefined)
                             await home.harness.commit(async (tx) => {
                                 Object.assign(
@@ -112,43 +126,14 @@ export const Budget: Part = (home) => {
             hooks: [
                 hook(GenerationTask, {
                     beforeRequest: async (_request, api, context) => {
-                        const place = await api.snapshot(
-                            WithDoc,
-                            api.conversationId,
-                            context,
-                        );
-                        if (place === undefined) return undefined;
-                        const turn = await turnOf(home.harness, api, context);
-                        const payer =
-                            (await payerOf(api, api.conversationId, context)) ??
-                            place.hamlet;
-                        const limits = limitsOf(
-                            await api.snapshot(LimitsDoc, payer, context),
-                        );
-                        const reason = stopped(
-                            limits,
-                            await booksOf(
-                                home,
-                                payer,
-                                limits.budget.period,
-                                turn?.task ?? null,
-                                context,
-                            ),
-                        );
-                        if (reason === undefined) {
-                            await markUncounted(
-                                home,
-                                api.conversationId,
-                                context,
-                            );
-                            return undefined;
-                        }
+                        const allowed = await beforeCall(api, context);
+                        if (allowed.ok) return undefined;
                         await home.harness.commit(
                             (tx) =>
                                 notify(
                                     tx,
                                     api.conversationId,
-                                    reason,
+                                    spendFailureText(allowed.error),
                                     home.now(),
                                 ),
                             context,
@@ -164,31 +149,8 @@ export const Budget: Part = (home) => {
                 }),
                 hook(CompactionTask, {
                     beforeCompact: async (_compaction, api, context) => {
-                        const place = await api.snapshot(
-                            WithDoc,
-                            api.conversationId,
-                            context,
-                        );
-                        if (place === undefined) return undefined;
-                        const turn = await turnOf(home.harness, api, context);
-                        const payer =
-                            (await payerOf(api, api.conversationId, context)) ??
-                            place.hamlet;
-                        const limits = limitsOf(
-                            await api.snapshot(LimitsDoc, payer, context),
-                        );
-                        const reason = stopped(
-                            limits,
-                            await booksOf(
-                                home,
-                                payer,
-                                limits.budget.period,
-                                turn?.task ?? null,
-                                context,
-                            ),
-                        );
-                        if (reason !== undefined) return { decline: true };
-                        await markUncounted(home, api.conversationId, context);
+                        const allowed = await beforeCall(api, context);
+                        if (!allowed.ok) return { decline: true };
                         return undefined;
                     },
                 }),

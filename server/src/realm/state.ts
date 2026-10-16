@@ -142,7 +142,7 @@ export const realmView: View<
                 const work = await chatState(home, ref, activity, context);
                 currentChats.set(key, work.currents);
                 const active = work.active;
-                const spent = books.agents[String(agent.number)] ?? {
+                const spent = books.agents.get(key) ?? {
                     tokens: 0,
                     micros: 0,
                     ms: 0,

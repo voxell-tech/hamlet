@@ -38,8 +38,7 @@ import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import { liveHamlets, RealmDoc } from "../realm/places.ts";
 import { type AgentRef, addressOf, agentKey, RecordDoc } from "../record.ts";
 import { choose, modelRef, SettingsDoc, settingsOf } from "../settings.ts";
-import { booksOf } from "../spend/ledger.ts";
-import { stopped } from "../spend.ts";
+import { canSpend } from "../spend.ts";
 import { AskedDoc } from "./asked.ts";
 import {
     OversightDayDoc,
@@ -461,18 +460,7 @@ async function prepareReview(
         "";
     if (limits.asking.mayorReview === "remote" && !remote(url))
         return undefined;
-    if (
-        stopped(
-            limits,
-            await booksOf(
-                home,
-                place.hamlet,
-                limits.budget.period,
-                turn.task,
-                context,
-            ),
-        )
-    )
+    if (!(await canSpend(home, api, { task: turn.task }, context)).ok)
         return undefined;
     const key = agentKey(place);
     const instruction = (

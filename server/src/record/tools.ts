@@ -12,9 +12,9 @@ import { WithDoc } from "../chats/conversations.ts";
 import { turnOf } from "../chats/turn.ts";
 import type { Home } from "../home.ts";
 import type { TreeFailure } from "../house.ts";
-import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
+import { type Limits, LimitsDoc } from "../limits/rules.ts";
 import type { Result } from "../result.ts";
-import { booksOf } from "../spend/ledger.ts";
+import { reconcile } from "../spend/ledger.ts";
 import type { AgentRef, HamletRecord } from "./document.ts";
 import {
     type DecisionHeld,
@@ -126,18 +126,9 @@ export function defineMayorTool<P extends TSchema>(
                         { type: "text", text: "Only the mayor may do that." },
                     ],
                 };
-            const limits = limitsOf(
-                await api.snapshot(LimitsDoc, place.hamlet, context),
-            );
             const task =
                 (await turnOf(home.harness, api, context))?.task ?? null;
-            await booksOf(
-                home,
-                place.hamlet,
-                limits.budget.period,
-                task,
-                context,
-            );
+            await reconcile(home, context);
             const result = await defineRecordTool({
                 name: tool.name,
                 description: tool.description,

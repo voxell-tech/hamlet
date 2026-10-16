@@ -57,6 +57,7 @@ export {
     agentOf,
     ErrandDoc,
     type ErrandKind,
+    type ErrandOutcome,
     PayerDoc,
     payerOf,
     runErrand,

@@ -1,6 +1,12 @@
+export {
+    canSpend,
+    type SpendFailure,
+    spendFailureText,
+} from "./spend/afford.ts";
 export { Budget } from "./spend/budget.ts";
 export {
     type Books,
+    booksIn,
     booksOf,
     type Charge,
     chargeRoad,
@@ -22,5 +28,5 @@ export {
     money,
     zero,
 } from "./spend/money.ts";
-export { report, reportOf, roadAfford, stopped } from "./spend/report.ts";
+export { report, reportOf, roadAfford } from "./spend/report.ts";
 export { usageSummary } from "./spend/usage.ts";

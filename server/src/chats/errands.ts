@@ -68,13 +68,23 @@ export async function startErrand(
     });
     return id;
 }
-/** The settled status and text of an idempotent errand input. */
+/** The kept answer or classified reason an errand did not finish. */
+export type ErrandOutcome =
+    | { status: "done"; text: string }
+    | { status: "failed" | "aborted" | "timeout"; reason: string };
+
+/** The settled answer of an idempotent errand input; a timeout aborts its conversation. */
 export async function runErrand(
     home: Home,
     id: ConversationId,
-    given: { requestId: string; text: string; task: string },
+    given: {
+        requestId: string;
+        text: string;
+        task: string;
+        timeoutMs?: number;
+    },
     context: Context,
-): Promise<{ status: string; text: string }> {
+): Promise<ErrandOutcome> {
     const conversation = await home.harness.conversation(id, context);
     if (!conversation) throw new Error("The errand's conversation is gone.");
     const submission = await conversation.submit(
@@ -89,11 +99,37 @@ export async function runErrand(
         },
         context,
     );
-    const settled = await submission.wait(context);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settled = await (async () => {
+        try {
+            if (given.timeoutMs === undefined)
+                return await submission.wait(context);
+            const result = await Promise.race([
+                submission.wait(context),
+                new Promise<null>((resolve) => {
+                    timer = setTimeout(
+                        () => resolve(null),
+                        Math.max(0, given.timeoutMs ?? 0),
+                    );
+                }),
+            ]);
+            if (result !== null) return result;
+            await conversation.abort(context);
+            return null;
+        } finally {
+            if (timer !== undefined) clearTimeout(timer);
+        }
+    })();
+    if (settled === null)
+        return { status: "timeout", reason: "it did not answer in time" };
     if (settled.type !== "input" || settled.status !== "done")
         return {
-            status: settled.status,
-            text: "reason" in settled ? settled.reason : "It could not finish.",
+            status:
+                "reason" in settled && settled.reason === "aborted"
+                    ? "aborted"
+                    : "failed",
+            reason:
+                "reason" in settled ? settled.reason : "It could not finish.",
         };
     const entry = await home.harness.commit(
         (tx) => tx.entry(AssistantEntry, settled.answer),

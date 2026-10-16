@@ -24,7 +24,12 @@ import {
     tellChiefs,
     WithDoc,
 } from "./chats/conversations.ts";
-import { ErrandDoc, runErrand, startErrand } from "./chats/errands.ts";
+import {
+    ErrandDoc,
+    type ErrandOutcome,
+    runErrand,
+    startErrand,
+} from "./chats/errands.ts";
 import { newTask } from "./chats/turn.ts";
 import { untilAborted } from "./home/abort.ts";
 import type { Home, Part } from "./home.ts";
@@ -503,7 +508,7 @@ function voteTask(home: Home) {
                                     history,
                                 );
                                 if (answer.status !== "done")
-                                    reason = `could not vote: ${answer.text}`;
+                                    reason = `could not vote: ${answer.reason}`;
                             }
                         } catch (error) {
                             if (context.abortSignal?.aborted) throw error;
@@ -851,7 +856,7 @@ async function ask(
     text: string,
     context: Context,
     history: string[] = [],
-): Promise<{ status: string; text: string }> {
+): Promise<ErrandOutcome> {
     const key = runKey(hamlet, vote.id),
         name = kind === "answer" ? "answer" : String(number);
     const known = (await home.harness.snapshot(RunDoc, key, context))?.errands[
@@ -892,32 +897,17 @@ async function ask(
             return id;
         }, context));
     const poll = await home.harness.snapshot(PollDoc, id, context);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-        const result = await Promise.race([
-            runErrand(
-                home,
-                id,
-                {
-                    requestId: `vote:${hamlet}:${vote.id}:${name}`,
-                    text,
-                    task: vote.task,
-                },
-                context,
-            ).then((answer) => ({ answer })),
-            new Promise<{ timeout: true }>((resolve) => {
-                timer = setTimeout(
-                    () => resolve({ timeout: true }),
-                    Math.max(0, (poll?.until ?? home.now()) - home.now()),
-                );
-            }),
-        ]);
-        if ("answer" in result) return result.answer;
-        await (await home.harness.conversation(id, context))?.abort(context);
-        return { status: "timeout", text: "it did not answer in time" };
-    } finally {
-        if (timer !== undefined) clearTimeout(timer);
-    }
+    return runErrand(
+        home,
+        id,
+        {
+            requestId: `vote:${hamlet}:${vote.id}:${name}`,
+            text,
+            task: vote.task,
+            timeoutMs: Math.max(0, (poll?.until ?? home.now()) - home.now()),
+        },
+        context,
+    );
 }
 
 async function find(

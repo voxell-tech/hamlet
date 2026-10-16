@@ -28,6 +28,7 @@ import { TaskDoc } from "../chats/tasks.ts";
 import { localDay } from "../home/clock.ts";
 import type { Home } from "../home.ts";
 import type { Limits } from "../limits/rules.ts";
+import { agentKey } from "../record/document.ts";
 import {
     type Amount,
     add,
@@ -348,8 +349,8 @@ function hostOf(url: string | undefined, fallback: string): string {
 /** Spend after the period's last reset and across the task's whole life. */
 export type Books = {
     hamlet: Amount;
-    /** Local agents by number, foreign agents by hamlet:number. */
-    agents: Record<string, Amount>;
+    /** Spend by stable hamlet:number identity, including foreign agents. */
+    agents: Map<string, Amount>;
     task: Amount;
 };
 
@@ -362,36 +363,46 @@ export async function booksOf(
     context: Context,
 ): Promise<Books> {
     await reconcile(home, context);
-    const today = localDay(home.now());
+    return home.harness.commit(
+        (tx) => booksIn(tx, hamlet, period, task, home.now()),
+        context,
+    );
+}
+
+/** Reads kept charges, including changes in this transaction, at the given local time. */
+export async function booksIn(
+    tx: Tx,
+    hamlet: string,
+    period: "day" | "month",
+    task: string | null,
+    at: number,
+): Promise<Books> {
+    const today = localDay(at);
     const first = period === "day" ? today : `${today.slice(0, 8)}01`;
-    const books: Books = { hamlet: zero(), agents: {}, task: zero() };
+    const books: Books = { hamlet: zero(), agents: new Map(), task: zero() };
     for (const day of [
-        ...((await home.harness.snapshot(DaysDoc, hamlet, context))?.days ??
-            []),
+        ...(await tx.doc(DaysDoc, hamlet, hamlet)).days,
     ].sort()) {
         if (day < first || day > today) continue;
-        for (const line of (
-            await home.harness.snapshot(LedgerDoc, `${hamlet}/${day}`, context)
-        )?.lines ?? []) {
+        for (const line of (await tx.doc(LedgerDoc, `${hamlet}/${day}`, day))
+            .lines) {
             if (line.what === "reset") {
                 books.hamlet = zero();
-                books.agents = {};
+                books.agents.clear();
                 continue;
             }
             add(books.hamlet, line);
-            const agent =
-                line.of === null || line.of === hamlet
-                    ? String(line.agent)
-                    : `${line.of}:${line.agent}`;
-            books.agents[agent] ??= zero();
-            add(books.agents[agent], line);
+            const key = agentKey({
+                hamlet: line.of ?? hamlet,
+                number: line.agent,
+            });
+            const spent = books.agents.get(key) ?? zero();
+            add(spent, line);
+            books.agents.set(key, spent);
         }
     }
     if (task !== null)
-        books.task = structuredClone(
-            (await home.harness.snapshot(TaskDoc, task, context))?.spent ??
-                zero(),
-        );
+        books.task = { ...(await tx.doc(TaskDoc, task, task)).spent };
     return books;
 }
 

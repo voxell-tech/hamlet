@@ -66,8 +66,7 @@ import {
 import { err, ok, type Result } from "../result.ts";
 import type { SandboxEnv } from "../sandbox.ts";
 import { safeWords } from "../scrub.ts";
-import { booksOf } from "../spend/ledger.ts";
-import { stopped } from "../spend.ts";
+import { canSpend, spendFailureText } from "../spend.ts";
 
 type Planned = {
     files: Map<string, Buffer>;
@@ -403,17 +402,15 @@ export const Merging: Part = (home) => ({
                                     );
                                     const task =
                                         turn?.task ?? newTask(home.now());
-                                    why =
-                                        stopped(
-                                            limits,
-                                            await booksOf(
-                                                home,
-                                                place.hamlet,
-                                                limits.budget.period,
-                                                task,
-                                                context,
-                                            ),
-                                        ) ?? "";
+                                    const allowed = await canSpend(
+                                        home,
+                                        api,
+                                        { task },
+                                        context,
+                                    );
+                                    why = allowed.ok
+                                        ? ""
+                                        : spendFailureText(allowed.error);
                                     if (!why) {
                                         const errand = await memoised(
                                             api,
@@ -476,7 +473,7 @@ export const Merging: Part = (home) => ({
                                             why =
                                                 answer.status === "done"
                                                     ? "The reply could not be used as merged notes."
-                                                    : answer.text;
+                                                    : answer.reason;
                                     }
                                 }
                                 const committed = await memoised(

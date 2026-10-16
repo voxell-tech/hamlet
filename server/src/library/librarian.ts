@@ -38,12 +38,10 @@ import {
     type TreeListing,
     treeFailureText,
 } from "../house.ts";
-import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import type { State } from "../protocol.ts";
 import { RecordDoc } from "../record.ts";
 import { err, ok, type Result } from "../result.ts";
-import { booksOf } from "../spend/ledger.ts";
-import { stopped } from "../spend.ts";
+import { canSpend, spendFailureText } from "../spend.ts";
 import { LibraryDoc, libraryPart } from "./shelf.ts";
 
 const ConsultDoc = defineDoc<{
@@ -157,20 +155,8 @@ async function consult(
         const turn = await turnOf(home.harness, api, context);
         if (!turn?.task)
             return "The librarian needs a task to pay for its call.";
-        const limits = limitsOf(
-            await api.snapshot(LimitsDoc, place.hamlet, context),
-        );
-        const reason = stopped(
-            limits,
-            await booksOf(
-                home,
-                place.hamlet,
-                limits.budget.period,
-                turn.task,
-                context,
-            ),
-        );
-        if (reason) return reason;
+        const allowed = await canSpend(home, api, { task: turn.task }, context);
+        if (!allowed.ok) return spendFailureText(allowed.error);
         const record = await api.snapshot(RecordDoc, place.hamlet, context);
         const by = `${record?.agents.find((a) => a.number === place.number)?.name ?? "agent"}@${place.hamlet}`;
         let stage: string | null = null;
@@ -269,7 +255,7 @@ async function consult(
             context,
         );
         if (said.status !== "done") {
-            const result = `The librarian could not answer: ${said.text}`;
+            const result = `The librarian could not answer: ${said.reason}`;
             const skill = job.skill;
             await api.commit(async (tx) => {
                 (await tx.doc(ConsultDoc, api.taskId)).result = result;

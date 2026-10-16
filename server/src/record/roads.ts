@@ -1,9 +1,7 @@
 import type { Tx } from "@earendil-works/pi-durable";
-import { localDay } from "../home/clock.ts";
 import { LimitsDoc } from "../limits/rules.ts";
 import { ok, type Result } from "../result.ts";
-import { chargeRoad, LedgerDoc, roadAfford } from "../spend/ledger.ts";
-import { add, zero } from "../spend/money.ts";
+import { booksIn, chargeRoad, roadAfford } from "../spend/ledger.ts";
 import type { End, HamletRecord, RoadRecord } from "./document.ts";
 import { RecordDoc } from "./document.ts";
 import { named } from "./names.ts";
@@ -129,22 +127,13 @@ export async function layRoad(
     ).length;
     if (built >= limits.mostRoads)
         return refusal("lay-road", hamlet, { kind: "roads-full", most: built });
-    const books = { hamlet: zero(), agents: {}, task: zero() };
-    const today = new Date(given.at);
-    const date = new Date(
-        today.getFullYear(),
-        today.getMonth(),
-        limits.budget.period === "day" ? today.getDate() : 1,
+    const books = await booksIn(
+        tx,
+        hamlet,
+        limits.budget.period,
+        given.task ?? null,
+        given.at,
     );
-    while (date <= today) {
-        const day = localDay(date.getTime());
-        for (const line of (await tx.doc(LedgerDoc, `${hamlet}/${day}`, day))
-            .lines) {
-            if (line.what === "reset") books.hamlet = zero();
-            else add(books.hamlet, line);
-        }
-        date.setDate(date.getDate() + 1);
-    }
     const price = roadAfford(books, limits);
     if (price)
         return refusal("lay-road", hamlet, {

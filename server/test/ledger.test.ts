@@ -12,8 +12,17 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { describe, expect, it } from "vitest";
 
 import { localDay } from "../src/home/clock.ts";
+import { LimitsDoc } from "../src/limits.ts";
 import { HOME } from "../src/record.ts";
-import { amountOf, booksOf, ledgerOf, resetBudget } from "../src/spend.ts";
+import {
+    amountOf,
+    booksIn,
+    booksOf,
+    chargeRoad,
+    LedgerDoc,
+    ledgerOf,
+    resetBudget,
+} from "../src/spend.ts";
 import { stateOf } from "../src/state.ts";
 import {
     context,
@@ -215,13 +224,13 @@ describe("the spend ledger", () => {
         );
         expect(
             (await booksOf(home, HOME, "month", task, context)).agents,
-        ).toEqual({
-            "0": { tokens: 120, micros: 1500, ms: 900 },
-        });
+        ).toEqual(
+            new Map([["home:0", { tokens: 120, micros: 1500, ms: 900 }]]),
+        );
         await resetBudget(home, HOME, "chief", context);
         expect(await booksOf(home, HOME, "month", task, context)).toEqual({
             hamlet: { tokens: 0, micros: 0, ms: 0 },
-            agents: {},
+            agents: new Map(),
             task: { tokens: 120, micros: 1500, ms: 900 },
         });
         await (await say(home, "Today.")).wait(context);
@@ -357,4 +366,29 @@ it("prices an unbilled response and estimates missing tokens", () => {
             7,
         ),
     ).toEqual({ tokens: 7, micros: 7, ms: 5 });
+});
+
+it("reads road charges and resets on the transaction that changes the books", async () => {
+    const at = new Date(2026, 5, 4, 12).getTime();
+    const home = await testHome(scratch(), { now: () => at });
+    await home.harness.commit(async (tx) => {
+        const limits = await tx.doc(LimitsDoc, HOME, HOME);
+        limits.road.cost = 0.25;
+        await chargeRoad(tx, HOME, { task: "road-task", agent: 7, at, limits });
+        const books = await booksIn(tx, HOME, "month", "road-task", at);
+        expect(books.hamlet).toEqual({ tokens: 0, micros: 250_000, ms: 0 });
+        expect(books.agents).toEqual(new Map([["home:7", books.hamlet]]));
+        expect(books.task).toEqual(books.hamlet);
+        (
+            await tx.doc(LedgerDoc, `${HOME}/2026-06-04`, "2026-06-04")
+        ).lines.push({ what: "reset", at, by: "chief" });
+        await chargeRoad(tx, HOME, { task: "road-task", agent: 7, at, limits });
+        const reset = await booksIn(tx, HOME, "month", "road-task", at);
+        expect(reset.hamlet.micros).toBe(250_000);
+        expect(reset.task.micros).toBe(500_000);
+        reset.task.micros = 0;
+        expect(
+            (await booksIn(tx, HOME, "day", "road-task", at)).task.micros,
+        ).toBe(500_000);
+    }, context);
 });

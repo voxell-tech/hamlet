@@ -3,7 +3,6 @@ import { defineExtension } from "@earendil-works/pi-durable";
 import { commitEdit } from "../chats/configure.ts";
 import { buildHouse } from "../home/layout.ts";
 import type { Part } from "../home.ts";
-import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import {
     admit,
     defineMayorTool,
@@ -18,7 +17,7 @@ import {
 } from "../record.ts";
 import { ok } from "../result.ts";
 import { choose, SettingsDoc, settingsOf } from "../settings.ts";
-import { booksOf } from "../spend/ledger.ts";
+import { reconcile } from "../spend/ledger.ts";
 /** The agent lifecycle and road tools (H27, H3, H29). */
 export const Agents: Part = (home) => ({
     extension: defineExtension({
@@ -178,10 +177,7 @@ export const road: RecordDeed = async (home, given, context) => {
             kind: "record-usage",
             command: "road",
         });
-    const limits = limitsOf(
-        await home.harness.snapshot(LimitsDoc, given.hamlet, context),
-    );
-    await booksOf(home, given.hamlet, limits.budget.period, null, context);
+    await reconcile(home, context);
     return home.harness.commit(async (tx) => {
         const result = await layRoad(tx, given.hamlet, a, b, {
             by: `chief:${given.chief}`,
