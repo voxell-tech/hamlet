@@ -9,6 +9,7 @@ it elsewhere.
   models.toml     the models you added, with what each costs
   bazaar.json     what OpenRouter and the endpoints offer, asked again each day; safe to delete
   skills_sh.json  the skills skills.sh lists, asked again each day; safe to delete
+  bought.json     what was bought at the bazaar's server and written into the home, at which version
   library/        the skills every agent shares, one folder each
   library.jsonl   what was shelved there, refused and taken out
   charter.md      your own charter, the words every agent's prompt opens with; absent until you edit it
@@ -54,16 +55,53 @@ plain and its small things are hidden, as towns and robots are. Where a chief se
 | Stall | Keeper | Sells | Buying |
 |---|---|---|---|
 | AI Models | Brannoc | Models, as below | Adds the model to `models.toml` |
-| Community Agents | Wren Halloway | Agents other users made (mock) | Pretend: kept only while the app runs |
-| Plugins | Tobias Cogsworth | Extensions that add features to Hamlet (mock) | Pretend: kept only while the app runs |
+| Community Agents | Wren Halloway | Agents other chiefs put up at the bazaar's server | Moves the agent into the hamlet chosen, with its character, notes and skills |
+| Plugins | Tobias Cogsworth | Tools other chiefs put up at the bazaar's server | Adds the tools to the house of the agent chosen, under its `tools/` |
 | Skills | Sister Marjoram | Skills listed on skills.sh | Shelves the skill in `library/`, recorded in `library.jsonl` with `from` its source; no librarian is asked, since the chief chose it |
-| Hamlet Templates | Lady Ashgrove | Ready-made hamlets (mock), each shown as a turning diorama | Founds the hamlet at once: its mayor, its agents and their characters, notes and skills |
+| Hamlet Templates | Lady Ashgrove | Hamlets other chiefs put up at the bazaar's server, each shown as a turning diorama | Founds the hamlet: its mayor, its agents and their characters, notes and skills |
 
 Adding a model writes it to `models.toml`, allowed; one from OpenRouter
 first signs the chief in to OpenRouter when the home has no endpoint
 there. Only added models are in `models.toml`: List Models updates
 their prices and drops those an endpoint no longer serves.
 
+
+## Buying and selling at the bazaar's server
+
+Community Agents, Plugins and Hamlet Templates sell what chiefs made, from
+the bazaar's server, [`hamlet-server`](../hamlet-server/README.md), whose
+routes are in [`hamlet-server/docs/api.md`](../hamlet-server/docs/api.md).
+The server is `HAMLET_BAZAAR_URL`, else `bazaar_url` in `config.toml`,
+else `http://localhost:8787`.
+
+A chief signs in with GitHub from any of the three stalls; the token is
+kept like an API key, under `bazaar_token`. Paid listings are paid on
+Stripe's page in the browser; the seller receives 90% and the bazaar
+keeps 10%. A free one is owned at once.
+
+What is bought is the chief's for good, every version of it, even once
+its seller takes it off the shelves. It is written into the home only
+when the chief says so, and a newer version only when they press UPDATE:
+
+| Bought | Written | An update |
+|---|---|---|
+| An agent | Into the hamlet chosen, as a new agent. A name taken in the realm gets `-ii`, `-iii`... | Replaces its `CHARACTER.md` and the skills it came with; its `NOTES.md` stays its own |
+| A hamlet | Founded in the realm, as with the realm's limits | Each of its agents as an agent's update; new ones move in |
+| A plugin | Its tools into `tools/` of the house of the agent chosen | Replaces those tools |
+
+A package is checked before anything is written: every path stays in the
+folder it goes to, and every name is one the realm takes.
+`bought.json` keeps, for each listing written into the home, its version,
+the names it lives under and where it went.
+
+SELL opens the seller's desk: what is sold (an agent with its character,
+skills and, unless unticked, its notes; a hamlet with all its agents; or
+tools of an agent's house), its words, its category, tags, price and an
+optional cover. The server reads the package and shows buyers what is
+really in it, the permissions a plugin's manifests ask for among it. A
+paid listing needs payouts set up with Stripe first. YOURS lists what the
+chief sells, to edit, upload a new version of, put on or take off the
+shelves, and what they bought, to install or update.
 ## Starter skills
 
 `crates/hamlet_home/starters/` holds the starter skills: web search, page

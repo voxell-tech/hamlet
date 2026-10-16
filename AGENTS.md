@@ -35,5 +35,10 @@ example `cargo test -p hamlet_rules`.
 do are compiled only with `cargo test --features live-tests`; run them only
 when the owner asks.
 
+`hamlet-server/` is the bazaar's server, in TypeScript. When it changes,
+run its checks from that folder: `pnpm typecheck`, `pnpm lint`,
+`pnpm test` and `pnpm format`. Its tests never contact Stripe, GitHub or
+Cloudflare.
+
 Never run the `hamlet` binary without `HAMLET_HOME` set to a scratch folder:
 with the default home it works on the owner's real notes, skills and logs.

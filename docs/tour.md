@@ -102,7 +102,10 @@ Paths are under `crates/`.
 | The library of shared skills | `hamlet_rules/src/library.rs`; `Library::give` shelves one the chief chose |
 | Spending and limits | `hamlet_rules/src/budget/`, `hamlet_home/src/limits.rs` |
 | Models, their prices and who may run them | `hamlet_model/src/catalogue.rs`, `hamlet_rules/src/models.rs` |
-| The Agent Bazaar | Its models in `hamlet_model/src/bazaar.rs`, kept fresh by `hamlet_core/src/bazaar.rs`; the mock listings in `hamlet_model/src/market/`; skills.sh in `hamlet_model/src/skills_sh.rs` and `hamlet_core/src/skill_market.rs`; its panel and each stall's page and counter in `hamlet_ui/src/bazaar/`; the stalls and their keepers in `hamlet_world/src/bazaar/stalls.rs`; its tents, keepers and shoppers in the world in `hamlet_world/src/bazaar/`; [`home.md`](home.md) |
+| The Agent Bazaar | Its models in `hamlet_model/src/bazaar.rs`, kept fresh by `hamlet_core/src/bazaar.rs`; the listings of chiefs in `hamlet_model/src/market/`, bought and sold through `hamlet_core/src/market.rs`; skills.sh in `hamlet_model/src/skills_sh.rs` and `hamlet_core/src/skill_market.rs`; its panel and each stall's page and counter in `hamlet_ui/src/bazaar/`; the stalls and their keepers in `hamlet_world/src/bazaar/stalls.rs`; its tents, keepers and shoppers in the world in `hamlet_world/src/bazaar/`; [`home.md`](home.md) |
+| The bazaar's server, where chiefs sell agents, hamlets and plugins | `hamlet-server/`, a TypeScript Worker; its routes in `hamlet-server/docs/api.md`, its client in `hamlet_model/src/market/client.rs` |
+| Packing what is sold, and writing what is bought into the home | `hamlet_rules/src/market/`; the package format in `hamlet_model/src/market/package.rs` |
+| The seller's desk and the box a listing is bought from | `hamlet_ui/src/bazaar/desk.rs`, `hamlet_ui/src/bazaar/trade.rs` |
 | A hamlet drawn small, apart from the world | `hamlet_world/src/diorama.rs` |
 | Founding a bought hamlet whole | `Realm::found_bought` in `hamlet_rules/src/realm/bought.rs` |
 | The model client | `hamlet_model/src/provider/` |

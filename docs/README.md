@@ -33,6 +33,7 @@ Then read the page for the part you are about to touch.
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
 | [`cursors.md`](cursors.md) | The pointer and its modes |
 | [`releases.md`](releases.md) | How a release is built and published for the three platforms |
+| [`../hamlet-server/README.md`](../hamlet-server/README.md) | The bazaar's server: setting it up, its migrations, and its routes in `docs/api.md` |
 
 ## The rules
 
