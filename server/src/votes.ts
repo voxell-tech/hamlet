@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -31,6 +30,7 @@ import {
 import { ErrandDoc, runErrand, startErrand } from "./chats/errands.ts";
 import { notify } from "./chats/notice.ts";
 import { newTask } from "./chats/turn.ts";
+import { houseReader } from "./environment.ts";
 import { untilAborted } from "./home/abort.ts";
 import { houseOf } from "./home/layout.ts";
 import type { Deed, Home, Part } from "./home.ts";
@@ -46,7 +46,6 @@ import {
     named,
     RecordDoc,
 } from "./record.ts";
-import { closedPolicy, SandboxEnv } from "./sandbox.ts";
 
 type Step = { phase: "hear" } | { phase: "poll" } | { phase: "settle" };
 type Motion =
@@ -946,15 +945,8 @@ async function notesOf(
     ref: AgentRef,
     context: Context,
 ): Promise<string> {
-    const root = houseOf(home.layout, ref),
-        policy = closedPolicy(root, [root]);
-    policy.rw = [];
-    const env = new SandboxEnv({
-        cwd: root,
-        policy,
-        sandbox: home.sandbox,
-        tmpScope: `ballot-${randomUUID()}`,
-    });
+    const root = houseOf(home.layout, ref);
+    const env = houseReader(home, ref, context);
     try {
         const result = await env.readTextFile(join(root, "NOTES.md"), context);
         return result.ok ? result.value : "";

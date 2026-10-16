@@ -1,11 +1,7 @@
-import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { chatOf } from "../chats/conversations.ts";
 import { historyOf } from "../chats.ts";
-import { envFor } from "../environment.ts";
-import { houseOf } from "../home/layout.ts";
 import type { Home } from "../home.ts";
-import { houseSkills } from "../house/skills.ts";
 import { catalogueOf, refreshModels } from "../models.ts";
 import { CharacterDoc, CharterDoc, charterOf, told } from "../prompt.ts";
 import type { Address, Listed, Read, ReadResult } from "../protocol.ts";
@@ -65,14 +61,7 @@ export async function read(
             ...reply,
             prompt: await told(home, conversation, context),
         });
-    const env = await envFor(
-        home,
-        { conversationId: conversation.id, read: home.harness },
-        { net: false },
-        context,
-    );
-    const house = houseOf(home.layout, agent);
-    const notes = await env?.readTextFile(join(house, "NOTES.md"), context);
+    const notes = await home.houses.of(agent).notes(context);
     const character = await home.harness.snapshot(
         CharacterDoc,
         agentKey(agent),
@@ -83,9 +72,9 @@ export async function read(
     return ok({
         ...reply,
         papers: {
-            notes: cut(notes?.ok ? notes.value : ""),
+            notes: cut(notes.ok ? notes.value.text : ""),
             character: cut(character?.text ?? ""),
-            skills: (await houseSkills(house, home.sandbox, context)).map(
+            skills: (await home.houses.of(agent).skills(context)).map(
                 ({ name, description }) => ({ name, description }),
             ),
         },

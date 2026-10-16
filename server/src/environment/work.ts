@@ -5,7 +5,33 @@ import type { Context } from "@earendil-works/chord";
 
 import type { Home } from "../home.ts";
 import { RecordDoc } from "../record.ts";
-import { canon, isDir, within } from "../sandbox.ts";
+import { err, ok, type Result } from "../result.ts";
+import { canon, isDir, within } from "../sandbox/policy.ts";
+
+/** A work folder rejected before the hamlet changes its reach. */
+export type WorkFailure = {
+    operation: "set-folder";
+    hamlet: string;
+    retrySafe: true;
+} & (
+    | { kind: "folder-not-absolute" }
+    | { kind: "folder-not-directory"; path: string }
+    | { kind: "folder-overlaps-home"; root: string }
+);
+
+/** The chief's unchanged folder refusal text. */
+export function workFailureText(error: WorkFailure): string {
+    switch (error.kind) {
+        case "folder-not-absolute":
+            return "give the folder's full path, such as /Users/you/code/project";
+        case "folder-not-directory":
+            return `\`${error.path}\` is not a folder`;
+        case "folder-overlaps-home":
+            return `a hamlet cannot work on Hamlet's own folder (${error.root}), or on one that holds it`;
+    }
+    const unhandled: never = error;
+    throw new Error(`Unclassified work failure: ${unhandled}`);
+}
 
 /** The hamlet's mode in a sentence for the chief (C21). */
 export function modeWords(mode: "manual" | "auto"): string {
@@ -20,14 +46,16 @@ export async function folder(
     hamlet: string,
     typed: string,
     context: Context,
-): Promise<string> {
+): Promise<Result<string, WorkFailure>> {
     if (typed === "") {
         const work =
             (await home.harness.snapshot(WorkDoc, hamlet, context)) ??
             WorkDoc.definition.initial(hamlet);
-        return work.folder === null
-            ? "This hamlet works on no folder. `/folder <folder>` points it at one."
-            : `This hamlet works on \`${work.folder}\`. ${modeWords(work.mode)} \`/folder none\` stops that.`;
+        return ok(
+            work.folder === null
+                ? "This hamlet works on no folder. `/folder <folder>` points it at one."
+                : `This hamlet works on \`${work.folder}\`. ${modeWords(work.mode)} \`/folder none\` stops that.`,
+        );
     }
     let next: string | null = null;
     if (typed !== "none") {
@@ -38,17 +66,30 @@ export async function folder(
                   ? join(homedir(), typed.slice(2))
                   : typed;
         if (!isAbsolute(expanded))
-            throw new Error(
-                "give the folder's full path, such as /Users/you/code/project",
-            );
+            return err({
+                kind: "folder-not-absolute",
+                operation: "set-folder",
+                hamlet,
+                retrySafe: true,
+            });
         if (!isDir(expanded))
-            throw new Error(`\`${expanded}\` is not a folder`);
+            return err({
+                kind: "folder-not-directory",
+                path: expanded,
+                operation: "set-folder",
+                hamlet,
+                retrySafe: true,
+            });
         next = realpathSync.native(expanded);
         const root = canon(home.dir);
         if (within(next, root) || within(root, next))
-            throw new Error(
-                `a hamlet cannot work on Hamlet's own folder (${root}), or on one that holds it`,
-            );
+            return err({
+                kind: "folder-overlaps-home",
+                root,
+                operation: "set-folder",
+                hamlet,
+                retrySafe: true,
+            });
     }
     const mode = await home.harness.commit(async (tx) => {
         const work = await tx.doc(WorkDoc, hamlet, hamlet);
@@ -64,9 +105,11 @@ export async function folder(
         });
         return work.mode;
     }, context);
-    return next === null
-        ? "This hamlet works on no folder now. Its agents are back in their own workspaces."
-        : `This hamlet works on \`${next}\` now. ${modeWords(mode)}`;
+    return ok(
+        next === null
+            ? "This hamlet works on no folder now. Its agents are back in their own workspaces."
+            : `This hamlet works on \`${next}\` now. ${modeWords(mode)}`,
+    );
 }
 
 /** The mode decree, kept whichever folder the hamlet works on (C21). */

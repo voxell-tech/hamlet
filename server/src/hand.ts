@@ -11,11 +11,11 @@ import {
 import { type FileWatcher, getOrThrow } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { Compile } from "typebox/compile";
-import { LEAVE, type Leave } from "./environment.ts";
+import { LEAVE, type Leave, toolRunner } from "./environment.ts";
 import { type Manifest, ManifestsDoc } from "./hand/manifests.ts";
 import type { Home, Part } from "./home.ts";
 import { record } from "./models.ts";
-import { limitsOf, type Policy, SandboxEnv } from "./sandbox.ts";
+import { limitsOf } from "./sandbox/policy.ts";
 
 const NAME = "hamlet.hand";
 const RESERVED = new Set([
@@ -91,7 +91,16 @@ export const Hand: Part = (home) => {
                     throw new Error(
                         `name '${manifest.name}' is taken by another tool`,
                     );
-                limitsOf(policyFor(home, manifest, false));
+                limitsOf({
+                    limits: {
+                        ...(manifest.wallSecs !== null && {
+                            wallSecs: manifest.wallSecs,
+                        }),
+                        ...(manifest.cpuSecs !== null && {
+                            cpuSecs: manifest.cpuSecs,
+                        }),
+                    },
+                });
                 names.add(manifest.name);
                 tools.push(manifest);
             } catch (error) {
@@ -234,28 +243,6 @@ async function load(
     };
 }
 
-function policyFor(home: Home, manifest: Manifest, net: boolean): Policy {
-    return {
-        ro: manifest.ro,
-        rw: manifest.rw,
-        open: false,
-        hidden: [],
-        locked: [
-            home.layout.tools,
-            manifest.dir,
-            home.layout.gifts,
-            home.layout.erasing,
-        ],
-        net: manifest.net && net,
-        services: [],
-        env: { ...home.sandbox.baseEnv(), ...manifest.env },
-        limits: {
-            ...(manifest.wallSecs !== null && { wallSecs: manifest.wallSecs }),
-            ...(manifest.cpuSecs !== null && { cpuSecs: manifest.cpuSecs }),
-        },
-    };
-}
-
 function handTool(home: Home, manifest: Manifest) {
     return defineTool({
         name: manifest.name,
@@ -265,13 +252,12 @@ function handTool(home: Home, manifest: Manifest) {
         outputLimits: { maxBytes: 64 * 1024 },
         execute: async (args, api, context) => {
             const leave = await api.memo<Leave>(LEAVE, context);
-            const policy = policyFor(home, manifest, leave?.net === true);
-            const env = new SandboxEnv({
-                cwd: manifest.dir,
-                policy,
-                sandbox: home.sandbox,
-                tmpScope: `${home.dir}:${api.conversationId}:${api.taskId}`,
-            });
+            const env = toolRunner(
+                home,
+                manifest,
+                leave?.net === true,
+                `${home.dir}:${api.conversationId}:${api.taskId}`,
+            );
             try {
                 const file = getOrThrow(
                     await env.createTempFile(
@@ -300,7 +286,7 @@ function handTool(home: Home, manifest: Manifest) {
                 if (!result.ok)
                     api.output(
                         result.error.code === "timeout"
-                            ? `\n[timed out after ${limitsOf(policy).wallSecs}s]`
+                            ? `\n[timed out after ${manifest.wallSecs ?? 120}s]`
                             : `Error: ${result.error.message}`,
                     );
                 return {

@@ -21,12 +21,12 @@ import {
     type With,
     WithDoc,
 } from "./chats/conversations.ts";
-import { closeEnvironments, envFor, WorkDoc } from "./environment.ts";
+import { agentEnv, Confinement, houseReader, WorkDoc } from "./environment.ts";
 import { Credentials } from "./home/credentials.ts";
 import { buildHouse, type Layout, layOut } from "./home/layout.ts";
 import { claim } from "./home/lock.ts";
 import { PARTS } from "./home/parts.ts";
-import { closeSkills, refreshSkills } from "./house/skills.ts";
+import { Houses } from "./house/skills.ts";
 import { PeerStatistics } from "./letters.ts";
 import { LimitsDoc } from "./limits/rules.ts";
 import { homeModels } from "./models.ts";
@@ -61,6 +61,8 @@ export type HomeBase = {
     readonly dir: string;
     readonly layout: Layout;
     readonly sandbox: Sandbox;
+    readonly confinement: Confinement;
+    readonly houses: Houses;
     readonly chief: string;
     readonly overrides: Overrides;
     readonly credentials: Credentials;
@@ -101,10 +103,17 @@ export async function openHome(
             layout.credentials,
             overrides.apiKey,
         );
+        const sandbox = platformSandbox();
+        const confinement = new Confinement();
+        const houses = new Houses(layout, (agent, context) =>
+            houseReader({ layout, sandbox }, agent, context),
+        );
         const base: HomeBase = {
             dir: root,
             layout,
-            sandbox: platformSandbox(),
+            sandbox,
+            confinement,
+            houses,
             chief: options.chief || env.HAMLET_USER || env.USER || "user",
             overrides,
             credentials,
@@ -125,7 +134,7 @@ export async function openHome(
                 registry,
                 settings: runSettings(compaction),
                 env: (target, context) =>
-                    envFor(base, target, { net: false }, context),
+                    agentEnv(base, target, { net: false }, context),
                 now: base.now,
             },
             context,
@@ -134,8 +143,8 @@ export async function openHome(
         // A storage that failed closes the harness by itself.
         const released = harness.closed.then(async () => {
             await Promise.all([
-                closeEnvironments(base, context),
-                closeSkills(base.layout.dir, context),
+                base.confinement.close(context),
+                base.houses.close(context),
                 lock.release(),
             ]);
         });
@@ -155,7 +164,7 @@ export async function openHome(
                     for (const part of running.reverse()) {
                         await part.stop?.(context);
                     }
-                    refreshSkills(base.layout.dir);
+                    base.houses.invalidate(base.layout.dir);
                     await harness.close(context);
                     await released;
                 })();

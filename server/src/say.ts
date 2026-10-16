@@ -158,40 +158,38 @@ export async function say(
                 : `\`${command.agent}\` no longer has ${command.permission}.`,
         );
     }
-    if (
-        command?.command === "folder" ||
-        command?.command === "mode" ||
-        command?.command === "give"
-    ) {
-        // D7/D8 replace these work-folder and gift compatibility catches with owner failures.
+    if (command?.command === "folder") {
+        const result = await folder(
+            home,
+            message.to.hamlet,
+            command.path,
+            context,
+        );
+        return result.ok ? receipt(result.value) : result;
+    }
+    if (command?.command === "mode" || command?.command === "give") {
+        // D8 replaces this gift compatibility catch with GiftRefusal.
         try {
             const text =
-                command.command === "folder"
-                    ? await folder(
+                command.command === "mode"
+                    ? await setMode(
                           home,
                           message.to.hamlet,
-                          command.path,
+                          command.mode,
                           context,
                       )
-                    : command.command === "mode"
-                      ? await setMode(
-                            home,
-                            message.to.hamlet,
-                            command.mode,
-                            context,
-                        )
-                      : await giftSkill(
-                            home,
-                            { hamlet: message.to.hamlet, agent: command.agent },
-                            command.skill,
-                            command.from === undefined
-                                ? undefined
-                                : {
-                                      hamlet: message.to.hamlet,
-                                      agent: command.from,
-                                  },
-                            context,
-                        );
+                    : await giftSkill(
+                          home,
+                          { hamlet: message.to.hamlet, agent: command.agent },
+                          command.skill,
+                          command.from === undefined
+                              ? undefined
+                              : {
+                                    hamlet: message.to.hamlet,
+                                    agent: command.from,
+                                },
+                          context,
+                      );
             return receipt(text);
         } catch (cause) {
             return legacyRefusal(cause);

@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import {
     type AgentEventStream,
@@ -15,9 +14,8 @@ import {
 import { DEEDS } from "./commands.ts";
 import { modeWords, WorkDoc } from "./environment.ts";
 import { GrantsDoc, grantsOf } from "./gate.ts";
-import { houseOf } from "./home/layout.ts";
 import type { Home } from "./home.ts";
-import { refreshSkills, skillNames, starterSkills } from "./house/skills.ts";
+import { starterSkills } from "./house/skills.ts";
 import { conversationViews } from "./letters.ts";
 import { STARTERS } from "./library/shelf.ts";
 import { libraryView } from "./library.ts";
@@ -251,9 +249,7 @@ export async function stateOf(
                 spent: { ...spent, cost: money(spent.micros) },
                 skills: left
                     ? []
-                    : await skillNames(
-                          join(houseOf(home.layout, ref), "skills"),
-                      ),
+                    : await home.houses.of(ref).skillNames(context),
                 consulting: !left && works.some((w) => w.consulting),
                 conversations: await conversationViews(home, ref, context),
                 ...(left
@@ -414,7 +410,8 @@ export async function watchState(
                     activity.set(id, work);
                     watch.start(async (events) => {
                         for (const event of events) work.note(event);
-                        if (!work.working) refreshSkills(home.layout.houses);
+                        if (!work.working)
+                            home.houses.invalidate(home.layout.houses);
                         schedule();
                     });
                 }
@@ -467,7 +464,7 @@ export async function watchState(
         return line;
     };
     const unsubscribe = home.harness.subscribeCommits(({ changes }) => {
-        refreshSkills(home.layout.houses);
+        home.houses.invalidate(home.layout.houses);
         for (const change of changes) {
             if (change.type !== "document" || change.value === null) continue;
             if (change.record.kind === "hamlet.settings")
@@ -516,7 +513,7 @@ export async function watchState(
     await schedule();
     return {
         snapshot: async () => {
-            refreshSkills(home.layout.houses);
+            home.houses.invalidate(home.layout.houses);
             await schedule();
             return structuredClone(state);
         },
@@ -524,7 +521,7 @@ export async function watchState(
         stop: async () => {
             stopped = true;
             unsubscribe();
-            refreshSkills(home.layout.houses);
+            home.houses.invalidate(home.layout.houses);
             await Promise.all(
                 [...watches.values()].map((watch) => watch.stop()),
             );

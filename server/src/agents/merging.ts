@@ -1,5 +1,5 @@
 import { isUtf8 } from "node:buffer";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
     lstat,
     mkdir,
@@ -28,6 +28,7 @@ import { ErrandDoc, runErrand, startErrand } from "../chats/errands.ts";
 import { InstructionsDoc, owed } from "../chats/instructions.ts";
 import { newTask, turnOf } from "../chats/turn.ts";
 import { stopAgent } from "../chats.ts";
+import { houseReader, treeWorker } from "../environment.ts";
 import { revoke } from "../gate.ts";
 import { untilAborted } from "../home/abort.ts";
 import { houseOf } from "../home/layout.ts";
@@ -47,7 +48,7 @@ import {
     named,
     RecordDoc,
 } from "../record.ts";
-import { closedPolicy, SandboxEnv } from "../sandbox.ts";
+import type { SandboxEnv } from "../sandbox.ts";
 import { safeWords } from "../scrub.ts";
 import { booksOf } from "../spend/ledger.ts";
 import { stopped } from "../spend.ts";
@@ -698,18 +699,13 @@ async function allowed(
 }
 
 function envFor(home: Home, ref: AgentRef, write: boolean): SandboxEnv {
-    const root = houseOf(home.layout, ref);
-    const policy = closedPolicy(root, [process.execPath]);
-    if (!write) {
-        policy.ro.push(root);
-        policy.rw = [];
-    }
-    return new SandboxEnv({
-        cwd: root,
-        policy,
-        sandbox: home.sandbox,
-        tmpScope: `merge-${randomUUID()}`,
-    });
+    return write
+        ? treeWorker(home, {
+              root: houseOf(home.layout, ref),
+              stage: houseOf(home.layout, ref),
+              caps: MERGE_CAPS,
+          })
+        : houseReader(home, ref, BACKGROUND_CONTEXT);
 }
 
 async function notes(
@@ -1130,17 +1126,10 @@ async function apply(
                 join(delivery, "manifest.json"),
                 JSON.stringify(pending),
             );
-            const policy = closedPolicy(target, [process.execPath]);
-            policy.ro.push(delivery);
-            policy.limits = {
-                maxFileMb: Math.ceil(MERGE_CAPS.bytes / (1024 * 1024)) + 1,
-                wallSecs: 120,
-            };
-            const copier = new SandboxEnv({
-                cwd: target,
-                policy,
-                sandbox: home.sandbox,
-                tmpScope: `merge-${randomUUID()}`,
+            const copier = treeWorker(home, {
+                root: delivery,
+                stage: target,
+                caps: MERGE_CAPS,
             });
             try {
                 const copied = await copier.exec(

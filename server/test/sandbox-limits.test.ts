@@ -4,15 +4,11 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import { Bwrap } from "../src/sandbox/bwrap.ts";
+import { type Policy, policyHash } from "../src/sandbox/policy.ts";
+import { closedPolicy } from "../src/sandbox/reach.ts";
 import { Seatbelt } from "../src/sandbox/seatbelt.ts";
 import type { Sandbox } from "../src/sandbox.ts";
-import {
-    closedPolicy,
-    type Policy,
-    policyHash,
-    probeSandbox,
-    SandboxEnv,
-} from "../src/sandbox.ts";
+import { probeSandbox, SandboxEnv } from "../src/sandbox.ts";
 import { houseEnv } from "./sandbox-support.ts";
 import { context, scratch, sh } from "./support.ts";
 

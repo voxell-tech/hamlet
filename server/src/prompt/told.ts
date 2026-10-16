@@ -1,7 +1,7 @@
 import type { Context } from "@earendil-works/chord";
 import { getSystemMessageText, type Message } from "@earendil-works/pi-ai";
 import type { Conversation, PromptInput } from "@earendil-works/pi-durable";
-import { envFor } from "../environment.ts";
+import { agentEnv } from "../environment.ts";
 import type { Home } from "../home.ts";
 
 /**
@@ -18,7 +18,7 @@ export async function told(
     const input: PromptInput = {
         conversationId: conversation.id,
         agent,
-        env: await envFor(
+        env: await agentEnv(
             home,
             { conversationId: conversation.id, read: home.harness },
             { net: false },

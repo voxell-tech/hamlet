@@ -7,7 +7,7 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "vitest";
-import { envFor, footing } from "../src/environment.ts";
+import { agentEnv, footing } from "../src/environment.ts";
 import type { Home } from "../src/home.ts";
 import {
     closeAfter,
@@ -48,7 +48,7 @@ async function bash(home: Home, faux: Faux, command: string): Promise<string> {
 /** The mayor's environment, with the network or without. */
 async function mayorEnv(home: Home, net: boolean) {
     const conversation = await mayorChat(home);
-    const env = await envFor(
+    const env = await agentEnv(
         home,
         { conversationId: conversation.id, read: home.harness },
         { net },

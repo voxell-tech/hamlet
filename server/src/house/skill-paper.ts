@@ -34,7 +34,6 @@ export async function paper(path: string): Promise<string> {
 
 /** One regular paper on a shelf, with its folder name. */
 export type SkillPaper = { folder: string; text: string };
-const papers = new Map<string, { key: string; text: string }>();
 
 /** A no-link shelf and its bounded papers, read in the caller's sandbox. */
 export async function shelf(
@@ -43,7 +42,6 @@ export async function shelf(
 ): Promise<SkillPaper[]> {
     if (!(await lstat(dir).catch(() => undefined))?.isDirectory()) return [];
     const found: SkillPaper[] = [];
-    const kept = new Set<string>();
     for (const entry of await readdir(dir, { withFileTypes: true }).catch(
         () => [],
     )) {
@@ -51,25 +49,10 @@ export async function shelf(
         const path = join(dir, entry.name, "SKILL.md");
         const stat = await lstat(path).catch(() => undefined);
         if (!stat?.isFile()) continue;
-        kept.add(path);
         let text = "";
-        if (contents) {
-            const key = [
-                stat.dev,
-                stat.ino,
-                stat.mtimeMs,
-                stat.ctimeMs,
-                stat.size,
-            ].join(":");
-            const cached = papers.get(path);
-            text = cached?.key === key ? cached.text : await paper(path);
-            if (text !== "") papers.set(path, { key, text });
-            else papers.delete(path);
-        }
+        if (contents) text = await paper(path);
         found.push({ folder: entry.name, text });
     }
-    for (const path of papers.keys())
-        if (path.startsWith(`${dir}/`) && !kept.has(path)) papers.delete(path);
     return found.sort((a, b) =>
         a.folder < b.folder ? -1 : a.folder > b.folder ? 1 : 0,
     );

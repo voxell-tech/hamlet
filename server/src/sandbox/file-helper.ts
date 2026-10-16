@@ -11,7 +11,6 @@ import {
     type WatchChange,
 } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { shelf } from "../house/skill-paper.ts";
 import { decode, encode, frameId } from "./wire.ts";
 
 const context = {} as Context;
@@ -82,9 +81,7 @@ for await (const line of createInterface({ input: process.stdin })) {
             throw new Error("Invalid file request");
         env.cwd = cwd;
         let result: Result<unknown, FileError>;
-        if (method === "skills") {
-            result = ok(await shelf(args[0] as string, args[1] as boolean));
-        } else if (method === "handle") {
+        if (method === "handle") {
             const [handle, operation, ...params] = args as [
                 number,
                 string,

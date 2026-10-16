@@ -58,7 +58,7 @@ export type Policy = {
 const MAX_WALL_SECS = 2_147_483;
 
 /** The limits a command under `policy` runs with. Each must be a whole number, since it is written into the command, and at least 1, since at 0 a command is refused or killed at once. */
-export function limitsOf(policy: Policy): Limits {
+export function limitsOf(policy: Pick<Policy, "limits">): Limits {
     const limits = { ...DEFAULT_LIMITS, ...policy.limits };
     for (const [name, value] of Object.entries(limits)) {
         if (!Number.isSafeInteger(value) || value < 1) {

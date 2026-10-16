@@ -3,6 +3,8 @@ import {
     type ConnectionFailure,
     connectionFailureText,
 } from "../connection.ts";
+import { type WorkFailure, workFailureText } from "../environment.ts";
+import { type NotesFailure, notesFailureText } from "../house/skills.ts";
 import type { Fault, Malformed, Reply } from "../protocol.ts";
 import {
     type ChiefRefusal,
@@ -22,6 +24,8 @@ export type Receipt = {
 
 /** Chief-facing failures whose wording is chosen at the protocol seam. */
 export type ChiefFailure =
+    | WorkFailure
+    | NotesFailure
     | LegacyRefusal
     | AddressFailure
     | ChiefRefusal["error"]
@@ -62,6 +66,13 @@ function rendered(failure: ChiefFailure): {
     kind: "notice" | "error";
 } {
     switch (failure.kind) {
+        case "folder-not-absolute":
+        case "folder-not-directory":
+        case "folder-overlaps-home":
+            return { text: workFailureText(failure), kind: "error" };
+        case "notes-not-utf8":
+        case "notes-unreadable":
+            return { text: notesFailureText(failure), kind: "error" };
         case "agent-missing":
         case "agent-gone":
             return { text: addressFailureText(failure), kind: "error" };
