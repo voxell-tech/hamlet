@@ -16,7 +16,8 @@ import {
 import { untilAborted } from "../home/abort.ts";
 import type { Home } from "../home.ts";
 import { raiseFault } from "../oversight/waits.ts";
-import { addressOf, RecordDoc } from "../record.ts";
+import { RecordDoc } from "../record/document.ts";
+import { addressOf } from "../record/names.ts";
 import { safeWords } from "../scrub.ts";
 import { ReflectionEntry, retryInput, WithDoc } from "./conversations.ts";
 import { notify } from "./notice.ts";

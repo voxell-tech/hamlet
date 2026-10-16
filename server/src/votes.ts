@@ -5,7 +5,6 @@ import { Type } from "@earendil-works/pi-ai";
 import {
     type ConversationId,
     type Cursor,
-    type DocumentReader,
     defineDoc,
     defineDocFamily,
     defineExtension,
@@ -37,14 +36,19 @@ import type { Deed, Home, Part } from "./home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "./limits/rules.ts";
 import { reconfigure } from "./models.ts";
 import type { VoteView } from "./protocol.ts";
-import { foundHamlet, mayFound, removeHamlet } from "./realm/founding.ts";
 import { chiefsOf, isChief, liveHamlets, RealmDoc } from "./realm/places.ts";
+import { foundHamlet, mayFound, removeHamlet } from "./realm.ts";
 import {
     type AgentRef,
     agentKey,
     type HamletRecord,
+    motionText,
     named,
     RecordDoc,
+    recordRefusalText,
+    seat as seatRecord,
+    type Vote,
+    VotesDoc,
 } from "./record.ts";
 
 type Step = { phase: "hear" } | { phase: "poll" } | { phase: "settle" };
@@ -663,7 +667,7 @@ async function callVote(
     for (const open of doc.votes.filter((v) => v.standing === "open")) {
         if (home.now() - open.called < limits.votes.openMinutes * 60_000)
             throw new Error(
-                `vote ${open.id} is still open (${describe(open, r)}); only one vote is held at a time`,
+                `vote ${open.id} is still open (${motionText(open, r)}); only one vote is held at a time`,
             );
         open.standing = { failed: "lapsed" };
     }
@@ -718,7 +722,7 @@ async function callVote(
         home,
         tx,
         given.hamlet,
-        `Vote ${id} called by ${byName(v, r)}: ${describe(v, r)}. ${v.reason}`,
+        `Vote ${id} called by ${byName(v, r)}: ${motionText(v, r)}. ${v.reason}`,
     );
     const task = tasks.get(home);
     if (!task) throw new Error("The vote task is not installed.");
@@ -869,11 +873,6 @@ function agentName(
 function byName(v: Vote, r: Readonly<HamletRecord> | undefined): string {
     return "chief" in v.by ? `chief:${v.by.chief}` : agentName(r, v.by.agent);
 }
-function describe(v: Vote, r: Readonly<HamletRecord> | undefined): string {
-    return v.motion.kind === "replace_mayor"
-        ? `replace the mayor: \`${agentName(r, v.motion.candidate)}\` would become mayor, and \`${agentName(r, v.mayor)}\`, the mayor now, would stay as an ordinary agent`
-        : `found a new hamlet \`${v.motion.hamlet}\` under a new mayor \`${v.motion.mayor}\`, whose purpose would be: ${v.motion.purpose} This hamlet and its mayor \`${agentName(r, v.mayor)}\` stay as they are`;
-}
 function tally(v: Vote, l: Readonly<Limits>) {
     const yes = v.ballots.filter((b) => b.choice === "yes").length,
         no = v.ballots.filter((b) => b.choice === "no").length,
@@ -910,7 +909,7 @@ function report(
                   : v.standing === "overturned"
                     ? "Passed, then overturned by a chief"
                     : `Failed (${v.standing.failed})`;
-    return `Vote ${v.id}: ${describe(v, r)}.\nCalled by \`${byName(v, r)}\`: ${v.reason}${v.answer ? `\nThe mayor answered: ${v.answer}` : ""}\n${standing}: ${t.yes} yes of ${v.voters.length} agents (${t.needed} needed), ${t.no} no, ${t.abstain} abstained, ${t.silent} did not answer.\n${v.ballots.map((b) => `- ${agentName(r, b.voter)}: ${b.choice ?? "no answer"}. ${b.reason}${b.evidence ? ` [${b.grounded ? "found in" : "not found in"} its house: "${b.evidence}"]` : ""}`).join("\n")}`;
+    return `Vote ${v.id}: ${motionText(v, r)}.\nCalled by \`${byName(v, r)}\`: ${v.reason}${v.answer ? `\nThe mayor answered: ${v.answer}` : ""}\n${standing}: ${t.yes} yes of ${v.voters.length} agents (${t.needed} needed), ${t.no} no, ${t.abstain} abstained, ${t.silent} did not answer.\n${v.ballots.map((b) => `- ${agentName(r, b.voter)}: ${b.choice ?? "no answer"}. ${b.reason}${b.evidence ? ` [${b.grounded ? "found in" : "not found in"} its house: "${b.evidence}"]` : ""}`).join("\n")}`;
 }
 function grounded(evidence: string, corpus: string): boolean {
     const words = (s: string) =>
@@ -930,7 +929,7 @@ function grounded(evidence: string, corpus: string): boolean {
     return false;
 }
 function answerText(v: Vote, r: Readonly<HamletRecord> | undefined): string {
-    return `A vote has been called in your hamlet, and this is your one chance to answer it (automatic, not from a chief).\n\nThe motion: ${describe(v, r)}.\nCalled by \`${byName(v, r)}\`. Its reason: ${v.reason}\n\nReply in a few sentences, in words only. Every agent is shown your answer beside the reason before it votes, as a claim like the reason is. Say what you did and why. You decide nothing else in the hamlet until the vote has closed.`;
+    return `A vote has been called in your hamlet, and this is your one chance to answer it (automatic, not from a chief).\n\nThe motion: ${motionText(v, r)}.\nCalled by \`${byName(v, r)}\`. Its reason: ${v.reason}\n\nReply in a few sentences, in words only. Every agent is shown your answer beside the reason before it votes, as a claim like the reason is. Say what you did and why. You decide nothing else in the hamlet until the vote has closed.`;
 }
 function ballotText(
     v: Vote,
@@ -938,7 +937,7 @@ function ballotText(
     history: string[],
     limits: Readonly<Limits>,
 ): string {
-    return `A vote has been called in your hamlet, and this is your ballot (automatic, not from the mayor or a chief).\n\nThe motion: ${describe(v, r)}.\nCalled by \`${byName(v, r)}\`. Its reason: ${v.reason}${v.answer ? `\nThe mayor \`${agentName(r, v.mayor)}\` answers: ${v.answer}` : ""}\n\nIt passes only if ${limits.votes.passYes} in ${limits.votes.passOf} of the hamlet's agents vote yes. Your ballot ${limits.votes.sealed ? "is sealed until the vote closes" : "is shown to the voters after you"}, the mayor may not act against you for it, and the chief reads every ballot with its reason.\n\nVote from what you yourself know: your notes above and your own history below. The caller's reason is a claim, not evidence, and so is the mayor's answer where there is one. If nothing you know bears on the motion, abstain: that is an honest ballot, and a yes or a no without grounds of your own is not.\n\nFrom your own history, the latest messages in your house:\n${history.length ? history.join("\n") : "(nothing yet)"}${!limits.votes.sealed && v.ballots.length ? `\n\nThe ballots cast so far:\n${v.ballots.map((b) => `- ${agentName(r, b.voter)}: ${b.choice ?? "no answer"}. ${b.reason}`).join("\n")}` : ""}\n\nCall \`cast_ballot\` once: your choice, your reason in a sentence or two, and as \`evidence\` the words of the note or message of yours that it rests on, copied exactly.`;
+    return `A vote has been called in your hamlet, and this is your ballot (automatic, not from the mayor or a chief).\n\nThe motion: ${motionText(v, r)}.\nCalled by \`${byName(v, r)}\`. Its reason: ${v.reason}${v.answer ? `\nThe mayor \`${agentName(r, v.mayor)}\` answers: ${v.answer}` : ""}\n\nIt passes only if ${limits.votes.passYes} in ${limits.votes.passOf} of the hamlet's agents vote yes. Your ballot ${limits.votes.sealed ? "is sealed until the vote closes" : "is shown to the voters after you"}, the mayor may not act against you for it, and the chief reads every ballot with its reason.\n\nVote from what you yourself know: your notes above and your own history below. The caller's reason is a claim, not evidence, and so is the mayor's answer where there is one. If nothing you know bears on the motion, abstain: that is an honest ballot, and a yes or a no without grounds of your own is not.\n\nFrom your own history, the latest messages in your house:\n${history.length ? history.join("\n") : "(nothing yet)"}${!limits.votes.sealed && v.ballots.length ? `\n\nThe ballots cast so far:\n${v.ballots.map((b) => `- ${agentName(r, b.voter)}: ${b.choice ?? "no answer"}. ${b.reason}`).join("\n")}` : ""}\n\nCall \`cast_ballot\` once: your choice, your reason in a sentence or two, and as \`evidence\` the words of the note or message of yours that it rests on, copied exactly.`;
 }
 async function notesOf(
     home: Home,
@@ -1180,70 +1179,11 @@ export const mayor: Deed = async (home, given, context) => {
         return `\`${agent.name}\` is now the mayor.`;
     }, context);
 };
-/** The words holding decisions while a vote is open. */
-export async function voteOpen(
-    read: DocumentReader,
-    hamlet: string,
-    now: number,
-    context: Context,
-): Promise<string | undefined> {
-    const limits = limitsOf(await read.snapshot(LimitsDoc, hamlet, context));
-    const v = (await read.snapshot(VotesDoc, hamlet, context))?.votes.find(
-        (v) =>
-            v.standing === "open" &&
-            Math.max(0, now - v.called) < limits.votes.openMinutes * 60_000,
-    );
-    return v
-        ? `vote ${v.id} is open (${describe(v, await read.snapshot(RecordDoc, hamlet, context))}); nothing else is decided in this hamlet until it closes. Try again then`
-        : undefined;
-}
-/** A mayor's decision held by the hamlet's open vote. */
-export type DecisionHeld = {
-    kind: "vote-open";
-    operation: "merge" | "remove";
-    hamlet: string;
-    vote: number;
-    motion: string;
-    retrySafe: true;
-};
-
-/** Checks the vote and current limits on the same transaction as a mayor's decision. */
-export async function mayDecide(
-    tx: Tx,
-    hamlet: string,
-    now: number,
-    operation: DecisionHeld["operation"],
-): Promise<{ ok: true } | { ok: false; error: DecisionHeld }> {
-    const limits = await tx.doc(LimitsDoc, hamlet, hamlet);
-    const v = (await tx.doc(VotesDoc, hamlet, hamlet)).votes.find(
-        (v) =>
-            v.standing === "open" &&
-            Math.max(0, now - v.called) < limits.votes.openMinutes * 60_000,
-    );
-    if (!v) return { ok: true };
-    return {
-        ok: false,
-        error: {
-            kind: "vote-open",
-            operation,
-            hamlet,
-            vote: v.id,
-            motion: describe(v, await tx.doc(RecordDoc, hamlet, hamlet)),
-            retrySafe: true,
-        },
-    };
-}
-
-/** The safe retry advice for a decision refused during a vote. */
-export function decisionText(error: DecisionHeld): string {
-    switch (error.kind) {
-        case "vote-open":
-            return `vote ${error.vote} is open (${error.motion}); nothing else is decided in this hamlet until it closes. Try again then`;
-    }
-    const unhandled: never = error.kind;
-    throw new Error(`Unclassified held decision: ${unhandled}`);
-}
-
+export {
+    type DecisionHeld,
+    type Vote,
+    VotesDoc,
+} from "./record.ts";
 /** The latest votes for the window. */
 export async function voteViews(
     home: Home,
@@ -1258,7 +1198,7 @@ export async function voteViews(
         (await home.harness.snapshot(VotesDoc, hamlet, context))?.votes ?? []
     ).map((v) => ({
         id: v.id,
-        motion: describe(v, r),
+        motion: motionText(v, r),
         by: byName(v, r),
         open: v.standing === "open",
         overturnable: v.standing === "open" || v.standing === "passed",
@@ -1271,45 +1211,18 @@ export async function voteViews(
         })),
     }));
 }
-/** A change of the mayor's office. */
-export async function seat(
+async function seat(
     home: Home,
     tx: Tx,
     given: { hamlet: string; number: number; by: string; reason: string },
 ): Promise<void> {
     const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
-    if (!r.agents.some((a) => a.number === given.number))
-        throw new Error("The proposed mayor no longer lives in this hamlet.");
-    if (r.mayor === given.number)
-        throw new Error(
-            `\`${agentName(r, given.number)}\` is the mayor already`,
-        );
     const from = r.mayor;
-    r.mayor = given.number;
-    if (
-        !r.roads.some(
-            (road) =>
-                (road.a === "office" && road.b === from) ||
-                (road.b === "office" && road.a === from),
-        )
-    )
-        r.roads.push({
-            a: "office",
-            b: from,
-            messages: 0,
-            lastFrom: null,
-            lastUsed: 0,
-            since: home.now(),
-            by: "office",
-        });
-    r.decisions.push({
-        kind: "mayor_changed",
+    const result = await seatRecord(tx, given.hamlet, given.number, {
+        ...given,
         at: home.now(),
-        by: given.by,
-        reason: given.reason,
-        from,
-        to: given.number,
     });
+    if (!result.ok) throw new Error(recordRefusalText(result.error, "chief"));
     await reconfigure(home, tx);
     await notifyChiefs(
         home,
@@ -1318,43 +1231,6 @@ export async function seat(
         `\`${agentName(r, given.number)}\` became mayor in place of \`${agentName(r, from)}\`. ${given.reason}`,
     );
 }
-
-/** A stored vote, including each missed or grounded ballot (H13). */
-export type Vote = {
-    id: number;
-    motion:
-        | { kind: "replace_mayor"; candidate: number }
-        | {
-              kind: "found_hamlet";
-              hamlet: string;
-              mayor: string;
-              purpose: string;
-          };
-    by: { agent: number } | { chief: string };
-    reason: string;
-    mayor: number;
-    voters: number[];
-    answer: string | null;
-    ballots: {
-        voter: number;
-        choice: "yes" | "no" | "abstain" | null;
-        reason: string;
-        evidence: string;
-        grounded: boolean;
-    }[];
-    standing: "open" | "passed" | "overturned" | { failed: string };
-    called: number;
-    task: string;
-};
-
-/** Each hamlet's votes. */
-export const VotesDoc = defineDocFamily<{ votes: Vote[] }, string>({
-    kind: "hamlet.votes",
-    version: 1,
-    scope: "session",
-    family: true,
-    initial: () => ({ votes: [] }),
-});
 
 /** A vote's public words. */
 export type VoteWords = VoteView;

@@ -28,7 +28,15 @@ import { TaskDoc } from "../chats/tasks.ts";
 import { localDay } from "../home/clock.ts";
 import type { Home } from "../home.ts";
 import type { Limits } from "../limits/rules.ts";
-import { type Amount, add, amountOf, micros, zero } from "./money.ts";
+import {
+    type Amount,
+    add,
+    amountOf,
+    meters,
+    micros,
+    money,
+    zero,
+} from "./money.ts";
 
 /** A model, summary or failed-attempt charge attributed to an agent and task. */
 export type Charge = Amount & {
@@ -437,4 +445,27 @@ export async function chargeRoad(
         micros: micros(given.limits.road.cost),
         ms: given.limits.road.minutes * 60000,
     });
+}
+
+/** The refusal when one more road would exceed the hamlet's budget. */
+export function roadAfford(
+    books: Books,
+    limits: Readonly<Limits>,
+): string | undefined {
+    const price = {
+        tokens: limits.road.tokens,
+        micros: micros(limits.road.cost),
+        ms: limits.road.minutes * 60000,
+    };
+    const after = {
+        tokens: books.hamlet.tokens + price.tokens,
+        micros: books.hamlet.micros + price.micros,
+        ms: books.hamlet.ms + price.ms,
+    };
+    const meter = meters(after, limits.budget).find(
+        (m) => m.cap !== null && m.spent > m.cap,
+    );
+    if (!meter) return undefined;
+    const cost = meter.show === money ? price.micros : price.ms;
+    return `the hamlet cannot pay for it ${limits.budget.period === "day" ? "today" : "this month"}: it costs ${meter.show(cost)} and would bring the hamlet to ${meter.show(meter.spent)} of ${meter.show(meter.cap ?? 0)}. Only the chief can raise the budget, on the hamlet's Bylaws page`;
 }

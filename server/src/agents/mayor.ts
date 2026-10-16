@@ -20,8 +20,10 @@ import {
     type AgentRef,
     agentKey,
     checkName,
+    decisionText,
     defineRecordTool,
     type HamletRecord,
+    mayDecide,
     named,
     RecordDoc,
     tidyName,
@@ -31,7 +33,6 @@ import type { Books } from "../spend/ledger.ts";
 import { booksOf, chargeRoad, LedgerDoc } from "../spend/ledger.ts";
 import { add, zero } from "../spend/money.ts";
 import { roadAfford } from "../spend.ts";
-import { voteOpen } from "../votes.ts";
 
 /** The agent lifecycle and road tools (H27, H3, H29). */
 export const Agents: Part = (home) => ({
@@ -286,13 +287,6 @@ function mayorTool<P extends TSchema>(
                 );
                 if (record?.mayor !== place.number)
                     throw new Error("Only the mayor may do that.");
-                const held = await voteOpen(
-                    api,
-                    place.hamlet,
-                    home.now(),
-                    context,
-                );
-                if (held) throw new Error(held);
                 const limits = limitsOf(
                     await api.snapshot(LimitsDoc, place.hamlet, context),
                 );
@@ -308,6 +302,13 @@ function mayorTool<P extends TSchema>(
                 const result = await defineRecordTool({
                     ...tool,
                     change: async (tx, args) => {
+                        const held = await mayDecide(
+                            tx,
+                            place.hamlet,
+                            home.now(),
+                            tool.name,
+                        );
+                        if (!held.ok) return decisionText(held.error);
                         const current = await tx.doc(
                             RecordDoc,
                             place.hamlet,

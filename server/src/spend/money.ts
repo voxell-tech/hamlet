@@ -86,3 +86,21 @@ export function estimateOf(
         ) / 4,
     );
 }
+
+/** Cost and model-time caps for affordability. */
+export type Caps = { cost: number | null; minutes: number | null };
+/** Comparable spend meters with their display units. */
+export function meters(spent: Readonly<Amount>, caps: Caps) {
+    return [
+        {
+            spent: spent.micros,
+            cap: caps.cost === null ? null : micros(caps.cost),
+            show: money,
+        },
+        {
+            spent: spent.ms,
+            cap: caps.minutes === null ? null : caps.minutes * 60_000,
+            show: (n: number) => `${duration(n)} model time`,
+        },
+    ];
+}

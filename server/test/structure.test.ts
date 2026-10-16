@@ -61,8 +61,6 @@ const SHARED_CORE = new Set([
 const ALLOWED_CYCLES = [
     // Conversation configuration deepening (D3) removes this shared core's cycle.
     [...SHARED_CORE],
-    // Record deepening (D4) owns founding decisions without the votes round trip.
-    ["realm/dealings.ts", "votes.ts", "realm/founding.ts"],
     // Record deepening (D4) owns departure and merge invariants together.
     ["agents/leaving.ts", "agents/merging.ts"],
 ].map((component) => component.sort());

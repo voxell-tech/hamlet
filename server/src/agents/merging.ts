@@ -45,6 +45,8 @@ import {
     type Archived,
     agentKey,
     checkName,
+    decisionText,
+    mayDecide,
     named,
     RecordDoc,
 } from "../record.ts";
@@ -52,7 +54,7 @@ import type { SandboxEnv } from "../sandbox.ts";
 import { safeWords } from "../scrub.ts";
 import { booksOf } from "../spend/ledger.ts";
 import { stopped } from "../spend.ts";
-import { decisionText, mayDecide, notifyChiefs, voteOpen } from "../votes.ts";
+import { notifyChiefs } from "../votes.ts";
 import { lapseTrust } from "./leaving.ts";
 
 type Planned = {
@@ -291,20 +293,20 @@ export const Merging: Part = (home) => ({
                                 output: [{ type: "text", text: saved.text }],
                             };
                         }
-                        const wait = await voteOpen(
-                            api,
-                            place.hamlet,
-                            home.now(),
-                            context,
-                        );
-                        if (wait)
-                            return { output: [{ type: "text", text: wait }] };
                         const given: Given = {
                             ...args,
                             hamlet: place.hamlet,
                             by: "mayor",
                         };
                         const agents = await api.commit(async (tx) => {
+                            const held = await mayDecide(
+                                tx,
+                                place.hamlet,
+                                home.now(),
+                                "merge",
+                            );
+                            if (!held.ok)
+                                throw new Error(decisionText(held.error));
                             const r = await tx.doc(
                                 RecordDoc,
                                 place.hamlet,

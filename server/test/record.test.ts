@@ -1,10 +1,16 @@
+import { Type } from "@earendil-works/pi-ai";
 import {
     fauxAssistantMessage,
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
-import type { StorageWrite } from "@earendil-works/pi-durable";
+import {
+    defineDoc,
+    defineExtension,
+    defineTool,
+    type StorageWrite,
+} from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
-import { HOME, RecordDoc } from "../src/record.ts";
+import { defineRecordTool, HOME, RecordDoc } from "../src/record.ts";
 import {
     context,
     crashing,
@@ -94,4 +100,93 @@ describe("a record tool", () => {
         );
         expect(tool?.replay).toBe("safe");
     });
+});
+
+it("replays the pre-upgrade record-call memo without re-running its change", async () => {
+    const legacyMemo = defineDoc<{ result: string | null }>({
+        kind: "hamlet.record-call",
+        version: 1,
+        scope: "task",
+        initial: () => ({ result: null }),
+    });
+    const dir = scratch();
+    const { models, faux } = fauxModels();
+    faux.setResponses([
+        fauxAssistantMessage(fauxToolCall("legacy_record", {}), {
+            stopReason: "toolUse",
+        }),
+        fauxAssistantMessage("Done."),
+    ]);
+    const before = await testHome(dir, {
+        models,
+        openStorage: crashing(result),
+        parts: [
+            () => ({
+                extension: defineExtension({
+                    name: "legacy.memo",
+                    tools: [
+                        defineTool({
+                            name: "legacy_record",
+                            description: "Legacy record writer",
+                            parameters: Type.Object({}),
+                            replay: "safe",
+                            execute: async (_args, api, context) => {
+                                // This writer intentionally uses the pre-upgrade document shape and no replay helper.
+                                await api.commit(async (tx) => {
+                                    (
+                                        await tx.doc(legacyMemo, api.taskId)
+                                    ).result = "The old answer.";
+                                }, context);
+                                return {
+                                    output: [
+                                        {
+                                            type: "text",
+                                            text: "The old answer.",
+                                        },
+                                    ],
+                                };
+                            },
+                        }),
+                    ],
+                }),
+            }),
+        ],
+    });
+    const submission = await say(before, "Make the old change.");
+    await before.harness.closed;
+    let changes = 0;
+    const after = await testHome(dir, {
+        models,
+        parts: [
+            () => ({
+                extension: defineExtension({
+                    name: "legacy.memo",
+                    tools: [
+                        defineRecordTool({
+                            name: "legacy_record",
+                            description: "Legacy record writer",
+                            parameters: Type.Object({}),
+                            change: async () => {
+                                changes++;
+                                return "A duplicate change.";
+                            },
+                        }),
+                    ],
+                }),
+            }),
+        ],
+    });
+    expect(
+        (
+            await (
+                await after.harness.submission(submission.id, context)
+            )?.wait(context)
+        )?.status,
+    ).toBe("done");
+    expect(changes).toBe(0);
+    const results = (await transcript(await mayorChat(after))).filter(
+        (e) => e.kind === "pi.tool-result",
+    );
+    expect(JSON.stringify(results)).toContain("The old answer.");
+    expect(JSON.stringify(results)).not.toContain("duplicate");
 });

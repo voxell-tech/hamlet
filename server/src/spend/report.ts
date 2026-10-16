@@ -6,23 +6,8 @@ import type { Report } from "../protocol.ts";
 import { RecordDoc } from "../record.ts";
 import { SettingsDoc, settingsOf } from "../settings.ts";
 import { type Books, booksOf } from "./ledger.ts";
-import { type Amount, duration, micros, money } from "./money.ts";
+import { type Amount, type Caps, meters, micros, money } from "./money.ts";
 
-type Caps = { cost: number | null; minutes: number | null };
-function meters(spent: Readonly<Amount>, caps: Caps) {
-    return [
-        {
-            spent: spent.micros,
-            cap: caps.cost === null ? null : micros(caps.cost),
-            show: money,
-        },
-        {
-            spent: spent.ms,
-            cap: caps.minutes === null ? null : caps.minutes * 60_000,
-            show: (n: number) => `${duration(n)} model time`,
-        },
-    ];
-}
 function reached(spent: Readonly<Amount>, caps: Caps): string | undefined {
     const meter = meters(spent, caps).find(
         (m) => m.cap !== null && m.spent >= m.cap,
@@ -171,25 +156,4 @@ export async function reportOf(
     return result;
 }
 
-/** The refusal when one more road would exceed the hamlet's budget. */
-export function roadAfford(
-    books: Books,
-    limits: Readonly<Limits>,
-): string | undefined {
-    const price = {
-        tokens: limits.road.tokens,
-        micros: micros(limits.road.cost),
-        ms: limits.road.minutes * 60000,
-    };
-    const after = {
-        tokens: books.hamlet.tokens + price.tokens,
-        micros: books.hamlet.micros + price.micros,
-        ms: books.hamlet.ms + price.ms,
-    };
-    const meter = meters(after, limits.budget).find(
-        (m) => m.cap !== null && m.spent > m.cap,
-    );
-    if (!meter) return undefined;
-    const cost = meter.show === money ? price.micros : price.ms;
-    return `the hamlet cannot pay for it ${limits.budget.period === "day" ? "today" : "this month"}: it costs ${meter.show(cost)} and would bring the hamlet to ${meter.show(meter.spent)} of ${meter.show(meter.cap ?? 0)}. Only the chief can raise the budget, on the hamlet's Bylaws page`;
-}
+export { roadAfford } from "./ledger.ts";

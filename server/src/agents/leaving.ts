@@ -30,11 +30,12 @@ import {
     agentKey,
     checkName,
     type Decision,
+    decisionText,
     type HamletRecord,
+    mayDecide,
     named,
     RecordDoc,
 } from "../record.ts";
-import { decisionText, mayDecide, voteOpen } from "../votes.ts";
 import { serialHouseWork, split } from "./merging.ts";
 
 const RemovalDoc = defineDoc<{ number: number | null; text: string }>({
@@ -100,26 +101,6 @@ export const Leaving: Part = (home) => ({
                 }),
                 replay: "safe",
                 execute: async (args, api, context) => {
-                    const placeBefore = await api.snapshot(
-                        WithDoc,
-                        api.conversationId,
-                        context,
-                    );
-                    const saved = await api.snapshot(
-                        RemovalDoc,
-                        api.taskId,
-                        context,
-                    );
-                    const wait =
-                        !saved?.text &&
-                        placeBefore &&
-                        (await voteOpen(
-                            api,
-                            placeBefore.hamlet,
-                            home.now(),
-                            context,
-                        ));
-                    if (wait) return { output: [{ type: "text", text: wait }] };
                     const result = await api.commit(async (tx) => {
                         const saved = await tx.doc(RemovalDoc, api.taskId);
                         if (saved.text) return { ...saved };

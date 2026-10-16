@@ -13,14 +13,13 @@ import { localDay } from "../src/home/clock.ts";
 import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RealmDoc, roadsOf } from "../src/realm.ts";
-import { HOME, RecordDoc } from "../src/record.ts";
+import { decisionText, HOME, mayDecide, RecordDoc } from "../src/record.ts";
 import { ledgerOf } from "../src/spend.ts";
 import {
     vote as callVote,
     overturn,
     mayor as seatMayor,
     VotesDoc,
-    voteOpen,
     votes,
 } from "../src/votes.ts";
 import { mayor, request, served } from "./connection-support.ts";
@@ -318,9 +317,12 @@ it("keeps a vote open while its ballots wait, holds decisions, and lets a chief 
             ).toBe("open"),
         { timeout: 10_000 },
     );
-    expect(await voteOpen(home.harness, HOME, home.now(), context)).toContain(
-        "nothing else is decided",
-    );
+    expect(
+        await home.harness.commit(async (tx) => {
+            const result = await mayDecide(tx, HOME, home.now(), "remove");
+            return result.ok ? undefined : decisionText(result.error);
+        }, context),
+    ).toContain("nothing else is decided");
     await expect(
         settledVote(home, { ...deed, rest: "smith Another" }, context),
     ).rejects.toThrow("only one vote");
@@ -333,7 +335,10 @@ it("keeps a vote open while its ballots wait, holds decisions, and lets a chief 
     );
     expect(await pending).toContain("Failed (stopped by a chief)");
     expect(
-        await voteOpen(home.harness, HOME, home.now(), context),
+        await home.harness.commit(async (tx) => {
+            const result = await mayDecide(tx, HOME, home.now(), "remove");
+            return result.ok ? undefined : decisionText(result.error);
+        }, context),
     ).toBeUndefined();
 }, 30_000);
 
@@ -567,7 +572,10 @@ it("lapses an old open vote before starting another and refuses a recent failed 
         (await tx.doc(VotesDoc, HOME, HOME)).votes.push(old);
     }, context);
     expect(
-        await voteOpen(home.harness, HOME, home.now(), context),
+        await home.harness.commit(async (tx) => {
+            const result = await mayDecide(tx, HOME, home.now(), "remove");
+            return result.ok ? undefined : decisionText(result.error);
+        }, context),
     ).toBeUndefined();
     const ballot = ballots([1, 2, 3]);
     fauxAgents(faux, { errands: [ballot, ballot, ballot, ballot] });

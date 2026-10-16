@@ -14,6 +14,9 @@ export type RecordRefusal = {
     | { kind: "name-taken"; name: string; archive?: string }
     | { kind: "hamlet-full"; most: number }
     | { kind: "not-mayor" }
+    | { kind: "proposed-mayor-missing" }
+    | { kind: "already-mayor"; name: string }
+    | { kind: "road-budget"; text: string }
     | { kind: "mayor-untouchable" }
     | {
           kind: "protected";
@@ -65,6 +68,12 @@ export function recordRefusalText(
             return error.operation === "restore"
                 ? `the hamlet is full (${error.most} agents); remove one first, or raise mostAgents in the limits`
                 : `the hamlet is full (${error.most} agents). Only the chief can raise mostAgents on the hamlet's Bylaws page`;
+        case "road-budget":
+            return error.text;
+        case "proposed-mayor-missing":
+            return "The proposed mayor no longer lives in this hamlet.";
+        case "already-mayor":
+            return `\`${error.name}\` is the mayor already`;
         case "not-mayor":
             return "Only the mayor may do that.";
         case "mayor-untouchable":

@@ -7,20 +7,13 @@ import {
     rename,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { Context, JsonValue } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord";
 import { Type } from "@earendil-works/pi-ai";
 import {
     type ConversationId,
-    type DocDefinition,
-    type DocFamilyDefinition,
-    type DocFamilyToken,
-    type DocToken,
-    type DocumentReader,
     defineDoc,
     defineExtension,
     defineTool,
-    type JsonObject,
-    type SessionDocFamilyToken,
     type ToolExecutionApi,
     type Tx,
 } from "@earendil-works/pi-durable";
@@ -42,8 +35,14 @@ import { LimitsDoc } from "../limits/rules.ts";
 import { reconfigure } from "../models.ts";
 import { lapseAgent } from "../oversight/waits.ts";
 import { CharacterDoc } from "../prompt.ts";
-import { type AgentRef, agentKey, HOME, RecordDoc } from "../record.ts";
-import { VotesDoc, voteOpen } from "../votes.ts";
+import {
+    type AgentRef,
+    agentKey,
+    decisionText,
+    HOME,
+    mayDecide,
+    RecordDoc,
+} from "../record.ts";
 import {
     chiefsOf,
     liveHamlets,
@@ -182,7 +181,7 @@ async function mayor(
     home: Home,
     tx: Tx,
     api: ToolExecutionApi,
-    context: Context,
+    _context: Context,
 ) {
     const caller = await tx.doc(WithDoc, api.conversationId);
     const realm = await tx.doc(RealmDoc);
@@ -195,13 +194,8 @@ async function mayor(
         throw new Error(
             "only the mayor can do this, and you are not the mayor of this hamlet",
         );
-    const held = await voteOpen(
-        hamletReader(tx),
-        caller.hamlet,
-        home.now(),
-        context,
-    );
-    if (held) throw new Error(held);
+    const held = await mayDecide(tx, caller.hamlet, home.now(), "agreement");
+    if (!held.ok) throw new Error(decisionText(held.error));
     return caller;
 }
 async function locate(tx: Tx, address: string): Promise<AgentRef> {
@@ -317,8 +311,8 @@ async function move(
             `only the mayor \`${args.agent}\` leaves and the mayor it joins decide this`,
         );
     const other = caller.hamlet === ref.hamlet ? args.to : ref.hamlet;
-    const held = await voteOpen(hamletReader(tx), other, home.now(), context);
-    if (held) throw new Error(held);
+    const held = await mayDecide(tx, other, home.now(), "move");
+    if (!held.ok) throw new Error(decisionText(held.error));
     const old = await tx.doc(RecordDoc, ref.hamlet, ref.hamlet),
         target = await tx.doc(RecordDoc, args.to, args.to);
     if (old.mayor === ref.number)
@@ -730,40 +724,4 @@ async function nameOf(
     return (
         await home.harness.snapshot(RecordDoc, ref.hamlet, context)
     )?.agents.find((a) => a.number === ref.number)?.name;
-}
-
-function hamletReader(tx: Tx): DocumentReader {
-    return {
-        snapshot: async <T extends JsonObject, I extends JsonValue>(
-            token:
-                | DocToken<T, DocDefinition<T>>
-                | DocFamilyToken<T, I, DocFamilyDefinition<T, I>>,
-            ...args: (string | number | Context)[]
-        ): Promise<Readonly<T> | undefined> => {
-            const key = args[0];
-            if (
-                ![
-                    LimitsDoc.definition,
-                    VotesDoc.definition,
-                    RecordDoc.definition,
-                ].some((definition) =>
-                    Object.is(definition, token.definition),
-                ) ||
-                typeof key !== "string"
-            )
-                throw new Error(
-                    "Vote checks require current hamlet documents.",
-                );
-            // SAFETY: these three library tokens all use a hamlet string seed; generic token identity does not narrow I.
-            // Verified by: dealings.test.ts, stored-vote agreement tests.
-            const family = token as SessionDocFamilyToken<T, string>;
-            const value = await tx.doc(family, key, key);
-            // SAFETY: pi-durable returns the draft of T; TypeScript cannot reduce its recursive Draft<T> to Readonly<T>.
-            // Verified by: dealings.test.ts, stored-vote agreement tests.
-            return value as Readonly<T>;
-        },
-        snapshotAsOf: async () => {
-            throw new Error("Vote checks require current hamlet documents.");
-        },
-    };
 }
