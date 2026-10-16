@@ -3431,6 +3431,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_sdk"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "hamlet_assets",
+ "serde",
+]
+
+[[package]]
 name = "hamlet_testing"
 version = "0.1.0"
 
@@ -3447,6 +3457,7 @@ dependencies = [
  "hamlet_home",
  "hamlet_model",
  "hamlet_rules",
+ "hamlet_sdk",
  "hamlet_testing",
  "hamlet_world",
  "image",

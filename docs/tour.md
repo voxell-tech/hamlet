@@ -58,6 +58,7 @@ table. The binary and the examples are the root package.
 | `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
 | `hamlet_world` | The 3D world, drawn from the core's entities |
+| `hamlet_sdk` | What a feature of the window is built with: the theme, the icons and the types of a view. A feature crate depends on this and never on `hamlet_ui` |
 | `hamlet_ui` | The window: panels, menus, chat and pointer around the world |
 
 Inside a crate, a module with several subjects is a file and a folder of

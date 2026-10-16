@@ -15,6 +15,7 @@ hamlet_desktop.workspace = true
 hamlet_home.workspace = true
 hamlet_model.workspace = true
 hamlet_rules.workspace = true
+hamlet_sdk.workspace = true
 hamlet_world.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true

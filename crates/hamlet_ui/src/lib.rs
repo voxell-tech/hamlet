@@ -22,7 +22,6 @@ pub mod rules;
 pub mod screens;
 mod sounds;
 mod status;
-pub mod theme;
 pub mod tuning;
 pub mod welcome;
 pub mod widgets;
@@ -34,9 +33,10 @@ use bevy::app::{App, Plugin, Update};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::state::state::OnEnter;
+use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
-use bevy_fynix::{Bevy, FynixPlugin};
 use hamlet_core::core::HomeDir;
+pub use hamlet_sdk::{AnyView, Cx, View, theme, with_cx};
 use hamlet_world::pick::Selected;
 
 pub use self::dock::{lit_panel, panel};
@@ -53,32 +53,6 @@ pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
 pub use self::widgets::{feel, icons, platform, tabs};
 pub use self::window::{ShowRequests, window_plugin};
-
-/// The context a view of the window is built in.
-pub type Cx<'a> = bevy_fynix::Cx<'a, Bevy, HamletTheme>;
-
-/// A view of the window, its type erased.
-pub(crate) type AnyView = bevy_fynix::AnyView<Bevy, HamletTheme>;
-
-/// A view of the window. A trait of its own until Rust has trait
-/// aliases.
-pub trait View:
-    bevy_fynix::View<Bevy, HamletTheme> + 'static
-{
-}
-
-impl<V: bevy_fynix::View<Bevy, HamletTheme> + 'static> View for V {}
-
-/// The view `make` gives with the context in hand, for one made
-/// where there is none, as in a `keyed` view.
-pub(crate) fn with_cx<V: View>(
-    make: impl FnOnce(&Cx) -> V + 'static,
-) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
-        let view = make(cx);
-        cx.build(view)
-    })
-}
 
 /// The panels: the dock, its panels and the world's place in them.
 /// Add it to the core's app after Bevy's default plugins, set with

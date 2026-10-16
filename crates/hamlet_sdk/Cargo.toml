@@ -1,0 +1,15 @@
+[package]
+name = "hamlet_sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What a feature of the command center is built with: the theme, the widgets, the dock's panels and the chat's place"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_assets.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true
+serde.workspace = true

@@ -1,7 +1,7 @@
 //! What every panel is built from.
 
 pub mod feel;
-pub mod icons;
+pub use hamlet_sdk::icons;
 pub mod platform;
 pub mod tabs;
 
