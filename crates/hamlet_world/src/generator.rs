@@ -3,7 +3,7 @@
 //! house and a robot per agent, a road per pair.
 
 mod building;
-mod common;
+pub(crate) mod common;
 mod debug;
 mod fireflies;
 pub(crate) mod flora;

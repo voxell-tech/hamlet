@@ -2,6 +2,7 @@
 //! (H6, H14, H19, C7), read from `realm.jsonl` in the home. The first
 //! hamlet's folder is the home, every other is `hamlets/<name>/`.
 
+mod bought;
 mod brief;
 mod moves;
 mod removal;

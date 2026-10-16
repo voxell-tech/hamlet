@@ -3,6 +3,7 @@
 mod dock;
 mod sample;
 mod sheets;
+mod store;
 
 use bevy::app::{App, Plugin, PostStartup, Startup, Update};
 use bevy::asset::Handle;
@@ -90,6 +91,9 @@ impl Plugin for GalleryPlugin {
                 hamlet_ui::widgets::plugin,
                 hamlet_ui::screens::plugin,
             ));
+        if matches!(self.0, Scene::Store | Scene::StoreHamlet) {
+            app.add_plugins(store::plugin);
+        }
     }
 }
 
@@ -156,6 +160,12 @@ pub enum Scene {
     Bazaar,
     /// One model of the Agent Bazaar on its own page.
     Ware,
+    /// The Hamlet Store's shelves, in the bazaar's panel and at its
+    /// counter in the Inspector.
+    Store,
+    /// One hamlet of the Hamlet Store on its own page, its diorama
+    /// turning.
+    StoreHamlet,
 }
 
 /// The picture that stands where the world is drawn, and the part of
