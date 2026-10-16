@@ -1,6 +1,7 @@
 //! What every panel is built from.
 
 pub mod feel;
+pub mod fields;
 pub mod icons;
 pub mod platform;
 pub mod tabs;
@@ -15,5 +16,6 @@ pub fn plugin(app: &mut App) {
         platform::plugin,
         icons::plugin,
         feel::plugin,
+        fields::plugin,
     ));
 }
