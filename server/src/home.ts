@@ -23,7 +23,7 @@ import {
 } from "./chats/conversations.ts";
 import { agentEnv, Confinement, houseReader, WorkDoc } from "./environment.ts";
 import { Credentials } from "./home/credentials.ts";
-import { buildHouse, type Layout, layOut } from "./home/layout.ts";
+import { type Layout, layOut } from "./home/layout.ts";
 import { claim } from "./home/lock.ts";
 import { PARTS } from "./home/parts.ts";
 import { Houses } from "./house/skills.ts";
@@ -268,7 +268,7 @@ async function found(home: Home, context: Context): Promise<void> {
         }
         return agents;
     }, context);
-    for (const agent of agents) await buildHouse(home.layout, agent);
+    for (const agent of agents) await home.houses.of(agent).build();
 }
 
 /**

@@ -28,7 +28,7 @@ import { ErrandDoc, runErrand, startErrand } from "../chats/errands.ts";
 import { InstructionsDoc, owed } from "../chats/instructions.ts";
 import { newTask, turnOf } from "../chats/turn.ts";
 import { stopAgent } from "../chats.ts";
-import { houseReader, treeWorker } from "../environment.ts";
+import { treeWorker } from "../environment.ts";
 import { revoke } from "../gate.ts";
 import { untilAborted } from "../home/abort.ts";
 import { houseOf } from "../home/layout.ts";
@@ -704,14 +704,9 @@ async function allowed(
     return { kept: { ...kept }, gone: { ...gone } };
 }
 
-function envFor(home: Home, ref: AgentRef, write: boolean): SandboxEnv {
-    return write
-        ? treeWorker(home, {
-              root: houseOf(home.layout, ref),
-              stage: houseOf(home.layout, ref),
-              caps: MERGE_CAPS,
-          })
-        : houseReader(home, ref, BACKGROUND_CONTEXT);
+function mergeWriter(home: Home, ref: AgentRef): SandboxEnv {
+    const root = houseOf(home.layout, ref);
+    return treeWorker(home, { root, stage: root, caps: MERGE_CAPS });
 }
 
 async function notes(
@@ -723,53 +718,27 @@ async function notes(
     | { ok: true; value: { text: string; bytes: Buffer } }
     | { ok: false; error: NotesFailure }
 > {
-    const env = envFor(home, ref, false);
-    try {
-        const read = await env.readBinaryFile(
-            join(houseOf(home.layout, ref), "NOTES.md"),
-            context,
-        );
-        if (!read.ok) {
-            if (read.error.code === "not_found")
-                return {
-                    ok: true,
-                    value: {
-                        text: "# Notes\n",
-                        bytes: Buffer.from("# Notes\n"),
-                    },
-                };
+    const read = await home.houses.of(ref).notes(context);
+    if (read.ok) return read;
+    const facts = {
+        kind: "notes-unreadable",
+        operation,
+        agent: ref,
+        retrySafe: true,
+    } as const;
+    switch (read.error.kind) {
+        case "notes-missing":
             return {
-                ok: false,
-                error: {
-                    kind: "notes-unreadable",
-                    operation,
-                    agent: ref,
-                    reason: "unavailable",
-                    retrySafe: true,
-                },
+                ok: true,
+                value: { text: "# Notes\n", bytes: Buffer.from("# Notes\n") },
             };
-        }
-        if (!isUtf8(read.value))
-            return {
-                ok: false,
-                error: {
-                    kind: "notes-unreadable",
-                    operation,
-                    agent: ref,
-                    reason: "not-utf8",
-                    retrySafe: true,
-                },
-            };
-        return {
-            ok: true,
-            value: {
-                text: Buffer.from(read.value).toString("utf8"),
-                bytes: Buffer.from(read.value),
-            },
-        };
-    } finally {
-        await env.cleanup(context);
+        case "notes-not-utf8":
+            return { ok: false, error: { ...facts, reason: "not-utf8" } };
+        case "notes-unreadable":
+            return { ok: false, error: { ...facts, reason: "unavailable" } };
     }
+    const unhandled: never = read.error;
+    throw new Error(`Unclassified notes read: ${unhandled}`);
 }
 
 function substance(text: string): string {
@@ -1192,7 +1161,7 @@ for (const rel of JSON.parse(fs.readFileSync(p.join(stage, "manifest.json"), "ut
                 await copier.cleanup(context);
             }
         }
-        const env = envFor(home, { hamlet, number: merge.kept.number }, true);
+        const env = mergeWriter(home, { hamlet, number: merge.kept.number });
         try {
             const read = await notes(
                 home,
@@ -1436,7 +1405,7 @@ async function part(
     const ref = { hamlet, number: merge.kept.number };
     await stopAgent(home, ref, context);
     const root = houseOf(home.layout, ref);
-    const env = envFor(home, ref, true);
+    const env = mergeWriter(home, ref);
     try {
         const read = await notes(home, ref, context, "split");
         if (!read.ok) return read;

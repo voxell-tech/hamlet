@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Type } from "@earendil-works/pi-ai";
@@ -30,9 +29,7 @@ import {
 import { ErrandDoc, runErrand, startErrand } from "./chats/errands.ts";
 import { notify } from "./chats/notice.ts";
 import { newTask } from "./chats/turn.ts";
-import { houseReader } from "./environment.ts";
 import { untilAborted } from "./home/abort.ts";
-import { houseOf } from "./home/layout.ts";
 import type { Deed, Home, Part } from "./home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "./limits/rules.ts";
 import { reconfigure } from "./models.ts";
@@ -945,14 +942,16 @@ async function notesOf(
     ref: AgentRef,
     context: Context,
 ): Promise<string> {
-    const root = houseOf(home.layout, ref);
-    const env = houseReader(home, ref, context);
-    try {
-        const result = await env.readTextFile(join(root, "NOTES.md"), context);
-        return result.ok ? result.value : "";
-    } finally {
-        await env.cleanup(context);
+    const read = await home.houses.of(ref).notes(context);
+    if (read.ok) return read.value.text;
+    switch (read.error.kind) {
+        case "notes-missing":
+        case "notes-not-utf8":
+        case "notes-unreadable":
+            return "";
     }
+    const unhandled: never = read.error;
+    throw new Error(`Unclassified notes read: ${unhandled}`);
 }
 async function historyOf(
     home: Home,

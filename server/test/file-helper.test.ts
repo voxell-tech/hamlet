@@ -6,8 +6,7 @@ import { expect, it, vi } from "vitest";
 import { closedPolicy } from "../src/sandbox/reach.ts";
 import { encode } from "../src/sandbox/wire.ts";
 import { platformSandbox, SandboxEnv } from "../src/sandbox.ts";
-import { houseEnv } from "./sandbox-support.ts";
-import { closeAfter, context, scratch } from "./support.ts";
+import { closeAfter, context, houseEnv, scratch } from "./support.ts";
 
 it("keeps every character in file paths and text lines", async () => {
     const { env } = houseEnv();

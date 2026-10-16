@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { Context } from "@earendil-works/chord";
 import {
@@ -32,10 +31,8 @@ import { InstructionsDoc } from "../chats/instructions.ts";
 import { notify } from "../chats/notice.ts";
 import { TaskDoc } from "../chats/tasks.ts";
 import { turnOf } from "../chats/turn.ts";
-import { houseReader } from "../environment.ts";
 import { untilAborted } from "../home/abort.ts";
 import { localDay } from "../home/clock.ts";
-import { houseOf } from "../home/layout.ts";
 import type { Home, Part } from "../home.ts";
 import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import { choose } from "../models.ts";
@@ -523,14 +520,16 @@ async function reviewNotes(
     agent: AgentRef,
     context: Context,
 ): Promise<string> {
-    const house = houseOf(home.layout, agent);
-    const env = houseReader(home, agent, context);
-    try {
-        const read = await env.readTextFile(join(house, "NOTES.md"), context);
-        return read.ok ? [...read.value].slice(0, 6000).join("") : "";
-    } finally {
-        await env.cleanup(context);
+    const read = await home.houses.of(agent).notes(context);
+    if (read.ok) return [...read.value.text].slice(0, 6000).join("");
+    switch (read.error.kind) {
+        case "notes-missing":
+        case "notes-not-utf8":
+        case "notes-unreadable":
+            return "";
     }
+    const unhandled: never = read.error;
+    throw new Error(`Unclassified notes read: ${unhandled}`);
 }
 
 function remote(url: string): boolean {

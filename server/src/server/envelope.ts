@@ -151,6 +151,7 @@ function rendered(failure: ChiefFailure): {
         case "folder-not-directory":
         case "folder-overlaps-home":
             return { text: workFailureText(failure), kind: "error" };
+        case "notes-missing":
         case "notes-not-utf8":
         case "notes-unreadable":
         case "notes-unavailable":

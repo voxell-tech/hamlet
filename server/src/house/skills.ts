@@ -49,6 +49,7 @@ export function parseSkill(text: string): Omit<Skill, "folder"> | undefined {
 /** Notes that could not be read or changed safely. */
 export type NotesFailure =
     | ({ operation: "read-notes"; agent: AgentRef; retrySafe: true } & (
+          | { kind: "notes-missing" }
           | { kind: "notes-not-utf8" }
           | { kind: "notes-unreadable" }
       ))
@@ -60,6 +61,8 @@ export type NotesFailure =
 /** Safe words for a refused notes operation. */
 export function notesFailureText(error: NotesFailure): string {
     switch (error.kind) {
+        case "notes-missing":
+            return "The agent's NOTES.md is missing. Create its notes before trying again.";
         case "notes-not-utf8":
             return "The agent's NOTES.md is not UTF-8 text. Keep its original bytes aside and correct the file.";
         case "notes-unreadable":
@@ -91,7 +94,7 @@ export class House {
         reader: (agent: AgentRef, context: Context) => SandboxEnv,
     ) {
         this.#layout = layout;
-        this.#agent = agent;
+        this.#agent = { ...agent };
         this.path = houseOf(layout, agent);
         this.#reader = reader;
     }
@@ -101,24 +104,30 @@ export class House {
         return this.#env;
     }
 
-    /** Missing notes use the initial heading; invalid bytes are never replaced. */
+    /** Missing notes and invalid UTF-8 are distinct refusals; original bytes are never replaced. */
     async notes(
         context: Context,
-    ): Promise<Result<{ text: string; bytes: Buffer }, NotesFailure>> {
+    ): Promise<
+        Result<
+            { text: string; bytes: Buffer },
+            Extract<NotesFailure, { operation: "read-notes" }>
+        >
+    > {
         const read = await this.#environment(context).readBinaryFile(
             join(this.path, "NOTES.md"),
             context,
         );
-        if (!read.ok && read.error.code !== "not_found")
+        if (!read.ok)
             return err({
-                kind: "notes-unreadable",
+                kind:
+                    read.error.code === "not_found"
+                        ? "notes-missing"
+                        : "notes-unreadable",
                 operation: "read-notes",
                 agent: this.#agent,
                 retrySafe: true,
             });
-        const bytes = read.ok
-            ? Buffer.from(read.value)
-            : Buffer.from("# Notes\n");
+        const bytes = Buffer.from(read.value);
         try {
             const text = new TextDecoder("utf-8", {
                 fatal: true,
@@ -179,6 +188,7 @@ export class House {
 
     /** Bounded papers read under this house's own policy. */
     skills(context: Context): Promise<Skill[]> {
+        this.#until = 0;
         return this.#shelf(true, context);
     }
 

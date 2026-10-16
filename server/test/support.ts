@@ -37,6 +37,9 @@ import { LimitsDoc } from "../src/limits.ts";
 import { OversightDoc, type Wait } from "../src/oversight.ts";
 import { RealmDoc } from "../src/realm.ts";
 import { HOME, RecordDoc } from "../src/record.ts";
+import type { Limits as SandboxLimits } from "../src/sandbox/policy.ts";
+import { closedPolicy } from "../src/sandbox/reach.ts";
+import { SandboxEnv } from "../src/sandbox.ts";
 
 export const context = BACKGROUND_CONTEXT;
 
@@ -359,4 +362,19 @@ export function fauxAgents(
                 : step;
         };
     faux.setResponses([dispatch]);
+}
+
+/** A kernel-adapter fixture closed with the test's other resources. */
+export function houseEnv(limits?: Partial<SandboxLimits>): {
+    house: string;
+    env: SandboxEnv;
+} {
+    const house = scratch();
+    const policy = closedPolicy(house);
+    const env = new SandboxEnv({
+        cwd: house,
+        policy: limits === undefined ? policy : { ...policy, limits },
+    });
+    closeAfter(() => env.cleanup(context));
+    return { house, env };
 }
