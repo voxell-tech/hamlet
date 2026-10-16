@@ -96,7 +96,7 @@ impl Mood {
 /// The tuning of the feel.
 #[derive(Resource, Clone, PartialEq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct FeelSettings {
+pub struct FeelSettings {
     /// The rates at which a light follows the pointer, a press
     /// follows the button and a pulse or a shake dies away, each per
     /// second.
