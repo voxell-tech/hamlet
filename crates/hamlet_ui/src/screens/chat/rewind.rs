@@ -24,7 +24,7 @@ use super::Draft;
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{ICON, retrace};
-use crate::me::Me;
+use crate::me::Convo;
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx};
 
@@ -113,10 +113,10 @@ fn reveal(
 /// back to in the field, with the caret at their end.
 fn retype(
     rewound: On<Rewound>,
-    me: Res<Me>,
+    convo: Res<Convo>,
     mut draft: ResMut<Draft>,
 ) {
-    if rewound.event().session != me.session {
+    if rewound.event().session != convo.session {
         return;
     }
     draft.text = rewound.event().text.clone();

@@ -108,7 +108,7 @@ lost costs one frame.
   on a timer. `turn_roll` moves it from Bevy's change detection, with one
   count for the agents, one for the hamlets and their files, and one for
   what waits.
-- **The chat** holds its agent's entity in `ui::Me`, and goes to the first
+- **The chat** holds its agent's entity in `ui::Convo`, and goes to the first
   mayor when its agent is gone.
 - **The world**, below.
 

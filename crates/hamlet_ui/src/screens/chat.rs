@@ -55,7 +55,7 @@ pub use self::lines::{
 pub use self::rewind::{Rewinds, asked as rewind_asked};
 use crate::View;
 use crate::looks::well;
-use crate::me::{self, Me, talk_to, talk_to_mayor_of};
+use crate::me::{self, Convo, talk_to, talk_to_mayor_of};
 
 /// The least width of the field a chief types in.
 const FIELD_LEAST: f32 = 150.0;
@@ -120,8 +120,8 @@ pub fn send(world: &mut World, text: String) {
         }
         None => {}
     }
-    let me = world.resource::<Me>();
-    let (key, user) = (me.key.clone(), me.user.clone());
+    let convo = world.resource::<Convo>();
+    let (key, user) = (convo.key.clone(), convo.user.clone());
     world.trigger(UserMessage { key, user, text });
 }
 
@@ -164,15 +164,15 @@ fn entries(world: &World, session: Option<Entity>) -> usize {
 /// when it is with that hamlet, and with that hamlet's mayor
 /// otherwise. The answer is shown in the open chat either way.
 pub(crate) fn decree(world: &mut World, hamlet: &str, text: String) {
-    let me = world.resource::<Me>();
-    let here = agents::hamlet_of(world, me.agent).unwrap_or(HOME);
-    let (open, user) = (me.session, me.user.clone());
+    let convo = world.resource::<Convo>();
+    let here = agents::hamlet_of(world, convo.agent).unwrap_or(HOME);
+    let (open, user) = (convo.session, convo.user.clone());
     let key = if here == hamlet {
-        me.key.clone()
+        convo.key.clone()
     } else {
         SessionKey::with_mayor("app", &user, hamlet)
     };
-    let elsewhere = key != me.key;
+    let elsewhere = key != convo.key;
     let there = kept(world, &key);
     let before = (entries(world, there), entries(world, Some(open)));
     world.trigger(UserMessage {
@@ -214,7 +214,7 @@ fn told(tell: On<Tell>, mut commands: Commands) {
         let Some((key, _)) = me::address(world, agent) else {
             return;
         };
-        let user = world.resource::<Me>().user.clone();
+        let user = world.resource::<Convo>().user.clone();
         world.trigger(UserMessage { key, user, text });
         world.flush();
     });
@@ -243,8 +243,8 @@ fn commit(world: &mut World, text: String) {
     }
     // Commands are not typed here: each has a button or a menu.
     if text.trim_start().starts_with('/') {
-        let me = world.resource::<Me>();
-        let (session, key) = (me.session, me.key.clone());
+        let convo = world.resource::<Convo>();
+        let (session, key) = (convo.session, convo.key.clone());
         world.trigger(SessionOutput {
             session,
             key,
@@ -317,7 +317,7 @@ impl Default for AtEnd {
 /// chief scrolls up to read, and again once they are back at its end.
 /// Another conversation is shown from its end.
 pub fn stick_to_bottom(
-    me: Res<Me>,
+    convo: Res<Convo>,
     mut scrolls: Query<
         (&ComputedNode, &mut ScrollPosition, Option<&mut ScrollGoal>),
         With<ChatScroll>,
@@ -326,7 +326,7 @@ pub fn stick_to_bottom(
 ) {
     for (node, mut at, goal) in &mut scrolls {
         let most = furthest(node);
-        if me.is_changed() {
+        if convo.is_changed() {
             end.held = true;
             // The wheel's goal in the last chat means nothing in this
             // one.
@@ -378,7 +378,8 @@ mod tests {
         let mut app = bevy::app::App::new();
         let world = app.world_mut();
         let nobody = world.spawn_empty().id();
-        world.insert_resource(Me::of(nobody, nobody, "wren", None));
+        world
+            .insert_resource(Convo::of(nobody, nobody, "wren", None));
         let tall = |content: f32| ComputedNode {
             size: bevy::math::Vec2::new(300.0, 200.0),
             content_size: bevy::math::Vec2::new(300.0, content),
@@ -411,7 +412,7 @@ mod tests {
         assert_eq!(shown(&mut app, 1700.0, None), 1500.0);
         // Another chat is shown from its end, wherever this one was.
         shown(&mut app, 1700.0, Some(300.0));
-        app.world_mut().resource_mut::<Me>().with =
+        app.world_mut().resource_mut::<Convo>().with =
             Some("Sorrel".into());
         assert_eq!(shown(&mut app, 900.0, None), 700.0);
     }

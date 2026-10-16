@@ -17,7 +17,7 @@ private code. `hamlet_petition` is the first.
 | `tabs` | A row of tabs within a panel |
 | `dock` | `add_panel`, `panel`, `lit_panel`, `show_tab` and the `TabShown` event |
 | `cue` | Writing a sound cue |
-| `me` | `Me`, the agent the chat is with |
+| `convo` | `Convo`, the agent the chat is with |
 
 The root has `View`, `Cx`, `AnyView` and `with_cx`, and `plugin`, which adds
 what every panel is built on. The app adds `theme::plugin`, which loads

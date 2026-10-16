@@ -516,7 +516,7 @@ mod tests {
     use super::*;
     use crate::chat;
     use crate::links::Roots;
-    use crate::me::Me;
+    use crate::me::Convo;
     use crate::theme::{self, HamletTheme};
 
     fn app() -> App {
@@ -624,7 +624,7 @@ mod tests {
         let mut app = app();
         let (session, _) =
             talk(&mut app, &["An *old* reply.", "First.\n\nSec"]);
-        app.insert_resource(Me::of(
+        app.insert_resource(Convo::of(
             session,
             Entity::PLACEHOLDER,
             "a",

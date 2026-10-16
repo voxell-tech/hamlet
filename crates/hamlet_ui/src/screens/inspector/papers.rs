@@ -10,7 +10,7 @@ use hamlet_core::core::HomeDir;
 use hamlet_core::session::{self, JobFinished, Seat};
 use hamlet_home::Home;
 
-use crate::me::Me;
+use crate::me::Convo;
 
 /// The most of the notes or the character the panel shows.
 const NOTES_SHOWN: usize = 6000;
@@ -18,8 +18,8 @@ const NOTES_SHOWN: usize = 6000;
 /// The house of the selected agent: its root and its workspace.
 pub(crate) fn house(world: &World) -> Home {
     let home = &world.resource::<HomeDir>().0;
-    let me = world.resource::<Me>();
-    session::house_at(home, world.get::<Seat>(me.session))
+    let convo = world.resource::<Convo>();
+    session::house_at(home, world.get::<Seat>(convo.session))
 }
 
 /// The notes, the character and the skills the selected agent keeps
@@ -34,7 +34,7 @@ pub struct Papers {
 
 fn read_papers(
     home: Option<&HomeDir>,
-    me: &Me,
+    convo: &Convo,
     seats: &Query<&Seat>,
     papers: &mut ResMut<Papers>,
 ) {
@@ -42,7 +42,7 @@ fn read_papers(
         return;
     };
     let house =
-        session::house_at(&home.0, seats.get(me.session).ok());
+        session::house_at(&home.0, seats.get(convo.session).ok());
     let kept = agents::papers::Papers::read(&house);
     let shown =
         |text: String| text.chars().take(NOTES_SHOWN).collect();
@@ -59,11 +59,11 @@ fn read_papers(
 /// Reads the selected agent's papers again.
 pub fn keep_papers(
     home: Option<Res<HomeDir>>,
-    me: Res<Me>,
+    convo: Res<Convo>,
     seats: Query<&Seat>,
     mut papers: ResMut<Papers>,
 ) {
-    read_papers(home.as_deref(), &me, &seats, &mut papers);
+    read_papers(home.as_deref(), &convo, &seats, &mut papers);
 }
 
 /// Reads them again when a turn has ended, which is when an agent
@@ -71,9 +71,9 @@ pub fn keep_papers(
 pub(super) fn papers_on_job(
     _: On<JobFinished>,
     home: Option<Res<HomeDir>>,
-    me: Res<Me>,
+    convo: Res<Convo>,
     seats: Query<&Seat>,
     mut papers: ResMut<Papers>,
 ) {
-    read_papers(home.as_deref(), &me, &seats, &mut papers);
+    read_papers(home.as_deref(), &convo, &seats, &mut papers);
 }

@@ -10,7 +10,7 @@ use bevy::ecs::world::World;
 use hamlet_core::agents::{self, Citizen, Mayor};
 use hamlet_core::session::{self, SessionKey};
 use hamlet_rules::hamlet::HOME;
-pub use hamlet_sdk::me::Me;
+pub use hamlet_sdk::convo::Convo;
 use hamlet_world::pick::{Selected, Thing, select};
 
 use crate::dock::show_tab;
@@ -31,7 +31,7 @@ pub(crate) fn plugin(app: &mut App) {
     let mayor =
         agents::mayor(app.world_mut()).unwrap_or(Entity::PLACEHOLDER);
     session::gather(app.world_mut(), mayor);
-    app.insert_resource(Me {
+    app.insert_resource(Convo {
         session,
         key,
         user,
@@ -53,12 +53,14 @@ pub(crate) fn address(
         .get::<Mayor>(agent)
         .is_none()
         .then(|| name.as_str().to_string());
-    let me = world.resource::<Me>();
+    let convo = world.resource::<Convo>();
     let key = match &with {
-        Some(name) => SessionKey::with_agent("app", &me.user, name),
+        Some(name) => {
+            SessionKey::with_agent("app", &convo.user, name)
+        }
         None => SessionKey::with_mayor(
             "app",
-            &me.user,
+            &convo.user,
             agents::hamlet_of(world, agent).unwrap_or(HOME),
         ),
     };
@@ -73,11 +75,11 @@ pub(crate) fn seat(world: &mut World, agent: Entity) -> bool {
     let session = session::ensure(world, &key);
     // Its letters to and from other agents are part of its chat.
     session::gather(world, agent);
-    let mut me = world.resource_mut::<Me>();
-    me.session = session;
-    me.key = key;
-    me.agent = agent;
-    me.with = with;
+    let mut convo = world.resource_mut::<Convo>();
+    convo.session = session;
+    convo.key = key;
+    convo.agent = agent;
+    convo.with = with;
     true
 }
 
@@ -137,14 +139,14 @@ pub(crate) fn roster_moved(
     removed > 0 || !named.is_empty()
 }
 
-/// Keeps [`Me`] true to the agent the chat is with, and to the first
-/// mayor once that agent is gone.
+/// Keeps [`Convo`] true to the agent the chat is with, and to the
+/// first mayor once that agent is gone.
 pub(crate) fn reseat(world: &mut World) {
-    let me = world.resource::<Me>();
-    let agent = me.agent;
+    let convo = world.resource::<Convo>();
+    let agent = convo.agent;
     match address(world, agent) {
         Some((key, with)) => {
-            if me.key != key || me.with != with {
+            if convo.key != key || convo.with != with {
                 seat(world, agent);
             }
         }
@@ -224,7 +226,7 @@ mod tests {
             },
         );
         let mayor = agents::mayor(app.world_mut()).unwrap();
-        app.insert_resource(Me::of(mayor, mayor, "alice", None));
+        app.insert_resource(Convo::of(mayor, mayor, "alice", None));
         (dir, app, hamlet)
     }
 
@@ -266,17 +268,20 @@ mod tests {
         let scout = agents::named(world, "scout").unwrap();
         assert!(seat(world, scout));
         assert_eq!(
-            world.resource::<Me>().with.as_deref(),
+            world.resource::<Convo>().with.as_deref(),
             Some("scout")
         );
         // The agent it is with takes the office.
         hamlet.set_mayor("scout", "chief:alice", "x").unwrap();
         agents::sync(world);
         reseat(world);
-        let me = world.resource::<Me>();
-        assert_eq!((me.agent, me.with.as_deref()), (scout, None));
+        let convo = world.resource::<Convo>();
         assert_eq!(
-            me.key,
+            (convo.agent, convo.with.as_deref()),
+            (scout, None)
+        );
+        assert_eq!(
+            convo.key,
             SessionKey::with_mayor("app", "alice", HOME)
         );
         // One that is gone from the world gives way to the mayor.
@@ -284,6 +289,6 @@ mod tests {
         assert!(seat(world, librarian));
         world.despawn(librarian);
         reseat(world);
-        assert_eq!(world.resource::<Me>().agent, scout);
+        assert_eq!(world.resource::<Convo>().agent, scout);
     }
 }

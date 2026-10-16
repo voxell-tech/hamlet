@@ -15,7 +15,7 @@ use hamlet_ui::feel::Lit;
 use hamlet_ui::icons::Glyph;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::{
-    Cx, ICON, Me, View, chat, inspector, lit_panel, menu, panel,
+    Convo, Cx, ICON, View, chat, inspector, lit_panel, menu, panel,
     petition, settings, status_bar, toolbar, welcome,
 };
 
@@ -116,7 +116,7 @@ pub(super) fn seed_dock(world: &mut World) {
 /// messages, in the scene that shows it.
 fn rewind_question() -> Ui {
     AnyView::new(|cx: &mut Cx| {
-        let session = cx.world.resource::<Me>().session;
+        let session = cx.world.resource::<Convo>().session;
         let last = cx
             .world
             .get::<Transcript>(session)

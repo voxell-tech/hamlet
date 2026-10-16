@@ -31,7 +31,7 @@ use super::timeline::{Line, Part, People, Who, parts, timeline};
 use super::{ChatScroll, bubble};
 use crate::View;
 use crate::looks::{Fills, note};
-use crate::me::Me;
+use crate::me::Convo;
 
 /// Messages are people talking, so they get the width of a readable
 /// line.
@@ -359,7 +359,7 @@ pub struct Whole {
 /// the reach of the chat.
 #[allow(clippy::too_many_arguments)]
 pub fn fold_lines(
-    me: Res<Me>,
+    convo: Res<Convo>,
     unfolded: Res<Unfolded>,
     mut reach: ResMut<Reach>,
     sessions: Query<(Entity, &SessionKey, Option<&TalksTo>)>,
@@ -370,12 +370,12 @@ pub fn fold_lines(
     mut whole: Local<Whole>,
 ) {
     // Another chat is built from its end again.
-    if me.is_changed() && reach.rows != reach.page {
+    if convo.is_changed() && reach.rows != reach.page {
         reach.rows = reach.page;
     }
     // A reply that grows changes no shape, so its words cost a look
     // at each conversation and no more.
-    let from = parts(&me, &sessions, &people)
+    let from = parts(&convo, &sessions, &people)
         .into_iter()
         .map(|(session, part)| {
             let (entries, shape) = transcripts
@@ -384,8 +384,8 @@ pub fn fold_lines(
             (session, part, entries, shape)
         })
         .collect::<Vec<_>>();
-    let since = began.get(me.session).map_or(0, |began| began.0);
-    let moved = me.is_changed()
+    let since = began.get(convo.session).map_or(0, |began| began.0);
+    let moved = convo.is_changed()
         || unfolded.is_changed()
         || people.moved()
         || whole.from != from
@@ -399,7 +399,7 @@ pub fn fold_lines(
             .map(|(session, part, ..)| (*session, *part))
             .collect::<Vec<_>>();
         let (rows, cast) = timeline(
-            &me,
+            &convo,
             &parts,
             &sessions,
             &transcripts,
@@ -429,7 +429,7 @@ pub fn fold_lines(
 /// and keeps what was being read where it was as the rows above it
 /// come in.
 pub fn read_back(
-    me: Res<Me>,
+    convo: Res<Convo>,
     lines: Res<Lines>,
     mut reach: ResMut<Reach>,
     mut scrolls: Query<
@@ -439,7 +439,7 @@ pub fn read_back(
     mut held: Local<Option<(f32, f32)>>,
 ) {
     // The place held in one chat is not held in another.
-    if me.is_changed() {
+    if convo.is_changed() {
         *held = None;
     }
     for (node, mut at, goal) in &mut scrolls {
@@ -470,7 +470,7 @@ pub fn read_back(
 /// from the one before it.
 const GAP: f32 = 3.0;
 
-/// The chat with whoever `Me` points at.
+/// The chat with whoever `Convo` points at.
 pub fn transcript() -> impl View {
     // One list for the whole chat, each row built once for as long
     // as it is the same row.
@@ -675,7 +675,7 @@ mod tests {
             SessionKey::with_agent(ASKED, "juniper", "pip"),
             TalksTo(pip),
         ));
-        world.insert_resource(Me::of(
+        world.insert_resource(Convo::of(
             session,
             juniper,
             "chief",

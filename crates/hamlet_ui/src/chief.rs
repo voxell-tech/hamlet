@@ -37,7 +37,7 @@ use crate::looks::{
     CONTROL, Fills, action, back, brass, buttons, filling, lamp,
     note, pad, title,
 };
-use crate::me::Me;
+use crate::me::Convo;
 use crate::platform::DisplayText;
 use crate::roll::{agents_moved, either, moved};
 use crate::{AnyView, Cx, View};
@@ -51,7 +51,7 @@ pub(crate) fn plugin(app: &mut App) {
 /// Brings the chief this window belongs to into the world, with the
 /// look that was kept for them.
 pub(crate) fn enter(world: &mut World) {
-    let user = world.resource::<Me>().user.clone();
+    let user = world.resource::<Convo>().user.clone();
     if let Some(chief) = chief::named(world, &user) {
         world.entity_mut(chief).insert(Player);
         return;
@@ -80,7 +80,7 @@ pub(crate) fn carry_home(world: &mut World) {
 /// Selects the place of the chief this window belongs to, and
 /// brings it into view.
 pub(crate) fn go_home(world: &mut World) {
-    let user = world.resource::<Me>().user.clone();
+    let user = world.resource::<Convo>().user.clone();
     let Some(chief) = chief::named(world, &user) else {
         return;
     };
@@ -108,21 +108,21 @@ fn company(selected: Option<Thing>, agent: Entity) -> Option<Entity> {
 /// Sends the mascot to whoever the chat is pointed at, and home when
 /// nobody is selected.
 pub(crate) fn accompany(
-    me: Res<Me>,
+    convo: Res<Convo>,
     selected: Res<Selected>,
     libraries: Query<Entity, With<Library>>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
-    if !me.is_changed() && !selected.is_changed() {
+    if !convo.is_changed() && !selected.is_changed() {
         return;
     }
     // To the library when that is what was chosen.
     let with = match selected.0 {
         Some(Thing::Library) => libraries.iter().next(),
-        chosen => company(chosen, me.agent),
+        chosen => company(chosen, convo.agent),
     };
     for (chief, mut beside) in &mut chiefs {
-        if chief.user == me.user && beside.0 != with {
+        if chief.user == convo.user && beside.0 != with {
             beside.0 = with;
         }
     }
@@ -132,15 +132,15 @@ pub(crate) fn accompany(
 /// to whoever it was sent to.
 pub(crate) fn spoke(
     message: On<UserMessage>,
-    me: Res<Me>,
+    convo: Res<Convo>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
-    if message.key != me.key {
+    if message.key != convo.key {
         return;
     }
     for (chief, mut beside) in &mut chiefs {
-        if chief.user == me.user && beside.0.is_none() {
-            beside.0 = Some(me.agent);
+        if chief.user == convo.user && beside.0.is_none() {
+            beside.0 = Some(convo.agent);
         }
     }
 }
@@ -384,7 +384,7 @@ mod tests {
         let world = app.world_mut();
         let agent = world.spawn(Name::new("Juniper")).id();
         let session = world.spawn_empty().id();
-        world.insert_resource(Me::of(
+        world.insert_resource(Convo::of(
             session,
             agent,
             "wren",
@@ -427,7 +427,7 @@ mod tests {
     fn a_message_with_nobody_selected_brings_the_mascot() {
         let (mut app, chief, agent) = app();
         app.update();
-        let key = app.world().resource::<Me>().key.clone();
+        let key = app.world().resource::<Convo>().key.clone();
         // Another chat's message is not this chief's.
         app.world_mut().trigger(UserMessage {
             key: SessionKey::with_agent("app", "wren", "Sorrel"),

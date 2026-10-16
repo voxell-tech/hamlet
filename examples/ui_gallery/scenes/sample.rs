@@ -28,7 +28,7 @@ use hamlet_rules::chief::rulings::Choice;
 use hamlet_ui::history::{History, Reading};
 use hamlet_ui::links::{Aimed, Roots};
 use hamlet_ui::{
-    Me, chat, history, inspector, menu, overview, welcome,
+    Convo, chat, history, inspector, menu, overview, welcome,
 };
 use hamlet_world::chief;
 use hamlet_world::pick::{Also, Selected, Thing};
@@ -104,7 +104,7 @@ pub(super) fn setup(world: &mut World) {
             .0
             .push((session, last - 2));
     }
-    world.insert_resource(Me {
+    world.insert_resource(Convo {
         session,
         key: SessionKey {
             channel: "app".into(),
@@ -160,7 +160,7 @@ pub(super) fn setup(world: &mut World) {
         world.insert_resource(inspector::Section::Character);
     }
     if scene == Scene::Prompt {
-        let agent = world.resource::<Me>().agent;
+        let agent = world.resource::<Convo>().agent;
         let text = world.resource::<HomeDir>().0.system_prompt(
             hamlet_home::charter::DEFAULT,
             "Sandbox: seatbelt. Network for tools: off.",

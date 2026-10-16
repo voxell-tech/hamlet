@@ -23,7 +23,7 @@ use hamlet_rules::hamlet::HOME;
 use crate::icons::{Glyph, glyph};
 use crate::links::Aimed;
 use crate::looks::{hairline, note};
-use crate::me::Me;
+use crate::me::Convo;
 use crate::petition::Queue;
 use crate::window::Layout;
 use crate::{AnyView, Cx, View};
@@ -59,19 +59,19 @@ pub struct Bar {
 }
 
 pub(crate) fn update_status(
-    me: Res<Me>,
+    convo: Res<Convo>,
     sessions: Query<(Ref<Status>, Ref<Usage>)>,
     settings: Res<Settings>,
     link: Res<Link>,
     treasury: Query<(&Settlement, Ref<Treasury>)>,
     mut bar: ResMut<Bar>,
 ) {
-    let session = sessions.get(me.session).ok();
+    let session = sessions.get(convo.session).ok();
     let home = treasury
         .iter()
         .find(|(settlement, _)| settlement.name == HOME)
         .map(|(_, treasury)| treasury);
-    let moved = me.is_changed()
+    let moved = convo.is_changed()
         || settings.is_changed()
         || link.is_changed()
         || session.as_ref().is_some_and(|(status, usage)| {
@@ -106,13 +106,13 @@ pub(crate) fn update_status(
 pub(crate) struct Lately(pub String);
 
 pub(crate) fn update_lately(
-    me: Res<Me>,
+    convo: Res<Convo>,
     sessions: Query<&Status>,
     mut lately: ResMut<Lately>,
     mut seen: Local<Option<(Instant, u64)>>,
 ) {
     let last = sessions
-        .get(me.session)
+        .get(convo.session)
         .ok()
         .and_then(|status| status.last_activity.as_ref());
     // The words change with the second at the soonest.

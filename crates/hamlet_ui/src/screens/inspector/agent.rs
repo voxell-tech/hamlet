@@ -28,7 +28,7 @@ use crate::looks::{
     Fills, ICON, action, bad_action, bare, filling, hairline, headed,
     note, page_head, title,
 };
-use crate::me::Me;
+use crate::me::Convo;
 use crate::platform::{DisplayText, Wraps};
 use crate::roll::rolled;
 use crate::status::Bar;
@@ -290,8 +290,8 @@ fn character() -> impl View {
 /// Reads the prompt the agent the chat is with would be given now,
 /// and turns its page to it.
 pub(crate) fn show_prompt(world: &mut World) {
-    let me = world.resource::<Me>();
-    let (agent, session) = (me.agent, me.session);
+    let convo = world.resource::<Convo>();
+    let (agent, session) = (convo.agent, convo.session);
     let text = match world.get::<Seat>(session) {
         Some(seat) => {
             session::prompt_of(world, seat).unwrap_or_else(|e| {
@@ -309,11 +309,12 @@ pub(crate) fn show_prompt(world: &mut World) {
 
 /// Leaves the prompt of an agent the chat is no longer with.
 pub(super) fn leave_prompt(
-    me: Res<Me>,
+    convo: Res<Convo>,
     briefing: Res<Briefing>,
     mut section: ResMut<Section>,
 ) {
-    if *section == Section::Prompt && briefing.agent != Some(me.agent)
+    if *section == Section::Prompt
+        && briefing.agent != Some(convo.agent)
     {
         *section = Section::Conversation;
     }
@@ -373,7 +374,9 @@ fn sections() -> impl View {
 
 pub(super) fn living() -> impl View {
     keyed(
-        resource::<Me, _>(|m| (m.session, m.agent, m.with.clone())),
+        resource::<Convo, _>(|m| {
+            (m.session, m.agent, m.with.clone())
+        }),
         |(_, agent, with)| {
             column((header(*agent, with.clone()), tabs(), sections()))
                 .fills_height()

@@ -44,7 +44,7 @@ pub use hamlet_sdk::{
 use hamlet_world::pick::Selected;
 
 pub use self::dock::{lit_panel, panel};
-pub use self::me::Me;
+pub use self::me::Convo;
 pub use self::roll::Roll;
 pub use self::root::toolbar;
 pub use self::screens::{

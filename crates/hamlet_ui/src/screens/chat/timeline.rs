@@ -22,7 +22,7 @@ use hamlet_world::keeper;
 use hamlet_world::palette::Palette;
 
 use super::lines::{Row, rows};
-use crate::me::Me;
+use crate::me::Convo;
 use crate::theme::Themed;
 
 /// The part a conversation has in an agent's chat.
@@ -205,7 +205,7 @@ impl People<'_, '_> {
         })
     }
 
-    fn chief(&self, user: &str, me: &Me) -> Who {
+    fn chief(&self, user: &str, convo: &Convo) -> Who {
         let cloak = self
             .chiefs
             .iter()
@@ -217,7 +217,7 @@ impl People<'_, '_> {
         Who {
             name: titled(user),
             tag: String::new(),
-            kind: if user == me.user {
+            kind: if user == convo.user {
                 Kind::Me
             } else {
                 Kind::Chief
@@ -239,7 +239,7 @@ enum Id {
 /// Everyone who speaks in a chat, the agent it is with first.
 struct Cast<'a, 'w, 's> {
     people: &'a People<'w, 's>,
-    me: &'a Me,
+    convo: &'a Convo,
     ids: Vec<Id>,
     all: Vec<Who>,
 }
@@ -255,9 +255,9 @@ impl Cast<'_, '_, '_> {
     }
 
     fn agent(&mut self, agent: Entity) -> usize {
-        let (people, me) = (self.people, self.me);
+        let (people, convo) = (self.people, self.convo);
         self.place(Id::Agent(agent), || {
-            people.agent(agent).unwrap_or_else(|| match &me.with {
+            people.agent(agent).unwrap_or_else(|| match &convo.with {
                 Some(name) => Who {
                     name: titled(name),
                     ..Who::default()
@@ -273,15 +273,15 @@ impl Cast<'_, '_, '_> {
     }
 
     fn chief(&mut self, user: &str) -> usize {
-        let (people, me) = (self.people, self.me);
+        let (people, convo) = (self.people, self.convo);
         self.place(Id::Chief(user.to_string()), || {
-            people.chief(user, me)
+            people.chief(user, convo)
         })
     }
 
     /// The writer under `address` in the hamlet of the chat's agent.
     fn address(&mut self, address: &str) -> usize {
-        match self.people.at(address, self.me.agent) {
+        match self.people.at(address, self.convo.agent) {
             Some(agent) => self.agent(agent),
             None => {
                 self.place(Id::Stranger(address.to_string()), || {
@@ -322,25 +322,25 @@ pub(super) struct Line {
     pub last: bool,
 }
 
-/// The conversations the chat with `me.agent` holds, the chief's
+/// The conversations the chat with `convo.agent` holds, the chief's
 /// own with it first.
 pub(super) fn parts(
-    me: &Me,
+    convo: &Convo,
     sessions: &Query<(Entity, &SessionKey, Option<&TalksTo>)>,
     people: &People,
 ) -> Vec<(Entity, Part)> {
-    let mut parts = vec![(me.session, Part::With)];
-    let address = people.address(me.agent);
-    let lives = people.lives(me.agent);
+    let mut parts = vec![(convo.session, Part::With)];
+    let address = people.address(convo.agent);
+    let lives = people.lives(convo.agent);
     let mut others = sessions
         .iter()
         .filter(|(session, key, _)| {
-            *session != me.session
+            *session != convo.session
                 && (key.is_mail() || key.is_asked())
         })
         .filter_map(|(session, key, to)| {
             let to = to?.0;
-            if to == me.agent {
+            if to == convo.agent {
                 return Some((session, Part::With));
             }
             let wrote = address.as_deref() == Some(&key.chat)
@@ -362,7 +362,7 @@ fn said_at(transcript: &Transcript, id: u64) -> u64 {
 /// said, with everyone who speaks in them. Of the conversations
 /// besides the chief's own, only what was said from `since` on.
 pub(super) fn timeline(
-    me: &Me,
+    convo: &Convo,
     parts: &[(Entity, Part)],
     keys: &Query<(Entity, &SessionKey, Option<&TalksTo>)>,
     transcripts: &Query<Ref<Transcript>>,
@@ -372,11 +372,11 @@ pub(super) fn timeline(
 ) -> (Vec<Line>, Vec<Who>) {
     let mut cast = Cast {
         people,
-        me,
+        convo,
         ids: Vec::new(),
         all: Vec::new(),
     };
-    let owner = cast.agent(me.agent);
+    let owner = cast.agent(convo.agent);
     // Each row with the time it is sorted by, which never runs
     // back within a conversation.
     let mut placed = Vec::<(u64, Line)>::new();
@@ -392,13 +392,13 @@ pub(super) fn timeline(
         let mut place = |row: Row, by: usize, to: usize, at: u64| {
             // A new session starts the chat afresh: what the
             // agents wrote each other before it is not shown.
-            if *session != me.session && at < since {
+            if *session != convo.session && at < since {
                 return;
             }
             clock = clock.max(at);
             let line = Line {
                 row,
-                owner: me.agent,
+                owner: convo.agent,
                 by,
                 to,
                 at,
@@ -415,7 +415,7 @@ pub(super) fn timeline(
                     Some((_, key, _)) if between => {
                         cast.address(&key.chat)
                     }
-                    _ => cast.chief(&me.user),
+                    _ => cast.chief(&convo.user),
                 };
                 for row in rows(*session, &transcript, open) {
                     let first = match &row {

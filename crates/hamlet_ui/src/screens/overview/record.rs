@@ -14,7 +14,7 @@ use super::{heading, tell};
 use crate::View;
 use crate::icons::Glyph;
 use crate::looks::{bad_action, bare, note};
-use crate::me::Me;
+use crate::me::Convo;
 use crate::roll::hamlets_moved;
 
 /// The spending, the votes and the comings and goings of a hamlet.
@@ -51,8 +51,8 @@ fn annals(world: &World, hamlet: Entity) -> Annals {
         })
         .collect();
     let user = world
-        .get_resource::<Me>()
-        .map(|me| me.user.clone())
+        .get_resource::<Convo>()
+        .map(|convo| convo.user.clone())
         .unwrap_or_default();
     let record = match place.decree(&user, "/record") {
         Some(Ok(decree)) => decree.lines.join("\n"),

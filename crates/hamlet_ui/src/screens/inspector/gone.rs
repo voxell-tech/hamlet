@@ -17,7 +17,7 @@ use crate::looks::{
     Fills, action, bad_action, bare, filling, good_action, note,
     stated, title,
 };
-use crate::me::Me;
+use crate::me::Convo;
 use crate::platform::{DisplayText, Wraps};
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx, View, lists, overview};
@@ -156,7 +156,7 @@ pub(crate) fn of_agent(
     body: fn() -> AnyView,
 ) -> impl View {
     keyed(
-        resource::<Me, _>(|m| (m.session, m.with.clone())),
+        resource::<Convo, _>(|m| (m.session, m.with.clone())),
         move |(_, with)| {
             let whose = match with {
                 Some(name) => {

@@ -26,7 +26,7 @@ use hamlet_rules::hamlet::Hamlet;
 use hamlet_world::sound::{Cue, Sound};
 
 use crate::cue;
-use crate::me::Me;
+use crate::me::Convo;
 use crate::roll::Roll;
 
 /// The most paths whose files are remembered.
@@ -47,7 +47,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             keep_roots.run_if(
-                resource_changed::<Me>.or_eager(hamlets_turned),
+                resource_changed::<Convo>.or_eager(hamlets_turned),
             ),
         );
 }
@@ -112,17 +112,18 @@ struct Found(HashMap<String, Option<PathBuf>>);
 /// Sets [`Roots`] for the session of the chat, if they are those of
 /// another.
 fn turn(world: &mut World) {
-    let (Some(home), Some(me)) =
-        (world.get_resource::<HomeDir>(), world.get_resource::<Me>())
-    else {
+    let (Some(home), Some(convo)) = (
+        world.get_resource::<HomeDir>(),
+        world.get_resource::<Convo>(),
+    ) else {
         return;
     };
     let kept = world.get_resource::<Roots>();
-    if kept.is_some_and(|roots| roots.of == Some(me.session)) {
+    if kept.is_some_and(|roots| roots.of == Some(convo.session)) {
         return;
     }
-    let seat = world.get::<Seat>(me.session);
-    let roots = Roots::of(&home.0, me.session, seat);
+    let seat = world.get::<Seat>(convo.session);
+    let roots = Roots::of(&home.0, convo.session, seat);
     world.insert_resource(roots);
     world.get_resource_or_init::<Found>().0.clear();
 }
@@ -267,7 +268,7 @@ fn hamlets_turned(
 /// Keeps [`Roots`] as those of the agent the chat is with.
 fn keep_roots(
     home: Option<Res<HomeDir>>,
-    me: Res<Me>,
+    convo: Res<Convo>,
     seats: Query<&Seat>,
     mut roots: ResMut<Roots>,
     mut found: ResMut<Found>,
@@ -275,8 +276,8 @@ fn keep_roots(
     let Some(home) = home else {
         return;
     };
-    let seat = seats.get(me.session).ok();
-    let now = Roots::of(&home.0, me.session, seat);
+    let seat = seats.get(convo.session).ok();
+    let now = Roots::of(&home.0, convo.session, seat);
     if *roots != now {
         *roots = now;
         found.0.clear();

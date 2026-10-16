@@ -2,12 +2,12 @@
 //! crate depends on this and on the crates below it, never on
 //! `hamlet_ui`.
 
+pub mod convo;
 pub mod cue;
 pub mod dock;
 pub mod feel;
 pub mod icons;
 pub mod looks;
-pub mod me;
 pub mod platform;
 pub mod tabs;
 pub mod theme;

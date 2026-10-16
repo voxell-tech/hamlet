@@ -34,7 +34,7 @@ use crate::looks::{
     Fills, away, back, bad_action, buttons, command, filling,
     good_action, hairline, note, well,
 };
-use crate::me::Me;
+use crate::me::Convo;
 use crate::theme::HamletTheme;
 use crate::{AnyView, Cx, View, chat, inspector};
 
@@ -252,7 +252,7 @@ fn delete(world: &mut World) {
 
 /// Keeps `pasts` in step with the disk while the page is open.
 pub(crate) fn refresh(world: &mut World) {
-    let session = world.resource::<Me>().session;
+    let session = world.resource::<Convo>().session;
     let history = world.resource::<History>();
     let moved = history.of != Some(session);
     if history.fresh && !moved {
@@ -262,7 +262,7 @@ pub(crate) fn refresh(world: &mut World) {
         close(world);
     }
     let dir = inspector::house(world).sessions();
-    let key = world.resource::<Me>().key.clone();
+    let key = world.resource::<Convo>().key.clone();
     let live = session::log_of(world, &key);
     let pasts = pasts(&dir, live.as_deref());
     let gone = world

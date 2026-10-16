@@ -45,7 +45,7 @@ use hamlet_world::{Hour, Stage, WorldCamera, WorldSystems};
 use crate::dock::PanelAppExt;
 use crate::icons::Glyph;
 use crate::looks::{Fills, ICON};
-use crate::me::Me;
+use crate::me::Convo;
 use crate::window::WorldShown;
 use crate::{AnyView, Cx};
 
@@ -304,13 +304,13 @@ pub(crate) fn adopt_tags(
 /// Sets the stage from the session this window talks to.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive(
-    me: Res<Me>,
+    convo: Res<Convo>,
     sky: Res<TimeOfDay>,
     sky_set: Res<SkySettings>,
     sessions: Query<(&Status, &Transcript)>,
     mut stage: ResMut<Stage>,
 ) {
-    let (working, failed) = match sessions.get(me.mayor) {
+    let (working, failed) = match sessions.get(convo.mayor) {
         Ok((status, transcript)) => (
             status.working(),
             matches!(transcript.last(), Some(Entry::Error(_))),

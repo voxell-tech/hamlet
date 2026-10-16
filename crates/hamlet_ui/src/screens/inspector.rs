@@ -25,7 +25,7 @@ use crate::dock::{PanelAppExt, lit_panel, panel, show_tab};
 use crate::feel::Lit;
 use crate::icons::Glyph;
 use crate::looks::{ICON, filling};
-use crate::me::{Me, talk_to};
+use crate::me::{Convo, talk_to};
 use crate::{View, overview, tabs};
 
 pub fn plugin(app: &mut App) {
@@ -56,9 +56,9 @@ pub fn plugin(app: &mut App) {
         Update,
         (
             tabs::mark::<Section>,
-            agent::leave_prompt.run_if(resource_changed::<Me>),
+            agent::leave_prompt.run_if(resource_changed::<Convo>),
             keep_papers.run_if(
-                resource_changed::<Me>
+                resource_changed::<Convo>
                     .or_eager(resource_changed::<Section>),
             ),
         ),
@@ -146,7 +146,7 @@ pub(crate) fn follow_selection(world: &mut World) {
         // A hamlet, one that is gone, or nothing at all.
         _ => return show_tab(world, "agent"),
     };
-    if world.resource::<Me>().agent != agent {
+    if world.resource::<Convo>().agent != agent {
         talk_to(world, agent);
     }
     show_tab(world, "agent");

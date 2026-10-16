@@ -23,7 +23,7 @@ use super::lines::{Lines, Row, fold_view};
 use super::rewind::{self, Rewinds};
 use super::timeline::{Kind, Line, Who};
 use crate::looks::{Fills, bare, hairline};
-use crate::me::Me;
+use crate::me::Convo;
 use crate::platform::DisplayText;
 use crate::theme::{Palette, contrast};
 use crate::world_menu::{self, Deed};
@@ -186,7 +186,7 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
         // agent are what that conversation can be taken back to.
         let back = mine
             && words == Words::Plain
-            && session == cx.world.resource::<Me>().session;
+            && session == cx.world.resource::<Convo>().session;
         let palette = &cx.theme().palette;
         let fill: fn(&Palette) -> Color =
             if mine { |p| p.brass_6 } else { |p| p.card };

@@ -27,7 +27,7 @@ use hamlet_world::sky::Quality;
 use hamlet_world::sound::SoundSettings;
 use serde::{Deserialize, Serialize};
 
-use crate::me::Me;
+use crate::me::Convo;
 use crate::roll::Roll;
 use crate::theme::HamletTheme;
 use crate::world_view::TimeOfDay;
@@ -207,7 +207,7 @@ impl Chosen {
                     .map(|(hamlet, _)| hamlet)?,
             ),
             Chosen::Chief | Chosen::Hearth => {
-                let user = world.resource::<Me>().user.clone();
+                let user = world.resource::<Convo>().user.clone();
                 let chief = chief::named(world, &user)?;
                 match self {
                     Chosen::Chief => Thing::Chief(chief),

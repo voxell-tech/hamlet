@@ -1,4 +1,4 @@
-//! The agent the chat is with.
+//! The conversation the chat is in, and the agent it is with.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
@@ -7,7 +7,7 @@ use hamlet_rules::hamlet::HOME;
 
 /// The chat session this window shows and sends to.
 #[derive(Resource)]
-pub struct Me {
+pub struct Convo {
     pub session: Entity,
     pub key: SessionKey,
     pub user: String,
@@ -19,7 +19,7 @@ pub struct Me {
     pub with: Option<String>,
 }
 
-impl Me {
+impl Convo {
     /// The chat of `user` with `agent`, kept in `session`: with the
     /// mayor unless `with` names the agent.
     pub fn of(
@@ -27,12 +27,12 @@ impl Me {
         agent: Entity,
         user: &str,
         with: Option<&str>,
-    ) -> Me {
+    ) -> Convo {
         let key = match with {
             Some(name) => SessionKey::with_agent("app", user, name),
             None => SessionKey::with_mayor("app", user, HOME),
         };
-        Me {
+        Convo {
             session,
             key,
             user: user.into(),

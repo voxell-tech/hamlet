@@ -113,7 +113,7 @@ fn close(world: &mut World) {
 /// Stops what `agent` is doing now.
 pub(super) fn stop(world: &mut World, agent: Entity) {
     let agent = Some(agents::name_of(world, agent));
-    let chief = world.resource::<crate::me::Me>().user.clone();
+    let chief = world.resource::<crate::me::Convo>().user.clone();
     world.trigger(Veto { agent, chief });
     world.flush();
 }

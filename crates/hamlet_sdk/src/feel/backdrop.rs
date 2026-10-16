@@ -16,7 +16,7 @@ use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
 use hamlet_core::oversight::Waiting;
 
 use super::{FeelSettings, MagicColors, ease, linear};
-use crate::me::Me;
+use crate::convo::Convo;
 use crate::theme::Themed;
 
 /// The light that falls into a panel.
@@ -99,7 +99,7 @@ pub(super) fn tint(
 pub(super) fn light(
     time: Res<Time>,
     set: Res<FeelSettings>,
-    me: Res<Me>,
+    convo: Res<Convo>,
     waiting: Query<(), With<Waiting>>,
     panels: Query<(&MaterialNode<Backdrop>, &Lit, &ComputedNode)>,
     mut backdrops: ResMut<Assets<Backdrop>>,
@@ -107,7 +107,7 @@ pub(super) fn light(
     mut counted: Local<usize>,
 ) {
     let dt = time.delta_secs();
-    let changed = shown.replace(me.agent) != Some(me.agent);
+    let changed = shown.replace(convo.agent) != Some(convo.agent);
     let count = waiting.iter().count();
     let rung = count > *counted;
     *counted = count;
@@ -152,7 +152,7 @@ mod tests {
 
     use super::super::tests::step;
     use super::*;
-    use crate::me::Me;
+    use crate::convo::Convo;
     use crate::theme::HamletTheme;
 
     /// A world with one panel of each kind, and their backdrops.
@@ -164,7 +164,7 @@ mod tests {
             .add_systems(Update, (lay, light).chain());
         let agent = app.world_mut().spawn_empty().id();
         app.world_mut()
-            .insert_resource(Me::of(agent, agent, "", None));
+            .insert_resource(Convo::of(agent, agent, "", None));
         let node = ComputedNode {
             inverse_scale_factor: 1.0,
             ..ComputedNode::default()
@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(lamp_and_flash(&app, selection).1, 0.0);
 
         let other = app.world_mut().spawn_empty().id();
-        app.world_mut().resource_mut::<Me>().agent = other;
+        app.world_mut().resource_mut::<Convo>().agent = other;
         step(&mut app);
         assert_eq!(lamp_and_flash(&app, selection).1, 1.0);
         assert_eq!(lamp_and_flash(&app, needs).1, 0.0);

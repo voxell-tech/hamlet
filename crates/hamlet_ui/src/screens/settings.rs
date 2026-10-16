@@ -32,7 +32,7 @@ use crate::looks::{
     Fills, ICON, action, bad_action, bare, buttons, doors, hairline,
     note, page_head, tick, well,
 };
-use crate::me::Me;
+use crate::me::Convo;
 use crate::platform::DisplayText;
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx, View, markdown, with_cx};
@@ -276,8 +276,10 @@ fn permissions() -> AnyView {
                         Glyph::Cross,
                         "REVOKE",
                         move |world| {
-                            let chief =
-                                world.resource::<Me>().user.clone();
+                            let chief = world
+                                .resource::<Convo>()
+                                .user
+                                .clone();
                             world.trigger(Revoke {
                                 agent: agent.clone(),
                                 permission,
