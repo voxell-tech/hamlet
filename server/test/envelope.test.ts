@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { expect, it, vi } from "vitest";
+import { expect, expectTypeOf, it, vi } from "vitest";
 import { readCommand } from "../src/commands.ts";
+import type { ManifestFault } from "../src/hand.ts";
 import {
     type ClientMessage,
     parseClient,
@@ -15,7 +16,9 @@ import {
 import { type ChiefResult, RealmDoc } from "../src/realm.ts";
 import { RecordDoc } from "../src/record.ts";
 import { err, ok } from "../src/result.ts";
+import type { ChiefFailure } from "../src/server/envelope.ts";
 import { faultFor, replyFor } from "../src/server.ts";
+import type { ToolFailure } from "../src/tools.ts";
 import { watchChat } from "../src/transcript.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
@@ -314,4 +317,10 @@ it("answers typed /stop for unknown and departed agents with error replies and n
         ).toEqual({ type: "reply", to: id, kind: "error", text });
     }
     expect(diagnostic).not.toHaveBeenCalled();
+});
+
+it("keeps agent-only tool and manifest failures out of the chief envelope", () => {
+    expectTypeOf<
+        Extract<ChiefFailure, ManifestFault | ToolFailure>
+    >().toEqualTypeOf<never>();
 });

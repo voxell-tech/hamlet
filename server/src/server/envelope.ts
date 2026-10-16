@@ -4,7 +4,6 @@ import {
     connectionFailureText,
 } from "../connection.ts";
 import { type AnswerFailure, answerFailureText } from "../gate.ts";
-import { type ManifestFault, manifestFaultText } from "../hand/manifests.ts";
 import type { Fault, Malformed, Reply } from "../protocol.ts";
 import {
     type ChiefRefusal,
@@ -14,7 +13,6 @@ import {
 import { type AddressFailure, addressFailureText } from "../realm/roads.ts";
 import type { Result } from "../result.ts";
 import type { Secrets } from "../scrub.ts";
-import { type ToolFailure, toolFailureText } from "../tools.ts";
 
 /** A completed chief operation, before wire correlation and credential scrubbing. */
 export type Receipt = {
@@ -25,8 +23,6 @@ export type Receipt = {
 
 /** Chief-facing failures whose wording is chosen at the protocol seam. */
 export type ChiefFailure =
-    | ManifestFault
-    | ToolFailure
     | AnswerFailure
     | LegacyRefusal
     | AddressFailure
@@ -68,32 +64,6 @@ function rendered(failure: ChiefFailure): {
     kind: "notice" | "error";
 } {
     switch (failure.kind) {
-        case "not-json":
-        case "missing-name":
-        case "name-format":
-        case "exec-empty":
-        case "parameters-not-schema":
-        case "schema-compile":
-        case "limit-not-whole":
-        case "name-reserved":
-        case "name-taken":
-        case "manifest-unreadable":
-            return { text: manifestFaultText(failure), kind: "error" };
-        case "not-a-folder":
-            return {
-                text:
-                    failure.operation === "load-tool"
-                        ? manifestFaultText(failure)
-                        : toolFailureText(failure),
-                kind: "error",
-            };
-        case "pattern-empty":
-        case "pattern-invalid":
-        case "pattern-not-linear":
-        case "unreadable":
-        case "no-environment":
-        case "run-refused":
-            return { text: toolFailureText(failure), kind: "error" };
         case "answer-not-offered":
             return { text: answerFailureText(failure), kind: "notice" };
         case "agent-missing":

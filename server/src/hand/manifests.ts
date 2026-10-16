@@ -56,7 +56,7 @@ export type ManifestFault = {
     | {
           kind: "limit-not-whole";
           field: "wallSecs" | "cpuSecs";
-          value: number | string;
+          value: number;
           constraint: "whole-positive" | "timer";
       }
     | { kind: "name-reserved"; name: string }
@@ -109,7 +109,7 @@ const stringInput = Type.String();
 const arrayInput = Type.Array(Type.Unknown());
 const nameInput = Type.String({ pattern: "^[a-zA-Z0-9_-]{1,64}$" });
 const secondsInput = Type.Integer({
-    minimum: 1,
+    minimum: 0,
     maximum: Number.MAX_SAFE_INTEGER,
 });
 
@@ -171,15 +171,13 @@ export function parseManifest(
         ["wallSecs", limits.wall_secs],
         ["cpuSecs", limits.cpu_secs],
     ] as const) {
-        if (value === undefined) continue;
-        if (!Value.Check(secondsInput, value))
+        if (!Value.Check(secondsInput, value)) continue;
+        if (value === 0)
             return err({
                 ...facts,
                 kind: "limit-not-whole",
                 field,
-                value: Value.Check(Type.Number(), value)
-                    ? value
-                    : JSON.stringify(value),
+                value,
                 constraint: "whole-positive",
             });
         if (field === "wallSecs" && value > 2147483)

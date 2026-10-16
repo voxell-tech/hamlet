@@ -25,7 +25,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { describe, expect, it, vi } from "vitest";
 import { answer } from "../src/gate.ts";
-import { ManifestsDoc, manifestFaultText } from "../src/hand.ts";
+import { ManifestsDoc, manifestFaultText, reservedNames } from "../src/hand.ts";
 import type { Home, Part } from "../src/home.ts";
 import {
     CHIEF,
@@ -112,6 +112,74 @@ it.each([".gifts", ".erasing"])(
 );
 
 describe("tools added by hand", () => {
+    it("reserves Hamlet's, pi's and the society's tool names through the installed registry", async () => {
+        const home = await testHome(scratch(), { models: fauxModels().models });
+        const names = reservedNames(home.registry);
+        for (const name of [
+            "bash",
+            "powershell",
+            "read",
+            "write",
+            "edit",
+            "search",
+            "find",
+            "create_agent",
+            "ask_agent",
+            "tell_agent",
+            "build_road",
+            "request_road",
+            "set_model",
+            "remove_agent",
+            "merge_agents",
+            "call_vote",
+            "cast_ballot",
+            "agree_road",
+            "agree_move",
+            "ask_removal",
+            "object",
+            "ask_chief",
+            "submit_skill",
+            "ask_librarian",
+        ]) {
+            expect(names.has(name), name).toBe(true);
+        }
+        expect(names.has("calendar")).toBe(false);
+    });
+
+    it("reports a hand folder without manifest.json and offers only the installed tools", async () => {
+        const dir = scratch();
+        const folder = join(dir, "tools", "missing");
+        mkdirSync(folder, { recursive: true });
+        const home = await testHome(dir, { models: fauxModels().models });
+        expect(
+            (await home.harness.snapshot(ManifestsDoc, context))?.faults,
+        ).toMatchObject([{ kind: "manifest-unreadable", dir: folder }]);
+        expect(
+            (await (await mayorChat(home)).agent(context)).tools
+                .map((tool) => tool.name)
+                .sort(),
+        ).toEqual([
+            "ask_agent",
+            "ask_chief",
+            "ask_librarian",
+            "bash",
+            "build_road",
+            "call_vote",
+            "create_agent",
+            "edit",
+            "find",
+            "merge_agents",
+            "object",
+            "read",
+            "remove_agent",
+            "search",
+            "set_model",
+            "submit_skill",
+            "tell_agent",
+            "write",
+        ]);
+    });
+
     it("give simultaneous calls in different homes different private temporary folders", async () => {
         const shared = scratch();
         const paths: string[] = [];

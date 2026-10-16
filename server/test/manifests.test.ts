@@ -89,3 +89,42 @@ it("keeps stored diagnostic strings readable while new faults are structured", (
         error: { kind: "limit-not-whole", constraint: "timer" },
     });
 });
+
+it.each([1.5, -1, "10", null, true, 2.5, 1e20])(
+    "uses sandbox defaults for unsupported manifest limit %j",
+    (value) => {
+        expect(
+            parseManifest(
+                JSON.stringify({
+                    name: "greet",
+                    exec: ["echo"],
+                    sandbox: { limits: { wall_secs: value, cpu_secs: value } },
+                }),
+                "/tools/greet",
+            ),
+        ).toMatchObject({ ok: true, value: { wallSecs: null, cpuSecs: null } });
+    },
+);
+
+it.each(["wall_secs", "cpu_secs"])(
+    "still refuses an explicit zero %s",
+    (field) => {
+        expect(
+            parseManifest(
+                JSON.stringify({
+                    name: "greet",
+                    exec: ["echo"],
+                    sandbox: { limits: { [field]: 0 } },
+                }),
+                "/tools/greet",
+            ),
+        ).toMatchObject({
+            ok: false,
+            error: {
+                kind: "limit-not-whole",
+                constraint: "whole-positive",
+                value: 0,
+            },
+        });
+    },
+);
