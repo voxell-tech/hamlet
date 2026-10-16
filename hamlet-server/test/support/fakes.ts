@@ -7,6 +7,7 @@ import type {
   GitHub,
   GitHubUser,
   Payments,
+  PlatformCheckoutRequest,
 } from "../../src/services.ts";
 
 export const WEBHOOK_SECRET = "whsec_test_secret_for_tests_only";
@@ -16,6 +17,7 @@ export const CONNECT_WEBHOOK_SECRET = "whsec_test_connect_secret_for_tests_only"
 export class FakePayments implements Payments {
   readonly accounts = new Map<string, { chargesEnabled: boolean }>();
   readonly checkouts: (CheckoutRequest & { sessionId: string })[] = [];
+  readonly platformCheckouts: (PlatformCheckoutRequest & { sessionId: string })[] = [];
   readonly links: { accountId: string; refreshUrl: string; returnUrl: string }[] = [];
   private counter = 0;
   readonly verifyWebhookEvent = createStripeWebhookVerifier(
@@ -42,6 +44,12 @@ export class FakePayments implements Payments {
   async createCheckoutSession(request: CheckoutRequest) {
     const sessionId = `cs_test_${++this.counter}`;
     this.checkouts.push({ ...request, sessionId });
+    return { id: sessionId, url: `https://checkout.stripe.com/c/pay/${sessionId}` };
+  }
+
+  async createPlatformCheckoutSession(request: PlatformCheckoutRequest) {
+    const sessionId = `cs_test_${++this.counter}`;
+    this.platformCheckouts.push({ ...request, sessionId });
     return { id: sessionId, url: `https://checkout.stripe.com/c/pay/${sessionId}` };
   }
 

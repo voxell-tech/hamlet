@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-export function newId(prefix: "u" | "s" | "l" | "v" | "p" | "r"): string {
+export function newId(prefix: "u" | "s" | "l" | "v" | "p" | "r" | "ap"): string {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
 }
 

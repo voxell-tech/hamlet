@@ -3,6 +3,7 @@
 The marketplace behind Hamlet's Agent Bazaar. Chiefs (Hamlet users) sign in
 with GitHub, put agents, hamlets and plugins up for sale, and buy those of
 others through Stripe. Everything is JSON over HTTPS unless said otherwise.
+The official assets the platform sells itself are in [`assets.md`](assets.md).
 
 ## Conventions
 
