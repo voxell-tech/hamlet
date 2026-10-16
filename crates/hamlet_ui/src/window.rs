@@ -4,8 +4,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use bevy::app::{App, AppExit, Update};
-use bevy::ecs::message::{MessageReader, MessageWriter};
+use bevy::app::{App, Update};
+use bevy::ecs::message::MessageReader;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -185,10 +185,10 @@ pub(crate) fn winit_settings() -> WinitSettings {
 
 fn intercept_close(
     mut closes: MessageReader<WindowCloseRequested>,
-    mut exit: MessageWriter<AppExit>,
+    mut commands: bevy::ecs::system::Commands,
 ) {
     if closes.read().count() > 0 {
-        exit.write(AppExit::Success);
+        commands.queue(quit);
     }
 }
 
@@ -232,7 +232,7 @@ pub(crate) fn set_layout(
 }
 
 pub(crate) fn quit(world: &mut bevy::ecs::world::World) {
-    world.write_message(AppExit::Success);
+    crate::saving::close(world);
 }
 
 /// The small status window.
@@ -282,6 +282,7 @@ pub(crate) fn minimal() -> AnyView {
 
 #[cfg(test)]
 mod tests {
+    use bevy::app::AppExit;
     use bevy::state::app::StatesPlugin;
     use hamlet_client::ViewDir;
     use hamlet_testing::Scratch;

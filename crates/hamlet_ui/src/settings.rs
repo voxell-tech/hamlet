@@ -392,19 +392,24 @@ fn edit_charter(world: &mut World) {
 
 fn charter_saved(
     edited: On<Edited>,
-    mut outbox: ResMut<Outbox>,
-    mut requests: ResMut<CharterRequests>,
+    mut commands: bevy::ecs::system::Commands,
 ) {
     if edited.key != "charter" {
         return;
     }
-    requests.error.clear();
-    requests.edit = Some(outbox.send(|id| {
-        v0::ClientMessage::Edit(v0::Edit::Charter {
-            id,
-            text: Some(edited.text.clone()),
-        })
-    }));
+    let text = edited.text.clone();
+    commands.queue(move |world: &mut World| {
+        let id = world.resource_mut::<Outbox>().send(|id| {
+            v0::ClientMessage::Edit(v0::Edit::Charter {
+                id,
+                text: Some(text),
+            })
+        });
+        crate::saving::track(world, id.clone());
+        let mut requests = world.resource_mut::<CharterRequests>();
+        requests.error.clear();
+        requests.edit = Some(id);
+    });
 }
 
 /// A request to restore the server's default charter.

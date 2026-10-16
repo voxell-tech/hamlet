@@ -26,6 +26,8 @@ pub mod platform;
 mod remember;
 mod roll;
 mod root;
+mod saving;
+
 pub mod rules;
 pub mod settings;
 mod sounds;
@@ -105,6 +107,7 @@ impl Plugin for UiPlugin {
                 root::plugin,
                 dock::plugin,
                 window::plugin,
+                saving::plugin,
                 chrome::plugin,
                 menu::plugin,
                 status::plugin,

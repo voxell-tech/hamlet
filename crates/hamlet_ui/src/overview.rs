@@ -40,6 +40,8 @@ use crate::{AnyView, chat, tabs, world_menu};
 pub fn plugin(app: &mut App) {
     app.add_plugins(record::plugin)
         .init_resource::<Erasing>()
+        .add_observer(disarm)
+        .add_systems(Update, reconcile_erasing)
         .init_resource::<Search>()
         .init_resource::<Naming>()
         .init_resource::<Page>()
@@ -203,7 +205,31 @@ pub fn overview() -> AnyView {
 }
 
 #[derive(Resource, Default)]
-struct Erasing(Option<String>);
+struct Erasing(Option<(String, i64)>);
+
+#[derive(Component)]
+struct ClosedPanel;
+
+fn disarm(
+    _: bevy::ecs::observer::On<
+        bevy::ecs::lifecycle::Remove,
+        ClosedPanel,
+    >,
+    mut erasing: ResMut<Erasing>,
+) {
+    erasing.0 = None;
+}
+
+fn reconcile_erasing(
+    closed: bevy::ecs::system::Res<Closed>,
+    mut erasing: ResMut<Erasing>,
+) {
+    if erasing.0.as_ref().is_some_and(|(id, at)| {
+        !closed.0.iter().any(|h| &h.id == id && h.at == *at)
+    }) {
+        erasing.0 = None;
+    }
+}
 
 fn closed() -> AnyView {
     keyed(
@@ -236,6 +262,8 @@ fn closed() -> AnyView {
                                 .resource::<Deeds>()
                                 .has("restore-hamlet")
                             {
+                                world.resource_mut::<Erasing>().0 =
+                                    None;
                                 chat::decree(
                                     world,
                                     HOME,
@@ -247,12 +275,13 @@ fn closed() -> AnyView {
                 }
                 if *erase {
                     let id = hamlet.id.clone();
+                    let at = hamlet.at;
                     actions.push(crate::looks::bad_action(
                         Glyph::Gone,
                         "DELETE FOR GOOD",
                         move |world| {
                             world.resource_mut::<Erasing>().0 =
-                                Some(id.clone())
+                                Some((id.clone(), at))
                         },
                     ));
                 }
@@ -265,8 +294,12 @@ fn closed() -> AnyView {
                     .gap(4.0)
                     .boxed(),
                 );
-                if *erase && asking.as_ref() == Some(&hamlet.id) {
+                if *erase
+                    && asking.as_ref()
+                        == Some(&(hamlet.id.clone(), hamlet.at))
+                {
                     let id = hamlet.id.clone();
+                    let at = hamlet.at;
                     parts.push(
                         column((
                             note(format!(
@@ -292,7 +325,10 @@ fn closed() -> AnyView {
                                                 .resource::<Closed>()
                                                 .0
                                                 .iter()
-                                                .any(|h| h.id == id)
+                                                .any(|h| {
+                                                    h.id == id
+                                                        && h.at == at
+                                                })
                                         {
                                             chat::decree(
                                                 world,
@@ -324,7 +360,7 @@ fn closed() -> AnyView {
             column(parts).gap(8.0).boxed()
         },
     )
-    .within(bare())
+    .within(bare().tagged(ClosedPanel))
     .boxed()
 }
 
@@ -400,6 +436,69 @@ mod tests {
             !shown
                 .iter()
                 .any(|s| s == "RESTORE" || s == "DELETE FOR GOOD")
+        );
+    }
+
+    #[test]
+    fn restoring_or_leaving_the_closed_list_disarms_permanent_deletion()
+     {
+        use crate::me::tests::press;
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let mut state = hamlet_testing::realm::state();
+        state.deeds = Some(vec![
+            "restore-hamlet".into(),
+            "erase-hamlet".into(),
+        ]);
+        state.closed = Some(vec![v0::ClosedHamlet {
+            id: "mill".into(),
+            name: "Mill".into(),
+            at: 100,
+            by: "chief".into(),
+            reason: "Done".into(),
+        }]);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state.clone()),
+        );
+        let root = bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            closed(),
+        );
+        app.update();
+        press(&mut app, "DELETE FOR GOOD");
+        app.update();
+        press(&mut app, "RESTORE");
+        app.update();
+        assert!(
+            !words(&mut app)
+                .contains(&"DELETE MILL FOR GOOD?".into())
+        );
+        press(&mut app, "DELETE FOR GOOD");
+        app.update();
+        app.world_mut().despawn(root);
+        app.update();
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            closed(),
+        );
+        app.update();
+        assert!(
+            !words(&mut app)
+                .contains(&"DELETE MILL FOR GOOD?".into())
+        );
+        press(&mut app, "DELETE FOR GOOD");
+        app.update();
+        state.closed.as_mut().unwrap()[0].at = 200;
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        app.update();
+        app.update();
+        assert!(
+            !words(&mut app)
+                .contains(&"DELETE MILL FOR GOOD?".into())
         );
     }
 

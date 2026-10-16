@@ -86,6 +86,7 @@ fn root() -> AnyView {
                 .within(filling()),
                 menu::open_menu(),
                 world_menu::view(),
+                crate::saving::screen(),
                 hover::view(),
             ))
             .width(percent(100.0))

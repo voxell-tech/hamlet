@@ -5,7 +5,7 @@ use bevy::ecs::prelude::*;
 use bevy::ui::{UiRect, px};
 use bevy_fynix::views::{BehaviorExt, FrameProps, column};
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
-use hamlet_client::messages::Response;
+use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{
     Bylaws, Citizen, Citizens, Deeds, Lived, LivesIn, Mayor, Seen,
@@ -21,6 +21,11 @@ use crate::looks::{bad_action, bare, note};
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Annals>()
         .add_observer(answered)
+        .add_observer(
+            |_: On<Reconnected>, mut annals: ResMut<Annals>| {
+                annals.reconnect = true
+            },
+        )
         .add_systems(Update, refresh);
 }
 
@@ -31,6 +36,8 @@ pub struct Annals {
     pending: Option<String>,
     revision: Option<Seen>,
     text: String,
+    available: bool,
+    reconnect: bool,
 }
 
 impl Annals {
@@ -80,6 +87,7 @@ fn request(world: &mut World, hamlet: Entity, opening: bool) {
     }
     annals.hamlet = Some(hamlet);
     annals.pending = Some(id);
+    annals.available = true;
     annals.revision = revision;
 }
 
@@ -97,6 +105,12 @@ fn answered(response: On<Response>, mut annals: ResMut<Annals>) {
 }
 
 fn refresh(world: &mut World) {
+    let available = world.resource::<Deeds>().has("record");
+    let mut annals = world.resource_mut::<Annals>();
+    let force = annals.reconnect || (available && !annals.available);
+    annals.available = available;
+    annals.reconnect = false;
+
     let panels = world
         .query::<&RecordPanel>()
         .iter(world)
@@ -125,8 +139,11 @@ fn refresh(world: &mut World) {
         .map(|l| l.0)
         .collect::<Vec<_>>();
     for hamlet in panels {
-        if changed.contains(&hamlet) || agents.contains(&hamlet) {
-            request(world, hamlet, false);
+        if force
+            || changed.contains(&hamlet)
+            || agents.contains(&hamlet)
+        {
+            request(world, hamlet, force);
         }
     }
 }
@@ -345,5 +362,87 @@ mod tests {
             app.update();
         }
         assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, v0::ClientMessage::Say(s) if s.text == "/record")).count(), 3);
+    }
+    #[test]
+    fn a_record_lost_at_reconnect_is_requested_again_even_without_realm_changes()
+     {
+        let mut app = panel_app();
+        app.add_plugins(crate::overview::plugin);
+        let mut state = hamlet_testing::realm::state();
+        state.deeds = Some(vec!["record".into()]);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state.clone()),
+        );
+        let agent =
+            hamlet_client::realm::mayor(app.world_mut()).unwrap();
+        let hamlet = app.world().get::<LivesIn>(agent).unwrap().0;
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            record_of(hamlet),
+        );
+        app.update();
+        let first = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .filter_map(|m| match m {
+                v0::ClientMessage::Say(s) if s.text == "/record" => {
+                    Some(s.id)
+                }
+                _ => None,
+            })
+            .last()
+            .unwrap();
+        app.world_mut()
+            .trigger(hamlet_client::messages::Reconnected);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state.clone()),
+        );
+        app.update();
+        let retry = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .find_map(|m| match m {
+                v0::ClientMessage::Say(s) if s.text == "/record" => {
+                    Some(s.id)
+                }
+                _ => None,
+            })
+            .expect("request again after reconnect");
+        assert_ne!(first, retry);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Reply(v0::Reply {
+                to: retry,
+                kind: v0::ReplyKind::Notice,
+                text: "The record recovered".into(),
+                upload: None,
+            }),
+        );
+        app.update();
+        app.update();
+        assert!(
+            words(&mut app).contains(&"The record recovered".into())
+        );
+        state.deeds = Some(vec![]);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state.clone()),
+        );
+        app.update();
+        app.world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .for_each(drop);
+        state.deeds = Some(vec!["record".into()]);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        app.update();
+        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m,v0::ClientMessage::Say(s) if s.text == "/record")));
     }
 }

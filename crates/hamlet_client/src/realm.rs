@@ -576,7 +576,7 @@ fn upsert_agent(
     flag(&mut agent, value.mayor, Mayor);
     flag(&mut agent, value.busy, Busy);
     flag(&mut agent, value.faulted, Faulted);
-    flag(&mut agent, value.left.is_some(), Left);
+
     flag(&mut agent, consulting, Consulting);
     put(
         &mut agent,
@@ -585,7 +585,7 @@ fn upsert_agent(
     if let Some(left) = value.left {
         put(&mut agent, Departure(left));
     } else {
-        agent.remove::<(Departure, MergedInto)>();
+        agent.remove::<(Left, Departure, MergedInto)>();
     }
     if consulted {
         world.trigger(Consulted {
@@ -680,9 +680,10 @@ fn departures(world: &mut World) {
         let host = into.as_ref().and_then(|into| agent(world, into));
         let mut entity = world.entity_mut(entity);
         if let Some(host) = host {
-            put(&mut entity, MergedInto(host));
+            entity.insert((MergedInto(host), Left));
         } else {
             entity.remove::<MergedInto>();
+            entity.insert(Left);
         }
     }
 }

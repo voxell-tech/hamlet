@@ -644,3 +644,42 @@ pub(crate) fn camera(app: &mut App, eye: Vec3, target: Vec3) {
         GlobalTransform::from(at),
     ));
 }
+
+#[test]
+fn a_live_received_merge_builds_a_wing_and_a_restore_splits_it() {
+    let mut app = bare();
+    let mut state = realm::state();
+    state.agents.extend([
+        realm::agent("home", 1, "scout"),
+        realm::agent("home", 2, "smith"),
+    ]);
+    receive(app.world_mut(), v0::ServerMessage::State(state.clone()));
+    app.update();
+    let mut gone = state.agents[1].clone();
+    gone.left = Some(serde_json::from_value(serde_json::json!({
+        "how":"merged", "into":{"hamlet":"home","number":2}, "at":1000,"by":"chief","reason":"Together","words":""
+    })).unwrap());
+    receive(
+        app.world_mut(),
+        v0::ServerMessage::Change(v0::Changes {
+            epoch: 1,
+            revision: 1,
+            changes: vec![v0::Update::Agent { agent: gone }],
+        }),
+    );
+    app.update();
+    assert_eq!(agent(&mut app, 2).wings, 1);
+    receive(
+        app.world_mut(),
+        v0::ServerMessage::Change(v0::Changes {
+            epoch: 1,
+            revision: 2,
+            changes: vec![v0::Update::Agent {
+                agent: state.agents[1].clone(),
+            }],
+        }),
+    );
+    app.update();
+    assert_eq!(agent(&mut app, 2).wings, 0);
+    assert!(!agent(&mut app, 1).archived);
+}

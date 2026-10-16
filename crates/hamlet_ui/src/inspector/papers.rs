@@ -129,6 +129,7 @@ pub(super) fn edited(saved: On<Edited>, mut commands: Commands) {
                 text: saved.text,
             })
         });
+        crate::saving::track(world, id.clone());
         let mut requests = world.resource_mut::<Requests>();
         requests
             .documents
@@ -225,10 +226,7 @@ pub(super) fn response(reply: On<Response>, mut commands: Commands) {
                     {
                         Some(doc) => doc.key.clone(),
                         None => {
-                            let key = format!(
-                                "character-{}",
-                                requests.documents.len()
-                            );
+                            let key = format!("character-{}-{}", agent.hamlet, agent.agent);
                             requests.documents.push(Document {
                                 key: key.clone(),
                                 agent,

@@ -29,6 +29,28 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(Last, (final_watch, exit).chain());
 }
 
+/// Reads the last editor saves before a close is considered.
+pub fn poll(world: &mut World) {
+    if world.contains_resource::<Files>() {
+        let _ = world.run_system_cached(watch);
+        world.flush();
+    }
+}
+
+/// Local recovery copies still watched by the editor.
+pub fn copies(world: &World) -> Vec<PathBuf> {
+    world
+        .get_resource::<Files>()
+        .map(|files| {
+            files
+                .watching
+                .values()
+                .map(|saved| saved.file.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// A document copied to a temporary Markdown file for editing.
 #[derive(Event, Clone, Debug)]
 pub struct Edit {
