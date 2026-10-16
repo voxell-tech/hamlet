@@ -147,8 +147,9 @@ it("summarises at the selected 80% threshold and keeps the unanswered message ex
     const watch = await watchChat(
         home,
         { with: { hamlet: "home", agent: "mayor" } },
-        (message) => {
-            shown.push(message);
+        (outcome) => {
+            if (!outcome.ok) throw new Error("Chat refused");
+            shown.push(outcome.value);
         },
         undefined,
         context,

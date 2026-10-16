@@ -119,6 +119,7 @@ export const COMMANDS = TABLE.map(([deed, args, description]) => ({
 /** The chief's command names carried out by the server (H26). */
 export const DEEDS = TABLE.map(([deed]) => deed);
 
+/** A parsed typed command; unrecognized lines remain words for the agent. */
 export type Command =
     | { command: "deed"; deed: string; rest: string }
     | { command: "to"; agent: string; text: string }
@@ -140,24 +141,44 @@ export type Command =
     | { command: "mode"; mode: "manual" | "auto" }
     | { command: "give"; agent: string; skill: string; from?: string };
 
-/** A chief's command, a usage error, or words to the agent (H24). */
+/** A command that needs corrected arguments before it can run. */
+export type CommandFailure =
+    | { kind: "usage"; command: string; args: string }
+    | { kind: "needs-number" };
+
+/** Chief-facing correction for a parsed command's arguments. */
+export function commandFailureText(failure: CommandFailure): string {
+    switch (failure.kind) {
+        case "usage":
+            return failure.command === "/reply"
+                ? "say what to reply: /reply <text>"
+                : `usage: ${failure.command} ${failure.args}`.trim();
+        case "needs-number":
+            return "Say which: `/resume <number>`, with the number History shows for a past session.";
+    }
+    const unhandled: never = failure;
+    throw new Error(`Unclassified command failure: ${unhandled}`);
+}
+
+/** A chief's command, a classified argument failure, or words to the agent (H24). */
 export function readCommand(
     text: string,
-): Command | { error: string; kind?: "error" } | undefined {
+): Command | CommandFailure | undefined {
     const match = /^(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
     const definition = COMMANDS.find((each) => each.name === match?.[1]);
     if (definition === undefined) return undefined;
     const rest = (match?.[2] ?? "").trim();
-    const usage = (kind?: "error") => ({
-        error: `usage: ${definition.name} ${definition.args}`.trim(),
-        ...(kind === undefined ? {} : { kind }),
+    const usage = (): CommandFailure => ({
+        kind: "usage",
+        command: definition.name,
+        args: definition.args,
     });
     switch (definition.deed) {
         case "to": {
             const to = /^(\S+)\s+([\s\S]+)$/.exec(rest);
             return to?.[1] && to[2]
                 ? { command: "to", agent: to[1], text: to[2] }
-                : usage("error");
+                : usage();
         }
         case "new":
         case "retry":
@@ -171,9 +192,7 @@ export function readCommand(
         case "resume":
             if (rest === "") return { command: "resume", number: null };
             if (!/^\d+$/.test(rest) || !Number.isSafeInteger(Number(rest)))
-                return {
-                    error: "Say which: `/resume <number>`, with the number History shows for a past session.",
-                };
+                return { kind: "needs-number" };
             return { command: "resume", number: Number(rest) };
         case "stop":
             return {
@@ -187,8 +206,7 @@ export function readCommand(
         case "withdraw":
         case "dismiss":
         case "reply":
-            if (definition.deed === "reply" && rest === "")
-                return { error: "say what to reply: /reply <text>" };
+            if (definition.deed === "reply" && rest === "") return usage();
             return { command: "answer", choice: definition.deed, text: rest };
         case "revoke": {
             const [agent, permission, extra] = rest.split(/\s+/);
@@ -205,7 +223,7 @@ export function readCommand(
         case "mode":
             return rest === "manual" || rest === "auto"
                 ? { command: "mode", mode: rest }
-                : usage("error");
+                : usage();
         case "give": {
             const [agent, skill, word, from, extra] = rest.split(/\s+/);
             if (
@@ -214,7 +232,7 @@ export function readCommand(
                 extra !== undefined ||
                 (word !== undefined && (word !== "from" || !from))
             )
-                return usage("error");
+                return usage();
             return {
                 command: "give",
                 agent,

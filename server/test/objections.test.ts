@@ -145,7 +145,7 @@ it("asks three questions per turn, accepting a typed reply and a dismissal (H10)
             },
             context,
         ),
-    ).toMatchObject({ kind: "notice" });
+    ).toMatchObject({ ok: true });
     await rule(home, await waiting(home), "dismiss");
     await rule(home, await waiting(home), "reply", "First edition.");
     expect(await submission.wait(context)).toMatchObject({ status: "done" });

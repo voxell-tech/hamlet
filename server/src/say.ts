@@ -1,8 +1,6 @@
 import type { Context } from "@earendil-works/chord";
 import type { Submission } from "@earendil-works/pi-durable";
 import * as agents from "./agents.ts";
-import * as leaving from "./agents.ts";
-import * as merging from "./agents.ts";
 import {
     ChatDoc,
     historyOf,
@@ -22,54 +20,41 @@ import { giftSkill } from "./house.ts";
 import * as library from "./library.ts";
 import { LimitsDoc, limitsOf } from "./limits.ts";
 import { OversightDoc, queue, strip } from "./oversight.ts";
-import type { Reply, Say } from "./protocol.ts";
+import type { Say } from "./protocol.ts";
 import * as founding from "./realm.ts";
-import { chiefAccess, chiefRefusalText, resolve } from "./realm.ts";
+import { type ChiefResult, chiefAccess, resolve } from "./realm.ts";
 import { addressed, agentKey } from "./record.ts";
-import { safeWords } from "./scrub.ts";
+import { err, ok, type Result } from "./result.ts";
+import type { ChiefFailure, Receipt } from "./server.ts";
 import { reportOf, resetBudget } from "./spend.ts";
 import * as voting from "./votes.ts";
 
-/** A chief's typed line, dispatched as a command or admitted as scrubbed words (H24, C32). */
+/** A chief's typed line: a receipt or refusal, or no immediate outcome when admitted as work. Stored words are scrubbed (H24, C32). */
 export async function say(
     home: Home,
     message: Say,
     context: Context,
     submitted?: (submission: Submission) => void,
-): Promise<Reply | undefined> {
+): Promise<Result<Receipt, ChiefFailure> | undefined> {
     const access = await chiefAccess(home, message.to.hamlet, "say", context);
-    if (!access.ok) return reply(message.id, chiefRefusalText(access), "error");
-    const text = safeWords(home, message.text);
+    if (!access.ok) return access;
+    const text = home.secrets.words(message.text);
     const command = readCommand(text);
-    if (command !== undefined && "error" in command)
-        return reply(message.id, command.error, command.kind);
+    if (command !== undefined && "kind" in command) return err(command);
     if (command?.command === "deed") {
-        try {
-            const deed = DEED_HANDLERS[command.deed];
-            if (!deed)
-                return reply(message.id, "Choose that address in your client.");
-            return reply(
-                message.id,
-                await deed(
-                    home,
-                    {
-                        hamlet: message.to.hamlet,
-                        rest: command.rest,
-                        chief: home.chief,
-                    },
-                    context,
-                ),
-            );
-        } catch (error) {
-            return reply(
-                message.id,
-                safeWords(
-                    home,
-                    error instanceof Error ? error.message : String(error),
-                ),
-                "error",
-            );
-        }
+        const deed = DEED_HANDLERS[command.deed];
+        if (!deed) return receipt("Choose that address in your client.");
+        return receipt(
+            await deed(
+                home,
+                {
+                    hamlet: message.to.hamlet,
+                    rest: command.rest,
+                    chief: home.chief,
+                },
+                context,
+            ),
+        );
     }
     if (command?.command === "to") {
         const target = await resolve(
@@ -86,8 +71,7 @@ export async function say(
             "instruct",
             context,
         );
-        if (!access.ok)
-            return reply(message.id, chiefRefusalText(access), "error");
+        if (!access.ok) return access;
         const sub = await submitLine(
             home,
             { agent: target.ref, chief: home.chief },
@@ -99,11 +83,10 @@ export async function say(
     }
     if (command?.command === "budget") {
         const report = await reportOf(home, message.to.hamlet, context);
-        return reply(message.id, [report.summary, ...report.lines].join("\n"));
+        return receipt([report.summary, ...report.lines].join("\n"));
     }
     if (command?.command === "reset-budget")
-        return reply(
-            message.id,
+        return receipt(
             await resetBudget(home, message.to.hamlet, home.chief, context),
         );
     if (command?.command === "grants") {
@@ -125,8 +108,7 @@ export async function say(
                     `${grant.name} may use: ${grant.permission} (given by ${grant.by}; /revoke ${grant.name} ${grant.permission})`,
             ),
         );
-        return reply(
-            message.id,
+        return receipt(
             lines.length === 0
                 ? "No agent holds a permission."
                 : lines.join("\n"),
@@ -160,8 +142,7 @@ export async function say(
         const limits = limitsOf(
             await home.harness.snapshot(LimitsDoc, hamlet, context),
         );
-        return reply(
-            message.id,
+        return receipt(
             limits.permissions[command.permission].includes(command.agent)
                 ? `Revoked what was granted. \`${command.agent}\` still has ${command.permission} under [permissions] in limits.toml.`
                 : `\`${command.agent}\` no longer has ${command.permission}.`,
@@ -172,55 +153,34 @@ export async function say(
         command?.command === "mode" ||
         command?.command === "give"
     ) {
-        try {
-            const text =
-                command.command === "folder"
-                    ? await folder(
-                          home,
-                          message.to.hamlet,
-                          command.path,
-                          context,
-                      )
-                    : command.command === "mode"
-                      ? await setMode(
-                            home,
-                            message.to.hamlet,
-                            command.mode,
-                            context,
-                        )
-                      : await giftSkill(
-                            home,
-                            { hamlet: message.to.hamlet, agent: command.agent },
-                            command.skill,
-                            command.from === undefined
-                                ? undefined
-                                : {
-                                      hamlet: message.to.hamlet,
-                                      agent: command.from,
-                                  },
-                            context,
-                        );
-            return typeof text === "string" || text.ok
-                ? reply(
-                      message.id,
-                      typeof text === "string" ? text : text.value,
-                  )
-                : reply(message.id, chiefRefusalText(text), "error");
-        } catch (error) {
-            return reply(
-                message.id,
-                safeWords(
-                    home,
-                    error instanceof Error ? error.message : String(error),
-                ),
-                "error",
-            );
-        }
+        const text =
+            command.command === "folder"
+                ? await folder(home, message.to.hamlet, command.path, context)
+                : command.command === "mode"
+                  ? await setMode(
+                        home,
+                        message.to.hamlet,
+                        command.mode,
+                        context,
+                    )
+                  : await giftSkill(
+                        home,
+                        { hamlet: message.to.hamlet, agent: command.agent },
+                        command.skill,
+                        command.from === undefined
+                            ? undefined
+                            : {
+                                  hamlet: message.to.hamlet,
+                                  agent: command.from,
+                              },
+                        context,
+                    );
+        return receipt(text);
     }
     if (command?.command === "stop") {
         if (command.agent === null) {
             await stopChiefAgents(home, context);
-            return reply(message.id, "Stopping everything.");
+            return receipt("Stopping everything.");
         }
         const target = await resolve(
             home.harness,
@@ -228,18 +188,12 @@ export async function say(
             command.agent,
             context,
         );
-        if (!target)
-            return reply(
-                message.id,
-                `no agent named \`${command.agent}\``,
-                "error",
-            );
-        if ("gone" in target) return reply(message.id, target.gone, "error");
+        if (!target) throw new Error(`no agent named \`${command.agent}\``);
+        if ("gone" in target) throw new Error(target.gone);
         const access = await chiefAccess(home, target.hamlet, "stop", context);
-        if (!access.ok)
-            return reply(message.id, chiefRefusalText(access), "error");
+        if (!access.ok) return access;
         await stopAgent(home, target.ref, context);
-        return reply(message.id, `Stopping ${command.agent}.`);
+        return receipt(`Stopping ${command.agent}.`);
     }
     const target = await resolve(
         home.harness,
@@ -257,82 +211,67 @@ export async function say(
             command?.command === "retry")
     ) {
         const chat = { agent, chief: home.chief };
-        try {
-            switch (command.command) {
-                case "new":
-                    await newChat(home, chat, context);
-                    return reply(message.id, "Started a new session.");
-                case "resume":
-                    if (command.number === null) {
-                        const past = (
-                            await historyOf(home, chat, context)
-                        ).filter((each) => !each.current);
-                        return reply(
-                            message.id,
-                            past.length === 0
-                                ? "There are no past sessions here."
-                                : past
-                                      .map(
-                                          (each) =>
-                                              `${each.number}: ${each.title} (${each.messages} messages, ${each.tokens} tokens; ${new Date(each.began).toISOString()})`,
-                                      )
-                                      .join("\n"),
-                        );
-                    }
-                    if (
-                        !(
-                            await home.harness.snapshot(
-                                ChatDoc,
-                                agentKey(agent),
-                                context,
-                            )
-                        )?.chats[home.chief]?.conversations.some(
-                            (each) => each.number === command.number,
-                        )
-                    )
-                        return reply(
-                            message.id,
-                            `There is no past session \`${command.number}\` here.`,
-                        );
-                    await resumeChat(home, chat, command.number, context);
-                    return reply(
-                        message.id,
-                        "Went back to an earlier session.",
+
+        switch (command.command) {
+            case "new":
+                await newChat(home, chat, context);
+                return receipt("Started a new session.");
+            case "resume":
+                if (command.number === null) {
+                    const past = (await historyOf(home, chat, context)).filter(
+                        (each) => !each.current,
                     );
-                case "reflect":
-                    {
-                        const reflection = await reflect(home, chat, context);
-                        if (reflection !== undefined) submitted?.(reflection);
-                    }
-                    return undefined;
-                case "retry":
-                    if (
-                        !(
-                            await home.harness.snapshot(
-                                ChatDoc,
-                                agentKey(agent),
-                                context,
-                            )
-                        )?.chats[home.chief]
+                    return receipt(
+                        past.length === 0
+                            ? "There are no past sessions here."
+                            : past
+                                  .map(
+                                      (each) =>
+                                          `${each.number}: ${each.title} (${each.messages} messages, ${each.tokens} tokens; ${new Date(each.began).toISOString()})`,
+                                  )
+                                  .join("\n"),
+                    );
+                }
+                if (
+                    !(
+                        await home.harness.snapshot(
+                            ChatDoc,
+                            agentKey(agent),
+                            context,
+                        )
+                    )?.chats[home.chief]?.conversations.some(
+                        (each) => each.number === command.number,
                     )
-                        return reply(
-                            message.id,
-                            "the last message was answered, so there is nothing to carry on",
-                        );
-                    {
-                        const continued = await retry(home, chat, context);
-                        submitted?.(continued);
-                    }
-                    return undefined;
-            }
-        } catch (error) {
-            return reply(
-                message.id,
-                safeWords(
-                    home,
-                    error instanceof Error ? error.message : String(error),
-                ),
-            );
+                )
+                    return receipt(
+                        `There is no past session \`${command.number}\` here.`,
+                    );
+                await resumeChat(home, chat, command.number, context);
+                return receipt("Went back to an earlier session.");
+            case "reflect":
+                {
+                    const reflection = await reflect(home, chat, context);
+                    if (reflection !== undefined) submitted?.(reflection);
+                }
+                return undefined;
+            case "retry":
+                if (
+                    !(
+                        await home.harness.snapshot(
+                            ChatDoc,
+                            agentKey(agent),
+                            context,
+                        )
+                    )?.chats[home.chief]
+                )
+                    return receipt(
+                        "the last message was answered, so there is nothing to carry on",
+                    );
+                {
+                    const continued = await retry(home, chat, context);
+                    submitted?.(continued);
+                }
+                return undefined;
         }
     }
     const waits = queue(await home.harness.snapshot(OversightDoc, context));
@@ -357,8 +296,7 @@ export async function say(
                 wait.agent.number === agent.number,
         );
     if (command?.command === "queue")
-        return reply(
-            message.id,
+        return receipt(
             waits.length === 0
                 ? "Nothing waits for you."
                 : waits
@@ -370,31 +308,19 @@ export async function say(
         );
     if (command?.command === "answer") {
         const wait = own ?? waits[0];
-        if (wait === undefined)
-            return reply(message.id, "Nothing waits for you.");
-        try {
-            const outcome = await answerWords(
-                home,
-                {
-                    wait: wait.id,
-                    choice: command.choice,
-                    text: command.text,
-                    chief: home.chief,
-                },
-                context,
-            );
-            return outcome.ok
-                ? reply(message.id, outcome.value)
-                : reply(message.id, chiefRefusalText(outcome), "error");
-        } catch (error) {
-            return reply(
-                message.id,
-                safeWords(
-                    home,
-                    error instanceof Error ? error.message : String(error),
-                ),
-            );
-        }
+        if (wait === undefined) return receipt("Nothing waits for you.");
+
+        const outcome = await answerWords(
+            home,
+            {
+                wait: wait.id,
+                choice: command.choice,
+                text: command.text,
+                chief: home.chief,
+            },
+            context,
+        );
+        return receipt(outcome);
     }
     if (!command && own?.kind === "question") {
         const outcome = await answerWords(
@@ -402,17 +328,14 @@ export async function say(
             { wait: own.id, choice: "reply", text, chief: home.chief },
             context,
         );
-        return outcome.ok
-            ? reply(message.id, outcome.value)
-            : reply(message.id, chiefRefusalText(outcome), "error");
+        return receipt(outcome);
     }
     if (
         !text.trimStart().startsWith("/") &&
         own !== undefined &&
         (own.kind === "approval" || own.kind === "objection")
     )
-        return reply(
-            message.id,
+        return receipt(
             `Not sent. ${own.by} is waiting for your answer:\n${strip(own)}`,
         );
     if (agent === undefined) {
@@ -428,23 +351,22 @@ export async function say(
     return undefined;
 }
 
-function reply(
-    to: string,
-    text: string,
-    kind: "notice" | "error" = "notice",
-): Reply {
-    return { type: "reply", to, kind, text };
+function receipt(
+    outcome: string | ChiefResult<string>,
+): Result<Receipt, ChiefFailure> {
+    if (typeof outcome === "string") return ok({ text: outcome });
+    return outcome.ok ? ok({ text: outcome.value }) : outcome;
 }
 
 const DEED_HANDLERS: Record<string, Deed> = {
     road: agents.road,
     unroad: agents.unroad,
-    remove: leaving.remove,
-    restore: leaving.restore,
-    erase: leaving.erase,
-    record: leaving.record,
-    undo: leaving.undo,
-    merge: merging.merge,
+    remove: agents.remove,
+    restore: agents.restore,
+    erase: agents.erase,
+    record: agents.record,
+    undo: agents.undo,
+    merge: agents.merge,
     vote: voting.vote,
     votes: voting.votes,
     overturn: voting.overturn,

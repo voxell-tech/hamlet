@@ -143,7 +143,7 @@ it("streams sign-in URLs, codes and progress, scrubs a failed step, and binds ev
             reply: { login: prompt.login, value: "not-yours" },
         }),
     ).toMatchObject({
-        kind: "error",
+        type: "fault",
         text: "There is no sign-in here with that id.",
     });
     run.connection.send({

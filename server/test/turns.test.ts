@@ -7,15 +7,9 @@ import { expect, it, vi } from "vitest";
 import { ChatDoc, chiefInput, notify } from "../src/chats.ts";
 import { scriptedModels } from "../src/models.ts";
 import type { Item, ServerMessage, UsageView } from "../src/protocol.ts";
+import { applyOp } from "../src/protocol.ts";
 import { RecordDoc } from "../src/record.ts";
-import {
-    chat,
-    fold,
-    mayor,
-    request,
-    say,
-    served,
-} from "./connection-support.ts";
+import { chat, mayor, request, say, served } from "./connection-support.ts";
 import {
     addAgent,
     context,
@@ -36,7 +30,7 @@ function held(messages: ServerMessage[]) {
         }
         if (message.type !== "turn") continue;
         for (const op of message.ops) {
-            fold(items, status, op);
+            applyOp(items, status, op);
             if (op.op === "usage") usage = op.usage;
         }
     }

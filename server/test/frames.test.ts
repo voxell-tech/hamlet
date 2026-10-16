@@ -11,6 +11,7 @@ import type { HomeOptions } from "../src/home.ts";
 import { houseOf } from "../src/home.ts";
 import { type Script, scriptedModels } from "../src/models.ts";
 import {
+    applyOp,
     type ClientMessage,
     type Item,
     parseClient,
@@ -24,7 +25,6 @@ import {
     agents,
     changes,
     chat,
-    fold,
     mayor,
     received,
     request,
@@ -94,7 +94,7 @@ for (const name of scenarios)
                 const parsed = (
                     frame.from === "client" ? parseClient : parseServer
                 )(JSON.stringify(frame.message));
-                expect(parsed).toHaveProperty("message", frame.message);
+                expect(parsed).toHaveProperty("value", frame.message);
                 return frame;
             });
         expect(frames[0]).toEqual({
@@ -199,7 +199,7 @@ function live(messages: ServerMessage[]): Item[] {
         if (message.type === "transcript")
             items.splice(0, items.length, ...structuredClone(message.items));
         if (message.type !== "turn") continue;
-        for (const op of message.ops) fold(items, status, op);
+        for (const op of message.ops) applyOp(items, status, op);
     }
     return items;
 }

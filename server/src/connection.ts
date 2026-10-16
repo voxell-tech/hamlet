@@ -5,6 +5,7 @@ import {
     type ClientMessage,
     type Fault,
     type Hello,
+    type Malformed,
     parseClient,
     parseServer,
     type ServerMessage,
@@ -17,9 +18,16 @@ export type Request = Exclude<ClientMessage, Hello>;
 /** A connection at the server's end. */
 export type Client = {
     send(message: ServerMessage): void;
+    /** Reports a detached handler's defect through the same path as a thrown handler. */
+    fail(error: unknown, to?: string): void;
     /** Aborted once the connection closes. */
     readonly signal: AbortSignal;
 };
+
+/** A transport rejection or an unexpected failure while serving a connection. */
+export type ConnectionFailure =
+    | { kind: "connection"; text: string }
+    | { kind: "defect"; cause: unknown };
 
 type Answered<M> = M | undefined | Promise<M | undefined>;
 
@@ -87,6 +95,13 @@ export async function serve(options: {
     token: string;
     port: number;
     handlers: Handlers;
+    /** Renders connection failures with the home's credential scrubbing. */
+    fault?: (
+        to: string | undefined,
+        failure: ConnectionFailure | Malformed,
+    ) => Fault;
+    /** Records the cause of a defect, with its request id when available. */
+    report?: (error: unknown, to?: string) => void;
     /** Time a connection has to say hello. */
     helloMs?: number;
 }): Promise<Server> {
@@ -106,7 +121,15 @@ export async function serve(options: {
     const members = new Map<WebSocket, ServerMessage[] | undefined>();
     const helloMs = options.helloMs ?? HELLO_MS;
     sockets.on("connection", (socket) =>
-        accept(socket, options.token, options.handlers, members, helloMs),
+        accept(
+            socket,
+            options.token,
+            options.handlers,
+            members,
+            helloMs,
+            options.fault,
+            options.report,
+        ),
     );
     let closing: Promise<void> | undefined;
     return {
@@ -140,22 +163,46 @@ function accept(
     handlers: Handlers,
     members: Map<WebSocket, ServerMessage[] | undefined>,
     helloMs: number,
+    render: (
+        to: string | undefined,
+        failure: ConnectionFailure | Malformed,
+    ) => Fault = (to, failure) =>
+        fault(
+            failure.kind === "malformed"
+                ? failure.text
+                : connectionFailureText(failure),
+            to,
+        ),
+    report: (error: unknown, to?: string) => void = (error, to) =>
+        console.error(
+            `Request ${to ?? "(connection)"} failed: ${connectionFailureText({ kind: "defect", cause: error })}`,
+        ),
 ): void {
     const closed = new AbortController();
     const client: Client = {
         send: (message) => send(socket, message),
         signal: closed.signal,
+        fail: (error, to) => {
+            report(error, to);
+            send(socket, render(to, { kind: "defect", cause: error }));
+        },
     };
     let welcomed = false;
     let refused = false;
     let handled = Promise.resolve();
-    const late = setTimeout(() => refuse(BEGIN, REFUSED), helloMs);
+    const late = setTimeout(
+        () => refuse({ kind: "connection", text: BEGIN }, REFUSED),
+        helloMs,
+    );
     socket.on("message", (data) => {
         // A failure outside a request's handler, such as a state that cannot
         // be sent, ends the connection.
         handled = handled
             .then(() => receive(String(data)))
-            .catch((error: unknown) => refuse(reason(error), FAILED));
+            .catch((error: unknown) => {
+                report(error);
+                refuse({ kind: "defect", cause: error }, FAILED);
+            });
     });
     // An error is followed by the close.
     socket.on("error", () => {});
@@ -166,46 +213,65 @@ function accept(
     });
 
     // Anything the client sent after the refused message is dropped.
-    function refuse(text: string, code: number): void {
+    function refuse(
+        failure: ConnectionFailure | Malformed,
+        code: number,
+    ): void {
         refused = true;
         clearTimeout(late);
         members.delete(socket);
-        send(socket, fault(text));
-        socket.close(code, code === TOO_LARGE ? text : undefined);
+        const message = render(undefined, failure);
+        send(socket, message);
+        socket.close(code, code === TOO_LARGE ? message.text : undefined);
     }
 
     async function receive(text: string): Promise<void> {
         if (refused) return;
         const parsed = parseClient(text);
         if (!welcomed) {
-            if ("malformed" in parsed) return refuse(parsed.malformed, REFUSED);
-            if (parsed.message.type !== "hello") return refuse(BEGIN, REFUSED);
-            if (!same(parsed.message.token, token)) {
-                return refuse("That is not this server's token.", REFUSED);
+            if (!parsed.ok) return refuse(parsed.error, REFUSED);
+            if (parsed.value.type !== "hello")
+                return refuse({ kind: "connection", text: BEGIN }, REFUSED);
+            if (!same(parsed.value.token, token)) {
+                return refuse(
+                    {
+                        kind: "connection",
+                        text: "That is not this server's token.",
+                    },
+                    REFUSED,
+                );
             }
             clearTimeout(late);
-            return welcome(parsed.message);
+            return welcome(parsed.value);
         }
-        if ("malformed" in parsed) {
-            return send(socket, fault(parsed.malformed, parsed.to));
+        if (!parsed.ok) {
+            return send(socket, render(parsed.error.to, parsed.error));
         }
-        const message = parsed.message;
+        const message = parsed.value;
         if (message.type === "hello") {
-            return send(socket, fault("This connection said hello already."));
+            return send(
+                socket,
+                render(undefined, {
+                    kind: "connection",
+                    text: "This connection said hello already.",
+                }),
+            );
         }
         const id = "id" in message ? message.id : undefined;
+        // SAFETY: the same parsed discriminant selects the handler and its message; TypeScript loses that correlation through indexed mapped types.
+        // Verified by: connection.test.ts handles a client's messages one at a time, in the order they came.
         const handler = handlers[message.type] as
             | ((message: Request, client: Client) => Answered<ServerMessage>)
             | undefined;
         if (handler === undefined) {
             const text = `This server does not take \`${message.type}\` messages.`;
-            return send(socket, fault(text, id));
+            return send(socket, render(id, { kind: "connection", text }));
         }
         try {
             const answer = await handler(message, client);
             if (answer !== undefined) send(socket, answer);
         } catch (error) {
-            send(socket, fault(reason(error), id));
+            client.fail(error, id);
         }
     }
 
@@ -231,8 +297,18 @@ function fault(text: string, to?: string): Fault {
         : { type: "fault", text, to };
 }
 
-function reason(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+/** Public wording for a transport rejection or a defect; credential scrubbing belongs to the envelope. */
+export function connectionFailureText(failure: ConnectionFailure): string {
+    switch (failure.kind) {
+        case "connection":
+            return failure.text;
+        case "defect":
+            return failure.cause instanceof Error
+                ? failure.cause.message
+                : String(failure.cause);
+    }
+    const unhandled: never = failure;
+    throw new Error(`Unclassified connection failure: ${unhandled}`);
 }
 
 /** True when `given` is `token`, taking the same time either way. */
@@ -261,8 +337,7 @@ export async function connect(url: string): Promise<Connection> {
     let ended: Error | undefined;
     socket.on("message", (data) => {
         const parsed = parseServer(String(data));
-        const item =
-            "message" in parsed ? parsed.message : new Error(parsed.malformed);
+        const item = parsed.ok ? parsed.value : new Error(parsed.error.text);
         const wait = waiting.shift();
         if (wait === undefined) arrived.push(item);
         else wait(item);

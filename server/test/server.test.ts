@@ -2,16 +2,16 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { type Connection, connect } from "../src/connection.ts";
 import { type Script, scriptedModels } from "../src/models.ts";
-import type {
-    Item,
-    Op,
-    Say,
-    ServerMessage,
-    Transcript,
+import {
+    applyOp,
+    type Item,
+    type Op,
+    type Say,
+    type ServerMessage,
+    type Transcript,
 } from "../src/protocol.ts";
 import { serveHome } from "../src/server.ts";
 import { SettingsDoc } from "../src/settings.ts";
-import { fold } from "./connection-support.ts";
 import {
     CHIEF,
     closeAfter,
@@ -77,7 +77,7 @@ async function view(home: { url: string; token: string }): Promise<Viewer> {
             if (message.type === "turn") {
                 for (const op of message.ops) {
                     ops.push(op);
-                    fold(items, status, op);
+                    applyOp(items, status, op);
                 }
             }
         }

@@ -37,12 +37,13 @@ import type {
     Item,
     LastActivity,
     Op,
-    ServerMessage,
     Transcript,
+    Turn,
     UsageView,
 } from "./protocol.ts";
-import { type ChiefResult, chiefAccess, chiefRefusalText } from "./realm.ts";
+import { type ChiefResult, chiefAccess } from "./realm.ts";
 import { addressed, agentKey, RecordDoc } from "./record.ts";
+import { ok } from "./result.ts";
 import { Scrubber } from "./scrub.ts";
 import { agentConversation } from "./transcript/peer.ts";
 
@@ -59,12 +60,12 @@ export type ChatWatch = {
 
 /**
  * Watches `chat` for its chief: sends its transcript as it stands, with `to` when it answers a request, then a `turn`
- * for each step as it happens (C30, S5). Applied in order, the steps give the transcript read again.
+ * for each step as it happens (C30, S5). Sends typed access refusals for the envelope to render, with the opening request id until the first transcript.
  */
 export async function watchChat(
     home: Home,
     chat: ChatRef,
-    send: (message: ServerMessage) => void,
+    send: (outcome: ChiefResult<Transcript | Turn>, to?: string) => void,
     to: string | undefined,
     context: Context,
     before?: string,
@@ -83,11 +84,7 @@ export async function watchChat(
         const outcome = await conversationOf(home, chat, context);
         if (!outcome.ok) {
             await watch?.stop();
-            send({
-                type: "fault",
-                ...(to === undefined ? {} : { to }),
-                text: chiefRefusalText(outcome),
-            });
+            send(outcome, to);
             return;
         }
         const conversation = outcome.value;
@@ -109,12 +106,14 @@ export async function watchChat(
         let usage = await usageOf(home, conversation.id, context);
         if (stopped) return;
         const transcript = transcriptOf(chat, fold, usage, before);
-        if (rebound) send({ type: "turn", chat, ops: [{ op: "reset" }] });
-        send({
-            ...transcript,
-            ...(number === undefined ? {} : { number }),
-            ...(to === undefined ? {} : { to }),
-        });
+        if (rebound) send(ok({ type: "turn", chat, ops: [{ op: "reset" }] }));
+        send(
+            ok({
+                ...transcript,
+                ...(number === undefined ? {} : { number }),
+                ...(to === undefined ? {} : { to }),
+            }),
+        );
         to = undefined;
         before = undefined;
         watch.start(async (value, updates) => {
@@ -131,9 +130,10 @@ export async function watchChat(
             }
             if (stopped || id !== conversation.id) return;
             const numbered = number === undefined ? {} : { number };
-            if (ops.length > 0) send({ type: "turn", chat, ...numbered, ops });
+            if (ops.length > 0)
+                send(ok({ type: "turn", chat, ...numbered, ops }));
             if (ops.some((op) => op.op === "reset"))
-                send({ ...transcriptOf(chat, fold, usage), ...numbered });
+                send(ok({ ...transcriptOf(chat, fold, usage), ...numbered }));
         });
     };
     const agent = await addressed(home.harness, chat.with, context);

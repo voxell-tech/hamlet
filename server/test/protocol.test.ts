@@ -3,10 +3,13 @@ import Schema, { type XSchema } from "typebox/schema";
 import { describe, expect, it } from "vitest";
 import {
     type Agent,
+    applyOp,
     type ClientMessage,
+    checkEdit,
     type Hamlet,
     type Item,
     type Limits,
+    type Op,
     parseClient,
     parseServer,
     protocolSchema,
@@ -523,11 +526,17 @@ describe("protocol v0", () => {
 
     it("takes the example of each message, by its definitions and by the exported schema", () => {
         for (const message of Object.values(fromClient).flat()) {
-            expect(parseClient(JSON.stringify(message))).toEqual({ message });
+            expect(parseClient(JSON.stringify(message))).toEqual({
+                ok: true,
+                value: message,
+            });
             expect(Schema.Check(exported, message)).toBe(true);
         }
         for (const message of Object.values(fromServer).flat()) {
-            expect(parseServer(JSON.stringify(message))).toEqual({ message });
+            expect(parseServer(JSON.stringify(message))).toEqual({
+                ok: true,
+                value: message,
+            });
             expect(Schema.Check(exported, message)).toBe(true);
         }
     });
@@ -535,11 +544,19 @@ describe("protocol v0", () => {
     it("refuses a message of an unknown type, naming it", () => {
         const message = { type: "shout", id: ID };
         expect(parseClient(JSON.stringify(message))).toEqual({
-            malformed: "There is no `shout` message.",
-            to: ID,
+            ok: false,
+            error: {
+                kind: "malformed",
+                text: "There is no `shout` message.",
+                to: ID,
+            },
         });
         expect(parseServer(JSON.stringify({ type: "say" }))).toEqual({
-            malformed: "There is no `say` message.",
+            ok: false,
+            error: {
+                kind: "malformed",
+                text: "There is no `say` message.",
+            },
         });
         expect(Schema.Check(exported, message)).toBe(false);
     });
@@ -547,9 +564,12 @@ describe("protocol v0", () => {
     it("refuses a message with a missing field, naming the field", () => {
         const message = { type: "say", id: ID, to: mayor };
         expect(parseClient(JSON.stringify(message))).toEqual({
-            malformed:
-                "This `say` message does not fit protocol v0: it lacks `text`.",
-            to: ID,
+            ok: false,
+            error: {
+                kind: "malformed",
+                text: "This `say` message does not fit protocol v0: it lacks `text`.",
+                to: ID,
+            },
         });
         expect(Schema.Check(exported, message)).toBe(false);
     });
@@ -557,9 +577,12 @@ describe("protocol v0", () => {
     it("refuses a message with a field it does not have, naming the field", () => {
         const message = { ...said, loud: true };
         expect(parseClient(JSON.stringify(message))).toEqual({
-            malformed:
-                "This `say` message does not fit protocol v0: it has no field `loud`.",
-            to: ID,
+            ok: false,
+            error: {
+                kind: "malformed",
+                text: "This `say` message does not fit protocol v0: it has no field `loud`.",
+                to: ID,
+            },
         });
         expect(Schema.Check(exported, message)).toBe(false);
     });
@@ -567,8 +590,11 @@ describe("protocol v0", () => {
     it("refuses a request whose id is not a UUID, and answers no request", () => {
         const message = { ...said, id: "1" };
         expect(parseClient(JSON.stringify(message))).toEqual({
-            malformed:
-                "This `say` message does not fit protocol v0: `id` must be a UUID.",
+            ok: false,
+            error: {
+                kind: "malformed",
+                text: "This `say` message does not fit protocol v0: `id` must be a UUID.",
+            },
         });
         expect(Schema.Check(exported, message)).toBe(false);
     });
@@ -633,8 +659,12 @@ describe("protocol v0", () => {
         ];
         for (const [message, words] of meant) {
             expect(parseClient(JSON.stringify(message))).toEqual({
-                malformed: `This \`${message.type}\` message does not fit protocol v0: ${words}.`,
-                to: ID,
+                ok: false,
+                error: {
+                    kind: "malformed",
+                    text: `This \`${message.type}\` message does not fit protocol v0: ${words}.`,
+                    to: ID,
+                },
             });
         }
     });
@@ -655,7 +685,10 @@ describe("protocol v0", () => {
                 hamlet: "home",
                 whole,
             };
-            expect(parseClient(JSON.stringify(message))).toEqual({ message });
+            expect(parseClient(JSON.stringify(message))).toEqual({
+                ok: true,
+                value: message,
+            });
             expect(Schema.Check(exported, message)).toBe(true);
         }
     });
@@ -663,7 +696,11 @@ describe("protocol v0", () => {
     it("refuses what is not a message", () => {
         for (const text of ["{", "[]", '{"id":1}']) {
             expect(parseClient(text)).toEqual({
-                malformed: "A message is a JSON object with a `type`.",
+                ok: false,
+                error: {
+                    kind: "malformed",
+                    text: "A message is a JSON object with a `type`.",
+                },
             });
         }
     });
@@ -691,9 +728,15 @@ it("requires a danger for approvals and null for other waits", () => {
             providers: [],
             settings: fromServer.state[0]?.settings,
         });
-    expect(parseServer(wire("approval", null))).toHaveProperty("malformed");
+    expect(parseServer(wire("approval", null))).toHaveProperty(
+        "error.kind",
+        "malformed",
+    );
     for (const kind of ["fault", "question", "objection"])
-        expect(parseServer(wire(kind, "command"))).toHaveProperty("malformed");
+        expect(parseServer(wire(kind, "command"))).toHaveProperty(
+            "error.kind",
+            "malformed",
+        );
 });
 
 const societyAgent = {
@@ -783,11 +826,17 @@ it("takes the society and realm fields in snapshots, changes and watched chats",
         },
     ];
     for (const message of messages) {
-        expect(parseServer(JSON.stringify(message))).toEqual({ message });
+        expect(parseServer(JSON.stringify(message))).toEqual({
+            ok: true,
+            value: message,
+        });
         expect(Schema.Check(exported, message)).toBe(true);
     }
     const message = { type: "open", id: ID, chat: { with: mayor, from: ref } };
-    expect(parseClient(JSON.stringify(message))).toEqual({ message });
+    expect(parseClient(JSON.stringify(message))).toEqual({
+        ok: true,
+        value: message,
+    });
     expect(Schema.Check(exported, message)).toBe(true);
 });
 
@@ -811,8 +860,66 @@ it("refuses unknown road levels and ballot casts with words", () => {
             JSON.stringify({ ...fromServer.state[0], hamlets: [changed] }),
         );
         expect(parsed).toHaveProperty(
-            "malformed",
+            "error.text",
             expect.stringContaining("does not fit protocol v0"),
         );
     }
+});
+
+it("checks an edited JSON value directly with the wire edit's diagnostics and correlation", () => {
+    const edit = {
+        type: "edit",
+        id: ID,
+        doc: "settings",
+        set: { reflectEvery: 4 },
+    };
+    expect(checkEdit(edit)).toEqual({ ok: true, value: edit });
+    expect(checkEdit({ ...edit, set: { reflectEvery: "four" } })).toEqual({
+        ok: false,
+        error: {
+            kind: "malformed",
+            to: ID,
+            text: "This `edit` message does not fit protocol v0: `set.reflectEvery` must be integer.",
+        },
+    });
+    expect(
+        checkEdit({ type: "say", id: ID, to: mayor, text: "not an edit" }),
+    ).toEqual({
+        ok: false,
+        error: {
+            kind: "malformed",
+            to: ID,
+            text: "There is no `say` message.",
+        },
+    });
+});
+
+it("folds streamed text into a durable replacement without changing its source op", () => {
+    const items: Item[] = [];
+    const status = { working: false, pending: 0 };
+    applyOp(items, status, {
+        op: "add",
+        item: { id: "live:answer", at: 1, kind: "assistant", text: "Hel" },
+    });
+    applyOp(items, status, { op: "append", item: "live:answer", text: "lo" });
+    const durable = {
+        op: "add",
+        replaces: "live:answer",
+        item: { id: "entry:answer", at: 1, kind: "assistant", text: "Hello" },
+    } satisfies Op;
+    applyOp(items, status, durable);
+    applyOp(items, status, {
+        op: "status",
+        working: true,
+        pending: 2,
+        last: null,
+    });
+    expect(items).toEqual([
+        { id: "entry:answer", at: 1, kind: "assistant", text: "Hello" },
+    ]);
+    expect(status).toEqual({ working: true, pending: 2 });
+    applyOp(items, status, { op: "append", item: "entry:answer", text: "." });
+    expect(durable.item.text).toBe("Hello");
+    applyOp(items, status, { op: "reset" });
+    expect(items).toEqual([]);
 });

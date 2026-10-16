@@ -11,27 +11,27 @@ import {
     stopAgent,
     stopChiefAgents,
 } from "./chats.ts";
-import { type Client, type Server, serve } from "./connection.ts";
+import {
+    type Client,
+    connectionFailureText,
+    type Server,
+    serve,
+} from "./connection.ts";
 import { answerWords } from "./gate.ts";
 import type { Home } from "./home.ts";
 import { clearStagedGifts, give, uploads } from "./house.ts";
 import { checkConnection, checkModel, login as signIn } from "./models.ts";
-import type {
-    Address,
-    Login,
-    LoginStep,
-    Reply,
-    ServerMessage,
-} from "./protocol.ts";
-import {
-    type ChiefResult,
-    chiefAccess,
-    chiefRefusalText,
-    resolve,
-} from "./realm.ts";
+import type { Address, Login, LoginStep, ServerMessage } from "./protocol.ts";
+import { type ChiefResult, chiefAccess, resolve } from "./realm.ts";
+import { ok, type Result } from "./result.ts";
 import { say } from "./say.ts";
-import { safeValue, safeWords } from "./scrub.ts";
 import { edit } from "./server/edits.ts";
+import {
+    type ChiefFailure,
+    faultFor,
+    type Receipt,
+    replyFor,
+} from "./server/envelope.ts";
 import { read } from "./server/reads.ts";
 import { watchState } from "./state.ts";
 import {
@@ -52,7 +52,7 @@ export async function serveHome(
     let server: Server | undefined;
     const state = await watchState(
         home,
-        (message) => server?.broadcast(safeValue(home, message)),
+        (message) => server?.broadcast(home.secrets.value(message)),
         context,
     );
     // Each client's open chats, by the chat as it named them.
@@ -62,56 +62,23 @@ export async function serveHome(
         await watches?.get(chat)?.stop();
         watches?.delete(chat);
     };
-    const deed = async (
-        id: string,
-        run: () => Promise<string | ChiefResult<string>>,
-        address?: Address,
-    ): Promise<Reply> => {
-        try {
-            if (address) {
-                const access = await chiefAccess(
-                    home,
-                    address.hamlet,
-                    "change chat",
-                    context,
-                );
-                if (!access.ok)
-                    return {
-                        type: "reply",
-                        to: id,
-                        kind: "error",
-                        text: safeWords(home, chiefRefusalText(access)),
-                    };
-            }
-            const outcome = await run();
-            if (typeof outcome !== "string" && !outcome.ok)
-                return {
-                    type: "reply",
-                    to: id,
-                    kind: "error",
-                    text: safeWords(home, chiefRefusalText(outcome)),
-                };
-            const text = typeof outcome === "string" ? outcome : outcome.value;
-            await state.refresh();
-            return {
-                type: "reply",
-                to: id,
-                kind: "notice",
-                text: safeWords(home, text),
-            };
-        } catch (error) {
-            return {
-                type: "reply",
-                to: id,
-                kind: "error",
-                text: safeWords(
-                    home,
-                    error instanceof Error ? error.message : String(error),
-                ),
-            };
-        }
+    const changed = async (
+        outcome: string | ChiefResult<string>,
+    ): Promise<Result<Receipt, ChiefFailure>> => {
+        if (typeof outcome !== "string" && !outcome.ok) return outcome;
+        await state.refresh();
+        return ok({
+            text: typeof outcome === "string" ? outcome : outcome.value,
+        });
     };
     const chatOf = async (address: Address) => {
+        const access = await chiefAccess(
+            home,
+            address.hamlet,
+            "change chat",
+            context,
+        );
+        if (!access.ok) return access;
         const target = await resolve(
             home.harness,
             address.hamlet,
@@ -120,7 +87,7 @@ export async function serveHome(
         );
         if (!target) throw new Error(`no agent named \`${address.agent}\``);
         if ("gone" in target) throw new Error(target.gone);
-        return { agent: target.ref, chief: home.chief };
+        return ok({ agent: target.ref, chief: home.chief });
     };
     await clearStagedGifts(home);
     const gifts = uploads(home, context);
@@ -128,236 +95,235 @@ export async function serveHome(
     server = await serve({
         token: home.credentials.token,
         port,
+        fault: (to, failure) => faultFor(to, failure, home.secrets),
+        report: (error, to) =>
+            console.error(
+                home.secrets.words(
+                    `Request ${to ?? "(connection)"} failed: ${connectionFailureText({ kind: "defect", cause: error })}`,
+                ),
+            ),
         handlers: {
-            hello: async () => safeValue(home, await state.snapshot()),
+            hello: async () => home.secrets.value(await state.snapshot()),
             say: async (message, client) => {
-                try {
-                    let work: Submission | undefined;
-                    const reply = await say(
-                        home,
-                        message,
-                        context,
-                        (submission) => {
-                            work = submission;
-                        },
-                    );
-                    await state.refresh();
-                    if (reply !== undefined) return safeValue(home, reply);
-                    const done = {
-                        type: "reply",
-                        to: message.id,
-                        kind: "notice",
-                        text: "",
-                    } as const;
-                    if (work === undefined) return done;
-                    // This receipt settles the client's line, not the whole conversation.
-                    void work
-                        .wait(withAbortSignal(client.signal, context))
-                        .then(() => {
-                            if (!client.signal.aborted) client.send(done);
-                        })
-                        .catch((error: unknown) => {
-                            if (!client.signal.aborted)
-                                client.send({
-                                    type: "fault",
-                                    to: message.id,
-                                    text: safeWords(home, String(error)),
-                                });
-                        });
-                    return undefined;
-                } catch (error) {
-                    return deed(message.id, async () => {
-                        throw error;
+                let work: Submission | undefined;
+                const outcome = await say(
+                    home,
+                    message,
+                    context,
+                    (submission) => {
+                        work = submission;
+                    },
+                );
+                await state.refresh();
+                if (outcome !== undefined)
+                    return replyFor(message.id, outcome, home.secrets);
+                const done = replyFor(
+                    message.id,
+                    ok({ text: "" }),
+                    home.secrets,
+                );
+                if (work === undefined) return done;
+                // This receipt settles the client's line, not the whole conversation.
+                void work
+                    .wait(withAbortSignal(client.signal, context))
+                    .then(() => {
+                        if (!client.signal.aborted) client.send(done);
+                    })
+                    .catch((error: unknown) => {
+                        if (!client.signal.aborted)
+                            client.fail(String(error), message.id);
                     });
-                }
+                return undefined;
             },
             open: async (message, client) => {
-                try {
-                    const chat = JSON.stringify(message.chat);
-                    if (
-                        message.before !== undefined &&
-                        watching.get(client)?.has(chat)
-                    ) {
-                        const page = await pageChat(
-                            home,
-                            message.chat,
-                            message.before,
-                            context,
-                        );
-                        if (!page.ok)
-                            return {
-                                type: "fault",
-                                to: message.id,
-                                text: safeWords(home, chiefRefusalText(page)),
-                            };
-                        return safeValue(home, {
-                            ...page.value,
-                            to: message.id,
-                        });
-                    }
-                    const previous = watching.get(client)?.get(chat);
-                    let buffered: ServerMessage[] | undefined = [];
-                    const outcome = await watchChat(
+                const chat = JSON.stringify(message.chat);
+                if (
+                    message.before !== undefined &&
+                    watching.get(client)?.has(chat)
+                ) {
+                    const page = await pageChat(
                         home,
                         message.chat,
-                        (message) => {
-                            if (buffered !== undefined) buffered.push(message);
-                            else if (!client.signal.aborted)
-                                client.send(safeValue(home, message));
-                        },
-                        message.id,
-                        context,
                         message.before,
+                        context,
                     );
-                    if (!outcome.ok)
-                        return {
-                            type: "fault",
-                            to: message.id,
-                            text: safeWords(home, chiefRefusalText(outcome)),
-                        };
-                    const watch = outcome.value;
-                    if (client.signal.aborted) {
-                        await watch.stop();
-                        return undefined;
-                    }
-                    if (!watching.has(client)) {
-                        watching.set(client, new Map());
-                        client.signal.addEventListener("abort", () => {
-                            const watches = watching.get(client);
-                            watching.delete(client);
-                            for (const each of watches?.values() ?? [])
-                                void each.stop();
-                        });
-                    }
-                    watching.get(client)?.set(chat, watch);
-                    await previous?.stop();
-                    const initial = buffered;
-                    buffered = undefined;
-                    if (!client.signal.aborted)
-                        for (const message of initial)
-                            client.send(safeValue(home, message));
-                    return undefined;
-                } catch (error) {
-                    const reply = await deed(message.id, async () => {
-                        throw error;
+                    if (!page.ok)
+                        return faultFor(message.id, page.error, home.secrets);
+                    return home.secrets.value({
+                        ...page.value,
+                        to: message.id,
                     });
-                    return { type: "fault", to: message.id, text: reply.text };
                 }
+                const previous = watching.get(client)?.get(chat);
+                let buffered: ServerMessage[] | undefined = [];
+                const outcome = await watchChat(
+                    home,
+                    message.chat,
+                    (outcome, to) => {
+                        const message = outcome.ok
+                            ? home.secrets.value(outcome.value)
+                            : faultFor(to, outcome.error, home.secrets);
+                        if (buffered !== undefined) buffered.push(message);
+                        else if (!client.signal.aborted) client.send(message);
+                    },
+                    message.id,
+                    context,
+                    message.before,
+                );
+                if (!outcome.ok)
+                    return faultFor(message.id, outcome.error, home.secrets);
+                const watch = outcome.value;
+                if (client.signal.aborted) {
+                    await watch.stop();
+                    return undefined;
+                }
+                if (!watching.has(client)) {
+                    watching.set(client, new Map());
+                    client.signal.addEventListener("abort", () => {
+                        const watches = watching.get(client);
+                        watching.delete(client);
+                        for (const each of watches?.values() ?? [])
+                            void each.stop();
+                    });
+                }
+                watching.get(client)?.set(chat, watch);
+                await previous?.stop();
+                const initial = buffered;
+                buffered = undefined;
+                if (!client.signal.aborted)
+                    for (const message of initial) client.send(message);
+                return undefined;
             },
-            login: (message, client) => deedLogin(message, client),
+            login: async (message, client) => {
+                const outcome = await logins.handle(message, client);
+                return outcome === undefined
+                    ? undefined
+                    : replyFor(message.id, outcome, home.secrets);
+            },
             check: (message, client) => {
-                void deed(message.id, () =>
-                    message.what === "connection"
-                        ? checkConnection(home, context)
-                        : checkModel(home, message.model, context),
-                ).then((reply) => {
-                    if (!client.signal.aborted) client.send(reply);
+                void (async () => {
+                    const outcome = await changed(
+                        message.what === "connection"
+                            ? await checkConnection(home, context)
+                            : await checkModel(home, message.model, context),
+                    );
+                    if (!client.signal.aborted)
+                        client.send(
+                            replyFor(message.id, outcome, home.secrets),
+                        );
+                })().catch((error: unknown) => {
+                    if (!client.signal.aborted) client.fail(error, message.id);
                 });
                 return undefined;
             },
             give: async (message, client) => {
                 if (!("files" in message))
-                    return deed(message.id, () => give(home, message, context));
-                try {
-                    return safeValue(
-                        home,
-                        await gifts.begin(message, client.signal),
+                    return replyFor(
+                        message.id,
+                        await changed(await give(home, message, context)),
+                        home.secrets,
                     );
-                } catch (error) {
-                    return deed(message.id, async () => {
-                        throw error;
-                    });
-                }
+                return replyFor(
+                    message.id,
+                    await gifts.begin(message, client.signal),
+                    home.secrets,
+                );
             },
-            "give-part": (message, client) =>
-                deed(message.id, () => gifts.part(message, client.signal)),
-            edit: (message) =>
-                deed(message.id, () =>
-                    edit(home, safeValue(home, message), context),
+            "give-part": async (message, client) =>
+                replyFor(
+                    message.id,
+                    await changed(await gifts.part(message, client.signal)),
+                    home.secrets,
+                ),
+            edit: async (message) =>
+                replyFor(
+                    message.id,
+                    await changed(await edit(home, message, context)),
+                    home.secrets,
                 ),
             read: async (message) => {
-                try {
-                    return safeValue(home, await read(home, message, context));
-                } catch (error) {
-                    return deed(message.id, async () => {
-                        throw error;
-                    });
-                }
+                const outcome = await read(home, message, context);
+                return outcome.ok
+                    ? home.secrets.value(outcome.value)
+                    : replyFor(message.id, outcome, home.secrets);
             },
-            answer: (message) =>
-                deed(message.id, () =>
-                    answerWords(
-                        home,
-                        { ...message, chief: home.chief },
-                        context,
+            answer: async (message) =>
+                replyFor(
+                    message.id,
+                    await changed(
+                        await answerWords(
+                            home,
+                            { ...message, chief: home.chief },
+                            context,
+                        ),
                     ),
+                    home.secrets,
                 ),
-            stop: (message) =>
-                deed(
+            stop: async (message) => {
+                if (message.agent === undefined)
+                    return replyFor(
+                        message.id,
+                        await changed(await stopChiefAgents(home, context)),
+                        home.secrets,
+                    );
+                const chat = await chatOf(message.agent);
+                if (!chat.ok) return replyFor(message.id, chat, home.secrets);
+                return replyFor(
                     message.id,
-                    async () =>
-                        message.agent === undefined
-                            ? stopChiefAgents(home, context)
-                            : stopAgent(
-                                  home,
-                                  (await chatOf(message.agent)).agent,
-                                  context,
-                              ),
-                    message.agent,
-                ),
-            new: (message) =>
-                deed(
-                    message.id,
-                    async () => {
-                        await newChat(home, await chatOf(message.to), context);
-                        return "Started a new session.";
-                    },
-                    message.to,
-                ),
-            resume: (message) =>
-                deed(
-                    message.id,
-                    async () => {
-                        await resumeChat(
-                            home,
-                            await chatOf(message.to),
-                            message.number,
-                            context,
-                        );
-                        return "Went back to an earlier session.";
-                    },
-                    message.to,
-                ),
-            retry: (message) =>
-                deed(
-                    message.id,
-                    async () => {
-                        await retry(home, await chatOf(message.to), context);
-                        return "Carrying on from where it stopped.";
-                    },
-                    message.to,
-                ),
-            rewind: async (message) => {
-                const result = await deed(
-                    message.id,
-                    async () => {
-                        requireWritable(message.chat);
-                        if (message.chat.past !== undefined)
-                            throw new Error(
-                                "Open the current conversation to rewind it.",
-                            );
-                        return rewind(
-                            home,
-                            await chatOf(message.chat.with),
-                            message.item,
-                            context,
-                        );
-                    },
-                    message.chat.with,
+                    await changed(
+                        await stopAgent(home, chat.value.agent, context),
+                    ),
+                    home.secrets,
                 );
-                return result.kind === "error"
-                    ? result
-                    : { ...result, kind: "rewound" };
+            },
+            new: async (message) => {
+                const chat = await chatOf(message.to);
+                if (!chat.ok) return replyFor(message.id, chat, home.secrets);
+                await newChat(home, chat.value, context);
+                return replyFor(
+                    message.id,
+                    await changed("Started a new session."),
+                    home.secrets,
+                );
+            },
+            resume: async (message) => {
+                const chat = await chatOf(message.to);
+                if (!chat.ok) return replyFor(message.id, chat, home.secrets);
+                await resumeChat(home, chat.value, message.number, context);
+                return replyFor(
+                    message.id,
+                    await changed("Went back to an earlier session."),
+                    home.secrets,
+                );
+            },
+            retry: async (message) => {
+                const chat = await chatOf(message.to);
+                if (!chat.ok) return replyFor(message.id, chat, home.secrets);
+                await retry(home, chat.value, context);
+                return replyFor(
+                    message.id,
+                    await changed("Carrying on from where it stopped."),
+                    home.secrets,
+                );
+            },
+            rewind: async (message) => {
+                const chat = await chatOf(message.chat.with);
+                if (!chat.ok) return replyFor(message.id, chat, home.secrets);
+                requireWritable(message.chat);
+                if (message.chat.past !== undefined)
+                    throw new Error(
+                        "Open the current conversation to rewind it.",
+                    );
+                const outcome = await changed(
+                    await rewind(home, chat.value, message.item, context),
+                );
+                return replyFor(
+                    message.id,
+                    outcome.ok
+                        ? ok({ ...outcome.value, kind: "rewound" })
+                        : outcome,
+                    home.secrets,
+                );
             },
             close: async (message, client) => {
                 await stop(client, JSON.stringify(message.chat));
@@ -365,15 +331,6 @@ export async function serveHome(
             },
         },
     });
-    async function deedLogin(message: Login, client: Client) {
-        try {
-            return await logins.handle(message, client);
-        } catch (error) {
-            return deed(message.id, async () => {
-                throw error;
-            });
-        }
-    }
     const serving = server;
     return {
         ...serving,
@@ -398,7 +355,7 @@ function loginConnection(home: Home, refresh: () => Promise<void>) {
     const handle = async (
         message: Login,
         client: Client,
-    ): Promise<Reply | undefined> => {
+    ): Promise<Result<Receipt, ChiefFailure> | undefined> => {
         if ("start" in message) {
             const id = randomUUID();
             const signing: Signing = {
@@ -414,8 +371,7 @@ function loginConnection(home: Home, refresh: () => Promise<void>) {
             const send = (step: LoginStep) => {
                 if (!client.signal.aborted)
                     client.send(
-                        safeValue(
-                            home,
+                        home.secrets.value(
                             { type: "login", login: id, to: message.id, step },
                             signing.secrets,
                         ),
@@ -519,12 +475,9 @@ function loginConnection(home: Home, refresh: () => Promise<void>) {
                 throw new Error("That sign-in is not waiting for an answer.");
             signing.prompt.resolve(message.reply.value);
         }
-        return {
-            type: "reply",
-            to: message.id,
-            kind: "notice",
+        return ok({
             text: "cancel" in message ? "Sign-in cancelled." : "Sent.",
-        };
+        });
     };
     return {
         handle,
@@ -536,3 +489,10 @@ function loginConnection(home: Home, refresh: () => Promise<void>) {
         },
     };
 }
+
+export {
+    type ChiefFailure,
+    faultFor,
+    type Receipt,
+    replyFor,
+} from "./server/envelope.ts";

@@ -29,6 +29,7 @@ import { CharacterDoc } from "./prompt.ts";
 import { liveHamlets, RealmDoc } from "./realm.ts";
 import { agentKey, HOME, RecordDoc } from "./record.ts";
 import { platformSandbox, type Sandbox } from "./sandbox.ts";
+import { type Secrets, secretsFrom } from "./scrub.ts";
 import { type Overrides, readOverrides, SettingsDoc } from "./settings.ts";
 
 /** Overrides for the resources and parts opened with a home. */
@@ -58,6 +59,8 @@ export type HomeBase = {
     readonly chief: string;
     readonly overrides: Overrides;
     readonly credentials: Credentials;
+    /** Scrubs with current credentials before storage or display. */
+    readonly secrets: Secrets;
     readonly logins: Readonly<Record<string, OAuthAuth>>;
     now(): number;
 };
@@ -89,16 +92,18 @@ export async function openHome(
     let opened: Harness | undefined;
     try {
         const layout = await layOut(root);
+        const credentials = await Credentials.open(
+            layout.credentials,
+            overrides.apiKey,
+        );
         const base: HomeBase = {
             dir: root,
             layout,
             sandbox: platformSandbox(),
             chief: options.chief || env.HAMLET_USER || env.USER || "user",
             overrides,
-            credentials: await Credentials.open(
-                layout.credentials,
-                overrides.apiKey,
-            ),
+            credentials,
+            secrets: secretsFrom(credentials),
             logins: options.logins ?? {},
             now: options.now ?? Date.now,
         };

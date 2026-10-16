@@ -3,14 +3,15 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { COMMANDS } from "../commands.ts";
 import { strip } from "../oversight.ts";
-import type {
-    Address,
-    ChatRef,
-    Item,
-    Op,
-    ServerMessage,
-    State,
-    Wait,
+import {
+    type Address,
+    applyOp,
+    type ChatRef,
+    type Item,
+    type Op,
+    type ServerMessage,
+    type State,
+    type Wait,
 } from "../protocol.ts";
 import { connectChief } from "./client.ts";
 
@@ -285,6 +286,10 @@ class Screen {
     readonly #waits = new Set<string>();
     readonly #seen = new Set<string>();
     #opened = false;
+    readonly #views = new Map<
+        string,
+        { items: Item[]; working: boolean; pending: number }
+    >();
 
     constructor(out: Writable, err: Writable) {
         this.#out = out;
@@ -321,13 +326,18 @@ class Screen {
                         this.#seen.add(item.id);
                 this.#opened = true;
             }
-            for (const item of items) this.#add(item, undefined);
+            const view = this.#view(message);
+            view.items.splice(0, view.items.length, ...items);
+            view.working = message.working;
+            view.pending = message.pending;
+            for (const item of view.items) this.#add(item, undefined);
             if (!message.working) this.end();
         }
         if (message.type === "turn") {
+            const view = this.#view(message);
             for (const op of message.ops) {
                 if (op.op === "add")
-                    this.#op({
+                    this.#op(view, {
                         ...op,
                         item: { ...op.item, id: this.#id(message, op.item.id) },
                         ...(op.replaces === undefined
@@ -335,8 +345,8 @@ class Screen {
                             : { replaces: this.#id(message, op.replaces) }),
                     });
                 else if (op.op === "append" || op.op === "close")
-                    this.#op({ ...op, item: this.#id(message, op.item) });
-                else this.#op(op);
+                    this.#op(view, { ...op, item: this.#id(message, op.item) });
+                else this.#op(view, op);
             }
         }
     }
@@ -362,13 +372,31 @@ class Screen {
         this.#open = undefined;
     }
 
-    #op(op: Op): void {
-        if (op.op === "add") this.#add(op.item, op.replaces);
-        if (op.op === "append") this.#stream(op.item, op.text);
-        if (op.op === "close" && op.exit !== 0) {
-            this.#line(`  [exit ${op.exit}]`);
+    #view(message: Extract<ServerMessage, { type: "turn" | "transcript" }>) {
+        const key = `${JSON.stringify(message.chat)}:${message.number ?? message.chat.past}`;
+        let view = this.#views.get(key);
+        if (view === undefined) {
+            view = { items: [], working: false, pending: 0 };
+            this.#views.set(key, view);
         }
-        if (op.op === "status" && !op.working) this.end();
+        return view;
+    }
+
+    #op(
+        view: { items: Item[]; working: boolean; pending: number },
+        op: Op,
+    ): void {
+        applyOp(view.items, view, op);
+        if (op.op === "add") this.#add(op.item, op.replaces);
+        if (op.op === "append") {
+            const item = view.items.find((item) => item.id === op.item);
+            const printed = this.#streamed.get(op.item)?.printed ?? 0;
+            if (item !== undefined)
+                this.#stream(op.item, item.text.slice(printed));
+        }
+        if (op.op === "close" && op.exit !== 0)
+            this.#line(`  [exit ${op.exit}]`);
+        if (op.op === "status" && !view.working) this.end();
     }
 
     #add(item: Item, replaces: string | undefined): void {

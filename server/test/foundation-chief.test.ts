@@ -33,7 +33,7 @@ it("keeps a single-user home's chief authority when its environment name changes
                 },
                 context,
             ),
-        ).toMatchObject({ kind: "notice" });
+        ).toMatchObject({ ok: true });
         await again.close(context);
     }
 });
@@ -70,7 +70,7 @@ it("migrates the first opener's stored chief without changing another hamlet's e
             },
             context,
         ),
-    ).toMatchObject({ kind: "notice" });
+    ).toMatchObject({ ok: true });
     const migrated = await again.harness.snapshot(RealmDoc, context);
     if (!migrated) throw new Error("no realm");
     expect(isChief(migrated, "home", "bob")).toBe(true);

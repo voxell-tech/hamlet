@@ -11,13 +11,13 @@ import {
     type Give,
     type GivePart,
     MAX_GIFT_BYTES,
-    type Reply,
 } from "../protocol.ts";
-import { type ChiefResult, chiefAccess, chiefRefusalText } from "../realm.ts";
+import { type ChiefResult, chiefAccess } from "../realm.ts";
 import type { AgentRef } from "../record.ts";
 import { named, RecordDoc } from "../record.ts";
 import { directoryRoot } from "../sandbox.ts";
 import { safeWords } from "../scrub.ts";
+import type { Receipt } from "../server.ts";
 import { refreshSkills } from "./skills.ts";
 import {
     checkShelf,
@@ -200,15 +200,9 @@ export function uploads(home: Home, context: Context) {
         async begin(
             message: Extract<Give, { files: unknown }>,
             owner: AbortSignal,
-        ): Promise<Reply> {
+        ): Promise<ChiefResult<Receipt>> {
             const target = await resolved(home, message.to, context);
-            if (!target.ok)
-                return {
-                    type: "reply",
-                    to: message.id,
-                    kind: "error",
-                    text: chiefRefusalText(target),
-                };
+            if (!target.ok) return target;
             const agent = target.value.ref;
             const bytes = manifestSize(message.files);
             await checkShelf(
@@ -267,22 +261,17 @@ export function uploads(home: Home, context: Context) {
                 receiving(upload);
                 if (message.files.every((file) => file.size === 0)) {
                     const outcome = await finish(upload);
-                    return {
-                        type: "reply",
-                        to: message.id,
-                        kind: outcome.ok ? "notice" : "error",
-                        text: outcome.ok
-                            ? outcome.value
-                            : chiefRefusalText(outcome),
-                    };
+                    return outcome.ok
+                        ? { ok: true, value: { text: outcome.value } }
+                        : outcome;
                 }
                 touch(upload);
                 return {
-                    type: "reply",
-                    to: message.id,
-                    kind: "notice",
-                    text: "Ready for the gift's file parts.",
-                    upload: upload.upload,
+                    ok: true,
+                    value: {
+                        text: "Ready for the gift's file parts.",
+                        upload: upload.upload,
+                    },
                 };
             });
         },

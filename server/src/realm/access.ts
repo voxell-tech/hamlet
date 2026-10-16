@@ -1,5 +1,6 @@
 import type { Context } from "@earendil-works/chord";
 import type { Home } from "../home.ts";
+import type { Result } from "../result.ts";
 import { isChief, RealmDoc } from "./places.ts";
 
 /** A refused chief operation, safe to repeat after the named recovery. */
@@ -17,7 +18,7 @@ export type ChiefRefusal = {
 };
 
 /** An admitted chief operation or its classified refusal. */
-export type ChiefResult<T> = { ok: true; value: T } | ChiefRefusal;
+export type ChiefResult<T> = Result<T, ChiefRefusal["error"]>;
 
 /** Requires a living hamlet led by the chief, defaulting to the connected chief. */
 export async function chiefAccess(

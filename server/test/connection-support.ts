@@ -2,12 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect, vi } from "vitest";
 import { type Connection, connect } from "../src/connection.ts";
 import type { HomeOptions } from "../src/home.ts";
-import type {
-    ClientMessage,
-    Item,
-    Op,
-    ServerMessage,
-} from "../src/protocol.ts";
+import type { ClientMessage, ServerMessage } from "../src/protocol.ts";
 import { serveHome } from "../src/server.ts";
 import { closeAfter, context, scratch, testHome } from "./support.ts";
 
@@ -83,50 +78,4 @@ export function agents(messages: ServerMessage[]) {
 
 export function say(connection: Connection, text: string) {
     connection.send({ type: "say", id: randomUUID(), to: mayor, text });
-}
-
-/** A turn op applied as a client does. */
-export function fold(
-    items: Item[],
-    status: { working: boolean; pending: number },
-    op: Op,
-): void {
-    const find = (id: string) => {
-        const item = items.find((each) => each.id === id);
-        if (item === undefined) throw new Error(`No item ${id}`);
-        return item;
-    };
-    switch (op.op) {
-        case "add":
-            if (op.replaces !== undefined) {
-                items.splice(items.indexOf(find(op.replaces)), 1);
-            }
-            items.push(structuredClone(op.item));
-            return;
-        case "append":
-            find(op.item).text += op.text;
-            return;
-        case "close": {
-            const { tool } = find(op.item);
-            if (tool === undefined) throw new Error(`${op.item} is no tool`);
-            Object.assign(tool, {
-                exit: op.exit,
-                ms: op.ms,
-                failure: op.failure,
-                ...(op.change === undefined ? {} : { change: op.change }),
-            });
-            return;
-        }
-        case "status":
-            Object.assign(status, {
-                working: op.working,
-                pending: op.pending,
-            });
-            return;
-        case "reset":
-            items.length = 0;
-            return;
-        case "usage":
-            return;
-    }
 }

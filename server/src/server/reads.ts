@@ -7,24 +7,20 @@ import { houseOf } from "../home.ts";
 import { houseSkills } from "../house.ts";
 import { catalogueOf, refreshModels } from "../models.ts";
 import { CharacterDoc, CharterDoc, charterOf, told } from "../prompt.ts";
-import type { Address, Listed, Read, ReadResult, Reply } from "../protocol.ts";
-import {
-    type ChiefResult,
-    chiefAccess,
-    chiefRefusalText,
-    resolve,
-} from "../realm.ts";
+import type { Address, Listed, Read, ReadResult } from "../protocol.ts";
+import { type ChiefResult, chiefAccess, resolve } from "../realm.ts";
 import { type AgentRef, agentKey } from "../record.ts";
+import { ok } from "../result.ts";
 
 /** A chief's view of the prompt, history, catalogue and papers (C14, C24). */
 export async function read(
     home: Home,
     message: Read,
     context: Context,
-): Promise<ReadResult | Reply> {
+): Promise<ChiefResult<ReadResult>> {
     const reply = { type: "read", to: message.id } as const;
     if (message.what === "charter")
-        return {
+        return ok({
             ...reply,
             charter: {
                 text: await charterOf(home.harness, context),
@@ -32,7 +28,7 @@ export async function read(
                     (await home.harness.snapshot(CharterDoc, context))?.own !=
                     null,
             },
-        };
+        });
     if (message.what === "models") {
         if (message.refresh) await refreshModels(home, context);
         const cards = new Map(
@@ -53,23 +49,20 @@ export async function read(
         const models: Listed[] = [...cards.values()].sort((a, b) =>
             a.name.localeCompare(b.name),
         );
-        return { ...reply, models };
+        return ok({ ...reply, models });
     }
     const resolved = await readableAgent(home, message.agent, context);
-    if (!resolved.ok)
-        return {
-            type: "reply",
-            to: message.id,
-            kind: "error",
-            text: chiefRefusalText(resolved),
-        };
+    if (!resolved.ok) return resolved;
     const agent = resolved.value;
     const chat = { agent, chief: home.chief };
     if (message.what === "history")
-        return { ...reply, history: await historyOf(home, chat, context) };
+        return ok({ ...reply, history: await historyOf(home, chat, context) });
     const conversation = await chatOf(home, chat, context);
     if (message.what === "prompt")
-        return { ...reply, prompt: await told(home, conversation, context) };
+        return ok({
+            ...reply,
+            prompt: await told(home, conversation, context),
+        });
     const env = await envFor(
         home,
         { conversationId: conversation.id, read: home.harness },
@@ -85,7 +78,7 @@ export async function read(
     );
     const cut = (text: string) =>
         message.full ? text : [...text.trim()].slice(0, 6000).join("");
-    return {
+    return ok({
         ...reply,
         papers: {
             notes: cut(notes?.ok ? notes.value : ""),
@@ -94,7 +87,7 @@ export async function read(
                 ({ name, description }) => ({ name, description }),
             ),
         },
-    };
+    });
 }
 
 /** A living agent whose papers the chief may read or edit. */

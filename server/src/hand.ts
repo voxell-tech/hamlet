@@ -16,7 +16,6 @@ import { type Manifest, ManifestsDoc } from "./hand/manifests.ts";
 import type { Home, Part } from "./home.ts";
 import { record } from "./models.ts";
 import { limitsOf, type Policy, SandboxEnv } from "./sandbox.ts";
-import { shellOutput } from "./scrub.ts";
 
 const NAME = "hamlet.hand";
 const RESERVED = new Set([
@@ -283,21 +282,20 @@ function handTool(home: Home, manifest: Manifest) {
                 getOrThrow(
                     await env.writeFile(file, JSON.stringify(args), context),
                 );
-                const result = await shellOutput(
-                    env,
-                    home.credentials.secrets(),
-                ).exec(
-                    [
-                        "bash",
-                        "-c",
-                        'file=$1; shift; exec "$@" < "$file"',
-                        "bash",
-                        file,
-                        ...manifest.exec,
-                    ],
-                    { onOutput: (text) => api.output(text) },
-                    context,
-                );
+                const result = await home.secrets
+                    .shell(env)
+                    .exec(
+                        [
+                            "bash",
+                            "-c",
+                            'file=$1; shift; exec "$@" < "$file"',
+                            "bash",
+                            file,
+                            ...manifest.exec,
+                        ],
+                        { onOutput: (text) => api.output(text) },
+                        context,
+                    );
                 const exitCode = result.ok ? result.value.exitCode : -1;
                 if (!result.ok)
                     api.output(

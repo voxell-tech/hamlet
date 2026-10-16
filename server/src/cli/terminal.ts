@@ -7,8 +7,8 @@ import { createInterface } from "node:readline";
 import type { Connection } from "../connection.ts";
 import {
     type ClientMessage,
+    checkEdit,
     type Edit,
-    parseClient,
     type ServerMessage,
     type State,
 } from "../protocol.ts";
@@ -152,17 +152,13 @@ async function editDocument(
     const reply = { type: "edit", id: randomUUID() } as const;
     if (doc === "limits" || doc === "settings") {
         const value: unknown = JSON.parse(changed);
-        const parsed = parseClient(
-            JSON.stringify(
-                doc === "limits"
-                    ? { ...reply, doc, hamlet: agent.hamlet, whole: value }
-                    : { ...reply, doc, set: value },
-            ),
+        const parsed = checkEdit(
+            doc === "limits"
+                ? { ...reply, doc, hamlet: agent.hamlet, whole: value }
+                : { ...reply, doc, set: value },
         );
-        if ("malformed" in parsed) throw new Error(parsed.malformed);
-        if (parsed.message.type !== "edit")
-            throw new Error("The document is not an edit.");
-        return parsed.message;
+        if (!parsed.ok) throw new Error(parsed.error.text);
+        return parsed.value;
     }
     if (doc === "charter") return { ...reply, doc, text: changed };
     return { ...reply, doc, agent, text: changed };

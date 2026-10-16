@@ -131,11 +131,15 @@ it("lists only the chief's deeds the server carries out, while accepting older s
         "chief",
     ]);
     expect(parseServer(JSON.stringify(run.state))).toEqual({
-        message: run.state,
+        ok: true,
+        value: run.state,
     });
     const older = { ...run.state };
     Reflect.deleteProperty(older, "deeds");
-    expect(parseServer(JSON.stringify(older))).toEqual({ message: older });
+    expect(parseServer(JSON.stringify(older))).toEqual({
+        ok: true,
+        value: older,
+    });
 });
 
 it("names a wait's current chat without past and pins it only after the chief starts a new conversation (S5, C24)", async () => {

@@ -115,7 +115,7 @@ it("finishes the whole gift and its letter when the connection closes after ever
         },
         run.owner.signal,
     );
-    if (!begin.upload) throw new Error("No upload");
+    if (!begin.ok || !begin.value.upload) throw new Error("No upload");
     const inbox = join(houseOf(run.home.layout, MAYOR), "inbox");
     const entered = gate();
     const resume = gate();
@@ -144,7 +144,7 @@ it("finishes the whole gift and its letter when the connection closes after ever
             {
                 type: "give-part",
                 id: randomUUID(),
-                upload: begin.upload,
+                upload: begin.value.upload,
                 path: "folder/last",
                 offset: 0,
                 data: "QQ==",
@@ -194,7 +194,7 @@ it("confines the write even when the inbox becomes a link after its filesystem c
         },
         run.owner.signal,
     );
-    if (!begin.upload) throw new Error("No upload");
+    if (!begin.ok || !begin.value.upload) throw new Error("No upload");
     const inbox = join(houseOf(run.home.layout, MAYOR), "inbox");
     const outside = scratch();
     const original = fs.lstat;
@@ -217,7 +217,7 @@ it("confines the write even when the inbox becomes a link after its filesystem c
                 {
                     type: "give-part",
                     id: randomUUID(),
-                    upload: begin.upload,
+                    upload: begin.value.upload,
                     path: "folder/last",
                     offset: 0,
                     data: "QQ==",

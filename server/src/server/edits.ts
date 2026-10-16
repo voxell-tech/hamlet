@@ -10,7 +10,6 @@ import { CharacterDoc, editCharter } from "../prompt.ts";
 import type { Edit } from "../protocol.ts";
 import { type ChiefResult, chiefAccess } from "../realm.ts";
 import { agentKey } from "../record.ts";
-import { safeWords } from "../scrub.ts";
 import { readableAgent } from "./reads.ts";
 
 /** A chief's validated document edit, applied before its reply (S6). */
@@ -19,20 +18,17 @@ export async function edit(
     message: Edit,
     context: Context,
 ): Promise<ChiefResult<string>> {
+    message = home.secrets.value(message);
     switch (message.doc) {
         case "charter":
-            await editCharter(
-                home.harness,
-                message.text === null ? null : safeWords(home, message.text),
-                context,
-            );
+            await editCharter(home.harness, message.text, context);
             break;
         case "character":
         case "notes": {
             const resolved = await readableAgent(home, message.agent, context);
             if (!resolved.ok) return resolved;
             const agent = resolved.value;
-            const text = safeWords(home, message.text);
+            const text = message.text;
             if (message.doc === "character") {
                 const key = agentKey(agent);
                 await home.harness.commit(async (tx) => {

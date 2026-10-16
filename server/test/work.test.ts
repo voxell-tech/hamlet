@@ -8,6 +8,7 @@ import { WorkDoc } from "../src/environment.ts";
 import type { Home } from "../src/home.ts";
 import { HOME, RecordDoc } from "../src/record.ts";
 import { say } from "../src/say.ts";
+import { replyFor } from "../src/server.ts";
 import { context, fauxModels, scratch, testHome } from "./support.ts";
 
 it("keeps the folder, its earlier folders and mode through a restart without a model call", async () => {
@@ -98,36 +99,33 @@ it("refuses Hamlet's home, its children and parents, links to it and relative or
     const alias = join(outer, "alias");
     await symlink(home.dir, alias);
     for (const folder of [home.dir, join(home.dir, "inside"), outer, alias]) {
-        expect(await typed(home, `/folder ${folder}`)).toMatchObject({
-            kind: "error",
-            text: `a hamlet cannot work on Hamlet's own folder (${home.dir}), or on one that holds it`,
-        });
+        await expect(typed(home, `/folder ${folder}`)).rejects.toThrow(
+            `a hamlet cannot work on Hamlet's own folder (${home.dir}), or on one that holds it`,
+        );
         expect((await work(home))?.folder).toBeNull();
     }
-    expect(await typed(home, "/folder relative")).toMatchObject({
-        kind: "error",
-        text: "give the folder's full path, such as /Users/you/code/project",
-    });
-    expect(await typed(home, `/folder ${outer}/missing`)).toMatchObject({
-        kind: "error",
-        text: `\`${outer}/missing\` is not a folder`,
-    });
+    await expect(typed(home, "/folder relative")).rejects.toThrow(
+        "give the folder's full path, such as /Users/you/code/project",
+    );
+    await expect(typed(home, `/folder ${outer}/missing`)).rejects.toThrow(
+        `\`${outer}/missing\` is not a folder`,
+    );
     expect((await work(home))?.folder).toBeNull();
     expect(await typed(home, "/folder ~")).toMatchObject({ kind: "notice" });
     expect((await work(home))?.folder).toBe(realpathSync(homedir()));
 });
 
-function typed(home: Home, text: string) {
-    return say(
-        home,
-        {
-            type: "say",
-            id: randomUUID(),
-            to: { hamlet: HOME, agent: "mayor" },
-            text,
-        },
-        context,
-    );
+async function typed(home: Home, text: string) {
+    const message = {
+        type: "say",
+        id: randomUUID(),
+        to: { hamlet: HOME, agent: "mayor" },
+        text,
+    } as const;
+    const outcome = await say(home, message, context);
+    return outcome === undefined
+        ? undefined
+        : replyFor(message.id, outcome, home.secrets);
 }
 function work(home: Home) {
     return home.harness.snapshot(WorkDoc, HOME, context);

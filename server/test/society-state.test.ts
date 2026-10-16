@@ -117,7 +117,10 @@ it("shows all hamlets, office and built roads, departed agents and closed hamlet
         "write-typst",
     ]);
     for (const frame of [...messages, ...late.messages])
-        expect(parseServer(JSON.stringify(frame))).toEqual({ message: frame });
+        expect(parseServer(JSON.stringify(frame))).toEqual({
+            ok: true,
+            value: frame,
+        });
 });
 
 it("follows unopened peer conversations, traffic and the peer list", async () => {

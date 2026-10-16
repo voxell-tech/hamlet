@@ -76,6 +76,12 @@ diagnostic stream. Server wording is therefore chief-facing copy, not a
 debug log. Preserve request correlation so clients can place the failure
 beside the action that caused it.
 
+`src/server/envelope.ts` translates returned chief failures into replies
+or faults and scrubs each envelope once. Its exhaustive switch delegates
+wording to the owning family. A thrown handler error reaches the
+connection as a defect: the server logs its cause with the request id and
+sends a correlated fault. Detached handler work uses the same defect path.
+
 Translate internal errors deliberately before sending them. Keep richer
 diagnostics on the server, subject to the same rules about safe data.
 Never send credentials, tokens, a provider's raw response, a stack trace,
@@ -84,9 +90,12 @@ safe identity should survive redaction.
 
 Select safe fields and wording first, then apply C32's credential
 scrubbing before storage or display, including structured tool output,
-streamed and spilled output and protocol messages. `safeWords` and
-`safeValue` in `src/scrub.ts` scrub known credentials; that does not make
-arbitrary provider text or private paths suitable to send. A stream must
+streamed and spilled output and protocol messages. `Home.secrets` reads the
+home's current credentials for each operation; its `words`, `value` and
+`shell` capabilities scrub text, structured values
+and shell output. The storage helpers `safeWords` and `safeValue` in
+`src/scrub.ts` use that same capability. Scrubbing does not make arbitrary
+provider text or private paths suitable to send. A stream must
 also scrub credentials split between chunks. Test the boundary's output,
 not just the scrubber in isolation.
 

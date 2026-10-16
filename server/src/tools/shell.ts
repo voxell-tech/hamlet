@@ -4,7 +4,6 @@ import { createBashTool } from "@earendil-works/pi-durable/tools";
 import { envFor, LEAVE, type Leave, placeOf } from "../environment.ts";
 import type { Home } from "../home.ts";
 import { SandboxEnv } from "../sandbox.ts";
-import { shellOutput } from "../scrub.ts";
 
 /** Seconds a command may run, which a model can ask to shorten and never to lengthen. */
 const WALL_SECS = 120;
@@ -86,7 +85,7 @@ export function bashTool(home: Home, wallSecs = WALL_SECS) {
             // skipping output past it, so it takes no window.
             const scrubbed: ToolExecutionApi = {
                 ...api,
-                env: shellOutput(env, home.credentials.secrets()),
+                env: home.secrets.shell(env),
                 outputWindow: undefined,
             };
             const seconds = Math.min(timeout ?? wallSecs, wallSecs);

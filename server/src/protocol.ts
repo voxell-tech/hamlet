@@ -1,6 +1,7 @@
 import { type Static, type TProperties, type TSchema, Type } from "typebox";
 import { Compile, type Validator } from "typebox/compile";
 import type { TLocalizedValidationError } from "typebox/error";
+import { err, ok, type Result } from "./result.ts";
 
 /** The most file bytes a chief can give at once (H25). */
 export const MAX_GIFT_BYTES = 32 * 1024 * 1024;
@@ -16,6 +17,7 @@ function nullable<T extends TSchema>(type: T) {
 
 /** The id of a client's request: a UUID the client makes. */
 export const RequestId = Type.String({ format: "uuid" });
+export type RequestId = Static<typeof RequestId>;
 
 /** A client's request of `type`, carrying its id. */
 function request<T extends string, P extends TProperties>(
@@ -96,6 +98,7 @@ export const Change = object({
 });
 export type Change = Static<typeof Change>;
 
+/** The budget period used by a hamlet and its spend report. */
 export const Period = Type.Enum(["day", "month"]);
 export type Period = Static<typeof Period>;
 
@@ -176,6 +179,7 @@ export const Limits = object({
 });
 export type Limits = Static<typeof Limits>;
 
+/** A lasting tool permission a chief may grant or revoke. */
 export const Permission = Type.Enum(["network", "unconfined"]);
 export type Permission = Static<typeof Permission>;
 
@@ -202,9 +206,11 @@ export type Link = Static<typeof Link>;
 export const Price = object({ input: Type.Number(), output: Type.Number() });
 export type Price = Static<typeof Price>;
 
+/** A named model endpoint without its credential. */
 export const Endpoint = object({ name: Type.String(), baseUrl: Type.String() });
 export type Endpoint = Static<typeof Endpoint>;
 
+/** The sign-in methods offered for a provider. */
 export const LoginMethod = Type.Enum(["key", "subscription"]);
 export type LoginMethod = Static<typeof LoginMethod>;
 
@@ -404,6 +410,7 @@ const FROM_CLIENT = {
 
 /** A message a client sends. */
 export const ClientMessage = Type.Union(Object.values(FROM_CLIENT));
+/** The individually inferred client message forms. */
 export type ClientMessage = Static<
     (typeof FROM_CLIENT)[keyof typeof FROM_CLIENT]
 >;
@@ -493,6 +500,7 @@ export const ClosedHamlet = object({
     reason: Type.String(),
 });
 
+/** A hamlet's complete client view, including its limits and remaining budget. */
 export const Hamlet = object({
     roads: Type.Optional(Type.Array(Road)),
     votes: Type.Optional(Type.Array(VoteView)),
@@ -526,6 +534,7 @@ export const Doing = Type.Enum([
 ]);
 export type Doing = Static<typeof Doing>;
 
+/** An agent's client view, with its stable reference and current work. */
 export const Agent = object({
     left: Type.Optional(Left),
     consulting: Type.Optional(Type.Boolean()),
@@ -569,6 +578,7 @@ const waitFields = {
     asked: Type.Integer(),
     chat: nullable(ChatRef),
 };
+/** The reason an approval needs a chief's decision. */
 export const WaitDanger = Type.Enum([
     "network",
     "unconfined",
@@ -577,6 +587,7 @@ export const WaitDanger = Type.Enum([
     "edit",
     "command",
 ]);
+/** An open approval, fault, question or objection awaiting a chief. */
 export const Wait = Type.Union([
     object({
         ...waitFields,
@@ -807,6 +818,7 @@ export const Reply = object({
 });
 export type Reply = Static<typeof Reply>;
 
+/** One sign-in instruction or its final outcome. */
 export const LoginStep = Type.Union([
     object({ url: Type.String(), instructions: Type.Optional(Type.String()) }),
     object({ code: Type.String() }),
@@ -908,6 +920,7 @@ const FROM_SERVER = {
 
 /** A message the server sends. */
 export const ServerMessage = Type.Union(Object.values(FROM_SERVER));
+/** The individually inferred server message forms. */
 export type ServerMessage = Static<
     (typeof FROM_SERVER)[keyof typeof FROM_SERVER]
 >;
@@ -1017,14 +1030,8 @@ export function protocolSchema(): Record<string, unknown> {
     };
 }
 
-/** A message read from its JSON text, or the words for why it does not fit protocol v0. */
-export type Parsed<M> =
-    | { readonly message: M }
-    | {
-          readonly malformed: string;
-          /** The id of the request it was meant to be, when that id is a UUID. */
-          readonly to?: string;
-      };
+/** Rejected protocol input, correlated only when its request id is a UUID. */
+export type Malformed = { kind: "malformed"; text: string; to?: RequestId };
 
 /** One form of a message, with its own validator. */
 type Form = { readonly properties: TProperties; readonly validator: Validator };
@@ -1047,40 +1054,62 @@ function byType(messages: Record<string, TSchema>): Forms {
 const clientForms = byType(FROM_CLIENT);
 const serverForms = byType(FROM_SERVER);
 const requestIds = Compile(RequestId);
+const editForms: Forms = new Map(
+    [...clientForms].filter(([type]) => type === "edit"),
+);
+
+/** Checks an editor's parsed value as a complete edit request, without encoding it again. */
+export function checkEdit(value: unknown): Result<Edit, Malformed> {
+    return check(value, editForms);
+}
 
 /** Reads a message a client sent. */
-export function parseClient(text: string): Parsed<ClientMessage> {
+export function parseClient(text: string): Result<ClientMessage, Malformed> {
     return parse(text, clientForms);
 }
 
 /** Reads a message the server sent. */
-export function parseServer(text: string): Parsed<ServerMessage> {
+export function parseServer(text: string): Result<ServerMessage, Malformed> {
     return parse(text, serverForms);
 }
 
-function parse<M>(text: string, messages: Forms): Parsed<M> {
+function parse<M>(text: string, messages: Forms): Result<M, Malformed> {
     let value: unknown;
     try {
         value = JSON.parse(text);
     } catch {
         value = undefined;
     }
+    return check(value, messages);
+}
+
+function check<M>(value: unknown, messages: Forms): Result<M, Malformed> {
     if (!isRecord(value) || typeof value.type !== "string") {
-        return { malformed: "A message is a JSON object with a `type`." };
+        return err({
+            kind: "malformed",
+            text: "A message is a JSON object with a `type`.",
+        });
     }
     const { type, id } = value;
     const to = requestIds.Check(id) ? { to: id } : {};
     const forms = messages.get(type);
     if (forms === undefined) {
-        return { malformed: `There is no \`${type}\` message.`, ...to };
+        return err({
+            kind: "malformed",
+            text: `There is no \`${type}\` message.`,
+            ...to,
+        });
     }
     if (forms.some((form) => form.validator.Check(value))) {
-        return { message: value as M };
+        // SAFETY: each caller pairs M with its schema's forms; TypeBox has checked the full value, but the map erases its inferred type.
+        // Verified by: protocol.test.ts round trips client and server messages and rejects malformed forms.
+        return ok(value as M);
     }
-    return {
-        malformed: `This \`${type}\` message does not fit protocol v0: ${words(value, forms)}.`,
+    return err({
+        kind: "malformed",
+        text: `This \`${type}\` message does not fit protocol v0: ${words(value, forms)}.`,
         ...to,
-    };
+    });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1158,4 +1187,52 @@ function said(error: TLocalizedValidationError): string {
 
 function quoted(values: readonly unknown[]): string {
     return values.map((value) => `\`${String(value)}\``).join(", ");
+}
+
+/** Applies a turn to a client's items and status; broken item references are protocol defects. */
+export function applyOp(
+    items: Item[],
+    status: { working: boolean; pending: number },
+    op: Op,
+): void {
+    const find = (id: string) => {
+        const item = items.find((each) => each.id === id);
+        if (item === undefined) throw new Error(`No item ${id}`);
+        return item;
+    };
+    switch (op.op) {
+        case "add":
+            if (op.replaces !== undefined) {
+                items.splice(items.indexOf(find(op.replaces)), 1);
+            }
+            items.push(structuredClone(op.item));
+            return;
+        case "append":
+            find(op.item).text += op.text;
+            return;
+        case "close": {
+            const { tool } = find(op.item);
+            if (tool === undefined) throw new Error(`${op.item} is no tool`);
+            Object.assign(tool, {
+                exit: op.exit,
+                ms: op.ms,
+                failure: op.failure,
+                ...(op.change === undefined ? {} : { change: op.change }),
+            });
+            return;
+        }
+        case "status":
+            Object.assign(status, {
+                working: op.working,
+                pending: op.pending,
+            });
+            return;
+        case "reset":
+            items.length = 0;
+            return;
+        case "usage":
+            return;
+    }
+    const unhandled: never = op;
+    throw new Error(`Unclassified turn operation: ${unhandled}`);
 }

@@ -10,6 +10,7 @@ import { raise } from "../src/oversight.ts";
 import type { Address } from "../src/protocol.ts";
 import { RealmDoc } from "../src/realm.ts";
 import { say } from "../src/say.ts";
+import { replyFor } from "../src/server.ts";
 import {
     addAgent,
     addHamlet,
@@ -73,12 +74,16 @@ it("refuses /stop for a hamlet the current chief does not lead", async () => {
     });
 });
 
-function typed(
+async function typed(
     home: Home,
     text: string,
     to: Address = { hamlet: "home", agent: "mayor" },
 ) {
-    return say(home, { type: "say", id: randomUUID(), to, text }, context);
+    const message = { type: "say", id: randomUUID(), to, text } as const;
+    const outcome = await say(home, message, context);
+    return outcome === undefined
+        ? undefined
+        : replyFor(message.id, outcome, home.secrets);
 }
 
 it("answers another hamlet's mayor's own question outside a chief chat with plain words", async () => {
