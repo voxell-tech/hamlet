@@ -1,16 +1,21 @@
-//! The bazaar as meshes: a paved round with a striped pavilion at its
-//! back, stalls along an avenue to it and a gate at its front, all
-//! hung with lanterns, bunting and fairy lights.
+//! The bazaar as meshes: a paved round with a striped pavilion in its
+//! middle, five stalls in a ring about it facing out onto a
+//! promenade, and a gate at its front, all hung with lanterns,
+//! bunting and fairy lights.
 
 mod props;
 mod stall;
 
-use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, TAU};
+use std::f32::consts::{FRAC_PI_4, TAU};
 
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 
-use self::stall::{HIGH, LOW, Wares, stall};
+#[cfg(test)]
+pub(super) use self::props::PALMS;
+pub(super) use self::props::{TEA, TEAPOT};
+pub(super) use self::stall::{KEEPER, SHIMMER, SPARKS, at_work};
+use super::stalls::Stall;
 use crate::meshes::Mb;
 use crate::palette::Palette;
 
@@ -20,14 +25,14 @@ pub(super) const FLOOR: f32 = 0.14;
 /// The colours of the fairy lights, which take turns along a string.
 pub(super) const FAIRY: usize = 6;
 
-/// The middle of the pavilion, behind the bazaar's own.
-const PAVILION: Vec3 = Vec3::new(0.0, 0.0, -1.0);
+/// The middle of the pavilion, at the bazaar's own.
+pub(super) const PAVILION: Vec3 = Vec3::ZERO;
 
 /// The pavilion's posts stand on this radius, its canopy's rim is
 /// this wide and this high, and its centre pole this tall.
-const POSTS: f32 = 3.0;
-const RIM: (f32, f32) = (3.45, 3.3);
-const POLE: f32 = 7.6;
+pub(super) const POSTS: f32 = 3.2;
+pub(super) const RIM: (f32, f32) = (3.7, 3.45);
+pub(super) const POLE: f32 = 8.2;
 
 /// The stripes of the pavilion's canopy, round it.
 const STRIPES: usize = 16;
@@ -37,19 +42,35 @@ const SHADE: f32 = 0.72;
 
 /// The gate's posts either side of the way in, how far out they
 /// stand and their height.
-const GATE: (f32, f32, f32) = (1.9, 6.1, 3.4);
+const GATE: (f32, f32, f32) = (2.3, 10.2, 3.8);
+
+/// The radius of the paving.
+pub(super) const PAVED: f32 = 10.8;
+
+/// The radius the stalls stand on about the pavilion.
+const RING: f32 = 6.9;
 
 /// The room between two bulbs of a string of fairy lights.
 const BULB_SPACING: f32 = 0.3;
 
-/// The stalls: where each stands, which way it turns and what it
-/// sells. Each faces the avenue between them.
-const STALLS: [(Vec3, f32, Wares); 4] = [
-    (Vec3::new(-5.0, 0.0, 2.2), FRAC_PI_2, Wares::Pots),
-    (Vec3::new(5.0, 0.0, 2.2), -FRAC_PI_2, Wares::Rugs),
-    (Vec3::new(-5.0, 0.0, -2.4), FRAC_PI_2, Wares::Spices),
-    (Vec3::new(5.0, 0.0, -2.4), -FRAC_PI_2, Wares::Scrolls),
-];
+/// Where `stall` stands and the way it turns: on the ring, a fifth
+/// of the way round from the next, its back to the pavilion and its
+/// front to the promenade. The gate is between the first and the
+/// last.
+pub(super) fn placing(stall: Stall) -> (Vec3, Quat) {
+    let a =
+        (stall as usize as f32 + 0.5) / Stall::ALL.len() as f32 * TAU;
+    (
+        Vec3::new(a.sin(), 0.0, a.cos()) * RING,
+        Quat::from_rotation_y(a),
+    )
+}
+
+/// The spot `local` of `stall`, from the bazaar's middle.
+pub(super) fn at_stall(stall: Stall, local: Vec3) -> Vec3 {
+    let (at, turn) = placing(stall);
+    at + turn * local
+}
 
 /// A flag that waves: where its hoist's top hangs, its size and
 /// the colours of its stripes.
@@ -61,16 +82,28 @@ pub(super) struct Pennon {
     pub colours: [Vec3; 2],
 }
 
+/// A part that turns on its own: its mesh about an axle along its
+/// Z, the axle's place and the way it lies, and its turns a second.
+pub(super) struct Cog {
+    pub mesh: Mesh,
+    pub at: Vec3,
+    pub lies: Quat,
+    pub rate: f32,
+}
+
 /// The meshes of the bazaar, and the spots of what is drawn apart.
 pub(super) struct Built {
     /// Its cloth, timber and wares.
     pub walls: Mesh,
     /// The lit glass of its lanterns.
     pub glass: Mesh,
+    /// What glows among its wares, in colours of its own.
+    pub gleam: Mesh,
     /// The bulbs of its fairy lights, a mesh to each colour.
     pub bulbs: [Mesh; FAIRY],
     pub lamps: Vec<Vec3>,
     pub flags: Vec<Pennon>,
+    pub cogs: Vec<Cog>,
 }
 
 /// A cloth seen from both sides, its back in shade.
@@ -263,37 +296,44 @@ impl Fairy {
     }
 }
 
-/// The paving: a border of tiles, a star in the avenue, stepping
-/// stones from the gate, and a rug before the pavilion.
+/// The paving: a border of tiles, tiles round the pavilion's foot,
+/// a star in the plaza before it, stepping stones from the gate, and
+/// a rug in the pavilion.
 fn ground(mb: &mut Mb, pal: &Palette) {
     mb.tube(
         Vec3::ZERO,
         Vec3::Y * 0.1,
-        7.0,
-        7.0,
-        32,
+        PAVED + 0.45,
+        PAVED + 0.45,
+        48,
         pal.limestone_shade,
         true,
     );
     mb.tube(
         Vec3::ZERO,
         Vec3::Y * FLOOR,
-        6.6,
-        6.6,
-        32,
+        PAVED,
+        PAVED,
+        48,
         pal.dirt,
         true,
     );
     let tiles =
         [pal.terracotta, pal.limestone, pal.ochre, pal.limestone];
-    ring(mb, Vec3::Y * (FLOOR + 0.004), (6.1, 6.5), 48, |s| {
+    let rim = Vec3::Y * (FLOOR + 0.004);
+    ring(mb, rim, (PAVED - 0.5, PAVED - 0.08), 72, |s| {
         tiles[s % tiles.len()]
     });
-    ring(mb, Vec3::Y * (FLOOR + 0.004), (5.82, 5.92), 48, |_| {
+    ring(mb, rim, (PAVED - 0.82, PAVED - 0.7), 72, |_| {
         pal.terracotta
     });
-    // The star in the avenue, of two squares turned on each other.
-    let star = Vec3::new(0.0, FLOOR, 4.25);
+    // A border of tiles round the pavilion's foot.
+    ring(mb, rim, (RIM.0 + 0.1, RIM.0 + 0.4), 48, |s| {
+        tiles[(s + 1) % tiles.len()]
+    });
+    // The star in the plaza before the pavilion, of two squares
+    // turned on each other.
+    let star = Vec3::new(0.0, FLOOR, 6.6);
     ring(mb, star + Vec3::Y * 0.004, (0.95, 1.12), 24, |s| {
         [pal.terracotta, pal.ochre][s % 2]
     });
@@ -314,7 +354,7 @@ fn ground(mb: &mut Mb, pal: &Palette) {
         );
     }
     ring(mb, star + Vec3::Y * 0.018, (0.0, 0.24), 12, |_| pal.brass);
-    for z in [6.45f32, 5.85, 2.75] {
+    for z in [10.55f32, 9.9, 8.3] {
         mb.rbox(
             Vec3::new(0.0, FLOOR + 0.01, z),
             Vec3::new(0.42, 0.012, 0.22),
@@ -328,13 +368,13 @@ fn ground(mb: &mut Mb, pal: &Palette) {
     slab(
         mb,
         rug + Vec3::Y * (FLOOR + 0.006),
-        Vec3::new(2.5, 0.008, 1.9),
+        Vec3::new(2.7, 0.008, 2.1),
         pal.awnings[1],
     );
     slab(
         mb,
         rug + Vec3::Y * (FLOOR + 0.012),
-        Vec3::new(2.3, 0.01, 1.7),
+        Vec3::new(2.5, 0.01, 1.9),
         pal.awnings[2],
     );
 }
@@ -396,11 +436,11 @@ fn pavilion(mb: &mut Mb, glass: &mut Mb, pal: &Palette) -> Vec<Vec3> {
     // pulled up a pole does. Inside, it is the same cloth in shade.
     let canopy = [
         (rim, 0.0),
-        (rim - 0.45, 0.5),
-        (rim - 1.1, 1.2),
-        (rim - 1.9, 2.05),
-        (rim - 2.7, 2.85),
-        (0.0, 3.4),
+        (rim * 0.87, 0.55),
+        (rim * 0.68, 1.3),
+        (rim * 0.45, 2.2),
+        (rim * 0.22, 3.0),
+        (0.0, 3.55),
     ];
     let base = PAVILION + Vec3::Y * eave;
     mb.lathe(base, &canopy, STRIPES, |_, s| stripe(pal, 0, s));
@@ -433,13 +473,13 @@ fn pavilion(mb: &mut Mb, glass: &mut Mb, pal: &Palette) -> Vec<Vec3> {
         (0.0, 0.72),
     ];
     mb.lathe(
-        PAVILION + Vec3::Y * (eave + 3.18),
+        PAVILION + Vec3::Y * (eave + 3.33),
         &cupola,
         8,
         |_, s| stripe(pal, 2, s),
     );
     mb.blob(
-        PAVILION + Vec3::Y * (eave + 3.95),
+        PAVILION + Vec3::Y * (eave + 4.1),
         Vec3::splat(0.13),
         4,
         0.0,
@@ -491,7 +531,7 @@ fn pavilion(mb: &mut Mb, glass: &mut Mb, pal: &Palette) -> Vec<Vec3> {
 /// The pavilion's counter with what is for sale on it, and its
 /// stock in the shade behind.
 fn counter(mb: &mut Mb, pal: &Palette) {
-    let counter = PAVILION + Vec3::new(0.0, FLOOR, 2.0);
+    let counter = PAVILION + Vec3::new(0.0, FLOOR, 2.2);
     slab(
         mb,
         counter + Vec3::Y * 0.45,
@@ -737,51 +777,56 @@ fn gate(mb: &mut Mb, glass: &mut Mb, pal: &Palette) -> Vec<Vec3> {
 }
 
 /// The bazaar's cloth, timber and wares, the lit glass of its
-/// lanterns and the bulbs of its fairy lights apart from them, and
-/// the spots of its lanterns and flags.
+/// lanterns, what glows among its wares and the bulbs of its fairy
+/// lights apart from them, the spots of its lanterns and flags, and
+/// the parts that turn.
 pub(super) fn build(pal: &Palette) -> Built {
-    let (mut mb, mut glass) = (Mb::new(), Mb::new());
+    let (mut mb, mut glass, mut gleam) =
+        (Mb::new(), Mb::new(), Mb::new());
     let mut fairy = Fairy::new();
     ground(&mut mb, pal);
     let mut lamps = pavilion(&mut mb, &mut glass, pal);
     let mut flags = vec![Pennon {
         at: PAVILION + Vec3::Y * (POLE - 0.02),
-        long: 1.2,
-        tall: 0.6,
+        long: 1.3,
+        tall: 0.65,
         colours: [pal.awnings[1], pal.awnings[0]],
     }];
-    // Where each stall's strings are tied: the top of its high back
-    // posts, and the ends of its awning's front.
-    let mut corners = Vec::new();
-    for (k, (at, turn, sells)) in STALLS.into_iter().enumerate() {
-        let xf = Affine3A::from_rotation_translation(
-            Quat::from_rotation_y(turn),
-            at,
+    let mut cogs = Vec::new();
+    // Where each stall's strings are tied: the top of its sign, and
+    // the two ends of its front.
+    let mut ties = Vec::new();
+    for stall in Stall::ALL {
+        let (at, turn) = placing(stall);
+        let xf = Affine3A::from_rotation_translation(turn, at);
+        for part in [&mut mb, &mut glass, &mut gleam] {
+            part.at(xf);
+        }
+        let dressed = stall::stall(
+            &mut mb,
+            (&mut glass, &mut gleam),
+            pal,
+            stall,
         );
-        mb.at(xf);
-        glass.at(xf);
-        let lamp = stall(&mut mb, &mut glass, pal, (k, sells));
-        lamps.push(xf.transform_point3(lamp));
         let to = |p: Vec3| xf.transform_point3(p);
+        lamps.push(to(dressed.lamp));
+        let style = pal.stalls[stall as usize];
         flags.push(Pennon {
-            at: to(Vec3::new(1.0, HIGH + 0.62, -0.75)),
-            long: 0.55,
-            tall: 0.3,
-            colours: [pal.awnings[k], pal.whitewash],
+            at: to(dressed.mast),
+            long: 0.6,
+            tall: 0.32,
+            colours: [style.cloth, style.trim],
         });
-        corners.push((
-            [
-                to(Vec3::new(-1.0, HIGH + 0.05, -0.75)),
-                to(Vec3::new(1.0, HIGH + 0.05, -0.75)),
-            ],
-            (
-                to(Vec3::new(-1.25, LOW - 0.12, 1.27)),
-                to(Vec3::new(1.25, LOW - 0.12, 1.27)),
-            ),
-        ));
+        ties.push((to(dressed.crest), dressed.ties.map(to)));
+        cogs.extend(dressed.cogs.into_iter().map(|cog| Cog {
+            at: to(cog.at),
+            lies: turn * cog.lies,
+            ..cog
+        }));
     }
-    mb.at(Affine3A::IDENTITY);
-    glass.at(Affine3A::IDENTITY);
+    for part in [&mut mb, &mut glass, &mut gleam] {
+        part.at(Affine3A::IDENTITY);
+    }
     lamps.extend(gate(&mut mb, &mut glass, pal));
     let (wide, z, tall) = GATE;
     for side in [-1.0f32, 1.0] {
@@ -795,23 +840,18 @@ pub(super) fn build(pal: &Palette) -> Built {
     props::furnish(&mut mb, pal);
 
     // Bunting from the top of the pole to the gate, and fairy lights
-    // from it to every stall, round the pavilion's rim, across the
-    // avenue, along each awning and under the gate's beam.
+    // from it to every stall's sign, round the pavilion's rim, along
+    // each stall's front, from stall to stall round the ring, from
+    // the gate to the stalls beside it and under the gate's beam.
     let top = PAVILION + Vec3::Y * (POLE - 0.3);
     let gates = [-1.0f32, 1.0]
         .map(|side| Vec3::new(side * wide, tall - 0.08, z));
     for (k, gate) in gates.into_iter().enumerate() {
-        bunting(&mut mb, pal, (top, gate), 0.35, k);
+        bunting(&mut mb, pal, (top, gate), 0.45, k);
     }
-    for ([near, far], front) in &corners {
-        // The post nearer the pavilion's pole.
-        let tied =
-            match near.distance(PAVILION) < far.distance(PAVILION) {
-                true => *near,
-                false => *far,
-            };
-        fairy.string(&mut mb, pal, (top, tied), 0.4);
-        fairy.string(&mut mb, pal, *front, 0.1);
+    for (crest, front) in &ties {
+        fairy.string(&mut mb, pal, (top, *crest), 0.55);
+        fairy.string(&mut mb, pal, (front[0], front[1]), 0.1);
     }
     for s in 0..STRIPES {
         fairy.string(
@@ -821,20 +861,27 @@ pub(super) fn build(pal: &Palette) -> Built {
             0.1,
         );
     }
-    // The front stalls' posts nearest the gate and farthest from it.
-    let (left, right) = (corners[0].0, corners[1].0);
-    let near = |pair: [Vec3; 2]| match pair[0].z > pair[1].z {
-        true => (pair[0], pair[1]),
-        false => (pair[1], pair[0]),
+    // The nearest ends of two neighbours' fronts. The gate is between
+    // the last and the first.
+    let nearest = |a: [Vec3; 2], b: [Vec3; 2]| {
+        let pairs =
+            [(a[0], b[0]), (a[0], b[1]), (a[1], b[0]), (a[1], b[1])];
+        pairs
+            .into_iter()
+            .min_by(|p, q| {
+                p.0.distance(p.1).total_cmp(&q.0.distance(q.1))
+            })
+            .unwrap_or(pairs[0])
     };
-    let ((left_near, left_far), (right_near, right_far)) =
-        (near(left), near(right));
-    fairy.string(&mut mb, pal, (left_near, right_far), 0.25);
-    fairy.string(&mut mb, pal, (left_far, right_near), 0.25);
-    for (side, front) in
-        [(left_near, gates[0]), (right_near, gates[1])]
+    for pair in ties.windows(2) {
+        let (a, b) = nearest(pair[0].1, pair[1].1);
+        fairy.string(&mut mb, pal, (a, b), 0.35);
+    }
+    for (gate, (_, front)) in
+        gates.into_iter().zip([&ties[ties.len() - 1], &ties[0]])
     {
-        fairy.string(&mut mb, pal, (front, side), 0.3);
+        let (_, end) = nearest([gate; 2], *front);
+        fairy.string(&mut mb, pal, (gate, end), 0.3);
     }
     fairy.string(
         &mut mb,
@@ -848,9 +895,11 @@ pub(super) fn build(pal: &Palette) -> Built {
     Built {
         walls: mb.build(),
         glass: glass.build(),
+        gleam: gleam.build(),
         bulbs: fairy.bulbs.map(Mb::build),
         lamps,
         flags,
+        cogs,
     }
 }
 
@@ -862,9 +911,17 @@ mod tests {
     #[test]
     fn the_bazaar_stands_within_its_ground() {
         let built = build(&Palette::default());
-        let meshes =
-            [built.walls, built.glass].into_iter().chain(built.bulbs);
-        for mesh in meshes {
+        let cogs = built.cogs.into_iter().map(|cog| {
+            let xf =
+                Affine3A::from_rotation_translation(cog.lies, cog.at);
+            (cog.mesh, xf)
+        });
+        let meshes = [built.walls, built.glass, built.gleam]
+            .into_iter()
+            .chain(built.bulbs)
+            .map(|mesh| (mesh, Affine3A::IDENTITY))
+            .chain(cogs);
+        for (mesh, xf) in meshes {
             let points = mesh
                 .attribute(Mesh::ATTRIBUTE_POSITION)
                 .and_then(|points| points.as_float3())
@@ -872,16 +929,19 @@ mod tests {
             assert!(points.len() > 3);
             // It stands on the ground and within what it is
             // picked by.
-            for [x, y, z] in points {
-                assert!((-0.01..=SIZE.1).contains(y), "{y}");
-                assert!(x.hypot(*z) <= SIZE.0, "{x} {z}");
+            for point in points {
+                let [x, y, z] = xf
+                    .transform_point3(Vec3::from(*point))
+                    .to_array();
+                assert!((-0.01..=SIZE.1).contains(&y), "{y}");
+                assert!(x.hypot(z) <= SIZE.0, "{x} {z}");
             }
         }
         assert!(SIZE.0 < GROUNDS);
         // Five in the pavilion, one to each stall and one at each
         // gate post.
-        assert_eq!(built.lamps.len(), 11);
+        assert_eq!(built.lamps.len(), 12);
         // On the pole, a stall's mast each and on each gate post.
-        assert_eq!(built.flags.len(), 7);
+        assert_eq!(built.flags.len(), 8);
     }
 }

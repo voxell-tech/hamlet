@@ -32,7 +32,7 @@ pub(super) const LOOK: Look = Look {
 
 /// The merchant's spot, from the bazaar's middle: before the
 /// counter, facing the gate.
-pub(super) const STANDS: Vec3 = Vec3::new(0.0, FLOOR, 1.85);
+pub(super) const STANDS: Vec3 = Vec3::new(0.0, FLOOR, 3.05);
 
 /// The seconds it waves after a sale.
 pub(super) const CHEERS: f32 = 5.0;

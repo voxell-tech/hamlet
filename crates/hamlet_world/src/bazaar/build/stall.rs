@@ -1,436 +1,129 @@
-//! A stall of the bazaar: posts, a striped awning, a counter, goods
-//! hanging from a rail and what it sells.
+//! A stall of the bazaar: what every stall is built of, and each
+//! stall itself, in a file of its own.
 
+mod land;
+mod minds;
+mod scrolls;
+mod tinker;
+mod workshop;
+
+use bevy::math::Affine3A;
 use bevy::prelude::*;
 
-use super::{FLOOR, cloth, lantern, slab, stripe};
+pub(in crate::bazaar) use self::scrolls::SHIMMER;
+pub(in crate::bazaar) use self::tinker::SPARKS;
+use super::{Cog, FLOOR, cloth, slab};
+use crate::bazaar::stalls::Stall;
 use crate::meshes::Mb;
-use crate::palette::Palette;
+use crate::palette::{Palette, StallStyle};
+
+/// A stall's posts stand this far either side of its middle, and
+/// this far before and behind it.
+const WIDE: f32 = 1.45;
+const DEEP: f32 = 0.8;
 
 /// The height of a stall's front posts and of its back ones.
-pub(super) const LOW: f32 = 2.25;
-pub(super) const HIGH: f32 = 2.75;
+const LOW: f32 = 2.4;
+const HIGH: f32 = 2.95;
 
-/// What a stall sells.
-#[derive(Clone, Copy, Debug)]
-pub(super) enum Wares {
-    Pots,
-    Rugs,
-    Spices,
-    Scrolls,
+/// What a stall's building gives back, from its own middle: the
+/// spot of its lantern, where its flag hangs, the top of its sign,
+/// the two ends of its front for strings of lights, and its parts
+/// that turn.
+pub(super) struct Dressed {
+    pub lamp: Vec3,
+    pub mast: Vec3,
+    pub crest: Vec3,
+    pub ties: [Vec3; 2],
+    pub cogs: Vec<Cog>,
 }
 
-/// What a stall sells on its counter, whose top is at `top`.
-fn on_counter(
-    mb: &mut Mb,
-    pal: &Palette,
-    top: Vec3,
-    (colour, wares): (usize, Wares),
-) {
-    match wares {
-        Wares::Pots => {
-            for (k, x) in
-                [-0.7f32, -0.3, 0.12, 0.55].into_iter().enumerate()
-            {
-                let size = 0.12 + 0.03 * (k % 2) as f32;
-                let colour = [pal.terracotta, pal.ochre][k % 2];
-                let at = top + Vec3::new(x, size, 0.0);
-                mb.blob(
-                    at,
-                    Vec3::new(size, size * 1.2, size),
-                    4,
-                    0.0,
-                    0.0,
-                    |_| colour,
-                );
-                mb.torus(
-                    at + Vec3::Y * size * 1.1,
-                    Vec3::Y,
-                    size * 0.55,
-                    0.02,
-                    10,
-                    pal.brass,
-                );
-            }
-            // Great jars on the paving before it.
-            for (at, size) in [
-                (Vec3::new(0.6, 0.0, 1.05), 0.3),
-                (Vec3::new(-0.55, 0.0, 1.15), 0.22),
-            ] {
-                mb.blob(
-                    at + Vec3::Y * (FLOOR + size),
-                    Vec3::new(size * 0.85, size, size * 0.85),
-                    5,
-                    0.0,
-                    0.0,
-                    |_| pal.terracotta,
-                );
-                mb.torus(
-                    at + Vec3::Y * (FLOOR + size * 1.9),
-                    Vec3::Y,
-                    size * 0.4,
-                    0.03,
-                    10,
-                    pal.terracotta * 0.8,
-                );
-            }
-        }
-        Wares::Rugs => {
-            for k in 0..3 {
-                let y = 0.08 + 0.15 * k as f32;
-                let z = 0.06 - 0.12 * (k % 2) as f32;
-                mb.tube(
-                    top + Vec3::new(-0.8, y, z),
-                    top + Vec3::new(0.8, y, z),
-                    0.075,
-                    0.075,
-                    8,
-                    pal.awnings[(colour + k + 1) % pal.awnings.len()],
-                    true,
-                );
-            }
-            // One unrolled over the front of the counter.
-            for (half, z, rug) in [
-                (
-                    Vec2::new(0.6, 0.38),
-                    0.79,
-                    pal.awnings[(colour + 3) % 4],
-                ),
-                (Vec2::new(0.42, 0.24), 0.805, pal.whitewash),
-                (
-                    Vec2::new(0.18, 0.12),
-                    0.82,
-                    pal.awnings[colour % 4],
-                ),
-            ] {
-                mb.rbox(
-                    Vec3::new(0.0, FLOOR + 0.5, z),
-                    half.extend(0.012),
-                    0.005,
-                    Quat::IDENTITY,
-                    rug,
-                    0.0,
-                );
-            }
-        }
-        Wares::Spices => {
-            // Baskets heaped with spices in cones, two rows of them.
-            let spices = [
-                pal.terracotta,
-                pal.awnings[1],
-                pal.moss,
-                pal.ochre,
-                pal.leather,
-                pal.awnings[0],
-            ];
-            for (k, spice) in spices.into_iter().enumerate() {
-                let at = top
-                    + Vec3::new(
-                        -0.68 + 0.27 * (k % 6) as f32,
-                        0.0,
-                        if k % 2 == 0 { 0.08 } else { -0.1 },
-                    );
-                mb.lathe(
-                    at,
-                    &[
-                        (0.0, 0.0),
-                        (0.11, 0.0),
-                        (0.14, 0.08),
-                        (0.15, 0.12),
-                    ],
-                    10,
-                    |_, _| pal.log,
-                );
-                mb.lathe(
-                    at + Vec3::Y * 0.1,
-                    &[(0.14, 0.0), (0.0, 0.2)],
-                    10,
-                    |_, _| spice,
-                );
-            }
-            // A crate of fruit on the paving beside it.
-            let crate_at = Vec3::new(-0.6, FLOOR + 0.16, 1.05);
-            mb.rbox(
-                crate_at,
-                Vec3::new(0.3, 0.16, 0.22),
-                0.02,
-                Quat::from_rotation_y(0.2),
-                pal.timber,
-                0.2,
-            );
-            for i in 0..6 {
-                let at = crate_at
-                    + Vec3::new(
-                        -0.18 + 0.18 * (i % 3) as f32,
-                        0.18 + 0.03 * (i / 3) as f32,
-                        -0.07 + 0.14 * (i / 3) as f32,
-                    );
-                mb.blob(at, Vec3::splat(0.075), 3, 0.0, 0.0, |_| {
-                    pal.flowers[3]
-                });
-            }
-        }
-        Wares::Scrolls => {
-            for k in 0..4 {
-                let (y, z) = (
-                    0.05 + 0.04 * (k % 2) as f32,
-                    -0.1 + 0.07 * k as f32,
-                );
-                mb.tube(
-                    top + Vec3::new(-0.75, y, z),
-                    top + Vec3::new(-0.15, y, z),
-                    0.04,
-                    0.04,
-                    6,
-                    pal.parchment,
-                    true,
-                );
-            }
-            for k in 0..4 {
-                let half = 0.17 - 0.015 * k as f32;
-                mb.rbox(
-                    top + Vec3::new(
-                        0.45,
-                        0.03 + 0.06 * k as f32,
-                        0.0,
-                    ),
-                    Vec3::new(half, 0.028, half * 0.75),
-                    0.008,
-                    Quat::from_rotation_y(0.25 * k as f32),
-                    pal.paints[(k * 2 + colour) % pal.paints.len()],
-                    0.0,
-                );
-            }
-            // A globe on a stand.
-            let globe = top + Vec3::new(0.05, 0.0, 0.1);
-            mb.tube(
-                globe,
-                globe + Vec3::Y * 0.12,
-                0.05,
-                0.02,
-                6,
-                pal.brass,
-                true,
-            );
-            mb.blob(
-                globe + Vec3::Y * 0.24,
-                Vec3::splat(0.12),
-                5,
-                0.0,
-                0.0,
-                |d| match d.y.abs() < 0.3 || d.x > 0.5 {
-                    true => pal.moss,
-                    false => pal.water,
-                },
-            );
-            mb.torus(
-                globe + Vec3::Y * 0.24,
-                Vec3::X,
-                0.14,
-                0.01,
-                12,
-                pal.brass,
-            );
-        }
-    }
-}
-
-/// What hangs from the rail under a stall's awning.
-fn hanging(
-    mb: &mut Mb,
-    pal: &Palette,
-    (colour, wares): (usize, Wares),
-) {
-    let rail = |x: f32| Vec3::new(x, LOW - 0.08, 0.75);
-    let chain = |mb: &mut Mb, from: Vec3, to: Vec3| {
-        mb.tube(from, to, 0.008, 0.008, 3, pal.steel, false);
-    };
-    match wares {
-        Wares::Pots => {
-            for (k, x) in [-0.6f32, 0.0, 0.55].into_iter().enumerate()
-            {
-                let drop = 0.35 + 0.12 * (k % 2) as f32;
-                let at = rail(x) - Vec3::Y * drop;
-                chain(mb, rail(x), at + Vec3::Y * 0.1);
-                mb.blob(
-                    at,
-                    Vec3::new(0.13, 0.11, 0.13),
-                    4,
-                    0.0,
-                    0.0,
-                    |d| match d.y > 0.4 {
-                        true => pal.brass * 1.2,
-                        false => pal.brass,
-                    },
-                );
-                mb.torus(
-                    at + Vec3::Y * 0.09,
-                    Vec3::Y,
-                    0.1,
-                    0.015,
-                    10,
-                    pal.brass,
-                );
-            }
-        }
-        Wares::Rugs => {
-            for (k, x) in [-0.45f32, 0.45].into_iter().enumerate() {
-                let at = rail(x) - Vec3::Y * 0.42;
-                mb.rbox(
-                    at,
-                    Vec3::new(0.3, 0.38, 0.012),
-                    0.005,
-                    Quat::IDENTITY,
-                    pal.awnings[(colour + k + 2) % pal.awnings.len()],
-                    0.0,
-                );
-                mb.rbox(
-                    at + Vec3::Z * 0.008,
-                    Vec3::new(0.22, 0.3, 0.012),
-                    0.005,
-                    Quat::IDENTITY,
-                    pal.whitewash,
-                    0.0,
-                );
-                mb.rbox(
-                    at + Vec3::Z * 0.016,
-                    Vec3::new(0.1, 0.1, 0.012),
-                    0.005,
-                    Quat::from_rotation_z(
-                        std::f32::consts::FRAC_PI_4,
-                    ),
-                    pal.awnings[(colour + k) % pal.awnings.len()],
-                    0.0,
-                );
-            }
-        }
-        Wares::Spices => {
-            // Strings of chillies and of garlic.
-            for (k, x) in
-                [-0.7f32, -0.35, 0.35, 0.7].into_iter().enumerate()
-            {
-                let (hue, size) = match k % 2 {
-                    0 => (
-                        pal.awnings[0],
-                        Vec3::new(0.035, 0.07, 0.035),
-                    ),
-                    _ => (pal.whitewash, Vec3::splat(0.055)),
-                };
-                chain(mb, rail(x), rail(x) - Vec3::Y * 0.12);
-                for i in 0..6 {
-                    let at = rail(x)
-                        - Vec3::Y * (0.18 + 0.09 * i as f32)
-                        + Vec3::X * 0.02 * ((i % 2) as f32 - 0.5);
-                    mb.blob(at, size, 3, 0.0, 0.0, |_| hue);
-                }
-            }
-        }
-        Wares::Scrolls => {
-            for (k, x) in [-0.5f32, 0.5].into_iter().enumerate() {
-                let at = rail(x) - Vec3::Y * 0.35;
-                mb.tube(
-                    rail(x) - Vec3::new(0.22, 0.03, 0.0),
-                    rail(x) + Vec3::new(0.22, -0.03, 0.0),
-                    0.02,
-                    0.02,
-                    5,
-                    pal.timber_dark,
-                    true,
-                );
-                mb.rbox(
-                    at,
-                    Vec3::new(0.18, 0.3, 0.008),
-                    0.004,
-                    Quat::IDENTITY,
-                    pal.parchment,
-                    0.0,
-                );
-                for line in 0..4 {
-                    mb.rbox(
-                        at + Vec3::new(
-                            0.0,
-                            0.15 - 0.1 * line as f32,
-                            0.009,
-                        ),
-                        Vec3::new(
-                            0.12 - 0.02 * ((line + k) % 3) as f32,
-                            0.012,
-                            0.004,
-                        ),
-                        0.0,
-                        Quat::IDENTITY,
-                        pal.ink,
-                        0.0,
-                    );
-                }
-            }
-        }
-    }
-}
-
-/// One stall, built facing +Z on its own spot: four posts and a mast,
-/// a striped awning, a counter, what hangs from its rail and what it
-/// sells. Returns the spot of its lantern.
+/// One stall, built facing +Z on its own spot, with what glows
+/// among its wares in `gleam`.
 pub(super) fn stall(
     mb: &mut Mb,
-    glass: &mut Mb,
+    (glass, gleam): (&mut Mb, &mut Mb),
     pal: &Palette,
-    (colour, sells): (usize, Wares),
-) -> Vec3 {
+    stall: Stall,
+) -> Dressed {
+    let style = pal.stalls[stall as usize];
+    match stall {
+        Stall::Agents => minds::build(mb, (glass, gleam), pal, style),
+        Stall::Artisans => {
+            workshop::build(mb, (glass, gleam), pal, style)
+        }
+        Stall::Plugins => {
+            tinker::build(mb, (glass, gleam), pal, style)
+        }
+        Stall::Skills => {
+            scrolls::build(mb, (glass, gleam), pal, style)
+        }
+        Stall::Hamlets => land::build(mb, (glass, gleam), pal, style),
+    }
+}
+
+/// Where a stall's keeper stands, from the stall's middle: before
+/// its counter, at the end of it.
+pub(in crate::bazaar) const KEEPER: Vec3 =
+    Vec3::new(1.2, FLOOR, 1.05);
+
+/// Where the work a stall's keeper keeps to stands, beside its
+/// keeper and out from the stall's side.
+const WORK: Vec3 = Vec3::new(WIDE + 0.55, FLOOR, 1.0);
+
+/// The way a stall's keeper faces to work: toward its work, turned
+/// a little out to the promenade so that its face shows.
+pub(in crate::bazaar) fn at_work() -> f32 {
+    let way = WORK - KEEPER;
+    way.x.atan2(way.z) - 0.45
+}
+
+/// Four posts of `wood` at the corners, the front ones `front` tall
+/// and the back ones `back`.
+fn posts(mb: &mut Mb, wood: Vec3, (front, back): (f32, f32)) {
     for (x, z, tall) in [
-        (-1.0f32, 0.75f32, LOW),
-        (1.0, 0.75, LOW),
-        (-1.0, -0.75, HIGH),
-        (1.0, -0.75, HIGH),
+        (-WIDE, DEEP, front),
+        (WIDE, DEEP, front),
+        (-WIDE, -DEEP, back),
+        (WIDE, -DEEP, back),
     ] {
         mb.tube(
             Vec3::new(x, FLOOR, z),
             Vec3::new(x, tall + 0.05, z),
-            0.06,
-            0.05,
+            0.065,
+            0.055,
             6,
-            pal.timber,
+            wood,
             true,
         );
     }
-    // A mast for its flag over one back post, and a rail between
-    // the front ones.
+}
+
+/// A rail between the front posts at `y`.
+fn rail(mb: &mut Mb, pal: &Palette, y: f32) {
     mb.tube(
-        Vec3::new(1.0, HIGH, -0.75),
-        Vec3::new(1.0, HIGH + 0.65, -0.75),
-        0.03,
-        0.02,
-        5,
-        pal.timber_dark,
-        true,
-    );
-    mb.blob(
-        Vec3::new(1.0, HIGH + 0.67, -0.75),
-        Vec3::splat(0.04),
-        2,
-        0.0,
-        0.0,
-        |_| pal.brass,
-    );
-    mb.tube(
-        Vec3::new(-1.0, LOW - 0.08, 0.75),
-        Vec3::new(1.0, LOW - 0.08, 0.75),
+        Vec3::new(-WIDE, y, DEEP),
+        Vec3::new(WIDE, y, DEEP),
         0.025,
         0.025,
         5,
         pal.timber_dark,
         true,
     );
-    // The awning runs out over the front, past the posts, and ends
-    // in a flap to each stripe, edged in brass.
-    let (back, front) = ((-0.95, HIGH + 0.05), (1.25, LOW - 0.1));
-    let strips = 7;
+}
+
+/// A striped awning from the top of the back posts out over the
+/// front, ending in a flap to each stripe tipped with brass.
+fn awning(mb: &mut Mb, pal: &Palette, stripes: [Vec3; 2]) {
+    let (back, front) =
+        ((-DEEP - 0.15, HIGH + 0.05), (DEEP + 0.5, LOW - 0.1));
+    let (edge, strips) = (WIDE + 0.25, 8);
     for i in 0..strips {
         let (x0, x1) = (
-            -1.25 + 2.5 * i as f32 / strips as f32,
-            -1.25 + 2.5 * (i + 1) as f32 / strips as f32,
+            -edge + 2.0 * edge * i as f32 / strips as f32,
+            -edge + 2.0 * edge * (i + 1) as f32 / strips as f32,
         );
-        let colour = stripe(pal, colour, i);
+        let colour = stripes[i % 2];
         cloth(
             mb,
             [
@@ -460,45 +153,184 @@ pub(super) fn stall(
         );
         mb.blob(tip, Vec3::splat(0.025), 2, 0.0, 0.0, |_| pal.brass);
     }
+}
+
+/// The two ends of the front of an awning.
+fn awning_ends() -> [Vec3; 2] {
+    [-1.0f32, 1.0].map(|side| {
+        Vec3::new(side * (WIDE + 0.25), LOW - 0.12, DEEP + 0.5)
+    })
+}
+
+/// A cloth across the back, from the floor to `tall`.
+fn backdrop(mb: &mut Mb, colour: Vec3, tall: f32) {
     cloth(
         mb,
         [
-            Vec3::new(-1.0, FLOOR, -0.78),
-            Vec3::new(1.0, FLOOR, -0.78),
-            Vec3::new(1.0, HIGH, -0.78),
-            Vec3::new(-1.0, HIGH, -0.78),
+            Vec3::new(-WIDE, FLOOR, -DEEP - 0.03),
+            Vec3::new(WIDE, FLOOR, -DEEP - 0.03),
+            Vec3::new(WIDE, tall, -DEEP - 0.03),
+            Vec3::new(-WIDE, tall, -DEEP - 0.03),
         ],
         Vec3::Z,
-        pal.awnings[(colour + 2) % pal.awnings.len()],
+        colour,
     );
+}
+
+/// A counter across the front of `wood`, its front hung with a band
+/// of its stall's cloth. Returns the middle of its top.
+fn counter(
+    mb: &mut Mb,
+    pal: &Palette,
+    style: StallStyle,
+    wood: Vec3,
+) -> Vec3 {
+    let at = Vec3::new(0.0, FLOOR, 0.45);
+    slab(mb, at + Vec3::Y * 0.42, Vec3::new(0.95, 0.42, 0.28), wood);
     slab(
         mb,
-        Vec3::new(0.0, FLOOR + 0.42, 0.5),
-        Vec3::new(0.92, 0.42, 0.28),
-        pal.timber,
-    );
-    slab(
-        mb,
-        Vec3::new(0.0, FLOOR + 0.87, 0.5),
-        Vec3::new(1.02, 0.03, 0.34),
+        at + Vec3::Y * 0.87,
+        Vec3::new(1.05, 0.03, 0.34),
         pal.timber_dark,
     );
-    // A band of the stall's colour along the counter's front.
     mb.rbox(
-        Vec3::new(0.0, FLOOR + 0.62, 0.785),
-        Vec3::new(0.9, 0.08, 0.006),
+        at + Vec3::new(0.0, 0.6, 0.285),
+        Vec3::new(0.93, 0.13, 0.006),
         0.0,
         Quat::IDENTITY,
-        pal.awnings[colour % pal.awnings.len()],
+        style.cloth,
         0.0,
     );
-    on_counter(
-        mb,
-        pal,
-        Vec3::new(0.0, FLOOR + 0.9, 0.5),
-        (colour, sells),
+    mb.rbox(
+        at + Vec3::new(0.0, 0.6, 0.292),
+        Vec3::new(0.93, 0.02, 0.006),
+        0.0,
+        Quat::IDENTITY,
+        style.trim,
+        0.0,
     );
-    hanging(mb, pal, (colour, sells));
-    // The lantern hangs from the awning before the rail.
-    lantern(mb, glass, pal, Vec3::new(0.0, LOW - 0.04, 1.0))
+    at + Vec3::Y * 0.9
+}
+
+/// A mast over a post whose top is at `top`. Returns where its flag
+/// hangs.
+fn mast(mb: &mut Mb, pal: &Palette, top: Vec3) -> Vec3 {
+    mb.tube(
+        top,
+        top + Vec3::Y * 0.7,
+        0.03,
+        0.02,
+        5,
+        pal.timber_dark,
+        true,
+    );
+    mb.blob(
+        top + Vec3::Y * 0.72,
+        Vec3::splat(0.04),
+        2,
+        0.0,
+        0.0,
+        |_| pal.brass,
+    );
+    top + Vec3::Y * 0.67
+}
+
+/// A sign board of the stall's cloth edged in its trim, facing +Z
+/// with its middle at `at`, on two brass struts down to `foot`.
+/// Returns the middle of its face and its top.
+fn sign(
+    mb: &mut Mb,
+    pal: &Palette,
+    style: StallStyle,
+    at: Vec3,
+    foot: f32,
+) -> (Vec3, Vec3) {
+    let half = Vec2::new(0.62, 0.22);
+    slab(mb, at, (half + 0.05).extend(0.035), style.trim);
+    slab(mb, at + Vec3::Z * 0.012, half.extend(0.03), style.cloth);
+    for side in [-1.0f32, 1.0] {
+        mb.tube(
+            at + Vec3::new(side * half.x * 0.7, -half.y, -0.02),
+            Vec3::new(at.x + side * half.x * 0.7, foot, at.z - 0.02),
+            0.015,
+            0.015,
+            4,
+            pal.brass,
+            false,
+        );
+    }
+    (at + Vec3::Z * 0.045, at + Vec3::Y * (half.y + 0.05))
+}
+
+/// A cog about an axle along Z: its rim with `teeth` teeth, its
+/// spokes and its hub.
+fn cog(mb: &mut Mb, radius: f32, teeth: usize, colour: Vec3) {
+    let thick = 0.04 + radius * 0.06;
+    mb.torus(
+        Vec3::ZERO,
+        Vec3::Z,
+        radius * 0.82,
+        radius * 0.12,
+        20,
+        colour,
+    );
+    for k in 0..teeth {
+        let a = k as f32 / teeth as f32 * std::f32::consts::TAU;
+        let out = Vec3::new(a.cos(), a.sin(), 0.0);
+        mb.rbox(
+            out * radius * 0.98,
+            Vec3::new(radius * 0.12, radius * 0.09, thick),
+            0.01,
+            Quat::from_rotation_z(a),
+            colour,
+            0.0,
+        );
+    }
+    for k in 0..4 {
+        let a = k as f32 / 4.0 * std::f32::consts::TAU + 0.4;
+        mb.tube(
+            Vec3::ZERO,
+            Vec3::new(a.cos(), a.sin(), 0.0) * radius * 0.78,
+            radius * 0.06,
+            radius * 0.05,
+            5,
+            colour * 0.85,
+            false,
+        );
+    }
+    mb.tube(
+        Vec3::Z * -thick * 1.4,
+        Vec3::Z * thick * 1.4,
+        radius * 0.18,
+        radius * 0.18,
+        10,
+        colour * 0.7,
+        true,
+    );
+}
+
+/// Builds `part` at `local` within what `mb` builds at already.
+fn within(mb: &mut Mb, local: Affine3A, part: impl FnOnce(&mut Mb)) {
+    let outer = mb.xf;
+    mb.at(outer * local);
+    part(mb);
+    mb.at(outer);
+}
+
+/// A cog of `radius` and `teeth` of `colour` that turns `rate` times
+/// a second about an axle at `at` that lies along `lies` * Z.
+fn turning(
+    (at, lies): (Vec3, Quat),
+    (radius, teeth): (f32, usize),
+    colour: Vec3,
+    rate: f32,
+) -> Cog {
+    let mut mb = Mb::new();
+    cog(&mut mb, radius, teeth, colour);
+    Cog {
+        mesh: mb.build(),
+        at,
+        lies,
+        rate,
+    }
 }
