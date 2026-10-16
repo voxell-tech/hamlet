@@ -254,3 +254,36 @@ it("replaces the whole state when the library view changes", async () => {
         view.mockRestore();
     }
 });
+
+it("does not offer a chief-chat retry for a failed peer conversation", async () => {
+    const { ChatDoc } = await import("../src/chats.ts");
+    const { models, faux } = fauxModels();
+    const { home, server } = await served({ models });
+    await addAgent(home, "home", "scout");
+    fauxAgents(faux, {
+        "home:0": [
+            fauxAssistantMessage(
+                fauxToolCall("ask_agent", { name: "scout", message: "Look" }),
+                { stopReason: "toolUse" },
+            ),
+            fauxAssistantMessage("Done"),
+        ],
+        "home:1": [
+            fauxAssistantMessage("", {
+                stopReason: "error",
+                errorMessage: "Could not answer",
+            }),
+        ],
+    });
+    await (await say(home, "Ask")).wait(context);
+    const late = await joined(server.url, home.credentials.token);
+    expect(late.state.agents.find((a) => a.name === "scout")).toMatchObject({
+        busy: false,
+        faulted: false,
+    });
+    expect(
+        (await home.harness.snapshot(ChatDoc, "home:1", context))?.chats[
+            home.chief
+        ],
+    ).toBeUndefined();
+});

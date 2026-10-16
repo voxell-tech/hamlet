@@ -311,11 +311,11 @@ it("defaults a peer watch to letters and selects questions explicitly for the sa
     if (letters.type !== "transcript" || questions.type !== "transcript")
         throw new Error("No peer transcripts");
     expect(letters.items.map((i) => i.text)).toEqual([
-        "A letter",
+        "Letter from `mayor`:\nA letter",
         "Letter answer",
     ]);
     expect(questions.items.map((i) => i.text)).toEqual([
-        "A question",
+        "Question from `mayor` (waiting for your answer):\nA question",
         "Question answer",
     ]);
 });
