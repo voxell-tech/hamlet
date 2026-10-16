@@ -734,3 +734,269 @@ it("resumes an interrupted review only after the home's model providers are read
     expect(wait.about).toContain("The only copy.");
     await rule(after, wait, wait.answers.includes("go") ? "go" : "dismiss");
 });
+
+it.each(["question", "approval"])(
+    "lapses a %s wait when the mayor's objection withdraws its turn",
+    async (kind) => {
+        const { models, faux } = fauxModels();
+        const home = await testHome(scratch(), { models });
+        const scout = await addAgent(home, "home", "scout");
+        await home.harness.commit(async (tx) => {
+            (await tx.doc(LimitsDoc, "home", "home")).asking.mayorReview =
+                "always";
+        }, context);
+        fauxAgents(faux, {
+            "home:1": [
+                kind === "question"
+                    ? call("ask_chief", { question: "Which list?" })
+                    : fauxAssistantMessage(
+                          fauxToolCall("bash", {
+                              command: "printf wrong > withdrawn.txt",
+                              network: true,
+                          }),
+                          { stopReason: "toolUse" },
+                      ),
+                fauxAssistantMessage("New task heard."),
+            ],
+            errands: [
+                async () => {
+                    await eventually(async () =>
+                        expect(
+                            (await openWaits(home)).some(
+                                (w) => w.kind === kind,
+                            ),
+                        ).toBe(true),
+                    );
+                    return fauxAssistantMessage("OBJECT: Keep it.");
+                },
+                fauxAssistantMessage("pass"),
+            ],
+        });
+        const submission = await submitLine(
+            home,
+            { agent: scout, chief: CHIEF },
+            { id: randomUUID(), text: "Delete it." },
+            context,
+        );
+        await eventually(async () =>
+            expect(await openWaits(home)).toHaveLength(2),
+        );
+        const objection = (await openWaits(home)).find(
+            (w) => w.kind === "objection",
+        );
+        if (!objection) throw new Error("No objection");
+        await rule(home, objection, "withdraw", "Keep it.");
+        expect(await submission.wait(context)).toMatchObject({
+            status: "unanswered",
+        });
+        expect(await openWaits(home)).toEqual([]);
+        expect(
+            existsSync(join(houseOf(home.layout, scout), "withdrawn.txt")),
+        ).toBe(false);
+        const next =
+            Promise.withResolvers<
+                import("@earendil-works/pi-durable").Submission
+            >();
+        const sent = await typed(
+            home,
+            {
+                type: "say",
+                id: randomUUID(),
+                to: { hamlet: "home", agent: "scout" },
+                text: "Now tidy the shelf instead.",
+            },
+            context,
+            (submission) => next.resolve(submission),
+        );
+        expect(sent).not.toMatchObject({
+            kind: "notice",
+            text: expect.stringContaining("Answered /reply"),
+        });
+        expect(await (await next.promise).wait(context)).toMatchObject({
+            status: "done",
+        });
+        expect(
+            JSON.stringify(await transcript(await chatWith(home, scout))),
+        ).toContain("New task heard.");
+    },
+);
+
+it("holds a letter receiver's work while the instructed agent's own objection is open", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), {
+        models,
+        env: { HAMLET_REFLECT_EVERY: "0" },
+    });
+    const scout = await addAgent(home, "home", "scout");
+    const clerk = await addAgent(home, "home", "clerk");
+    const { RecordDoc } = await import("../src/record.ts");
+    await home.harness.commit(async (tx) => {
+        (await tx.doc(RecordDoc, "home", "home")).roads.push({
+            a: scout.number,
+            b: clerk.number,
+            since: home.now(),
+            by: "chief:chief",
+            messages: 0,
+            lastFrom: null,
+            lastUsed: 0,
+        });
+    }, context);
+    const attempted = Promise.withResolvers<void>();
+    fauxAgents(faux, {
+        "home:1": [
+            call("tell_agent", { name: "clerk", message: "Delete your copy" }),
+            call("object", { reason: "Keep the list" }),
+            fauxAssistantMessage("Done"),
+        ],
+        "home:2": [
+            async () => {
+                await waiting(home);
+                attempted.resolve();
+                return call("write", { path: "clerk.txt", content: "deleted" });
+            },
+            fauxAssistantMessage("Done"),
+        ],
+    });
+    const sub = await submitLine(
+        home,
+        { agent: scout, chief: CHIEF },
+        { id: randomUUID(), text: "Delete it everywhere" },
+        context,
+    );
+    const objection = await waiting(home);
+    await attempted.promise;
+    const { PeersDoc } = await import("../src/society/docs.ts");
+    const peer = (await home.harness.snapshot(PeersDoc, "home:2", context))
+        ?.letters["home:1"];
+    if (peer === undefined) throw new Error("No letter");
+    await eventually(async () =>
+        expect(JSON.stringify(await transcript(peer, home.harness))).toContain(
+            '"path":"clerk.txt"',
+        ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(existsSync(join(houseOf(home.layout, clerk), "clerk.txt"))).toBe(
+        false,
+    );
+    await rule(home, objection, "withdraw", "Keep it");
+    expect(await sub.wait(context)).toMatchObject({ status: "unanswered" });
+    await home.harness.waitForIdle(context);
+    expect(existsSync(join(houseOf(home.layout, clerk), "clerk.txt"))).toBe(
+        false,
+    );
+});
+
+it.each([false, true])(
+    "keeps go and withdraw while a letter receiver still works after the instructed turn ends (late review: %s)",
+    async (lateReview) => {
+        const { models, faux } = fauxModels();
+        const home = await testHome(scratch(), {
+            models,
+            env: { HAMLET_REFLECT_EVERY: "0" },
+        });
+        const scout = await addAgent(home, "home", "scout");
+        const clerk = await addAgent(home, "home", "clerk");
+        const { RecordDoc } = await import("../src/record.ts");
+        await home.harness.commit(async (tx) => {
+            (await tx.doc(LimitsDoc, "home", "home")).asking.mayorReview =
+                "always";
+            (await tx.doc(RecordDoc, "home", "home")).roads.push({
+                a: scout.number,
+                b: clerk.number,
+                since: home.now(),
+                by: "chief:chief",
+                messages: 0,
+                lastFrom: null,
+                lastUsed: 0,
+            });
+        }, context);
+        const received = Promise.withResolvers<void>();
+        const chiefEnded = Promise.withResolvers<void>();
+        const rootEnded = Promise.withResolvers<void>();
+        fauxAgents(faux, {
+            "home:1": [
+                call("tell_agent", {
+                    name: "clerk",
+                    message: "Delete your copy",
+                }),
+                async () => {
+                    if (!lateReview) await waiting(home);
+                    return fauxAssistantMessage("Delegated");
+                },
+                fauxAssistantMessage("Received reply"),
+            ],
+            "home:2": [
+                async () => {
+                    received.resolve();
+                    await rootEnded.promise;
+                    return call("write", {
+                        path: "clerk.txt",
+                        content: "deleted",
+                    });
+                },
+                fauxAssistantMessage("Done"),
+            ],
+            errands: [
+                async () => {
+                    await received.promise;
+                    if (lateReview) await chiefEnded.promise;
+                    return fauxAssistantMessage("OBJECT: Keep it.");
+                },
+            ],
+        });
+        const sub = await submitLine(
+            home,
+            { agent: scout, chief: CHIEF },
+            { id: randomUUID(), text: "Delete it everywhere" },
+            context,
+        );
+        try {
+            expect(await sub.wait(context)).toMatchObject({ status: "done" });
+            chiefEnded.resolve();
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            const objection = await waiting(home);
+            expect(objection.answers).toEqual(["go", "withdraw"]);
+            expect(objection.about).not.toContain("work ended");
+            rootEnded.resolve();
+            await rule(home, objection, "withdraw", "Keep it");
+            await home.harness.waitForIdle(context);
+            expect(
+                existsSync(join(houseOf(home.layout, clerk), "clerk.txt")),
+            ).toBe(false);
+            expect(await openWaits(home)).toEqual([]);
+        } finally {
+            rootEnded.resolve();
+            chiefEnded.resolve();
+        }
+    },
+);
+
+it("lets a chief-overseen retry ask the chief instead of guessing", async () => {
+    const { retry } = await import("../src/talk.ts");
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), { models });
+    faux.setResponses([
+        fauxAssistantMessage("", {
+            stopReason: "error",
+            errorMessage: "Interrupted",
+        }),
+        call("ask_chief", { question: "Paper or ebook?" }),
+        fauxAssistantMessage("Ordered paper."),
+    ]);
+    expect(await (await say(home, "Order Dune")).wait(context)).toMatchObject({
+        status: "unanswered",
+    });
+    const sub = await retry(home, { agent: MAYOR, chief: CHIEF }, context);
+    await eventually(async () =>
+        expect((await openWaits(home)).some((w) => w.kind === "question")).toBe(
+            true,
+        ),
+    );
+    const question = (await openWaits(home)).find((w) => w.kind === "question");
+    if (!question) throw new Error("No question");
+    await rule(home, question, "reply", "Paper.");
+    expect(await sub.wait(context)).toMatchObject({ status: "done" });
+    expect(JSON.stringify(await transcript(await mayorChat(home)))).toContain(
+        "The chief answers: Paper.",
+    );
+});
