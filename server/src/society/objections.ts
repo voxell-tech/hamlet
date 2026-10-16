@@ -15,6 +15,7 @@ import {
     GenerationTask,
     type HookApi,
     hook,
+    LiveDoc,
     type SubmissionId,
     type ToolExecutionApi,
     ToolTask,
@@ -22,7 +23,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { untilAborted } from "../abort.ts";
 import { AskedDoc } from "../asked.ts";
-import { WithDoc } from "../chats.ts";
+import { ErrandEntry, RetryEntry, WithDoc } from "../chats.ts";
 import { choose } from "../choice.ts";
 import { runErrand, startErrand } from "../errands.ts";
 import { type AgentRef, agentKey } from "../hamlet.ts";
@@ -33,6 +34,7 @@ import { booksOf } from "../ledger.ts";
 import { LimitsDoc, limitsOf } from "../limits.ts";
 import { notify } from "../notice.ts";
 import type { Part } from "../parts.ts";
+import { liveHamlets, RealmDoc } from "../realm.ts";
 import { addressOf, RecordDoc } from "../record.ts";
 import { stopped } from "../report.ts";
 import { SandboxEnv } from "../sandbox/env.ts";
@@ -50,6 +52,7 @@ import {
     ruling,
     settle,
 } from "../waits.ts";
+import { AgentConversationsDoc } from "./docs.ts";
 
 const ToolWaitDoc = defineDoc<{
     wait: string | null;
@@ -284,6 +287,10 @@ async function object(
         decided.how === "go"
             ? `The chief says go ahead: ${decided.text} Do the work; you may not object again.`
             : `The chief withdrew the instruction: ${decided.text}`;
+    const active =
+        decided.how === "go"
+            ? []
+            : await taskConversations(home, task, context);
     await api.commit(async (tx) => {
         (await tx.doc(ToolWaitDoc, api.taskId)).result = result;
         const instruction = (
@@ -291,8 +298,10 @@ async function object(
         ).given.find((i) => i.task === task);
         if (decided.how === "go" && instruction)
             instruction.hearing.cleared = true;
-        if (decided.how !== "go")
+        if (decided.how !== "go") {
             (await tx.doc(InstructionDoc, task, task)).withdrawn = result;
+            await stopTaskWaits(home, tx, new Set(active));
+        }
         await settleOthers(home, tx, task, decided);
     }, context);
     return result;
@@ -306,30 +315,32 @@ export async function holdFor(
 ): Promise<void> {
     const turn = await turnOf(home.harness, api, context);
     if (!turn?.task) return;
-    const job = (await api.snapshot(ReviewsDoc, context))?.jobs.find(
-        (j) => j.task === turn.task,
-    );
-    if (job?.wait && !(await api.memo<boolean>("hamlet.objecting", context))) {
-        const key = agentKey(job.agent);
-        const instruction = (
-            await api.snapshot(InstructionsDoc, key, context)
-        )?.given.find((i) => i.task === turn.task);
-        if (instruction && !instruction.hearing.cleared) {
-            const decided = await reviewRuling(home, job.wait, context);
+    const task = turn.task;
+    if (!(await api.memo<boolean>("hamlet.objecting", context))) {
+        const state = await api.snapshot(InstructionDoc, task, context);
+        for (const id of state?.waits ?? []) {
+            const wait = (await api.snapshot(OversightDoc, context))?.waits[id];
+            if (!wait?.answers.includes("withdraw")) continue;
+            const decided = await reviewRuling(
+                home,
+                { id, since: wait.since },
+                context,
+            );
+            const active =
+                decided.how === "withdraw"
+                    ? await taskConversations(home, task, context)
+                    : [];
             await home.harness.commit(async (tx) => {
-                const told = (
-                    await tx.doc(InstructionsDoc, key, key)
-                ).given.find((i) => i.task === turn.task);
-                if (decided.how === "go" && told) told.hearing.cleared = true;
-                if (decided.how === "withdraw")
-                    (
-                        await tx.doc(InstructionDoc, job.task, job.task)
-                    ).withdrawn =
+                if (decided.how === "withdraw") {
+                    (await tx.doc(InstructionDoc, task, task)).withdrawn =
                         `The chief withdrew the instruction: ${decided.text}`;
+                    await stopTaskWaits(home, tx, new Set(active));
+                }
+                await settleOthers(home, tx, task, decided);
             }, context);
         }
     }
-    await stopWithdrawn(home, api, turn.task, context);
+    await stopWithdrawn(home, api, task, context);
 }
 
 async function stopWithdrawn(
@@ -356,9 +367,9 @@ async function askChief(
     const place = await api.snapshot(WithDoc, api.conversationId, context);
     const turn = await turnOf(home.harness, api, context);
     const task = turn?.task;
-    const chief = task
-        ? (await api.snapshot(TaskDoc, task, context))?.chief
-        : null;
+    const chief =
+        (task ? (await api.snapshot(TaskDoc, task, context))?.chief : null) ??
+        (turn?.kind === RetryEntry.kind ? place?.chief : null);
     if (!place || !turn || !chief)
         return "No chief oversees this turn; go on with what you know.";
     if (!question) return "Say what in `question`.";
@@ -555,7 +566,10 @@ async function review(
     const status = await (
         await home.harness.submission(job.input, context)
     )?.status(context);
-    const ended = status?.status !== "queued" && status?.status !== "placed";
+    const ended =
+        status?.status !== "queued" &&
+        status?.status !== "placed" &&
+        (await taskConversations(home, job.task, context)).length === 0;
     await home.harness.commit(async (tx) => {
         const current = (await tx.doc(ReviewsDoc)).jobs.find(
             (j) => j.task === job.task,
@@ -653,14 +667,96 @@ async function abortWithdrawn(
     task: string,
     context: Context,
 ): Promise<void> {
+    const active = await taskConversations(home, task, context);
+    const conversations = new Set(active);
     await home.harness.commit(async (tx) => {
         const state = await tx.doc(InstructionDoc, task, task);
-        if (state.notified || state.withdrawn === null) return;
-        state.notified = true;
-        await notify(tx, conversation, state.withdrawn, home.now());
+        if (state.withdrawn === null) return;
+        await stopTaskWaits(home, tx, conversations);
+        if (!state.notified) {
+            state.notified = true;
+            await notify(tx, conversation, state.withdrawn, home.now());
+        }
     }, context);
-    const handle = await home.harness.conversation(conversation, context);
-    void handle?.abort(BACKGROUND_CONTEXT).catch(() => {});
+    for (const id of conversations) {
+        const turn = await turnAt(home, id, context);
+        const live = await home.harness.snapshot(LiveDoc, id, context);
+        if (turn?.task === task && live?.run?.inputs.includes(turn.input)) {
+            // Aborting the captured run cannot stop a later chief's turn in this conversation.
+            void home.harness
+                .abortTask(live.run.taskId, BACKGROUND_CONTEXT)
+                .catch(() => {});
+        }
+    }
+}
+
+async function stopTaskWaits(
+    home: Home,
+    tx: Tx,
+    conversations: ReadonlySet<ConversationId>,
+): Promise<void> {
+    const waits = Object.values((await tx.doc(OversightDoc)).waits);
+    for (const wait of waits) {
+        if (
+            wait.kind !== "fault" &&
+            wait.calls.some((call) => conversations.has(call.conversation))
+        )
+            await settle(
+                tx,
+                wait.id,
+                {
+                    how: "stopped",
+                    chief: home.chief,
+                    text: "The chief withdrew the instruction.",
+                },
+                home.now(),
+            );
+    }
+}
+
+async function turnAt(
+    home: Home,
+    conversationId: ConversationId,
+    context: Context,
+) {
+    return turnOf(
+        home.harness,
+        {
+            snapshot: home.harness.snapshot.bind(home.harness),
+            snapshotAsOf: home.harness.snapshotAsOf.bind(home.harness),
+            conversationId,
+        },
+        context,
+    );
+}
+
+async function taskConversations(
+    home: Home,
+    task: string,
+    context: Context,
+): Promise<ConversationId[]> {
+    const conversations: ConversationId[] = [];
+    const realm = await home.harness.snapshot(RealmDoc, context);
+    for (const hamlet of liveHamlets(realm)) {
+        const record = await home.harness.snapshot(
+            RecordDoc,
+            hamlet.id,
+            context,
+        );
+        for (const agent of record?.agents ?? []) {
+            const index = await home.harness.snapshot(
+                AgentConversationsDoc,
+                agentKey({ hamlet: hamlet.id, number: agent.number }),
+                context,
+            );
+            for (const conversationId of index?.ids ?? []) {
+                const turn = await turnAt(home, conversationId, context);
+                if (turn?.task === task && turn.kind !== ErrandEntry.kind)
+                    conversations.push(conversationId);
+            }
+        }
+    }
+    return conversations;
 }
 
 async function expireReviews(home: Home, context: Context): Promise<void> {
@@ -670,8 +766,11 @@ async function expireReviews(home: Home, context: Context): Promise<void> {
         const status = await (
             await home.harness.submission(job.input, context)
         )?.status(context);
+        const conversations = await taskConversations(home, job.task, context);
         const active =
-            status?.status === "placed" || status?.status === "queued";
+            status?.status === "placed" ||
+            status?.status === "queued" ||
+            conversations.length > 0;
         if (!job.wait) {
             if (job.done && !active) retired.add(job.task);
             continue;
@@ -688,11 +787,13 @@ async function expireReviews(home: Home, context: Context): Promise<void> {
                     await tx.doc(InstructionsDoc, key, key)
                 ).given.find((i) => i.task === job.task);
                 if (decided.how === "go" && told) told.hearing.cleared = true;
-                if (decided.how === "withdraw" && active)
+                if (decided.how === "withdraw" && active) {
                     (
                         await tx.doc(InstructionDoc, job.task, job.task)
                     ).withdrawn =
                         `The chief withdrew the instruction: ${decided.text}`;
+                    await stopTaskWaits(home, tx, new Set(conversations));
+                }
                 await settleOthers(home, tx, job.task, decided);
             }, context);
             if (decided.how === "withdraw" && active)

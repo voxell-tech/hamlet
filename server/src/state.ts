@@ -224,7 +224,11 @@ export async function stateOf(
                     model: agent.model,
                 }),
                 busy,
-                faulted: !busy && (active?.faulted ?? false),
+                faulted:
+                    !busy &&
+                    (current
+                        ? (activity.get(currentOf(current))?.faulted ?? false)
+                        : false),
                 activity: structuredClone(
                     left
                         ? {

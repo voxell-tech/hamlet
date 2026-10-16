@@ -1,5 +1,8 @@
 import type { Context } from "@earendil-works/chord";
-import { withAbortSignal } from "@earendil-works/chord/context";
+import {
+    BACKGROUND_CONTEXT,
+    withAbortSignal,
+} from "@earendil-works/chord/context";
 import { Type } from "@earendil-works/pi-ai";
 import {
     AssistantEntry,
@@ -8,10 +11,15 @@ import {
     defineDoc,
     defineExtension,
     defineTool,
+    GenerationTask,
+    hook,
+    LiveDoc,
     type SubmissionId,
+    type TaskId,
     type ToolExecutionApi,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { untilAborted } from "../abort.ts";
 import {
     LetterEntry,
     QuestionEntry,
@@ -69,6 +77,82 @@ const PendingDoc = defineDoc<{ letters: (Delivery & { counted: boolean })[] }>({
     initial: () => ({ letters: [] }),
 });
 
+const AskingDoc = defineDoc<{
+    edges: {
+        call: TaskId;
+        from: ConversationId;
+        to: ConversationId;
+        input: SubmissionId;
+    }[];
+}>({
+    kind: "hamlet.asking",
+    version: 1,
+    scope: "session",
+    initial: () => ({ edges: [] }),
+});
+
+type QuestionAdmission =
+    | { ok: true; value: null }
+    | {
+          ok: false;
+          error: {
+              kind: "question-cycle";
+              operation: "ask-agent";
+              address: string;
+              request: string;
+              retrySafe: false;
+          };
+      };
+
+async function admitQuestion(
+    home: Home,
+    api: ToolExecutionApi,
+    sent: Delivery,
+    context: Context,
+): Promise<QuestionAdmission> {
+    const turn = await turnOf(home.harness, api, context);
+    if (!turn) throw new Error("A question needs a running turn.");
+    return api.commit(async (tx) => {
+        const graph = await tx.doc(AskingDoc);
+        const active = [];
+        for (const edge of graph.edges) {
+            const live = await tx.doc(LiveDoc, edge.from);
+            if (live.run?.inputs.includes(edge.input)) active.push(edge);
+        }
+        graph.edges = active;
+        if (graph.edges.some((e) => e.call === api.taskId))
+            return { ok: true, value: null };
+        const pending = [sent.conversation];
+        const seen = new Set<ConversationId>();
+        while (pending.length) {
+            const id = pending.pop();
+            if (id === undefined || seen.has(id)) continue;
+            if (id === api.conversationId)
+                return {
+                    ok: false,
+                    error: {
+                        kind: "question-cycle",
+                        operation: "ask-agent",
+                        address: sent.address,
+                        request: sent.id,
+                        retrySafe: false,
+                    },
+                };
+            seen.add(id);
+            pending.push(
+                ...graph.edges.filter((e) => e.from === id).map((e) => e.to),
+            );
+        }
+        graph.edges.push({
+            call: api.taskId,
+            from: api.conversationId,
+            to: sent.conversation,
+            input: turn.input,
+        });
+        return { ok: true, value: null };
+    }, context);
+}
+
 /** The letters and questions along roads (H30, H12). */
 export const Letters: Part = (home) => {
     const controller = new AbortController();
@@ -102,6 +186,37 @@ export const Letters: Part = (home) => {
     return {
         extension: defineExtension({
             name: "hamlet.letters",
+            hooks: [
+                hook(GenerationTask, {
+                    beforeRequest: async (_request, api, context) => {
+                        const turn = await turnOf(home.harness, api, context);
+                        if (
+                            turn?.kind !== LetterEntry.kind &&
+                            turn?.kind !== QuestionEntry.kind &&
+                            turn?.kind !== ReplyEntry.kind
+                        )
+                            return undefined;
+                        if (
+                            await deliveryAgent(
+                                home,
+                                api.conversationId,
+                                context,
+                            )
+                        )
+                            return undefined;
+                        const live = await api.snapshot(
+                            LiveDoc,
+                            api.conversationId,
+                            context,
+                        );
+                        if (live?.run)
+                            void home.harness
+                                .abortTask(live.run.taskId, BACKGROUND_CONTEXT)
+                                .catch(() => {});
+                        return untilAborted(context);
+                    },
+                }),
+            ],
             tools: [
                 defineTool({
                     name: "tell_agent",
@@ -150,18 +265,6 @@ export const Letters: Part = (home) => {
                                 target.ref,
                                 message,
                                 "letters",
-                                context,
-                            );
-                            const conversation = await api.conversation(
-                                sent.conversation,
-                                context,
-                            );
-                            if (!conversation)
-                                throw new Error(
-                                    "The letter's conversation is gone.",
-                                );
-                            await conversation.submit(
-                                inputOf(sent, false),
                                 context,
                             );
                             return `Sent. \`${sent.address}\` is working on it; its reply will come to you as a new message.`;
@@ -500,20 +603,42 @@ async function prepare(
         return delivery;
     }, context);
 }
-function inputOf(sent: Delivery, question: boolean) {
+async function inputOf(
+    home: Home,
+    sent: Delivery,
+    question: boolean,
+    context: Context,
+) {
+    const location = await home.harness.snapshot(
+        WithDoc,
+        sent.replyTo,
+        context,
+    );
+    const from = location
+        ? { hamlet: location.hamlet, number: location.number }
+        : sent.from;
+    const record = await home.harness.snapshot(RecordDoc, from.hamlet, context);
+    const sender =
+        (record &&
+            (addressOf(record, from.number) ||
+                record.archive.findLast((a) => a.agent.number === from.number)
+                    ?.agent.name)) ||
+        `agent #${from.number}`;
+    const address =
+        from.hamlet === sent.to.hamlet ? sender : `${sender}@${from.hamlet}`;
     return {
         type: "input" as const,
         requestId: sent.id,
-        content: sent.text,
+        content: `${question ? "Question" : "Letter"} from \`${address}\`${question ? " (waiting for your answer)" : ""}:\n${sent.text}`,
         entry: question
             ? {
                   kind: QuestionEntry.kind,
-                  data: { from: sent.from, task: sent.task, at: sent.at },
+                  data: { from, task: sent.task, at: sent.at },
               }
             : {
                   kind: LetterEntry.kind,
                   data: {
-                      from: sent.from,
+                      from,
                       task: sent.task,
                       at: sent.at,
                       replyTo: sent.replyTo,
@@ -566,12 +691,28 @@ export async function askAgent(
     context: Context,
 ): Promise<string> {
     const sent = await prepare(home, api, to, text, "questions", context);
+    const admitted = await admitQuestion(home, api, sent, context);
+    if (!admitted.ok) {
+        switch (admitted.error.kind) {
+            case "question-cycle":
+                return `\`${admitted.error.address}\` is waiting on your answer through this chain of questions. Answer it in your reply instead of asking it again.`;
+        }
+        const unhandled: never = admitted.error.kind;
+        throw new Error(`Unclassified question refusal: ${unhandled}`);
+    }
     const conversation = await api.conversation(sent.conversation, context);
     if (!conversation) throw new Error("The question's conversation is gone.");
-    const submission = await conversation.submit(inputOf(sent, true), context);
+    const submission = await conversation.submit(
+        await inputOf(home, sent, true, context),
+        context,
+    );
     // The invocation-bound wait is cancelled with this tool, leaving the admitted question durable.
     await submission.wait(context);
     const answer = await answerOf(home, submission.id, context);
+    await api.commit(async (tx) => {
+        const graph = await tx.doc(AskingDoc);
+        graph.edges = graph.edges.filter((e) => e.call !== api.taskId);
+    }, context);
     await api.commit(async (tx) => {
         const sentDoc = await tx.doc(SentDoc, api.taskId);
         if (!sentDoc.answered) {
@@ -584,14 +725,49 @@ export async function askAgent(
     return answer.text;
 }
 
+async function deliveryAgent(
+    home: Home,
+    conversation: ConversationId,
+    context: Context,
+): Promise<AgentRef | null> {
+    const place = await home.harness.snapshot(WithDoc, conversation, context);
+    if (!place) return null;
+    const realm = await home.harness.snapshot(RealmDoc, context);
+    if (!liveHamlets(realm).some((h) => h.id === place.hamlet)) return null;
+    const record = await home.harness.snapshot(
+        RecordDoc,
+        place.hamlet,
+        context,
+    );
+    return record?.agents.some((a) => a.number === place.number)
+        ? { hamlet: place.hamlet, number: place.number }
+        : null;
+}
+
+async function forgetLetter(home: Home, id: string, context: Context) {
+    await home.harness.commit(async (tx) => {
+        const pending = await tx.doc(PendingDoc);
+        pending.letters = pending.letters.filter((l) => l.id !== id);
+    }, context);
+}
+
 async function deliverReply(home: Home, sent: Delivery, context: Context) {
+    const to = await deliveryAgent(home, sent.conversation, context);
+    if (!to) return forgetLetter(home, sent.id, context);
+    sent = { ...sent, to };
     const conversation = await home.harness.conversation(
         sent.conversation,
         context,
     );
     if (!conversation) throw new Error("The letter's conversation is gone.");
-    const submission = await conversation.submit(inputOf(sent, false), context);
+    const submission = await conversation.submit(
+        await inputOf(home, sent, false, context),
+        context,
+    );
     const answer = await answerOf(home, submission.id, context);
+    const from = await deliveryAgent(home, sent.replyTo, context);
+    if (!from) return forgetLetter(home, sent.id, context);
+    sent = { ...sent, from };
     const reply = await home.harness.conversation(sent.replyTo, context);
     if (!reply) throw new Error("The sender's conversation is gone.");
     await home.harness.commit(async (tx) => {
@@ -615,8 +791,5 @@ async function deliverReply(home: Home, sent: Delivery, context: Context) {
         },
         context,
     );
-    await home.harness.commit(async (tx) => {
-        const pending = await tx.doc(PendingDoc);
-        pending.letters = pending.letters.filter((l) => l.id !== sent.id);
-    }, context);
+    await forgetLetter(home, sent.id, context);
 }

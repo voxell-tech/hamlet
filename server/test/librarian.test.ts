@@ -1,10 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
+    chmodSync,
     existsSync,
     mkdirSync,
+    readdirSync,
     readFileSync,
     symlinkSync,
+    watch,
     writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -422,5 +425,219 @@ it("lets an agent offer its skill again after its earlier offer was stopped", as
         expect(existsSync(join(home.layout.library, "tides"))).toBe(true);
     } finally {
         release();
+    }
+});
+
+it("shelves the judged copy but keeps changes made in the house while it was judged", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), { models });
+    const from = skill(houseOf(home.layout, MAYOR));
+    faux.setResponses([
+        fauxAssistantMessage(
+            fauxToolCall("submit_skill", {
+                skill: "tides",
+                reason: "For ports.",
+            }),
+            { stopReason: "toolUse" },
+        ),
+        () => {
+            writeFileSync(join(from, "go.sh"), "echo improved\n");
+            writeFileSync(join(from, "tables.csv"), "later data\n");
+            return fauxAssistantMessage("ACCEPT. Clear and general.");
+        },
+        fauxAssistantMessage("Shared."),
+    ]);
+    await (await say(home, "Offer")).wait(context);
+    expect(existsSync(join(from, "tables.csv"))).toBe(true);
+    expect(readFileSync(join(from, "go.sh"), "utf8")).toBe("echo improved\n");
+    expect(readFileSync(join(home.layout.library, "tides/go.sh"), "utf8")).toBe(
+        "echo high\n",
+    );
+    expect(JSON.stringify(await transcript(await mayorChat(home)))).toContain(
+        "later changes stayed in your house",
+    );
+    expect(
+        (await home.harness.snapshot(LibraryDoc, context))?.events,
+    ).toMatchObject([{ kind: "shelved", by: "founder@home" }]);
+});
+
+it("records shelving even when a read-only house copy cannot be removed, without half deleting it", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), { models });
+    const from = skill(houseOf(home.layout, MAYOR));
+    mkdirSync(join(from, "bin"));
+    writeFileSync(join(from, "bin/x"), "kept");
+    chmodSync(join(from, "bin"), 0o555);
+    faux.setResponses([
+        fauxAssistantMessage(
+            fauxToolCall("submit_skill", {
+                skill: "tides",
+                reason: "For ports.",
+            }),
+            { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage("ACCEPT. Clear and general."),
+        fauxAssistantMessage("Shared."),
+    ]);
+    try {
+        await (await say(home, "Offer")).wait(context);
+        expect(
+            (await home.harness.snapshot(LibraryDoc, context))?.events,
+        ).toMatchObject([{ kind: "shelved", by: "founder@home" }]);
+        expect(await libraryView(home, context)).toContainEqual(
+            expect.objectContaining({ name: "tides", by: "founder@home" }),
+        );
+        expect(existsSync(join(from, "SKILL.md"))).toBe(true);
+        expect(existsSync(join(from, "bin/x"))).toBe(true);
+        expect(
+            JSON.stringify(await transcript(await mayorChat(home))),
+        ).toContain("shelved, but its house copy could not be removed");
+    } finally {
+        chmodSync(join(from, "bin"), 0o755);
+        if (existsSync(join(home.layout.library, "tides/bin")))
+            chmodSync(join(home.layout.library, "tides/bin"), 0o755);
+    }
+});
+
+it("publishes a whole skill atomically, never a partly copied shelf", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), { models });
+    const from = skill(houseOf(home.layout, MAYOR));
+    for (let i = 0; i < 512; i++)
+        writeFileSync(join(from, `part-${i}`), "x".repeat(16384));
+    const published = Promise.withResolvers<number>();
+    const watcher = watch(home.layout.library, (_event, name) => {
+        if (name === "tides" && existsSync(join(home.layout.library, "tides")))
+            published.resolve(
+                readdirSync(join(home.layout.library, "tides")).length,
+            );
+    });
+    faux.setResponses([
+        fauxAssistantMessage(
+            fauxToolCall("submit_skill", {
+                skill: "tides",
+                reason: "For ports.",
+            }),
+            { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage("ACCEPT. Clear and general."),
+        fauxAssistantMessage("Shared."),
+    ]);
+    try {
+        await (await say(home, "Offer")).wait(context);
+        expect(await published.promise).toBe(514);
+        expect(
+            readdirSync(home.layout.library).filter((n) =>
+                n.startsWith(".incoming-"),
+            ),
+        ).toEqual([]);
+    } finally {
+        watcher.close();
+    }
+});
+
+it("sweeps an unclaimed library stage when the home opens", async () => {
+    const { models } = fauxModels();
+    const dir = scratch();
+    const before = await testHome(dir, {
+        models,
+        env: { HAMLET_REFLECT_EVERY: "0" },
+    });
+    await before.close(context);
+    const orphan = join(dir, ".library-stages", "offer-orphan");
+    mkdirSync(orphan, { recursive: true });
+    writeFileSync(join(orphan, "leftover"), "interrupted before its record");
+    const incoming = join(dir, "library", ".incoming-interrupted", "tides");
+    mkdirSync(incoming, { recursive: true });
+    writeFileSync(join(incoming, "half-copied"), "partial");
+    await testHome(dir, { models });
+    expect(existsSync(orphan)).toBe(false);
+    expect(existsSync(incoming)).toBe(false);
+});
+
+it.each([
+    ["**ACCEPT** Clear and general.", "ACCEPT** Clear and general."],
+    ["- ACCEPT: Clear.", "ACCEPT: Clear."],
+    ["1. ACCEPT Clear.", "1. ACCEPT Clear."],
+    ["accept. Clear.", "Clear."],
+])(
+    "takes a formatted first-word acceptance like Rust (%s)",
+    async (verdict, reason) => {
+        const { models, faux } = fauxModels();
+        const home = await testHome(scratch(), { models });
+        const from = skill(houseOf(home.layout, MAYOR));
+        faux.setResponses([
+            fauxAssistantMessage(
+                fauxToolCall("submit_skill", {
+                    skill: "tides",
+                    reason: "For ports.",
+                }),
+                { stopReason: "toolUse" },
+            ),
+            fauxAssistantMessage(verdict),
+            fauxAssistantMessage("Shared."),
+        ]);
+        await (await say(home, "Offer")).wait(context);
+        expect(existsSync(from)).toBe(false);
+        expect(
+            (await home.harness.snapshot(LibraryDoc, context))?.events,
+        ).toMatchObject([{ kind: "shelved", reason }]);
+    },
+);
+
+it("cleans an interrupted hidden delivery even after the caller is cancelled", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), {
+        models,
+        env: { HAMLET_REFLECT_EVERY: "0" },
+    });
+    const from = skill(houseOf(home.layout, MAYOR));
+    for (let i = 0; i < 1024; i++)
+        writeFileSync(join(from, `part-${i}`), "x".repeat(16384));
+    const chat = await mayorChat(home);
+    const stopped = Promise.withResolvers<void>();
+    let stopping = false;
+    const watcher = watch(home.layout.library, (_event, name) => {
+        if (!stopping && name?.startsWith(".incoming-")) {
+            stopping = true;
+            void chat
+                .abort(context)
+                .then(() => stopped.resolve(), stopped.reject);
+        }
+    });
+    faux.setResponses([
+        fauxAssistantMessage(
+            fauxToolCall("submit_skill", {
+                skill: "tides",
+                reason: "For ports.",
+            }),
+            { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage("ACCEPT. Clear and general."),
+        fauxAssistantMessage("Shared."),
+    ]);
+    try {
+        const sub = await say(home, "Offer");
+        await stopped.promise;
+        await sub.wait(context);
+        await vi.waitFor(() =>
+            expect(
+                readdirSync(home.layout.library).filter((n) =>
+                    n.startsWith(".incoming-"),
+                ),
+            ).toEqual([]),
+        );
+        if (existsSync(join(home.layout.library, "tides"))) {
+            expect(
+                readdirSync(join(home.layout.library, "tides")),
+            ).toHaveLength(1026);
+            expect(
+                (await home.harness.snapshot(LibraryDoc, context))?.events,
+            ).toMatchObject([{ kind: "shelved" }]);
+        } else {
+            expect(existsSync(join(from, "SKILL.md"))).toBe(true);
+        }
+    } finally {
+        watcher.close();
     }
 });
