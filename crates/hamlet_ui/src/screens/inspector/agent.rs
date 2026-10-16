@@ -1,6 +1,6 @@
 //! An agent's page of the Inspector: its state, and its talk, its
-//! notes, its character and its past sessions as tabs. The whole
-//! of its prompt is a page with no tab.
+//! notes, its character and looks, and its past sessions as tabs.
+//! The whole of its prompt is a page with no tab.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
@@ -19,6 +19,7 @@ use hamlet_core::agents::{
 };
 use hamlet_core::core::RefreshLists;
 use hamlet_core::session::{self, Seat};
+use hamlet_model::wardrobe::Target;
 use hamlet_world::pick::{Thing, select};
 
 use super::papers::Papers;
@@ -41,6 +42,7 @@ pub enum Section {
     #[default]
     Conversation,
     Notes,
+    /// How it behaves and speaks, and what it wears.
     Character,
     /// Its past sessions, each to be read or gone back to.
     History,
@@ -282,9 +284,24 @@ fn character() -> impl View {
         action(Glyph::Rename, "EDIT", edit_character).tooltip(|| {
             label("Opens the file in your editor").size(12.0)
         });
-    column((row((edit,)), scroll((shown,)).fills_height()))
+    column((looks(), row((edit,)), scroll((shown,)).fills_height()))
         .fills_height()
         .gap(8.0)
+}
+
+/// What the agent the chat is with wears, under a hairline.
+fn looks() -> AnyView {
+    with_cx(|cx| {
+        let agent = cx.world.resource::<Me>().agent;
+        let name = agents::name_of(cx.world, agent);
+        column((
+            label("LOOKS").size(12.0).bold(true).tone(Tone::Faint),
+            crate::bazaar::looks(Target::Agent, name),
+            hairline(cx.theme().palette.brass_6),
+        ))
+        .gap(8.0)
+        .padding(UiRect::bottom(px(4.0)))
+    })
 }
 
 /// Reads the prompt the agent the chat is with would be given now,

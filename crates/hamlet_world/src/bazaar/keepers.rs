@@ -40,7 +40,7 @@ pub struct Stallholder {
 }
 
 /// Each keeper's dress, in the order of [`Stall::ALL`].
-const LOOKS: [Look; 5] = [
+const LOOKS: [Look; 6] = [
     Look {
         cloak: Cloak::Plum,
         light: Light::ALL[1],
@@ -70,6 +70,12 @@ const LOOKS: [Look; 5] = [
         light: Light::ALL[2],
         hat: Hat::Bare,
         holds: Holds::Book,
+    },
+    Look {
+        cloak: Cloak::Mustard,
+        light: Light::ALL[1],
+        hat: Hat::Bare,
+        holds: Holds::Nothing,
     },
 ];
 
@@ -103,6 +109,9 @@ fn habit(stall: Stall, t: f32) -> (Doing, bool) {
         Stall::Skills => (16.0, 10.0, Doing::Read, Doing::Idle),
         // Talks up its land, then reads its ledger.
         Stall::Hamlets => (14.0, 7.0, Doing::Read, Doing::Attend),
+        // Fusses over the figure on its turntable, then cries its
+        // looks.
+        Stall::Assets => (15.0, 8.0, Doing::Tend, Doing::Attend),
     };
     match t.rem_euclid(long) < working {
         true => (work, true),

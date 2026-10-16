@@ -132,6 +132,9 @@ pub enum Scene {
     Notes,
     /// An agent's character.
     Character,
+    /// An agent's character, with what it wears chosen among the
+    /// assets the chief owns.
+    Looks,
     /// The whole of an agent's prompt.
     Prompt,
     /// Every hamlet, with nothing selected.

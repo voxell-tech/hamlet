@@ -119,6 +119,10 @@ pub enum Glyph {
     /// Three lines: a list folded away.
     Menu,
     Folder,
+    /// A coat hanger: what agents and hamlets wear.
+    Hanger,
+    /// A chevron to the left: the one before.
+    Before,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -147,7 +151,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 46] = [
+    pub const ALL: [Glyph; 48] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -194,6 +198,8 @@ impl Glyph {
         Glyph::More,
         Glyph::Menu,
         Glyph::Folder,
+        Glyph::Hanger,
+        Glyph::Before,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -530,6 +536,21 @@ impl Glyph {
                 [14.0, 12.75],
                 [2.0, 12.75],
             ])],
+            Glyph::Hanger => &[
+                Path(&[
+                    [6.25, 4.25],
+                    [6.5, 2.75],
+                    [8.0, 2.0],
+                    [9.5, 2.75],
+                    [9.5, 4.0],
+                    [8.0, 5.25],
+                    [8.0, 6.25],
+                ]),
+                Loop(&[[8.0, 6.25], [14.0, 12.0], [2.0, 12.0]]),
+            ],
+            Glyph::Before => {
+                &[Path(&[[10.0, 4.0], [6.0, 8.0], [10.0, 12.0]])]
+            }
         }
     }
 }

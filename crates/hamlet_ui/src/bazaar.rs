@@ -1,4 +1,4 @@
-//! The Agent Bazaar: its five stalls, each a tab of its panel and,
+//! The Agent Bazaar: its six stalls, each a tab of its panel and,
 //! when it is selected in the world, its keeper's counter in the
 //! Inspector. The Agent Stall sells every model OpenRouter offers and
 //! those the other endpoints serve, for the chief to add to the home,
@@ -12,6 +12,7 @@ mod plugins;
 mod shelf;
 mod skills;
 mod trade;
+mod wardrobe;
 mod ware;
 
 use bevy::app::{App, Update};
@@ -39,6 +40,7 @@ use hamlet_world::bazaar::Stall;
 use hamlet_world::pick::{Selected, Thing};
 
 pub use self::skills::Perusing;
+pub(crate) use self::wardrobe::looks;
 use crate::dock::{PanelAppExt, panel, show_tab};
 use crate::icons::Glyph;
 use crate::looks::{
@@ -71,6 +73,7 @@ pub(crate) fn plugin(app: &mut App) {
         plugins::plugin,
         skills::plugin,
         trade::plugin,
+        wardrobe::plugin,
     ))
     .add_systems(
         Update,
@@ -88,12 +91,13 @@ pub(crate) fn plugin(app: &mut App) {
 pub struct StallShown(pub Stall);
 
 /// The tab of each stall.
-const TABS: [(StallShown, Glyph, &str); 5] = [
+const TABS: [(StallShown, Glyph, &str); 6] = [
     (StallShown(Stall::Models), Glyph::Chip, "MODELS"),
     (StallShown(Stall::Community), Glyph::Robot, "AGENTS"),
     (StallShown(Stall::Plugins), Glyph::Bolt, "PLUGINS"),
     (StallShown(Stall::Skills), Glyph::Book, "SKILLS"),
     (StallShown(Stall::Hamlets), Glyph::Hamlet, "HAMLETS"),
+    (StallShown(Stall::Assets), Glyph::Hanger, "ASSETS"),
 ];
 
 /// Shows a stall selected in the world in the panel too.
@@ -134,6 +138,7 @@ pub(crate) fn wares(stall: Stall) -> AnyView {
         Stall::Plugins => trade::stall(Kind::Plugin, plugins::page),
         Stall::Skills => skills::page(),
         Stall::Hamlets => trade::stall(Kind::Hamlet, hamlets::page),
+        Stall::Assets => wardrobe::stall(),
     }
 }
 

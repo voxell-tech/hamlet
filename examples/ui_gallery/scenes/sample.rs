@@ -159,12 +159,19 @@ pub(super) fn setup(world: &mut World) {
     }
     if matches!(
         scene,
-        Scene::Notes | Scene::Character | Scene::Prompt
+        Scene::Notes
+            | Scene::Character
+            | Scene::Looks
+            | Scene::Prompt
     ) {
         keep_notes(world);
     }
     if scene == Scene::Character {
         world.insert_resource(inspector::Section::Character);
+    }
+    if scene == Scene::Looks {
+        world.insert_resource(inspector::Section::Character);
+        world.insert_resource(super::stalls::wardrobe("Juniper"));
     }
     if scene == Scene::Prompt {
         let agent = world.resource::<Me>().agent;

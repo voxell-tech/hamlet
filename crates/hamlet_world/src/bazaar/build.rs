@@ -1,5 +1,5 @@
 //! The bazaar as meshes: a paved round with a striped pavilion in its
-//! middle, five stalls in a ring about it facing out onto a
+//! middle, six stalls in a ring about it facing out onto a
 //! promenade, and a gate at its front, all hung with lanterns,
 //! bunting and fairy lights.
 
@@ -53,7 +53,7 @@ const RING: f32 = 6.9;
 /// The room between two bulbs of a string of fairy lights.
 const BULB_SPACING: f32 = 0.3;
 
-/// Where `stall` stands and the way it turns: on the ring, a fifth
+/// Where `stall` stands and the way it turns: on the ring, a sixth
 /// of the way round from the next, its back to the pavilion and its
 /// front to the promenade. The gate is between the first and the
 /// last.
@@ -987,8 +987,8 @@ mod tests {
         assert!(SIZE.0 < GROUNDS);
         // Five in the pavilion, one to each stall and one at each
         // gate post.
-        assert_eq!(built.lamps.len(), 12);
+        assert_eq!(built.lamps.len(), 13);
         // On the pole, a stall's mast each and on each gate post.
-        assert_eq!(built.flags.len(), 8);
+        assert_eq!(built.flags.len(), 9);
     }
 }

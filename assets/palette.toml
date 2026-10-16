@@ -112,8 +112,8 @@ roof = "#8fa3b0"
 drift = "#a9bbc6"
 banner = "#8a3b45"
 
-# The bazaar's stalls: the minds, the artisans, the tinker, the skills and
-# the hamlets.
+# The bazaar's stalls: the minds, the artisans, the tinker, the skills, the
+# hamlets and the costumier.
 [[stalls]]
 cloth = "#3b3f86"
 trim = "#e0a23a"
@@ -138,3 +138,8 @@ glow = "#9ff0d8"
 cloth = "#8a3b45"
 trim = "#d9b45a"
 glow = "#ffe08a"
+
+[[stalls]]
+cloth = "#a9506f"
+trim = "#f2d39a"
+glow = "#ffa6d6"

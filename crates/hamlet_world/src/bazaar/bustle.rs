@@ -1,7 +1,8 @@
 //! What moves about the bazaar besides its people: the tinker's cogs
-//! and grindstone, the sparks off the stone, the shimmer over the
-//! skill-scrolls, the steam off the tea, and embers that rise from
-//! the counter after a sale. Each is a pure function of the clock.
+//! and grindstone, the costumier's turntable, the sparks off the
+//! stone, the shimmer over the skill-scrolls, the steam off the tea,
+//! and embers that rise from the counter after a sale. Each is a pure
+//! function of the clock.
 
 use std::f32::consts::{PI, TAU};
 

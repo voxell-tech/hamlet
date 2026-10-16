@@ -1,5 +1,5 @@
 //! The Agent Bazaar in the world: a striped pavilion and a ring of
-//! five stalls on ground of their own beside the first town, in no
+//! six stalls on ground of their own beside the first town, in no
 //! hamlet. It stands for all the home may buy: models, agents,
 //! plugins, skills and whole hamlets.
 

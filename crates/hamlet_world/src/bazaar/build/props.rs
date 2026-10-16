@@ -12,26 +12,27 @@ use crate::palette::Palette;
 
 /// The palms, each with the way it is turned: either side of the
 /// gate, and between the backs of the stalls.
-pub(in crate::bazaar) const PALMS: [(Vec3, f32); 5] = [
-    (Vec3::new(-3.4, 0.0, 9.3), 0.3),
-    (Vec3::new(3.4, 0.0, 9.3), 2.4),
-    (Vec3::new(3.12, 0.0, -4.29), 2.0),
-    (Vec3::new(-3.12, 0.0, -4.29), 4.1),
-    (Vec3::new(-5.04, 0.0, 1.64), 1.1),
+pub(in crate::bazaar) const PALMS: [(Vec3, f32); 6] = [
+    (Vec3::new(-3.0, 0.0, 10.0), 0.3),
+    (Vec3::new(3.0, 0.0, 10.0), 2.4),
+    (Vec3::new(4.59, 0.0, -2.65), 2.0),
+    (Vec3::new(0.0, 0.0, -5.3), 3.0),
+    (Vec3::new(-4.59, 0.0, -2.65), 4.1),
+    (Vec3::new(-4.59, 0.0, 2.65), 1.1),
 ];
 
 /// The camel, lying in the gap between two stalls with its head
 /// along the ring.
-const CAMEL: (Vec3, f32) = (Vec3::new(-4.29, 0.0, -5.91), -0.942);
+const CAMEL: (Vec3, f32) = (Vec3::new(-6.32, 0.0, -3.65), -0.524);
 
 /// The ends of the rack of rugs, in the gap between two stalls.
 const RACK: (Vec3, Vec3) =
-    (Vec3::new(3.58, 0.0, -6.55), Vec3::new(5.12, 0.0, -5.43));
+    (Vec3::new(5.93, 0.0, -4.52), Vec3::new(6.88, 0.0, -2.88));
 
 /// The tea table, in the gap between the first two stalls, and the
 /// way it turns: its cushions are toward the pavilion.
 pub(in crate::bazaar) const TEA: (Vec3, f32) =
-    (Vec3::new(7.13, 0.0, 2.32), 4.398);
+    (Vec3::new(6.5, 0.0, 3.75), 4.189);
 
 /// The spot over the teapot's lid, from the tea table's middle.
 pub(in crate::bazaar) const TEAPOT: Vec3 =

@@ -1,4 +1,4 @@
-//! The bazaar's five stalls: what each sells and who keeps it.
+//! The bazaar's six stalls: what each sells and who keeps it.
 
 /// A stall of the bazaar.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
@@ -15,6 +15,9 @@ pub enum Stall {
     Skills,
     /// Whole hamlets, mayor, agents and notes, ready to use.
     Hamlets,
+    /// The official assets: skins, emotes and meshes for agents and
+    /// hamlets to wear.
+    Assets,
 }
 
 /// The one who keeps a stall, as the chief meets them.
@@ -29,12 +32,13 @@ pub struct Keeper {
 }
 
 impl Stall {
-    pub const ALL: [Stall; 5] = [
+    pub const ALL: [Stall; 6] = [
         Stall::Models,
         Stall::Community,
         Stall::Plugins,
         Stall::Skills,
         Stall::Hamlets,
+        Stall::Assets,
     ];
 
     pub fn name(self) -> &'static str {
@@ -44,6 +48,7 @@ impl Stall {
             Stall::Plugins => "Plugins",
             Stall::Skills => "Skills",
             Stall::Hamlets => "Hamlet Templates",
+            Stall::Assets => "Official Assets",
         }
     }
 
@@ -66,6 +71,10 @@ impl Stall {
             Stall::Hamlets => {
                 "Complete hamlets with a mayor, agents and notes, \
                  ready to use."
+            }
+            Stall::Assets => {
+                "Skins, emotes and meshes for your agents and \
+                 hamlets, from the Hamlet team."
             }
         }
     }
@@ -132,6 +141,18 @@ impl Stall {
                      roads and every word its agents wrote.",
                     "Sign here, and it rises on your land before \
                      the ink is dry.",
+                ],
+            },
+            Stall::Assets => Keeper {
+                name: "Madame Perpetua",
+                title: "sells official assets",
+                greetings: [
+                    "Skins, emotes and whole new frames, chief! \
+                     Every one cut by the Hamlet team.",
+                    "Turn it on the turntable before you buy. A \
+                     look should please from every side.",
+                    "Bought once, worn by whichever agent or hamlet \
+                     you like. Change it on their page.",
                 ],
             },
         }

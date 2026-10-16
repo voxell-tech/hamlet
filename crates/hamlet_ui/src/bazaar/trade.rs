@@ -83,7 +83,9 @@ pub(super) fn stall(kind: Kind, page: fn() -> AnyView) -> AnyView {
         // Drawn without the bazaar's plugins in the gallery.
         cx.world.init_resource::<Market>();
         cx.world.init_resource::<Destination>();
-        cx.build(column((account(kind), desk::or(page))).gap(14.0))
+        cx.build(
+            column((account(Some(kind)), desk::or(page))).gap(14.0),
+        )
     })
 }
 
@@ -162,8 +164,8 @@ pub(super) fn ask(world: &mut World, id: &str) {
 
 /// Who is signed in to the bazaar, and the ways to sign in, out, sell
 /// and see what is the chief's. Selling begins at a listing of
-/// `kind`.
-pub(super) fn account(kind: Kind) -> AnyView {
+/// `selling`; nothing is sold at a stall of `None`.
+pub(super) fn account(selling: Option<Kind>) -> AnyView {
     let now = derived(|world: &World| {
         let market = world.resource::<Market>();
         (market.account.clone(), market.said.clone())
@@ -177,7 +179,11 @@ pub(super) fn account(kind: Kind) -> AnyView {
                     "SIGN IN WITH GITHUB",
                     |world| world.trigger(SignInBazaar),
                 ),
-                note("to buy, and to sell what you made.").boxed(),
+                note(match selling {
+                    Some(_) => "to buy, and to sell what you made.",
+                    None => "to buy.",
+                })
+                .boxed(),
             ])
             .boxed(),
             Account::Asking => stated(
@@ -215,23 +221,35 @@ pub(super) fn account(kind: Kind) -> AnyView {
             ))
             .gap(6.0)
             .boxed(),
-            Account::In(user) => buttons(vec![
-                stated(
-                    Glyph::Check,
-                    format!("@{}", user.login),
-                    Tone::Faint,
-                    12.0,
-                )
-                .boxed(),
-                good_action(Glyph::Plus, "SELL", move |world| {
-                    desk::open_form(world, kind, None)
-                }),
-                action(Glyph::Book, "YOURS", desk::open_yours),
-                action(Glyph::Power, "SIGN OUT", |world| {
+            Account::In(user) => {
+                let mut all = vec![
+                    stated(
+                        Glyph::Check,
+                        format!("@{}", user.login),
+                        Tone::Faint,
+                        12.0,
+                    )
+                    .boxed(),
+                ];
+                if let Some(kind) = selling {
+                    all.push(good_action(
+                        Glyph::Plus,
+                        "SELL",
+                        move |world| {
+                            desk::open_form(world, kind, None)
+                        },
+                    ));
+                    all.push(action(
+                        Glyph::Book,
+                        "YOURS",
+                        desk::open_yours,
+                    ));
+                }
+                all.push(action(Glyph::Power, "SIGN OUT", |world| {
                     world.trigger(SignOutBazaar)
-                }),
-            ])
-            .boxed(),
+                }));
+                buttons(all).boxed()
+            }
             Account::Failed(why) => column((
                 label(why.clone()).size(12.0).tone(Tone::Critical),
                 buttons(vec![good_action(

@@ -10,8 +10,10 @@ use bevy::ecs::world::World;
 use bevy::ui::widget::Text;
 use bevy::ui_widgets::{Activate, Button};
 use hamlet_core::market::{Account, Market};
+use hamlet_core::wardrobe::Wardrobe;
 use hamlet_model::market::lot::{Kind, Payouts, User};
 use hamlet_model::market::samples;
+use hamlet_model::wardrobe::{Asset, Category, Target};
 use hamlet_ui::bazaar::StallShown;
 use hamlet_world::pick::{Selected, Thing};
 
@@ -30,6 +32,7 @@ pub(super) fn setup(world: &mut World, agent: Entity) {
     };
     stock(world, agent, false);
     world.insert_resource(stocked());
+    world.insert_resource(wardrobe("Juniper"));
     world.insert_resource(StallShown(stall));
     if let Scene::Counter(..) = scene {
         world.insert_resource(Selected(Some(Thing::Stall(stall))));
@@ -58,6 +61,91 @@ pub(super) fn stocked() -> Market {
         .filter(|lot| lot.seller.login == "wren")
         .collect();
     market
+}
+
+/// The Asset stall's shelves, of which the chief owns two, both worn
+/// by the agent `agent`.
+pub(super) fn wardrobe(agent: &str) -> Wardrobe {
+    let shelves = [
+        (
+            "agent-skin-sakura",
+            "Sakura",
+            "Blossom-pink paint with a pearl finish and rose-gold \
+             fittings.",
+            (Target::Agent, Category::Skin),
+            199,
+        ),
+        (
+            "agent-emote-bow",
+            "Courtly Bow",
+            "A low, sweeping bow, now and then while idle and \
+             whenever asked.",
+            (Target::Agent, Category::Emote),
+            0,
+        ),
+        (
+            "agent-mesh-lantern",
+            "Lantern Walker",
+            "A whole new frame: a paper lantern on two brass legs.",
+            (Target::Agent, Category::Mesh),
+            499,
+        ),
+        (
+            "hamlet-skin-harbour",
+            "Harbour Blue",
+            "Whitewashed walls under slate-blue roofs, as by the \
+             sea.",
+            (Target::Hamlet, Category::Skin),
+            299,
+        ),
+        (
+            "hamlet-emote-lanterns",
+            "Paper Lanterns",
+            "Lanterns that sway under every eave of every house.",
+            (Target::Hamlet, Category::Emote),
+            0,
+        ),
+    ];
+    let mut wardrobe = Wardrobe::default();
+    wardrobe.catalog = shelves
+        .into_iter()
+        .map(|(id, title, summary, (target, category), cents)| {
+            Asset {
+                id: id.into(),
+                target,
+                category,
+                title: title.into(),
+                summary: summary.into(),
+                price_cents: cents,
+                version: "1.0.0".into(),
+                frames: 24,
+                preview_url: format!(
+                    "/v1/assets/{id}/preview/{{frame}}"
+                ),
+                owned: false,
+            }
+        })
+        .collect();
+    for asset in &mut wardrobe.catalog {
+        if asset.target == Target::Agent
+            && asset.category != Category::Mesh
+        {
+            asset.owned = true;
+            wardrobe.owned.insert(asset.id.clone(), asset.clone());
+        }
+    }
+    for (category, id) in [
+        (Category::Skin, "agent-skin-sakura"),
+        (Category::Emote, "agent-emote-bow"),
+    ] {
+        wardrobe.looks.wear(
+            Target::Agent,
+            agent,
+            category,
+            Some(id.into()),
+        );
+    }
+    wardrobe
 }
 
 /// Presses, one after another, the buttons whose words the scene

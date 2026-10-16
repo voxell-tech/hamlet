@@ -1,6 +1,7 @@
 //! A stall of the bazaar: what every stall is built of, and each
 //! stall itself, in a file of its own.
 
+mod costumier;
 mod gear;
 mod land;
 mod minds;
@@ -61,6 +62,9 @@ pub(super) fn stall(
             scrolls::build(mb, (glass, gleam), pal, style)
         }
         Stall::Hamlets => land::build(mb, (glass, gleam), pal, style),
+        Stall::Assets => {
+            costumier::build(mb, (glass, gleam), pal, style)
+        }
     }
 }
 

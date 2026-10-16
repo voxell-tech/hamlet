@@ -1,5 +1,6 @@
 //! One hamlet's page of the Inspector: what it is, what can be done
-//! to it, and its agents, its bylaws and its record as tabs.
+//! to it, and its agents, its bylaws, what it wears and its record as
+//! tabs.
 
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -14,6 +15,8 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, scroll, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use hamlet_core::agents::Settlement;
+use hamlet_model::wardrobe::Target;
 use hamlet_rules::hamlet::HOME;
 use hamlet_world::orders;
 use hamlet_world::pick::{Thing, select};
@@ -31,7 +34,7 @@ use crate::looks::{
 };
 use crate::me::talk_to;
 use crate::world_menu::Deed;
-use crate::{AnyView, View, chat, tabs, world_menu};
+use crate::{AnyView, View, chat, tabs, with_cx, world_menu};
 
 /// The field a hamlet's new name is typed in.
 #[derive(Component)]
@@ -101,12 +104,14 @@ pub enum Page {
     #[default]
     Agents,
     Bylaws,
+    Looks,
     Record,
 }
 
-const PAGES: [(Page, Glyph, &str); 3] = [
+const PAGES: [(Page, Glyph, &str); 4] = [
     (Page::Agents, Glyph::Robot, "AGENTS"),
     (Page::Bylaws, Glyph::Book, "BYLAWS"),
+    (Page::Looks, Glyph::Hanger, "LOOKS"),
     (Page::Record, Glyph::History, "RECORD"),
 ];
 
@@ -248,6 +253,16 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
             match page {
                 Page::Agents => list_of(hamlet).boxed(),
                 Page::Bylaws => crate::rules::panel(hamlet),
+                // Worn by the name it is kept on disk by, which a new
+                // name leaves as it is.
+                Page::Looks => with_cx(move |cx| {
+                    let name = cx
+                        .world
+                        .get::<Settlement>(hamlet)
+                        .map(|settlement| settlement.name.clone())
+                        .unwrap_or_default();
+                    crate::bazaar::looks(Target::Hamlet, name)
+                }),
                 Page::Record => record_of(hamlet).boxed(),
             }
         })
