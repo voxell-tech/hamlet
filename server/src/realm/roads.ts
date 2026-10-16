@@ -8,6 +8,7 @@ import {
     type Archived,
     type End,
     type HamletRecord,
+    HOME,
     MAYOR,
     named,
     RecordDoc,
@@ -95,12 +96,14 @@ export async function livingAgent(
 /** A living address in a client's received state; archived agents never resolve. */
 export function findInState(
     state: State,
-    address: Address,
+    address: { agent: string; hamlet?: string },
 ): AgentRef | undefined {
+    const hamlet =
+        address.hamlet ?? (address.agent === MAYOR ? HOME : undefined);
     return state.agents.find(
         (agent) =>
             !agent.left &&
-            agent.ref.hamlet === address.hamlet &&
+            (hamlet === undefined || agent.ref.hamlet === hamlet) &&
             (address.agent === MAYOR
                 ? agent.mayor
                 : agent.name === address.agent),

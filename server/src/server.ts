@@ -1,7 +1,5 @@
-import { randomUUID } from "node:crypto";
 import type { Context } from "@earendil-works/chord";
 import { withAbortSignal } from "@earendil-works/chord/context";
-import type { AuthPrompt } from "@earendil-works/pi-ai";
 import type { Submission } from "@earendil-works/pi-durable";
 import {
     type ChatId,
@@ -20,8 +18,8 @@ import {
 import { answerWords } from "./gate.ts";
 import type { Home } from "./home.ts";
 import { clearStagedGifts, give, uploads } from "./house.ts";
-import { checkConnection, checkModel, login as signIn } from "./models.ts";
-import type { Address, Login, LoginStep, ServerMessage } from "./protocol.ts";
+import { checkConnection, checkModel } from "./models.ts";
+import type { Address, ServerMessage } from "./protocol.ts";
 import { chiefAccess, legacyRefusal } from "./realm/access.ts";
 import { livingAgent } from "./realm/roads.ts";
 import { ok, type Result } from "./result.ts";
@@ -34,6 +32,7 @@ import {
     replyFor,
 } from "./server/envelope.ts";
 import { read } from "./server/reads.ts";
+import { loginSessions } from "./server/sign-in.ts";
 import { watchState } from "./state.ts";
 import {
     type ChatWatch,
@@ -84,7 +83,7 @@ export async function serveHome(
     };
     await clearStagedGifts(home);
     const gifts = uploads(home, context);
-    const logins = loginConnection(home, () => state.refresh());
+    const logins = loginSessions(home, () => state.refresh());
     server = await serve({
         token: home.credentials.token,
         port,
@@ -187,15 +186,7 @@ export async function serveHome(
                     for (const message of initial) client.send(message);
                 return undefined;
             },
-            login: async (message, client) => {
-                // D9 replaces this sign-in-call compatibility catch with LoginFailure.
-                const outcome = await logins
-                    .handle(message, client)
-                    .catch(legacyRefusal);
-                return outcome === undefined
-                    ? undefined
-                    : replyFor(message.id, outcome, home.secrets);
-            },
+            login: (message, client) => logins.handle(message, client),
             check: (message, client) => {
                 void (async () => {
                     // D9 replaces these model-check compatibility catches with model failures.
@@ -362,153 +353,6 @@ export async function serveHome(
             await logins.stop();
             await gifts.stop();
             await state.stop();
-        },
-    };
-}
-
-function loginConnection(home: Home, refresh: () => Promise<void>) {
-    type Signing = {
-        client: Client;
-        controller: AbortController;
-        secrets: string[];
-        prompt?: { resolve(value: string): void; reject(error: Error): void };
-        job?: Promise<void>;
-    };
-    const sessions = new Map<string, Signing>();
-    const handle = async (
-        message: Login,
-        client: Client,
-    ): Promise<Result<Receipt, ChiefFailure> | undefined> => {
-        if ("start" in message) {
-            const id = randomUUID();
-            const signing: Signing = {
-                client,
-                controller: new AbortController(),
-                secrets: [],
-            };
-            sessions.set(id, signing);
-            const signal = AbortSignal.any([
-                signing.controller.signal,
-                client.signal,
-            ]);
-            const send = (step: LoginStep) => {
-                if (!client.signal.aborted)
-                    client.send(
-                        home.secrets.value(
-                            { type: "login", login: id, to: message.id, step },
-                            signing.secrets,
-                        ),
-                    );
-            };
-            const prompt = (prompt: AuthPrompt) =>
-                new Promise<string>((resolve, reject) => {
-                    const aborted = () =>
-                        finish(undefined, new Error("Sign-in cancelled."));
-                    const stop =
-                        prompt.signal === undefined
-                            ? signal
-                            : AbortSignal.any([signal, prompt.signal]);
-                    const finish = (value?: string, error?: Error) => {
-                        stop.removeEventListener("abort", aborted);
-                        delete signing.prompt;
-                        if (error !== undefined) reject(error);
-                        else resolve(value ?? "");
-                    };
-                    signing.prompt = {
-                        resolve: (value) => {
-                            signing.secrets.push(value);
-                            finish(value);
-                        },
-                        reject: (error) => finish(undefined, error),
-                    };
-                    if (stop.aborted) return aborted();
-                    stop.addEventListener("abort", aborted, { once: true });
-                    const options =
-                        prompt.type === "select"
-                            ? `\n${prompt.options.map((option) => `${option.id}: ${option.label}`).join("\n")}`
-                            : "";
-                    send({
-                        prompt: prompt.message + options,
-                        secret:
-                            prompt.type === "secret" ||
-                            prompt.type === "manual_code",
-                    });
-                });
-            signing.job = (async () => {
-                try {
-                    await signIn(
-                        home,
-                        message.start.provider,
-                        message.start.method,
-                        {
-                            signal,
-                            prompt,
-                            notify: (event) => {
-                                switch (event.type) {
-                                    case "auth_url":
-                                        send({
-                                            url: event.url,
-                                            ...(event.instructions === undefined
-                                                ? {}
-                                                : {
-                                                      instructions:
-                                                          event.instructions,
-                                                  }),
-                                        });
-                                        break;
-                                    case "device_code":
-                                        send({ url: event.verificationUri });
-                                        send({ code: event.userCode });
-                                        break;
-                                    case "info":
-                                        for (const link of event.links ?? [])
-                                            send({ url: link.url });
-                                        send({ progress: event.message });
-                                        break;
-                                    case "progress":
-                                        send({ progress: event.message });
-                                        break;
-                                }
-                            },
-                        },
-                    );
-                    await refresh();
-                    send({ done: message.start.provider });
-                } catch (error) {
-                    send({
-                        failed:
-                            error instanceof Error
-                                ? error.message
-                                : String(error),
-                    });
-                } finally {
-                    signing.prompt?.reject(new Error("Sign-in ended."));
-                    sessions.delete(id);
-                }
-            })();
-            return undefined;
-        }
-        const id = "reply" in message ? message.reply.login : message.cancel;
-        const signing = sessions.get(id);
-        if (signing === undefined || signing.client !== client)
-            throw new Error("There is no sign-in here with that id.");
-        if ("cancel" in message) signing.controller.abort();
-        else {
-            if (signing.prompt === undefined)
-                throw new Error("That sign-in is not waiting for an answer.");
-            signing.prompt.resolve(message.reply.value);
-        }
-        return ok({
-            text: "cancel" in message ? "Sign-in cancelled." : "Sent.",
-        });
-    };
-    return {
-        handle,
-        stop: async () => {
-            for (const signing of sessions.values()) signing.controller.abort();
-            await Promise.all(
-                [...sessions.values()].map((signing) => signing.job),
-            );
         },
     };
 }

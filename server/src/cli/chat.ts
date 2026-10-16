@@ -113,18 +113,20 @@ export async function chat(options: {
                                 : undefined;
                         if (kind === "hamlet" && hamlet === undefined)
                             throw new Error(`no hamlet named \`${name}\``);
-                        const agent =
+                        const ref =
                             kind === "agent"
-                                ? state.agents.find(
-                                      (agent) =>
-                                          !agent.left &&
-                                          (name === "mayor"
-                                              ? agent.mayor &&
-                                                agent.ref.hamlet ===
-                                                    target.hamlet
-                                              : agent.name === name),
-                                  )
+                                ? findInState(state, {
+                                      agent: name,
+                                      ...(name === "mayor"
+                                          ? { hamlet: target.hamlet }
+                                          : {}),
+                                  })
                                 : undefined;
+                        const agent = state.agents.find(
+                            (agent) =>
+                                agent.ref.hamlet === ref?.hamlet &&
+                                agent.ref.number === ref.number,
+                        );
                         if (kind === "agent" && agent === undefined)
                             throw new Error(`no agent named \`${name}\``);
                         const next = resolve(

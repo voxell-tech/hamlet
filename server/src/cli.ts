@@ -3,14 +3,11 @@ import { constants, homedir, tmpdir, userInfo } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { chat } from "./cli/chat.ts";
 import { connectChief, reachHome } from "./cli/client.ts";
+import type { CommandIO } from "./cli/io.ts";
 import { serve } from "./cli/serving.ts";
-import {
-    DOCUMENTS,
-    type DocumentName,
-    type TerminalCommand,
-    terminal,
-} from "./cli/terminal.ts";
+import { DOCUMENTS, type TerminalCommand, terminal } from "./cli/terminal.ts";
 import { findApp, launch } from "./cli/window.ts";
+import { findInState } from "./realm/roads.ts";
 import { HOME, MAYOR } from "./record.ts";
 
 /** The port a server listens on unless it is given another. */
@@ -66,19 +63,34 @@ type Command =
     | { name: "window" }
     | TerminalCommand;
 
-try {
-    const command = parse(process.argv.slice(2));
-    if (command === undefined) process.stdout.write(`${USAGE}\n`);
-    else if (command.name === "server") await serve(homeDir(), command);
-    else if (command.name === "dev") await develop(command);
-    else if (command.name === "chat") await talk(command.to);
-    else if (command.name === "window") await openWindow();
-    else await terminal(command, await reachHome(homeDir(), process.env));
-} catch (error) {
-    process.stderr.write(
-        `Error: ${error instanceof Error ? error.message : String(error)}\n`,
-    );
-    process.exitCode = 1;
+/** Runs one command with caller-owned streams; importing this module starts no work. */
+export async function main(
+    argv: readonly string[],
+    env: Readonly<NodeJS.ProcessEnv>,
+    io: CommandIO,
+): Promise<number> {
+    try {
+        const command = parse(argv);
+        if (command === undefined) io.stdout.write(`${USAGE}\n`);
+        else if (command.name === "server")
+            await serve(homeDir(env), { ...command, env, stderr: io.stderr });
+        else if (command.name === "dev") await develop(command, env, io);
+        else if (command.name === "chat") await talk(command.to, env, io);
+        else if (command.name === "window") return await openWindow(env, io);
+        else
+            await terminal(
+                command,
+                await reachHome(homeDir(env), env),
+                env,
+                io,
+            );
+        return 0;
+    } catch (error) {
+        io.stderr.write(
+            `Error: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+        return 1;
+    }
 }
 
 /** The requested command, or `undefined` for help. */
@@ -113,7 +125,8 @@ function parse(args: readonly string[]): Command | undefined {
     }
     if (name === "edit") {
         const [doc, flag, hamlet, extra] = rest;
-        if (!DOCUMENTS.some((name) => name === doc))
+        const document = DOCUMENTS.find((name) => name === doc);
+        if (document === undefined)
             throw new Error(
                 `edit needs one of charter, character, notes, limits or settings\n\n${USAGE}`,
             );
@@ -125,7 +138,7 @@ function parse(args: readonly string[]): Command | undefined {
             throw new Error("--hamlet needs a hamlet id");
         return {
             name,
-            doc: doc as DocumentName,
+            doc: document,
             ...(hamlet === undefined ? {} : { hamlet }),
         };
     }
@@ -164,17 +177,19 @@ function parse(args: readonly string[]): Command | undefined {
 }
 
 /** The home this process works on (C8). */
-function homeDir(): string {
-    return process.env.HAMLET_HOME || join(homedir(), ".hamlet");
+function homeDir(env: Readonly<NodeJS.ProcessEnv>): string {
+    return env.HAMLET_HOME || join(homedir(), ".hamlet");
 }
 
 /** A scratch server whose agents keep working after its window closes (S1, S13). */
 async function develop(
     command: Extract<Command, { name: "dev" }>,
+    env: Readonly<NodeJS.ProcessEnv>,
+    io: CommandIO,
 ): Promise<void> {
     const home =
         command.home ||
-        process.env.HAMLET_HOME ||
+        env.HAMLET_HOME ||
         join(tmpdir(), `hamlet-dev-${userInfo().uid}`);
     if (
         home === "~/.hamlet" ||
@@ -202,11 +217,13 @@ async function develop(
               : undefined;
     if (unsafe !== undefined)
         throw new Error(`unsafe scratch home ${home}: ${unsafe}.`);
-    const app = findApp(process.env);
+    const app = findApp(env);
     let child: ReturnType<typeof launch> | undefined;
     let stopping = false;
     const serving = await serve(home, {
         ...command,
+        env,
+        stderr: io.stderr,
         beforeClose: () => {
             stopping = true;
             if (
@@ -218,10 +235,15 @@ async function develop(
             child.kill("SIGTERM");
         },
     });
-    child = launch(app, { ...serving, view: join(serving.home, "window") });
+    child = launch(app, {
+        ...serving,
+        env,
+        io,
+        view: join(serving.home, "window"),
+    });
     child.once("exit", () => {
         if (!stopping)
-            process.stderr.write(
+            io.stderr.write(
                 `hamlet: window closed; still serving ${serving.home} at ${serving.url}; Ctrl-C stops\n`,
             );
     });
@@ -242,16 +264,26 @@ async function canonical(dir: string): Promise<string> {
     try {
         return await realpath(absolute);
     } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        if (
+            !(
+                error instanceof Error &&
+                "code" in error &&
+                error.code === "ENOENT"
+            )
+        )
+            throw error;
         return join(await canonical(dirname(absolute)), basename(absolute));
     }
 }
 
 /** A window connected to the local or environment-named server (S4, S13). */
-async function openWindow(): Promise<void> {
-    const address = await reachHome(homeDir(), process.env);
-    const child = launch(findApp(process.env), address);
-    process.exitCode = await new Promise<number>((resolve, reject) => {
+async function openWindow(
+    env: Readonly<NodeJS.ProcessEnv>,
+    io: CommandIO,
+): Promise<number> {
+    const address = await reachHome(homeDir(env), env);
+    const child = launch(findApp(env), { ...address, env, io });
+    return new Promise<number>((resolve, reject) => {
         child.once("error", reject);
         child.once("exit", (code, signal) =>
             resolve(
@@ -262,8 +294,12 @@ async function openWindow(): Promise<void> {
 }
 
 /** A chat with `to` through the local or environment-named server (S4, S13). */
-async function talk(to: string) {
-    const reached = await reachHome(homeDir(), process.env);
+async function talk(
+    to: string,
+    env: Readonly<NodeJS.ProcessEnv>,
+    io: CommandIO,
+) {
+    const reached = await reachHome(homeDir(env), env);
     const [agent = "", hamlet, extra] = to.split("@");
     if (!agent || extra !== undefined || hamlet === "")
         throw new Error("--to names an agent, name@hamlet or mayor@hamlet");
@@ -271,8 +307,10 @@ async function talk(to: string) {
     if (hamlet === undefined && agent !== MAYOR) {
         const joined = await connectChief(reached);
         try {
+            const ref = findInState(joined.state, { agent });
             const found = joined.state.agents.find(
-                (a) => a.name === agent && !a.left,
+                (a) =>
+                    a.ref.hamlet === ref?.hamlet && a.ref.number === ref.number,
             );
             if (!found) throw new Error(`no agent named \`${agent}\``);
             target = {
@@ -286,8 +324,8 @@ async function talk(to: string) {
     await chat({
         ...reached,
         to: target,
-        input: process.stdin,
-        out: process.stdout,
-        err: process.stderr,
+        input: io.stdin,
+        out: io.stdout,
+        err: io.stderr,
     });
 }

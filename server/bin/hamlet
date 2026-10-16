@@ -1,18 +1,2 @@
-#!/bin/sh
-set -eu
-
-script=$0
-case $script in
-    */*) ;;
-    *) script=$(command -v "$script") ;;
-esac
-while [ -L "$script" ]; do
-    directory=$(CDPATH= cd -P "$(dirname "$script")" && pwd)
-    script=$(readlink "$script")
-    case $script in
-        /*) ;;
-        *) script=$directory/$script ;;
-    esac
-done
-directory=$(CDPATH= cd -P "$(dirname "$script")/.." && pwd)
-exec node --enable-experimental-regexp-engine --disable-warning=ExperimentalWarning "$directory/src/cli.ts" "$@"
+#!/usr/bin/env -S node --enable-experimental-regexp-engine --disable-warning=ExperimentalWarning
+import { main } from "../src/cli.ts"; process.exitCode = await main(process.argv.slice(2), process.env, process);

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { hamlet, server } from "./cli-support.ts";
+import { inProcess as hamlet, server } from "./cli-support.ts";
 import { scratch } from "./support.ts";
 
 function editor(code: string) {

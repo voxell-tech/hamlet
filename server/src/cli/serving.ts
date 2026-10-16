@@ -1,4 +1,5 @@
 import { rename, rm, writeFile } from "node:fs/promises";
+import type { Writable } from "node:stream";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openHome } from "../home.ts";
 import { FAUX_MODEL, readScript, scriptedModels } from "../models.ts";
@@ -12,8 +13,12 @@ export async function serve(
         port: number;
         faux: string | undefined;
         beforeClose?: () => void | Promise<void>;
+        env?: Readonly<NodeJS.ProcessEnv>;
+        stderr?: Writable;
     },
 ) {
+    const env = options.env ?? process.env;
+    const stderr = options.stderr ?? process.stderr;
     probeSandbox();
     const context = BACKGROUND_CONTEXT;
     const faux =
@@ -23,10 +28,10 @@ export async function serve(
     const home = await openHome(
         dir,
         faux === undefined
-            ? {}
+            ? { env }
             : {
                   models: faux,
-                  env: { ...process.env, HAMLET_MODEL: FAUX_MODEL },
+                  env: { ...env, HAMLET_MODEL: FAUX_MODEL },
               },
         context,
     );
@@ -50,14 +55,12 @@ export async function serve(
         await home.close(context);
         throw error;
     }
-    process.stderr.write(
+    stderr.write(
         `hamlet: serving ${home.dir} at ${server.url}; Ctrl-C stops\n`,
     );
     void home.harness.closed.then((end) => {
         if (end.reason !== "failed") return;
-        process.stderr.write(
-            `Error: the home's storage failed: ${end.error}\n`,
-        );
+        stderr.write(`Error: the home's storage failed: ${end.error}\n`);
         process.exit(1);
     });
     let closing: Promise<void> | undefined;
@@ -74,11 +77,11 @@ export async function serve(
     };
     const stop = () => {
         if (closing !== undefined) process.exit(130);
-        process.stderr.write("hamlet: stopping; Ctrl-C again stops at once\n");
+        stderr.write("hamlet: stopping; Ctrl-C again stops at once\n");
         void close().then(
             () => process.exit(0),
             (error: unknown) => {
-                process.stderr.write(`Error: ${String(error)}\n`);
+                stderr.write(`Error: ${String(error)}\n`);
                 process.exit(1);
             },
         );

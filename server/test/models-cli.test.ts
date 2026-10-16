@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { hamlet, server, tty } from "./cli-support.ts";
+import { inProcess as hamlet, server, tty } from "./cli-support.ts";
 import { served } from "./connection-support.ts";
 import { openaiFake } from "./openai-fake.ts";
 import { scratch } from "./support.ts";
