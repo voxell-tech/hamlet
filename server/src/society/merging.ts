@@ -4,15 +4,20 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { Context } from "@earendil-works/chord";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Type } from "@earendil-works/pi-ai";
 import {
     type ConversationId,
     defineDoc,
     defineExtension,
     defineTool,
+    GenerationTask,
+    hook,
+    ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { WithDoc } from "../chats.ts";
+import { untilAborted } from "../abort.ts";
+import { chatOf, WithDoc } from "../chats.ts";
 import { runErrand, startErrand } from "../errands.ts";
 import {
     deliverTree,
@@ -28,6 +33,7 @@ import { InstructionsDoc, owed } from "../instructions.ts";
 import { houseOf } from "../layout.ts";
 import { booksOf } from "../ledger.ts";
 import { LimitsDoc } from "../limits.ts";
+import { notify } from "../notice.ts";
 import type { Deed, Part } from "../parts.ts";
 import { farewell, isChief, liveHamlets, RealmDoc, roadsOf } from "../realm.ts";
 import {
@@ -71,6 +77,40 @@ const MergeCallDoc = defineDoc<{
     initial: () => ({ errand: null, archive: null, text: "" }),
 });
 
+const HeldDoc = defineDoc<{ agents: string[] }>({
+    kind: "hamlet.merge-held",
+    version: 1,
+    scope: "session",
+    initial: () => ({ agents: [] }),
+});
+
+async function stoppedHouses<T>(
+    home: Home,
+    hamlet: string,
+    agents: AgentRecord[],
+    context: Context,
+    action: () => Promise<T>,
+): Promise<T> {
+    const added = await home.harness.commit(async (tx) => {
+        const held = await tx.doc(HeldDoc);
+        const added = agents
+            .map((a) => agentKey({ hamlet, number: a.number }))
+            .filter((key) => !held.agents.includes(key));
+        held.agents.push(...added);
+        return added;
+    }, context);
+    try {
+        for (const agent of agents)
+            await stopAgent(home, { hamlet, number: agent.number }, context);
+        return await action();
+    } finally {
+        await home.harness.commit(async (tx) => {
+            const held = await tx.doc(HeldDoc);
+            held.agents = held.agents.filter((key) => !added.includes(key));
+        }, BACKGROUND_CONTEXT);
+    }
+}
+
 const operations = new WeakMap<Home, Promise<unknown>>();
 
 async function serial<T>(
@@ -96,6 +136,48 @@ async function serial<T>(
 export const Merging: Part = (home) => ({
     extension: defineExtension({
         name: "hamlet.merging",
+        hooks: [
+            hook(GenerationTask, {
+                beforeRequest: async (_request, api, context) => {
+                    const place = await api.snapshot(
+                        WithDoc,
+                        api.conversationId,
+                        context,
+                    );
+                    if (
+                        place &&
+                        (await api.snapshot(HeldDoc, context))?.agents.includes(
+                            agentKey(place),
+                        )
+                    ) {
+                        void home.harness.abortTask(
+                            api.taskId,
+                            BACKGROUND_CONTEXT,
+                        );
+                        return untilAborted(context);
+                    }
+                },
+            }),
+            hook(ToolTask, {
+                beforeTool: async (_call, api, context) => {
+                    const place = await api.snapshot(
+                        WithDoc,
+                        api.conversationId,
+                        context,
+                    );
+                    if (
+                        place &&
+                        (await api.snapshot(HeldDoc, context))?.agents.includes(
+                            agentKey(place),
+                        )
+                    )
+                        return {
+                            block: "This house is being merged or split. Wait for its files to finish, then ask the chief to send a new instruction.",
+                        };
+                    return undefined;
+                },
+            }),
+        ],
         tools: [
             defineTool({
                 name: "merge_agents",
@@ -131,7 +213,12 @@ export const Merging: Part = (home) => ({
                                 )
                             )?.archive.find((a) => a.id === saved.archive);
                             if (entry)
-                                await apply(home, place.hamlet, entry, context);
+                                await retryFiles(
+                                    home,
+                                    place.hamlet,
+                                    entry,
+                                    context,
+                                );
                             return {
                                 output: [{ type: "text", text: saved.text }],
                             };
@@ -164,152 +251,177 @@ export const Merging: Part = (home) => ({
                                 );
                             return allowed(home, tx, given);
                         }, context);
-                        const plan = await prepare(
+                        return stoppedHouses(
                             home,
                             place.hamlet,
-                            agents,
+                            [agents.kept, agents.gone],
                             context,
-                        );
-                        let why = "";
-                        if (plan.notes === "joined") {
-                            const limits = await api.snapshot(
-                                LimitsDoc,
-                                place.hamlet,
-                                context,
-                            );
-                            if (!limits)
-                                throw new Error("The hamlet has no limits.");
-                            const turn = await turnOf(
-                                home.harness,
-                                api,
-                                context,
-                            );
-                            const task = turn?.task ?? newTask(home.now());
-                            why =
-                                stopped(
-                                    limits,
-                                    await booksOf(
-                                        home,
+                            async () => {
+                                const plan = await prepare(
+                                    home,
+                                    place.hamlet,
+                                    agents,
+                                    context,
+                                );
+                                let why = "";
+                                if (plan.notes === "joined") {
+                                    const limits = await api.snapshot(
+                                        LimitsDoc,
                                         place.hamlet,
-                                        limits.budget.period,
-                                        task,
                                         context,
-                                    ),
-                                ) ?? "";
-                            if (!why) {
-                                const errand = await api.commit(async (tx) => {
+                                    );
+                                    if (!limits)
+                                        throw new Error(
+                                            "The hamlet has no limits.",
+                                        );
+                                    const turn = await turnOf(
+                                        home.harness,
+                                        api,
+                                        context,
+                                    );
+                                    const task =
+                                        turn?.task ?? newTask(home.now());
+                                    why =
+                                        stopped(
+                                            limits,
+                                            await booksOf(
+                                                home,
+                                                place.hamlet,
+                                                limits.budget.period,
+                                                task,
+                                                context,
+                                            ),
+                                        ) ?? "";
+                                    if (!why) {
+                                        const errand = await api.commit(
+                                            async (tx) => {
+                                                const call = await tx.doc(
+                                                    MergeCallDoc,
+                                                    api.taskId,
+                                                );
+                                                call.errand ??=
+                                                    await startErrand(
+                                                        home,
+                                                        tx,
+                                                        {
+                                                            agent: place,
+                                                            kind: "notes",
+                                                            own: false,
+                                                            instructions:
+                                                                mergeRequest(
+                                                                    agents.kept,
+                                                                    agents.gone,
+                                                                    args.purpose,
+                                                                    limits
+                                                                        .leaving
+                                                                        .mergedNotes,
+                                                                ),
+                                                            tools: [],
+                                                        },
+                                                    );
+                                                return call.errand;
+                                            },
+                                            context,
+                                        );
+                                        const answer = await runErrand(
+                                            home,
+                                            errand,
+                                            {
+                                                requestId: `merge-notes:${api.taskId}`,
+                                                text: `Your NOTES.md now:\n<notes of="${args.keep}">\n${plan.before}\n</notes>\n\nThe NOTES.md of \`${args.absorb}\`:\n<notes of="${args.absorb}">\n${plan.files.get(`merged/${args.absorb}/NOTES.md`)?.toString("utf8") ?? ""}\n</notes>`,
+                                                task,
+                                            },
+                                            context,
+                                        );
+                                        const rewritten =
+                                            answer.status === "done"
+                                                ? accept(
+                                                      answer.text,
+                                                      limits.leaving
+                                                          .mergedNotes,
+                                                  )
+                                                : undefined;
+                                        if (rewritten) {
+                                            plan.after = `${rewritten}\n\n${mergedParagraph(agents.gone)}`;
+                                            plan.notes = "rewritten";
+                                        } else
+                                            why =
+                                                answer.status === "done"
+                                                    ? "The reply could not be used as merged notes."
+                                                    : answer.text;
+                                    }
+                                }
+                                const entry = await api.commit(async (tx) => {
                                     const call = await tx.doc(
                                         MergeCallDoc,
                                         api.taskId,
                                     );
-                                    call.errand ??= await startErrand(
+                                    const r = await tx.doc(
+                                        RecordDoc,
+                                        place.hamlet,
+                                        place.hamlet,
+                                    );
+                                    if (r.mayor !== place.number)
+                                        throw new Error(
+                                            "Only the mayor can merge agents.",
+                                        );
+                                    const entry = await archive(
                                         home,
                                         tx,
-                                        {
-                                            agent: place,
-                                            kind: "notes",
-                                            own: false,
-                                            instructions: mergeRequest(
-                                                agents.kept,
-                                                agents.gone,
-                                                args.purpose,
-                                                limits.leaving.mergedNotes,
-                                            ),
-                                            tools: [],
-                                        },
+                                        given,
+                                        agents,
+                                        plan,
                                     );
-                                    return call.errand;
-                                }, context);
-                                const answer = await runErrand(
-                                    home,
-                                    errand,
-                                    {
-                                        requestId: `merge-notes:${api.taskId}`,
-                                        text: `Your NOTES.md now:\n<notes of="${args.keep}">\n${plan.before}\n</notes>\n\nThe NOTES.md of \`${args.absorb}\`:\n<notes of="${args.absorb}">\n${plan.files.get(`merged/${args.absorb}/NOTES.md`)?.toString("utf8") ?? ""}\n</notes>`,
-                                        task,
-                                    },
-                                    context,
-                                );
-                                const rewritten =
-                                    answer.status === "done"
-                                        ? accept(
-                                              answer.text,
-                                              limits.leaving.mergedNotes,
-                                          )
-                                        : undefined;
-                                if (rewritten) {
-                                    plan.after = `${rewritten}\n\n${mergedParagraph(agents.gone)}`;
-                                    plan.notes = "rewritten";
-                                } else
-                                    why =
-                                        answer.status === "done"
-                                            ? "The reply could not be used as merged notes."
-                                            : answer.text;
-                            }
-                        }
-                        const entry = await api.commit(async (tx) => {
-                            const call = await tx.doc(MergeCallDoc, api.taskId);
-                            const r = await tx.doc(
-                                RecordDoc,
-                                place.hamlet,
-                                place.hamlet,
-                            );
-                            if (r.mayor !== place.number)
-                                throw new Error(
-                                    "Only the mayor can merge agents.",
-                                );
-                            const entry = await archive(
-                                home,
-                                tx,
-                                given,
-                                agents,
-                                plan,
-                            );
-                            call.archive = entry.id;
-                            call.text =
-                                report(
-                                    entry,
-                                    plan.notes === "joined",
-                                    args.purpose,
-                                ) + (why ? ` ${why}` : "");
-                            return entry;
-                        }, context);
-                        await apply(home, place.hamlet, entry, context);
-                        const result = await api.snapshot(
-                            MergeCallDoc,
-                            api.taskId,
-                            context,
-                        );
-                        return {
-                            output: [
-                                {
-                                    type: "text",
-                                    text:
-                                        result?.text ??
+                                    call.archive = entry.id;
+                                    call.text =
                                         report(
                                             entry,
                                             plan.notes === "joined",
                                             args.purpose,
-                                        ),
-                                },
-                            ],
-                        };
+                                        ) + (why ? ` ${why}` : "");
+                                    return entry;
+                                }, context);
+                                await retryFiles(
+                                    home,
+                                    place.hamlet,
+                                    entry,
+                                    context,
+                                );
+                                const result = await api.snapshot(
+                                    MergeCallDoc,
+                                    api.taskId,
+                                    context,
+                                );
+                                return {
+                                    output: [
+                                        {
+                                            type: "text",
+                                            text:
+                                                result?.text ??
+                                                report(
+                                                    entry,
+                                                    plan.notes === "joined",
+                                                    args.purpose,
+                                                ),
+                                        },
+                                    ],
+                                };
+                            },
+                        );
                     }),
             }),
         ],
     }),
     async start(context) {
+        await home.harness.commit(async (tx) => {
+            (await tx.doc(HeldDoc)).agents = [];
+        }, context);
         const realm = await home.harness.snapshot(RealmDoc, context);
         for (const { id } of liveHamlets(realm)) {
             const record = await home.harness.snapshot(RecordDoc, id, context);
             for (const entry of record?.archive ?? [])
                 if (entry.merge && !entry.merge.applied)
-                    await (entry.back === null ? apply : part)(
-                        home,
-                        id,
-                        entry,
-                        context,
-                    );
+                    await retryFiles(home, id, entry, context);
         }
     },
 });
@@ -334,13 +446,31 @@ export const merge: Deed = async (home, given, context) =>
             (tx) => allowed(home, tx, args),
             context,
         );
-        const plan = await prepare(home, args.hamlet, agents, context);
-        const entry = await home.harness.commit(
-            (tx) => archive(home, tx, args, agents, plan),
+        return stoppedHouses(
+            home,
+            args.hamlet,
+            [agents.kept, agents.gone],
             context,
+            async () => {
+                const plan = await prepare(home, args.hamlet, agents, context);
+                const entry = await home.harness.commit(
+                    (tx) => archive(home, tx, args, agents, plan),
+                    context,
+                );
+                const outcome = await retryFiles(
+                    home,
+                    args.hamlet,
+                    entry,
+                    context,
+                );
+                if (!outcome.ok) return pendingText(outcome.error);
+                return report(
+                    entry,
+                    plan.notes === "joined",
+                    agents.kept.purpose,
+                );
+            },
         );
-        await apply(home, args.hamlet, entry, context);
-        return report(entry, plan.notes === "joined", agents.kept.purpose);
     });
 
 async function allowed(
@@ -724,9 +854,9 @@ async function apply(
     hamlet: string,
     entry: Archived,
     context: Context,
-): Promise<void> {
+): Promise<FileResult> {
     const merge = entry.merge;
-    if (!merge || merge.applied) return;
+    if (!merge || merge.applied) return { ok: true };
     await stopAgent(home, { hamlet, number: entry.agent.number }, context);
     await stopAgent(home, { hamlet, number: merge.kept.number }, context);
     const source = await mkdtemp(join(tmpdir(), "hamlet-merge-source-"));
@@ -772,6 +902,22 @@ async function apply(
         }
         const env = envFor(home, { hamlet, number: merge.kept.number }, true);
         try {
+            const current = await notes(
+                home,
+                { hamlet, number: merge.kept.number },
+                context,
+            );
+            if (current !== merge.notesBefore && current !== merge.notesAfter)
+                return {
+                    ok: false,
+                    error: {
+                        kind: "changed-notes",
+                        operation: "merge",
+                        hamlet,
+                        archive: entry.id,
+                        retrySafe: true,
+                    },
+                };
             const result = await env.writeFile(
                 join(target, "NOTES.md"),
                 merge.notesAfter,
@@ -794,6 +940,7 @@ async function apply(
         await rm(source, { recursive: true, force: true });
         await rm(delivery, { recursive: true, force: true });
     }
+    return { ok: true };
 }
 
 function mergedParagraph(gone: AgentRecord): string {
@@ -841,7 +988,20 @@ export async function split(
     },
     context: Context,
 ): Promise<string> {
-    return serial(home, context, () => splitOnce(home, given, context));
+    return serial(home, context, async () => {
+        if (given.entry.merge && !given.entry.merge.applied) {
+            const outcome = await retryFiles(
+                home,
+                given.hamlet,
+                given.entry,
+                context,
+            );
+            if (!outcome.ok) return pendingText(outcome.error);
+            if (given.entry.back !== null)
+                return `Split of \`${given.entry.agent.name}\` is finished. Read /record to inspect it.`;
+        }
+        return splitOnce(home, given, context);
+    });
 }
 
 async function splitOnce(
@@ -960,8 +1120,13 @@ async function splitOnce(
             words: `Split \`${given.name}\` from \`${kept.name}\`. \`${given.name}\` has its house as it was before the merge, and \`${kept.name}\` its old purpose and whatever it has learned since. \`${given.name}\`'s roads lead to: ${peers.join(", ")}.${built > limits.mostRoads ? ` The hamlet now has ${built} roads between agents, more than the ${limits.mostRoads} your limits allow. They all work; the mayor can build no more until you raise mostRoads in the limits.` : ""}`,
         };
     }, context);
-    await part(home, given.hamlet, pending.entry, context);
-    return pending.words;
+    const outcome = await retryFiles(
+        home,
+        given.hamlet,
+        pending.entry,
+        context,
+    );
+    return outcome.ok ? pending.words : pendingText(outcome.error);
 }
 
 async function part(
@@ -1033,4 +1198,79 @@ async function part(
     } finally {
         await env.cleanup(context);
     }
+}
+
+type PendingFiles = {
+    kind: "pending-files" | "changed-notes";
+    operation: "merge" | "split";
+    hamlet: string;
+    archive: string;
+    retrySafe: true;
+};
+
+type FileResult = { ok: true } | { ok: false; error: PendingFiles };
+
+function pendingText(error: PendingFiles): string {
+    switch (error.kind) {
+        case "changed-notes":
+            return `The merge of \`${error.archive}\` is pending because the kept agent's notes changed. Both versions are kept. Save its newer NOTES.md aside and put its merged/${error.archive.replace(/-\d+$/, "")}/NOTES.before.md back as NOTES.md, then use /restore ${error.archive} to retry safely. Do not erase its house.`;
+        case "pending-files":
+            return `The ${error.operation} of \`${error.archive}\` in \`${error.hamlet}\` is recorded but its files are still pending. Inspect both houses and keep conflicting paths aside, then use /restore ${error.archive} to retry safely. Do not erase its house.`;
+    }
+    const unhandled: never = error.kind;
+    throw new Error(`Unclassified pending files: ${unhandled}`);
+}
+
+async function retryFiles(
+    home: Home,
+    hamlet: string,
+    entry: Archived,
+    context: Context,
+): Promise<{ ok: true } | { ok: false; error: PendingFiles }> {
+    let failure: PendingFiles | undefined;
+    try {
+        failure = await stoppedHouses(
+            home,
+            hamlet,
+            entry.merge ? [entry.agent, entry.merge.kept] : [entry.agent],
+            context,
+            async () => {
+                if (entry.back === null) {
+                    const outcome = await apply(home, hamlet, entry, context);
+                    return outcome.ok ? undefined : outcome.error;
+                }
+                await part(home, hamlet, entry, context);
+                return undefined;
+            },
+        );
+    } catch {
+        failure = {
+            kind: "pending-files",
+            operation: entry.back === null ? "merge" : "split",
+            hamlet,
+            archive: entry.id,
+            retrySafe: true,
+        };
+    }
+    if (failure) {
+        const text = pendingText(failure);
+        console.error(text);
+        const r = await home.harness.snapshot(RecordDoc, hamlet, context);
+        if (r) {
+            const conversation = await chatOf(
+                home,
+                {
+                    agent: { hamlet, number: r.mayor },
+                    chief: home.chief,
+                },
+                context,
+            );
+            await home.harness.commit(
+                (tx) => notify(tx, conversation.id, text, home.now()),
+                context,
+            );
+        }
+        return { ok: false, error: failure };
+    }
+    return { ok: true };
 }

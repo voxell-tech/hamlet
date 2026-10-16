@@ -237,7 +237,8 @@ export const restore: Deed = async (home, given, context) => {
         const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
         const entry = r.archive.findLast(
             (a) =>
-                a.back === null && (a.id === which || a.agent.name === which),
+                (a.back === null || (a.merge && !a.merge.applied)) &&
+                (a.id === which || a.agent.name === which),
         );
         if (!entry)
             throw new Error(

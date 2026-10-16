@@ -1037,7 +1037,7 @@ async function news(
         [];
     const key = agentKey({ hamlet, number: r.mayor });
     const chats = (await tx.doc(ChatDoc, key, key)).chats;
-    for (const chief of chiefs) {
+    for (const chief of chiefs.length ? chiefs : [home.chief]) {
         let chat = chats[chief];
         if (!chat) {
             const conversation = await startConversation(home, tx, {
@@ -1082,7 +1082,7 @@ export const vote: Deed = async (home, given, context) => {
             }),
         context,
     );
-    return finish(home, given.hamlet, id, context);
+    return `Vote ${id} is called. Its progress and count will arrive here as notices; use /votes to inspect it or /overturn ${id} to stop it.`;
 };
 /** The hamlet's votes in words. */
 export const votes: Deed = async (home, given, context) =>

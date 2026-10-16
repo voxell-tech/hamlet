@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import {
     mkdir,
     open,
@@ -17,9 +18,9 @@ import {
     GenerationTask,
     hook,
 } from "@earendil-works/pi-durable";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { CharacterDoc } from "../src/character.ts";
-import { WithDoc } from "../src/chats.ts";
+import { submitLine, WithDoc } from "../src/chats.ts";
 import { agentKey, HOME } from "../src/hamlet.ts";
 import { InstructionsDoc } from "../src/instructions.ts";
 import { houseOf } from "../src/layout.ts";
@@ -501,3 +502,150 @@ it("refuses a blocked destination before archiving either agent", async () => {
         (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
     ).toHaveLength(0);
 }, 30_000);
+
+it("opens with a blocked pending merge and retries it through restore without erasing", async () => {
+    const { home, models, put, get } = await pair();
+    await put(2, "found.txt", "Dune");
+    await merge(home, deed, context);
+    await home.harness.commit(async (tx) => {
+        const a = (await tx.doc(RecordDoc, HOME, HOME)).archive[0];
+        if (a?.merge) a.merge.applied = false;
+    }, context);
+    await put(1, "found.txt", "Keep this instead");
+    await home.close(context);
+    const again = await testHome(home.dir, { models });
+    expect(
+        (await again.harness.snapshot(RecordDoc, HOME, context))?.archive[0]
+            ?.merge?.applied,
+    ).toBe(false);
+    expect(JSON.stringify(await transcript(await mayorChat(again)))).toContain(
+        "/restore",
+    );
+    await unlink(
+        join(houseOf(again.layout, { hamlet: HOME, number: 1 }), "found.txt"),
+    );
+    expect(await restore(again, { ...deed, rest: "scout" }, context)).toContain(
+        "Split",
+    );
+    expect(await get(2, "found.txt")).toBe("Dune");
+}, 60_000);
+
+it("stops the absorbed turn before reading its house and keeps both agents stopped during the notes errand", async () => {
+    const { home, faux, gone, get, put } = await pair();
+    await put(2, "found.txt", "Before stopping");
+    let started = false;
+    let stopped = false;
+    let stoppedDuringErrand = false;
+    let restartedStatus = "";
+    fauxAgents(faux, {
+        "home:2": [
+            (_prompt, options) =>
+                new Promise((_resolve, reject) => {
+                    started = true;
+                    options?.signal?.addEventListener(
+                        "abort",
+                        () => {
+                            writeFileSync(
+                                join(houseOf(home.layout, gone), "found.txt"),
+                                "Last work before stopping",
+                            );
+                            stopped = true;
+                            reject(new Error("stopped"));
+                        },
+                        { once: true },
+                    );
+                }),
+        ],
+        "home:0": [
+            fauxAssistantMessage(
+                fauxToolCall("merge_agents", {
+                    keep: "librarian",
+                    absorb: "scout",
+                    purpose: "Both",
+                    reason: "Overlap",
+                }),
+                { stopReason: "toolUse" },
+            ),
+            fauxAssistantMessage("done"),
+        ],
+        errands: [
+            async () => {
+                stoppedDuringErrand = stopped;
+                if (!stopped)
+                    return fauxAssistantMessage("# Notes\nBoth facts.");
+                const restarted = await submitLine(
+                    home,
+                    { agent: gone, chief: "chief" },
+                    { id: randomUUID(), text: "Work again" },
+                    context,
+                );
+                restartedStatus = (await restarted.wait(context)).status;
+                return fauxAssistantMessage("# Notes\nBoth facts.");
+            },
+        ],
+    });
+    const busy = await submitLine(
+        home,
+        { agent: gone, chief: "chief" },
+        { id: randomUUID(), text: "Work" },
+        context,
+    );
+    await vi.waitFor(() => expect(started).toBe(true));
+    await home.harness.commit(async (tx) => {
+        (await tx.doc(InstructionsDoc, agentKey(gone), agentKey(gone))).given =
+            [];
+    }, context);
+    await (await say(home, "merge")).wait(context);
+    expect((await busy.wait(context)).status).not.toBe("done");
+    expect(stoppedDuringErrand).toBe(true);
+    expect(restartedStatus).not.toBe("");
+    expect(restartedStatus).not.toBe("done");
+    expect(await get(1, "found.txt")).toBe("Last work before stopping");
+}, 60_000);
+
+it("keeps newer notes intact when a pending merge resumes", async () => {
+    const { home, models, put, get } = await pair();
+    await merge(home, deed, context);
+    await home.harness.commit(async (tx) => {
+        const a = (await tx.doc(RecordDoc, HOME, HOME)).archive[0];
+        if (a?.merge) a.merge.applied = false;
+    }, context);
+    await put(1, "NOTES.md", "# Notes\nLearned later: Bob likes coffee.\n");
+    await home.close(context);
+    const again = await testHome(home.dir, { models });
+    expect(await get(1, "NOTES.md")).toContain("Bob likes coffee.");
+    expect(
+        (await again.harness.snapshot(RecordDoc, HOME, context))?.archive[0]
+            ?.merge?.applied,
+    ).toBe(false);
+}, 60_000);
+
+it("opens with a blocked pending split and retries its files through restore", async () => {
+    const { home, models, get } = await pair();
+    await merge(home, deed, context);
+    await restore(home, { ...deed, rest: "scout" }, context);
+    await home.harness.commit(async (tx) => {
+        const a = (await tx.doc(RecordDoc, HOME, HOME)).archive[0];
+        if (a?.merge) a.merge.applied = false;
+    }, context);
+    const notes = join(
+        houseOf(home.layout, { hamlet: HOME, number: 1 }),
+        "NOTES.md",
+    );
+    await unlink(notes);
+    const outside = join(scratch(), "secret");
+    await writeFile(outside, "outside");
+    await symlink(outside, notes);
+    await home.close(context);
+    const again = await testHome(home.dir, { models });
+    expect(
+        (await again.harness.snapshot(RecordDoc, HOME, context))?.archive[0]
+            ?.merge?.applied,
+    ).toBe(false);
+    await unlink(notes);
+    await writeFile(notes, "# Notes\nAlice likes tea.\n");
+    expect(await restore(again, { ...deed, rest: "scout" }, context)).toContain(
+        "is finished",
+    );
+    expect(await get(1, "NOTES.md")).toContain("Alice likes tea.");
+}, 60_000);
