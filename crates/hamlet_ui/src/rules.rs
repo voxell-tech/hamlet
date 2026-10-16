@@ -18,7 +18,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{Bylaws, Settlement};
+use hamlet_client::realm::{Bylaws, HOME, Settlement};
 use hamlet_protocol::v0::{self, Limits, Period};
 use serde_json::Value;
 
@@ -367,12 +367,206 @@ fn mayor() -> impl View {
     .gap(6.0)
 }
 
-/// The server's scope of limits.
-pub fn realm() -> impl View {
-    fine(
-        "This server supplies limits for each hamlet, under its \
-         bylaws.",
+fn votes() -> AnyView {
+    keyed(
+        resource::<Book, _>(|book| {
+            book.limits.as_ref().is_some_and(|l| l.votes.is_some())
+        }),
+        |received| {
+            if !*received {
+                return fine(
+                    "The server has not supplied vote limits.",
+                )
+                .boxed();
+            }
+            column((
+                heading(Glyph::Ballot, "THE VOTES"),
+                line(
+                    "Yes votes needed",
+                    whole(
+                        "votes",
+                        "passYes",
+                        |l| {
+                            l.votes.as_ref().map_or(0, |v| v.pass_yes)
+                        },
+                        1000,
+                    )
+                    .boxed(),
+                ),
+                line(
+                    "Of every",
+                    whole(
+                        "votes",
+                        "passOf",
+                        |l| l.votes.as_ref().map_or(0, |v| v.pass_of),
+                        1000,
+                    )
+                    .boxed(),
+                ),
+                line(
+                    "Least voters",
+                    whole(
+                        "votes",
+                        "leastVoters",
+                        |l| {
+                            l.votes
+                                .as_ref()
+                                .map_or(0, |v| v.least_voters)
+                        },
+                        1000,
+                    )
+                    .boxed(),
+                ),
+                line(
+                    "Hide earlier ballots",
+                    switch("votes", "sealed", |l| {
+                        l.votes.as_ref().is_some_and(|v| v.sealed)
+                    })
+                    .boxed(),
+                ),
+                line(
+                    "Count only grounded yes votes",
+                    switch("votes", "groundedOnly", |l| {
+                        l.votes
+                            .as_ref()
+                            .is_some_and(|v| v.grounded_only)
+                    })
+                    .boxed(),
+                ),
+                line(
+                    "Minutes for a ballot",
+                    whole(
+                        "votes",
+                        "ballotMinutes",
+                        |l| {
+                            l.votes
+                                .as_ref()
+                                .map_or(0, |v| v.ballot_minutes)
+                        },
+                        10000,
+                    )
+                    .boxed(),
+                ),
+                line(
+                    "Minutes a vote stays open",
+                    whole(
+                        "votes",
+                        "openMinutes",
+                        |l| {
+                            l.votes
+                                .as_ref()
+                                .map_or(0, |v| v.open_minutes)
+                        },
+                        10000,
+                    )
+                    .boxed(),
+                ),
+                line(
+                    "Minutes before trying again",
+                    whole(
+                        "votes",
+                        "retryMinutes",
+                        |l| {
+                            l.votes
+                                .as_ref()
+                                .map_or(0, |v| v.retry_minutes)
+                        },
+                        10000,
+                    )
+                    .boxed(),
+                ),
+            ))
+            .gap(6.0)
+            .boxed()
+        },
     )
+    .within(bare())
+    .boxed()
+}
+
+fn realm_rules() -> AnyView {
+    keyed(
+        resource::<Book, _>(|book| {
+            book.limits.as_ref().is_some_and(|l| l.hamlets.is_some())
+        }),
+        |received| {
+            if !*received {
+                return fine(
+                    "The server has not supplied realm limits.",
+                )
+                .boxed();
+            }
+            column((
+                heading(Glyph::Globe, "THE REALM"),
+                fine(
+                    "These apply to every hamlet, from home's \
+                     bylaws.",
+                ),
+                line(
+                    "Most hamlets",
+                    whole(
+                        "hamlets",
+                        "most",
+                        |l| l.hamlets.as_ref().map_or(0, |h| h.most),
+                        1000,
+                    )
+                    .boxed(),
+                ),
+                line(
+                    "Roads between hamlets",
+                    switch("hamlets", "roadsBetween", |l| {
+                        l.hamlets
+                            .as_ref()
+                            .is_some_and(|h| h.roads_between)
+                    })
+                    .boxed(),
+                ),
+                line(
+                    "Mayors asking for removal",
+                    whole(
+                        "hamlets",
+                        "removalMayors",
+                        |l| {
+                            l.hamlets
+                                .as_ref()
+                                .map_or(0, |h| h.removal_mayors)
+                        },
+                        1000,
+                    )
+                    .boxed(),
+                ),
+            ))
+            .gap(6.0)
+            .boxed()
+        },
+    )
+    .within(bare())
+    .boxed()
+}
+
+/// The way to home's realm bylaws.
+pub fn realm() -> AnyView {
+    column((
+        fine("The realm's rules live in home's bylaws."),
+        action(Glyph::Book, "OPEN HOME'S BYLAWS", |world| {
+            let home = world
+                .query::<(Entity, &Settlement)>()
+                .iter(world)
+                .find(|(_, h)| h.name == HOME)
+                .map(|(e, _)| e);
+            let Some(home) = home else { return };
+            *world.resource_mut::<Part>() = Part::Realm;
+            *world.resource_mut::<crate::overview::Page>() =
+                crate::overview::Page::Bylaws;
+            hamlet_world::pick::select(
+                world,
+                Some(hamlet_world::pick::Thing::Common(home)),
+            );
+            crate::dock::show_tab(world, "agent");
+        }),
+    ))
+    .gap(8.0)
+    .boxed()
 }
 
 /// The bylaws of `hamlet`, for its chief to change.
@@ -380,24 +574,42 @@ pub fn panel(hamlet: Entity) -> AnyView {
     let page =
         keyed(resource::<Part, _>(|part| *part), move |part| {
             if *part == Part::Front {
-                let parts = Part::PAGES.map(|part| {
-                    list_door(
-                        part.glyph(),
-                        part.title(),
-                        part.holds(),
-                        move |world| {
-                            *world.resource_mut::<Part>() = part
-                        },
-                    )
+                return AnyView::new(move |cx: &mut crate::Cx| {
+                    let home = cx
+                        .world
+                        .get::<Settlement>(hamlet)
+                        .is_some_and(|h| h.name == HOME);
+                    let parts = Part::PAGES
+                        .into_iter()
+                        .filter(|part| *part != Part::Realm || home)
+                        .map(|part| {
+                            list_door(
+                                part.glyph(),
+                                part.title(),
+                                part.holds(),
+                                move |world| {
+                                    *world.resource_mut::<Part>() =
+                                        part
+                                },
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    let foot = fine(if home {
+                        "The realm's rules apply to every hamlet."
+                    } else {
+                        "These apply to this hamlet only."
+                    })
+                    .boxed();
+                    cx.build(with_cx(move |cx| {
+                        doors(cx, parts, foot)
+                    }))
                 });
-                let foot =
-                    fine("These apply to this hamlet only.").boxed();
-                let parts = parts.into();
-                return with_cx(move |cx| doors(cx, parts, foot));
             }
             let body = match part {
                 Part::Budget => budget(hamlet).boxed(),
                 Part::Models => crate::models::of_hamlet(hamlet),
+                Part::Votes => votes(),
+                Part::Realm => realm_rules(),
                 Part::Front | Part::Mayor => mayor().boxed(),
             };
             column((
@@ -416,6 +628,14 @@ pub fn panel(hamlet: Entity) -> AnyView {
         })
         .within(bare());
     AnyView::new(move |cx: &mut crate::Cx| {
+        if cx
+            .world
+            .get::<Settlement>(hamlet)
+            .is_some_and(|h| h.name != HOME)
+            && *cx.world.resource::<Part>() == Part::Realm
+        {
+            *cx.world.resource_mut::<Part>() = Part::Front;
+        }
         let limits = cx
             .world
             .get::<Bylaws>(hamlet)
@@ -439,11 +659,18 @@ pub enum Part {
     Budget,
     Models,
     Mayor,
+    Votes,
+    Realm,
 }
 
 impl Part {
-    const PAGES: [Part; 3] =
-        [Part::Budget, Part::Models, Part::Mayor];
+    const PAGES: [Part; 5] = [
+        Part::Budget,
+        Part::Models,
+        Part::Mayor,
+        Part::Votes,
+        Part::Realm,
+    ];
 
     fn title(self) -> &'static str {
         match self {
@@ -451,6 +678,8 @@ impl Part {
             Part::Budget => "BUDGET",
             Part::Models => "MODELS",
             Part::Mayor => "THE MAYOR AND LIMITS",
+            Part::Votes => "THE VOTES",
+            Part::Realm => "THE REALM",
         }
     }
 
@@ -460,12 +689,18 @@ impl Part {
             Part::Budget => Glyph::Meter,
             Part::Models => Glyph::Chip,
             Part::Mayor => Glyph::Mayor,
+            Part::Votes => Glyph::Ballot,
+            Part::Realm => Glyph::Globe,
         }
     }
 
     fn holds(self) -> &'static str {
         match self {
             Part::Front => "",
+            Part::Votes => {
+                "The ballots, the threshold and the time to answer."
+            }
+            Part::Realm => "The hamlets and their dealings.",
             Part::Budget => "The budget, and the caps on one task.",
             Part::Models => "Which models this hamlet may run.",
             Part::Mayor => {
@@ -563,6 +798,158 @@ mod tests {
             .map(|message| serde_json::to_value(message).unwrap())
             .filter(|message| message["type"] == "edit")
             .collect()
+    }
+
+    #[test]
+    fn settings_points_to_home_without_retargeting_another_hamlets_edits()
+     {
+        use hamlet_world::pick::{Also, Selected, Thing};
+
+        use crate::me::tests::press;
+        let mut app = panel_app();
+        app.add_plugins((
+            plugin,
+            crate::overview::plugin,
+            InputPlugin,
+            InputFocusPlugin,
+            InputDispatchPlugin,
+        ))
+        .init_resource::<Selected>()
+        .init_resource::<Also>();
+        app.world_mut().spawn((Window::default(), PrimaryWindow));
+        let mut state = hamlet_testing::realm::state();
+        state.hamlets.push(hamlet_testing::realm::hamlet("mill"));
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        let places = app
+            .world_mut()
+            .query::<(Entity, &Settlement)>()
+            .iter(app.world())
+            .map(|(e, h)| (h.name.clone(), e))
+            .collect::<BTreeMap<_, _>>();
+        *app.world_mut().resource_mut::<Part>() = Part::Budget;
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            panel(places["mill"]),
+        );
+        app.update();
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            realm(),
+        );
+        app.update();
+        enter(&mut app, "May spend, in dollars", "2");
+        assert_eq!(edits(&app)[0]["hamlet"], "mill");
+        press(&mut app, "OPEN HOME'S BYLAWS");
+        assert_eq!(
+            app.world().resource::<Selected>().0,
+            Some(Thing::Common(places["home"]))
+        );
+        assert_eq!(*app.world().resource::<Part>(), Part::Realm);
+        assert!(
+            *app.world().resource::<crate::overview::Page>()
+                == crate::overview::Page::Bylaws
+        );
+    }
+
+    #[test]
+    fn vote_and_realm_controls_send_the_received_sections_and_keys() {
+        use crate::me::tests::press;
+        let (mut app, _) = page(Part::Front);
+        let mut hamlet = hamlet_testing::realm::hamlet("home");
+        hamlet.limits.votes = Some(v0::VoteLimits {
+            pass_yes: 2,
+            pass_of: 3,
+            least_voters: 3,
+            sealed: true,
+            grounded_only: false,
+            ballot_minutes: 5,
+            open_minutes: 60,
+            retry_minutes: 60,
+        });
+        hamlet.limits.hamlets = Some(v0::HamletLimits {
+            most: 6,
+            roads_between: true,
+            removal_mayors: 3,
+        });
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Change(v0::Changes {
+                epoch: 1,
+                revision: 1,
+                changes: vec![v0::Update::Hamlet { hamlet }],
+            }),
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+        press(&mut app, "THE VOTES");
+        for _ in 0..3 {
+            app.update();
+        }
+        enter(&mut app, "Yes votes needed", "3");
+        enter(&mut app, "Of every", "4");
+        enter(&mut app, "Least voters", "5");
+        assert_eq!(
+            edits(&app)[0]["set"],
+            json!({"section":"votes", "key":"passYes", "value":3})
+        );
+        assert_eq!(
+            edits(&app)[1]["set"],
+            json!({"section":"votes", "key":"passOf", "value":4})
+        );
+        assert_eq!(
+            edits(&app)[2]["set"],
+            json!({"section":"votes", "key":"leastVoters", "value":5})
+        );
+        *app.world_mut().resource_mut::<Part>() = Part::Front;
+        for _ in 0..3 {
+            app.update();
+        }
+        press(&mut app, "THE REALM");
+        for _ in 0..3 {
+            app.update();
+        }
+        enter(&mut app, "Most hamlets", "8");
+        enter(&mut app, "Mayors asking for removal", "2");
+        assert_eq!(
+            edits(&app)[3]["set"],
+            json!({"section":"hamlets", "key":"most", "value":8})
+        );
+        assert_eq!(
+            edits(&app)[4]["set"],
+            json!({"section":"hamlets", "key":"removalMayors", "value":2})
+        );
+    }
+
+    #[test]
+    fn only_home_offers_the_realms_bylaws() {
+        use crate::me::tests::words;
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let mut state = hamlet_testing::realm::state();
+        state.hamlets.push(hamlet_testing::realm::hamlet("mill"));
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::State(state),
+        );
+        let mill = app
+            .world_mut()
+            .query::<(Entity, &Settlement)>()
+            .iter(app.world())
+            .find(|(_, h)| h.name == "mill")
+            .unwrap()
+            .0;
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            panel(mill),
+        );
+        app.update();
+        let shown = words(&mut app);
+        assert!(shown.iter().any(|s| s == "THE VOTES"));
+        assert!(!shown.iter().any(|s| s == "THE REALM"));
     }
 
     #[test]

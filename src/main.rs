@@ -79,10 +79,7 @@ fn main() -> Result<()> {
     app.insert_resource(Tokio(rt.handle().clone()))
         .insert_resource(ViewDir(view.clone()))
         .add_plugins(DefaultPlugins.set(window_plugin(&view)));
-    client(
-        &mut app,
-        ServerAddress::find(|key| std::env::var(key).ok()),
-    );
+    client(&mut app, |key| std::env::var(key).ok());
     let exit = app
         .add_plugins((
             HamletPlugin,
@@ -97,13 +94,20 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn client(app: &mut App, server: Result<ServerAddress, String>) {
-    let (server, error) = match server {
+fn client(app: &mut App, vars: impl Fn(&str) -> Option<String>) {
+    let (server, error) = match ServerAddress::find(&vars) {
         Ok(server) => (Some(server), None),
         Err(words) => (None, Some(words)),
     };
     app.add_plugins(ClientPlugin { server });
     if let Some(words) = error {
+        if vars("HAMLET_SERVER").is_none()
+            && let Ok(home) = ServerAddress::local_home(vars)
+        {
+            app.insert_resource(
+                hamlet_client::connection::LocalServer(home),
+            );
+        }
         app.insert_resource(Connection {
             words,
             ..Connection::default()

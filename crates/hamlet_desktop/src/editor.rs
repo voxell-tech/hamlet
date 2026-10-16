@@ -26,7 +26,7 @@ pub(crate) fn plugin(app: &mut App) {
             Update,
             watch.run_if(on_real_timer(Duration::from_secs(1))),
         )
-        .add_systems(Last, exit);
+        .add_systems(Last, (final_watch, exit).chain());
 }
 
 /// A document copied to a temporary Markdown file for editing.
@@ -205,9 +205,26 @@ fn watch(mut files: ResMut<Files>, mut commands: Commands) {
     }
 }
 
-fn exit(mut exits: MessageReader<AppExit>, mut files: ResMut<Files>) {
+fn final_watch(
+    mut exits: MessageReader<AppExit>,
+    mut commands: Commands,
+) {
     if exits.read().next().is_some() {
-        files.clear();
+        commands.run_system_cached(watch);
+    }
+}
+
+fn exit(mut exits: MessageReader<AppExit>, mut files: ResMut<Files>) {
+    if exits.read().next().is_some()
+        && let Some(folder) = files.folder.take()
+    {
+        // A queued edit is not proof that the server kept it.
+        warn!(
+            "Editor copies kept in {}. Unconfirmed saves may need \
+             to be applied again.",
+            folder.display()
+        );
+        files.watching.clear();
     }
 }
 
@@ -272,6 +289,52 @@ mod tests {
             .unwrap()
             .set_modified(modified + Duration::from_secs(1))
             .unwrap();
+    }
+
+    #[test]
+    fn closing_before_the_poll_reports_the_save_and_keeps_its_copy() {
+        let mut app = app();
+        app.world_mut().trigger(Edit {
+            key: "charter".into(),
+            text: "old".into(),
+        });
+        app.update();
+        let file = app.world().resource::<Opened>().0[0].clone();
+        save(&file, "last save");
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Saves>().0,
+            [Edited {
+                key: "charter".into(),
+                text: "last save".into()
+            }]
+        );
+        drop(app);
+        assert_eq!(fs::read_to_string(&file).unwrap(), "last save");
+        fs::remove_dir_all(file.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn closing_keeps_an_already_polled_save_that_may_still_be_in_flight()
+     {
+        let mut app = app();
+        app.world_mut().trigger(Edit {
+            key: "charter".into(),
+            text: "old".into(),
+        });
+        app.update();
+        let file = app.world().resource::<Opened>().0[0].clone();
+        save(&file, "offline save");
+        tick(&mut app, Duration::from_secs(1));
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        drop(app);
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "offline save"
+        );
+        fs::remove_dir_all(file.parent().unwrap()).unwrap();
     }
 
     #[test]
@@ -355,8 +418,8 @@ mod tests {
 
         app.world_mut().write_message(AppExit::Success);
         app.update();
-        assert!(!file.exists());
-        assert!(!file.parent().unwrap().exists());
+        assert_eq!(fs::read_to_string(&file).unwrap(), "saved again");
+        fs::remove_dir_all(file.parent().unwrap()).unwrap();
     }
 
     #[test]

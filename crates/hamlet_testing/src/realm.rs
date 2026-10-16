@@ -63,3 +63,26 @@ pub fn wait(id: &str) -> v0::Wait {
         "chat": {"with": {"hamlet": "home", "agent": "mayor"}}
     })).unwrap()
 }
+
+/// A road whose last sender is its first end.
+pub fn road(
+    a: v0::AgentRef,
+    b: v0::AgentRef,
+    messages: i64,
+) -> v0::Road {
+    v0::Road {
+        a: a.clone(),
+        b,
+        messages,
+        level: v0::RoadLevel::Paved,
+        last_from: Some(a),
+    }
+}
+
+/// An agent's stable reference within a hamlet.
+pub fn reference(hamlet: &str, number: i64) -> v0::AgentRef {
+    v0::AgentRef {
+        hamlet: hamlet.into(),
+        number,
+    }
+}

@@ -232,6 +232,24 @@ pub struct HouseSkills(pub Vec<String>);
 #[derive(Resource, Clone, Debug, Default)]
 pub struct Skills(pub Vec<v0::PapersSkills>);
 
+/// The removed hamlets available to restore or erase.
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub struct Closed(pub Vec<v0::ClosedHamlet>);
+
+/// The votes and their ready-made reports for a hamlet.
+#[derive(Component, Clone, Debug, Default, PartialEq)]
+pub struct Votes(pub Vec<v0::VoteView>);
+
+/// The received conversations with other agents.
+#[derive(Component, Clone, Debug, Default, PartialEq)]
+pub struct PeerChats(pub Vec<v0::ConversationView>);
+
+#[derive(Component, Clone, Debug, PartialEq)]
+struct Departure(v0::Left);
+
+#[derive(Component)]
+struct Consulting;
+
 /// Component registration for lookups before the first state arrives.
 pub fn register(world: &mut World) {
     world.register_component::<Settlement>();
@@ -257,6 +275,8 @@ pub fn register(world: &mut World) {
     world.register_component::<Road>();
     world.register_component::<Traffic>();
     world.register_component::<Spot>();
+    world.register_component::<Votes>();
+    world.register_component::<PeerChats>();
 }
 
 /// The shown name of an entity, or an empty string.
@@ -381,6 +401,19 @@ fn settlement(world: &mut World, id: &str) -> Option<Entity> {
 pub struct Left;
 
 pub(crate) fn state(world: &mut World, state: v0::State) {
+    let news = world.contains_resource::<Seen>();
+    world.insert_resource(Skills(
+        state
+            .library
+            .unwrap_or_default()
+            .into_iter()
+            .map(|skill| v0::PapersSkills {
+                name: skill.name,
+                description: skill.description,
+            })
+            .collect(),
+    ));
+    world.insert_resource(Closed(state.closed.unwrap_or_default()));
     world.insert_resource(Chief(state.chief));
     world.insert_resource(Sandbox(state.sandbox));
     world.insert_resource(Settings(state.settings));
@@ -394,9 +427,10 @@ pub(crate) fn state(world: &mut World, state: v0::State) {
         epoch: state.epoch,
         revision: state.revision,
     });
-    let hamlets = state
-        .hamlets
-        .into_iter()
+    let hamlet_values = state.hamlets;
+    let hamlets = hamlet_values
+        .iter()
+        .cloned()
         .map(|hamlet| upsert_hamlet(world, hamlet))
         .collect::<Vec<_>>();
     let agents = state
@@ -404,6 +438,10 @@ pub(crate) fn state(world: &mut World, state: v0::State) {
         .into_iter()
         .filter_map(|agent| upsert_agent(world, agent))
         .collect::<Vec<_>>();
+    departures(world);
+    for hamlet in hamlet_values {
+        society(world, hamlet, news);
+    }
     let waits = state
         .waits
         .into_iter()
@@ -433,6 +471,7 @@ pub(crate) fn state(world: &mut World, state: v0::State) {
     for entity in gone {
         world.despawn(entity);
     }
+    prune_roads(world);
 }
 
 fn upsert_hamlet(world: &mut World, hamlet: v0::Hamlet) -> Entity {
@@ -452,6 +491,12 @@ fn upsert_hamlet(world: &mut World, hamlet: v0::Hamlet) -> Entity {
     );
     put(&mut entity_mut, Bylaws(hamlet.limits));
     put(&mut entity_mut, Treasury(hamlet.budget));
+    put(
+        &mut entity_mut,
+        Spot(
+            hamlet.at.flatten().map(|at| (at.x as f32, at.z as f32)),
+        ),
+    );
     entity
 }
 
@@ -478,6 +523,9 @@ fn upsert_agent(
     let hamlet = settlement(world, &value.ref_.hamlet)?;
     let entity = agent(world, &value.ref_)
         .unwrap_or_else(|| world.spawn_empty().id());
+    let consulting = value.consulting.unwrap_or(false);
+    let consulted =
+        consulting && world.get::<Consulting>(entity).is_none();
     let mut agent = world.entity_mut(entity);
     put(&mut agent, Citizen(value.ref_.number as u64));
     put(&mut agent, Name::new(value.name));
@@ -487,7 +535,7 @@ fn upsert_agent(
         &mut agent,
         Lived {
             since: value.since as u64,
-            until: None,
+            until: value.left.as_ref().map(|left| left.at as u64),
         },
     );
     put(&mut agent, LivesIn(hamlet));
@@ -522,6 +570,22 @@ fn upsert_agent(
     flag(&mut agent, value.mayor, Mayor);
     flag(&mut agent, value.busy, Busy);
     flag(&mut agent, value.faulted, Faulted);
+    flag(&mut agent, value.left.is_some(), Left);
+    flag(&mut agent, consulting, Consulting);
+    put(
+        &mut agent,
+        PeerChats(value.conversations.unwrap_or_default()),
+    );
+    if let Some(left) = value.left {
+        put(&mut agent, Departure(left));
+    } else {
+        agent.remove::<(Departure, MergedInto)>();
+    }
+    if consulted {
+        world.trigger(Consulted {
+            agent: Some(entity),
+        });
+    }
     Some(entity)
 }
 
@@ -555,10 +619,12 @@ pub(crate) fn changes(world: &mut World, changes: v0::Changes) {
     {
         return;
     }
+    let mut hamlets = Vec::new();
     for update in changes.changes {
         match update {
             v0::Update::Hamlet { hamlet } => {
-                upsert_hamlet(world, hamlet);
+                upsert_hamlet(world, hamlet.clone());
+                hamlets.push(hamlet);
             }
             v0::Update::Agent { agent } => {
                 upsert_agent(world, agent);
@@ -587,10 +653,140 @@ pub(crate) fn changes(world: &mut World, changes: v0::Changes) {
             }
         }
     }
+    departures(world);
+    for hamlet in hamlets {
+        society(world, hamlet, true);
+    }
+    prune_roads(world);
     world.insert_resource(Seen {
         epoch: changes.epoch,
         revision: changes.revision,
     });
+}
+
+fn departures(world: &mut World) {
+    let departed = world
+        .query::<(Entity, &Departure)>()
+        .iter(world)
+        .map(|(entity, left)| (entity, left.0.into.clone()))
+        .collect::<Vec<_>>();
+    for (entity, into) in departed {
+        let host = into.as_ref().and_then(|into| agent(world, into));
+        let mut entity = world.entity_mut(entity);
+        if let Some(host) = host {
+            put(&mut entity, MergedInto(host));
+        } else {
+            entity.remove::<MergedInto>();
+        }
+    }
+}
+
+fn society(world: &mut World, value: v0::Hamlet, news: bool) {
+    let Some(hamlet) = settlement(world, &value.id) else {
+        return;
+    };
+    let votes = value.votes.unwrap_or_default();
+    let was = world.get::<Votes>(hamlet);
+    let cast = votes
+        .iter()
+        .flat_map(|vote| {
+            let before = was.and_then(|was| {
+                was.0.iter().find(|v| v.id == vote.id)
+            });
+            vote.voters
+                .iter()
+                .filter(move |voter| {
+                    news && voter.cast.is_some()
+                        && before
+                            .and_then(|v| {
+                                v.voters
+                                    .iter()
+                                    .find(|v| v.agent == voter.agent)
+                            })
+                            .is_none_or(|v| v.cast.is_none())
+                })
+                .map(|voter| voter.agent.clone())
+        })
+        .collect::<Vec<_>>();
+    put(&mut world.entity_mut(hamlet), Votes(votes));
+    for voter in cast {
+        if let Some(agent) = agent(world, &voter) {
+            world.trigger(Voted { agent });
+        }
+    }
+    let mut wanted = Vec::new();
+    for value in value.roads.unwrap_or_default() {
+        let (Some(a), Some(b)) =
+            (agent(world, &value.a), agent(world, &value.b))
+        else {
+            continue;
+        };
+        let ends = if a <= b { (a, b) } else { (b, a) };
+        let road = world
+            .query::<(Entity, &Road)>()
+            .iter(world)
+            .find(|(_, road)| road.ends == ends)
+            .map(|(e, _)| e);
+        let before = road
+            .and_then(|e| world.get::<Traffic>(e))
+            .map_or(0, |t| t.messages);
+        let traffic = Traffic {
+            level: match value.level {
+                v0::RoadLevel::Overgrown => RoadUse::Overgrown,
+                v0::RoadLevel::Dirt => RoadUse::Dirt,
+                v0::RoadLevel::Paved => RoadUse::Paved,
+                v0::RoadLevel::Rail => RoadUse::Rail,
+            },
+            messages: value.messages as u32,
+            last_from: value
+                .last_from
+                .as_ref()
+                .and_then(|from| agent(world, from)),
+        };
+        let entity =
+            road.unwrap_or_else(|| world.spawn(Road { ends }).id());
+        put(&mut world.entity_mut(entity), traffic);
+        wanted.push(entity);
+        if news
+            && traffic.messages > before
+            && let Some(from) = traffic.last_from
+        {
+            world.trigger(Carried { road: entity, from });
+        }
+    }
+    let gone = world
+        .query::<(Entity, &Road)>()
+        .iter(world)
+        .filter(|(entity, road)| {
+            !wanted.contains(entity)
+                && [road.ends.0, road.ends.1].iter().any(|end| {
+                    world
+                        .get::<LivesIn>(*end)
+                        .is_some_and(|l| l.0 == hamlet)
+                })
+        })
+        .map(|(e, _)| e)
+        .collect::<Vec<_>>();
+    for entity in gone {
+        world.despawn(entity);
+    }
+}
+
+fn prune_roads(world: &mut World) {
+    let gone = world
+        .query::<(Entity, &Road)>()
+        .iter(world)
+        .filter(|(_, road)| {
+            [road.ends.0, road.ends.1].iter().any(|end| {
+                world.get::<Citizen>(*end).is_none()
+                    || world.get::<Left>(*end).is_some()
+            })
+        })
+        .map(|(e, _)| e)
+        .collect::<Vec<_>>();
+    for entity in gone {
+        world.despawn(entity);
+    }
 }
 
 /// The agent that absorbed this agent.
