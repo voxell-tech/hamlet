@@ -14,7 +14,6 @@ import {
 } from "./hand/manifests.ts";
 import type { Home, Part } from "./home.ts";
 import { err, type Result } from "./result.ts";
-import { safeValue } from "./scrub.ts";
 
 import { leaveFor, runConfined, toolFailureText } from "./tools.ts";
 
@@ -95,7 +94,7 @@ export const Hand: Part = (home) => {
         await home.harness.commit(async (tx) => {
             Object.assign(await tx.doc(ManifestsDoc), {
                 tools,
-                faults: safeValue(home, faults),
+                faults: home.secrets.value(faults),
             });
         }, context);
         home.registry.install(

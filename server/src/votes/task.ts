@@ -8,6 +8,7 @@ import {
     type TaskId,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { clip } from "../change.ts";
 import { reconfigure } from "../chats/configure.ts";
 import {
     AgentConversationsDoc,
@@ -38,7 +39,7 @@ import {
     VotesDoc,
 } from "../record.ts";
 import { ok, type Result } from "../result.ts";
-import { answerText, ballotText, clip, summary, tally } from "./words.ts";
+import { answerText, ballotText, summary, tally } from "./words.ts";
 
 type Step = { phase: "hear" } | { phase: "poll" } | { phase: "settle" };
 /** The vote runner and its replay-stable errand identities. */
@@ -111,7 +112,10 @@ export function voteTask(home: Home) {
                         if (vote?.standing === "open" && vote.answer === null)
                             vote.answer =
                                 answer.status === "done" && answer.text.trim()
-                                    ? clip(answer.text.trim(), 600)
+                                    ? clip(answer.text.trim(), 600, {
+                                          flat: false,
+                                          dots: false,
+                                      })
                                     : null;
                         return {
                             status: "running",
@@ -365,7 +369,7 @@ async function ask(
     ];
     const corpus =
         known === undefined
-            ? `${await notesOf(home, { hamlet, number }, context)}\n${history.join("\n")}`
+            ? `${await home.houses.of({ hamlet, number }).notesText(context)}\n${history.join("\n")}`
             : "";
     const id =
         known ??
@@ -446,22 +450,6 @@ export async function finish(
 export function runKey(hamlet: string, id: number): string {
     return `${hamlet}:${id}`;
 }
-async function notesOf(
-    home: Home,
-    ref: AgentRef,
-    context: Context,
-): Promise<string> {
-    const read = await home.houses.of(ref).notes(context);
-    if (read.ok) return read.value.text;
-    switch (read.error.kind) {
-        case "notes-missing":
-        case "notes-not-utf8":
-        case "notes-unreadable":
-            return "";
-    }
-    const unhandled: never = read.error;
-    throw new Error(`Unclassified notes read: ${unhandled}`);
-}
 async function historyOf(
     home: Home,
     ref: AgentRef,
@@ -520,7 +508,7 @@ async function historyOf(
                     entries.push({
                         at,
                         id: entry.id,
-                        text: `- ${who}: ${clip(text.trim(), 320)}`,
+                        text: `- ${who}: ${clip(text.trim(), 320, { flat: false, dots: false })}`,
                     });
                     found++;
                 }

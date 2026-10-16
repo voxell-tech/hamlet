@@ -1,7 +1,6 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension } from "@earendil-works/pi-durable";
 import { commitEdit } from "../chats/configure.ts";
-import { buildHouse } from "../home/layout.ts";
 import type { Part } from "../home.ts";
 import {
     admit,
@@ -69,10 +68,12 @@ export const Agents: Part = (home) => ({
                         (a) => a.name === tidyName(args.name),
                     );
                     if (agent)
-                        await buildHouse(home.layout, {
-                            hamlet: place.hamlet,
-                            number: agent.number,
-                        });
+                        await home.houses
+                            .of({
+                                hamlet: place.hamlet,
+                                number: agent.number,
+                            })
+                            .build();
                 },
             }),
             defineMayorTool(home, {

@@ -95,7 +95,7 @@ export async function livingAgent(
 export function findInState(
     state: State,
     address: { agent: string; hamlet?: string },
-): AgentRef | undefined {
+): State["agents"][number] | undefined {
     const hamlet =
         address.hamlet ?? (address.agent === MAYOR ? HOME : undefined);
     return state.agents.find(
@@ -105,7 +105,7 @@ export function findInState(
             (address.agent === MAYOR
                 ? agent.mayor
                 : agent.name === address.agent),
-    )?.ref;
+    );
 }
 
 /** A tool address refused before any work is admitted. */

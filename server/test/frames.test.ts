@@ -19,7 +19,6 @@ import {
     type ServerMessage,
     type Transcript,
 } from "../src/protocol.ts";
-import { safeValue } from "../src/scrub.ts";
 import { agents as createSociety, tool, yes } from "./acceptance-support.ts";
 import {
     agents,
@@ -73,7 +72,7 @@ for (const name of scenarios)
             expect(run.errors[0]).toMatchObject({
                 message: "The connection to the server closed (1005).",
             });
-            const frames = safeValue(run.home, run.frames);
+            const frames = run.home.secrets.value(run.frames);
             checkScenario(name, frames);
             await mkdir(new URL("./frames/", import.meta.url), {
                 recursive: true,

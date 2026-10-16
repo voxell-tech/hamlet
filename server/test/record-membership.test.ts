@@ -20,6 +20,7 @@ import {
 } from "../src/record.ts";
 import { ledgerOf } from "../src/spend.ts";
 import {
+    addAgent,
     addHamlet,
     context,
     fauxModels,
@@ -309,3 +310,24 @@ test.each([
         );
     },
 );
+
+test("checks founder and restored names against the same living realm names", async () => {
+    const { takenName } = await import("../src/record/names.ts");
+    const { RealmDoc } = await import("../src/realm/places.ts");
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    await addAgent(home, "home", "poet");
+    expect(
+        await home.harness.commit(
+            async (tx) =>
+                takenName(
+                    await tx.doc(RealmDoc),
+                    ["free", "poet"],
+                    async (id) =>
+                        (await tx.doc(RecordDoc, id, id)).agents.map(
+                            (a) => a.name,
+                        ),
+                ),
+            context,
+        ),
+    ).toBe("poet");
+});

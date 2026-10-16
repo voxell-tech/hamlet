@@ -15,7 +15,6 @@ import { installStarters, libraryPart } from "./library/shelf.ts";
 import { CharacterDoc } from "./prompt/character.ts";
 import { charterOf } from "./prompt/charter.ts";
 import { agentKey } from "./record.ts";
-import { safeWords } from "./scrub.ts";
 import { modelName, SettingsDoc, settingsOf } from "./settings.ts";
 
 /** The machine's shell tools, as the prompt names them (prompt.rs:10-17). */
@@ -114,7 +113,7 @@ async function machine(
             : ` Model: ${modelName(input.agent.model)}.`;
     const faults = (await input.read.snapshot(ManifestsDoc, context))?.faults;
     const failed = faults?.length
-        ? `\nTools that failed to load:\n${safeWords(home, faults.map(manifestFaultText).join("\n"))}`
+        ? `\nTools that failed to load:\n${home.secrets.words(faults.map(manifestFaultText).join("\n"))}`
         : "";
     return `# Environment\nSandbox: ${home.sandbox.name}. Network for tools: ${net}.${model}${failed}\n${SYSTEM}\nWorkspace: ${house}`;
 }

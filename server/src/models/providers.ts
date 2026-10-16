@@ -8,7 +8,6 @@ import {
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
 import type { HomeBase } from "../home.ts";
-import { safeWords } from "../scrub.ts";
 import type { Endpoint } from "../settings.ts";
 import { estimateOf } from "../spend/money.ts";
 import type { Card, Listed } from "./catalogue.ts";
@@ -232,8 +231,7 @@ function protect(
                 });
                 message.durationMs ??= Date.now() - started;
                 if (message.errorMessage !== undefined)
-                    message.errorMessage = safeWords(
-                        home,
+                    message.errorMessage = home.secrets.words(
                         message.errorMessage,
                     );
             }
@@ -249,7 +247,7 @@ function protect(
             model: "unknown",
             timestamp: started,
             stopReason: "error",
-            errorMessage: safeWords(home, String(error)),
+            errorMessage: home.secrets.words(String(error)),
             usage: {
                 input: 0,
                 output: 0,

@@ -27,7 +27,6 @@ import {
 } from "../src/protocol.ts";
 import { RecordDoc } from "../src/record.ts";
 import { SandboxEnv } from "../src/sandbox.ts";
-import { safeValue } from "../src/scrub.ts";
 import {
     agents,
     chat,
@@ -1018,7 +1017,7 @@ async function recordGive(): Promise<Frame[]> {
     expect(errors[0]).toMatchObject({
         message: "The connection to the server closed (1005).",
     });
-    return safeValue(run.home, frames);
+    return run.home.secrets.value(frames);
 }
 
 it("accepts exactly 32 MiB of file bytes through the connection", async () => {

@@ -52,7 +52,6 @@ import {
     RecordDoc,
 } from "./record.ts";
 import { err, ok, type Result } from "./result.ts";
-import { safeWords } from "./scrub.ts";
 
 /** A refused letter or question, with its safe address and replay context. */
 export type LetterFailure = { operation: "letters"; retrySafe: false } & (
@@ -693,7 +692,7 @@ async function prepare(
                             ? name
                             : `${name}@${to.hamlet}`,
                     task,
-                    text: safeWords(home, text),
+                    text: home.secrets.words(text),
                     at: home.now(),
                 };
                 if (kind === "letters")
@@ -765,8 +764,7 @@ async function answerOf(
     if (settled?.type !== "input" || settled.status !== "done")
         return err({
             kind: "answer-unfinished",
-            text: safeWords(
-                home,
+            text: home.secrets.words(
                 settled && "reason" in settled
                     ? settled.reason
                     : "It could not finish.",
@@ -778,8 +776,7 @@ async function answerOf(
     );
     const message = entry?.model?.[0];
     return ok(
-        safeWords(
-            home,
+        home.secrets.words(
             message?.role === "assistant"
                 ? message.content
                       .flatMap((p) => (p.type === "text" ? [p.text] : []))

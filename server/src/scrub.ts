@@ -1,6 +1,5 @@
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import type { Credentials } from "./home/credentials.ts";
-import type { HomeBase } from "./home.ts";
 import { shellOutput } from "./scrub/output.ts";
 import { Scrubber } from "./scrub/scrubber.ts";
 
@@ -21,20 +20,6 @@ export function secretsFrom(credentials: Credentials): Secrets {
             scrubValue([...credentials.secrets(), ...extra], value),
         shell: (env) => shellOutput(env, credentials.secrets()),
     };
-}
-
-/** Words with every known credential removed before storage or display. */
-export function safeWords(home: HomeBase, text: string): string {
-    return home.secrets.words(text);
-}
-
-/** A JSON value with credentials removed from its strings and object keys. */
-export function safeValue<T>(
-    home: HomeBase,
-    value: T,
-    extra: readonly string[] = [],
-): T {
-    return home.secrets.value(value, extra);
 }
 
 function scrubValue<T>(secrets: readonly string[], value: T): T {

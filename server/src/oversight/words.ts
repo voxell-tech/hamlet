@@ -1,3 +1,7 @@
+import { clip } from "../change.ts";
+
+export { clip } from "../change.ts";
+
 import type { Danger, Wait } from "./waits.ts";
 
 const SAYS: Record<Danger, string> = {
@@ -8,13 +12,6 @@ const SAYS: Record<Danger, string> = {
     edit: "wants to edit",
     command: "wants to run",
 };
-
-/** The first `most` characters of `text` on one line, with dots where cut. */
-export function clip(text: string, most: number): string {
-    const flat = text.trim().split(/\s+/).join(" ");
-    const chars = [...flat];
-    return chars.length > most ? `${chars.slice(0, most).join("")}...` : flat;
-}
 
 /** The danger's words after the agent's name. */
 export function says(danger: Danger | null): string {

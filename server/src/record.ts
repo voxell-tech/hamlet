@@ -35,6 +35,7 @@ export {
     farewell,
     named,
     nameOf,
+    takenName,
     tidyName,
 } from "./record/names.ts";
 export {

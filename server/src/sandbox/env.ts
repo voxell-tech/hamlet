@@ -25,9 +25,9 @@ import { limited, platformSandbox, type Sandbox } from "./platform.ts";
 import {
     canon,
     directoryRoot,
+    executionLimits,
     fixedRoots,
     type Limits,
-    limitsOf,
     type Policy,
     policyHash,
     privateTmp,
@@ -83,7 +83,7 @@ export class SandboxEnv extends NodeExecutionEnv {
                 throw new Error(
                     `The service endpoint must be a real socket: ${socket}`,
                 );
-        this.#limits = limitsOf(options.policy);
+        this.#limits = executionLimits(options.policy);
         this.#sandbox = options.sandbox ?? platformSandbox();
         this.policyHash = policyHash(options.policy, this.#sandbox.name);
         this.#tmp = privateTmp(options.policy, options.tmpScope);

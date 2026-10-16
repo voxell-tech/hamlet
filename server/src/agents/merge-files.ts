@@ -34,7 +34,6 @@ import {
 } from "../record.ts";
 import { ok, type Result } from "../result.ts";
 import type { SandboxEnv } from "../sandbox.ts";
-import { safeWords } from "../scrub.ts";
 import { broughtBytes, type Planned, planMerge } from "./merge-plan.ts";
 
 type NotesFailure = {
@@ -494,7 +493,7 @@ export async function retryFiles(
         failure = pendingFiles(hamlet, entry).error;
     }
     if (failure) {
-        const text = safeWords(home, pendingText(failure));
+        const text = home.secrets.words(pendingText(failure));
         console.error(text);
         await home.harness.commit(
             (tx) => tellChiefs(home, tx, hamlet, text),

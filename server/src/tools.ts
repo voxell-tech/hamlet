@@ -1,6 +1,5 @@
 import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
 import type { Part } from "./home.ts";
-import { safeValue } from "./scrub.ts";
 import { fileTools } from "./tools/files.ts";
 import { Find } from "./tools/find.ts";
 import { Search } from "./tools/search.ts";
@@ -13,7 +12,7 @@ export const Tools: Part = (home) => ({
         tools: [...fileTools(home), bashTool(home), Search, Find],
         hooks: [
             hook(ToolTask, {
-                afterTool: (_call, result) => safeValue(home, result),
+                afterTool: (_call, result) => home.secrets.value(result),
             }),
         ],
     }),

@@ -44,8 +44,6 @@ import { type ChiefRefusal, chiefAccess } from "./realm/access.ts";
 import { addressOf, RecordDoc } from "./record.ts";
 import { err, type Result } from "./result.ts";
 
-import { safeValue, safeWords } from "./scrub.ts";
-
 /** The turn and decision of a call, kept until its tool task ends. */
 const CallDoc = defineDoc<{
     input: SubmissionId | null;
@@ -86,7 +84,7 @@ export function answer(
         );
         if (wait === undefined || !wait.answers.includes(given.choice))
             return undefined;
-        const text = safeWords(home, given.text ?? "").trim();
+        const text = home.secrets.words(given.text ?? "").trim();
         if (
             given.choice === "always" &&
             (wait.danger === "network" || wait.danger === "unconfined")
@@ -268,7 +266,7 @@ export const Gate: Part = (home) => {
                                     context,
                                 );
                                 if (read.ok)
-                                    before = safeWords(home, read.value);
+                                    before = home.secrets.words(read.value);
                                 else if (read.error.code !== "not_found") {
                                     const info = await env.fileInfo(
                                         path,
@@ -292,8 +290,7 @@ export const Gate: Part = (home) => {
                                 created: before === undefined,
                             };
                         const typed = parsed;
-                        const preview = safeValue(
-                            home,
+                        const preview = home.secrets.value(
                             typed.kind === "edit"
                                 ? changeBetween(
                                       typed.path,
@@ -381,7 +378,9 @@ export const Gate: Part = (home) => {
                                               ...AskedDoc.definition.initial(),
                                               input: state.input,
                                           };
-                                const about = safeWords(home, callText(typed));
+                                const about = home.secrets.words(
+                                    callText(typed),
+                                );
                                 const manifests = (await tx.doc(ManifestsDoc))
                                     .tools;
                                 const currentCall =

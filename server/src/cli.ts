@@ -307,11 +307,7 @@ async function talk(
     if (hamlet === undefined && agent !== MAYOR) {
         const joined = await connectChief(reached);
         try {
-            const ref = findInState(joined.state, { agent });
-            const found = joined.state.agents.find(
-                (a) =>
-                    a.ref.hamlet === ref?.hamlet && a.ref.number === ref.number,
-            );
+            const found = findInState(joined.state, { agent });
             if (!found) throw new Error(`no agent named \`${agent}\``);
             target = {
                 hamlet: found.ref.hamlet,

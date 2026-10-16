@@ -58,10 +58,6 @@ export function report(
     return `Vote ${v.id}: ${describe(v, r)}.\nCalled by \`${byName(v, r)}\`: ${v.reason}${v.answer ? `\nThe mayor answered: ${v.answer}` : ""}\n${standing}: ${t.yes} yes of ${v.voters.length} agents (${t.needed} needed), ${t.no} no, ${t.abstain} abstained, ${t.silent} did not answer.\n${v.ballots.map((b) => `- ${nameOf(r, b.voter)}: ${b.choice ?? "no answer"}. ${b.reason}${b.evidence ? ` [${b.grounded ? "found in" : "not found in"} its house: "${b.evidence}"]` : ""}`).join("\n")}`;
 }
 
-/** A Unicode character limit for a hearing or history excerpt. */
-export function clip(text: string, length: number): string {
-    return Array.from(text).slice(0, length).join("");
-}
 /** Evidence sharing at least four consecutive words with the voter's own corpus. */
 export function grounded(evidence: string, corpus: string): boolean {
     const words = (s: string) =>

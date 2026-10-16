@@ -6,7 +6,7 @@ import { LimitsDoc } from "../limits/rules.ts";
 import { resetTrust } from "../oversight/asked.ts";
 import { lapseAgent } from "../oversight/waits.ts";
 import { CharacterDoc } from "../prompt/character.ts";
-import { isChief, liveHamlets, RealmDoc } from "../realm/places.ts";
+import { isChief, RealmDoc } from "../realm/places.ts";
 import { ok, type Result } from "../result.ts";
 import {
     type AgentRecord,
@@ -15,7 +15,14 @@ import {
     agentKey,
     RecordDoc,
 } from "./document.ts";
-import { checkName, endName, farewell, named, tidyName } from "./names.ts";
+import {
+    checkName,
+    endName,
+    farewell,
+    named,
+    takenName,
+    tidyName,
+} from "./names.ts";
 import { type RecordRefusal, refusal } from "./refusals.ts";
 import { layRoad, roadsOf } from "./roads.ts";
 
@@ -113,18 +120,15 @@ export async function availableName(
         const checked = checkName(name, hamlet, operation);
         if (!checked.ok) return checked;
     }
-    for (const h of liveHamlets(await tx.doc(RealmDoc))) {
-        if (
-            (await tx.doc(RecordDoc, h.id, h.id)).agents.some(
-                (a) => a.name === name,
-            )
-        )
-            return refusal(operation, hamlet, {
-                kind: "name-taken",
-                name,
-                ...(archive ? { archive: selector ?? archive.id } : {}),
-            });
-    }
+    const taken = await takenName(await tx.doc(RealmDoc), [name], async (id) =>
+        (await tx.doc(RecordDoc, id, id)).agents.map((a) => a.name),
+    );
+    if (taken !== undefined)
+        return refusal(operation, hamlet, {
+            kind: "name-taken",
+            name,
+            ...(archive ? { archive: selector ?? archive.id } : {}),
+        });
     return ok(undefined);
 }
 

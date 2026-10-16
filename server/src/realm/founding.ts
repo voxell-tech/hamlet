@@ -15,7 +15,6 @@ import { agentOf } from "../chats/errands.ts";
 import { stopAgent } from "../chats.ts";
 import { WorkDoc } from "../environment.ts";
 import { GrantsDoc, grantsOf, revoke } from "../gate.ts";
-import { buildHouse } from "../home/layout.ts";
 import type { Home, Part } from "../home.ts";
 import { erase as removeHouse, type TreeFailure } from "../house.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
@@ -30,6 +29,7 @@ import {
     RecordDoc,
     type RecordRefusal,
     recordRefusal,
+    takenName,
 } from "../record.ts";
 import { ok, type Result } from "../result.ts";
 import { awaiting } from "./dealings.ts";
@@ -245,7 +245,7 @@ export const found: RecordDeed = async (home, given, context) => {
         context,
     );
     if (!result.ok) return result;
-    await buildHouse(home.layout, { hamlet, number: 0 });
+    await home.houses.of({ hamlet, number: 0 }).build();
     return ok(
         `The hamlet \`${hamlet}\` is founded under the mayor \`${mayor}\`, and it is yours. /hamlet ${hamlet} talks to it.`,
     );
@@ -328,23 +328,24 @@ export const restoreHamlet: RecordDeed = async (home, given, context) => {
         );
         if (!controlledHamlet.ok) return controlledHamlet;
         const realm = await tx.doc(RealmDoc);
-        const live = liveHamlets(realm);
-        if (live.length >= (await tx.doc(LimitsDoc, HOME, HOME)).hamlets.most)
+        if (hamletCapacity(realm, await tx.doc(LimitsDoc, HOME, HOME)))
             return recordRefusal("restore-hamlet", id, {
                 kind: "hamlets-full",
             });
         const record = await tx.doc(RecordDoc, id, id);
-        for (const other of live) {
-            const names = (
-                await tx.doc(RecordDoc, other.id, other.id)
-            ).agents.map((a) => a.name);
-            const taken = record.agents.find((a) => names.includes(a.name));
-            if (taken)
-                return recordRefusal("restore-hamlet", id, {
-                    kind: "hamlet-restore-name",
-                    name: taken.name,
-                });
-        }
+        const taken = await takenName(
+            realm,
+            record.agents.map((a) => a.name),
+            async (other) =>
+                (await tx.doc(RecordDoc, other, other)).agents.map(
+                    (a) => a.name,
+                ),
+        );
+        if (taken !== undefined)
+            return recordRefusal("restore-hamlet", id, {
+                kind: "hamlet-restore-name",
+                name: taken,
+            });
         controlledHamlet.value.removed = null;
         realm.removals = realm.removals.filter((r) => r.hamlet !== id);
         await reconfigure(home, tx);
@@ -459,7 +460,7 @@ async function finishHamlet(
             realm?.pending?.to.hamlet !== ref.hamlet ||
             realm.pending.to.number !== ref.number
         )
-            await buildHouse(home.layout, ref);
+            await home.houses.of(ref).build();
     }
     return ok(undefined);
 }
@@ -548,21 +549,27 @@ async function refusalOf(
         return recordRefusal("found", given.hamlet, { kind: "hamlet-purpose" });
     if (realm?.hamlets.some((h) => h.id === given.hamlet))
         return recordRefusal("found", given.hamlet, { kind: "hamlet-used" });
-    const live = liveHamlets(realm);
-    if (live.length >= limits.hamlets.most)
+    const full = hamletCapacity(realm, limits);
+    if (full)
         return recordRefusal("found", given.hamlet, {
             kind: "hamlets-full",
-            actual: live.length,
-            most: limits.hamlets.most,
+            ...full,
         });
-    for (const { id } of live) {
-        if ((await names(id)).includes(given.mayor))
-            return recordRefusal("found", given.hamlet, {
-                kind: "founder-taken",
-                name: given.mayor,
-            });
-    }
+    const taken = await takenName(realm, [given.mayor], names);
+    if (taken !== undefined)
+        return recordRefusal("found", given.hamlet, {
+            kind: "founder-taken",
+            name: taken,
+        });
     return ok(undefined);
+}
+function hamletCapacity(
+    realm: Readonly<Realm> | undefined,
+    limits: Readonly<Limits>,
+): { actual: number; most: number } | undefined {
+    const actual = liveHamlets(realm).length;
+    const most = limits.hamlets.most;
+    return actual >= most ? { actual, most } : undefined;
 }
 /** A hamlet closed in one commit. */
 export async function removeHamlet(

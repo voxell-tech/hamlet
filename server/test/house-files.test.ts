@@ -512,3 +512,14 @@ it("accepts a merge tree larger than a gift while still enforcing the gift cap",
         stageTree(home, { root, rel: "large" }, scratch(), caps, context),
     ).resolves.toMatchObject({ ok: false, error: { kind: "bytes-cap" } });
 });
+
+it("reads optional notes verbatim and omits undecodable or missing notes", async () => {
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    const house = home.houses.of(MAYOR);
+    await writeFile(join(house.path, "NOTES.md"), "  🍵\nTea\n");
+    expect(await house.notesText(context)).toBe("  🍵\nTea\n");
+    await writeFile(join(house.path, "NOTES.md"), Buffer.from([0xff]));
+    expect(await house.notesText(context)).toBe("");
+    await fs.rm(join(house.path, "NOTES.md"));
+    expect(await house.notesText(context)).toBe("");
+});

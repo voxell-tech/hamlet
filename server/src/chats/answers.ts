@@ -18,7 +18,6 @@ import type { Home } from "../home.ts";
 import { raiseFault } from "../oversight/waits.ts";
 import { RecordDoc } from "../record/document.ts";
 import { addressOf } from "../record/names.ts";
-import { safeWords } from "../scrub.ts";
 import { ReflectionEntry, retryInput, WithDoc } from "./conversations.ts";
 import { notify } from "./notice.ts";
 import { turnOf } from "./turn.ts";
@@ -200,8 +199,7 @@ export async function recoverAnswers(
                 if (current === undefined) return;
                 current.status =
                     outcome.status === "aborted" ? "cancelled" : "failed";
-                current.words = safeWords(
-                    home,
+                current.words = home.secrets.words(
                     (outcome.status === "failed" ||
                         outcome.status === "faulted") &&
                         !/^Summarization (produced|hit|attempted)/.test(

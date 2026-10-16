@@ -77,11 +77,12 @@ export function changeBetween(
     const added = lines.filter(([mark]) => mark === "+").length;
     const removed = lines.filter(([mark]) => mark === "-").length;
     return {
-        path: clip(path),
+        path: clip(path, WIDE, { flat: false, dots: false }),
         created,
-        lines: shown
-            .slice(0, KEPT)
-            .map(([mark, text]) => ({ mark, text: clip(text) })),
+        lines: shown.slice(0, KEPT).map(([mark, text]) => ({
+            mark,
+            text: clip(text, WIDE, { flat: false, dots: false }),
+        })),
         total: shown.length,
         added,
         removed,
@@ -171,7 +172,16 @@ export function linesOf(text: string): string[] {
     );
 }
 
-/** The first characters of `text`, at most {@link WIDE}. */
-function clip(text: string): string {
-    return [...text].slice(0, WIDE).join("");
+/** A Unicode excerpt, optionally preserving whitespace or omitting the cut marker. */
+export function clip(
+    text: string,
+    most: number,
+    options: { flat?: boolean; dots?: boolean } = {},
+): string {
+    const shown =
+        options.flat === false ? text : text.trim().split(/\s+/).join(" ");
+    const chars = [...shown];
+    return chars.length > most
+        ? `${chars.slice(0, most).join("")}${options.dots === false ? "" : "..."}`
+        : shown;
 }

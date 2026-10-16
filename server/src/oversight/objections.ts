@@ -20,6 +20,7 @@ import {
     ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { clip } from "../change.ts";
 import {
     AgentConversationsDoc,
     ErrandEntry,
@@ -468,11 +469,9 @@ async function prepareReview(
     )?.given.find((i) => i.task === turn.task);
     if (!instruction) return undefined;
     const agent = addressOf(record, place.number);
-    const notes = await reviewNotes(
-        home,
-        { hamlet: place.hamlet, number: mayor.number },
-        context,
-    );
+    const notes = await home.houses
+        .of({ hamlet: place.hamlet, number: mayor.number })
+        .notesText(context);
     return home.harness.commit(async (tx) => {
         const jobs = (await tx.doc(ReviewsDoc)).jobs;
         const known = jobs.find((j) => j.task === turn.task);
@@ -485,7 +484,9 @@ async function prepareReview(
             instructions: `You are the mayor of a hamlet of agents. A chief, a human the hamlet belongs to, has just instructed one of your agents directly. The work has already begun and the chief always wins. If you believe the instruction is a mistake for the hamlet, answer OBJECT: <reason>: the work is then held until the chief replies. You may do this once. If it is fine, or you are unsure, reply with the single word pass. Most instructions are fine.\n# Your agents\n${record.agents
                 .filter((a) => a.number !== record.mayor)
                 .map((a) => `- ${a.name}: ${a.purpose}`)
-                .join("\n")}\n# Your notes\n${notes}`,
+                .join(
+                    "\n",
+                )}\n# Your notes\n${clip(notes, 6000, { flat: false, dots: false })}`,
         });
         const job: Review = {
             task: turn.task ?? "",
@@ -500,23 +501,6 @@ async function prepareReview(
         jobs.push(job);
         return job;
     }, context);
-}
-
-async function reviewNotes(
-    home: Home,
-    agent: AgentRef,
-    context: Context,
-): Promise<string> {
-    const read = await home.houses.of(agent).notes(context);
-    if (read.ok) return [...read.value.text].slice(0, 6000).join("");
-    switch (read.error.kind) {
-        case "notes-missing":
-        case "notes-not-utf8":
-        case "notes-unreadable":
-            return "";
-    }
-    const unhandled: never = read.error;
-    throw new Error(`Unclassified notes read: ${unhandled}`);
 }
 
 function remote(url: string): boolean {

@@ -10,7 +10,7 @@ import {
     type WatchChange,
 } from "@earendil-works/pi-durable/env";
 import { fileLimited, type Sandbox } from "./platform.ts";
-import { limitsOf, type Policy } from "./policy.ts";
+import { executionLimits, type Policy } from "./policy.ts";
 import { decode, encode, frameId } from "./wire.ts";
 
 const FILE_HELPER = fileURLToPath(new URL("./file-helper.ts", import.meta.url));
@@ -58,14 +58,14 @@ export class Files {
         tmp: string,
         output: string,
     ) {
-        this.#requestMs = Math.min(30, limitsOf(policy).wallSecs) * 1000;
+        this.#requestMs = Math.min(30, executionLimits(policy).wallSecs) * 1000;
         this.#start = () => {
             const confined = sandbox.command(
                 {
                     ...policy,
                     ro: [...policy.ro, ...FILE_READS],
                 },
-                fileLimited(limitsOf(policy), [
+                fileLimited(executionLimits(policy), [
                     process.execPath,
                     "--experimental-strip-types",
                     FILE_HELPER,

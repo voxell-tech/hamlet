@@ -2,7 +2,7 @@ import type { Context } from "@earendil-works/chord";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
-import { linesOf } from "../change.ts";
+import { clip, linesOf } from "../change.ts";
 import { err, ok, type Result } from "../result.ts";
 import { type SearchFailure, toolFailureText } from "./failure.ts";
 import {
@@ -102,7 +102,7 @@ export async function search(
         for (const [index, line] of linesOf(read.value).entries()) {
             if (!matches(line)) continue;
             found.push(
-                `${shown(env, path)}:${index + 1}: ${clip(line.trimEnd())}`,
+                `${shown(env, path)}:${index + 1}: ${clip(line.trimEnd(), WIDTH, { flat: false })}`,
             );
             if (found.length > FOUND) return false;
         }
@@ -165,11 +165,4 @@ function compile(
             ? (line: string) => regex.test(line.toLowerCase())
             : (line: string) => regex.test(line),
     );
-}
-
-function clip(line: string): string {
-    const characters = [...line];
-    return characters.length <= WIDTH
-        ? line
-        : `${characters.slice(0, WIDTH).join("")}...`;
 }

@@ -55,7 +55,6 @@ import type { ProviderView } from "./protocol.ts";
 import { liveHamlets, RealmDoc } from "./realm/places.ts";
 import { RecordDoc } from "./record.ts";
 import { ok, type Result } from "./result.ts";
-import { safeWords } from "./scrub.ts";
 import {
     choose,
     modelRef,
@@ -341,7 +340,7 @@ export class ModelHome {
                           words:
                               error === undefined
                                   ? "It took too long to answer."
-                                  : plainly(safeWords(home, error.message)),
+                                  : plainly(home.secrets.words(error.message)),
                       }
                     : {
                           state: "connected",

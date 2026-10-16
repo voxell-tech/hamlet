@@ -5,6 +5,7 @@ import { GrantsDoc, grantsOf } from "../gate.ts";
 import { conversationViews, PeersDoc } from "../letters.ts";
 import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import type { Agent, Grant, Hamlet, Road, State } from "../protocol.ts";
+import { byWords } from "../record/names.ts";
 import {
     agentKey,
     type HamletRecord,
@@ -229,10 +230,3 @@ export const realmView: View<
         };
     },
 };
-function byWords(by: string): string {
-    return by === "mayor"
-        ? "the mayor"
-        : by.startsWith("chief:")
-          ? `the chief ${by.slice(6)}`
-          : by;
-}

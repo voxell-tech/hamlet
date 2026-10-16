@@ -16,7 +16,6 @@ import { type AddressFailure, livingAgent } from "../realm/roads.ts";
 import { type AgentRef, nameOf, RecordDoc } from "../record.ts";
 import { err, ok, type Result } from "../result.ts";
 import { directoryRoot } from "../sandbox/policy.ts";
-import { safeWords } from "../scrub.ts";
 import type { Receipt } from "../server.ts";
 import { checkShelf, type GiftRefusal, manifestSize } from "./gift-rules.ts";
 import { deliver, GIFT_CAPS, stage } from "./trees.ts";
@@ -212,8 +211,7 @@ export function uploads(home: Home, context: Context) {
             { agent, chief: home.chief },
             {
                 id: upload.id,
-                text: safeWords(
-                    home,
+                text: home.secrets.words(
                     `I handed you ${paths.map((path) => `\`${path}\``).join(", ")} in your workspace. Read it and do what it asks. If it asks for nothing, tell me in a few lines what it is.`,
                 ),
             },

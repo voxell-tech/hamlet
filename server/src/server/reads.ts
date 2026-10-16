@@ -67,7 +67,7 @@ export async function read(
             ...reply,
             prompt: await told(home, conversation, context),
         });
-    const notes = await home.houses.of(agent).notes(context);
+    const notes = await home.houses.of(agent).notesText(context);
     const character = await home.harness.snapshot(
         CharacterDoc,
         agentKey(agent),
@@ -78,7 +78,7 @@ export async function read(
     return ok({
         ...reply,
         papers: {
-            notes: cut(notes.ok ? notes.value.text : ""),
+            notes: cut(notes),
             character: cut(character?.text ?? ""),
             skills: (await home.houses.of(agent).skills(context)).map(
                 ({ name, description }) => ({ name, description }),

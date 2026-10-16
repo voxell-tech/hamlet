@@ -1,4 +1,5 @@
 import { defineExtension, section } from "@earendil-works/pi-durable";
+import { clip } from "../change.ts";
 import { agentOf } from "../chats/errands.ts";
 import { InstructionsDoc } from "../chats/instructions.ts";
 import type { Part } from "../home.ts";
@@ -123,7 +124,7 @@ export const HamletBrief: Part = (home) => ({
                             lines.push(
                                 ...latest.map(
                                     (i) =>
-                                        `- ${i.chief} told ${i.name}: ${clip(i.text)}`,
+                                        `- ${i.chief} told ${i.name}: ${clip(i.text, 160, { flat: false, dots: false })}`,
                                 ),
                             );
                         }
@@ -223,9 +224,6 @@ function farewells(record: Readonly<HamletRecord>, reader?: number): string[] {
         }),
     ];
 }
-function clip(text: string) {
-    return [...text].slice(0, 160).join("");
-}
 function standing(
     record: Readonly<HamletRecord>,
     reader: number,
@@ -248,7 +246,11 @@ function standing(
                       ? "A vote"
                       : "A chief"
                 : "A chief";
-        const reason = "reason" in d ? clip(d.reason) || "no reason given" : "";
+        const reason =
+            "reason" in d
+                ? clip(d.reason, 160, { flat: false, dots: false }) ||
+                  "no reason given"
+                : "";
         const words = decisionWords(record, d, by);
         if (!words) continue;
         if (d.kind !== "road_refused") count++;

@@ -51,12 +51,7 @@ export async function chat(options: {
         const resolve = (to: Address): Address => {
             if (!state.hamlets.some((hamlet) => hamlet.id === to.hamlet))
                 throw new Error(`no hamlet named \`${to.hamlet}\``);
-            const ref = findInState(state, to);
-            const agent = state.agents.find(
-                (agent) =>
-                    agent.ref.hamlet === ref?.hamlet &&
-                    agent.ref.number === ref.number,
-            );
+            const agent = findInState(state, to);
             if (agent === undefined)
                 throw new Error(`no agent named \`${to.agent}\``);
             return {
@@ -113,7 +108,7 @@ export async function chat(options: {
                                 : undefined;
                         if (kind === "hamlet" && hamlet === undefined)
                             throw new Error(`no hamlet named \`${name}\``);
-                        const ref =
+                        const agent =
                             kind === "agent"
                                 ? findInState(state, {
                                       agent: name,
@@ -122,11 +117,6 @@ export async function chat(options: {
                                           : {}),
                                   })
                                 : undefined;
-                        const agent = state.agents.find(
-                            (agent) =>
-                                agent.ref.hamlet === ref?.hamlet &&
-                                agent.ref.number === ref.number,
-                        );
                         if (kind === "agent" && agent === undefined)
                             throw new Error(`no agent named \`${name}\``);
                         const next = resolve(

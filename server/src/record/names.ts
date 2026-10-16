@@ -1,3 +1,4 @@
+import { liveHamlets, type Realm } from "../realm/places.ts";
 import { ok, type Result } from "../result.ts";
 import type { AgentRecord, Archived, End, HamletRecord } from "./document.ts";
 import { FOUNDER, MAYOR } from "./document.ts";
@@ -105,12 +106,7 @@ export function farewell(
     record: Readonly<HamletRecord>,
 ): string {
     const name = entry.agent.name;
-    const by =
-        entry.by === MAYOR
-            ? "the mayor"
-            : entry.by.startsWith("chief:")
-              ? `the chief ${entry.by.slice(6)}`
-              : entry.by;
+    const by = byWords(entry.by);
     if (entry.how === "removed")
         return `\`${name}\` was removed from the hamlet by ${by} ("${entry.reason}"). Its house is archived and its roads went with it; only a chief can restore it.`;
     const kept =
@@ -118,4 +114,18 @@ export function farewell(
         entry.merge?.kept.name ??
         "the kept agent";
     return `\`${name}\` was merged into \`${kept}\` by ${by} ("${entry.reason}"). \`${kept}\` has its notes, skills and roads; talk to \`${kept}\`.`;
+}
+
+/** The first candidate taken in a living hamlet, in realm then candidate order. */
+export async function takenName(
+    realm: Readonly<Realm> | undefined,
+    candidates: readonly string[],
+    names: (hamlet: string) => Promise<readonly string[]>,
+): Promise<string | undefined> {
+    for (const { id } of liveHamlets(realm)) {
+        const living = await names(id);
+        const taken = candidates.find((name) => living.includes(name));
+        if (taken !== undefined) return taken;
+    }
+    return undefined;
 }

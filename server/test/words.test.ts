@@ -87,3 +87,11 @@ describe("the chief's words for a wait", () => {
         expect(waited(Number(ms))).toBe(words),
     );
 });
+
+it("keeps raw excerpts and search lines distinct from flattened chief subjects", async () => {
+    const { clip } = await import("../src/change.ts");
+    expect(clip("  🍵\nTea  ", 5, { flat: false, dots: false })).toBe(
+        "  🍵\nT",
+    );
+    expect(clip("  🍵\nTea  ", 5, { flat: false })).toBe("  🍵\nT...");
+});

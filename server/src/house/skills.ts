@@ -144,6 +144,20 @@ export class House {
         }
     }
 
+    /** Notes for prompt excerpts; missing, unsafe or undecodable notes contribute no text. */
+    async notesText(context: Context): Promise<string> {
+        const read = await this.notes(context);
+        if (read.ok) return read.value.text;
+        switch (read.error.kind) {
+            case "notes-missing":
+            case "notes-not-utf8":
+            case "notes-unreadable":
+                return "";
+        }
+        const unhandled: never = read.error;
+        throw new Error(`Unclassified notes read: ${unhandled}`);
+    }
+
     async #shelf(contents: boolean, context: Context): Promise<Skill[]> {
         if (!(await lstat(this.path).catch(() => undefined))?.isDirectory())
             return [];

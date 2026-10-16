@@ -5,7 +5,13 @@ import { expect, it } from "vitest";
 import { houseOf } from "../src/home/layout.ts";
 import { RealmDoc } from "../src/realm.ts";
 import { request, served } from "./connection-support.ts";
-import { addHamlet, context, fauxModels } from "./support.ts";
+import {
+    addHamlet,
+    context,
+    fauxModels,
+    scratch,
+    testHome,
+} from "./support.ts";
 
 it.each(["removed", "foreign", "erased"] as const)(
     "refuses file and skill gifts to a %s hamlet, including a gift already uploading",
@@ -308,4 +314,16 @@ it("refuses protocol and typed answers to a foreign hamlet's wait", async () => 
             text: expect.stringContaining("Only a chief"),
         });
     expect(await openWaits(run.home)).toHaveLength(1);
+});
+
+it("finds a living received agent once, including its office address facts", async () => {
+    const { findInState } = await import("../src/realm/roads.ts");
+    const { stateOf } = await import("../src/state.ts");
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    const state = await stateOf(home, { epoch: 0, revision: 0 }, context);
+    expect(findInState(state, { agent: "mayor" })).toMatchObject({
+        ref: { hamlet: "home", number: 0 },
+        mayor: true,
+        name: "founder",
+    });
 });
