@@ -14,7 +14,6 @@ import {
 import { expect, it, vi } from "vitest";
 import {
     ErrandEntry,
-    followHome,
     InstructionsDoc,
     LetterEntry,
     owed,
@@ -105,7 +104,7 @@ it("keeps instructions until settlement and for the protected interval", async (
     await vi.waitFor(() => expect(entered).toBe(true));
     release();
     await submitted.wait(context);
-    await followHome(home, context);
+    await home.follow.settled(context);
     const after = await home.harness.snapshot(
         InstructionsDoc,
         agentKey(MAYOR),

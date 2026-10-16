@@ -5,7 +5,7 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it, vi } from "vitest";
-import { chatOf, type With } from "../src/chats.ts";
+import { current, type With } from "../src/chats.ts";
 import {
     dismiss,
     lapse,
@@ -123,7 +123,7 @@ describe("what waits for a chief", () => {
             },
         ]);
         for (const chief of [CHIEF, "bea"]) {
-            const chat = await chatOf(home, { agent: MAYOR, chief }, context);
+            const chat = await current(home, { agent: MAYOR, chief }, context);
             const result = (await transcript(chat)).find(
                 (entry) => entry.kind === "pi.tool-result",
             );

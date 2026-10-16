@@ -5,12 +5,11 @@ import type { AuthPrompt } from "@earendil-works/pi-ai";
 import type { Submission } from "@earendil-works/pi-durable";
 import {
     type ChatId,
-    newChat,
-    resumeChat,
-    retry,
-    rewind,
-    stopAgent,
-    stopChiefAgents,
+    carryOn,
+    resume,
+    start,
+    stop as stopConversation,
+    takeBack,
 } from "./chats.ts";
 import {
     type Client,
@@ -65,15 +64,19 @@ export async function serveHome(
         watches?.delete(chat);
     };
     const changed = async (
-        outcome: string | Result<string, ChiefFailure>,
+        outcome: string | Result<string | Receipt, ChiefFailure>,
     ): Promise<Result<Receipt, ChiefFailure>> => {
         if (typeof outcome !== "string" && !outcome.ok) return outcome;
         await state.refresh();
         return ok({
-            text: typeof outcome === "string" ? outcome : outcome.value,
+            ...(typeof outcome === "string"
+                ? { text: outcome }
+                : typeof outcome.value === "string"
+                  ? { text: outcome.value }
+                  : outcome.value),
         });
     };
-    const chatOf = async (
+    const current = async (
         address: Address,
     ): Promise<Result<ChatId, ChiefFailure>> => {
         const target = await livingAgent(home, address, "change chat", context);
@@ -106,7 +109,7 @@ export async function serveHome(
                 );
                 await state.refresh();
                 if (outcome !== undefined)
-                    return replyFor(message.id, outcome, home.secrets);
+                    return replyFor(message.id, outcome, home.secrets, "typed");
                 const done = replyFor(
                     message.id,
                     ok({ text: "" }),
@@ -257,10 +260,7 @@ export async function serveHome(
                     home.secrets,
                 ),
             read: async (message) => {
-                // D2/D3 replace this read-call compatibility catch with address and watch failures.
-                const outcome = await read(home, message, context).catch(
-                    legacyRefusal,
-                );
+                const outcome = await read(home, message, context);
                 return outcome.ok
                     ? home.secrets.value(outcome.value)
                     : replyFor(message.id, outcome, home.secrets);
@@ -279,70 +279,50 @@ export async function serveHome(
                     home.secrets,
                 ),
             stop: async (message) => {
-                // D3 replaces these stop-call compatibility catches with ConversationFailure.
                 if (message.agent === undefined)
                     return replyFor(
                         message.id,
                         await changed(
-                            await stopChiefAgents(home, context).catch(
-                                legacyRefusal,
-                            ),
+                            await stopConversation(home, "all", context),
                         ),
                         home.secrets,
                     );
-                const chat = await chatOf(message.agent);
+                const chat = await current(message.agent);
                 if (!chat.ok) return replyFor(message.id, chat, home.secrets);
                 return replyFor(
                     message.id,
                     await changed(
-                        await stopAgent(home, chat.value.agent, context).catch(
-                            legacyRefusal,
-                        ),
+                        await stopConversation(home, chat.value.agent, context),
                     ),
                     home.secrets,
                 );
             },
             new: async (message) => {
-                const chat = await chatOf(message.to);
+                const chat = await current(message.to);
                 if (!chat.ok) return replyFor(message.id, chat, home.secrets);
-                // D3 replaces this new-session compatibility catch with ConversationFailure.
-                const outcome = await newChat(home, chat.value, context)
-                    .then(() => ok("Started a new session."))
-                    .catch(legacyRefusal);
                 return replyFor(
                     message.id,
-                    await changed(outcome),
+                    await changed(await start(home, chat.value, context)),
                     home.secrets,
                 );
             },
             resume: async (message) => {
-                const chat = await chatOf(message.to);
+                const chat = await current(message.to);
                 if (!chat.ok) return replyFor(message.id, chat, home.secrets);
-                // D3 replaces this resume-call compatibility catch with ConversationFailure.
-                const outcome = await resumeChat(
-                    home,
-                    chat.value,
-                    message.number,
-                    context,
-                )
-                    .then(() => ok("Went back to an earlier session."))
-                    .catch(legacyRefusal);
                 return replyFor(
                     message.id,
-                    await changed(outcome),
+                    await changed(
+                        await resume(home, chat.value, message.number, context),
+                    ),
                     home.secrets,
                 );
             },
             retry: async (message) => {
-                const chat = await chatOf(message.to);
+                const chat = await current(message.to);
                 if (!chat.ok) return replyFor(message.id, chat, home.secrets);
-                // D3 replaces this retry-call compatibility catch with ConversationFailure.
-                const outcome = await retry(home, chat.value, context)
-                    .then(() => ok("Carrying on from where it stopped."))
-                    .catch(legacyRefusal);
                 return replyFor(
                     message.id,
-                    await changed(outcome),
+                    await changed(await carryOn(home, chat.value, context)),
                     home.secrets,
                 );
             },
@@ -355,37 +335,16 @@ export async function serveHome(
                 );
                 if (!access.ok)
                     return replyFor(message.id, access, home.secrets);
-                // D3 replaces this writable-chat compatibility catch with WatchFailure.
-                try {
-                    requireWritable(message.chat);
-                } catch (cause) {
-                    return replyFor(
-                        message.id,
-                        legacyRefusal(cause),
-                        home.secrets,
-                    );
-                }
-                if (message.chat.past !== undefined)
-                    return replyFor(
-                        message.id,
-                        legacyRefusal(
-                            "Open the current conversation to rewind it.",
-                        ),
-                        home.secrets,
-                    );
-                const chat = await chatOf(message.chat.with);
+                const writable = requireWritable(message.chat);
+                if (!writable.ok)
+                    return replyFor(message.id, writable, home.secrets);
+                const chat = await current(message.chat.with);
                 if (!chat.ok) return replyFor(message.id, chat, home.secrets);
-                // D3 replaces this rewind-call compatibility catch with ConversationFailure.
-                const outcome = await changed(
-                    await rewind(home, chat.value, message.item, context).catch(
-                        legacyRefusal,
-                    ),
-                );
                 return replyFor(
                     message.id,
-                    outcome.ok
-                        ? ok({ ...outcome.value, kind: "rewound" })
-                        : outcome,
+                    await changed(
+                        await takeBack(home, chat.value, message.item, context),
+                    ),
                     home.secrets,
                 );
             },

@@ -12,11 +12,11 @@ import {
     type Transcript,
     type Turn,
 } from "../src/protocol.ts";
-import { type AddressFailure, RealmDoc } from "../src/realm.ts";
+import { RealmDoc } from "../src/realm.ts";
 import { RecordDoc } from "../src/record.ts";
 import { err, ok, type Result } from "../src/result.ts";
 import { faultFor, replyFor } from "../src/server.ts";
-import { watchChat } from "../src/transcript.ts";
+import { type WatchFailure, watchChat } from "../src/transcript.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,
@@ -206,7 +206,7 @@ it("keeps the recorded refusal envelopes byte-identical for legacy owner excepti
 
 it("lets the envelope render a watch's returned failure without a prebuilt fault", async () => {
     const home = await testHome(scratch(), { models: fauxModels().models });
-    const updates: Result<Transcript | Turn, AddressFailure>[] = [];
+    const updates: Result<Transcript | Turn, WatchFailure>[] = [];
     const outcome = await watchChat(
         home,
         { with: { hamlet: "home", agent: "mayor" } },

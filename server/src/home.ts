@@ -72,6 +72,8 @@ export type HomeBase = {
 
 /** A home this process holds open (S2, ADR 0005). */
 export type Home = HomeBase & {
+    /** Settles the follow-up work already admitted by this home. */
+    readonly follow: { settled(context: Context): Promise<void> };
     readonly harness: Harness;
     readonly registry: Registry;
     readonly models: MutableModels;
@@ -143,7 +145,15 @@ export async function openHome(
         void harness.closed.then(() => peerStatistics.close());
         const running: ReturnType<Part>[] = [];
         let closing: Promise<void> | undefined;
+        let follow: Home["follow"] | undefined;
         const home: Home = {
+            get follow() {
+                if (!follow)
+                    throw new Error(
+                        "The conversation follow part is not installed.",
+                    );
+                return follow;
+            },
             ...base,
             harness,
             registry,
@@ -166,6 +176,7 @@ export async function openHome(
         running.push(
             ...[...PARTS, ...(options.parts ?? [])].map((part) => part(home)),
         );
+        follow = running.find((part) => part.follow !== undefined)?.follow;
         for (const part of running) {
             if (part.extension !== undefined) registry.install(part.extension);
         }
@@ -262,6 +273,7 @@ async function found(home: Home, context: Context): Promise<void> {
  */
 export type Part = (home: Home) => {
     readonly extension?: Extension;
+    readonly follow?: Home["follow"];
     start?(context: Context): Promise<void>;
     stop?(context: Context): Promise<void>;
 };

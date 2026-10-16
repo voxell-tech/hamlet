@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import { chatOf } from "../chats/conversations.ts";
-import { historyOf } from "../chats.ts";
+import { current } from "../chats/conversations.ts";
+import { history } from "../chats.ts";
 import { envFor } from "../environment.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Home } from "../home.ts";
@@ -58,8 +58,8 @@ export async function read(
     const agent = resolved.value;
     const chat = { agent, chief: home.chief };
     if (message.what === "history")
-        return ok({ ...reply, history: await historyOf(home, chat, context) });
-    const conversation = await chatOf(home, chat, context);
+        return ok({ ...reply, history: await history(home, chat, context) });
+    const conversation = await current(home, chat, context);
     if (message.what === "prompt")
         return ok({
             ...reply,

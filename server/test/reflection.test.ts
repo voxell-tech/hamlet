@@ -6,16 +6,16 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it, vi } from "vitest";
 import {
-    followHome,
-    newChat,
     ReflectionDoc,
     reflect,
-    resumeChat,
-    rewind,
+    resume,
+    start,
     stopAgent,
+    takeBack,
 } from "../src/chats.ts";
 import { SettingsDoc } from "../src/settings.ts";
 import {
+    admitted,
     CHIEF,
     context,
     fauxModels,
@@ -53,7 +53,7 @@ describe("reflection", () => {
             },
         ]);
         await (await say(home, "First.")).wait(context);
-        await followHome(home, context);
+        await home.follow.settled(context);
         expect(faux.state.callCount).toBe(1);
         await (await say(home, "Second.")).wait(context);
         await vi.waitFor(async () =>
@@ -64,7 +64,7 @@ describe("reflection", () => {
             ).toHaveLength(1),
         );
         await (await mayorChat(home)).waitForIdle(context);
-        await followHome(home, context);
+        await home.follow.settled(context);
         expect(
             await home.harness.snapshot(
                 ReflectionDoc,
@@ -89,7 +89,7 @@ describe("reflection", () => {
             fauxAssistantMessage("Noted."),
         ]);
         await (await say(home, "Fail.")).wait(context);
-        await followHome(home, context);
+        await home.follow.settled(context);
         expect(
             await home.harness.snapshot(
                 ReflectionDoc,
@@ -98,11 +98,13 @@ describe("reflection", () => {
             ),
         ).toEqual({ unreflected: 0 });
         await (await say(home, "Succeed.")).wait(context);
-        const reflection = await reflect(home, chat, context);
+        const reflection = await admitted((submitted) =>
+            reflect(home, chat, context, submitted),
+        );
         expect(await reflection?.wait(context)).toMatchObject({
             status: "done",
         });
-        await followHome(home, context);
+        await home.follow.settled(context);
         expect(faux.state.callCount).toBe(3);
         await home.close(context);
         expect(faux.state.callCount).toBe(3);
@@ -120,7 +122,8 @@ describe("reflection", () => {
         const home = await testHome(dir, { models, env: {} });
         await (await say(home, "Old chief line.")).wait(context);
         const old = await mayorChat(home);
-        const current = await newChat(home, chat, context);
+        await start(home, chat, context);
+        const current = await mayorChat(home);
         expect(current.id).not.toBe(old.id);
         await old.waitForIdle(context);
         expect(
@@ -159,17 +162,17 @@ it("uses a new ordinal for each automatic or explicit reflection, even at the sa
         Array.from({ length: 6 }, () => fauxAssistantMessage("Noted.")),
     );
     await (await say(home, "one")).wait(context);
-    await followHome(home, context);
+    await home.follow.settled(context);
     await (await mayorChat(home)).waitForIdle(context);
     await (await say(home, "two")).wait(context);
-    await followHome(home, context);
+    await home.follow.settled(context);
     await (await mayorChat(home)).waitForIdle(context);
     const explicit = await Promise.all([
-        reflect(home, chat, context),
-        reflect(home, chat, context),
+        admitted((submitted) => reflect(home, chat, context, submitted)),
+        admitted((submitted) => reflect(home, chat, context, submitted)),
     ]);
     await Promise.all(explicit.map((each) => each?.wait(context)));
-    await followHome(home, context);
+    await home.follow.settled(context);
     const entries = await transcript(await mayorChat(home));
     expect(
         entries.filter((entry) => entry.kind === "hamlet.reflection"),
@@ -202,7 +205,7 @@ it("bounds shutdown reflection at 120 seconds and resumes the same submission af
     ]);
     const home = await testHome(dir, { models, env: {} });
     await (await say(home, "Remember.")).wait(context);
-    await followHome(home, context);
+    await home.follow.settled(context);
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
         const closing = home.close(context);
@@ -215,7 +218,7 @@ it("bounds shutdown reflection at 120 seconds and resumes the same submission af
     }
     const reopened = await testHome(dir, { models, env: {} });
     await (await mayorChat(reopened)).waitForIdle(context);
-    await followHome(reopened, context);
+    await reopened.follow.settled(context);
     expect(
         (await transcript(await mayorChat(reopened))).filter(
             (entry) => entry.kind === "hamlet.reflection",
@@ -238,12 +241,16 @@ it("resets the count when a reflection cannot start because its model is unavail
     });
     faux.setResponses([fauxAssistantMessage("Answered.")]);
     await (await say(home, "Remember.")).wait(context);
-    await followHome(home, context);
+    await home.follow.settled(context);
     models.deleteProvider("faux");
     expect(
-        await (await reflect(home, chat, context))?.wait(context),
+        await (
+            await admitted((submitted) =>
+                reflect(home, chat, context, submitted),
+            )
+        ).wait(context),
     ).toMatchObject({ status: "unanswered", reason: "no_model" });
-    await followHome(home, context);
+    await home.follow.settled(context);
     expect(
         (
             await home.harness.snapshot(
@@ -280,7 +287,7 @@ it("keeps shutdown prompt with a running chief turn and reflects its queued work
     ]);
     const home = await testHome(dir, { models, env: {} });
     await (await say(home, "Remember this.")).wait(context);
-    await followHome(home, context);
+    await home.follow.settled(context);
     const input = await say(home, "Long work.");
     await vi.waitFor(() => expect(running).toBe(true));
     const at = Date.now();
@@ -293,7 +300,7 @@ it("keeps shutdown prompt with a running chief turn and reflects its queued work
         ),
     ).toMatchObject({ status: "done" });
     await (await mayorChat(reopened)).waitForIdle(context);
-    await followHome(reopened, context);
+    await reopened.follow.settled(context);
     expect(
         (await transcript(await mayorChat(reopened))).filter(
             (entry) => entry.kind === "hamlet.reflection",
@@ -340,7 +347,7 @@ it("withdraws a queued reflection on stop, counts only dropped chief lines, then
     release?.();
     await first.wait(context);
     await vi.waitFor(async () => expect(await openWaits(home)).toHaveLength(1));
-    await followHome(home, context);
+    await home.follow.settled(context);
     const conversation = await mayorChat(home);
     const { InboxDoc } = await import("@earendil-works/pi-durable");
     expect(
@@ -360,9 +367,9 @@ it("withdraws a queued reflection on stop, counts only dropped chief lines, then
         }),
     );
     await (await say(home, "C")).wait(context);
-    await followHome(home, context);
+    await home.follow.settled(context);
     await conversation.waitForIdle(context);
-    await followHome(home, context);
+    await home.follow.settled(context);
     expect(
         (await transcript(conversation)).filter(
             (entry) => entry.kind === "hamlet.reflection",
@@ -373,7 +380,9 @@ it("withdraws a queued reflection on stop, counts only dropped chief lines, then
             entry.kind === "hamlet.chief" &&
             (entry.data as { text: string }).text === "C",
     );
-    expect(await rewind(home, chat, `${target?.id}:0`, context)).toBe("C");
+    expect(
+        await takeBack(home, chat, `${target?.id}:0`, context),
+    ).toMatchObject({ ok: true, value: { text: "C", kind: "rewound" } });
 });
 
 it("refuses new reflection approvals at close without waiting or keeping an unanswerable wait", async () => {
@@ -394,7 +403,7 @@ it("refuses new reflection approvals at close without waiting or keeping an unan
     });
     await setFolder(home, folder);
     await (await say(home, "Remember.")).wait(context);
-    await followHome(home, context);
+    await home.follow.settled(context);
     const conversation = await mayorChat(home);
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     let closed = false;
@@ -436,19 +445,19 @@ it("withdraws the reflection owed by a retiring conversation and can reflect aft
     const old = await mayorChat(home);
     const held = await say(home, "B");
     await vi.waitFor(async () => expect(await openWaits(home)).toHaveLength(1));
-    await newChat(home, chat, context);
+    await start(home, chat, context);
     await stopAgent(home, MAYOR, context);
     expect(await held.wait(context)).toMatchObject({ status: "unanswered" });
-    await followHome(home, context);
+    await home.follow.settled(context);
     expect(faux.state.callCount).toBe(2);
-    await resumeChat(home, chat, 1, context);
+    await resume(home, chat, 1, context);
     await home.harness.commit(async (tx) => {
         (await tx.doc(SettingsDoc)).reflectEvery = 1;
     }, context);
     await (await say(home, "C")).wait(context);
-    await followHome(home, context);
+    await home.follow.settled(context);
     await old.waitForIdle(context);
-    await followHome(home, context);
+    await home.follow.settled(context);
     expect(
         (await transcript(old)).filter(
             (entry) => entry.kind === "hamlet.reflection",
@@ -459,5 +468,7 @@ it("withdraws the reflection owed by a retiring conversation and can reflect aft
             entry.kind === "hamlet.chief" &&
             (entry.data as { text: string }).text === "C",
     );
-    expect(await rewind(home, chat, `${target?.id}:0`, context)).toBe("C");
+    expect(
+        await takeBack(home, chat, `${target?.id}:0`, context),
+    ).toMatchObject({ ok: true, value: { text: "C", kind: "rewound" } });
 });

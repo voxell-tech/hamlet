@@ -3,71 +3,38 @@ import type { Context } from "@earendil-works/chord";
 import {
     type Conversation,
     type ConversationId,
-    defineDoc,
-    defineDocFamily,
     defineEntry,
     type InputSubmissionDraft,
     type Submission,
     type Tx,
 } from "@earendil-works/pi-durable";
 import type { Home } from "../home.ts";
-import { configureAgent } from "../models/choice.ts";
-import { type AgentRef, agentKey, HOME } from "../record.ts";
+import type { AgentRef } from "../record.ts";
+import { err, ok, type Result } from "../result.ts";
+import { configureAgent } from "./configure.ts";
+import {
+    AgentConversationsDoc,
+    type Chat,
+    ChatDoc,
+    type ChatId,
+    type With,
+    WithDoc,
+} from "./documents.ts";
+import type { ConversationFailure } from "./failure.ts";
+
+export {
+    AgentConversationsDoc,
+    type Chat,
+    type ChatConversation,
+    ChatDoc,
+    type ChatId,
+    type With,
+    WithDoc,
+} from "./documents.ts";
+
+import { agentKey } from "../record.ts";
 import { InstructionsDoc } from "./instructions.ts";
 import { TaskDoc } from "./tasks.ts";
-/** The agent a conversation is with, the chief who talks to it, and its number in their chat (C22). */
-export type With = {
-    hamlet: string;
-    /** The agent's number. */
-    number: number;
-    /** `null` for a conversation with no chief in it. */
-    chief: string | null;
-    chat: number;
-};
-
-/** Whom each conversation is with. */
-export const WithDoc = defineDoc<With>({
-    kind: "hamlet.with",
-    version: 1,
-    scope: "conversation",
-    history: "latest",
-    fork: "current",
-    initial: () => ({ hamlet: HOME, number: 0, chief: null, chat: 1 }),
-});
-
-/** A chat: an agent, and the chief who talks to it. */
-export type ChatId = {
-    agent: AgentRef;
-    chief: string;
-};
-
-/** One conversation of a chat, by its number in the chat (C24). */
-export type ChatConversation = {
-    number: number;
-    conversation: ConversationId;
-    began: number;
-};
-
-/** A chief's chat with an agent: its conversations, and which one is in use (C22, C24). */
-export type Chat = {
-    current: number;
-    conversations: ChatConversation[];
-    /** Reflections submitted so far, which numbers the next one (C5). */
-    reflections: number;
-};
-
-/** Each agent's chats, by `agentKey`, each by its chief. */
-export const ChatDoc = defineDocFamily<
-    { chats: { [chief: string]: Chat } },
-    string
->({
-    kind: "hamlet.chat",
-    version: 1,
-    scope: "session",
-    family: true,
-    initial: () => ({ chats: {} }),
-});
-
 /** A line a chief typed, as its conversation keeps it (H24). */
 export const ChiefEntry = defineEntry<{
     chief: string;
@@ -165,7 +132,7 @@ export async function submitLine(
     line: { id: string; text: string },
     context: Context,
 ): Promise<Submission> {
-    const conversation = await chatOf(home, chat, context);
+    const conversation = await current(home, chat, context);
     const at = home.now();
     const task = `chief:${conversation.id}:${line.id}`;
     await home.harness.commit(async (tx) => {
@@ -188,7 +155,7 @@ export async function submitLine(
 }
 
 /** The current conversation of `chat`, which its first use starts. */
-export async function chatOf(
+export async function current(
     home: Home,
     chat: ChatId,
     context: Context,
@@ -264,14 +231,30 @@ export function conversationsOf(chats: {
     );
 }
 
-/** Every conversation belonging to an agent. */
-export const AgentConversationsDoc = defineDocFamily<
-    { ids: ConversationId[] },
-    string
->({
-    kind: "hamlet.agent-conversations",
-    version: 1,
-    scope: "session",
-    family: true,
-    initial: () => ({ ids: [] }),
-});
+/** An earlier conversation by stable session number, without creating a chat. */
+export async function past(
+    home: Home,
+    chat: ChatId,
+    number: number,
+    context: Context,
+): Promise<Result<Conversation, ConversationFailure>> {
+    const known = (
+        await home.harness.snapshot(ChatDoc, agentKey(chat.agent), context)
+    )?.chats[chat.chief];
+    const id = known?.conversations.find(
+        (each) => each.number === number,
+    )?.conversation;
+    const conversation =
+        id === undefined
+            ? undefined
+            : await home.harness.conversation(id, context);
+    return conversation === undefined
+        ? err({
+              kind: "no-past-session",
+              number,
+              operation: "resume",
+              chat,
+              retrySafe: true,
+          })
+        : ok(conversation);
+}

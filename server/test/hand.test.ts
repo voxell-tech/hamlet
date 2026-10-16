@@ -294,8 +294,8 @@ describe("tools added by hand", () => {
         ]);
         const second = await say(home, "Peek.", "other-chief");
         expect((await second.wait(context)).status).toBe("done");
-        const { chatOf } = await import("../src/chats.ts");
-        const other = await chatOf(
+        const { current } = await import("../src/chats.ts");
+        const other = await current(
             home,
             { agent: { hamlet: "home", number: 0 }, chief: "other-chief" },
             context,

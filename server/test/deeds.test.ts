@@ -193,7 +193,7 @@ it("stops a held turn by the founder's name, drops its wait and queue, and retri
 });
 
 it("keeps the same conversations, entries and waits for typed and structured conversation deeds (S6)", async () => {
-    const { rewind } = await import("../src/chats.ts");
+    const { takeBack } = await import("../src/chats.ts");
     const { ChatDoc } = await import("../src/chats.ts");
     const { mayorChat, transcript, openWaits } = await import("./support.ts");
     const results = [];
@@ -254,7 +254,7 @@ it("keeps the same conversations, entries and waits for typed and structured con
             ).toMatchObject({ kind: "rewound", text: "Held." });
         } else {
             expect(
-                await rewind(
+                await takeBack(
                     run.home,
                     {
                         agent: { hamlet: "home", number: 0 },
@@ -263,7 +263,10 @@ it("keeps the same conversations, entries and waits for typed and structured con
                     `${chief.id}:0`,
                     context,
                 ),
-            ).toBe("Held.");
+            ).toMatchObject({
+                ok: true,
+                value: { text: "Held.", kind: "rewound" },
+            });
         }
         const index = (
             await run.home.harness.snapshot(ChatDoc, "home:0", context)

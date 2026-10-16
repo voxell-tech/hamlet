@@ -5,11 +5,11 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import type { Tx } from "@earendil-works/pi-durable";
 import { describe, expect, it, vi } from "vitest";
+import { commitEdit } from "../src/chats.ts";
 import type { Home } from "../src/home.ts";
 import { defaultLimits, LimitsDoc } from "../src/limits.ts";
-import { choose, commitEdit } from "../src/models.ts";
 import { HOME, RecordDoc } from "../src/record.ts";
-import { SettingsDoc } from "../src/settings.ts";
+import { choose, SettingsDoc } from "../src/settings.ts";
 import {
     addHamlet,
     CHIEF,

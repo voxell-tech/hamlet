@@ -77,11 +77,14 @@ it("resolves a read-only peer conversation without opening a chief conversation"
     ).toEqual([
         { with: smith, kind: "questions", count: 1, last: expect.any(Number) },
     ]);
-    expect(() => requireWritable(chat)).toThrow("read-only");
-    expect(() => requireWritable({ with: chat.with })).not.toThrow();
-    await expect(
-        agentConversation(home, { ...chat, from: scout }, context),
-    ).rejects.toThrow("no conversation");
+    expect(requireWritable(chat)).toMatchObject({
+        ok: false,
+        error: { kind: "read-only-peer" },
+    });
+    expect(requireWritable({ with: chat.with })).toMatchObject({ ok: true });
+    expect(
+        await peerConversation(home, { ...chat, from: scout }, context),
+    ).toMatchObject({ ok: false, error: { kind: "no-peer-conversation" } });
 });
 
 it("refuses a peer watch by a chief of neither agent", async () => {
@@ -443,4 +446,95 @@ it("does not reread old peer entries on state refresh and updates counts after n
     readEntries = 0;
     await state();
     expect(readEntries).toBe(0);
+});
+
+it("keeps the writer of an earlier peer message named after successive moves", async () => {
+    const { addHamlet, MAYOR } = await import("./support.ts");
+    const { models, faux } = fauxModels();
+    const run = await served({ models, env: { HAMLET_REFLECT_EVERY: "0" } });
+    const scout = await addAgent(run.home, "home", "scout");
+    const mill = await addHamlet(run.home, "mill", "miller");
+    const dock = await addHamlet(run.home, "dock", "docker");
+    fauxAgents(faux, {
+        "home:1": [
+            fauxAssistantMessage(
+                fauxToolCall("ask_agent", {
+                    name: "mayor",
+                    message: "Remember my question",
+                }),
+                { stopReason: "toolUse" },
+            ),
+            fauxAssistantMessage("Thanks"),
+        ],
+        "home:0": [fauxAssistantMessage("Remembered")],
+    });
+    await (
+        await submitLine(
+            run.home,
+            { agent: scout, chief: run.home.chief },
+            { id: randomUUID(), text: "Ask" },
+            context,
+        )
+    ).wait(context);
+    const chat = {
+        with: { hamlet: "home", agent: "mayor" },
+        from: scout,
+        kind: "questions" as const,
+    };
+    const author = async () => {
+        const page = await request(run.connection, run.messages, {
+            type: "open",
+            id: randomUUID(),
+            chat,
+        });
+        if (page.type !== "transcript") throw new Error("No peer transcript");
+        return page.items[0]?.author;
+    };
+    expect(await author()).toBe("scout@home");
+    for (const [from, to] of [
+        [MAYOR, mill],
+        [mill, dock],
+    ] as const) {
+        for (const mayor of [from, to]) {
+            fauxAgents(faux, {
+                [`${mayor.hamlet}:${mayor.number}`]: [
+                    fauxAssistantMessage(
+                        fauxToolCall("agree_move", {
+                            agent: "scout",
+                            to: to.hamlet,
+                            reason: "Learn",
+                        }),
+                        { stopReason: "toolUse" },
+                    ),
+                    fauxAssistantMessage("Done"),
+                ],
+                ...Object.fromEntries(
+                    [MAYOR, mill, dock]
+                        .filter((ref) => ref.hamlet !== mayor.hamlet)
+                        .map((ref) => [
+                            `${ref.hamlet}:${ref.number}`,
+                            [fauxAssistantMessage("Noted")],
+                        ]),
+                ),
+            });
+            await (
+                await submitLine(
+                    run.home,
+                    { agent: mayor, chief: run.home.chief },
+                    { id: randomUUID(), text: "Agree" },
+                    context,
+                )
+            ).wait(context);
+        }
+        const { livingAgent } = await import("../src/realm.ts");
+        const moved = await livingAgent(
+            run.home,
+            { hamlet: to.hamlet, agent: "scout" },
+            "watch",
+            context,
+        );
+        if (!moved.ok) throw new Error("No moved scout");
+        chat.from = moved.value.ref;
+        expect(await author()).toBe(`scout@${to.hamlet}`);
+    }
 });

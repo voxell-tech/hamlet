@@ -9,6 +9,7 @@ import {
     section,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { reconfigure } from "../chats/configure.ts";
 import {
     ChatDoc,
     currentOf,
@@ -24,7 +25,6 @@ import { buildHouse } from "../home/layout.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { removeHouse } from "../house.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
-import { reconfigure } from "../models.ts";
 import { lapseAgent } from "../oversight/waits.ts";
 import {
     agentKey,

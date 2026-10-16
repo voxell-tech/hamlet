@@ -24,10 +24,11 @@ import {
     type ToolExecutionApi,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { reconfigure } from "../chats/configure.ts";
 import {
     AgentConversationsDoc,
     ChatDoc,
-    chatOf,
+    current,
     WithDoc,
 } from "../chats/conversations.ts";
 import { PayerDoc } from "../chats/errands.ts";
@@ -39,7 +40,6 @@ import type { Home, Part } from "../home.ts";
 import { removeHouse } from "../house.ts";
 import { askAgent, PeersDoc } from "../letters.ts";
 import { LimitsDoc } from "../limits/rules.ts";
-import { reconfigure } from "../models.ts";
 import { lapseAgent } from "../oversight/waits.ts";
 import { CharacterDoc } from "../prompt.ts";
 import { type AgentRef, agentKey, HOME, RecordDoc } from "../record.ts";
@@ -653,7 +653,7 @@ async function chiefChats(
         for (const chief of chiefsOf(realm, hamlet, home.chief))
             chats.push(
                 (
-                    await chatOf(
+                    await current(
                         home,
                         { agent: { hamlet, number: record.mayor }, chief },
                         context,

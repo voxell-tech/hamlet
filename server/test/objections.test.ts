@@ -20,6 +20,7 @@ import { LedgerDoc, reconcile } from "../src/spend.ts";
 import {
     addAgent,
     addHamlet,
+    admitted,
     CHIEF,
     chatWith,
     context,
@@ -972,7 +973,7 @@ it.each([false, true])(
 );
 
 it("lets a chief-overseen retry ask the chief instead of guessing", async () => {
-    const { retry } = await import("../src/chats.ts");
+    const { carryOn } = await import("../src/chats.ts");
     const { models, faux } = fauxModels();
     const home = await testHome(scratch(), { models });
     faux.setResponses([
@@ -986,7 +987,9 @@ it("lets a chief-overseen retry ask the chief instead of guessing", async () => 
     expect(await (await say(home, "Order Dune")).wait(context)).toMatchObject({
         status: "unanswered",
     });
-    const sub = await retry(home, { agent: MAYOR, chief: CHIEF }, context);
+    const sub = await admitted((submitted) =>
+        carryOn(home, { agent: MAYOR, chief: CHIEF }, context, submitted),
+    );
     await eventually(async () =>
         expect((await openWaits(home)).some((w) => w.kind === "question")).toBe(
             true,

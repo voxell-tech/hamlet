@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
 import { erase, merge, record, remove, restore, undo } from "../src/agents.ts";
-import { chatOf, InstructionsDoc, submitLine, WithDoc } from "../src/chats.ts";
+import { current, InstructionsDoc, submitLine, WithDoc } from "../src/chats.ts";
 import { GrantsDoc, give, grantsOf } from "../src/gate.ts";
 import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
@@ -435,7 +435,7 @@ it.each(["remove", "merge"])(
         const home = await testHome(scratch(), { models: fauxModels().models });
         const scout = await addAgent(home, HOME, "scout");
         await addAgent(home, HOME, "smith");
-        const chat = await chatOf(
+        const chat = await current(
             home,
             { agent: scout, chief: home.chief },
             context,

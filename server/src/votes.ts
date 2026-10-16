@@ -17,11 +17,12 @@ import {
     type TaskId,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { reconfigure } from "./chats/configure.ts";
 import {
     AgentConversationsDoc,
     ChatDoc,
     ChiefEntry,
-    chatOf,
+    current,
     currentOf,
     LetterEntry,
     QuestionEntry,
@@ -35,7 +36,6 @@ import { untilAborted } from "./home/abort.ts";
 import { houseOf } from "./home/layout.ts";
 import type { Deed, Home, Part } from "./home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "./limits/rules.ts";
-import { reconfigure } from "./models.ts";
 import type { VoteView } from "./protocol.ts";
 import { foundHamlet, mayFound, removeHamlet } from "./realm/founding.ts";
 import { chiefsOf, isChief, liveHamlets, RealmDoc } from "./realm/places.ts";
@@ -1071,7 +1071,7 @@ export const vote: Deed = async (home, given, context) => {
     const r = await home.harness.snapshot(RecordDoc, given.hamlet, context);
     if (!r) throw new Error("No such hamlet.");
     await expire(home, given.hamlet, { chief: given.chief }, context);
-    const conversation = await chatOf(
+    const conversation = await current(
         home,
         {
             agent: { hamlet: given.hamlet, number: r.mayor },

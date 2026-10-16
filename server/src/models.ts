@@ -12,6 +12,7 @@ import {
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { defineExtension } from "@earendil-works/pi-durable";
+import { commitEdit } from "./chats/configure.ts";
 import type { Home, HomeBase, Part } from "./home.ts";
 import { LimitsDoc, limitsOf } from "./limits/rules.ts";
 import {
@@ -20,7 +21,6 @@ import {
     type Price,
     takeIn,
 } from "./models/catalogue.ts";
-import { choose, commitEdit } from "./models/choice.ts";
 import { endpointName } from "./models/endpoints.ts";
 import { plainly } from "./models/plainly.ts";
 import { compatible, protectedProvider } from "./models/providers.ts";
@@ -29,6 +29,7 @@ import { liveHamlets, RealmDoc } from "./realm/places.ts";
 import { RecordDoc } from "./record.ts";
 import { safeWords } from "./scrub.ts";
 import {
+    choose,
     modelRef,
     type Settings,
     SettingsDoc,
@@ -433,14 +434,7 @@ export {
     takeIn,
 } from "./models/catalogue.ts";
 export { checkConnection, checkModel, namedModel } from "./models/check.ts";
-export {
-    Choice,
-    choose,
-    commitEdit,
-    configureAgent,
-    type Edit,
-    reconfigure,
-} from "./models/choice.ts";
+
 export {
     addEndpoint,
     assumedRate,

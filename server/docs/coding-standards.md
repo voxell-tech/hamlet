@@ -36,15 +36,15 @@ These leaves may value-import only each other, the shared entries
 `change.ts`, `commands.ts`, `connection.ts`, `protocol.ts`, `record.ts`,
 `result.ts`, `sandbox.ts`, `scrub.ts`, `settings.ts`, and the legacy shared
 conversation core: `chats/conversations.ts`, `chats/errands.ts`,
-`chats/roles.ts`, `models/choice.ts`. That core is also directly importable
+`chats/configure.ts`, `chats/documents.ts`. That core is also directly importable
 and follows the same dependency rule. Type-only imports may reach the
 owning entries. Only `cli/serving.ts` value-imports the composition root
 `home.ts`; home helpers are imported from their leaves.
 
 `test/structure.test.ts` checks these paths and the value-import graph,
 including named re-exports, side-effect imports and literal dynamic
-imports. Only its three explicitly listed legacy cycles are allowed:
-conversation configuration, realm founding/votes, and departure/merge.
+imports. Only its two explicitly listed legacy cycles are allowed:
+realm founding/votes and departure/merge.
 Files in a listed cycle may import each other directly, keeping the cycle
 off their entries. Adding a member or joining cycles fails the check.
 

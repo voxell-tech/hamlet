@@ -132,7 +132,7 @@ async function typed(home: Home, text: string, agent = "mayor") {
     const outcome = await say(home, message, context);
     return outcome === undefined
         ? undefined
-        : replyFor(message.id, outcome, home.secrets);
+        : replyFor(message.id, outcome, home.secrets, "typed");
 }
 
 it("holds plain words at an approval and answers it from any chat without starting that chat", async () => {

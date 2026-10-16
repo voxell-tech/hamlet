@@ -22,7 +22,7 @@ import { conversationViews } from "./letters.ts";
 import { STARTERS } from "./library/shelf.ts";
 import { libraryView } from "./library.ts";
 import { LimitsDoc, limitsOf } from "./limits/rules.ts";
-import { choose, providersOf } from "./models.ts";
+import { providersOf } from "./models.ts";
 import { OversightDoc } from "./oversight/waits.ts";
 import { queue, says } from "./oversight/words.ts";
 import type {
@@ -44,7 +44,7 @@ import {
     named,
     RecordDoc,
 } from "./record.ts";
-import { type Settings, SettingsDoc, settingsOf } from "./settings.ts";
+import { choose, type Settings, SettingsDoc, settingsOf } from "./settings.ts";
 import { booksOf } from "./spend/ledger.ts";
 import { money } from "./spend/money.ts";
 import { reportOf } from "./spend.ts";
