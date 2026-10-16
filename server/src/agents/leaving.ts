@@ -436,7 +436,7 @@ export async function recordLines(
 ): Promise<string[]> {
     const r = await home.harness.snapshot(RecordDoc, hamlet, context);
     if (!r) return [];
-    const name = (n: number | "office") => endName(r, n);
+    const name = (n: number | "office") => endName(r, n, "created");
     const lines = r.decisions.flatMap((d) => {
         const text = history(d, r, name);
         return text

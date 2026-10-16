@@ -47,28 +47,49 @@ export function checkName(
     return ok(undefined);
 }
 
-/** The living or last recorded name of a stable agent number. */
+type NameFallback = "recorded" | "created" | "agent-number";
+
+/** Living and archived names take precedence over the selected historical fallback. */
 export function nameOf(
     record: Readonly<HamletRecord> | undefined,
     number: number,
+    fallback: NameFallback = "recorded",
 ): string {
-    return (
+    const known =
         record?.agents.find((a) => a.number === number)?.name ??
-        record?.archive.findLast((a) => a.agent.number === number)?.agent
-            .name ??
-        record?.decisions
-            .flatMap((d) =>
-                "name" in d && "agent" in d
-                    ? [{ number: d.agent, name: d.name }]
-                    : [],
-            )
-            .findLast((d) => d.number === number)?.name ??
-        String(number)
-    );
+        record?.archive.findLast((a) => a.agent.number === number)?.agent.name;
+    if (known !== undefined) return known;
+    switch (fallback) {
+        case "agent-number":
+            return `agent #${number}`;
+        case "created":
+            return (
+                record?.decisions
+                    .filter((d) => d.kind === "created")
+                    .find((d) => d.agent === number)?.name ?? String(number)
+            );
+        case "recorded":
+            return (
+                record?.decisions
+                    .flatMap((d) =>
+                        "name" in d && "agent" in d
+                            ? [{ number: d.agent, name: d.name }]
+                            : [],
+                    )
+                    .findLast((d) => d.number === number)?.name ??
+                String(number)
+            );
+    }
+    const unhandled: never = fallback;
+    throw new Error(`Unclassified name fallback: ${unhandled}`);
 }
 /** A road end in words, preserving the office address. */
-export function endName(record: Readonly<HamletRecord>, end: End): string {
-    return end === "office" ? "mayor" : nameOf(record, end);
+export function endName(
+    record: Readonly<HamletRecord>,
+    end: End,
+    fallback: NameFallback = "recorded",
+): string {
+    return end === "office" ? "mayor" : nameOf(record, end, fallback);
 }
 /** The recorded author in words for a chief. */
 export function byWords(by: string): string {

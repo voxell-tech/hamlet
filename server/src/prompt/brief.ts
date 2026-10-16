@@ -131,9 +131,9 @@ export const HamletBrief: Part = (home) => ({
                     }
                     const roads = roadsOf(record).flatMap((r) =>
                         r.a === place.number
-                            ? [endName(record, r.b)]
+                            ? [endName(record, r.b, "agent-number")]
                             : r.b === place.number
-                              ? [endName(record, r.a)]
+                              ? [endName(record, r.a, "agent-number")]
                               : [],
                     );
                     const realm = await input.read.snapshot(RealmDoc, context);
@@ -279,16 +279,16 @@ function decisionWords(
         case "erased":
             return `${by} ${d.kind} \`${d.name}\``;
         case "merged":
-            return `${by} merged \`${nameOf(record, d.absorb)}\` into \`${nameOf(record, d.keep)}\``;
+            return `${by} merged \`${nameOf(record, d.absorb, "agent-number")}\` into \`${nameOf(record, d.keep, "agent-number")}\``;
         case "road_built":
         case "road_removed":
-            return `${by} ${d.kind === "road_built" ? "built" : "took up"} a road between \`${endName(record, d.a)}\` and \`${endName(record, d.b)}\``;
+            return `${by} ${d.kind === "road_built" ? "built" : "took up"} a road between \`${endName(record, d.a, "agent-number")}\` and \`${endName(record, d.b, "agent-number")}\``;
         case "road_refused":
             return `The mayor did not build the road you asked for to \`${d.to}\``;
         case "mayor_changed":
-            return `${by} made \`${nameOf(record, d.to)}\` mayor in place of \`${nameOf(record, d.from)}\``;
+            return `${by} made \`${nameOf(record, d.to, "agent-number")}\` mayor in place of \`${nameOf(record, d.from, "agent-number")}\``;
         case "model":
-            return `${by} chose ${d.model || "the hamlet's own model"} for \`${nameOf(record, d.agent)}\``;
+            return `${by} chose ${d.model || "the hamlet's own model"} for \`${nameOf(record, d.agent, "agent-number")}\``;
         case "moved_in":
         case "moved_out":
             return `${by} moved \`${d.name}\` ${d.kind === "moved_in" ? "from" : "to"} \`${d.hamlet}\``;
