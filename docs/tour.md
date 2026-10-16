@@ -70,7 +70,7 @@ robots), `chief/` (the wizard and its Hearth), `hand/` (what the chief does
 by hand), `pick/` (pointing, selecting and the camera) and `sound/`.
 `hamlet_ui` has `screens/` for the panels that draw from the core's state
 alone, one file or folder each, and `widgets/` for what every panel is built
-from: `feel/`, `icons.rs`, `tabs.rs`, `platform.rs` and `tuning.rs`. The
+from: `feel/`, `icons.rs`, `tabs.rs` and `platform.rs`. The
 other panels are files beside them, and `theme.rs` and `looks.rs` are how
 things look.
 

@@ -88,6 +88,7 @@ impl Plugin for GalleryPlugin {
             )
             .add_plugins((
                 hamlet_ui::widgets::plugin,
+                hamlet_ui::tuning::plugin,
                 hamlet_ui::screens::plugin,
             ));
     }

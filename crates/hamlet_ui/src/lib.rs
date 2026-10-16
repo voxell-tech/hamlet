@@ -22,6 +22,7 @@ pub mod screens;
 mod sounds;
 mod status;
 pub mod theme;
+pub mod tuning;
 pub mod welcome;
 pub mod widgets;
 mod window;
@@ -49,7 +50,7 @@ pub use self::screens::{
 };
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
-pub use self::widgets::{feel, icons, platform, tabs, tuning};
+pub use self::widgets::{feel, icons, platform, tabs};
 pub use self::window::{ShowRequests, window_plugin};
 
 /// The context a view of the window is built in.
@@ -118,6 +119,7 @@ impl Plugin for UiPlugin {
             (
                 theme::plugin,
                 widgets::plugin,
+                tuning::plugin,
                 cursor::plugin,
                 sounds::plugin,
             ),
