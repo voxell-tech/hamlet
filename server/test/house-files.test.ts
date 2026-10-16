@@ -523,3 +523,30 @@ it("reads optional notes verbatim and omits undecodable or missing notes", async
     await fs.rm(join(house.path, "NOTES.md"));
     expect(await house.notesText(context)).toBe("");
 });
+
+it("keeps the 33 MB gift-delivery file cap even if a private stage grows", async () => {
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    const stage = scratch();
+    const file = await open(join(stage, "grown.bin"), "wx");
+    try {
+        await file.truncate(34 * 1024 * 1024);
+    } finally {
+        await file.close();
+    }
+    expect(
+        await deliverTree(
+            home,
+            { root: houseOf(home.layout, MAYOR), into: "inbox" },
+            stage,
+            ["grown.bin"],
+            context,
+        ),
+    ).toMatchObject({
+        ok: false,
+        error: { kind: "refused", operation: "deliver-tree" },
+    });
+    expect(await readdir(join(houseOf(home.layout, MAYOR), "inbox"))).toEqual(
+        [],
+    );
+    expect((await lstat(join(stage, "grown.bin"))).size).toBe(34 * 1024 * 1024);
+});

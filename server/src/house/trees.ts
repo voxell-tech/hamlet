@@ -399,7 +399,7 @@ async function copyInto(
     const env = treeWorker(home, {
         root: staged,
         stage: root,
-        caps: MERGE_CAPS,
+        caps: GIFT_CAPS,
     });
     const paths = targets.map((name) => join(root, into, name));
     let claimed: string | undefined;
