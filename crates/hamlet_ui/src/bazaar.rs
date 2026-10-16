@@ -1,8 +1,15 @@
-//! The Agent Bazaar: every model OpenRouter offers and those the
-//! other endpoints serve, for the chief to find, compare and add to
-//! the home, for an agent or as the default.
+//! The Agent Bazaar: its five stalls, each a tab of its panel and,
+//! when it is selected in the world, its keeper's counter in the
+//! Inspector. The Agent Stall sells every model OpenRouter offers and
+//! those the other endpoints serve, for the chief to add to the home,
+//! for an agent or as the default.
 
+mod artisans;
+mod counter;
+mod hamlets;
+mod plugins;
 mod shelf;
+mod skills;
 mod ware;
 
 use bevy::app::{App, Update};
@@ -25,6 +32,8 @@ use hamlet_model::bazaar::{Filter, Sort, Ware, is_openrouter};
 use hamlet_model::catalogue::{self, Catalogue};
 use hamlet_model::config::providers::{OPENROUTER, PROVIDERS};
 use hamlet_model::config::{Config, Endpoint};
+use hamlet_world::bazaar::Stall;
+use hamlet_world::pick::{Selected, Thing};
 
 use crate::dock::{PanelAppExt, panel, show_tab};
 use crate::icons::Glyph;
@@ -49,7 +58,87 @@ pub(crate) fn plugin(app: &mut App) {
             .icon(Glyph::Coins.image(ICON)),
     )
     .init_resource::<Browsing>()
-    .add_systems(Update, (signed_in, shelf::read_words));
+    .init_resource::<StallShown>()
+    .add_systems(
+        Update,
+        (
+            signed_in,
+            shelf::read_words,
+            follow_selection,
+            crate::tabs::mark::<StallShown>,
+        ),
+    );
+}
+
+/// The stall the bazaar's panel shows.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct StallShown(pub Stall);
+
+/// The icon of each stall, on its tab and at its counter.
+pub(crate) fn glyph(stall: Stall) -> Glyph {
+    match stall {
+        Stall::Agents => Glyph::Chip,
+        Stall::Artisans => Glyph::Robot,
+        Stall::Plugins => Glyph::Bolt,
+        Stall::Skills => Glyph::Book,
+        Stall::Hamlets => Glyph::Hamlet,
+    }
+}
+
+/// The tab of each stall.
+const TABS: [(StallShown, Glyph, &str); 5] = [
+    (StallShown(Stall::Agents), Glyph::Chip, "AGENTS"),
+    (StallShown(Stall::Artisans), Glyph::Robot, "ARTISANS"),
+    (StallShown(Stall::Plugins), Glyph::Bolt, "PLUGINS"),
+    (StallShown(Stall::Skills), Glyph::Book, "SKILLS"),
+    (StallShown(Stall::Hamlets), Glyph::Hamlet, "HAMLETS"),
+];
+
+/// Shows a stall selected in the world in the panel too.
+fn follow_selection(
+    selected: Res<Selected>,
+    mut shown: ResMut<StallShown>,
+) {
+    if !selected.is_changed() {
+        return;
+    }
+    if let Some(Thing::Stall(stall)) = selected.0
+        && shown.0 != stall
+    {
+        shown.0 = stall;
+    }
+}
+
+/// Opens the bazaar's panel at `stall`.
+pub fn open_stall(world: &mut World, stall: Stall) {
+    open(world, None);
+    world.resource_mut::<StallShown>().0 = stall;
+}
+
+/// What `stall` sells, as a page that fits the Inspector as well as
+/// the bazaar's panel.
+pub(crate) fn wares(stall: Stall) -> AnyView {
+    match stall {
+        Stall::Agents => keyed(
+            resource::<Browsing, _>(|browsing| browsing.open.clone()),
+            |open| match open {
+                Some(id) => ware::page(id.clone()),
+                None => shelf::page(),
+            },
+        )
+        .within(bare())
+        .boxed(),
+        Stall::Artisans => artisans::page(),
+        Stall::Plugins => plugins::page(),
+        Stall::Skills => skills::page(),
+        Stall::Hamlets => hamlets::page(),
+    }
+}
+
+/// A stall's keeper behind its counter, for the Inspector while the
+/// stall is selected in the world.
+pub(crate) fn counter(stall: Stall) -> AnyView {
+    counter::counter(stall)
 }
 
 /// What the chief is looking at in the bazaar.
@@ -116,6 +205,9 @@ enum Then {
 /// Opens the bazaar, to choose a model for `for_agent` where it is
 /// some.
 pub fn open(world: &mut World, for_agent: Option<Entity>) {
+    if for_agent.is_some() {
+        world.resource_mut::<StallShown>().0 = Stall::Agents;
+    }
     let mut browsing = world.resource_mut::<Browsing>();
     browsing.for_agent = for_agent;
     browsing.open = None;
@@ -379,19 +471,23 @@ pub(crate) fn stall() -> impl View {
     .gap(10.0)
 }
 
-/// The bazaar panel's contents: the shelf, or one ware on a page of
-/// its own.
+/// The bazaar panel's contents: a tab to each stall over what the
+/// stall shown sells.
 pub fn screen() -> AnyView {
-    let page = keyed(
-        resource::<Browsing, _>(|browsing| browsing.open.clone()),
-        |open| match open {
-            Some(id) => ware::page(id.clone()),
-            None => shelf::page(),
-        },
-    )
-    .within(crate::looks::bare().max_width(px(820.0)));
+    let tabs = crate::tabs::strip(&TABS, |world, shown| {
+        *world.resource_mut::<StallShown>() = shown;
+    });
+    let page =
+        keyed(resource::<StallShown, _>(|shown| shown.0), |stall| {
+            wares(*stall)
+        })
+        .within(crate::looks::bare().max_width(px(820.0)));
     AnyView::new(move |cx: &mut Cx| {
-        cx.build(scroll((page,)).fills_height())
+        cx.build(
+            column((tabs, scroll((page,)).fills_height()))
+                .gap(12.0)
+                .fills_height(),
+        )
     })
 }
 

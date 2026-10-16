@@ -78,6 +78,8 @@ enum Showing {
     Library,
     /// The models the home bought at the bazaar.
     Bazaar,
+    /// A stall of the bazaar, at its keeper's counter.
+    Stall(hamlet_world::bazaar::Stall),
     Agent,
 }
 
@@ -87,6 +89,7 @@ fn showing(world: &World) -> Showing {
         None => Showing::Overview,
         Some(Thing::Library) => Showing::Library,
         Some(Thing::Bazaar) => Showing::Bazaar,
+        Some(Thing::Stall(stall)) => Showing::Stall(stall),
         Some(Thing::Common(hamlet))
             if world.get_entity(hamlet).is_ok() =>
         {
@@ -125,6 +128,7 @@ pub fn screen() -> impl View {
             Showing::Chief(chief) => crate::chief::panel(*chief),
             Showing::Library => gone::library().boxed(),
             Showing::Bazaar => crate::bazaar::stall().boxed(),
+            Showing::Stall(stall) => crate::bazaar::counter(*stall),
             Showing::Agent => agent::living().boxed(),
         }
     })

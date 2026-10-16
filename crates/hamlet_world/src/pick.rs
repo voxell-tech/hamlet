@@ -124,6 +124,8 @@ pub enum Thing {
     Library,
     /// The Agent Bazaar, where the home's models are bought.
     Bazaar,
+    /// One stall of the bazaar.
+    Stall(crate::bazaar::Stall),
     /// The clockwork on a hamlet's workbench, which sets its mode.
     Clockwork(Entity),
     /// The workbench on a hamlet's common, which stands for its
@@ -160,6 +162,7 @@ impl Thing {
             }
             Thing::Library => "The Library".into(),
             Thing::Bazaar => "The Agent Bazaar".into(),
+            Thing::Stall(stall) => format!("The {}", stall.name()),
             Thing::Clockwork(hamlet) => {
                 format!("The Clockwork of {}", resident(hamlet))
             }

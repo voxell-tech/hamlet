@@ -5,6 +5,7 @@ pub mod bazaar;
 pub mod bubble;
 pub mod chief;
 pub mod debug;
+pub mod diorama;
 pub mod generator;
 pub mod hamlet;
 pub mod hand;

@@ -5,6 +5,7 @@
 mod build;
 mod merchant;
 mod shoppers;
+pub mod stalls;
 
 use std::f32::consts::TAU;
 
@@ -19,6 +20,7 @@ use self::build::FAIRY;
 use self::merchant::{CHEERS, STANDS, turban};
 pub use self::merchant::{Merchant, Traded};
 pub use self::shoppers::Shopper;
+pub use self::stalls::{Keeper, Stall};
 use crate::chief::mascot::{self, Rig};
 use crate::chief::{Chief, Look, Settled, place};
 use crate::generator::land::Land;

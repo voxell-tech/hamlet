@@ -277,6 +277,18 @@ fn for_bazaar(thing: Thing) -> Vec<AnyView> {
     ]
 }
 
+fn for_stall(
+    thing: Thing,
+    stall: hamlet_world::bazaar::Stall,
+) -> Vec<AnyView> {
+    vec![
+        item(format!("Open the {}", stall.name()), move |w| {
+            crate::bazaar::open_stall(w, stall)
+        }),
+        focus(thing),
+    ]
+}
+
 /// The skills `agent` could be given, each pressed to give it.
 pub(super) fn skills(world: &World, agent: Entity) -> Vec<AnyView> {
     orders::offers(world, agent)
@@ -312,5 +324,6 @@ pub(super) fn items(
         }
         Thing::Library => for_library(thing),
         Thing::Bazaar => for_bazaar(thing),
+        Thing::Stall(stall) => for_stall(thing, stall),
     }
 }

@@ -128,7 +128,9 @@ pub(crate) fn accompany(
     // To the library or the bazaar when that is what was chosen.
     let with = match selected.0 {
         Some(Thing::Library) => libraries.iter().next(),
-        Some(Thing::Bazaar) => bazaars.iter().next(),
+        Some(Thing::Bazaar | Thing::Stall(_)) => {
+            bazaars.iter().next()
+        }
         chosen => company(chosen, me.agent),
     };
     for (chief, mut beside) in &mut chiefs {

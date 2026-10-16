@@ -9,6 +9,7 @@ pub mod catalogue;
 pub mod core;
 pub mod oversight;
 pub mod session;
+pub mod skill_market;
 pub mod terminal;
 #[cfg(test)]
 mod testing;

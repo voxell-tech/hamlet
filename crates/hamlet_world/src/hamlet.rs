@@ -20,8 +20,8 @@ use crate::generator::land::Land;
 use crate::generator::society::{AgentId, Pair, Society, TownId};
 use crate::sky::CameraSettings;
 use crate::{
-    WorldSystems, bazaar, bubble, chief, hand, lantern, library,
-    moving, needs, orders, pick, works,
+    WorldSystems, bazaar, bubble, chief, diorama, hand, lantern,
+    library, moving, needs, orders, pick, works,
 };
 
 /// Draws the hamlets' agents and roads as a generated world. Add it
@@ -41,6 +41,7 @@ impl Plugin for HamletPlugin {
             chief::plugin,
             library::plugin,
             bazaar::plugin,
+            diorama::plugin,
             moving::plugin,
             pointing::plugin,
             works::plugin,

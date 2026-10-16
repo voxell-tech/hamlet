@@ -6,5 +6,7 @@ pub mod catalogue;
 pub mod chatgpt;
 pub mod config;
 pub mod log;
+pub mod market;
 pub mod provider;
 pub mod signin;
+pub mod skills_sh;

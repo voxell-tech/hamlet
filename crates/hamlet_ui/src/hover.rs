@@ -153,6 +153,7 @@ impl Told<'_, '_> {
             | Thing::ChiefPlace(_)
             | Thing::Library
             | Thing::Bazaar
+            | Thing::Stall(_)
             | Thing::Clockwork(_)
             | Thing::Workbench(_) => None,
         }
@@ -407,7 +408,7 @@ impl Told<'_, '_> {
                 let (agent, ruin) = self.agent_of(thing)?;
                 self.of_agent(agent, ruin, thing)
             }
-            Thing::Library | Thing::Bazaar => None,
+            Thing::Library | Thing::Bazaar | Thing::Stall(_) => None,
         }
     }
 }
