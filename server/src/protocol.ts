@@ -711,6 +711,8 @@ export const Item = object({
     ]),
     text: Type.String(),
     chief: Type.Optional(Type.String()),
+    /** The sending agent as name@hamlet, or hamlet#number if its record is gone. Never a chief. */
+    author: Type.Optional(Type.String()),
     rewindable: Type.Optional(Type.Boolean()),
     tool: Type.Optional(
         object({

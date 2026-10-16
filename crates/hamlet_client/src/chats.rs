@@ -280,6 +280,10 @@ fn status(
 
 fn received_item(item: v0::Item, chief: &str) -> Item {
     let entry = match item.kind {
+        v0::ItemKind::User if item.author.is_some() => Entry::Agent {
+            name: item.author.unwrap(),
+            text: item.text,
+        },
         v0::ItemKind::User => Entry::User {
             user: item.chief.unwrap_or_else(|| chief.into()),
             text: item.text,

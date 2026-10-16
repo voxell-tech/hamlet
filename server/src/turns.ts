@@ -44,7 +44,7 @@ import type {
     Transcript,
     UsageView,
 } from "./protocol.ts";
-import { addressed } from "./record.ts";
+import { addressed, RecordDoc } from "./record.ts";
 import { Scrubber } from "./scrub.ts";
 
 /** Characters of a tool's arguments a transcript shows (agent/event.rs:10). */
@@ -102,7 +102,7 @@ export async function watchChat(
         to = undefined;
         before = undefined;
         watch.start(async (value, updates) => {
-            const ops = fold.advance(value);
+            const ops = await fold.advance(value, context);
             const replaced = updates.some((op) => op[0] === "r");
             if (fold.stale || replaced) {
                 ops.push({ op: "reset" });
@@ -238,11 +238,11 @@ async function readBack(
             cursor,
             context,
         );
-        for (const entry of page.items) fold.entry(entry);
+        for (const entry of page.items) await fold.entry(entry, context);
         if (page.next === undefined) break;
         cursor = page.next;
     }
-    fold.advance(view);
+    await fold.advance(view, context);
     return fold;
 }
 
@@ -267,7 +267,7 @@ class Fold {
     }
 
     /** Takes in what `view` holds beyond what was folded, and gives the ops for it. */
-    advance(view: ConversationView): Op[] {
+    async advance(view: ConversationView, context: Context): Promise<Op[]> {
         const previousLast = this.last;
         // A summary leads the active range ahead of older kept entries.
         const fresh = view.entries
@@ -275,7 +275,7 @@ class Fold {
                 (entry) => this.#last === undefined || entry.id > this.#last,
             )
             .sort((a, b) => a.id - b.id);
-        for (const entry of fresh) this.entry(entry);
+        for (const entry of fresh) await this.entry(entry, context);
         const live = view.docs["pi.live"] as LiveState | undefined;
         const message = live?.generation?.message as
             | AssistantMessage
@@ -300,7 +300,7 @@ class Fold {
     }
 
     /** Takes in one entry of the conversation. */
-    entry(entry: EntryRecord): void {
+    async entry(entry: EntryRecord, context: Context): Promise<void> {
         this.#last = entry.id;
         const message = entry.model?.[0];
         if (ToolResultEntry.is(entry) && message?.role === "toolResult") {
@@ -312,7 +312,7 @@ class Fold {
             return;
         }
         const answer = AssistantEntry.is(entry);
-        for (const [block, item] of itemsOf(entry)) {
+        for (const [block, item] of await itemsOf(entry, this.#home, context)) {
             const live = answer ? this.#live.get(block) : undefined;
             if (answer) this.#live.delete(block);
             this.#add(item, live);
@@ -379,7 +379,11 @@ class Fold {
 }
 
 /** The items `entry` shows, by the content block each comes from. */
-function itemsOf(entry: EntryRecord): [number, Item][] {
+async function itemsOf(
+    entry: EntryRecord,
+    home: Home,
+    context: Context,
+): Promise<[number, Item][]> {
     const id = `${entry.id}:0`;
     if (ChiefEntry.is(entry)) {
         const { text, chief, at } = entry.data;
@@ -412,12 +416,37 @@ function itemsOf(entry: EntryRecord): [number, Item][] {
         return [[0, { id, at, kind: "notice", text: textOf(message) }]];
     }
     if (
-        (UserEntry.is(entry) ||
-            LetterEntry.is(entry) ||
+        (LetterEntry.is(entry) ||
             QuestionEntry.is(entry) ||
             ReplyEntry.is(entry)) &&
         message?.role === "user"
     ) {
+        const from = entry.data.from;
+        const record = await home.harness.snapshot(
+            RecordDoc,
+            from.hamlet,
+            context,
+        );
+        const agent =
+            record?.agents.find((a) => a.number === from.number) ??
+            record?.archive.find((a) => a.agent.number === from.number)?.agent;
+        const author = agent
+            ? `${agent.name}@${from.hamlet}`
+            : `${from.hamlet}#${from.number}`;
+        return [
+            [
+                0,
+                {
+                    id,
+                    at: entry.data.at,
+                    kind: "user",
+                    text: textOf(message),
+                    author,
+                },
+            ],
+        ];
+    }
+    if (UserEntry.is(entry) && message?.role === "user") {
         const at = message.timestamp;
         return [[0, { id, at, kind: "user", text: textOf(message) }]];
     }

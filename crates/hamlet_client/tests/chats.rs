@@ -639,6 +639,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
         kind,
         text: text.into(),
         chief: None,
+        author: None,
         rewindable: None,
         tool: None,
     };
@@ -876,4 +877,30 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
         assert_eq!(said.items().len(), 8);
         assert_eq!(said.items().last().unwrap().id, "latest:0");
     }
+}
+
+#[test]
+fn peer_inputs_keep_their_author_and_never_become_chief_inputs() {
+    let mut app = app();
+    let chat = app.world_mut().spawn(Chat(reference())).id();
+    app.update();
+    let page = serde_json::json!({
+        "type": "transcript", "chat": reference(), "items": [
+            {"id":"1:0", "at":1, "kind":"user", "text":"Check this", "author":"scout@mill"},
+            {"id":"2:0", "at":2, "kind":"user", "text":"My instruction", "chief":"chief"}
+        ], "earlier": null, "working":false, "pending":0,
+        "usage":{"input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"", "micros":0,"ms":0}
+    });
+    receive(app.world_mut(), serde_json::from_value(page).unwrap());
+    let items = app.world().get::<Transcript>(chat).unwrap().items();
+    assert_eq!(
+        items[0].entry,
+        Entry::Agent {
+            name: "scout@mill".into(),
+            text: "Check this".into()
+        }
+    );
+    assert!(
+        matches!(&items[1].entry, Entry::User { user, .. } if user == "chief")
+    );
 }

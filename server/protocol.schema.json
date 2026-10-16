@@ -2538,6 +2538,9 @@
                 "chief": {
                     "type": "string"
                 },
+                "author": {
+                    "type": "string"
+                },
                 "rewindable": {
                     "type": "boolean"
                 },

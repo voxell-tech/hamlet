@@ -218,6 +218,7 @@ mod tests {
                             text: "The model could not answer."
                                 .into(),
                             chief: None,
+                            author: None,
                             rewindable: None,
                             tool: None,
                         },

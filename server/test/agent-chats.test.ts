@@ -148,6 +148,7 @@ it("watches questions live, pages them and refuses rewind without changing the c
     expect(open.type).toBe("transcript");
     if (open.type !== "transcript") throw new Error("No peer transcript");
     expect(open.items.map((i) => i.kind)).toEqual(["user", "assistant"]);
+    expect(open.items[0]).toMatchObject({ author: "founder@home" });
     expect(open.items[0]?.rewindable).not.toBe(true);
     expect(JSON.stringify(open)).not.toContain("peer-secret-credential");
     const peer = await agentConversation(run.home, chat, context);
@@ -314,6 +315,16 @@ it("defaults a peer watch to letters and selects questions explicitly for the sa
         "A letter",
         "Letter answer",
     ]);
+    expect(letters.items[0]).toMatchObject({ author: "founder@home" });
+    const chief = await request(run.connection, run.messages, {
+        type: "open",
+        id: randomUUID(),
+        chat: { with: { hamlet: "home", agent: "mayor" } },
+    });
+    if (chief.type !== "transcript") throw new Error("No chief transcript");
+    expect(
+        chief.items.find((i) => i.text.startsWith("Reply from")),
+    ).toMatchObject({ author: "scout@home" });
     expect(questions.items.map((i) => i.text)).toEqual([
         "A question",
         "Question answer",

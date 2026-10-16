@@ -468,6 +468,8 @@ pub struct Hello {
 pub struct Item {
     pub at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chief: Option<String>,
     pub id: String,
     pub kind: ItemKind,

@@ -186,6 +186,7 @@ impl People<'_, '_> {
 enum Id {
     Agent(Entity),
     Chief(String),
+    Peer(String),
 }
 
 /// Everyone who speaks in a chat, the agent it is with first.
@@ -221,6 +222,16 @@ impl Cast<'_, '_, '_> {
                     paint: people.theme.palette.brass_5,
                 },
             })
+        })
+    }
+
+    fn peer(&mut self, name: &str) -> usize {
+        let paint = self.people.theme.palette.brass_5;
+        self.place(Id::Peer(name.into()), || Who {
+            name: name.into(),
+            tag: "AGENT".into(),
+            kind: Kind::Agent,
+            paint,
         })
     }
 
@@ -282,6 +293,9 @@ pub(super) fn timeline(
             };
             let item = transcript.item(first);
             let (by, to) = match item.map(|item| &item.entry) {
+                Some(Entry::Agent { name, .. }) => {
+                    (cast.peer(name), owner)
+                }
                 Some(Entry::User { user, .. }) => {
                     (cast.chief(user), owner)
                 }
