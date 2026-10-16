@@ -1,0 +1,11 @@
+node_modules/
+.wrangler/
+dist/
+coverage/
+src/generated/
+pnpm-lock.yaml
+worker-configuration.d.ts
+migrations/
+migrations-down/
+prisma/snapshots/
+docs/
