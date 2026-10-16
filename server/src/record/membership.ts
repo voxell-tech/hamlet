@@ -107,6 +107,7 @@ export async function availableName(
     name: string,
     operation: string,
     archive?: Archived,
+    selector?: string,
 ): Promise<Result<void, RecordRefusal>> {
     if (name !== archive?.agent.name) {
         const checked = checkName(name, hamlet, operation);
@@ -121,7 +122,7 @@ export async function availableName(
             return refusal(operation, hamlet, {
                 kind: "name-taken",
                 name,
-                ...(archive ? { archive: archive.id } : {}),
+                ...(archive ? { archive: selector ?? archive.id } : {}),
             });
     }
     return ok(undefined);
@@ -346,7 +347,14 @@ export async function restore(
     tx: Tx,
     hamlet: string,
     archiveId: string,
-    given: { name: string; by: string; reason: string; at: number },
+    given: {
+        name: string;
+        by: string;
+        reason: string;
+        at: number;
+        /** The chief's archive selector, retained in recovery advice. */
+        selector?: string;
+    },
 ): Promise<Result<Restored, RecordRefusal>> {
     const r = await tx.doc(RecordDoc, hamlet, hamlet);
     const at = r.archive.findIndex(
@@ -383,7 +391,14 @@ export async function restore(
                 absorbed: entry.agent.name,
             });
     }
-    const valid = await availableName(tx, hamlet, given.name, "restore", entry);
+    const valid = await availableName(
+        tx,
+        hamlet,
+        given.name,
+        "restore",
+        entry,
+        given.selector,
+    );
     if (!valid.ok) return valid;
     const _limits = await tx.doc(LimitsDoc, hamlet, hamlet);
     const room = await roomFor(tx, hamlet, "restore");

@@ -299,6 +299,7 @@ export const restore: RecordDeed = async (home, given, context) => {
         if (!access.ok) return access;
         const restored = await restoreRecord(tx, given.hamlet, entry.id, {
             name,
+            selector: which,
             by: `chief:${given.chief}`,
             reason,
             at: home.now(),

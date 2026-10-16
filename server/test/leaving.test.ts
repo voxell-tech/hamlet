@@ -21,7 +21,7 @@ import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { raise, TrustedDoc, trustKey } from "../src/oversight.ts";
 import { resolve } from "../src/realm.ts";
-import { agentKey, HOME } from "../src/record.ts";
+import { agentKey, HOME, recordRefusalText } from "../src/record.ts";
 import { mayor as seatMayorDeed, VotesDoc } from "../src/votes.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
@@ -450,3 +450,19 @@ const restore = deedWords(restoreDeed);
 const undo = deedWords(undoDeed);
 
 const seatMayor = deedWords(seatMayorDeed);
+
+it("keeps the chief's typed archive selector in a plain restore name refusal", async () => {
+    const home = await testHome(scratch(), {
+        models: fauxModels().models,
+        now: () => 1234,
+    });
+    await addAgent(home, HOME, "scout", "Maps");
+    await removeDeed(home, deed, context);
+    await addAgent(home, HOME, "scout", "Other work");
+    const result = await restoreDeed(home, { ...deed, rest: "scout" }, context);
+    expect(result).toMatchObject({ ok: false, error: { kind: "name-taken" } });
+    if (!result.ok && result.error.kind === "name-taken")
+        expect(recordRefusalText(result.error, "chief")).toBe(
+            "an agent named `scout` lives in the hamlet now. Restore this one under another name: /restore scout as <new-name>",
+        );
+});
