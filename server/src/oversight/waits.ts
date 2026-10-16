@@ -15,10 +15,10 @@ import { localDay } from "../home/clock.ts";
 import type * as protocol from "../protocol.ts";
 import {
     type AgentRef,
-    addressOf,
     agentKey,
     type HamletRecord,
-} from "../record.ts";
+} from "../record/document.ts";
+import { addressOf } from "../record/names.ts";
 import { says } from "./words.ts";
 
 /** The reason an agent is waiting for a chief. */

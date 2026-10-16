@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-durable";
 import type { Home } from "../home.ts";
 import { configureAgent } from "../models/choice.ts";
-import { type AgentRef, agentKey, HOME } from "../record.ts";
+import { type AgentRef, agentKey, HOME } from "../record/document.ts";
 import { InstructionsDoc } from "./instructions.ts";
 import { TaskDoc } from "./tasks.ts";
 /** The agent a conversation is with, the chief who talks to it, and its number in their chat (C22). */

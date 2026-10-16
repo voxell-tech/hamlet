@@ -1,5 +1,5 @@
 import { defineDoc } from "@earendil-works/pi-durable";
-import { type AgentRef, HOME } from "../record.ts";
+import { type AgentRef, HOME } from "../record/document.ts";
 
 /** An agent or a hamlet's office as a lasting road end. */
 export type RealmEnd = AgentRef | { office: string };

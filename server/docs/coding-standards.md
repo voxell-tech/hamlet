@@ -21,6 +21,9 @@ operations separate from entries that compose parts.
 | Concept | Dependency leaves under `src/` |
 |---|---|
 | chats | `chats/answers.ts`, `chats/instructions.ts`, `chats/notice.ts`, `chats/tasks.ts`, `chats/turn.ts` |
+| gate | `gate/grants.ts` |
+| record | `record/document.ts`, `record/names.ts`, `record/roads.ts` |
+| prompt | `prompt/character.ts` |
 | hand | `hand/manifests.ts` |
 | home | `home/abort.ts`, `home/clock.ts`, `home/credentials.ts`, `home/layout.ts` |
 | house | `house/skill-paper.ts`, `house/skills.ts` |

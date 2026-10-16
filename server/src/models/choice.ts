@@ -11,7 +11,13 @@ import { configureRole } from "../chats/roles.ts";
 import type { Home, Part } from "../home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
 import { liveHamlets, RealmDoc } from "../realm/places.ts";
-import { type AgentRef, agentKey, HOME, MAYOR, RecordDoc } from "../record.ts";
+import {
+    type AgentRef,
+    agentKey,
+    HOME,
+    MAYOR,
+    RecordDoc,
+} from "../record/document.ts";
 import {
     modelName,
     modelRef,
