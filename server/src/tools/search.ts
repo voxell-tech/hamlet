@@ -3,6 +3,8 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { linesOf } from "../change.ts";
+import { err, ok, type Result } from "../result.ts";
+import { type SearchFailure, toolFailureText } from "./failure.ts";
 import {
     envOf,
     FOUND,
@@ -45,14 +47,21 @@ export const Search = defineTool({
         "Search the contents of files under a folder for a regular expression. Gives each match as path:line: text, up to 100. Skips .git and build folders such as target and node_modules. Never waits for approval: use it rather than grep or rg.",
     parameters,
     replay: "safe",
-    execute: async (args, api, context) => ({
-        output: [
-            {
-                type: "text",
-                text: await search(envOf(api), args, context),
-            },
-        ],
-    }),
+    execute: async (args, api, context) => {
+        const env = envOf(api, "search");
+        const result = env.ok ? await search(env.value, args, context) : env;
+        return {
+            output: [
+                {
+                    type: "text",
+                    text: result.ok
+                        ? result.value
+                        : toolFailureText(result.error),
+                },
+            ],
+            ...(!result.ok && { isError: true }),
+        };
+    },
 });
 
 /**
@@ -69,10 +78,19 @@ export async function search(
         ignore_case?: boolean;
     },
     context: Context,
-): Promise<string> {
-    if (args.pattern === "") throw new Error("`pattern` is required");
-    const matches = compile(args.pattern, args.ignore_case === true);
-    const root = await reached(env, args.path, context);
+): Promise<Result<string, SearchFailure>> {
+    if (args.pattern === "")
+        return err({
+            kind: "pattern-empty",
+            operation: "search",
+            retrySafe: true,
+        });
+    const compiled = compile(args.pattern, args.ignore_case === true);
+    if (!compiled.ok) return compiled;
+    const matches = compiled.value;
+    const reachedRoot = await reached(env, args.path, context, "search");
+    if (!reachedRoot.ok) return reachedRoot;
+    const root = reachedRoot.value;
     const found: string[] = [];
     const look = async (path: string, size: number) => {
         if (args.name && !wanted(args.name, under(root.full, path))) {
@@ -101,7 +119,7 @@ export async function search(
     } else {
         await look(root.full, root.info.size);
     }
-    return report(found, capped, "no match");
+    return ok(report(found, capped, "no match"));
 }
 
 /**
@@ -111,7 +129,7 @@ export async function search(
 function compile(
     pattern: string,
     ignoreCase: boolean,
-): (line: string) => boolean {
+): Result<(line: string) => boolean, SearchFailure> {
     let source = pattern;
     if (ignoreCase) {
         source = "";
@@ -126,17 +144,27 @@ function compile(
         regex = new RegExp(source, "l");
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (message.endsWith("linear time")) {
-            throw new Error(
-                "`pattern` holds a backreference, a lookaround or another part a search in linear time cannot take",
-            );
-        }
+        // SAFETY: V8's linear-regex rejection has no typed error code; only its known suffix classifies this case.
+        // Verified by: search.test.ts rejects a backreference separately from an invalid pattern.
+        if (message.endsWith("linear time"))
+            return err({
+                kind: "pattern-not-linear",
+                operation: "search",
+                retrySafe: true,
+            });
         const reason = message.slice(message.lastIndexOf("/l: ") + 4);
-        throw new Error(`\`pattern\` is not a regular expression: ${reason}`);
+        return err({
+            kind: "pattern-invalid",
+            operation: "search",
+            retrySafe: true,
+            reason,
+        });
     }
-    return ignoreCase
-        ? (line) => regex.test(line.toLowerCase())
-        : (line) => regex.test(line);
+    return ok(
+        ignoreCase
+            ? (line: string) => regex.test(line.toLowerCase())
+            : (line: string) => regex.test(line),
+    );
 }
 
 function clip(line: string): string {

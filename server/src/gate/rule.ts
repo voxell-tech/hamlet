@@ -88,7 +88,11 @@ function reachRule(
     reach: Call,
     standing: Standing,
 ): Exclude<Verdict, { block: string }> {
-    if (reach.kind === "read" || reach.kind === "society")
+    if (
+        reach.kind === "read" ||
+        reach.kind === "society" ||
+        reach.kind === "other"
+    )
         return { run: { net: false } };
     if (reach.kind === "edit") {
         return standing.asksEdits && !standing.houseEdit

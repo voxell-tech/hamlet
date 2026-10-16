@@ -1,9 +1,11 @@
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type ToolExecutionApi } from "@earendil-works/pi-durable";
+import { defineTool } from "@earendil-works/pi-durable";
 import { createBashTool } from "@earendil-works/pi-durable/tools";
-import { envFor, LEAVE, type Leave, placeOf } from "../environment.ts";
+import { envFor, placeOf } from "../environment.ts";
 import type { Home } from "../home.ts";
 import { SandboxEnv } from "../sandbox.ts";
+import { toolFailureText } from "./failure.ts";
+import { leaveFor, runConfined } from "./run.ts";
 
 /** Seconds a command may run, which a model can ask to shorten and never to lengthen. */
 const WALL_SECS = 120;
@@ -22,13 +24,6 @@ const OUTSIDE =
 /** Said after a command the sandbox stopped, while the hamlet works on a folder. */
 const OUTSIDE_PROJECT =
     "\n[The sandbox lets a command write only in the project folder and in your own workspace, and keeps Hamlet's own folder closed to it.]";
-
-/** The value a program that calls pi's `bash` gets. */
-type Ran = {
-    output: string;
-    truncated: boolean;
-    exitCode: number;
-};
 
 /** Arguments shared by the shell and the gate. */
 export const bashParameters = Type.Object({
@@ -62,7 +57,7 @@ export function bashTool(home: Home, wallSecs = WALL_SECS) {
         }),
         ...(pi.outputLimits && { outputLimits: pi.outputLimits }),
         execute: async ({ command, timeout }, api, context) => {
-            const leave = await api.memo<Leave>(LEAVE, context);
+            const leave = await leaveFor(api, context);
             const place = await placeOf(home, api, api.conversationId, context);
             const env =
                 leave?.net === true
@@ -74,7 +69,19 @@ export function bashTool(home: Home, wallSecs = WALL_SECS) {
                       )
                     : api.env;
             if (!(env instanceof SandboxEnv)) {
-                throw new Error("No execution environment is configured");
+                return {
+                    output: [
+                        {
+                            type: "text",
+                            text: toolFailureText({
+                                kind: "no-environment",
+                                operation: "run-tool",
+                                retrySafe: true,
+                            }),
+                        },
+                    ],
+                    isError: true,
+                };
             }
             const folder = await env.fileInfo(env.cwd, context);
             if (!folder.ok || folder.value.kind !== "directory") {
@@ -84,32 +91,18 @@ export function bashTool(home: Home, wallSecs = WALL_SECS) {
             const out = (text: string) => {
                 if (text !== "") api.output(text);
             };
-            // A wrapper that changes what is said must keep pi from
-            // skipping output past it, so it takes no window.
-            const scrubbed: ToolExecutionApi = {
-                ...api,
-                env: home.secrets.shell(env),
-                outputWindow: undefined,
-            };
-            const seconds = Math.min(timeout ?? wallSecs, wallSecs);
-            const details = (exitCode: number) => ({
-                exitCode,
-                policy: env.policyHash,
-                degraded: false,
-            });
-            let result: Awaited<ReturnType<typeof pi.execute>>;
-            try {
-                result = await pi.execute(
-                    { command, timeout: seconds },
-                    scrubbed,
-                    context,
-                );
-            } catch (error) {
-                if (!String(error).includes("Command timed out")) throw error;
-                out(`\n[timed out after ${seconds}s]`);
-                return { isError: true, details: details(-1) };
-            }
-            const ran = result.structuredOutput as Ran;
+            const ran = await runConfined(
+                env,
+                command,
+                {
+                    secrets: home.secrets,
+                    wallSecs: Math.min(timeout ?? wallSecs, wallSecs),
+                    onOutput: out,
+                    api,
+                },
+                context,
+            );
+            if (ran.output === undefined) return ran.result;
             if (
                 ran.exitCode !== 0 &&
                 REFUSED.some((words) =>
@@ -120,13 +113,12 @@ export function bashTool(home: Home, wallSecs = WALL_SECS) {
             }
             const kept = api.retainedOutput();
             return {
-                ...result,
+                ...ran.result,
                 structuredOutput: {
-                    ...ran,
+                    ...ran.output,
                     output: kept.text,
                     truncated: kept.truncated,
                 },
-                details: details(ran.exitCode),
             };
         },
     });

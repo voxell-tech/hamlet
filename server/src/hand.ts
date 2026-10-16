@@ -1,50 +1,24 @@
 import { realpath, stat } from "node:fs/promises";
-import { resolve } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { TSchema } from "@earendil-works/pi-ai";
-import {
-    defineExtension,
-    defineTool,
-    type JsonObject,
-} from "@earendil-works/pi-durable";
+import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { type FileWatcher, getOrThrow } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { Compile } from "typebox/compile";
-import { LEAVE, type Leave } from "./environment.ts";
-import { type Manifest, ManifestsDoc } from "./hand/manifests.ts";
+import {
+    type Manifest,
+    type ManifestFault,
+    ManifestsDoc,
+    parseManifest,
+    reservedNames,
+} from "./hand/manifests.ts";
 import type { Home, Part } from "./home.ts";
-import { record } from "./models.ts";
+import { err, type Result } from "./result.ts";
 import { limitsOf, type Policy, SandboxEnv } from "./sandbox.ts";
+import { safeValue } from "./scrub.ts";
+
+import { leaveFor, runConfined, toolFailureText } from "./tools.ts";
 
 const NAME = "hamlet.hand";
-const RESERVED = new Set([
-    "bash",
-    "powershell",
-    "read",
-    "write",
-    "edit",
-    "search",
-    "find",
-    "create_agent",
-    "ask_agent",
-    "tell_agent",
-    "build_road",
-    "request_road",
-    "set_model",
-    "remove_agent",
-    "merge_agents",
-    "call_vote",
-    "cast_ballot",
-    "agree_road",
-    "agree_move",
-    "ask_removal",
-    "object",
-    "ask_chief",
-    "submit_skill",
-    "ask_librarian",
-]);
-
 /** The tools a chief added by hand (C17). */
 export const Hand: Part = (home) => {
     const env = new NodeExecutionEnv({ cwd: home.layout.tools });
@@ -54,54 +28,75 @@ export const Hand: Part = (home) => {
     let stopped = false;
     const refresh = async (context: Context) => {
         const tools: Manifest[] = [];
-        const faults: string[] = [];
+        const faults: ManifestFault[] = [];
         const names = new Set<string>();
-        const installed = new Set(
-            home.registry
-                .snapshot()
-                .tools()
-                .filter(({ extension }) => extension.name !== NAME)
-                .map(({ tool }) => tool.name),
-        );
+        const reserved = reservedNames(home.registry);
         const listed = await env.listDir(env.cwd, context);
         const entries = listed.ok ? listed.value : [];
         if (!listed.ok && listed.error.code !== "not_found")
-            faults.push(`${env.cwd}: ${listed.error.message}`);
+            faults.push({
+                operation: "load-tool",
+                dir: env.cwd,
+                retrySafe: true,
+                kind: "manifest-unreadable",
+                reason: listed.error.message,
+            });
         for (const entry of entries.sort((a, b) =>
             a.name < b.name ? -1 : 1,
         )) {
             if (entry.kind !== "directory" && entry.kind !== "symlink")
                 continue;
-            try {
-                if (
-                    entry.kind === "symlink" &&
-                    !(await stat(entry.path)).isDirectory()
-                )
-                    throw new Error("not a folder");
-                const manifest = await load(
-                    env,
-                    entry.kind === "symlink"
-                        ? await realpath(entry.path)
-                        : entry.path,
-                    context,
-                );
-                if (reserved(manifest.name) || installed.has(manifest.name))
-                    throw new Error(`name '${manifest.name}' is reserved`);
-                if (names.has(manifest.name))
-                    throw new Error(
-                        `name '${manifest.name}' is taken by another tool`,
-                    );
-                limitsOf(policyFor(home, manifest, false));
-                names.add(manifest.name);
-                tools.push(manifest);
-            } catch (error) {
-                faults.push(
-                    `${entry.path}: ${error instanceof Error ? error.message : String(error)}`,
-                );
+            let dir = entry.path;
+            if (entry.kind === "symlink") {
+                try {
+                    if (!(await stat(entry.path)).isDirectory()) {
+                        faults.push({
+                            operation: "load-tool",
+                            dir,
+                            retrySafe: true,
+                            kind: "not-a-folder",
+                        });
+                        continue;
+                    }
+                    dir = await realpath(entry.path);
+                } catch {
+                    faults.push({
+                        operation: "load-tool",
+                        dir,
+                        retrySafe: true,
+                        kind: "not-a-folder",
+                    });
+                    continue;
+                }
             }
+            const loaded = await load(env, dir, context);
+            if (!loaded.ok) {
+                faults.push({ ...loaded.error, dir: entry.path });
+                continue;
+            }
+            const manifest = loaded.value;
+            const facts = {
+                operation: "load-tool" as const,
+                dir: entry.path,
+                retrySafe: true as const,
+                name: manifest.name,
+            };
+            if (reserved.has(manifest.name)) {
+                faults.push({ ...facts, kind: "name-reserved" });
+                continue;
+            }
+            if (names.has(manifest.name)) {
+                faults.push({ ...facts, kind: "name-taken" });
+                continue;
+            }
+            names.add(manifest.name);
+            tools.push(manifest);
         }
         await home.harness.commit(async (tx) => {
-            Object.assign(await tx.doc(ManifestsDoc), { tools, faults });
+            Object.assign(await tx.doc(ManifestsDoc), {
+                tools,
+                faults: safeValue(home, faults),
+            });
         }, context);
         home.registry.install(
             defineExtension({
@@ -156,82 +151,21 @@ export const Hand: Part = (home) => {
     };
 };
 
-/** A name belonging to Hamlet's tools or pi's tools. */
-export function reserved(name: string): boolean {
-    return RESERVED.has(name);
-}
-
 async function load(
     env: NodeExecutionEnv,
     dir: string,
     context: Context,
-): Promise<Manifest> {
-    const text = getOrThrow(
-        await env.readTextFile(`${dir}/manifest.json`, context),
-    );
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(text);
-    } catch {
-        throw new Error("manifest.json is not valid JSON");
-    }
-    const value = record(parsed);
-    if (typeof value.name !== "string") throw new Error("missing name");
-    if (!Array.isArray(value.exec)) throw new Error("exec must be an array");
-    const exec = value.exec.filter(
-        (part): part is string => typeof part === "string",
-    );
-    if (exec.length === 0) throw new Error("exec is empty");
-    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(value.name))
-        throw new Error(`name '${value.name}' must match [a-zA-Z0-9_-]{1,64}`);
-    const parameters =
-        value.parameters === undefined
-            ? { type: "object", properties: {} }
-            : value.parameters;
-    try {
-        if (
-            typeof parameters !== "object" ||
-            parameters === null ||
-            Array.isArray(parameters)
-        )
-            throw new Error("parameters must be a JSON Schema object");
-        Compile(parameters as TSchema);
-    } catch (error) {
-        throw new Error(
-            `parameters do not compile: ${error instanceof Error ? error.message : String(error)}`,
-        );
-    }
-    const sandbox = record(value.sandbox);
-    const limits = record(sandbox.limits);
-    const seconds = (value: unknown): number | null =>
-        typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-            ? value
-            : null;
-    const paths = (value: unknown): string[] =>
-        Array.isArray(value)
-            ? value
-                  .filter((path): path is string => typeof path === "string")
-                  .map((path) => resolve(dir, path))
-            : [];
-    return {
-        name: value.name,
-        description:
-            typeof value.description === "string" ? value.description : "",
-        dir,
-        exec,
-        parameters: parameters as JsonObject,
-        net: sandbox.net === true,
-        ro: [...paths(sandbox.fs_ro), dir],
-        rw: paths(sandbox.fs_rw),
-        env: Object.fromEntries(
-            Object.entries(record(sandbox.env)).map(([name, value]) => [
-                name,
-                typeof value === "string" ? value : "",
-            ]),
-        ),
-        wallSecs: seconds(limits.wall_secs),
-        cpuSecs: seconds(limits.cpu_secs),
-    };
+): Promise<Result<Manifest, ManifestFault>> {
+    const read = await env.readTextFile(`${dir}/manifest.json`, context);
+    return read.ok
+        ? parseManifest(read.value, dir)
+        : err({
+              kind: "manifest-unreadable",
+              operation: "load-tool",
+              dir,
+              retrySafe: true,
+              reason: read.error.message,
+          });
 }
 
 function policyFor(home: Home, manifest: Manifest, net: boolean): Policy {
@@ -260,11 +194,11 @@ function handTool(home: Home, manifest: Manifest) {
     return defineTool({
         name: manifest.name,
         description: manifest.description,
-        parameters: manifest.parameters as TSchema,
+        parameters: manifest.parameters,
         replay: "unsafe",
         outputLimits: { maxBytes: 64 * 1024 },
         execute: async (args, api, context) => {
-            const leave = await api.memo<Leave>(LEAVE, context);
+            const leave = await leaveFor(api, context);
             const policy = policyFor(home, manifest, leave?.net === true);
             const env = new SandboxEnv({
                 cwd: manifest.dir,
@@ -273,44 +207,52 @@ function handTool(home: Home, manifest: Manifest) {
                 tmpScope: `${home.dir}:${api.conversationId}:${api.taskId}`,
             });
             try {
-                const file = getOrThrow(
-                    await env.createTempFile(
-                        { prefix: "arguments-", suffix: ".json" },
-                        context,
-                    ),
+                const failed = (reason: string) => ({
+                    isError: true,
+                    output: [
+                        {
+                            type: "text" as const,
+                            text: home.secrets.words(
+                                toolFailureText({
+                                    kind: "run-refused",
+                                    operation: "run-tool",
+                                    retrySafe: false,
+                                    reason,
+                                }),
+                            ),
+                        },
+                    ],
+                });
+                const made = await env.createTempFile(
+                    { prefix: "arguments-", suffix: ".json" },
+                    context,
                 );
-                getOrThrow(
-                    await env.writeFile(file, JSON.stringify(args), context),
+                if (!made.ok) return failed(made.error.message);
+                const file = made.value;
+                const written = await env.writeFile(
+                    file,
+                    JSON.stringify(args),
+                    context,
                 );
-                const result = await home.secrets
-                    .shell(env)
-                    .exec(
-                        [
-                            "bash",
-                            "-c",
-                            'file=$1; shift; exec "$@" < "$file"',
-                            "bash",
-                            file,
-                            ...manifest.exec,
-                        ],
-                        { onOutput: (text) => api.output(text) },
-                        context,
-                    );
-                const exitCode = result.ok ? result.value.exitCode : -1;
-                if (!result.ok)
-                    api.output(
-                        result.error.code === "timeout"
-                            ? `\n[timed out after ${limitsOf(policy).wallSecs}s]`
-                            : `Error: ${result.error.message}`,
-                    );
-                return {
-                    isError: exitCode !== 0,
-                    details: {
-                        exitCode,
-                        policy: env.policyHash,
-                        degraded: false,
+                if (!written.ok) return failed(written.error.message);
+                const ran = await runConfined(
+                    env,
+                    [
+                        "bash",
+                        "-c",
+                        'file=$1; shift; exec "$@" < "$file"',
+                        "bash",
+                        file,
+                        ...manifest.exec,
+                    ],
+                    {
+                        secrets: home.secrets,
+                        wallSecs: limitsOf(policy).wallSecs,
+                        onOutput: (text) => api.output(text),
                     },
-                };
+                    context,
+                );
+                return ran.result;
             } finally {
                 await env.cleanup(BACKGROUND_CONTEXT);
             }
@@ -318,4 +260,11 @@ function handTool(home: Home, manifest: Manifest) {
     });
 }
 
-export { type Manifest, ManifestsDoc } from "./hand/manifests.ts";
+export {
+    type Manifest,
+    type ManifestFault,
+    ManifestsDoc,
+    manifestFaultText,
+    parseManifest,
+    reservedNames,
+} from "./hand/manifests.ts";

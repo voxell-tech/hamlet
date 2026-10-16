@@ -19,4 +19,11 @@ export const Tools: Part = (home) => ({
     }),
 });
 
+export {
+    type RunFailure,
+    type SearchFailure,
+    type ToolFailure,
+    toolFailureText,
+} from "./tools/failure.ts";
+export { leaveFor, runConfined } from "./tools/run.ts";
 export { bashParameters } from "./tools/shell.ts";

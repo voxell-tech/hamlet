@@ -25,7 +25,12 @@ export type Call =
           name: string;
           args: ToolHookCall["arguments"];
       }
-    | { kind: "society"; name: string; args: ToolHookCall["arguments"] };
+    | {
+          kind: "society";
+          name: string;
+          args: ToolHookCall["arguments"];
+      }
+    | { kind: "other"; name: string; args: ToolHookCall["arguments"] };
 
 const write = createWriteTool().parameters;
 const edit = createEditTool().parameters;
@@ -34,6 +39,7 @@ const edit = createEditTool().parameters;
 export function callOf(
     call: ToolHookCall,
     manifests: readonly Manifest[],
+    reserved: ReadonlySet<string> = new Set(),
 ): Call {
     if (call.name === "bash") {
         if (!Value.Check(bashParameters, call.arguments))
@@ -72,7 +78,11 @@ export function callOf(
     if (["read", "search", "find"].includes(call.name)) return { kind: "read" };
     const manifest = manifests.find((tool) => tool.name === call.name);
     return manifest === undefined
-        ? { kind: "society", name: call.name, args: call.arguments }
+        ? {
+              kind: reserved.has(call.name) ? "society" : "other",
+              name: call.name,
+              args: call.arguments,
+          }
         : {
               kind: "custom",
               net: manifest.net,
@@ -90,6 +100,7 @@ export function callText(call: Call): string {
             return call.created
                 ? `${cut(call.path)}\nA new file:\n${cut(call.now)}`
                 : `${cut(call.path)}\nReplace:\n${cut(call.old)}\nWith:\n${cut(call.now)}`;
+        case "other":
         case "society":
         case "custom":
             return `${call.name} ${JSON.stringify(call.args)}`;

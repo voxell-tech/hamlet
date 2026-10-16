@@ -21,7 +21,7 @@ import { type Call, callOf, callText } from "./gate/call.ts";
 import { give } from "./gate/grants.ts";
 import { rule } from "./gate/rule.ts";
 import { standingOf } from "./gate/standing.ts";
-import { ManifestsDoc } from "./hand/manifests.ts";
+import { ManifestsDoc, reservedNames } from "./hand/manifests.ts";
 import { houseOf } from "./home/layout.ts";
 import type { Home, Part } from "./home.ts";
 import { LimitsDoc } from "./limits/rules.ts";
@@ -235,7 +235,11 @@ export const Gate: Part = (home) => {
                         );
                         if (place === undefined) return undefined;
                         const turn = await turnOf(home.harness, api, context);
-                        let parsed: Call = callOf(call, []);
+                        let parsed: Call = callOf(
+                            call,
+                            [],
+                            reservedNames(home.registry),
+                        );
                         let before: string | undefined;
                         if (
                             parsed.kind === "edit" &&
@@ -382,8 +386,13 @@ export const Gate: Part = (home) => {
                                 const manifests = (await tx.doc(ManifestsDoc))
                                     .tools;
                                 const currentCall =
-                                    typed.kind === "society"
-                                        ? callOf(call, manifests)
+                                    typed.kind === "society" ||
+                                    typed.kind === "other"
+                                        ? callOf(
+                                              call,
+                                              manifests,
+                                              reservedNames(home.registry),
+                                          )
                                         : typed;
                                 const verdict = rule(
                                     currentCall,

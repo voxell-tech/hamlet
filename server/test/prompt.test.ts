@@ -136,8 +136,19 @@ describe("the prompt", () => {
         const { home, faux } = await mayorHome();
         await home.harness.commit(async (tx) => {
             (await tx.doc(ManifestsDoc)).faults = [
-                "tools/a: missing name",
-                "tools/b: name 'bash' is reserved",
+                {
+                    operation: "load-tool",
+                    dir: "tools/a",
+                    retrySafe: true,
+                    kind: "missing-name",
+                },
+                {
+                    operation: "load-tool",
+                    dir: "tools/b",
+                    retrySafe: true,
+                    kind: "name-reserved",
+                    name: "bash",
+                },
             ];
         }, context);
 

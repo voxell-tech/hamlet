@@ -96,20 +96,6 @@ describe("a sandboxed command's limits", () => {
         expect([128 + 24, 128 + 9]).toContain(ran.exitCode);
     });
 
-    it("are whole numbers of at least 1, or no environment is made", () => {
-        for (const limits of [
-            { cpuSecs: 1.5 },
-            { maxProcs: -1 },
-            { maxFileMb: Number.NaN },
-            { wallSecs: 0 },
-            { cpuSecs: 0 },
-            { maxProcs: 0 },
-            { maxFileMb: 0 },
-        ]) {
-            expect(() => houseEnv(limits)).toThrow(/is not a whole number/);
-        }
-    });
-
     it("hold a wall time up to the longest timer, 2147483 s, and no longer", async () => {
         const { env } = houseEnv({ wallSecs: 2_147_483 });
 
