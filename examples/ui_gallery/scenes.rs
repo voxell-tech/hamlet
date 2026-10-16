@@ -3,6 +3,7 @@
 mod dock;
 mod sample;
 mod sheets;
+mod stalls;
 
 use bevy::app::{App, Plugin, PostStartup, Startup, Update};
 use bevy::asset::Handle;
@@ -84,6 +85,7 @@ impl Plugin for GalleryPlugin {
                     hold_message.run_if(|scene: Res<Scene>| {
                         *scene == Scene::Rewind
                     }),
+                    stalls::press,
                 ),
             )
             .add_plugins((
@@ -156,6 +158,12 @@ pub enum Scene {
     Bazaar,
     /// One model of the Agent Bazaar on its own page.
     Ware,
+    /// The Inspector at a stall's counter, with the buttons of these
+    /// words pressed in turn.
+    Counter(hamlet_world::bazaar::Stall, &'static [&'static str]),
+    /// The bazaar at a stall's tab, with the buttons of these words
+    /// pressed in turn.
+    Stall(hamlet_world::bazaar::Stall, &'static [&'static str]),
 }
 
 /// The picture that stands where the world is drawn, and the part of
