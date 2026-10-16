@@ -85,12 +85,14 @@ async function hamlet(
     return { home, faux, models };
 }
 
-function ballots(yes: number[]): FauxResponseFactory {
+function ballots(yes: number[], silent: number[] = []): FauxResponseFactory {
     return (prompt) => {
         const text = JSON.stringify(prompt);
         if (text.includes("one chance to answer"))
             return fauxAssistantMessage("I laid the roads.");
         const number = Number(/\/houses\/home\/(\d+)/.exec(text)?.[1]);
+        if (silent.includes(number))
+            return fauxAssistantMessage("I have nothing to add.");
         return fauxAssistantMessage(
             fauxToolCall("cast_ballot", {
                 choice: yes.includes(number) ? "yes" : "abstain",
@@ -101,6 +103,17 @@ function ballots(yes: number[]): FauxResponseFactory {
         );
     };
 }
+
+it("needs two thirds of every voter, so silence is not a yes", async () => {
+    const { home, faux } = await hamlet(["scout", "smith", "poet", "scribe"]);
+    const ballot = ballots([1, 2], [4]);
+    fauxAgents(faux, { errands: [ballot, ballot, ballot, ballot, ballot] });
+    expect(await settledVote(home, deed, context)).toContain(
+        "2 yes of 4 agents (3 needed), 0 no, 1 abstained, 1 did not answer.",
+    );
+    expect(await mayorNumber(home, HOME)).toBe(0);
+    expect(await votes(home, deed, context)).toContain("3 needed");
+}, 30_000);
 
 it("passes, moves the office without removing its old holder, and a chief overturns it once", async () => {
     const { home, faux } = await hamlet();
@@ -218,6 +231,57 @@ it("refuses bad calls before any model is asked", async () => {
     expect(await voteViews(home, HOME, context)).toEqual([]);
     expect(faux.state.callCount).toBe(2);
 });
+
+it.each([true, false])(
+    "checks evidence in each voter's house, and seals the ballots when requested: %s",
+    async (sealed) => {
+        const { home, faux } = await hamlet();
+        await home.harness.commit(async (tx) => {
+            const l = await tx.doc(LimitsDoc, HOME, HOME);
+            l.votes.groundedOnly = true;
+            l.votes.sealed = sealed;
+        }, context);
+        const script: FauxResponseFactory = (prompt, _o, _s, model) => {
+            const sent = modelRequest(prompt.messages, model),
+                text = JSON.stringify(prompt);
+            if (text.includes("one chance to answer"))
+                return fauxAssistantMessage("I helped every agent.");
+            expect(sent.tools).toEqual(["cast_ballot"]);
+            const number = Number(/\/houses\/home\/(\d+)/.exec(text)?.[1]);
+            if (sealed) expect(text).not.toContain("The ballots cast so far");
+            else if (number > 1)
+                expect(text).toContain("The ballots cast so far");
+            const evidence =
+                number === 1
+                    ? "THE MAYOR ignored, my road request"
+                    : "I helped every agent";
+            return fauxAssistantMessage(
+                fauxToolCall("cast_ballot", {
+                    choice: "yes",
+                    reason: "Change",
+                    evidence,
+                }),
+                { stopReason: "toolUse" },
+            );
+        };
+        fauxAgents(faux, { errands: [script, script, script, script] });
+        expect(await settledVote(home, deed, context)).toContain(
+            "3 yes of 3 agents",
+        );
+        expect(
+            (
+                await home.harness.snapshot(VotesDoc, HOME, context)
+            )?.votes[0]?.ballots
+                .map((b) => [b.voter, b.grounded])
+                .sort(),
+        ).toEqual([
+            [1, true],
+            [2, false],
+            [3, false],
+        ]);
+    },
+    30_000,
+);
 
 it("keeps a vote open while its ballots wait, holds decisions, and lets a chief stop it", async () => {
     const { home, faux } = await hamlet();
@@ -737,3 +801,39 @@ const callVote = deedWords(callVoteDeed);
 const overturn = deedWords(overturnDeed);
 const seatMayor = deedWords(seatMayorDeed);
 const votes = deedWords(votesDeed);
+
+it.each([true, false])(
+    "groundedOnly decides whether borrowed evidence counts toward a passed vote: %s",
+    async (groundedOnly) => {
+        const { home, faux } = await hamlet();
+        await home.harness.commit(async (tx) => {
+            (await tx.doc(LimitsDoc, HOME, HOME)).votes.groundedOnly =
+                groundedOnly;
+        }, context);
+        const ballot: FauxResponseFactory = (prompt) => {
+            const text = JSON.stringify(prompt);
+            if (text.includes("one chance to answer"))
+                return fauxAssistantMessage("I helped every agent.");
+            const number = Number(/\/houses\/home\/(\d+)/.exec(text)?.[1]);
+            return fauxAssistantMessage(
+                fauxToolCall("cast_ballot", {
+                    choice: "yes",
+                    reason: "Change",
+                    evidence:
+                        number === 1
+                            ? "THE MAYOR ignored, my road request"
+                            : "I helped every agent",
+                }),
+                { stopReason: "toolUse" },
+            );
+        };
+        fauxAgents(faux, { errands: [ballot, ballot, ballot, ballot] });
+        expect(await settledVote(home, deed, context)).toContain(
+            groundedOnly
+                ? "Failed (too few said yes): 3 yes of 3 agents (2 needed)"
+                : "Passed: 3 yes of 3 agents (2 needed)",
+        );
+        expect(await mayorNumber(home, HOME)).toBe(groundedOnly ? 0 : 1);
+    },
+    30_000,
+);
