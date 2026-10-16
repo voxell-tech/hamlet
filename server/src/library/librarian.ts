@@ -34,12 +34,11 @@ import {
     stageSkill,
     type TreeListing,
 } from "../house.ts";
-import { booksOf } from "../ledger.ts";
 import { LimitsDoc, limitsOf } from "../limits.ts";
 import type { State } from "../protocol.ts";
 import { RecordDoc } from "../record.ts";
-import { stopped } from "../report.ts";
 import { closedPolicy, SandboxEnv } from "../sandbox.ts";
+import { booksOf, stopped } from "../spend.ts";
 import { turnOf } from "../turn.ts";
 import { LibraryDoc, libraryPart } from "./shelf.ts";
 

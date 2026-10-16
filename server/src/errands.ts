@@ -9,8 +9,8 @@ import {
     type Tx,
 } from "@earendil-works/pi-durable";
 import { ErrandEntry, startConversation, WithDoc } from "./chats.ts";
-import { configureAgent } from "./choice.ts";
 import type { Home } from "./home.ts";
+import { configureAgent } from "./models.ts";
 import type { AgentRef } from "./record.ts";
 
 /** The purpose of a one-off model call. */

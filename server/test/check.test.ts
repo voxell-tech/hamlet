@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { checkConnection, checkModel } from "../src/check.ts";
-import { plainly } from "../src/plainly.ts";
+import { checkConnection, checkModel, plainly } from "../src/models.ts";
 import { SettingsDoc } from "../src/settings.ts";
 import { openaiFake } from "./openai-fake.ts";
 import { context, fauxModels, scratch, testHome } from "./support.ts";

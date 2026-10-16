@@ -10,9 +10,9 @@ import {
     type Submission,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { configureAgent } from "./choice.ts";
 import type { Home } from "./home.ts";
 import { InstructionsDoc } from "./instructions.ts";
+import { configureAgent } from "./models.ts";
 import { type AgentRef, agentKey, HOME } from "./record.ts";
 import { AgentConversationsDoc } from "./society/docs.ts";
 import { TaskDoc } from "./tasks.ts";

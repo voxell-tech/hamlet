@@ -27,11 +27,11 @@ import {
     startConversation,
     WithDoc,
 } from "../chats.ts";
-import { reconfigure } from "../choice.ts";
 import { ErrandDoc, runErrand, startErrand } from "../errands.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { houseOf, untilAborted } from "../home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
+import { reconfigure } from "../models.ts";
 import { notify } from "../notice.ts";
 import {
     chiefsOf,

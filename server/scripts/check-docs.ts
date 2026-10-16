@@ -7,18 +7,10 @@ import { API } from "typescript/unstable/sync";
 const ALLOWLIST = new Set<string>([
     "activity.ts",
     "answers.ts",
-    "catalogue.ts",
     "commands.ts",
-    "endpoints.ts",
     "git/proxy.ts",
-    "ledger.ts",
-    "models-store.ts",
-    "models.ts",
-    "money.ts",
     "protocol.ts",
-    "providers.ts",
     "reflection.ts",
-    "report.ts",
     "terminal.ts",
 ]);
 const root = fileURLToPath(new URL("../src/", import.meta.url));

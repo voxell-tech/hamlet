@@ -30,7 +30,6 @@ import type { Deed, Home, Part } from "../home.ts";
 import { houseOf, untilAborted } from "../home.ts";
 import { listTree, MERGE_CAPS, removeTree, stageTree } from "../house.ts";
 import { InstructionsDoc, owed } from "../instructions.ts";
-import { booksOf } from "../ledger.ts";
 import { LimitsDoc } from "../limits.ts";
 import { lapseAgent } from "../oversight.ts";
 import {
@@ -51,9 +50,9 @@ import {
     named,
     RecordDoc,
 } from "../record.ts";
-import { stopped } from "../report.ts";
 import { closedPolicy, SandboxEnv } from "../sandbox.ts";
 import { safeWords } from "../scrub.ts";
+import { booksOf, stopped } from "../spend.ts";
 import { stopAgent } from "../talk.ts";
 import { newTask, turnOf } from "../turn.ts";
 import { lapseTrust } from "./leaving.ts";

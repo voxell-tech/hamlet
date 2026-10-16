@@ -18,7 +18,6 @@ import {
 } from "@earendil-works/pi-durable";
 import { agentConversation } from "./agent-chats.ts";
 import { SUMMARY_NOTICE } from "./answers.ts";
-import { record } from "./catalogue.ts";
 import { CHANGE, changeOf } from "./change.ts";
 import {
     ChatDoc,
@@ -33,6 +32,7 @@ import {
 } from "./chats.ts";
 import { usageOf } from "./history.ts";
 import type { Home } from "./home.ts";
+import { record } from "./models.ts";
 import { NoticeEntry } from "./notice.ts";
 import type {
     ChatRef,

@@ -1,7 +1,8 @@
 import type { BaseModel } from "@earendil-works/pi-ai";
+import type { Endpoint } from "../settings.ts";
 import type { Price } from "./catalogue.ts";
-import type { Endpoint } from "./settings.ts";
 
+/** Recognizes loopback and wildcard host addresses for local model pricing. */
 export function isLocal(address: string): boolean {
     try {
         const host = new URL(
@@ -18,6 +19,7 @@ export function isLocal(address: string): boolean {
     }
 }
 
+/** Accepts the lowercase letters, digits and hyphens allowed in endpoint ids. */
 export function endpointName(name: string): boolean {
     return /^[a-z0-9-]+$/.test(name);
 }

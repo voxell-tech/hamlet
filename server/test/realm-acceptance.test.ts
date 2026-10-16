@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
 import { houseOf, localDay } from "../src/home.ts";
-import { ledgerOf } from "../src/ledger.ts";
+import { ledgerOf } from "../src/spend.ts";
 import {
     agents,
     deed,

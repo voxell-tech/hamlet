@@ -4,13 +4,12 @@ import { withAbortSignal } from "@earendil-works/chord/context";
 import type { AuthPrompt } from "@earendil-works/pi-ai";
 import type { Submission } from "@earendil-works/pi-durable";
 import { requireWritable } from "./agent-chats.ts";
-import { checkConnection, checkModel } from "./check.ts";
 import { type Client, type Server, serve } from "./connection.ts";
 import { edit } from "./edits.ts";
 import { answerWords } from "./gate.ts";
 import type { Home } from "./home.ts";
 import { clearStagedGifts, give, uploads } from "./house.ts";
-import { login as signIn } from "./logins.ts";
+import { checkConnection, checkModel, login as signIn } from "./models.ts";
 import type {
     Address,
     Login,

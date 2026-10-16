@@ -1,6 +1,10 @@
 import { expect, it } from "vitest";
-import { catalogueOf, editCatalogue, readList } from "../src/catalogue.ts";
-import { refreshModels } from "../src/models.ts";
+import {
+    catalogueOf,
+    editCatalogue,
+    readList,
+    refreshModels,
+} from "../src/models.ts";
 import { openaiFake } from "./openai-fake.ts";
 import { context, scratch, testHome } from "./support.ts";
 

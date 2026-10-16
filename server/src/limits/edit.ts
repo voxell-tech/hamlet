@@ -1,7 +1,7 @@
 import type { Context } from "@earendil-works/chord";
-import { commitEdit } from "../choice.ts";
 import type { Home } from "../home.ts";
-import { defaultLimits, type Limits, LimitsDoc } from "../limits.ts";
+import { commitEdit } from "../models.ts";
+import { defaultLimits, type Limits, LimitsDoc } from "./rules.ts";
 
 type LimitsEdit = (
     | { whole: unknown }

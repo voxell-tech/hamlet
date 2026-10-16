@@ -4,7 +4,7 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { FAUX_MODEL, scriptedModels } from "../src/faux.ts";
+import { FAUX_MODEL, scriptedModels } from "../src/models.ts";
 import {
     agents,
     changes,

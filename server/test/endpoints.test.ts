@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { addEndpoint, endpointName, isLocal } from "../src/endpoints.ts";
+import { addEndpoint, endpointName, isLocal } from "../src/models.ts";
 
 it("knows this machine without confusing a private network for localhost", () => {
     for (const address of [

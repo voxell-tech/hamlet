@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { scriptedModels } from "../src/faux.ts";
+import { scriptedModels } from "../src/models.ts";
 import { agents, say, served } from "./connection-support.ts";
 
 it("tells reading and writing apart and keeps only the last 600 UTF-8 bytes of speech", async () => {

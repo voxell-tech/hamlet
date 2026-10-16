@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { localDay } from "../src/home.ts";
-import { ledgerOf } from "../src/ledger.ts";
 import { HOME } from "../src/record.ts";
+import { ledgerOf } from "../src/spend.ts";
 import {
     context,
     mayorChat,

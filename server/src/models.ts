@@ -12,14 +12,19 @@ import {
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { defineExtension } from "@earendil-works/pi-durable";
-import { type Card, CatalogueDoc, type Price, takeIn } from "./catalogue.ts";
-import { choose, commitEdit } from "./choice.ts";
-import { endpointName } from "./endpoints.ts";
 import type { Home, HomeBase, Part } from "./home.ts";
 import { LimitsDoc, limitsOf } from "./limits.ts";
-import { FileModelsStore } from "./models-store.ts";
-import { plainly } from "./plainly.ts";
-import { compatible, protectedProvider } from "./providers.ts";
+import {
+    type Card,
+    CatalogueDoc,
+    type Price,
+    takeIn,
+} from "./models/catalogue.ts";
+import { choose, commitEdit } from "./models/choice.ts";
+import { endpointName } from "./models/endpoints.ts";
+import { plainly } from "./models/plainly.ts";
+import { compatible, protectedProvider } from "./models/providers.ts";
+import { FileModelsStore } from "./models/store.ts";
 import { liveHamlets, RealmDoc } from "./realm.ts";
 import { RecordDoc } from "./record.ts";
 import { safeWords } from "./scrub.ts";
@@ -369,6 +374,7 @@ export async function editSettings(
             await home.credentials.delete(endpoint.name);
 }
 
+/** Keeps provider links synchronized with committed settings and closes refresh work. */
 export const Providers: Part = (home) => {
     const stops: (() => Promise<unknown>)[] = [];
     return {
@@ -414,3 +420,45 @@ export const Providers: Part = (home) => {
         },
     };
 };
+
+export {
+    type Card,
+    CatalogueDoc,
+    catalogueOf,
+    editCatalogue,
+    type Listed,
+    type Price,
+    readList,
+    record,
+    takeIn,
+} from "./models/catalogue.ts";
+export { checkConnection, checkModel, namedModel } from "./models/check.ts";
+export {
+    Choice,
+    choose,
+    commitEdit,
+    configureAgent,
+    type Edit,
+    reconfigure,
+} from "./models/choice.ts";
+export {
+    addEndpoint,
+    assumedRate,
+    atEndpoint,
+    endpointName,
+    isLocal,
+} from "./models/endpoints.ts";
+export {
+    FAUX_MODEL,
+    readScript,
+    Script,
+    scriptedModels,
+} from "./models/faux.ts";
+export { login, providersOf } from "./models/logins.ts";
+export { plainly } from "./models/plainly.ts";
+export {
+    compatible,
+    DEFAULT_WINDOW,
+    protectedProvider,
+} from "./models/providers.ts";
+export { FileModelsStore } from "./models/store.ts";

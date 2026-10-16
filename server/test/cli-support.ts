@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { expect, vi } from "vitest";
-import type { Script } from "../src/faux.ts";
+import type { Script } from "../src/models.ts";
 import { closeAfter, scratch } from "./support.ts";
 
 const executable = fileURLToPath(new URL("../bin/hamlet", import.meta.url));

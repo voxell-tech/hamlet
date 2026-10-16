@@ -7,16 +7,17 @@ import {
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
+import type { HomeBase } from "../home.ts";
+import { safeWords } from "../scrub.ts";
+import type { Endpoint } from "../settings.ts";
+import { estimateOf } from "../spend.ts";
 import { type Card, readList, record } from "./catalogue.ts";
 import { assumedRate, atEndpoint } from "./endpoints.ts";
-import type { HomeBase } from "./home.ts";
-import { estimateOf } from "./money.ts";
-import { safeWords } from "./scrub.ts";
-import type { Endpoint } from "./settings.ts";
 
 /** The default context of an endpoint that lists no window size. */
 export const DEFAULT_WINDOW = 32_768;
 
+/** Builds an OpenAI-compatible provider with seeded models for an endpoint. */
 export function compatible(
     endpoint: Endpoint,
     seeds: readonly string[],

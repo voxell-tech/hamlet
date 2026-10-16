@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { OAuthAuth } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
-import { login, providersOf } from "../src/logins.ts";
+import { login, providersOf } from "../src/models.ts";
 import { openaiFake } from "./openai-fake.ts";
 import { context, scratch, testHome } from "./support.ts";
 

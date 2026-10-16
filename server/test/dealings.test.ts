@@ -498,7 +498,7 @@ it("charges a moved sender's next question to its new hamlet without replacing t
     expect(await home.harness.snapshot(PayerDoc, peer, context)).toMatchObject({
         hamlet: "mill",
     });
-    const { ledgerOf } = await import("../src/ledger.ts");
+    const { ledgerOf } = await import("../src/spend.ts");
     const { localDay } = await import("../src/home.ts");
     expect(
         await ledgerOf(home, "mill", localDay(home.now()), context),

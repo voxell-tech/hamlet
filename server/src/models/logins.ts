@@ -1,6 +1,6 @@
 import type { AuthInteraction, Credential } from "@earendil-works/pi-ai";
-import type { Home } from "./home.ts";
-import type { ProviderView } from "./protocol.ts";
+import type { Home } from "../home.ts";
+import type { ProviderView } from "../protocol.ts";
 
 /** The providers and login methods Hamlet offers, without credentials (S7, ADR 0006). */
 export async function providersOf(home: Home): Promise<ProviderView[]> {

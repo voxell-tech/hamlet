@@ -32,12 +32,11 @@ import {
     type With,
     WithDoc,
 } from "./chats.ts";
-import { configureAgent } from "./choice.ts";
 import { closeGate } from "./gate.ts";
 import { entriesOf, LineageDoc } from "./history.ts";
 import type { Home, Part } from "./home.ts";
 import { InstructionsDoc } from "./instructions.ts";
-import { reconcile } from "./ledger.ts";
+import { configureAgent } from "./models.ts";
 import { NoticeEntry, notify } from "./notice.ts";
 import {
     lapse,
@@ -56,6 +55,7 @@ import {
     requestReflection,
 } from "./reflection.ts";
 import { AgentConversationsDoc } from "./society/docs.ts";
+import { reconcile } from "./spend.ts";
 import { newTask, turnOf } from "./turn.ts";
 
 const FollowDoc = defineDoc<{

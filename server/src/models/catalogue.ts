@@ -1,9 +1,11 @@
 import type { Context } from "@earendil-works/chord";
 import { defineDoc } from "@earendil-works/pi-durable";
+import type { Home } from "../home.ts";
 import { assumedRate, isLocal } from "./endpoints.ts";
-import type { Home } from "./home.ts";
 
+/** Input and output cost in dollars per million tokens. */
 export type Price = { input: number; output: number };
+/** A model's known price, capacity and allowance in the home. */
 export type Card = {
     name: string;
     price: Price | null;
@@ -12,11 +14,13 @@ export type Card = {
     allowed: boolean;
     note: string;
 };
+/** A provider's model listing before the home's overrides. */
 export type Listed = {
     id: string;
     price: Price | null;
     context: number | null;
 };
+/** The home's last-known model cards and the chief's overrides. */
 export const CatalogueDoc = defineDoc<{ models: Record<string, Card> }>({
     kind: "hamlet.catalogue",
     version: 1,
@@ -24,6 +28,7 @@ export const CatalogueDoc = defineDoc<{ models: Record<string, Card> }>({
     initial: () => ({ models: {} }),
 });
 
+/** An object value, or an empty object for other representations. */
 export function record(value: unknown): Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value)
         ? (value as Record<string, unknown>)
@@ -118,6 +123,7 @@ export async function takeIn(
     }, context);
 }
 
+/** Lists stored model cards in name order. */
 export async function catalogueOf(
     home: Home,
     context: Context,
@@ -127,6 +133,7 @@ export async function catalogueOf(
     ).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Commits the chief's price, allowance and note overrides for a known model. */
 export async function editCatalogue(
     home: Home,
     name: string,

@@ -10,18 +10,15 @@ import {
 import { Activity } from "./activity.ts";
 import { conversationViews } from "./agent-chats.ts";
 import { ChatDoc, currentOf } from "./chats.ts";
-import { choose } from "./choice.ts";
 import { DEEDS } from "./commands.ts";
 import { modeWords, WorkDoc } from "./environment.ts";
 import { GrantsDoc, grantsOf } from "./gate.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { refreshSkills, skillNames, starterSkills } from "./house.ts";
-import { booksOf } from "./ledger.ts";
 import { libraryView, STARTERS } from "./library.ts";
 import { LimitsDoc, limitsOf } from "./limits.ts";
-import { providersOf } from "./logins.ts";
-import { money } from "./money.ts";
+import { choose, providersOf } from "./models.ts";
 import { OversightDoc, queue, says } from "./oversight.ts";
 import type {
     Agent,
@@ -48,10 +45,10 @@ import {
     named,
     RecordDoc,
 } from "./record.ts";
-import { reportOf } from "./report.ts";
 import { type Settings, SettingsDoc, settingsOf } from "./settings.ts";
 import { AgentConversationsDoc } from "./society/docs.ts";
 import { voteViews } from "./society/votes.ts";
+import { booksOf, money, reportOf } from "./spend.ts";
 
 const starters = starterSkills(STARTERS);
 

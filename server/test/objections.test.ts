@@ -11,11 +11,11 @@ import { QuestionEntry, startConversation, submitLine } from "../src/chats.ts";
 import { answer } from "../src/gate.ts";
 import type { Home } from "../src/home.ts";
 import { houseOf, localDay } from "../src/home.ts";
-import { LedgerDoc, reconcile } from "../src/ledger.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import type { Choice, Wait } from "../src/oversight.ts";
 import { say as typed } from "../src/say.ts";
 import { SettingsDoc } from "../src/settings.ts";
+import { LedgerDoc, reconcile } from "../src/spend.ts";
 import {
     addAgent,
     addHamlet,

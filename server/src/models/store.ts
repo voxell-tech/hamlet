@@ -12,6 +12,7 @@ export class FileModelsStore implements ModelsStore {
     readonly #endpoints = new Map<string, string>();
     #entries: Record<string, ModelsStoreEntry> | undefined;
     #line: Promise<unknown> = Promise.resolve();
+    /** Names the saved model-list file, loaded on its first read or change. */
     constructor(file: string) {
         this.#file = file;
     }
@@ -42,6 +43,7 @@ export class FileModelsStore implements ModelsStore {
                   ),
               };
     }
+    /** Waits for queued writes and returns the saved provider listing at its endpoint. */
     async read(provider: string): Promise<ModelsStoreEntry | undefined> {
         await this.#line;
         const entry = (await this.#load())[provider];
@@ -49,6 +51,7 @@ export class FileModelsStore implements ModelsStore {
             ? undefined
             : this.#atEndpoint(provider, entry);
     }
+    /** Queues a whole-file rewrite with a cloned listing at the provider's endpoint. */
     write(provider: string, entry: ModelsStoreEntry): Promise<void> {
         return this.#change(async (entries) => {
             entries[provider] = structuredClone(
@@ -56,6 +59,7 @@ export class FileModelsStore implements ModelsStore {
             );
         });
     }
+    /** Queues removal of a provider listing from the saved model store. */
     delete(provider: string): Promise<void> {
         return this.#change(async (entries) => {
             delete entries[provider];

@@ -8,7 +8,7 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { scriptedModels } from "../src/faux.ts";
+import { scriptedModels } from "../src/models.ts";
 import { parseServer } from "../src/protocol.ts";
 import { stateOf, watchState } from "../src/state.ts";
 import {

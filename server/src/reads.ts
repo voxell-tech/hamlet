@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import { catalogueOf } from "./catalogue.ts";
 import { CharacterDoc } from "./character.ts";
 import { CharterDoc, charterOf } from "./charter.ts";
 import { chatOf } from "./chats.ts";
@@ -9,7 +8,7 @@ import { historyOf } from "./history.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { houseSkills } from "./house.ts";
-import { refreshModels } from "./models.ts";
+import { catalogueOf, refreshModels } from "./models.ts";
 import type { Address, Listed, Read, ReadResult, Reply } from "./protocol.ts";
 import {
     type ChiefResult,

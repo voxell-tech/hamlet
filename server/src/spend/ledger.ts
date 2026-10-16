@@ -12,7 +12,7 @@ import {
     type Tx,
     UsageDoc,
 } from "@earendil-works/pi-durable";
-import { AnswerDoc } from "./answers.ts";
+import { AnswerDoc } from "../answers.ts";
 import {
     ChiefEntry,
     ErrandEntry,
@@ -22,14 +22,15 @@ import {
     ReplyEntry,
     RetryEntry,
     WithDoc,
-} from "./chats.ts";
-import { PayerDoc } from "./errands.ts";
-import type { Home } from "./home.ts";
-import { localDay } from "./home.ts";
-import type { Limits } from "./limits.ts";
+} from "../chats.ts";
+import { PayerDoc } from "../errands.ts";
+import type { Home } from "../home.ts";
+import { localDay } from "../home.ts";
+import type { Limits } from "../limits.ts";
+import { TaskDoc } from "../tasks.ts";
 import { type Amount, add, amountOf, micros, zero } from "./money.ts";
-import { TaskDoc } from "./tasks.ts";
 
+/** A model, summary or failed-attempt charge attributed to an agent and task. */
 export type Charge = Amount & {
     what: "model" | "summary" | "attempt";
     of: string | null;
@@ -47,6 +48,7 @@ export type Charge = Amount & {
     billed: number | null;
     firstTokenMs: number | null;
 };
+/** A local-day road charge attributed to its sending agent and task. */
 export type RoadCharge = Amount & {
     what: "road";
     at: number;
@@ -54,6 +56,7 @@ export type RoadCharge = Amount & {
     task: string | null;
     of: string | null;
 };
+/** An append-only spend charge or a chief's reset mark. */
 export type LedgerLine =
     | Charge
     | RoadCharge
@@ -334,6 +337,7 @@ function hostOf(url: string | undefined, fallback: string): string {
     }
 }
 
+/** Spend after the period's last reset and across the task's whole life. */
 export type Books = {
     hamlet: Amount;
     /** Local agents by number, foreign agents by hamlet:number. */

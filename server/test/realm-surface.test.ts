@@ -150,7 +150,7 @@ it("refuses papers and edits of removed hamlets and departed agents with their f
 it("retains a mill agent's pinned model when a refreshed endpoint no longer lists it, including after restart", async () => {
     const { openaiFake } = await import("./openai-fake.ts");
     const { testHome, scratch, chatWith } = await import("./support.ts");
-    const { editLimits } = await import("../src/limits/edit.ts");
+    const { editLimits } = await import("../src/limits.ts");
     const { refreshModels } = await import("../src/models.ts");
     const { submitLine } = await import("../src/chats.ts");
     const { vi } = await import("vitest");

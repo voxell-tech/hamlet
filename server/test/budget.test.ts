@@ -6,7 +6,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { LimitsDoc } from "../src/limits.ts";
 import { HOME } from "../src/record.ts";
-import { reportOf } from "../src/report.ts";
+import { reportOf } from "../src/spend.ts";
 import { told } from "../src/told.ts";
 import {
     context,

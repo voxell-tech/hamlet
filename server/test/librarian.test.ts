@@ -17,9 +17,9 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
 import { houseOf, localDay } from "../src/home.ts";
-import { LedgerDoc, reconcile } from "../src/ledger.ts";
 import { LibraryDoc, libraryPart, libraryView } from "../src/library.ts";
 import { LimitsDoc } from "../src/limits.ts";
+import { LedgerDoc, reconcile } from "../src/spend.ts";
 import { request as sendRequest, served } from "./connection-support.ts";
 import {
     context,

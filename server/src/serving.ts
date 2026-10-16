@@ -1,7 +1,7 @@
 import { rename, rm, writeFile } from "node:fs/promises";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { FAUX_MODEL, readScript, scriptedModels } from "./faux.ts";
 import { openHome } from "./home.ts";
+import { FAUX_MODEL, readScript, scriptedModels } from "./models.ts";
 import { probeSandbox } from "./sandbox.ts";
 import { serveHome } from "./server.ts";
 

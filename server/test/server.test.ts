@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { type Connection, connect } from "../src/connection.ts";
-import { type Script, scriptedModels } from "../src/faux.ts";
+import { type Script, scriptedModels } from "../src/models.ts";
 import type {
     Item,
     Op,

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, it } from "vitest";
-import { scriptedModels } from "../src/faux.ts";
+import { scriptedModels } from "../src/models.ts";
 import { changes, request, served } from "./connection-support.ts";
 
 it("edits one limits key or the whole document, sends the new budget, and refuses invalid limits without a change (H22)", async () => {

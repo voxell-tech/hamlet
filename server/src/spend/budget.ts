@@ -9,17 +9,17 @@ import {
     SessionFailed,
     section,
 } from "@earendil-works/pi-durable";
-import { WithDoc } from "./chats.ts";
-import { agentOf, payerOf } from "./errands.ts";
-import type { Part } from "./home.ts";
-import { untilAborted } from "./home.ts";
+import { WithDoc } from "../chats.ts";
+import { agentOf, payerOf } from "../errands.ts";
+import type { Part } from "../home.ts";
+import { untilAborted } from "../home.ts";
+import { LimitsDoc, limitsOf } from "../limits.ts";
+import { notify } from "../notice.ts";
+import { RecordDoc } from "../record.ts";
+import { turnOf } from "../turn.ts";
 import { booksOf, markUncounted, reconcile } from "./ledger.ts";
-import { LimitsDoc, limitsOf } from "./limits.ts";
 import { micros, money } from "./money.ts";
-import { notify } from "./notice.ts";
-import { RecordDoc } from "./record.ts";
 import { reportOf, stopped } from "./report.ts";
-import { turnOf } from "./turn.ts";
 
 const WordsDoc = defineDoc<{ input: number | null; words: string }>({
     kind: "hamlet.budget-words",

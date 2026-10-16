@@ -17,8 +17,8 @@ import { join } from "node:path";
 import { ExecutionError, err } from "@earendil-works/pi-durable/env";
 import { expect, it, vi } from "vitest";
 import { type Connection, connect, serve } from "../src/connection.ts";
-import { scriptedModels } from "../src/faux.ts";
 import { buildHouse, houseOf } from "../src/home.ts";
+import { scriptedModels } from "../src/models.ts";
 import {
     type ClientMessage,
     parseClient,

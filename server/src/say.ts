@@ -7,7 +7,6 @@ import { answerWords, GrantsDoc, grantsOf, revoke } from "./gate.ts";
 import { historyOf } from "./history.ts";
 import type { Deed, Home } from "./home.ts";
 import { giftSkill } from "./house.ts";
-import { resetBudget } from "./ledger.ts";
 import * as library from "./library.ts";
 import { LimitsDoc, limitsOf } from "./limits.ts";
 import { OversightDoc, queue, strip } from "./oversight.ts";
@@ -15,12 +14,12 @@ import type { Reply, Say } from "./protocol.ts";
 import * as founding from "./realm.ts";
 import { chiefAccess, chiefRefusalText, resolve } from "./realm.ts";
 import { addressed, agentKey } from "./record.ts";
-import { reportOf } from "./report.ts";
 import { safeWords } from "./scrub.ts";
 import * as agents from "./society/agents.ts";
 import * as leaving from "./society/leaving.ts";
 import * as merging from "./society/merging.ts";
 import * as voting from "./society/votes.ts";
+import { reportOf, resetBudget } from "./spend.ts";
 import {
     newChat,
     reflect,

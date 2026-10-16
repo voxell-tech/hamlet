@@ -1,5 +1,5 @@
+import type { UsageView } from "../protocol.ts";
 import { duration, money } from "./money.ts";
-import type { UsageView } from "./protocol.ts";
 
 /** The honest one-line account of a conversation's model calls (usage.rs:64-81). */
 export function usageSummary(usage: Omit<UsageView, "summary">): string {

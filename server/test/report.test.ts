@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { defaultLimits } from "../src/limits.ts";
-import { report, stopped } from "../src/report.ts";
+import { report, stopped } from "../src/spend.ts";
 
 it("shows the meter nearest its cap, the model and a nonzero small cost", () => {
     const limits = defaultLimits();

@@ -10,7 +10,6 @@ import {
 import { expect, it, vi } from "vitest";
 import { ChatDoc, submitLine } from "../src/chats.ts";
 import { houseOf, localDay } from "../src/home.ts";
-import { ledgerOf } from "../src/ledger.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RealmDoc, roadsOf } from "../src/realm.ts";
 import { HOME, RecordDoc } from "../src/record.ts";
@@ -22,6 +21,7 @@ import {
     voteOpen,
     votes,
 } from "../src/society/votes.ts";
+import { ledgerOf } from "../src/spend.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,

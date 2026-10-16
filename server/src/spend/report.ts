@@ -1,12 +1,12 @@
 import type { Context } from "@earendil-works/chord";
-import { choose } from "./choice.ts";
-import type { Home } from "./home.ts";
+import type { Home } from "../home.ts";
+import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
+import { choose } from "../models.ts";
+import type { Report } from "../protocol.ts";
+import { RecordDoc } from "../record.ts";
+import { SettingsDoc, settingsOf } from "../settings.ts";
 import { type Books, booksOf } from "./ledger.ts";
-import { type Limits, LimitsDoc, limitsOf } from "./limits.ts";
 import { type Amount, duration, micros, money } from "./money.ts";
-import type { Report } from "./protocol.ts";
-import { RecordDoc } from "./record.ts";
-import { SettingsDoc, settingsOf } from "./settings.ts";
 
 type Caps = { cost: number | null; minutes: number | null };
 function meters(spent: Readonly<Amount>, caps: Caps) {
@@ -52,6 +52,7 @@ export function stopped(
         : `This task has spent its cap (${task}). The chief can give the rest of the work as a new task, or raise the cap under One Task in the hamlet's limits.`;
 }
 
+/** Builds the chief's spend view with the nearest cap and per-agent amounts. */
 export function report(
     limits: Readonly<Limits>,
     books: Books,
