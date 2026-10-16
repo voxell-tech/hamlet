@@ -28,7 +28,7 @@ room stays dark so that the world stays the bright thing on screen.
 
 ## Where it lives
 
-In `hamlet_ui/src/`:
+In `hamlet_sdk/src/`:
 
 - `theme.rs` holds the theme, whose values are in `assets/theme.toml`.
   The panels are built only once that file has loaded; one not found or
@@ -36,7 +36,7 @@ In `hamlet_ui/src/`:
   every text tone to a contrast of 4.5:1 or better on every surface it
   meets.
 - `looks.rs` holds the looks of each kind of button and field.
-- `widgets/feel/` holds the behaviour: a control's warmth, press, flame and
+- `feel/` holds the behaviour: a control's warmth, press, flame and
   sparks, and the light that falls into a panel. Its tuning is
   `FeelSettings`, from `assets/feel.toml`.
 

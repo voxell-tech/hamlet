@@ -6,7 +6,7 @@ there is no icon font, no file to load and no licence to carry.
 
 ## Where they live
 
-`hamlet_ui/src/widgets/icons.rs` is the only place an icon is drawn.
+`hamlet_sdk/src/icons.rs` is the only place an icon is drawn.
 
 - `Glyph` names every icon. A name says what the picture is (`Moon`,
   `Bell`, `Check`) unless the picture is the hamlet's own thing (`Mayor`,

@@ -9,7 +9,6 @@ mod folder;
 pub mod history;
 mod hover;
 pub mod lists;
-mod looks;
 mod markdown;
 mod me;
 pub mod menu;
@@ -35,13 +34,13 @@ use bevy::state::state::OnEnter;
 use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
 use hamlet_core::core::HomeDir;
-pub use hamlet_sdk::{AnyView, Cx, View, cue, theme, with_cx};
+pub use hamlet_sdk::looks::{
+    ICON, brass, grim, lamp, marked, retrace, well,
+};
+pub use hamlet_sdk::{AnyView, Cx, View, cue, looks, theme, with_cx};
 use hamlet_world::pick::Selected;
 
 pub use self::dock::{lit_panel, panel};
-pub use self::looks::{
-    ICON, brass, grim, lamp, marked, retrace, well,
-};
 pub use self::me::Me;
 pub use self::roll::Roll;
 pub use self::root::toolbar;

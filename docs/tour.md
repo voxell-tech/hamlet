@@ -69,11 +69,10 @@ the same name, and each file opens with a line saying what it holds. Read
 (land, towns, houses, roads and traffic from a seed), `keeper/` (the
 robots), `chief/` (the wizard and its Hearth), `hand/` (what the chief does
 by hand), `pick/` (pointing, selecting and the camera) and `sound/`.
+`hamlet_sdk` has the theme, the looks of a button and a field, the icons, the
+feel of a control and the typefaces: what every panel is built from.
 `hamlet_ui` has `screens/` for the panels that draw from the core's state
-alone, one file or folder each, and `widgets/` for what every panel is built
-from: `feel/`, `icons.rs`, `tabs.rs` and `platform.rs`. The
-other panels are files beside them, and `theme.rs` and `looks.rs` are how
-things look.
+alone, one file or folder each, and the other panels are files beside it.
 
 Names to keep apart:
 
@@ -110,9 +109,9 @@ Paths are under `crates/`.
 | A starter skill | `hamlet_home/starters/<name>/SKILL.md` |
 | A panel | Its file in `hamlet_ui/src/screens/`, or in `hamlet_ui/src/` |
 | The right-click menu | `hamlet_ui/src/world_menu/items.rs` |
-| A colour in the panels | `assets/theme.toml`, its fields in `hamlet_ui/src/theme.rs` |
-| How a control looks or feels | `hamlet_ui/src/looks.rs`, `widgets/feel/`; [`ui-warmth.md`](ui-warmth.md) |
-| An icon | `hamlet_ui/src/widgets/icons.rs`; [`icons.md`](icons.md) |
+| A colour in the panels | `assets/theme.toml`, its fields in `hamlet_sdk/src/theme.rs` |
+| How a control looks or feels | `hamlet_sdk/src/looks.rs`, `feel/`; [`ui-warmth.md`](ui-warmth.md) |
+| An icon | `hamlet_sdk/src/icons.rs`; [`icons.md`](icons.md) |
 | A colour in the world | `assets/palette.toml` |
 | A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`, `feel.toml`. What each value means is beside its field in the code |
 | The height something stands at | `LandData::surface`: the ground as it is drawn, never the smooth `height` |

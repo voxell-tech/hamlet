@@ -19,7 +19,7 @@ use crate::{AnyView, Cx, View};
 
 /// The least height of any button (macOS default control size, 28
 /// pt).
-pub(crate) const CONTROL: f32 = 28.0;
+pub const CONTROL: f32 = 28.0;
 
 /// The padding inside a text button.
 pub fn pad() -> UiRect {
@@ -159,7 +159,7 @@ pub fn grim(cx: &mut Cx) {
 
 /// The room left over along a row or a column, taken and given back
 /// when there is less than what is inside would like.
-pub(crate) trait Fills: FrameProps + Sized {
+pub trait Fills: FrameProps + Sized {
     /// Takes the height left over, and may shrink below its content.
     fn fills_height(self) -> Self {
         self.grow(1.0).min_height(px(0.0))
@@ -180,12 +180,12 @@ pub fn bare() -> Stack<()> {
 
 /// A column with no gap that fills the height, for a keyed view to
 /// be built under.
-pub(crate) fn filling() -> Stack<()> {
+pub fn filling() -> Stack<()> {
     column(()).fills_height().gap(0.0)
 }
 
 /// A line one pixel thick, of `colour`.
-pub(crate) fn hairline(colour: impl Into<Prop<Color>>) -> Frame {
+pub fn hairline(colour: impl Into<Prop<Color>>) -> Frame {
     frame().height(px(1.0)).fill(colour)
 }
 
@@ -209,7 +209,7 @@ pub fn tick(on: impl Into<Prop<bool>>) -> Checkbox {
 }
 
 /// A lettered button: `text` in the display face.
-pub(crate) fn lettered(
+pub fn lettered(
     text: impl Into<Prop<String>>,
 ) -> impl View + FrameProps {
     button(label(text).wrap(false).tagged(DisplayText))
@@ -227,7 +227,7 @@ pub fn raised(mark: Icon) -> impl View + FrameProps {
 }
 
 /// An icon before `words` in the display face.
-pub(crate) fn headed(
+pub fn headed(
     which: Glyph,
     words: impl View + 'static,
 ) -> impl View + FrameProps {
@@ -248,7 +248,7 @@ pub fn marked(
 }
 
 /// A word of status of `size`, behind its icon, both in `tone`.
-pub(crate) fn stated(
+pub fn stated(
     which: Glyph,
     text: impl Into<String>,
     tone: Tone,
@@ -302,7 +302,7 @@ fn acting(
 }
 
 /// A brass button with an icon before its word, that runs `act`.
-pub(crate) fn action(
+pub fn action(
     which: Glyph,
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
@@ -311,7 +311,7 @@ pub(crate) fn action(
 }
 
 /// The button for the one action a screen is for, that runs `act`.
-pub(crate) fn good_action(
+pub fn good_action(
     which: Glyph,
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
@@ -320,7 +320,7 @@ pub(crate) fn good_action(
 }
 
 /// A button that refuses, stops or throws away, by running `act`.
-pub(crate) fn bad_action(
+pub fn bad_action(
     which: Glyph,
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
@@ -330,7 +330,7 @@ pub(crate) fn bad_action(
 
 /// A row of a list that leads somewhere: no plate and no frame at
 /// rest, and a faint plate under the pointer.
-pub(crate) fn passage(cx: &mut Cx) {
+pub fn passage(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| f.fill(Color::NONE).radius(t.space.round))
         .label(|l, _| l.tone(Tone::Faint).size(12.0).bold(true))
@@ -358,7 +358,7 @@ pub fn door(
 }
 
 /// The same as a row of a list, with no frame about it.
-pub(crate) fn list_door(
+pub fn list_door(
     which: Glyph,
     title: &'static str,
     holds: &'static str,
@@ -400,7 +400,7 @@ fn way_in(
 
 /// The parts of something as rows of one list, a hairline between
 /// each and the next, over `foot`.
-pub(crate) fn doors(
+pub fn doors(
     cx: &Cx,
     doors: Vec<AnyView>,
     foot: AnyView,
@@ -418,7 +418,7 @@ pub(crate) fn doors(
 
 /// The head of a page of its own: the way back to `front`, which
 /// `act` takes, and the page's `name` under `which`.
-pub(crate) fn page_head(
+pub fn page_head(
     front: &'static str,
     act: fn(&mut World),
     which: Glyph,
@@ -439,7 +439,7 @@ pub(crate) fn page_head(
 }
 
 /// A row that is pressed whole: a plate under the pointer.
-pub(crate) fn plate(cx: &mut Cx) {
+pub fn plate(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(Color::NONE)
