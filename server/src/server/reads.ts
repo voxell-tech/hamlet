@@ -5,21 +5,19 @@ import type { Home } from "../home.ts";
 import type { SettingsFailure } from "../models.ts";
 import { CharacterDoc, CharterDoc, charterOf, told } from "../prompt.ts";
 import type { Address, Listed, Read, ReadResult } from "../protocol.ts";
-import {
-    type ChiefRefusal,
-    type ChiefResult,
-    chiefAccess,
-} from "../realm/access.ts";
-import { resolve } from "../realm/roads.ts";
+import { type ChiefRefusal, chiefAccess } from "../realm/access.ts";
+import { type AddressFailure, resolve } from "../realm/roads.ts";
 import { type AgentRef, agentKey } from "../record.ts";
-import { ok, type Result } from "../result.ts";
+import { err, ok, type Result } from "../result.ts";
 
 /** A chief's view of the prompt, history, catalogue and papers (C14, C24). */
 export async function read(
     home: Home,
     message: Read,
     context: Context,
-): Promise<Result<ReadResult, ChiefRefusal["error"] | SettingsFailure>> {
+): Promise<
+    Result<ReadResult, ChiefRefusal["error"] | SettingsFailure | AddressFailure>
+> {
     const reply = { type: "read", to: message.id } as const;
     if (message.what === "charter")
         return ok({
@@ -96,7 +94,7 @@ export async function readableAgent(
     home: Home,
     address: Address,
     context: Context,
-): Promise<ChiefResult<AgentRef>> {
+): Promise<Result<AgentRef, ChiefRefusal["error"] | AddressFailure>> {
     const access = await chiefAccess(
         home,
         address.hamlet,
@@ -110,7 +108,8 @@ export async function readableAgent(
         `${address.agent}@${address.hamlet}`,
         context,
     );
-    if (!resolved) throw new Error(`no agent named \`${address.agent}\``);
-    if ("gone" in resolved) throw new Error(resolved.gone);
+    if (!resolved) return err({ kind: "agent-missing", agent: address.agent });
+    if ("gone" in resolved)
+        return err({ kind: "agent-gone", farewell: resolved.gone });
     return { ok: true, value: resolved.ref };
 }

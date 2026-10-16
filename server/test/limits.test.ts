@@ -22,10 +22,10 @@ describe("a chief's limits", () => {
             task: { cost: 1, messages: 3 },
             road: { cost: 0.01 },
         });
-        for (const [key, value, words] of [
-            ["cost", -1, "budget.cost: a cost is a number of zero or more"],
-            ["cost", "no", "budget.cost"],
-            ["mystery", 1, "unknown field `mystery`"],
+        for (const [key, value, kind] of [
+            ["cost", -1, "invalid-field"],
+            ["cost", "no", "invalid-field"],
+            ["mystery", 1, "unknown-field"],
         ] as const) {
             await expect(
                 editLimits(
@@ -34,7 +34,10 @@ describe("a chief's limits", () => {
                     { set: { section: "budget", key, value } },
                     context,
                 ),
-            ).rejects.toThrow(words);
+            ).resolves.toMatchObject({
+                ok: false,
+                error: { kind, path: `budget.${key}` },
+            });
             expect(
                 await home.harness.snapshot(LimitsDoc, HOME, context),
             ).toMatchObject({ budget: { cost: 5 }, task: { messages: 3 } });
@@ -94,7 +97,7 @@ it("fills votes and hamlets, edits both, and refuses invalid thresholds atomical
     ] as const) {
         await expect(
             editLimits(home, HOME, { set: { section, key, value } }, context),
-        ).rejects.toThrow(/votes|hamlets/);
+        ).resolves.toMatchObject({ ok: false });
         expect(await home.harness.snapshot(LimitsDoc, HOME, context)).toEqual(
             before,
         );
@@ -129,5 +132,34 @@ it("opens a stored step-2 limits document with votes and hamlets added", async (
         budget: { cost: 7 },
         votes: { passYes: 2, passOf: 3 },
         hamlets: { most: 6 },
+    });
+});
+
+it("normalizes omitted limits without mutating input and round-trips the resulting document", async () => {
+    const { parseLimits } = await import("../src/limits.ts");
+    const input = {
+        votes: { passOf: 2 },
+        budget: { cost: 0.25 },
+        pinned: { mayor: "local::tiny", ["__proto__"]: "unused::name" },
+    };
+    const parsed = parseLimits(input);
+    expect(parsed).toMatchObject({
+        ok: true,
+        value: {
+            votes: { passYes: 2, passOf: 2 },
+            budget: { cost: 0.25 },
+            task: { messages: 12 },
+            pinned: { mayor: "local::tiny", ["__proto__"]: "unused::name" },
+        },
+    });
+    if (!parsed.ok) throw new Error("Valid limits were refused");
+    expect(parsed.value.pinned).toEqual(input.pinned);
+    expect(parseLimits(JSON.parse(JSON.stringify(parsed.value)))).toEqual(
+        parsed,
+    );
+    expect(input).toEqual({
+        votes: { passOf: 2 },
+        budget: { cost: 0.25 },
+        pinned: { mayor: "local::tiny", ["__proto__"]: "unused::name" },
     });
 });

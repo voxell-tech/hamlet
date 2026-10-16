@@ -246,13 +246,10 @@ export async function serveHome(
                     await changed(await gifts.part(message, client.signal)),
                     home.secrets,
                 ),
-            // D11 replaces this edit-call compatibility catch with limits failures.
             edit: async (message) =>
                 replyFor(
                     message.id,
-                    await changed(
-                        await edit(home, message, context).catch(legacyRefusal),
-                    ),
+                    await changed(await edit(home, message, context)),
                     home.secrets,
                 ),
             read: async (message) => {

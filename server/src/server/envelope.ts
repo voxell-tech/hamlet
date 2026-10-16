@@ -11,6 +11,7 @@ import {
     type TreeFailure,
     treeFailureText,
 } from "../house.ts";
+import { type LimitsRefusal, limitsRefusalText } from "../limits.ts";
 import {
     type CatalogueFailure,
     catalogueFailureText,
@@ -41,6 +42,7 @@ export type Receipt = {
 
 /** Chief-facing failures whose wording is chosen at the protocol seam. */
 export type ChiefFailure =
+    | LimitsRefusal
     | SettingsFailure
     | CatalogueFailure
     | LoginFailure
@@ -89,6 +91,11 @@ function rendered(failure: ChiefFailure): {
     kind: "notice" | "error";
 } {
     switch (failure.kind) {
+        case "invalid-field":
+        case "unknown-field":
+        case "votes-inconsistent":
+            return { text: limitsRefusalText(failure), kind: "error" };
+
         case "reflect-every-not-whole":
         case "endpoint-name-invalid":
         case "endpoint-builtin":
@@ -146,6 +153,8 @@ function rendered(failure: ChiefFailure): {
             return { text: workFailureText(failure), kind: "error" };
         case "notes-not-utf8":
         case "notes-unreadable":
+        case "notes-unavailable":
+        case "notes-write-refused":
             return { text: notesFailureText(failure), kind: "error" };
         case "agent-missing":
         case "agent-gone":

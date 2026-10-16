@@ -1,6 +1,7 @@
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
+import type { FileErrorCode } from "@earendil-works/pi-durable/env";
 import { buildHouse, houseOf, type Layout } from "../home/layout.ts";
 import { type AgentRef, agentKey } from "../record.ts";
 import { err, ok, type Result } from "../result.ts";
@@ -45,20 +46,28 @@ export function parseSkill(text: string): Omit<Skill, "folder"> | undefined {
     };
 }
 
-/** Notes that could not be read without changing their bytes. */
-export type NotesFailure = {
-    operation: "read-notes";
-    agent: AgentRef;
-    retrySafe: true;
-} & ({ kind: "notes-not-utf8" } | { kind: "notes-unreadable" });
+/** Notes that could not be read or changed safely. */
+export type NotesFailure =
+    | ({ operation: "read-notes"; agent: AgentRef; retrySafe: true } & (
+          | { kind: "notes-not-utf8" }
+          | { kind: "notes-unreadable" }
+      ))
+    | ({ operation: "write-notes"; agent: AgentRef; retrySafe: false } & (
+          | { kind: "notes-unavailable" }
+          | { kind: "notes-write-refused"; code: FileErrorCode; text: string }
+      ));
 
-/** Safe words for a refused notes read. */
+/** Safe words for a refused notes operation. */
 export function notesFailureText(error: NotesFailure): string {
     switch (error.kind) {
         case "notes-not-utf8":
             return "The agent's NOTES.md is not UTF-8 text. Keep its original bytes aside and correct the file.";
         case "notes-unreadable":
             return "The agent's NOTES.md could not be read safely. Inspect its house before trying again.";
+        case "notes-unavailable":
+            return "The agent's house could not be opened.";
+        case "notes-write-refused":
+            return error.text;
     }
     const unhandled: never = error;
     throw new Error(`Unclassified notes failure: ${unhandled}`);

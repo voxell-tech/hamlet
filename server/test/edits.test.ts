@@ -76,3 +76,38 @@ it("edits one limits key or the whole document, sends the new budget, and refuse
             .at(-1),
     ).toMatchObject({ hamlet: { limits: { mayor: { toldDays: 7 } } } });
 });
+
+it("keeps the nested list correction in a refused limits edit", async () => {
+    const run = await served({ models: scriptedModels({ responses: [] }) });
+    expect(
+        await request(run.connection, run.messages, {
+            type: "edit",
+            id: randomUUID(),
+            doc: "limits",
+            hamlet: "home",
+            whole: { permissions: { network: false } },
+        }),
+    ).toMatchObject({
+        type: "reply",
+        kind: "error",
+        text: "permissions.network: expected a list of names",
+    });
+});
+
+it("refuses an unknown special key before normalizing limits", async () => {
+    const run = await served({ models: scriptedModels({ responses: [] }) });
+    const whole = { ["__proto__"]: { polluted: true } };
+    expect(
+        await request(run.connection, run.messages, {
+            type: "edit",
+            id: randomUUID(),
+            doc: "limits",
+            hamlet: "home",
+            whole,
+        }),
+    ).toMatchObject({
+        type: "reply",
+        kind: "error",
+        text: "unknown field `__proto__` under limits",
+    });
+});
