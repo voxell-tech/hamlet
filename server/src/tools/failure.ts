@@ -1,3 +1,5 @@
+import type { Home } from "../home.ts";
+
 /** A search or listing refused before any file is changed. */
 export type SearchFailure =
     | ({
@@ -47,4 +49,17 @@ export function toolFailureText(failure: ToolFailure): string {
     }
     const unhandled: never = failure;
     throw new Error(`Unclassified tool failure: ${unhandled}`);
+}
+
+/** Reports a private tool defect and throws a model-safe error retaining its cause. */
+export function toolDefect(home: Home, tool: string, cause: unknown): never {
+    console.error(
+        home.secrets.words(
+            `Tool ${tool} failed: ${cause instanceof Error ? (cause.stack ?? cause.message) : String(cause)}`,
+        ),
+    );
+    throw new Error(
+        `The ${tool} tool failed. Inspect its output and tell the chief before trying again.`,
+        { cause },
+    );
 }

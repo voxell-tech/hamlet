@@ -6,6 +6,7 @@ import {
     mkdirSync,
     readdirSync,
     readFileSync,
+    rmSync,
     symlinkSync,
     watch,
     writeFileSync,
@@ -743,3 +744,31 @@ it.each([
         }
     },
 );
+
+it("keeps a librarian defect's private stage path out of the agent's answer", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), { models });
+    skill(houseOf(home.layout, MAYOR));
+    const stages = join(home.dir, ".library-stages");
+    rmSync(stages, { recursive: true });
+    writeFileSync(stages, "blocked");
+    let seen = "";
+    faux.setResponses([
+        fauxAssistantMessage(
+            fauxToolCall("submit_skill", {
+                skill: "tides",
+                reason: "For ports.",
+            }),
+            { stopReason: "toolUse" },
+        ),
+        (prompt) => {
+            seen = JSON.stringify(prompt.messages);
+            return fauxAssistantMessage("Stopped.");
+        },
+    ]);
+    await (await say(home, "Offer it.")).wait(context);
+    expect(seen).not.toBe("");
+    expect(seen).not.toContain(stages);
+    expect(seen).not.toContain(".library-stages");
+    expect(seen).toContain("failed");
+});

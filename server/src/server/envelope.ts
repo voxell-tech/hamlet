@@ -106,6 +106,11 @@ function rendered(
     kind: "notice" | "error";
 } {
     switch (failure.kind) {
+        case "library-stage":
+        case "library-list":
+        case "library-paper":
+        case "library-name-taken":
+        case "library-claimed":
         case "library-usage":
         case "library-skill-missing":
             return { text: libraryRefusalText(failure), kind: "error" };

@@ -23,6 +23,7 @@ export {
     type RunFailure,
     type SearchFailure,
     type ToolFailure,
+    toolDefect,
     toolFailureText,
 } from "./tools/failure.ts";
 export { leaveFor, runConfined } from "./tools/run.ts";

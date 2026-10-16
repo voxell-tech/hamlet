@@ -42,6 +42,7 @@ import type { State } from "../protocol.ts";
 import { RecordDoc } from "../record.ts";
 import { err, ok, type Result } from "../result.ts";
 import { canSpend, spendFailureText } from "../spend.ts";
+import { toolDefect } from "../tools.ts";
 import { LibraryDoc, libraryPart } from "./shelf.ts";
 
 const ConsultDoc = defineDoc<{
@@ -94,7 +95,8 @@ export const Librarian: Part = (home) => ({
                 replay: "safe",
                 execute: async (args, api, context) =>
                     answer(
-                        await consult(
+                        home,
+                        consult(
                             home,
                             api,
                             { skill: args.skill, text: args.reason },
@@ -110,12 +112,8 @@ export const Librarian: Part = (home) => ({
                 replay: "safe",
                 execute: async (args, api, context) =>
                     answer(
-                        await consult(
-                            home,
-                            api,
-                            { text: args.question },
-                            context,
-                        ),
+                        home,
+                        consult(home, api, { text: args.question }, context),
                     ),
             }),
         ],
@@ -126,8 +124,12 @@ export const Librarian: Part = (home) => ({
     },
 });
 
-function answer(text: string) {
-    return { output: [{ type: "text" as const, text }] };
+async function answer(home: Home, work: Promise<string>) {
+    try {
+        return { output: [{ type: "text" as const, text: await work }] };
+    } catch (cause) {
+        toolDefect(home, "librarian", cause);
+    }
 }
 
 async function consult(
@@ -165,86 +167,112 @@ async function consult(
         const record = await api.snapshot(RecordDoc, place.hamlet, context);
         const by = `${record?.agents.find((a) => a.number === place.number)?.name ?? "agent"}@${place.hamlet}`;
         let stage: string | null = null;
-        try {
-            const shelves = await skillsIn(home.layout.library);
-            let question: string;
-            if (given.skill !== undefined) {
-                const stages = join(home.dir, ".library-stages");
-                await mkdir(stages, { recursive: true, mode: 0o700 });
-                stage = await mkdtemp(join(stages, "offer-"));
-                const staged = await stageTree(
-                    home,
-                    { root: house, rel: `skills/${given.skill}` },
-                    stage,
-                    GIFT_CAPS,
-                    context,
-                );
-                if (!staged.ok)
-                    throw new Error(
-                        giftRefusalText({
-                            kind: "skill-tree",
-                            failure: staged.error,
-                            operation: "give",
-                            retrySafe: false,
-                        }),
+        let admitted = false;
+        const prepared = await (async (): Promise<
+            Result<void, LibraryRefusal>
+        > => {
+            try {
+                const shelves = await skillsIn(home.layout.library);
+                let question: string;
+                if (given.skill !== undefined) {
+                    const stages = join(home.dir, ".library-stages");
+                    await mkdir(stages, { recursive: true, mode: 0o700 });
+                    stage = await mkdtemp(join(stages, "offer-"));
+                    const staged = await stageTree(
+                        home,
+                        { root: house, rel: `skills/${given.skill}` },
+                        stage,
+                        GIFT_CAPS,
+                        context,
                     );
-                const paper = await readFile(
-                    join(stage, given.skill, "SKILL.md"),
+                    if (!staged.ok)
+                        return err({
+                            kind: "library-stage",
+                            failure: staged.error,
+                            operation: "submit-skill",
+                            retrySafe: false,
+                        });
+                    const paper = await readFile(
+                        join(stage, given.skill, "SKILL.md"),
+                        "utf8",
+                    ).catch(() => "");
+                    const skill = parseSkill(paper);
+                    if (!skill?.name.trim() || !skill.description.trim())
+                        return err({
+                            kind: "library-paper",
+                            name: given.skill,
+                            operation: "submit-skill",
+                            retrySafe: false,
+                        });
+                    if (shelves.some((s) => s.folder === given.skill))
+                        return err({
+                            kind: "library-name-taken",
+                            name: given.skill,
+                            operation: "submit-skill",
+                            retrySafe: false,
+                        });
+                    const files = await listTree(
+                        home,
+                        stage,
+                        given.skill,
+                        context,
+                    );
+                    if (!files.ok)
+                        return err({
+                            kind: "library-list",
+                            failure: files.error,
+                            operation: "submit-skill",
+                            retrySafe: false,
+                        });
+                    question = `You are the librarian. You keep the library: the skills every agent of every hamlet shares. \`${by}\` offers a skill for it, giving this reason: ${given.text.trim()}\n\nTake it only if it is all of these: useful to agents other than the one that wrote it; not something a skill on the shelves already does; clear enough that an agent who has never seen it could run it from its text alone; and free of anything private to one agent, such as names, keys or paths of its own.\n\nOn the shelves now:\n${shelves.map((s) => `- ${s.name}: ${s.description}`).join("\n")}\nThe skill offered, with its files (${files.value.files.map((f) => f.path).join(", ")}):\n\n${[...paper].slice(0, 6000).join("")}\n\nAnswer with ACCEPT or REFUSE as your first word, then one or two sentences of why. If you refuse, say what would change your answer.`;
+                } else {
+                    question = `You are the librarian. You keep the library: the skills every agent of every hamlet shares. \`${by}\` asks you for a skill: ${given.text.trim()}\n\nThe shelves, each skill with the command that runs it:\n${(await libraryPart(home.layout.library)) ?? "(nothing yet)"}\nAnswer in a few sentences. Name the skill or skills that do it and give the exact command to run, as it is written above. If nothing on the shelves does it, say so plainly, and say that it may write a skill of its own and offer it with \`submit_skill\` afterwards. Do not invent a skill that is not on the shelves.`;
+                }
+                const notes = await readFile(
+                    join(home.layout.librarian, "NOTES.md"),
                     "utf8",
                 ).catch(() => "");
-                const skill = parseSkill(paper);
-                if (!skill?.name.trim() || !skill.description.trim())
-                    throw new Error(
-                        `\`${given.skill}\` has no SKILL.md that opens with a name and a description`,
-                    );
-                if (shelves.some((s) => s.folder === given.skill))
-                    throw new Error(
-                        `the library already has a skill named \`${given.skill}\`. Use that one, or submit yours under another name if it does something else`,
-                    );
-                const files = await listTree(home, stage, given.skill, context);
-                if (!files.ok) throw new Error(treeFailureText(files.error));
-                question = `You are the librarian. You keep the library: the skills every agent of every hamlet shares. \`${by}\` offers a skill for it, giving this reason: ${given.text.trim()}\n\nTake it only if it is all of these: useful to agents other than the one that wrote it; not something a skill on the shelves already does; clear enough that an agent who has never seen it could run it from its text alone; and free of anything private to one agent, such as names, keys or paths of its own.\n\nOn the shelves now:\n${shelves.map((s) => `- ${s.name}: ${s.description}`).join("\n")}\nThe skill offered, with its files (${files.value.files.map((f) => f.path).join(", ")}):\n\n${[...paper].slice(0, 6000).join("")}\n\nAnswer with ACCEPT or REFUSE as your first word, then one or two sentences of why. If you refuse, say what would change your answer.`;
-            } else {
-                question = `You are the librarian. You keep the library: the skills every agent of every hamlet shares. \`${by}\` asks you for a skill: ${given.text.trim()}\n\nThe shelves, each skill with the command that runs it:\n${(await libraryPart(home.layout.library)) ?? "(nothing yet)"}\nAnswer in a few sentences. Name the skill or skills that do it and give the exact command to run, as it is written above. If nothing on the shelves does it, say so plainly, and say that it may write a skill of its own and offer it with \`submit_skill\` afterwards. Do not invent a skill that is not on the shelves.`;
+                const claimed = await api.commit(
+                    async (tx): Promise<Result<void, LibraryRefusal>> => {
+                        if (given.skill !== undefined) {
+                            const claims = (await tx.doc(ClaimsDoc)).skills;
+                            if (
+                                claims[`skill:${given.skill}`] !== undefined &&
+                                claims[`skill:${given.skill}`] !== api.taskId
+                            )
+                                return err({
+                                    kind: "library-claimed",
+                                    operation: "submit-skill",
+                                    retrySafe: false,
+                                });
+                            claims[`skill:${given.skill}`] = api.taskId;
+                        }
+                        const errand = await startErrand(home, tx, {
+                            agent: place,
+                            kind: "librarian",
+                            own: false,
+                            instructions: `${notes}\n\n${question}`,
+                            tools: [],
+                        });
+                        Object.assign(await tx.doc(ConsultDoc, api.taskId), {
+                            errand,
+                            stage,
+                            skill: given.skill ?? null,
+                            by,
+                            task: turn.task,
+                            question,
+                        });
+                        return ok(undefined);
+                    },
+                    context,
+                );
+                admitted = claimed.ok;
+                return claimed;
+            } finally {
+                if (!admitted && stage) await discardStage(stage);
             }
-            const notes = await readFile(
-                join(home.layout.librarian, "NOTES.md"),
-                "utf8",
-            ).catch(() => "");
-            await api.commit(async (tx) => {
-                if (given.skill !== undefined) {
-                    const claims = (await tx.doc(ClaimsDoc)).skills;
-                    if (
-                        claims[`skill:${given.skill}`] !== undefined &&
-                        claims[`skill:${given.skill}`] !== api.taskId
-                    )
-                        throw new Error(
-                            "Another offer of that skill is being judged.",
-                        );
-                    claims[`skill:${given.skill}`] = api.taskId;
-                }
-                const errand = await startErrand(home, tx, {
-                    agent: place,
-                    kind: "librarian",
-                    own: false,
-                    instructions: `${notes}\n\n${question}`,
-                    tools: [],
-                });
-                Object.assign(await tx.doc(ConsultDoc, api.taskId), {
-                    errand,
-                    stage,
-                    skill: given.skill ?? null,
-                    by,
-                    task: turn.task,
-                    question,
-                });
-            }, context);
-        } catch (error) {
-            if (stage) await discardStage(stage);
-            return error instanceof Error
-                ? error.message
-                : "The skill could not be offered safely.";
-        }
+        })();
+        if (!prepared.ok) return libraryRefusalText(prepared.error);
         job = await api.snapshot(ConsultDoc, api.taskId, context);
     }
     if (!job?.errand) throw new Error("The librarian's errand is missing.");
@@ -388,19 +416,29 @@ async function publishSkill(
     skill: string,
     context: Context,
 ): Promise<ShelfDelivery> {
+    const refused = (): ShelfDelivery => ({
+        ok: false,
+        error: {
+            kind: "shelf-delivery",
+            operation: "shelve-skill",
+            skill,
+            request,
+            retrySafe: false,
+        },
+    });
     const incoming = join(home.layout.library, `.incoming-${request}`);
     try {
         const target = join(home.layout.library, skill);
         if (await lstat(target).catch(() => undefined)) {
             const source = await listTree(home, stage, skill, context);
-            if (!source.ok) throw new Error(treeFailureText(source.error));
+            if (!source.ok) return refused();
             const shelved = await listTree(
                 home,
                 home.layout.library,
                 skill,
                 context,
             );
-            if (!shelved.ok) throw new Error(treeFailureText(shelved.error));
+            if (!shelved.ok) return refused();
             if (
                 shelved.value.skipped.length ||
                 JSON.stringify(source.value.files) !==
@@ -427,21 +465,11 @@ async function publishSkill(
             [skill],
             context,
         );
-        if (!treeOutcome1.ok)
-            throw new Error(treeFailureText(treeOutcome1.error));
+        if (!treeOutcome1.ok) return refused();
         await rename(join(incoming, skill), target);
         return { ok: true, value: null };
     } catch {
-        return {
-            ok: false,
-            error: {
-                kind: "shelf-delivery",
-                operation: "shelve-skill",
-                skill,
-                request,
-                retrySafe: false,
-            },
-        };
+        return refused();
     } finally {
         await discardStage(incoming);
     }
@@ -600,6 +628,15 @@ async function removeHouseCopy(
     skill: string,
     context: Context,
 ): Promise<CleanupResult> {
+    const refused = (): CleanupResult => ({
+        ok: false,
+        error: {
+            kind: "house-copy-removal",
+            operation: "shelve-skill",
+            skill,
+            retrySafe: false,
+        },
+    });
     try {
         const treeOutcome2 = await removeTree(
             home,
@@ -607,19 +644,10 @@ async function removeHouseCopy(
             [`skills/${skill}`],
             context,
         );
-        if (!treeOutcome2.ok)
-            throw new Error(treeFailureText(treeOutcome2.error));
+        if (!treeOutcome2.ok) return refused();
         return { ok: true, value: null };
     } catch {
-        return {
-            ok: false,
-            error: {
-                kind: "house-copy-removal",
-                operation: "shelve-skill",
-                skill,
-                retrySafe: false,
-            },
-        };
+        return refused();
     }
 }
 
@@ -638,14 +666,35 @@ function validName(name: string): boolean {
     return /^[A-Za-z0-9_-]+$/.test(name);
 }
 
-/** A chief's shelf-removal refusal before a tree operation starts. */
-export type LibraryRefusal = { operation: "unshelve"; retrySafe: true } & (
-    | { kind: "library-usage" }
-    | { kind: "library-skill-missing"; name: string }
-);
-/** Chief-facing shelf refusal wording. */
+/** A refused shelf removal or skill offer. */
+export type LibraryRefusal =
+    | ({ operation: "unshelve"; retrySafe: true } & (
+          | { kind: "library-usage" }
+          | { kind: "library-skill-missing"; name: string }
+      ))
+    | ({ operation: "submit-skill"; retrySafe: false } & (
+          | { kind: "library-stage" | "library-list"; failure: TreeFailure }
+          | { kind: "library-paper" | "library-name-taken"; name: string }
+          | { kind: "library-claimed" }
+      ));
+/** Shelf refusal wording for chiefs and offering agents. */
 export function libraryRefusalText(failure: LibraryRefusal): string {
     switch (failure.kind) {
+        case "library-stage":
+            return giftRefusalText({
+                kind: "skill-tree",
+                failure: failure.failure,
+                operation: "give",
+                retrySafe: false,
+            });
+        case "library-list":
+            return treeFailureText(failure.failure);
+        case "library-paper":
+            return `\`${failure.name}\` has no SKILL.md that opens with a name and a description`;
+        case "library-name-taken":
+            return `the library already has a skill named \`${failure.name}\`. Use that one, or submit yours under another name if it does something else`;
+        case "library-claimed":
+            return "Another offer of that skill is being judged.";
         case "library-usage":
             return "usage: /unshelve <skill>";
         case "library-skill-missing":
