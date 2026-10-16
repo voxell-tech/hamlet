@@ -20,7 +20,7 @@ import {
 } from "./connection.ts";
 import { answerWords } from "./gate.ts";
 import type { Home } from "./home.ts";
-import { clearStagedGifts, give, uploads } from "./house.ts";
+import { clearStagedGifts, giftRefusalText, give, uploads } from "./house.ts";
 import { checkConnection, checkModel, login as signIn } from "./models.ts";
 import type { Address, Login, LoginStep, ServerMessage } from "./protocol.ts";
 import { chiefAccess, legacyRefusal } from "./realm/access.ts";
@@ -95,7 +95,8 @@ export async function serveHome(
             return err({ kind: "agent-gone", farewell: target.gone });
         return ok({ agent: target.ref, chief: home.chief });
     };
-    await clearStagedGifts(home);
+    const cleared = await clearStagedGifts(home);
+    if (!cleared.ok) throw new Error(giftRefusalText(cleared.error));
     const gifts = uploads(home, context);
     const logins = loginConnection(home, () => state.refresh());
     server = await serve({
@@ -233,34 +234,23 @@ export async function serveHome(
                 return undefined;
             },
             give: async (message, client) => {
-                // D8 replaces these gift-call compatibility catches with GiftRefusal.
                 if (!("files" in message))
                     return replyFor(
                         message.id,
-                        await changed(
-                            await give(home, message, context).catch(
-                                legacyRefusal,
-                            ),
-                        ),
+                        await changed(await give(home, message, context)),
                         home.secrets,
                     );
                 return replyFor(
                     message.id,
-                    await gifts
-                        .begin(message, client.signal)
-                        .catch(legacyRefusal),
+                    await gifts.begin(message, client.signal),
                     home.secrets,
                 );
             },
-            // D8 replaces this gift-part compatibility catch with GiftRefusal.
+
             "give-part": async (message, client) =>
                 replyFor(
                     message.id,
-                    await changed(
-                        await gifts
-                            .part(message, client.signal)
-                            .catch(legacyRefusal),
-                    ),
+                    await changed(await gifts.part(message, client.signal)),
                     home.secrets,
                 ),
             // D9/D11 replace this edit-call compatibility catch with settings and limits failures.

@@ -205,6 +205,7 @@ export class House {
 /** House readers owned and closed by one open home. */
 export class Houses {
     readonly #kept = new Map<string, House>();
+    #delivery: Promise<unknown> = Promise.resolve();
     readonly #layout: Layout;
     readonly #reader: (agent: AgentRef, context: Context) => SandboxEnv;
 
@@ -233,6 +234,13 @@ export class Houses {
         for (const house of this.#kept.values())
             if (house.path === root || house.path.startsWith(`${root}/`))
                 house.invalidate();
+    }
+
+    /** Serializes tree claims across every receiving house. */
+    async deliver<T>(work: () => Promise<T>): Promise<T> {
+        const next = this.#delivery.catch(() => {}).then(work);
+        this.#delivery = next;
+        return next;
     }
 
     /** Closes every reader, including houses no longer in the record. */

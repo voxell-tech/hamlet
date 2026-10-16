@@ -5,6 +5,12 @@ import {
 } from "../connection.ts";
 import { type WorkFailure, workFailureText } from "../environment.ts";
 import { type NotesFailure, notesFailureText } from "../house/skills.ts";
+import {
+    type GiftRefusal,
+    giftRefusalText,
+    type TreeFailure,
+    treeFailureText,
+} from "../house.ts";
 import type { Fault, Malformed, Reply } from "../protocol.ts";
 import {
     type ChiefRefusal,
@@ -24,6 +30,8 @@ export type Receipt = {
 
 /** Chief-facing failures whose wording is chosen at the protocol seam. */
 export type ChiefFailure =
+    | TreeFailure
+    | GiftRefusal
     | WorkFailure
     | NotesFailure
     | LegacyRefusal
@@ -66,6 +74,32 @@ function rendered(failure: ChiefFailure): {
     kind: "notice" | "error";
 } {
     switch (failure.kind) {
+        case "entries-cap":
+        case "bytes-cap":
+        case "unsafe-entry":
+        case "stage-not-empty":
+        case "stage-overlaps-source":
+        case "path-invalid":
+        case "clobber":
+        case "shelf-linked":
+        case "refused":
+            return { text: treeFailureText(failure), kind: "error" };
+        case "skill-name":
+        case "stage-refused":
+        case "uploads-full":
+        case "bytes-full":
+        case "part-mismatch":
+        case "upload-unknown":
+        case "connection-closed":
+        case "recipient-changed":
+        case "gift-agent-missing":
+        case "skill-exists":
+        case "skill-missing":
+        case "gift-manifest":
+        case "skill-tree":
+        case "gift-tree":
+            return { text: giftRefusalText(failure), kind: "error" };
+
         case "folder-not-absolute":
         case "folder-not-directory":
         case "folder-overlaps-home":

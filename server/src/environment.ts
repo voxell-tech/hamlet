@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import type { Context } from "@earendil-works/chord";
 import type {
     ConversationId,
@@ -116,7 +117,12 @@ export function treeWorker(
     directoryRoot(root);
     if (stage !== undefined) directoryRoot(stage);
     const cwd = stage ?? root;
-    const policy = closedPolicy(cwd, [root, process.execPath]);
+    const policy = closedPolicy(cwd, [
+        root,
+        process.execPath,
+        fileURLToPath(new URL("./sandbox/tree-helper.ts", import.meta.url)),
+        fileURLToPath(new URL("../package.json", import.meta.url)),
+    ]);
     policy.rw = stage === undefined ? [] : [stage];
     policy.env = { PATH: "/usr/bin:/bin", HOME: cwd, LANG: "C.UTF-8" };
     policy.limits = {

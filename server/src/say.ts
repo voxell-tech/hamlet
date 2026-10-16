@@ -168,33 +168,21 @@ export async function say(
         return result.ok ? receipt(result.value) : result;
     }
     if (command?.command === "mode" || command?.command === "give") {
-        // D8 replaces this gift compatibility catch with GiftRefusal.
-        try {
-            const text =
-                command.command === "mode"
-                    ? await setMode(
-                          home,
-                          message.to.hamlet,
-                          command.mode,
-                          context,
-                      )
-                    : await giftSkill(
-                          home,
-                          { hamlet: message.to.hamlet, agent: command.agent },
-                          command.skill,
-                          command.from === undefined
-                              ? undefined
-                              : {
-                                    hamlet: message.to.hamlet,
-                                    agent: command.from,
-                                },
-                          context,
-                      );
-            return receipt(text);
-        } catch (cause) {
-            return legacyRefusal(cause);
-        }
+        const text =
+            command.command === "mode"
+                ? await setMode(home, message.to.hamlet, command.mode, context)
+                : await giftSkill(
+                      home,
+                      { hamlet: message.to.hamlet, agent: command.agent },
+                      command.skill,
+                      command.from === undefined
+                          ? undefined
+                          : { hamlet: message.to.hamlet, agent: command.from },
+                      context,
+                  );
+        return receipt(text);
     }
+
     if (command?.command === "stop") {
         if (command.agent === null) {
             // D3 replaces this stop-call compatibility catch with ConversationFailure.

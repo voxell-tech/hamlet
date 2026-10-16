@@ -28,11 +28,14 @@ import { houseOf } from "../home/layout.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { parseSkill, skillsIn } from "../house/skills.ts";
 import {
-    deliverTree,
-    listTree,
-    removeTree,
-    stageSkill,
+    deliver as deliverTree,
+    GIFT_CAPS,
+    giftRefusalText,
+    list as listTree,
+    remove as removeTree,
+    stage as stageTree,
     type TreeListing,
+    treeFailureText,
 } from "../house.ts";
 import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import type { State } from "../protocol.ts";
@@ -176,7 +179,22 @@ async function consult(
                 const stages = join(home.dir, ".library-stages");
                 await mkdir(stages, { recursive: true, mode: 0o700 });
                 stage = await mkdtemp(join(stages, "offer-"));
-                await stageSkill(home, house, given.skill, stage, context);
+                const staged = await stageTree(
+                    home,
+                    { root: house, rel: `skills/${given.skill}` },
+                    stage,
+                    GIFT_CAPS,
+                    context,
+                );
+                if (!staged.ok)
+                    throw new Error(
+                        giftRefusalText({
+                            kind: "skill-tree",
+                            failure: staged.error,
+                            operation: "give",
+                            retrySafe: false,
+                        }),
+                    );
                 const paper = await readFile(
                     join(stage, given.skill, "SKILL.md"),
                     "utf8",
@@ -191,7 +209,8 @@ async function consult(
                         `the library already has a skill named \`${given.skill}\`. Use that one, or submit yours under another name if it does something else`,
                     );
                 const files = await listTree(home, stage, given.skill, context);
-                question = `You are the librarian. You keep the library: the skills every agent of every hamlet shares. \`${by}\` offers a skill for it, giving this reason: ${given.text.trim()}\n\nTake it only if it is all of these: useful to agents other than the one that wrote it; not something a skill on the shelves already does; clear enough that an agent who has never seen it could run it from its text alone; and free of anything private to one agent, such as names, keys or paths of its own.\n\nOn the shelves now:\n${shelves.map((s) => `- ${s.name}: ${s.description}`).join("\n")}\nThe skill offered, with its files (${files.files.map((f) => f.path).join(", ")}):\n\n${[...paper].slice(0, 6000).join("")}\n\nAnswer with ACCEPT or REFUSE as your first word, then one or two sentences of why. If you refuse, say what would change your answer.`;
+                if (!files.ok) throw new Error(treeFailureText(files.error));
+                question = `You are the librarian. You keep the library: the skills every agent of every hamlet shares. \`${by}\` offers a skill for it, giving this reason: ${given.text.trim()}\n\nTake it only if it is all of these: useful to agents other than the one that wrote it; not something a skill on the shelves already does; clear enough that an agent who has never seen it could run it from its text alone; and free of anything private to one agent, such as names, keys or paths of its own.\n\nOn the shelves now:\n${shelves.map((s) => `- ${s.name}: ${s.description}`).join("\n")}\nThe skill offered, with its files (${files.value.files.map((f) => f.path).join(", ")}):\n\n${[...paper].slice(0, 6000).join("")}\n\nAnswer with ACCEPT or REFUSE as your first word, then one or two sentences of why. If you refuse, say what would change your answer.`;
             } else {
                 question = `You are the librarian. You keep the library: the skills every agent of every hamlet shares. \`${by}\` asks you for a skill: ${given.text.trim()}\n\nThe shelves, each skill with the command that runs it:\n${(await libraryPart(home.layout.library)) ?? "(nothing yet)"}\nAnswer in a few sentences. Name the skill or skills that do it and give the exact command to run, as it is written above. If nothing on the shelves does it, say so plainly, and say that it may write a skill of its own and offer it with \`submit_skill\` afterwards. Do not invent a skill that is not on the shelves.`;
             }
@@ -381,15 +400,18 @@ async function publishSkill(
         const target = join(home.layout.library, skill);
         if (await lstat(target).catch(() => undefined)) {
             const source = await listTree(home, stage, skill, context);
+            if (!source.ok) throw new Error(treeFailureText(source.error));
             const shelved = await listTree(
                 home,
                 home.layout.library,
                 skill,
                 context,
             );
+            if (!shelved.ok) throw new Error(treeFailureText(shelved.error));
             if (
-                shelved.skipped.length ||
-                JSON.stringify(source.files) !== JSON.stringify(shelved.files)
+                shelved.value.skipped.length ||
+                JSON.stringify(source.value.files) !==
+                    JSON.stringify(shelved.value.files)
             )
                 return {
                     ok: false,
@@ -405,13 +427,15 @@ async function publishSkill(
         }
         await discardStage(incoming);
         await mkdir(incoming, { mode: 0o700 });
-        await deliverTree(
+        const treeOutcome1 = await deliverTree(
             home,
             { root: incoming, into: "." },
             stage,
             [skill],
             context,
         );
+        if (!treeOutcome1.ok)
+            throw new Error(treeFailureText(treeOutcome1.error));
         await rename(join(incoming, skill), target);
         return { ok: true, value: null };
     } catch {
@@ -492,8 +516,20 @@ async function compareHouseCopy(
 > {
     let source: TreeListing, current: TreeListing;
     try {
-        source = await listTree(home, stage, skill, context);
-        current = await listTree(home, house, `skills/${skill}`, context);
+        const staged = await listTree(home, stage, skill, context);
+        const found = await listTree(home, house, `skills/${skill}`, context);
+        if (!staged.ok || !found.ok)
+            return {
+                ok: false,
+                error: {
+                    kind: "house-copy-inspection",
+                    operation: "shelve-skill",
+                    skill,
+                    retrySafe: false,
+                },
+            };
+        source = staged.value;
+        current = found.value;
     } catch {
         return {
             ok: false,
@@ -572,7 +608,14 @@ async function removeHouseCopy(
     context: Context,
 ): Promise<CleanupResult> {
     try {
-        await removeTree(home, house, [`skills/${skill}`], context);
+        const treeOutcome2 = await removeTree(
+            home,
+            house,
+            [`skills/${skill}`],
+            context,
+        );
+        if (!treeOutcome2.ok)
+            throw new Error(treeFailureText(treeOutcome2.error));
         return { ok: true, value: null };
     } catch {
         return {
@@ -608,7 +651,13 @@ export const unshelve: Deed = async (home, given, context) => {
     if (!validName(name)) throw new Error("usage: /unshelve <skill>");
     if (!(await skillsIn(home.layout.library)).some((s) => s.folder === name))
         throw new Error(`the library has no skill named \`${name}\``);
-    await removeTree(home, home.layout.library, [name], context);
+    const treeOutcome3 = await removeTree(
+        home,
+        home.layout.library,
+        [name],
+        context,
+    );
+    if (!treeOutcome3.ok) throw new Error(treeFailureText(treeOutcome3.error));
     await home.harness.commit(async (tx) => {
         (await tx.doc(LibraryDoc)).events.push({
             kind: "unshelved",

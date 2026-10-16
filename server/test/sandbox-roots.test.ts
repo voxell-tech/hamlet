@@ -11,7 +11,12 @@ import {
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { houseOf } from "../src/home/layout.ts";
-import { deliverTree, listTree, removeTree, stageTree } from "../src/house.ts";
+import {
+    deliver as deliverTree,
+    list as listTree,
+    remove as removeTree,
+    stage as stageTree,
+} from "../src/house.ts";
 import { closedPolicy, openPolicy } from "../src/sandbox/reach.ts";
 import { SandboxEnv } from "../src/sandbox.ts";
 import {
@@ -178,7 +183,9 @@ it("refuses a linked root before starting an environment or any tree operation",
     expect(
         () => new SandboxEnv({ cwd: root, policy: closedPolicy(root) }),
     ).toThrow(/root|directory/i);
-    await expect(listTree(home, root, ".", context)).rejects.toThrow();
+    await expect(listTree(home, root, ".", context)).resolves.toMatchObject({
+        ok: false,
+    });
     await expect(
         stageTree(
             home,
@@ -187,11 +194,13 @@ it("refuses a linked root before starting an environment or any tree operation",
             { entries: 10, bytes: 100 },
             context,
         ),
-    ).rejects.toThrow();
-    await expect(removeTree(home, root, ["canary"], context)).rejects.toThrow();
+    ).resolves.toMatchObject({ ok: false });
+    await expect(
+        removeTree(home, root, ["canary"], context),
+    ).resolves.toMatchObject({ ok: false });
     await writeFile(join(stage, "new"), "new");
     await expect(
         deliverTree(home, { root, into: "." }, stage, ["new"], context),
-    ).rejects.toThrow();
+    ).resolves.toMatchObject({ ok: false });
     expect(await readFile(join(outside, "canary"), "utf8")).toBe("private");
 });
