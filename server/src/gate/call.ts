@@ -39,7 +39,7 @@ const edit = createEditTool().parameters;
 export function callOf(
     call: ToolHookCall,
     manifests: readonly Manifest[],
-    reserved: ReadonlySet<string> = new Set(),
+    reserved: ReadonlySet<string>,
 ): Call {
     if (call.name === "bash") {
         if (!Value.Check(bashParameters, call.arguments))

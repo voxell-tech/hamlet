@@ -65,7 +65,7 @@ function rendered(failure: ChiefFailure): {
 } {
     switch (failure.kind) {
         case "answer-not-offered":
-            return { text: answerFailureText(failure), kind: "notice" };
+            return { text: answerFailureText(failure), kind: "error" };
         case "agent-missing":
         case "agent-gone":
             return { text: addressFailureText(failure), kind: "error" };

@@ -14,7 +14,13 @@ import {
 import { readCommand } from "./commands.ts";
 import { connectionFailureText } from "./connection.ts";
 import { folder, setMode } from "./environment.ts";
-import { answerWords, GrantsDoc, grantsOf, revoke } from "./gate.ts";
+import {
+    answerFailureText,
+    answerWords,
+    GrantsDoc,
+    grantsOf,
+    revoke,
+} from "./gate.ts";
 import type { Deed, Home } from "./home.ts";
 import { giftSkill } from "./house.ts";
 import * as library from "./library.ts";
@@ -335,18 +341,19 @@ export async function say(
         const wait = own ?? waits[0];
         if (wait === undefined) return receipt("Nothing waits for you.");
 
-        return receipt(
-            await answerWords(
-                home,
-                {
-                    wait: wait.id,
-                    choice: command.choice,
-                    text: command.text,
-                    chief: home.chief,
-                },
-                context,
-            ),
+        const outcome = await answerWords(
+            home,
+            {
+                wait: wait.id,
+                choice: command.choice,
+                text: command.text,
+                chief: home.chief,
+            },
+            context,
         );
+        return !outcome.ok && outcome.error.kind === "answer-not-offered"
+            ? receipt(answerFailureText(outcome.error))
+            : receipt(outcome);
     }
     if (!command && own?.kind === "question") {
         const outcome = await answerWords(

@@ -203,7 +203,7 @@ export type AnswerFailure = {
     offered: string;
 };
 
-/** The unchanged notice for an unavailable answer. */
+/** The words for an unavailable answer. */
 export function answerFailureText(failure: AnswerFailure): string {
     switch (failure.kind) {
         case "answer-not-offered":

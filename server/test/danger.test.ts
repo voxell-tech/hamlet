@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { type Call, callOf } from "../src/gate/call.ts";
 import { rule, type Standing } from "../src/gate/rule.ts";
 import { defaultLimits } from "../src/limits.ts";
@@ -209,6 +209,7 @@ it("parses the tool's arguments into an edit or shell without string coercion", 
                 },
             },
             [],
+            new Set(),
         ),
     ).toEqual({
         ...edit,
@@ -226,6 +227,7 @@ it("parses the tool's arguments into an edit or shell without string coercion", 
                 arguments: { command: "echo hi", network: true },
             },
             [],
+            new Set(),
         ),
     ).toEqual(shell("echo hi", true));
     expect(() =>
@@ -237,6 +239,11 @@ it("parses the tool's arguments into an edit or shell without string coercion", 
                 arguments: { command: 7 },
             },
             [],
+            new Set(),
         ),
     ).toThrow("Invalid validated bash call");
+});
+
+it("requires reserved names when classifying a call", () => {
+    expectTypeOf<Parameters<typeof callOf>["length"]>().toEqualTypeOf<3>();
 });
