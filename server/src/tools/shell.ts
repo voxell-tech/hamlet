@@ -1,7 +1,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
 import { createBashTool } from "@earendil-works/pi-durable/tools";
-import { envFor, placeOf } from "../environment.ts";
+import { agentEnv, placeOf } from "../environment.ts";
 import type { Home } from "../home.ts";
 import { SandboxEnv } from "../sandbox.ts";
 import { toolFailureText } from "./failure.ts";
@@ -61,7 +61,7 @@ export function bashTool(home: Home, wallSecs = WALL_SECS) {
             const place = await placeOf(home, api, api.conversationId, context);
             const env =
                 leave?.net === true
-                    ? await envFor(
+                    ? await agentEnv(
                           home,
                           { conversationId: api.conversationId, read: api },
                           { net: true },

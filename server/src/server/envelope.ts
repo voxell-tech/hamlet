@@ -3,7 +3,27 @@ import {
     type ConnectionFailure,
     connectionFailureText,
 } from "../connection.ts";
+import { type WorkFailure, workFailureText } from "../environment.ts";
 import { type AnswerFailure, answerFailureText } from "../gate.ts";
+import { type NotesFailure, notesFailureText } from "../house/skills.ts";
+import {
+    type GiftRefusal,
+    giftRefusalText,
+    type TreeFailure,
+    treeFailureText,
+} from "../house.ts";
+import { type LimitsRefusal, limitsRefusalText } from "../limits.ts";
+import {
+    type CatalogueFailure,
+    catalogueFailureText,
+    type LoginFailure,
+    loginFailureText,
+    type ModelFailure,
+    modelFailureText,
+    providerFailureText,
+    type SettingsFailure,
+    settingsFailureText,
+} from "../models.ts";
 import type { Fault, Malformed, Reply } from "../protocol.ts";
 import {
     type ChiefRefusal,
@@ -24,6 +44,15 @@ export type Receipt = {
 /** Chief-facing failures whose wording is chosen at the protocol seam. */
 export type ChiefFailure =
     | AnswerFailure
+    | LimitsRefusal
+    | SettingsFailure
+    | CatalogueFailure
+    | LoginFailure
+    | ModelFailure
+    | TreeFailure
+    | GiftRefusal
+    | WorkFailure
+    | NotesFailure
     | LegacyRefusal
     | AddressFailure
     | ChiefRefusal["error"]
@@ -66,6 +95,72 @@ function rendered(failure: ChiefFailure): {
     switch (failure.kind) {
         case "answer-not-offered":
             return { text: answerFailureText(failure), kind: "error" };
+        case "invalid-field":
+        case "unknown-field":
+        case "votes-inconsistent":
+            return { text: limitsRefusalText(failure), kind: "error" };
+
+        case "reflect-every-not-whole":
+        case "endpoint-name-invalid":
+        case "endpoint-builtin":
+        case "endpoint-duplicate":
+        case "address-scheme":
+        case "address-has-credentials":
+            return { text: settingsFailureText(failure), kind: "error" };
+        case "model-unknown":
+        case "price-negative":
+            return { text: catalogueFailureText(failure), kind: "error" };
+        case "method-not-offered":
+        case "port-in-use":
+        case "login-unknown":
+        case "login-not-waiting":
+            return { text: loginFailureText(failure), kind: "error" };
+        case "model-name-invalid":
+        case "model-endpoint-missing":
+        case "model-not-found":
+            return { text: modelFailureText(failure), kind: "error" };
+        case "provider-refused":
+            return {
+                text: providerFailureText(failure),
+                kind: failure.operation === "sign-in" ? "error" : "notice",
+            };
+
+        case "entries-cap":
+        case "bytes-cap":
+        case "unsafe-entry":
+        case "stage-not-empty":
+        case "stage-overlaps-source":
+        case "path-invalid":
+        case "clobber":
+        case "shelf-linked":
+        case "refused":
+            return { text: treeFailureText(failure), kind: "error" };
+        case "skill-name":
+        case "stage-refused":
+        case "uploads-full":
+        case "bytes-full":
+        case "part-mismatch":
+        case "upload-unknown":
+        case "connection-closed":
+        case "recipient-changed":
+        case "gift-agent-missing":
+        case "skill-exists":
+        case "skill-missing":
+        case "gift-manifest":
+        case "skill-tree":
+        case "gift-tree":
+            return { text: giftRefusalText(failure), kind: "error" };
+
+        case "folder-not-absolute":
+        case "folder-not-directory":
+        case "folder-overlaps-home":
+            return { text: workFailureText(failure), kind: "error" };
+        case "notes-missing":
+        case "notes-not-utf8":
+        case "notes-unreadable":
+        case "notes-unavailable":
+        case "notes-write-refused":
+            return { text: notesFailureText(failure), kind: "error" };
         case "agent-missing":
         case "agent-gone":
             return { text: addressFailureText(failure), kind: "error" };

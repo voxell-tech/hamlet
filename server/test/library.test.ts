@@ -9,7 +9,7 @@ import {
 import { join } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "vitest";
-import { envFor } from "../src/environment.ts";
+import { agentEnv } from "../src/environment.ts";
 import { installStarters } from "../src/library.ts";
 import {
     context,
@@ -106,7 +106,7 @@ describe("the library (library.rs:361)", () => {
         const { models } = fauxModels();
         const home = await testHome(dir, { models });
         const chat = await mayorChat(home);
-        const env = await envFor(
+        const env = await agentEnv(
             home,
             { conversationId: chat.id, read: home.harness },
             { net: false },

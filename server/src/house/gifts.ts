@@ -12,63 +12,76 @@ import {
     type GivePart,
     MAX_GIFT_BYTES,
 } from "../protocol.ts";
-import { type ChiefResult, chiefAccess } from "../realm/access.ts";
-import type { AgentRef } from "../record.ts";
-import { named, RecordDoc } from "../record.ts";
-import { directoryRoot } from "../sandbox.ts";
+import { type ChiefRefusal, chiefAccess } from "../realm/access.ts";
+import { type AgentRef, named, RecordDoc } from "../record.ts";
+import { err, ok, type Result } from "../result.ts";
+import { directoryRoot } from "../sandbox/policy.ts";
 import { safeWords } from "../scrub.ts";
 import type { Receipt } from "../server.ts";
-import { refreshSkills } from "./skills.ts";
-import {
-    checkShelf,
-    checkSkill,
-    deliver,
-    manifestSize,
-    stageSkill,
-} from "./trees.ts";
+import { checkShelf, type GiftRefusal, manifestSize } from "./gift-rules.ts";
+import { deliver, GIFT_CAPS, stage } from "./trees.ts";
 
+type GiftResult<T> = Result<T, GiftRefusal | ChiefRefusal["error"]>;
 const IDLE_MS = 60_000;
-const STAGE_REFUSED = "The gift could not be staged. Nothing was handed over.";
-
-async function staged(home: Home): Promise<string> {
+function refuse(
+    kind:
+        | "stage-refused"
+        | "connection-closed"
+        | "uploads-full"
+        | "bytes-full"
+        | "part-mismatch"
+        | "upload-unknown"
+        | "recipient-changed",
+): Result<never, GiftRefusal> {
+    return err({ kind, operation: "give", retrySafe: false });
+}
+async function staged(home: Home): Promise<Result<string, GiftRefusal>> {
     try {
         const root = home.layout.gifts;
         directoryRoot(root);
         await mkdir(root, { recursive: true, mode: 0o700 });
         directoryRoot(root);
-        return await mkdtemp(join(root, "gift-"));
+        return ok(await mkdtemp(join(root, "gift-")));
     } catch {
-        throw new Error(STAGE_REFUSED);
+        return refuse("stage-refused");
     }
 }
-
 async function resolved(
     home: Home,
     to: Address,
     context: Context,
-): Promise<ChiefResult<{ ref: AgentRef; name: string }>> {
+): Promise<GiftResult<{ ref: AgentRef; name: string }>> {
     const access = await chiefAccess(home, to.hamlet, "give", context);
     if (!access.ok) return access;
     const record = await home.harness.snapshot(RecordDoc, to.hamlet, context);
     const agent = record === undefined ? undefined : named(record, to.agent);
-    if (agent === undefined) throw new Error(`no agent named \`${to.agent}\``);
-    return {
-        ok: true,
-        value: {
-            ref: { hamlet: to.hamlet, number: agent.number },
-            name: agent.name,
-        },
-    };
+    if (agent === undefined)
+        return err({
+            kind: "gift-agent-missing",
+            agent: to.agent,
+            operation: "give",
+            retrySafe: false,
+        });
+    return ok({
+        ref: { hamlet: to.hamlet, number: agent.number },
+        name: agent.name,
+    });
 }
 
-/** Abandoned gifts from an earlier server process. */
-export async function clearStagedGifts(home: Home): Promise<void> {
-    const root = home.layout.gifts;
-    directoryRoot(root);
-    for (const name of await readdir(root))
-        await rm(join(root, name), { recursive: true, force: true });
+/** Abandoned gifts are removed before the server accepts uploads. */
+export async function clearStagedGifts(
+    home: Home,
+): Promise<Result<void, GiftRefusal>> {
+    try {
+        const root = home.layout.gifts;
+        directoryRoot(root);
+        for (const name of await readdir(root))
+            await rm(join(root, name), { recursive: true, force: true });
+        return ok(undefined);
+    } catch {
+        return refuse("stage-refused");
+    }
 }
-
 type Upload = {
     stage?: string;
     to: Address;
@@ -82,10 +95,10 @@ type Upload = {
     abort: () => void;
     phase: "receiving" | "delivering" | "aborted";
     busy: Promise<unknown>;
-    cleaned?: Promise<void>;
+    cleaned?: Promise<Result<void, GiftRefusal>>;
 };
 
-/** Connection-owned file gifts staged outside every house until all bytes arrive (H25). */
+/** Connection-owned file gifts remain outside every house until all bytes arrive. */
 export function uploads(home: Home, context: Context) {
     const pending = new Map<string, Upload>();
     const active = new Set<Upload>();
@@ -95,54 +108,65 @@ export function uploads(home: Home, context: Context) {
         clearTimeout(upload.timer);
         upload.owner.removeEventListener("abort", upload.abort);
     };
-    const clean = (upload: Upload) => {
+    const clean = (upload: Upload): Promise<Result<void, GiftRefusal>> => {
         upload.cleaned ??= (async () => {
             try {
                 if (upload.stage !== undefined)
                     await rm(upload.stage, { recursive: true, force: true });
-            } catch (error) {
-                throw giftError(error);
+                return ok(undefined);
+            } catch {
+                return refuse("stage-refused");
             }
         })();
         return upload.cleaned;
     };
-    const drop = async (upload: Upload) => {
-        if (upload.phase !== "receiving") return;
+    const drop = async (upload: Upload): Promise<Result<void, GiftRefusal>> => {
+        if (upload.phase !== "receiving") return ok(undefined);
         detach(upload);
         upload.phase = "aborted";
         await upload.busy.catch(() => {});
-        await clean(upload);
+        const result = await clean(upload);
         active.delete(upload);
+        return result;
     };
     const discard = (upload: Upload) => {
-        void drop(upload).catch(() =>
-            process.stderr.write("hamlet: could not discard a gift.\n"),
-        );
+        void drop(upload).then((outcome) => {
+            if (!outcome.ok)
+                process.stderr.write("hamlet: could not discard a gift.\n");
+        });
     };
-    const receiving = (upload: Upload) => {
-        if (upload.phase !== "receiving" || upload.owner.aborted)
-            throw new Error("The gift's connection closed.");
-    };
-    const perform = <T>(upload: Upload, step: () => Promise<T>): Promise<T> => {
+    const receiving = (upload: Upload): Result<void, GiftRefusal> =>
+        upload.phase !== "receiving" || upload.owner.aborted
+            ? refuse("connection-closed")
+            : ok(undefined);
+    const perform = <T>(
+        upload: Upload,
+        step: () => Promise<GiftResult<T>>,
+    ): Promise<GiftResult<T>> => {
         const work = upload.busy
             .catch(() => {})
-            .then(async () => {
+            .then(async (): Promise<GiftResult<T>> => {
+                let outcome: GiftResult<T>;
                 try {
-                    receiving(upload);
-                    return await step();
-                } catch (error) {
+                    const ready = receiving(upload);
+                    outcome = ready.ok ? await step() : ready;
+                } catch (cause) {
                     detach(upload);
                     upload.phase = "aborted";
-                    throw giftError(error);
-                } finally {
-                    if (upload.phase !== "receiving") {
-                        try {
-                            await clean(upload);
-                        } finally {
-                            active.delete(upload);
-                        }
-                    }
+                    await clean(upload);
+                    active.delete(upload);
+                    throw cause;
                 }
+                if (!outcome.ok) {
+                    detach(upload);
+                    upload.phase = "aborted";
+                }
+                if (upload.phase !== "receiving") {
+                    const cleaned = await clean(upload);
+                    active.delete(upload);
+                    if (!cleaned.ok) return cleaned;
+                }
+                return outcome;
             });
         upload.busy = work;
         return work;
@@ -152,15 +176,16 @@ export function uploads(home: Home, context: Context) {
         upload.timer = setTimeout(() => discard(upload), IDLE_MS);
         upload.timer.unref();
     };
-    const finish = async (upload: Upload): Promise<ChiefResult<string>> => {
-        receiving(upload);
+    const finish = async (upload: Upload): Promise<GiftResult<string>> => {
+        const ready = receiving(upload);
+        if (!ready.ok) return ready;
         upload.phase = "delivering";
         detach(upload);
         const target = await resolved(home, upload.to, context);
         if (!target.ok) return target;
         const agent = target.value.ref;
         if (agent.number !== upload.agent.number)
-            throw new Error("The receiving agent is no longer present.");
+            return refuse("recipient-changed");
         const roots = [
             ...new Set(
                 [...upload.files.keys()].map(
@@ -168,17 +193,27 @@ export function uploads(home: Home, context: Context) {
                 ),
             ),
         ];
-        const paths = (
-            await deliver(
-                home,
-                houseOf(home.layout, agent),
-                "inbox",
-                upload.stage ?? "",
-                roots,
-                context,
-            )
-        ).map((name) => `inbox/${name}`);
-        await clean(upload);
+        const result = await deliver(
+            home,
+            {
+                root: houseOf(home.layout, agent),
+                into: "inbox",
+                collision: "number",
+            },
+            upload.stage ?? "",
+            roots,
+            context,
+        );
+        if (!result.ok)
+            return err({
+                kind: "gift-tree",
+                failure: result.error,
+                operation: "give",
+                retrySafe: false,
+            });
+        const paths = result.value.map((name) => `inbox/${name}`);
+        const cleaned = await clean(upload);
+        if (!cleaned.ok) return cleaned;
         await submitLine(
             home,
             { agent, chief: home.chief },
@@ -191,34 +226,32 @@ export function uploads(home: Home, context: Context) {
             },
             context,
         );
-        return {
-            ok: true,
-            value: `Handed over ${paths.map((path) => `\`${path}\``).join(", ")}.`,
-        };
+        return ok(
+            `Handed over ${paths.map((path) => `\`${path}\``).join(", ")}.`,
+        );
     };
     return {
         async begin(
             message: Extract<Give, { files: unknown }>,
             owner: AbortSignal,
-        ): Promise<ChiefResult<Receipt>> {
+        ): Promise<GiftResult<Receipt>> {
             const target = await resolved(home, message.to, context);
             if (!target.ok) return target;
             const agent = target.value.ref;
-            const bytes = manifestSize(message.files);
-            await checkShelf(
+            const sized = manifestSize(message.files);
+            if (!sized.ok) return sized;
+            const checked = await checkShelf(
                 houseOf(home.layout, agent),
                 "inbox",
                 message.files.map((file) => file.path.split("/")[0] ?? ""),
             );
-            if (stopped || owner.aborted)
-                throw new Error("The gift's connection closed.");
+            if (!checked.ok) return checked;
+            if (stopped || owner.aborted) return refuse("connection-closed");
             if (
                 [...active].filter((upload) => upload.owner === owner).length >=
                 3
             )
-                throw new Error(
-                    "This connection already has three file gifts waiting. Finish one before starting another.",
-                );
+                return refuse("uploads-full");
             const reserved = [...active]
                 .filter(
                     (upload) =>
@@ -226,17 +259,15 @@ export function uploads(home: Home, context: Context) {
                         upload.agent.number === agent.number,
                 )
                 .reduce((total, upload) => total + upload.bytes, 0);
-            if (reserved + bytes > MAX_GIFT_BYTES)
-                throw new Error(
-                    "This agent already has 32 MB of file gifts waiting. Finish or discard one before starting another.",
-                );
+            if (reserved + sized.value > MAX_GIFT_BYTES)
+                return refuse("bytes-full");
             const upload: Upload = {
                 agent,
                 to: message.to,
                 id: message.id,
                 owner,
                 upload: randomUUID(),
-                bytes,
+                bytes: sized.value,
                 files: new Map(
                     message.files.map((file) => [
                         file.path,
@@ -251,64 +282,68 @@ export function uploads(home: Home, context: Context) {
             active.add(upload);
             owner.addEventListener("abort", upload.abort, { once: true });
             return perform(upload, async () => {
-                upload.stage = await staged(home);
+                const stage = await staged(home);
+                if (!stage.ok) return stage;
+                upload.stage = stage.value;
                 for (const file of message.files) {
-                    receiving(upload);
-                    const path = join(upload.stage, file.path);
-                    await mkdir(dirname(path), { recursive: true });
-                    await (await open(path, "wx")).close();
+                    const ready = receiving(upload);
+                    if (!ready.ok) return ready;
+                    const path = join(stage.value, file.path);
+                    try {
+                        await mkdir(dirname(path), { recursive: true });
+                        await (await open(path, "wx")).close();
+                    } catch {
+                        return refuse("stage-refused");
+                    }
                 }
-                receiving(upload);
+                const ready = receiving(upload);
+                if (!ready.ok) return ready;
                 if (message.files.every((file) => file.size === 0)) {
                     const outcome = await finish(upload);
-                    return outcome.ok
-                        ? { ok: true, value: { text: outcome.value } }
-                        : outcome;
+                    return outcome.ok ? ok({ text: outcome.value }) : outcome;
                 }
                 touch(upload);
-                return {
-                    ok: true,
-                    value: {
-                        text: "Ready for the gift's file parts.",
-                        upload: upload.upload,
-                    },
-                };
+                return ok({
+                    text: "Ready for the gift's file parts.",
+                    upload: upload.upload,
+                });
             });
         },
         async part(
             message: GivePart,
             owner: AbortSignal,
-        ): Promise<ChiefResult<string>> {
+        ): Promise<GiftResult<string>> {
             const upload = pending.get(message.upload);
             if (upload === undefined || upload.owner !== owner)
-                throw new Error(
-                    "There is no file gift here with that upload id. It may have expired.",
-                );
+                return refuse("upload-unknown");
             return perform(upload, async () => {
                 clearTimeout(upload.timer);
-                const file = upload.files.get(message.path);
-                const bytes = Buffer.from(message.data, "base64");
+                const file = upload.files.get(message.path),
+                    bytes = Buffer.from(message.data, "base64");
                 if (
                     file === undefined ||
                     message.offset !== file.offset ||
-                    bytes.length === 0 ||
+                    !bytes.length ||
                     bytes.toString("base64") !== message.data ||
                     file.offset + bytes.length > file.size
                 )
-                    throw new Error(
-                        "A gift part must match its path, next offset, size and base64 bytes.",
-                    );
-                const fd = await open(
-                    join(upload.stage ?? "", message.path),
-                    "a",
-                );
+                    return refuse("part-mismatch");
                 try {
-                    await fd.writeFile(bytes);
-                } finally {
-                    await fd.close();
+                    const fd = await open(
+                        join(upload.stage ?? "", message.path),
+                        "a",
+                    );
+                    try {
+                        await fd.writeFile(bytes);
+                    } finally {
+                        await fd.close();
+                    }
+                } catch {
+                    return refuse("stage-refused");
                 }
                 file.offset += bytes.length;
-                receiving(upload);
+                const ready = receiving(upload);
+                if (!ready.ok) return ready;
                 if (
                     [...upload.files.values()].every(
                         (file) => file.offset === file.size,
@@ -316,60 +351,66 @@ export function uploads(home: Home, context: Context) {
                 )
                     return finish(upload);
                 touch(upload);
-                return { ok: true, value: "Received the gift part." };
+                return ok("Received the gift part.");
             });
         },
-        async stop() {
+        async stop(): Promise<Result<void, GiftRefusal>> {
             stopped = true;
-            await Promise.all(
+            const results = await Promise.all(
                 [...active].map(async (upload) => {
-                    await drop(upload);
+                    const result = await drop(upload);
                     await upload.busy.catch(() => {});
+                    return result;
                 }),
             );
+            for (const result of results) if (!result.ok) return result;
+            return ok(undefined);
         },
     };
 }
 
-function giftError(error: unknown): Error {
-    return error instanceof Error && !("code" in error)
-        ? error
-        : new Error(STAGE_REFUSED);
-}
-
-/** A chief's skill gift delivered through the same deed as typed /give (H25). */
+/** A chief's skill gift uses the same admission as typed /give. */
 export async function give(
     home: Home,
     message: Extract<Give, { skill: unknown }>,
     context: Context,
-): Promise<ChiefResult<string>> {
-    const skill = message.skill;
-    return "starter" in skill
-        ? giftSkill(home, message.to, skill.starter, undefined, context)
-        : giftSkill(home, message.to, skill.name, skill.from, context);
+): Promise<GiftResult<string>> {
+    return "starter" in message.skill
+        ? giftSkill(home, message.to, message.skill.starter, undefined, context)
+        : giftSkill(
+              home,
+              message.to,
+              message.skill.name,
+              message.skill.from,
+              context,
+          );
 }
 
-/** A skill from the shipped starters or a resolved giver's house (H25). */
+/** A starter or another agent's skill, copied through a no-follow private stage. */
 export async function giftSkill(
     home: Home,
     to: Address,
     skill: string,
     from: Address | undefined,
     context: Context,
-): Promise<ChiefResult<string>> {
+): Promise<GiftResult<string>> {
     if (!/^[a-zA-Z0-9_-]+$/.test(skill))
-        throw new Error("a skill is named in letters, digits and hyphens");
+        return err({ kind: "skill-name", operation: "give", retrySafe: false });
     const target = await resolved(home, to, context);
     if (!target.ok) return target;
-    const agent = target.value.ref;
-    const house = houseOf(home.layout, agent);
+    const agent = target.value.ref,
+        house = houseOf(home.layout, agent);
     if (await lstat(join(house, "skills", skill)).catch(() => undefined))
-        throw new Error(
-            `\`${target.value.name}\` already has a skill named \`${skill}\``,
-        );
-    let source = STARTERS;
-    let shelf = "";
-    let giver: string | null = null;
+        return err({
+            kind: "skill-exists",
+            agent: target.value.name,
+            skill,
+            operation: "give",
+            retrySafe: false,
+        });
+    let source = STARTERS,
+        shelf = "",
+        giver: string | null = null;
     if (from !== undefined) {
         const given = await resolved(home, from, context);
         if (!given.ok) return given;
@@ -384,40 +425,72 @@ export async function giftSkill(
             )
         )?.isFile()
     )
-        throw new Error(
-            from === undefined
-                ? `no starter skill named \`${skill}\`. Say whose it is: /give ${target.value.name} ${skill} from <agent>`
-                : `\`${from.agent}\` has no skill named \`${skill}\``,
-        );
-    let stage: string | undefined;
-    try {
-        if (shelf && !(await lstat(join(source, shelf))).isDirectory())
-            throw new Error(
-                "A skill gift cannot include links or special files.",
-            );
-        if (from !== undefined) {
-            stage = await staged(home);
-            await stageSkill(home, source, skill, stage, context);
-        } else await checkSkill(join(source, skill));
-        await deliver(home, house, "skills", stage ?? source, [skill], context);
-    } catch (error) {
-        throw giftError(error);
-    } finally {
-        if (stage !== undefined)
-            await rm(stage, { recursive: true, force: true }).catch((error) => {
-                throw giftError(error);
-            });
-    }
-    refreshSkills(house);
-    await home.harness.commit(async (tx) => {
-        (await tx.doc(RecordDoc, to.hamlet, to.hamlet)).decisions.push({
-            kind: "skill_given",
-            at: home.now(),
-            by: home.chief,
-            to: agent.number,
+        return err({
+            kind: "skill-missing",
+            agent: from?.agent ?? "",
             skill,
-            from: giver,
+            starter: from === undefined,
+            target: target.value.name,
+            operation: "give",
+            retrySafe: false,
         });
-    }, context);
-    return { ok: true, value: `Gave \`${to.agent}\` the skill \`${skill}\`.` };
+    const temporary = await staged(home);
+    if (!temporary.ok) return temporary;
+    let outcome: GiftResult<string>;
+    let cleaned: Result<void, GiftRefusal> = ok(undefined);
+    try {
+        const copied = await stage(
+            home,
+            { root: source, rel: shelf ? `${shelf}/${skill}` : skill },
+            temporary.value,
+            GIFT_CAPS,
+            context,
+        );
+        if (!copied.ok)
+            outcome = err({
+                kind: "skill-tree",
+                failure: copied.error,
+                operation: "give",
+                retrySafe: false,
+            });
+        else {
+            const result = await deliver(
+                home,
+                { root: house, into: "skills" },
+                temporary.value,
+                [skill],
+                context,
+            );
+            if (!result.ok)
+                outcome = err({
+                    kind: "gift-tree",
+                    failure: result.error,
+                    operation: "give",
+                    retrySafe: false,
+                });
+            else {
+                home.houses.invalidate(house);
+                await home.harness.commit(async (tx) => {
+                    (
+                        await tx.doc(RecordDoc, to.hamlet, to.hamlet)
+                    ).decisions.push({
+                        kind: "skill_given",
+                        at: home.now(),
+                        by: home.chief,
+                        to: agent.number,
+                        skill,
+                        from: giver,
+                    });
+                }, context);
+                outcome = ok(`Gave \`${to.agent}\` the skill \`${skill}\`.`);
+            }
+        }
+    } finally {
+        try {
+            await rm(temporary.value, { recursive: true, force: true });
+        } catch {
+            cleaned = refuse("stage-refused");
+        }
+    }
+    return cleaned.ok ? outcome : cleaned;
 }

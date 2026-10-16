@@ -11,7 +11,6 @@ import { WorkDoc } from "./environment.ts";
 import { ManifestsDoc, manifestFaultText } from "./hand/manifests.ts";
 import { houseOf } from "./home/layout.ts";
 import type { Home, Part } from "./home.ts";
-import { houseSkills } from "./house/skills.ts";
 import { installStarters, libraryPart } from "./library/shelf.ts";
 import { CharacterDoc } from "./prompt/character.ts";
 import { charterOf } from "./prompt/charter.ts";
@@ -189,9 +188,9 @@ async function notes({ house, input, context }: PartInput): Promise<string> {
 /** The house's skills, descriptions and commands starting in its house (C8). */
 async function skills(
     home: Home,
-    { house, context }: PartInput,
+    { agent, house, context }: PartInput,
 ): Promise<string> {
-    const found = await houseSkills(house, home.sandbox, context);
+    const found = await home.houses.of(agent).skills(context);
     const lines = found.map(({ name, description, usage, folder }) => {
         const run =
             usage === undefined

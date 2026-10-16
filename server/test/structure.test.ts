@@ -30,6 +30,7 @@ const LEAVES = new Set([
     "realm/places.ts",
     "realm/roads.ts",
     "sandbox/policy.ts",
+    "sandbox/reach.ts",
     "spend/ledger.ts",
     "spend/money.ts",
     "spend/usage.ts",
@@ -241,6 +242,30 @@ function cycles(graph: Graph): string[][] {
     return components.sort((a, b) => a.join().localeCompare(b.join()));
 }
 
+function leafFailures(graph: Graph): string[] {
+    const failures: string[] = [];
+    const pending = [...LEAVES, ...SHARED_CORE];
+    const seen = new Set<string>();
+    while (pending.length > 0) {
+        const name = pending.pop();
+        if (name === undefined || seen.has(name)) continue;
+        seen.add(name);
+        for (const target of graph.get(name) ?? []) {
+            const allowed =
+                LEAVES.has(target) ||
+                SHARED_CORE.has(target) ||
+                SHARED_ENTRIES.has(target) ||
+                [...SHARED_ENTRIES].some((entry) =>
+                    target.startsWith(`${entry.slice(0, -3)}/`),
+                );
+            if (!allowed)
+                failures.push(`${name}: dependency leaf reaches ${target}`);
+            pending.push(target);
+        }
+    }
+    return failures;
+}
+
 test("concept internals are reached through entries or explicit dependency leaves", () => {
     expect(
         readdirSync(root, { withFileTypes: true })
@@ -289,13 +314,6 @@ test("concept internals are reached through entries or explicit dependency leave
                 }
                 if (
                     !typeOnly &&
-                    (LEAVES.has(name) || SHARED_CORE.has(name)) &&
-                    !shared &&
-                    !SHARED_ENTRIES.has(target)
-                )
-                    failures.push(`${name}: dependency leaf reaches ${target}`);
-                if (
-                    !typeOnly &&
                     target === "home.ts" &&
                     name !== "cli/serving.ts"
                 )
@@ -305,7 +323,24 @@ test("concept internals are reached through entries or explicit dependency leave
             }
         }
     });
+    failures.push(
+        ...withSources(root, (sources) => leafFailures(graphOf(sources))),
+    );
     expect(failures).toEqual([]);
+});
+
+test("dependency leaves cannot load composed entries through shared internals", () => {
+    const graph = new Map([
+        ["house/skills.ts", ["sandbox.ts"]],
+        ["sandbox.ts", ["sandbox/env.ts"]],
+        ["sandbox/env.ts", ["scrub.ts", "models.ts"]],
+        ["scrub.ts", ["scrub/output.ts"]],
+        ["scrub/output.ts", []],
+        ["models.ts", []],
+    ]);
+    expect(leafFailures(graph)).toEqual([
+        "sandbox/env.ts: dependency leaf reaches models.ts",
+    ]);
 });
 
 test("value-import cycles stay within the explicit allowlist", () => {

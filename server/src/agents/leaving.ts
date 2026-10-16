@@ -18,7 +18,7 @@ import { untilAborted } from "../home/abort.ts";
 import { localDay } from "../home/clock.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Deed, Home, Part } from "../home.ts";
-import { removeHouse } from "../house.ts";
+import { erase as removeHouse, treeFailureText } from "../house.ts";
 import { LimitsDoc } from "../limits/rules.ts";
 import { resetTrust } from "../oversight/asked.ts";
 import { lapseAgent } from "../oversight/waits.ts";
@@ -486,7 +486,8 @@ export const erase: Deed = async (home, given, context) =>
                 number: entry.number,
             }),
         );
-        return `Deleted \`${entry.name}\` for good. Freed ${bytes} bytes. It cannot be restored.`;
+        if (!bytes.ok) throw new Error(treeFailureText(bytes.error));
+        return `Deleted \`${entry.name}\` for good. Freed ${bytes.value} bytes. It cannot be restored.`;
     });
 
 /** The hamlet's history and archived agents. */

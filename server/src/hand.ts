@@ -4,6 +4,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { type FileWatcher, getOrThrow } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { toolRunner } from "./environment.ts";
 import {
     type Manifest,
     type ManifestFault,
@@ -13,7 +14,6 @@ import {
 } from "./hand/manifests.ts";
 import type { Home, Part } from "./home.ts";
 import { err, type Result } from "./result.ts";
-import { limitsOf, type Policy, SandboxEnv } from "./sandbox.ts";
 import { safeValue } from "./scrub.ts";
 
 import { leaveFor, runConfined, toolFailureText } from "./tools.ts";
@@ -168,28 +168,6 @@ async function load(
           });
 }
 
-function policyFor(home: Home, manifest: Manifest, net: boolean): Policy {
-    return {
-        ro: manifest.ro,
-        rw: manifest.rw,
-        open: false,
-        hidden: [],
-        locked: [
-            home.layout.tools,
-            manifest.dir,
-            home.layout.gifts,
-            home.layout.erasing,
-        ],
-        net: manifest.net && net,
-        services: [],
-        env: { ...home.sandbox.baseEnv(), ...manifest.env },
-        limits: {
-            ...(manifest.wallSecs !== null && { wallSecs: manifest.wallSecs }),
-            ...(manifest.cpuSecs !== null && { cpuSecs: manifest.cpuSecs }),
-        },
-    };
-}
-
 function handTool(home: Home, manifest: Manifest) {
     return defineTool({
         name: manifest.name,
@@ -199,13 +177,12 @@ function handTool(home: Home, manifest: Manifest) {
         outputLimits: { maxBytes: 64 * 1024 },
         execute: async (args, api, context) => {
             const leave = await leaveFor(api, context);
-            const policy = policyFor(home, manifest, leave?.net === true);
-            const env = new SandboxEnv({
-                cwd: manifest.dir,
-                policy,
-                sandbox: home.sandbox,
-                tmpScope: `${home.dir}:${api.conversationId}:${api.taskId}`,
-            });
+            const env = toolRunner(
+                home,
+                manifest,
+                leave?.net === true,
+                `${home.dir}:${api.conversationId}:${api.taskId}`,
+            );
             try {
                 const failed = (reason: string) => ({
                     isError: true,
@@ -247,7 +224,7 @@ function handTool(home: Home, manifest: Manifest) {
                     ],
                     {
                         secrets: home.secrets,
-                        wallSecs: limitsOf(policy).wallSecs,
+                        wallSecs: manifest.wallSecs ?? 120,
                         onOutput: (text) => api.output(text),
                     },
                     context,

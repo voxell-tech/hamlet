@@ -36,7 +36,7 @@ import { notify } from "../chats/notice.ts";
 import { GrantsDoc, grantsOf, revoke } from "../gate.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Home, Part } from "../home.ts";
-import { removeHouse } from "../house.ts";
+import { erase as removeHouse, treeFailureText } from "../house.ts";
 import { askAgent, PeersDoc } from "../letters.ts";
 import { LimitsDoc } from "../limits/rules.ts";
 import { reconfigure } from "../models.ts";
@@ -557,7 +557,9 @@ async function finishMove(home: Home, context: Context): Promise<void> {
                         "The new house is not empty; the move is still pending.",
                     );
             }
-            await removeHouse(home, target);
+            const treeOutcome1 = await removeHouse(home, target);
+            if (!treeOutcome1.ok)
+                throw new Error(treeFailureText(treeOutcome1.error));
         }
         await mkdir(dirname(target), { recursive: true });
         await rename(source, target);

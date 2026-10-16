@@ -12,9 +12,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { registerEnvConformance } from "@earendil-works/pi-durable/testing";
 import { describe, expect, it } from "vitest";
-import { closedPolicy, openPolicy, SandboxEnv } from "../src/sandbox.ts";
-import { houseEnv } from "./sandbox-support.ts";
-import { context, scratch, sh } from "./support.ts";
+import { closedPolicy, openPolicy } from "../src/sandbox/reach.ts";
+import { SandboxEnv } from "../src/sandbox.ts";
+import { context, houseEnv, scratch, sh } from "./support.ts";
 
 registerEnvConformance(
     { describe, expect, it },

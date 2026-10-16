@@ -1,5 +1,5 @@
 import { isUtf8 } from "node:buffer";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
     lstat,
     mkdir,
@@ -28,11 +28,18 @@ import { ErrandDoc, runErrand, startErrand } from "../chats/errands.ts";
 import { InstructionsDoc, owed } from "../chats/instructions.ts";
 import { newTask, turnOf } from "../chats/turn.ts";
 import { stopAgent } from "../chats.ts";
+import { treeWorker } from "../environment.ts";
 import { revoke } from "../gate.ts";
 import { untilAborted } from "../home/abort.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Deed, Home, Part } from "../home.ts";
-import { listTree, MERGE_CAPS, removeTree, stageTree } from "../house.ts";
+import {
+    list as listTree,
+    MERGE_CAPS,
+    remove as removeTree,
+    stage as stageTree,
+    treeFailureText,
+} from "../house.ts";
 import { LimitsDoc } from "../limits/rules.ts";
 import { lapseAgent } from "../oversight/waits.ts";
 import { chiefAccess, chiefRefusalText } from "../realm/access.ts";
@@ -47,7 +54,7 @@ import {
     named,
     RecordDoc,
 } from "../record.ts";
-import { closedPolicy, SandboxEnv } from "../sandbox.ts";
+import type { SandboxEnv } from "../sandbox.ts";
 import { safeWords } from "../scrub.ts";
 import { booksOf } from "../spend/ledger.ts";
 import { stopped } from "../spend.ts";
@@ -697,19 +704,9 @@ async function allowed(
     return { kept: { ...kept }, gone: { ...gone } };
 }
 
-function envFor(home: Home, ref: AgentRef, write: boolean): SandboxEnv {
+function mergeWriter(home: Home, ref: AgentRef): SandboxEnv {
     const root = houseOf(home.layout, ref);
-    const policy = closedPolicy(root, [process.execPath]);
-    if (!write) {
-        policy.ro.push(root);
-        policy.rw = [];
-    }
-    return new SandboxEnv({
-        cwd: root,
-        policy,
-        sandbox: home.sandbox,
-        tmpScope: `merge-${randomUUID()}`,
-    });
+    return treeWorker(home, { root, stage: root, caps: MERGE_CAPS });
 }
 
 async function notes(
@@ -721,53 +718,27 @@ async function notes(
     | { ok: true; value: { text: string; bytes: Buffer } }
     | { ok: false; error: NotesFailure }
 > {
-    const env = envFor(home, ref, false);
-    try {
-        const read = await env.readBinaryFile(
-            join(houseOf(home.layout, ref), "NOTES.md"),
-            context,
-        );
-        if (!read.ok) {
-            if (read.error.code === "not_found")
-                return {
-                    ok: true,
-                    value: {
-                        text: "# Notes\n",
-                        bytes: Buffer.from("# Notes\n"),
-                    },
-                };
+    const read = await home.houses.of(ref).notes(context);
+    if (read.ok) return read;
+    const facts = {
+        kind: "notes-unreadable",
+        operation,
+        agent: ref,
+        retrySafe: true,
+    } as const;
+    switch (read.error.kind) {
+        case "notes-missing":
             return {
-                ok: false,
-                error: {
-                    kind: "notes-unreadable",
-                    operation,
-                    agent: ref,
-                    reason: "unavailable",
-                    retrySafe: true,
-                },
+                ok: true,
+                value: { text: "# Notes\n", bytes: Buffer.from("# Notes\n") },
             };
-        }
-        if (!isUtf8(read.value))
-            return {
-                ok: false,
-                error: {
-                    kind: "notes-unreadable",
-                    operation,
-                    agent: ref,
-                    reason: "not-utf8",
-                    retrySafe: true,
-                },
-            };
-        return {
-            ok: true,
-            value: {
-                text: Buffer.from(read.value).toString("utf8"),
-                bytes: Buffer.from(read.value),
-            },
-        };
-    } finally {
-        await env.cleanup(context);
+        case "notes-not-utf8":
+            return { ok: false, error: { ...facts, reason: "not-utf8" } };
+        case "notes-unreadable":
+            return { ok: false, error: { ...facts, reason: "unavailable" } };
     }
+    const unhandled: never = read.error;
+    throw new Error(`Unclassified notes read: ${unhandled}`);
 }
 
 function substance(text: string): string {
@@ -791,27 +762,35 @@ async function prepare(
     const target = houseOf(home.layout, { hamlet, number: kept.number });
     const stage = await mkdtemp(join(tmpdir(), "hamlet-merge-"));
     try {
-        try {
-            await stageTree(
-                home,
-                { root: source, rel: "." },
-                stage,
-                MERGE_CAPS,
-                context,
-            );
-        } catch (error) {
-            if (
-                error instanceof Error &&
-                /exceeds its (entries|bytes) cap/.test(error.message)
-            )
-                throw new Error(
-                    "The absorbed house is over 512 MiB or 20000 files. Remove the agent instead.",
-                );
-            throw error;
+        const staged = await stageTree(
+            home,
+            { root: source, rel: "." },
+            stage,
+            MERGE_CAPS,
+            context,
+        );
+        if (!staged.ok) {
+            switch (staged.error.kind) {
+                case "entries-cap":
+                case "bytes-cap":
+                    throw new Error(
+                        "The absorbed house is over 512 MiB or 20000 files. Remove the agent instead.",
+                    );
+                case "unsafe-entry":
+                case "stage-not-empty":
+                case "stage-overlaps-source":
+                case "path-invalid":
+                case "clobber":
+                case "shelf-linked":
+                case "refused":
+                    throw new Error(treeFailureText(staged.error));
+            }
         }
         const from = await listTree(home, stage, ".", context);
+        if (!from.ok) throw new Error(treeFailureText(from.error));
         const to = await listTree(home, target, ".", context);
-        const present = new Map(to.files.map((f) => [f.path, f.sha256]));
+        if (!to.ok) throw new Error(treeFailureText(to.error));
+        const present = new Map(to.value.files.map((f) => [f.path, f.sha256]));
         const files = new Map<string, Buffer>();
         const clashes: string[] = [];
         const put = (rel: string, bytes: Buffer) => {
@@ -835,7 +814,7 @@ async function prepare(
         );
         if (!keptNotes.ok) return keptNotes;
         const before = keptNotes.value.text;
-        const theirBytes = from.files.some((f) => f.path === "NOTES.md")
+        const theirBytes = from.value.files.some((f) => f.path === "NOTES.md")
             ? await readFile(join(stage, "NOTES.md"))
             : Buffer.from("# Notes\n");
         const theirs = theirBytes.toString("utf8");
@@ -847,12 +826,16 @@ async function prepare(
         put(`merged/${gone.name}/NOTES.before.md`, keptNotes.value.bytes);
         put(`merged/${gone.name}/NOTES.md`, theirBytes);
         const renamed = new Map<string, string>();
-        for (const f of from.files) {
+        for (const f of from.value.files) {
             const skill = /^skills\/([^/]+)\//.exec(f.path)?.[1];
             if (!skill || renamed.has(skill)) continue;
             const prefix = `skills/${skill}/`;
-            const theirs = from.files.filter((f) => f.path.startsWith(prefix));
-            const mine = to.files.filter((f) => f.path.startsWith(prefix));
+            const theirs = from.value.files.filter((f) =>
+                f.path.startsWith(prefix),
+            );
+            const mine = to.value.files.filter((f) =>
+                f.path.startsWith(prefix),
+            );
             const same =
                 theirs.length === mine.length &&
                 theirs.every((f) => present.get(f.path) === f.sha256);
@@ -865,7 +848,7 @@ async function prepare(
                 );
             } else renamed.set(skill, skill);
         }
-        for (const f of from.files) {
+        for (const f of from.value.files) {
             if (f.path === "NOTES.md") continue;
             let rel = f.path;
             let bytes: Buffer = await readFile(join(stage, f.path));
@@ -1093,7 +1076,7 @@ async function apply(
     const delivery = await mkdtemp(join(tmpdir(), "hamlet-merge-delivery-"));
     const target = houseOf(home.layout, { hamlet, number: merge.kept.number });
     try {
-        await stageTree(
+        const treeOutcome2 = await stageTree(
             home,
             {
                 root: houseOf(home.layout, {
@@ -1106,11 +1089,12 @@ async function apply(
             MERGE_CAPS,
             context,
         );
+        if (!treeOutcome2.ok)
+            throw new Error(treeFailureText(treeOutcome2.error));
+        const listed = await listTree(home, target, ".", context);
+        if (!listed.ok) throw new Error(treeFailureText(listed.error));
         const present = new Map(
-            (await listTree(home, target, ".", context)).files.map((f) => [
-                f.path,
-                f.sha256,
-            ]),
+            listed.value.files.map((f) => [f.path, f.sha256]),
         );
         const pending: string[] = [];
         for (const f of merge.brought) {
@@ -1130,17 +1114,10 @@ async function apply(
                 join(delivery, "manifest.json"),
                 JSON.stringify(pending),
             );
-            const policy = closedPolicy(target, [process.execPath]);
-            policy.ro.push(delivery);
-            policy.limits = {
-                maxFileMb: Math.ceil(MERGE_CAPS.bytes / (1024 * 1024)) + 1,
-                wallSecs: 120,
-            };
-            const copier = new SandboxEnv({
-                cwd: target,
-                policy,
-                sandbox: home.sandbox,
-                tmpScope: `merge-${randomUUID()}`,
+            const copier = treeWorker(home, {
+                root: delivery,
+                stage: target,
+                caps: MERGE_CAPS,
             });
             try {
                 const copied = await copier.exec(
@@ -1184,7 +1161,7 @@ for (const rel of JSON.parse(fs.readFileSync(p.join(stage, "manifest.json"), "ut
                 await copier.cleanup(context);
             }
         }
-        const env = envFor(home, { hamlet, number: merge.kept.number }, true);
+        const env = mergeWriter(home, { hamlet, number: merge.kept.number });
         try {
             const read = await notes(
                 home,
@@ -1428,7 +1405,7 @@ async function part(
     const ref = { hamlet, number: merge.kept.number };
     await stopAgent(home, ref, context);
     const root = houseOf(home.layout, ref);
-    const env = envFor(home, ref, true);
+    const env = mergeWriter(home, ref);
     try {
         const read = await notes(home, ref, context, "split");
         if (!read.ok) return read;
@@ -1448,11 +1425,10 @@ async function part(
         );
         if (!written.ok)
             throw new Error("The split notes could not be written safely.");
+        const listed = await listTree(home, root, ".", context);
+        if (!listed.ok) throw new Error(treeFailureText(listed.error));
         const listing = new Map(
-            (await listTree(home, root, ".", context)).files.map((f) => [
-                f.path,
-                f.sha256,
-            ]),
+            listed.value.files.map((f) => [f.path, f.sha256]),
         );
         const paths = merge.brought
             .filter(
@@ -1462,7 +1438,9 @@ async function part(
             )
             .map((f) => f.path);
         if (paths.length) {
-            await removeTree(home, root, paths, context);
+            const treeOutcome3 = await removeTree(home, root, paths, context);
+            if (!treeOutcome3.ok)
+                throw new Error(treeFailureText(treeOutcome3.error));
             const trimmed = await env.exec(
                 [
                     process.execPath,

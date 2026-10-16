@@ -2,8 +2,7 @@ import { expect, it } from "vitest";
 import { Credentials } from "../src/home/credentials.ts";
 import { secretsFrom } from "../src/scrub.ts";
 import { runConfined } from "../src/tools/run.ts";
-import { houseEnv } from "./sandbox-support.ts";
-import { context, scratch } from "./support.ts";
+import { context, houseEnv, scratch } from "./support.ts";
 
 it("scrubs streamed command output and reports a timeout once with its policy", async () => {
     const { env } = houseEnv({ wallSecs: 1 });

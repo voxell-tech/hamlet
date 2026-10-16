@@ -11,7 +11,7 @@ import type { HomeBase } from "../home.ts";
 import { safeWords } from "../scrub.ts";
 import type { Endpoint } from "../settings.ts";
 import { estimateOf } from "../spend/money.ts";
-import { type Card, readList, record } from "./catalogue.ts";
+import type { Card, Listed } from "./catalogue.ts";
 import { assumedRate, atEndpoint } from "./endpoints.ts";
 
 /** The default context of an endpoint that lists no window size. */
@@ -267,4 +267,49 @@ function protect(
         }),
     );
     return out;
+}
+
+/** An object value, or an empty object for other representations. */
+function record(value: unknown): Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value))
+        : {};
+}
+
+/** The model cards in an OpenAI-compatible listing, sorted by id. */
+function readList(body: unknown): Listed[] {
+    const object = record(body);
+    const array = object.data ?? object.models ?? body;
+    if (!Array.isArray(array)) return [];
+    return array
+        .flatMap((item): Listed[] => {
+            const value = record(item);
+            const id = value.id ?? value.name ?? value.model;
+            if (typeof id !== "string" || id === "") return [];
+            const pricing = record(value.pricing);
+            const input = rate(pricing.prompt);
+            const output = rate(pricing.completion);
+            const context = value.context_length ?? value.context_window;
+            return [
+                {
+                    id,
+                    price:
+                        input === null || output === null
+                            ? null
+                            : { input, output },
+                    context:
+                        typeof context === "number" && context > 0
+                            ? context
+                            : null,
+                },
+            ];
+        })
+        .sort((a, b) => a.id.localeCompare(b.id));
+}
+function rate(value: unknown): number | null {
+    if (typeof value !== "number" && typeof value !== "string") return null;
+    const number = Number(value);
+    return value === "" || !Number.isFinite(number) || number < 0
+        ? null
+        : number * 1_000_000;
 }

@@ -164,45 +164,31 @@ export async function say(
                 : `\`${command.agent}\` no longer has ${command.permission}.`,
         );
     }
-    if (
-        command?.command === "folder" ||
-        command?.command === "mode" ||
-        command?.command === "give"
-    ) {
-        // D7/D8 replace these work-folder and gift compatibility catches with owner failures.
-        try {
-            const text =
-                command.command === "folder"
-                    ? await folder(
-                          home,
-                          message.to.hamlet,
-                          command.path,
-                          context,
-                      )
-                    : command.command === "mode"
-                      ? await setMode(
-                            home,
-                            message.to.hamlet,
-                            command.mode,
-                            context,
-                        )
-                      : await giftSkill(
-                            home,
-                            { hamlet: message.to.hamlet, agent: command.agent },
-                            command.skill,
-                            command.from === undefined
-                                ? undefined
-                                : {
-                                      hamlet: message.to.hamlet,
-                                      agent: command.from,
-                                  },
-                            context,
-                        );
-            return receipt(text);
-        } catch (cause) {
-            return legacyRefusal(cause);
-        }
+    if (command?.command === "folder") {
+        const result = await folder(
+            home,
+            message.to.hamlet,
+            command.path,
+            context,
+        );
+        return result.ok ? receipt(result.value) : result;
     }
+    if (command?.command === "mode" || command?.command === "give") {
+        const text =
+            command.command === "mode"
+                ? await setMode(home, message.to.hamlet, command.mode, context)
+                : await giftSkill(
+                      home,
+                      { hamlet: message.to.hamlet, agent: command.agent },
+                      command.skill,
+                      command.from === undefined
+                          ? undefined
+                          : { hamlet: message.to.hamlet, agent: command.from },
+                      context,
+                  );
+        return receipt(text);
+    }
+
     if (command?.command === "stop") {
         if (command.agent === null) {
             // D3 replaces this stop-call compatibility catch with ConversationFailure.

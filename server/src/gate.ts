@@ -10,8 +10,9 @@ import { CHANGE, changeBetween } from "./change.ts";
 import { ReflectionEntry, type With, WithDoc } from "./chats/conversations.ts";
 import { turnOf } from "./chats/turn.ts";
 import {
-    envFor,
+    agentEnv,
     footing,
+    insideHouse,
     LEAVE,
     type Leave,
     placeOf,
@@ -42,7 +43,7 @@ import { holdFor } from "./oversight.ts";
 import { type ChiefRefusal, chiefAccess } from "./realm/access.ts";
 import { addressOf, RecordDoc } from "./record.ts";
 import { err, type Result } from "./result.ts";
-import { canon, within } from "./sandbox.ts";
+
 import { safeValue, safeWords } from "./scrub.ts";
 
 /** The turn and decision of a call, kept until its tool task ends. */
@@ -251,7 +252,7 @@ export const Gate: Part = (home) => {
                                 api.conversationId,
                                 context,
                             );
-                            const env = await envFor(
+                            const env = await agentEnv(
                                 home,
                                 {
                                     conversationId: api.conversationId,
@@ -348,14 +349,12 @@ export const Gate: Part = (home) => {
                                         place.hamlet,
                                     );
                                     if (
-                                        within(
-                                            canon(
-                                                footing(path, {
-                                                    house,
-                                                    folder: work.folder,
-                                                }),
-                                            ),
-                                            canon(house),
+                                        insideHouse(
+                                            footing(path, {
+                                                house,
+                                                folder: work.folder,
+                                            }),
+                                            house,
                                         )
                                     )
                                         standing.houseEdit = true;

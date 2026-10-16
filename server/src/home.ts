@@ -21,15 +21,15 @@ import {
     type With,
     WithDoc,
 } from "./chats/conversations.ts";
-import { closeEnvironments, envFor, WorkDoc } from "./environment.ts";
+import { agentEnv, Confinement, houseReader, WorkDoc } from "./environment.ts";
 import { Credentials } from "./home/credentials.ts";
-import { buildHouse, type Layout, layOut } from "./home/layout.ts";
+import { type Layout, layOut } from "./home/layout.ts";
 import { claim } from "./home/lock.ts";
 import { PARTS } from "./home/parts.ts";
-import { closeSkills, refreshSkills } from "./house/skills.ts";
+import { Houses } from "./house/skills.ts";
 import { PeerStatistics } from "./letters.ts";
 import { LimitsDoc } from "./limits/rules.ts";
-import { homeModels } from "./models.ts";
+import { ModelHome } from "./models.ts";
 import { CharacterDoc } from "./prompt.ts";
 import { liveHamlets, RealmDoc } from "./realm/places.ts";
 import { agentKey, HOME, RecordDoc } from "./record.ts";
@@ -61,12 +61,13 @@ export type HomeBase = {
     readonly dir: string;
     readonly layout: Layout;
     readonly sandbox: Sandbox;
+    readonly confinement: Confinement;
+    readonly houses: Houses;
     readonly chief: string;
     readonly overrides: Overrides;
     readonly credentials: Credentials;
     /** Scrubs with current credentials before storage or display. */
     readonly secrets: Secrets;
-    readonly logins: Readonly<Record<string, OAuthAuth>>;
     now(): number;
 };
 
@@ -77,6 +78,8 @@ export type Home = HomeBase & {
     readonly harness: Harness;
     readonly registry: Registry;
     readonly models: MutableModels;
+    /** Model links and provider state owned by this open home. */
+    readonly modelHome: ModelHome;
     /** Peer counts advanced from this harness's committed entries. */
     readonly peerStatistics: PeerStatistics;
     /** Room kept free for an answer, in tokens, which compaction keeps (C28). */
@@ -103,18 +106,25 @@ export async function openHome(
             layout.credentials,
             overrides.apiKey,
         );
+        const sandbox = platformSandbox();
+        const confinement = new Confinement();
+        const houses = new Houses(layout, (agent, context) =>
+            houseReader({ layout, sandbox }, agent, context),
+        );
         const base: HomeBase = {
             dir: root,
             layout,
-            sandbox: platformSandbox(),
+            sandbox,
+            confinement,
+            houses,
             chief: options.chief || env.HAMLET_USER || env.USER || "user",
             overrides,
             credentials,
             secrets: secretsFrom(credentials),
-            logins: options.logins ?? {},
             now: options.now ?? Date.now,
         };
-        const models = options.models ?? homeModels(base);
+        const modelHome = new ModelHome(base, options.models, options.logins);
+        const models = modelHome.models;
         const registry = createRegistry();
         const compaction = {
             reserveTokens: DEFAULT_COMPACTION_POLICY.reserveTokens,
@@ -127,7 +137,7 @@ export async function openHome(
                 registry,
                 settings: runSettings(compaction),
                 env: (target, context) =>
-                    envFor(base, target, { net: false }, context),
+                    agentEnv(base, target, { net: false }, context),
                 now: base.now,
             },
             context,
@@ -136,8 +146,8 @@ export async function openHome(
         // A storage that failed closes the harness by itself.
         const released = harness.closed.then(async () => {
             await Promise.all([
-                closeEnvironments(base, context),
-                closeSkills(base.layout.dir, context),
+                base.confinement.close(context),
+                base.houses.close(context),
                 lock.release(),
             ]);
         });
@@ -149,7 +159,10 @@ export async function openHome(
             ...base,
             harness,
             registry,
-            models,
+            get models() {
+                return modelHome.models;
+            },
+            modelHome,
             compaction,
             peerStatistics,
             close: (context) => {
@@ -157,7 +170,7 @@ export async function openHome(
                     for (const part of running.reverse()) {
                         await part.stop?.(context);
                     }
-                    refreshSkills(base.layout.dir);
+                    base.houses.invalidate(base.layout.dir);
                     await harness.close(context);
                     await released;
                 })();
@@ -166,7 +179,9 @@ export async function openHome(
         };
         await found(home, context);
         running.push(
-            ...[...PARTS, ...(options.parts ?? [])].map((part) => part(home)),
+            ...[...PARTS, modelHome.part, ...(options.parts ?? [])].map(
+                (part) => part(home),
+            ),
         );
         for (const part of running) {
             if (part.extension !== undefined) registry.install(part.extension);
@@ -255,7 +270,7 @@ async function found(home: Home, context: Context): Promise<void> {
         }
         return agents;
     }, context);
-    for (const agent of agents) await buildHouse(home.layout, agent);
+    for (const agent of agents) await home.houses.of(agent).build();
 }
 
 /**

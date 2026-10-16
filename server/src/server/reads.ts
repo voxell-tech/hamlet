@@ -1,25 +1,23 @@
-import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { chatOf } from "../chats/conversations.ts";
 import { historyOf } from "../chats.ts";
-import { envFor } from "../environment.ts";
-import { houseOf } from "../home/layout.ts";
 import type { Home } from "../home.ts";
-import { houseSkills } from "../house/skills.ts";
-import { catalogueOf, refreshModels } from "../models.ts";
+import type { SettingsFailure } from "../models.ts";
 import { CharacterDoc, CharterDoc, charterOf, told } from "../prompt.ts";
 import type { Address, Listed, Read, ReadResult } from "../protocol.ts";
-import { type ChiefResult, chiefAccess } from "../realm/access.ts";
-import { resolve } from "../realm/roads.ts";
+import { type ChiefRefusal, chiefAccess } from "../realm/access.ts";
+import { type AddressFailure, resolve } from "../realm/roads.ts";
 import { type AgentRef, agentKey } from "../record.ts";
-import { ok } from "../result.ts";
+import { err, ok, type Result } from "../result.ts";
 
 /** A chief's view of the prompt, history, catalogue and papers (C14, C24). */
 export async function read(
     home: Home,
     message: Read,
     context: Context,
-): Promise<ChiefResult<ReadResult>> {
+): Promise<
+    Result<ReadResult, ChiefRefusal["error"] | SettingsFailure | AddressFailure>
+> {
     const reply = { type: "read", to: message.id } as const;
     if (message.what === "charter")
         return ok({
@@ -32,9 +30,15 @@ export async function read(
             },
         });
     if (message.what === "models") {
-        if (message.refresh) await refreshModels(home, context);
+        if (message.refresh) {
+            const refreshed = await home.modelHome.refresh(context);
+            if (!refreshed.ok) return refreshed;
+        }
         const cards = new Map(
-            (await catalogueOf(home, context)).map((card) => [card.name, card]),
+            (await home.modelHome.catalogue(context)).map((card) => [
+                card.name,
+                card,
+            ]),
         );
         for (const model of home.models.getModels()) {
             const name = `${model.provider}::${model.id}`;
@@ -65,14 +69,7 @@ export async function read(
             ...reply,
             prompt: await told(home, conversation, context),
         });
-    const env = await envFor(
-        home,
-        { conversationId: conversation.id, read: home.harness },
-        { net: false },
-        context,
-    );
-    const house = houseOf(home.layout, agent);
-    const notes = await env?.readTextFile(join(house, "NOTES.md"), context);
+    const notes = await home.houses.of(agent).notes(context);
     const character = await home.harness.snapshot(
         CharacterDoc,
         agentKey(agent),
@@ -83,9 +80,9 @@ export async function read(
     return ok({
         ...reply,
         papers: {
-            notes: cut(notes?.ok ? notes.value : ""),
+            notes: cut(notes.ok ? notes.value.text : ""),
             character: cut(character?.text ?? ""),
-            skills: (await houseSkills(house, home.sandbox, context)).map(
+            skills: (await home.houses.of(agent).skills(context)).map(
                 ({ name, description }) => ({ name, description }),
             ),
         },
@@ -97,7 +94,7 @@ export async function readableAgent(
     home: Home,
     address: Address,
     context: Context,
-): Promise<ChiefResult<AgentRef>> {
+): Promise<Result<AgentRef, ChiefRefusal["error"] | AddressFailure>> {
     const access = await chiefAccess(
         home,
         address.hamlet,
@@ -111,7 +108,8 @@ export async function readableAgent(
         `${address.agent}@${address.hamlet}`,
         context,
     );
-    if (!resolved) throw new Error(`no agent named \`${address.agent}\``);
-    if ("gone" in resolved) throw new Error(resolved.gone);
+    if (!resolved) return err({ kind: "agent-missing", agent: address.agent });
+    if ("gone" in resolved)
+        return err({ kind: "agent-gone", farewell: resolved.gone });
     return { ok: true, value: resolved.ref };
 }
