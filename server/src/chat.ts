@@ -41,7 +41,7 @@ export async function chat(options: {
                     "\n",
                 )}\n  /agent <name>, /hamlet <name>: Switch who you talk to\n`,
         );
-        const state: State = welcome;
+        let state: State = welcome;
         if (state.settings.unset)
             options.err.write(
                 "Set up a provider with `hamlet login <provider> [--key]`, then try a hello with `hamlet models try`. Run these through `npm run hamlet --` for now.\n",
@@ -178,6 +178,7 @@ export async function chat(options: {
                 throw new Error(message.text);
             if (message.type === "transcript" && message.to !== undefined)
                 opens.delete(message.to);
+            if (message.type === "state") state = message;
             if (message.type === "change") {
                 for (const change of message.changes) {
                     if (change.type === "hamlet")

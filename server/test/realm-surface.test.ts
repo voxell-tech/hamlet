@@ -197,69 +197,23 @@ it("retains a mill agent's pinned model when a refreshed endpoint no longer list
 }, 20000);
 
 it("starts the CLI at mayor@mill and switches back with /hamlet home", async () => {
-    const { WebSocket, WebSocketServer } = await import("ws");
-    const { closeAfter, fauxAgents } = await import("./support.ts");
+    const { fauxAgents } = await import("./support.ts");
     const { hamlet } = await import("./cli-support.ts");
     const { models, faux } = fauxModels();
     const run = await served({ models, env: { HAMLET_REFLECT_EVERY: "0" } });
     await addHamlet(run.home, "mill", "miller");
-    const smith = await addAgent(run.home, "mill", "smith");
-    const scout = await addAgent(run.home, "home", "scout");
+    await addAgent(run.home, "mill", "smith");
+    await addAgent(run.home, "home", "scout");
     fauxAgents(faux, {
         "home:0": [fauxAssistantMessage("Home answer.")],
         "mill:0": [fauxAssistantMessage("Mill answer.")],
     });
-    // The state-views slice supplies these realm fields at the merge.
-    const proxy = new WebSocketServer({ host: "127.0.0.1", port: 0 });
-    await new Promise<void>((resolve) => proxy.once("listening", resolve));
-    closeAfter(async () => {
-        for (const socket of proxy.clients) socket.terminate();
-        await new Promise<void>((resolve) => proxy.close(() => resolve()));
-    });
-    proxy.on("connection", (client) => {
-        const upstream = new WebSocket(run.server.url);
-        closeAfter(() => upstream.terminate());
-        const queue: string[] = [];
-        client.on("message", (data) => {
-            const text = data.toString();
-            if (upstream.readyState === WebSocket.OPEN) upstream.send(text);
-            else queue.push(text);
-        });
-        upstream.on("open", () => {
-            for (const text of queue) upstream.send(text);
-        });
-        upstream.on("message", (data) => {
-            const message = JSON.parse(
-                data.toString(),
-            ) as import("../src/protocol.ts").ServerMessage;
-            if (message.type === "state") {
-                const first = message.hamlets[0],
-                    mayor = message.agents[0];
-                if (!first || !mayor) throw new Error("no first hamlet");
-                message.hamlets.push({ ...first, id: "mill", name: "mill" });
-                message.agents.push({
-                    ...mayor,
-                    ref: { hamlet: "mill", number: 0 },
-                    name: "miller",
-                });
-                message.agents.push(
-                    { ...mayor, ref: smith, name: "smith", mayor: false },
-                    { ...mayor, ref: scout, name: "scout", mayor: false },
-                );
-            }
-            if (client.readyState === WebSocket.OPEN)
-                client.send(JSON.stringify(message));
-        });
-        client.on("close", () => upstream.close());
-    });
-    const address = proxy.address();
-    if (!address || typeof address === "string") throw new Error("no proxy");
     const cli = hamlet(
         ["chat", "--to", "mayor@mill"],
         run.home.dir,
         "Mill?\n/hamlet home\nHome?\n",
         {
-            HAMLET_SERVER: `ws://127.0.0.1:${address.port}`,
+            HAMLET_SERVER: run.server.url,
             HAMLET_TOKEN: run.home.credentials.token,
         },
     );
@@ -269,7 +223,7 @@ it("starts the CLI at mayor@mill and switches back with /hamlet home", async () 
     expect(cli.err()).toContain("talking to the mayor of home");
     fauxAgents(faux, { "mill:0": [fauxAssistantMessage("Named answer.")] });
     const env = {
-        HAMLET_SERVER: `ws://127.0.0.1:${address.port}`,
+        HAMLET_SERVER: run.server.url,
         HAMLET_TOKEN: run.home.credentials.token,
     };
     const named = hamlet(
