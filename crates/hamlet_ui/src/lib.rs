@@ -1,39 +1,29 @@
 //! The command center (I4): a Bevy and fynix window added to the
 //! core's app.
 
-pub mod chat;
 mod chief;
 pub mod chrome;
 pub mod cursor;
 mod dock;
-pub mod feel;
 mod folder;
 pub mod history;
 mod hover;
-pub mod icons;
-pub mod inspector;
-pub mod links;
 pub mod lists;
 mod looks;
 mod markdown;
 mod me;
 pub mod menu;
 pub mod models;
-pub mod overview;
-pub mod petition;
-pub mod pictures;
-pub mod platform;
 mod remember;
 mod roll;
 mod root;
 pub mod rules;
-pub mod settings;
+pub mod screens;
 mod sounds;
 mod status;
-pub mod tabs;
 pub mod theme;
-pub mod tuning;
 pub mod welcome;
+pub mod widgets;
 mod window;
 mod world_menu;
 mod world_view;
@@ -54,8 +44,12 @@ pub use self::looks::{
 pub use self::me::Me;
 pub use self::roll::Roll;
 pub use self::root::toolbar;
+pub use self::screens::{
+    chat, inspector, links, overview, petition, pictures, settings,
+};
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
+pub use self::widgets::{feel, icons, platform, tabs, tuning};
 pub use self::window::{ShowRequests, window_plugin};
 
 /// The context a view of the window is built in.
@@ -112,28 +106,18 @@ impl Plugin for UiPlugin {
                 remember::plugin,
             ),
             (
-                inspector::plugin,
-                overview::plugin,
+                screens::plugin,
                 chief::plugin,
                 folder::plugin,
                 rules::plugin,
                 models::plugin,
-                chat::plugin,
-                links::plugin,
-                pictures::plugin,
-                petition::plugin,
                 history::plugin,
-                settings::plugin,
                 welcome::plugin,
             ),
             (world_view::plugin, world_menu::plugin, hover::plugin),
             (
                 theme::plugin,
-                tuning::plugin,
-                tabs::plugin,
-                platform::plugin,
-                icons::plugin,
-                feel::plugin,
+                widgets::plugin,
                 cursor::plugin,
                 sounds::plugin,
             ),

@@ -86,7 +86,7 @@ pub fn read_search(
 }
 
 /// A heading over a part of the panel, behind its icon.
-pub(super) fn heading(
+pub(crate) fn heading(
     which: Glyph,
     text: impl Into<String>,
 ) -> AnyView {
@@ -253,7 +253,7 @@ pub fn overview() -> AnyView {
 }
 
 /// Gives a chief's command to `hamlet`, whoever the chat is with.
-pub(super) fn tell(world: &mut World, hamlet: Entity, text: String) {
+pub(crate) fn tell(world: &mut World, hamlet: Entity, text: String) {
     let Some(name) = world
         .get::<Settlement>(hamlet)
         .map(|settlement| settlement.name.clone())

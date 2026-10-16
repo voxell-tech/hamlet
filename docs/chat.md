@@ -1,7 +1,7 @@
 # The chat
 
 What an agent's chat holds, in what order, and how it is drawn as a group
-chat. The drawing is `hamlet_ui/src/chat/` and `markdown/`. The
+chat. The drawing is `hamlet_ui/src/screens/chat/` and `markdown/`. The
 conversations themselves are `hamlet_core/src/session.rs`.
 
 ## What is recorded

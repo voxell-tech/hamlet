@@ -39,7 +39,7 @@ pub(crate) struct Backdrop {
 
 impl UiMaterial for Backdrop {
     fn fragment_shader() -> ShaderRef {
-        "embedded://hamlet_ui/feel/backdrop.wgsl".into()
+        "embedded://hamlet_ui/widgets/feel/backdrop.wgsl".into()
     }
 }
 

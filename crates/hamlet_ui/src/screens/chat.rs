@@ -95,8 +95,8 @@ pub struct ChatScroll;
 /// after a send.
 #[derive(Resource, Default)]
 pub struct Draft {
-    pub(super) text: String,
-    pub(super) step: u8,
+    pub(crate) text: String,
+    pub(crate) step: u8,
 }
 
 /// Sends `text` to the open chat.
@@ -290,7 +290,7 @@ pub fn refocus(
 }
 
 /// The furthest the chat can be scrolled, in pixels.
-pub(super) fn furthest(node: &ComputedNode) -> f32 {
+pub(crate) fn furthest(node: &ComputedNode) -> f32 {
     let seen = node.size().y - node.scrollbar_size.y;
     ((node.content_size().y - seen) * node.inverse_scale_factor())
         .max(0.0)
