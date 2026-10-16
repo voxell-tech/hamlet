@@ -11,18 +11,18 @@ use hamlet_core::catalogue::ModelCatalogue;
 use hamlet_core::core::Settings;
 use hamlet_model::bazaar::{Stall, Ware};
 
+use super::artisans::named;
 use super::shelf::{dollars, heading, price_words, small, tokens};
 use super::{Browsing, Then, acquire, added, name_of};
 use crate::icons::Glyph;
 use crate::looks::{
     action, bare, buttons, good_action, note, page_head, stated,
-    title,
 };
 use crate::roll::{either, moved};
 use crate::{AnyView, markdown};
 
 /// The width of the name of a fact.
-const NAMED: f32 = 130.0;
+const NAMED: f32 = 118.0;
 
 /// The ware `id` of the source shown, all that is told of it and the
 /// ways to add it.
@@ -58,7 +58,7 @@ pub(super) fn page(id: String) -> AnyView {
 
 fn about(ware: &Ware, openrouter: bool) -> AnyView {
     let mut parts = vec![
-        column((title(ware.title.clone()), note(ware.id.clone())))
+        column((named(ware.title.clone()), note(ware.id.clone())))
             .gap(4.0)
             .boxed(),
     ];

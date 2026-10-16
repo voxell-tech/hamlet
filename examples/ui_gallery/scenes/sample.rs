@@ -145,6 +145,7 @@ pub(super) fn setup(world: &mut World) {
     if matches!(scene, Scene::SkillStall | Scene::Scroll) {
         skill_stall(world, scene == Scene::Scroll);
     }
+    super::stalls::setup(world, agent);
     if scene == Scene::Charter {
         let home = house();
         // One of its own, so that the way back to the default shows.
@@ -921,7 +922,7 @@ fn shelf() -> hamlet_model::catalogue::Catalogue {
 
 /// A bazaar of a few models, one of them added, chosen among for
 /// `agent`, with the first open on its page where `open`.
-fn stock(world: &mut World, agent: Entity, open: bool) {
+pub(super) fn stock(world: &mut World, agent: Entity, open: bool) {
     use hamlet_core::bazaar::Bazaar;
     use hamlet_model::bazaar::{Stall, Ware, Wares};
     use hamlet_model::catalogue::Catalogue;
@@ -1044,6 +1045,7 @@ fn stock(world: &mut World, agent: Entity, open: bool) {
     });
     world.init_resource::<hamlet_core::core::Listing>();
     world.init_resource::<hamlet_ui::bazaar::Browsing>();
+    world.init_resource::<hamlet_ui::bazaar::StallShown>();
     let mut browsing =
         world.resource_mut::<hamlet_ui::bazaar::Browsing>();
     browsing.for_agent = Some(agent);

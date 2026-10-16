@@ -21,6 +21,7 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use hamlet_ui::pictures::Pictures;
 use hamlet_ui::welcome::Step;
+use hamlet_world::bazaar::Stall;
 
 use self::offscreen::{Target, word};
 use self::scenes::{GalleryPlugin, Scene, Stand, Strike};
@@ -40,7 +41,7 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 33] = [
+const SHOTS: [Shot; 44] = [
     Shot {
         name: "menu",
         scene: Scene::Menu,
@@ -225,6 +226,78 @@ const SHOTS: [Shot; 33] = [
         name: "welcome-models",
         scene: Scene::Welcome(Step::Models),
         size: UVec2::new(1180, 680),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-agents",
+        scene: Scene::Counter(Stall::Agents, &[]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-ware",
+        scene: Scene::Counter(Stall::Agents, &["Maker: Large"]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-artisans",
+        scene: Scene::Counter(Stall::Artisans, &[]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-artisan",
+        scene: Scene::Counter(
+            Stall::Artisans,
+            &["Quillfeather", "HIRE"],
+        ),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-plugins",
+        scene: Scene::Counter(Stall::Plugins, &[]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-plugin",
+        scene: Scene::Counter(Stall::Plugins, &["Excalidraw Canvas"]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-skills",
+        scene: Scene::Counter(Stall::Skills, &[]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "artisans",
+        scene: Scene::Stall(Stall::Artisans, &[]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "artisan",
+        scene: Scene::Stall(Stall::Artisans, &["Marigold Almanac"]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "plugins",
+        scene: Scene::Stall(Stall::Plugins, &[]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "plugin",
+        scene: Scene::Stall(
+            Stall::Plugins,
+            &["Ledger of Changes", "INSTALL"],
+        ),
+        size: UVec2::new(1440, 1000),
         scale: 1.0,
     },
     Shot {

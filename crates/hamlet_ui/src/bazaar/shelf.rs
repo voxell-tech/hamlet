@@ -27,7 +27,7 @@ use crate::looks::{
     Fills, ICON, action, bare, buttons, note, plate, stated, tick,
     well,
 };
-use crate::platform::DisplayText;
+use crate::platform::{DisplayText, Wraps};
 use crate::roll::{either, moved};
 use crate::{AnyView, View};
 
@@ -345,12 +345,9 @@ fn controls() -> impl View {
             |world, text| browse(world, |b| b.filter.words = text),
         )
         .grow(1.0)
+        .min_width(px(0.0))
         .rules(well)
         .tagged(Searching),
-        action(Glyph::Restore, "LOOK AGAIN", |world| {
-            world.trigger(FetchWares);
-            world.trigger(ListModels);
-        }),
     ))
     .gap(12.0)
     .align(AlignItems::Center);
@@ -537,7 +534,19 @@ pub(super) fn page() -> AnyView {
         moved::<Browsing>(),
         either(moved::<Bazaar>(), moved::<Listing>()),
     ));
-    column((heading(), controls(), note(counted), list))
+    // The count beside the way to ask again, which goes under it
+    // where the panel is narrow.
+    let count = row((
+        column((note(counted),)).grow(1.0).min_width(px(220.0)),
+        action(Glyph::Restore, "LOOK AGAIN", |world| {
+            world.trigger(FetchWares);
+            world.trigger(ListModels);
+        }),
+    ))
+    .gap(12.0)
+    .align(AlignItems::Center)
+    .tagged(Wraps);
+    column((heading(), controls(), count, list))
         .gap(12.0)
         .boxed()
 }

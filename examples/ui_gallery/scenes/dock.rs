@@ -104,6 +104,7 @@ pub(super) fn seed_dock(world: &mut World) {
         scene,
         Scene::Bazaar
             | Scene::Ware
+            | Scene::Stall(..)
             | Scene::SkillStall
             | Scene::Scroll
     ) {
