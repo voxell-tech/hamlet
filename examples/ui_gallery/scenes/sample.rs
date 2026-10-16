@@ -142,6 +142,9 @@ pub(super) fn setup(world: &mut World) {
     if matches!(scene, Scene::Bazaar | Scene::Ware) {
         stock(world, agent, scene == Scene::Ware);
     }
+    if matches!(scene, Scene::SkillStall | Scene::Scroll) {
+        skill_stall(world, scene == Scene::Scroll);
+    }
     if scene == Scene::Charter {
         let home = house();
         // One of its own, so that the way back to the default shows.
@@ -1047,4 +1050,95 @@ fn stock(world: &mut World, agent: Entity, open: bool) {
     if open {
         browsing.open = Some("maker/large".into());
     }
+}
+
+/// A Skill Stall of a few skills, one of them in the library, shown
+/// at its counter in the Inspector too, with the first open on its
+/// page where `open`.
+fn skill_stall(world: &mut World, open: bool) {
+    use hamlet_core::skill_market::SkillMarket;
+    use hamlet_model::skills_sh::{Scroll, Scrolls, Unrolled};
+    use hamlet_world::bazaar::Stall;
+    let scroll =
+        |rank: u32, source: &str, skill: &str, installs| Scroll {
+            source: source.into(),
+            skill: skill.into(),
+            name: skill.into(),
+            installs,
+            rank: Some(rank),
+            official: source.starts_with("vercel-labs"),
+        };
+    let scrolls = vec![
+        scroll(1, "vercel-labs/skills", "find-skills", 3_881_956),
+        scroll(2, "mattpocock/skills", "grill-me", 1_369_631),
+        scroll(
+            4,
+            "vercel-labs/agent-browser",
+            "agent-browser",
+            1_144_540,
+        ),
+        scroll(6, "mattpocock/skills", "tdd", 1_094_811),
+        scroll(
+            24,
+            "vercel-labs/agent-skills",
+            "vercel-react-best-practices",
+            821_200,
+        ),
+        scroll(31, "anthropics/skills", "frontend-design", 702_118),
+        scroll(57, "anthropics/skills", "skill-creator", 498_007),
+        scroll(
+            212,
+            "someone-with-a-long-name/an-even-longer-repository",
+            "pdf-reading-and-summarising",
+            61_402,
+        ),
+    ];
+    let mut market = SkillMarket::of(Scrolls {
+        fetched: hamlet_model::log::now_millis() - 2 * 3_600_000,
+        scrolls,
+    });
+    let tdd = "mattpocock/skills/tdd";
+    market.unrolled.insert(
+        tdd.into(),
+        Some(Ok(Unrolled {
+            files: vec![
+                (
+                    "SKILL.md".into(),
+                    "---\nname: tdd\ndescription: Test-driven \
+                     development. Use when the user wants to build \
+                     features or fix bugs test-first.\n---\n\n# \
+                     Test-Driven Development\n\nTDD is the red, \
+                     green loop. This skill is what makes that loop \
+                     give tests worth keeping.\n\n## What a good \
+                     test is\n\nTests verify behaviour through \
+                     public interfaces, not implementation details. \
+                     See `tests.md` for examples.\n\n- One test, \
+                     then one change, then again.\n- Refactor only \
+                     when green.\n"
+                        .into(),
+                ),
+                ("mocking.md".into(), "Mock at the edges.\n".into()),
+                ("tests.md".into(), "Examples.\n".into()),
+            ],
+            left: vec![],
+        })),
+    );
+    world.insert_resource(market);
+    world.insert_resource(hamlet_core::core::Skills(vec![
+        hamlet_home::Skill {
+            name: "find-skills".into(),
+            description: "Finds skills.".into(),
+            usage: None,
+            path: "/home/library/find-skills/SKILL.md".into(),
+        },
+    ]));
+    world.insert_resource(hamlet_ui::bazaar::StallShown(
+        Stall::Skills,
+    ));
+    world
+        .insert_resource(Selected(Some(Thing::Stall(Stall::Skills))));
+    world.insert_resource(hamlet_ui::bazaar::Perusing {
+        open: open.then(|| tdd.to_string()),
+        ..hamlet_ui::bazaar::Perusing::default()
+    });
 }

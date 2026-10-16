@@ -35,6 +35,7 @@ use hamlet_model::config::{Config, Endpoint};
 use hamlet_world::bazaar::Stall;
 use hamlet_world::pick::{Selected, Thing};
 
+pub use self::skills::Perusing;
 use crate::dock::{PanelAppExt, panel, show_tab};
 use crate::icons::Glyph;
 use crate::looks::{

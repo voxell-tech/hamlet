@@ -100,7 +100,13 @@ pub(super) fn seed_dock(world: &mut World) {
         DockLeaf::new("centre", DockAreaStyle::TabBar)
             .with_windows(vec!["world".into()]),
     );
-    if matches!(scene, Scene::Bazaar | Scene::Ware) {
+    if matches!(
+        scene,
+        Scene::Bazaar
+            | Scene::Ware
+            | Scene::SkillStall
+            | Scene::Scroll
+    ) {
         tree.add_tab(centre, "bazaar");
     }
     if let Some((queue, _)) =

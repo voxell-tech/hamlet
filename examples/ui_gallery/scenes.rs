@@ -156,6 +156,11 @@ pub enum Scene {
     Bazaar,
     /// One model of the Agent Bazaar on its own page.
     Ware,
+    /// The Skill Stall of the Agent Bazaar, in its panel and at its
+    /// counter in the Inspector.
+    SkillStall,
+    /// One skill of the Skill Stall on its own page.
+    Scroll,
 }
 
 /// The picture that stands where the world is drawn, and the part of
