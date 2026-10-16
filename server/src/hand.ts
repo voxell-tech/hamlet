@@ -14,8 +14,13 @@ import { Compile } from "typebox/compile";
 import { LEAVE, type Leave, toolRunner } from "./environment.ts";
 import { type Manifest, ManifestsDoc } from "./hand/manifests.ts";
 import type { Home, Part } from "./home.ts";
-import { record } from "./models.ts";
 import { limitsOf } from "./sandbox/policy.ts";
+
+function record(value: unknown): Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value))
+        : {};
+}
 
 const NAME = "hamlet.hand";
 const RESERVED = new Set([

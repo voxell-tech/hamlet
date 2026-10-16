@@ -1,98 +1,146 @@
 import type { Context } from "@earendil-works/chord";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Home } from "../home.ts";
-import { safeWords } from "../scrub.ts";
+import { err, ok, type Result } from "../result.ts";
 import { modelRef, SettingsDoc, settingsOf } from "../settings.ts";
-import { plainly } from "./plainly.ts";
+import {
+    type ModelFailure,
+    modelFailureText,
+    type ProviderFailure,
+} from "./failure.ts";
 
-/** A model name resolved without pi's ambiguous provider/model spelling. */
-export function namedModel(home: Home, name: string) {
+/** Resolves only fully qualified model names at a configured provider. */
+export function namedModel(
+    home: Home,
+    name: string,
+): Result<NonNullable<ReturnType<Home["models"]["getModel"]>>, ModelFailure> {
+    const facts = { operation: "check-model", retrySafe: true, name } as const;
     const ref = modelRef(name);
-    if (ref === undefined)
-        throw new Error(
-            `\`${name}\` names no endpoint. A model is named \`endpoint::model\``,
-        );
+    if (ref === undefined) return err({ ...facts, kind: "model-name-invalid" });
     if (home.models.getProvider(ref.provider) === undefined)
-        throw new Error(
-            `\`${name}\` is served by the endpoint \`${ref.provider}\`, which the settings do not have`,
-        );
+        return err({
+            ...facts,
+            kind: "model-endpoint-missing",
+            provider: ref.provider,
+        });
     const model = home.models.getModel(ref.provider, ref.modelId);
-    if (model === undefined) throw new Error(`no model named \`${name}\``);
-    return model;
+    return model === undefined
+        ? err({ ...facts, kind: "model-not-found" })
+        : ok(model);
 }
 
-/** A one-word hello, bounded at 90 seconds, with the outcome kept in the link. */
+/** A hello bounded at 90 seconds; provider failures still update the shared link. */
 export async function checkModel(
     home: Home,
     name: string | undefined,
     context: Context,
-): Promise<string> {
+): Promise<Result<string, ModelFailure>> {
     const settings = settingsOf(
         await home.harness.snapshot(SettingsDoc, context),
         home.overrides,
     );
-    const model = namedModel(home, name ?? settings.model);
+    const selected = namedModel(home, name ?? settings.model);
+    if (!selected.ok) return selected;
+    const model = selected.value;
     await link(home, "testing", null, null, context);
     const controller = new AbortController();
     const signal =
         context.abortSignal === undefined
             ? controller.signal
             : AbortSignal.any([controller.signal, context.abortSignal]);
+    const failure = (reason: string): ProviderFailure => ({
+        kind: "provider-refused",
+        operation: "check-model",
+        provider: model.provider,
+        reason: home.secrets.words(reason),
+        retrySafe: false,
+    });
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
         const answer = await Promise.race([
-            home.models.completeSimple(
-                model,
-                {
-                    messages: [
-                        {
-                            role: "user",
-                            content: "Say hello in one word.",
-                            timestamp: home.now(),
-                        },
-                    ],
+            home.models
+                .completeSimple(
+                    model,
+                    {
+                        messages: [
+                            {
+                                role: "user",
+                                content: "Say hello in one word.",
+                                timestamp: home.now(),
+                            },
+                        ],
+                    },
+                    { signal, maxRetries: 0 },
+                )
+                .then(
+                    (message) => ok(message),
+                    (error: unknown) => err(failure(String(error))),
+                ),
+            new Promise<Result<AssistantMessage, ProviderFailure>>(
+                (resolve) => {
+                    timer = setTimeout(() => {
+                        controller.abort();
+                        resolve(
+                            err(
+                                failure(
+                                    "Error: the model did not answer in time",
+                                ),
+                            ),
+                        );
+                    }, 90_000);
                 },
-                { signal, maxRetries: 0 },
             ),
-            new Promise<never>((_resolve, reject) => {
-                timer = setTimeout(() => {
-                    controller.abort();
-                    reject(new Error("the model did not answer in time"));
-                }, 90_000);
-            }),
         ]);
-        const text = answer.content
+        if (!answer.ok) {
+            await link(
+                home,
+                "failed",
+                null,
+                modelFailureText(answer.error),
+                context,
+            );
+            return answer;
+        }
+        const text = answer.value.content
             .flatMap((part) => (part.type === "text" ? [part.text] : []))
             .join("")
             .trim();
         if (
-            answer.stopReason === "error" ||
-            answer.stopReason === "aborted" ||
+            answer.value.stopReason === "error" ||
+            answer.value.stopReason === "aborted" ||
             text === ""
-        )
-            throw new Error(
-                answer.errorMessage ?? "the model answered with nothing",
+        ) {
+            const refused = failure(
+                `Error: ${answer.value.errorMessage ?? "the model answered with nothing"}`,
             );
+            await link(
+                home,
+                "failed",
+                null,
+                modelFailureText(refused),
+                context,
+            );
+            return err(refused);
+        }
         await link(home, "connected", null, text, context);
-        return text;
-    } catch (error) {
-        const text = plainly(safeWords(home, String(error)), true);
-        await link(home, "failed", null, text, context);
-        return text;
+        return ok(text);
     } finally {
         clearTimeout(timer);
     }
 }
 
-/** A fresh listing from the default model's endpoint, with plain connection words. */
+/** A fresh serving-provider listing, retaining the check's notice wording on failure. */
 export async function checkConnection(
     home: Home,
     context: Context,
-): Promise<string> {
+): Promise<Result<string, ModelFailure>> {
     const settings = settingsOf(
         await home.harness.snapshot(SettingsDoc, context),
         home.overrides,
     );
-    const model = namedModel(home, settings.model);
+    const selected = namedModel(home, settings.model);
+    if (!selected.ok) return selected;
+    const model = selected.value;
     await link(home, "testing", null, null, context);
     const result = await home.models.refresh({
         providers: [model.provider],
@@ -101,20 +149,28 @@ export async function checkConnection(
     });
     const error = result.errors.get(model.provider);
     const count = home.models.getModels(model.provider).length;
+    const failure: ProviderFailure | undefined =
+        error !== undefined || result.aborted
+            ? {
+                  kind: "provider-refused",
+                  operation: "check-connection",
+                  provider: model.provider,
+                  reason: home.secrets.words(error?.message ?? "in time"),
+                  retrySafe: false,
+              }
+            : undefined;
     const words =
-        error !== undefined
-            ? plainly(safeWords(home, error.message))
-            : result.aborted
-              ? plainly("in time")
-              : `Connected, ${count} model(s)`;
+        failure === undefined
+            ? `Connected, ${count} model(s)`
+            : modelFailureText(failure);
     await link(
         home,
-        error !== undefined || result.aborted ? "failed" : "connected",
-        error !== undefined ? null : count,
+        failure === undefined ? "connected" : "failed",
+        error === undefined ? count : null,
         words,
         context,
     );
-    return words;
+    return failure === undefined ? ok(words) : err(failure);
 }
 
 async function link(
@@ -128,3 +184,5 @@ async function link(
         (await tx.doc(SettingsDoc)).link = { state, models, words };
     }, context);
 }
+
+export { type ModelFailure, modelFailureText } from "./failure.ts";

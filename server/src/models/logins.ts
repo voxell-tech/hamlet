@@ -1,8 +1,16 @@
 import type { AuthInteraction, Credential } from "@earendil-works/pi-ai";
 import type { Home } from "../home.ts";
 import type { ProviderView } from "../protocol.ts";
+import { err, ok, type Result } from "../result.ts";
+import type { LoginFailure } from "./failure.ts";
 
-/** The providers and login methods Hamlet offers, without credentials (S7, ADR 0006). */
+const subscriptions: ReadonlySet<string> = new Set(["chatgpt", "openrouter"]);
+/** Provider sign-ins are offered only for Hamlet's supported subscriptions. */
+export function subscription(provider: string): boolean {
+    return subscriptions.has(provider);
+}
+
+/** Provider views never expose credentials or ambient auth sources. */
 export async function providersOf(home: Home): Promise<ProviderView[]> {
     return Promise.all(
         [...home.models.getProviders()]
@@ -16,8 +24,8 @@ export async function providersOf(home: Home): Promise<ProviderView[]> {
                     ...(provider.auth.apiKey?.login === undefined
                         ? []
                         : ["key" as const]),
-                    ...(provider.id === "chatgpt" ||
-                    provider.id === "openrouter"
+                    ...(subscription(provider.id) &&
+                    provider.auth.oauth !== undefined
                         ? ["subscription" as const]
                         : []),
                 ],
@@ -31,36 +39,63 @@ export async function providersOf(home: Home): Promise<ProviderView[]> {
     );
 }
 
-/** A key or permitted sign-in, stored only in the home's credentials file. */
+/** A permitted sign-in, with transient prompt secrets scrubbed from refusals. */
 export async function login(
     home: Home,
     provider: string,
     method: "key" | "subscription",
     interaction: AuthInteraction,
-): Promise<Credential> {
-    if (
-        method === "subscription" &&
-        provider !== "chatgpt" &&
-        provider !== "openrouter"
-    )
-        throw new Error(
-            `Signing in with ${provider} is not offered. Use an API key.`,
-        );
+): Promise<Result<Credential, LoginFailure>> {
+    if (method === "subscription" && !subscription(provider))
+        return err({
+            kind: "method-not-offered",
+            operation: "sign-in",
+            provider,
+            retrySafe: false,
+        });
+    const secrets: string[] = [];
     try {
-        return await home.models.login(
+        const credential = await home.models.login(
             provider,
             method === "key" ? "api_key" : "oauth",
-            interaction,
+            {
+                ...interaction,
+                prompt: async (prompt) => {
+                    const value = await interaction.prompt(prompt);
+                    if (
+                        prompt.type === "secret" ||
+                        prompt.type === "manual_code"
+                    )
+                        secrets.push(value);
+                    return value;
+                },
+            },
             {
                 agentName: "Hamlet",
                 getDeviceId: () => home.credentials.installationId,
             },
         );
+        return ok(credential);
     } catch (error) {
+        // SAFETY: pi-ai's sign-in callback does not retain Node's socket error type; its port/code text identifies the expected bind failure.
+        // Verified by: models-connection.test.ts classifies a sign-in whose callback port is already in use.
         if (/1455|EADDRINUSE/.test(String(error)))
-            throw new Error(
-                "Port 1455 is in use, probably by the Codex CLI or another sign-in. Cancel that sign-in and try again.",
-            );
-        throw error;
+            return err({
+                kind: "port-in-use",
+                operation: "sign-in",
+                provider,
+                retrySafe: false,
+            });
+        return err({
+            kind: "provider-refused",
+            operation: "sign-in",
+            provider,
+            retrySafe: false,
+            reason: home.secrets.value(
+                error instanceof Error ? error.message : String(error),
+                secrets,
+            ),
+        });
     }
 }
+export { type LoginFailure, loginFailureText } from "./failure.ts";

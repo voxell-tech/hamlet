@@ -20,7 +20,7 @@ import { conversationViews } from "./letters.ts";
 import { STARTERS } from "./library/shelf.ts";
 import { libraryView } from "./library.ts";
 import { LimitsDoc, limitsOf } from "./limits/rules.ts";
-import { choose, providersOf } from "./models.ts";
+import { choose } from "./models.ts";
 import { OversightDoc } from "./oversight/waits.ts";
 import { queue, says } from "./oversight/words.ts";
 import type {
@@ -356,7 +356,7 @@ export async function stateOf(
             unset: !settings.saved && home.overrides.model === undefined,
             link: settings.link,
         },
-        providers: await providersOf(home),
+        providers: await home.modelHome.providers(),
     };
 }
 function byWords(by: string): string {

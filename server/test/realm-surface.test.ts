@@ -151,7 +151,6 @@ it("retains a mill agent's pinned model when a refreshed endpoint no longer list
     const { openaiFake } = await import("./openai-fake.ts");
     const { testHome, scratch, chatWith } = await import("./support.ts");
     const { editLimits } = await import("../src/limits.ts");
-    const { refreshModels } = await import("../src/models.ts");
     const { submitLine } = await import("../src/chats.ts");
     const { vi } = await import("vitest");
     const endpoint = await openaiFake();
@@ -186,7 +185,7 @@ it("retains a mill agent's pinned model when a refreshed endpoint no longer list
     });
     expect(endpoint.requests[0]?.model).toBe("faux-2");
     endpoint.listing({ data: [{ id: "faux-1" }] });
-    await refreshModels(home, context);
+    await home.modelHome.refresh(context);
     await home.close(context);
     endpoint.release();
     home = await testHome(dir, options);

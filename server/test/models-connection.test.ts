@@ -15,7 +15,7 @@ import {
     served,
 } from "./connection-support.ts";
 import { openaiFake } from "./openai-fake.ts";
-import { fauxModels } from "./support.ts";
+import { context, fauxModels } from "./support.ts";
 
 it("sends grants from limits and answers and the link's testing and connected states (S5)", async () => {
     const { models, faux } = fauxModels();
@@ -110,6 +110,17 @@ it("reads and edits the catalogue and settings and forgets an endpoint's credent
             HAMLET_BASE_URL: endpoint.url,
         },
     });
+    const views = await run.home.modelHome.providers();
+    expect(views.map((provider) => provider.id)).not.toContain("zai");
+    expect(views.map((provider) => provider.id)).not.toContain("zai-coding-cn");
+    expect(
+        views
+            .filter((provider) => provider.methods.includes("subscription"))
+            .map((provider) => provider.id),
+    ).toEqual(["chatgpt", "openrouter"]);
+    expect(views.find((provider) => provider.id === "chatgpt")?.label).toBe(
+        "Continue with ChatGPT",
+    );
     expect(
         await request(run.connection, run.messages, {
             type: "edit",
@@ -230,4 +241,87 @@ it("edits a listed built-in model's price, permission and note before the model 
             }),
         ]),
     });
+});
+
+it("owns model operations and refuses invalid settings and unknown cards without changing the home", async () => {
+    const run = await served({ models: fauxModels().models });
+    const models = run.home.modelHome;
+    expect(models.models).toBe(run.home.models);
+    expect(
+        await models.editSettings(
+            { endpoints: [{ name: "openai", baseUrl: "http://127.0.0.1/v1" }] },
+            context,
+        ),
+    ).toMatchObject({ ok: false, error: { kind: "endpoint-builtin" } });
+    expect(
+        await models.editCatalogue(
+            "missing::model",
+            { allowed: true },
+            context,
+        ),
+    ).toMatchObject({ ok: false, error: { kind: "model-unknown" } });
+    expect(await models.checkModel("missing", context)).toMatchObject({
+        ok: false,
+        error: { kind: "model-name-invalid" },
+    });
+    expect((await models.providers()).map((provider) => provider.id)).toContain(
+        "faux",
+    );
+});
+
+it("classifies a sign-in whose callback port is already in use", async () => {
+    const run = await served({
+        logins: {
+            chatgpt: {
+                name: "ChatGPT",
+                isSubscription: true,
+                login: async () => {
+                    throw new Error("EADDRINUSE: port 1455");
+                },
+                refresh: async (credential) => credential,
+                toAuth: async (credential) => ({ apiKey: credential.access }),
+            },
+        },
+        env: {},
+    });
+    expect(
+        await run.home.modelHome.login("chatgpt", "subscription", {
+            prompt: async () => "",
+            notify: () => {},
+        }),
+    ).toMatchObject({ ok: false, error: { kind: "port-in-use" } });
+});
+
+it("normalizes provider listing forms through the owned refresh interface", async () => {
+    const endpoint = await openaiFake();
+    endpoint.listing({
+        models: [
+            {
+                model: "tiny",
+                context_window: 12000,
+                pricing: { prompt: "0.000003", completion: "0.000015" },
+            },
+        ],
+    });
+    const run = await served({
+        env: { HAMLET_MODEL: "local::tiny", HAMLET_BASE_URL: endpoint.url },
+    });
+    expect(await run.home.modelHome.catalogue(context)).toContainEqual(
+        expect.objectContaining({
+            name: "local::tiny",
+            context: 12000,
+            price: { input: 3, output: 15 },
+            priced: "listed",
+        }),
+    );
+    endpoint.listing([{ name: "tiny" }]);
+    expect(await run.home.modelHome.refresh(context)).toMatchObject({
+        ok: true,
+    });
+    expect(await run.home.modelHome.catalogue(context)).toContainEqual(
+        expect.objectContaining({
+            name: "local::tiny",
+            price: { input: 3, output: 15 },
+        }),
+    );
 });

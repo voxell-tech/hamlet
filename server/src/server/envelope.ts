@@ -11,6 +11,17 @@ import {
     type TreeFailure,
     treeFailureText,
 } from "../house.ts";
+import {
+    type CatalogueFailure,
+    catalogueFailureText,
+    type LoginFailure,
+    loginFailureText,
+    type ModelFailure,
+    modelFailureText,
+    providerFailureText,
+    type SettingsFailure,
+    settingsFailureText,
+} from "../models.ts";
 import type { Fault, Malformed, Reply } from "../protocol.ts";
 import {
     type ChiefRefusal,
@@ -30,6 +41,10 @@ export type Receipt = {
 
 /** Chief-facing failures whose wording is chosen at the protocol seam. */
 export type ChiefFailure =
+    | SettingsFailure
+    | CatalogueFailure
+    | LoginFailure
+    | ModelFailure
     | TreeFailure
     | GiftRefusal
     | WorkFailure
@@ -74,6 +89,31 @@ function rendered(failure: ChiefFailure): {
     kind: "notice" | "error";
 } {
     switch (failure.kind) {
+        case "reflect-every-not-whole":
+        case "endpoint-name-invalid":
+        case "endpoint-builtin":
+        case "endpoint-duplicate":
+        case "address-scheme":
+        case "address-has-credentials":
+            return { text: settingsFailureText(failure), kind: "error" };
+        case "model-unknown":
+        case "price-negative":
+            return { text: catalogueFailureText(failure), kind: "error" };
+        case "method-not-offered":
+        case "port-in-use":
+        case "login-unknown":
+        case "login-not-waiting":
+            return { text: loginFailureText(failure), kind: "error" };
+        case "model-name-invalid":
+        case "model-endpoint-missing":
+        case "model-not-found":
+            return { text: modelFailureText(failure), kind: "error" };
+        case "provider-refused":
+            return {
+                text: providerFailureText(failure),
+                kind: failure.operation === "sign-in" ? "error" : "notice",
+            };
+
         case "entries-cap":
         case "bytes-cap":
         case "unsafe-entry":

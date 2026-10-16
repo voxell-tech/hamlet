@@ -5,11 +5,12 @@ import { agentEnv } from "../environment.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Home } from "../home.ts";
 import { editLimits } from "../limits.ts";
-import { editCatalogue, editSettings } from "../models.ts";
+import type { CatalogueFailure, SettingsFailure } from "../models.ts";
 import { CharacterDoc, editCharter } from "../prompt.ts";
 import type { Edit } from "../protocol.ts";
-import { type ChiefResult, chiefAccess } from "../realm/access.ts";
+import { type ChiefRefusal, chiefAccess } from "../realm/access.ts";
 import { agentKey } from "../record.ts";
+import type { Result } from "../result.ts";
 import { readableAgent } from "./reads.ts";
 
 /** A chief's validated document edit, applied before its reply (S6). */
@@ -17,7 +18,9 @@ export async function edit(
     home: Home,
     message: Edit,
     context: Context,
-): Promise<ChiefResult<string>> {
+): Promise<
+    Result<string, ChiefRefusal["error"] | SettingsFailure | CatalogueFailure>
+> {
     message = home.secrets.value(message);
     switch (message.doc) {
         case "charter":
@@ -68,12 +71,23 @@ export async function edit(
             await editLimits(home, message.hamlet, message, context);
             break;
         }
-        case "settings":
-            await editSettings(home, message.set, context);
+        case "settings": {
+            const outcome = await home.modelHome.editSettings(
+                message.set,
+                context,
+            );
+            if (!outcome.ok) return outcome;
             break;
-        case "catalogue":
-            await editCatalogue(home, message.model, message.set, context);
+        }
+        case "catalogue": {
+            const outcome = await home.modelHome.editCatalogue(
+                message.model,
+                message.set,
+                context,
+            );
+            if (!outcome.ok) return outcome;
             break;
+        }
     }
     return { ok: true, value: "Saved." };
 }

@@ -1,12 +1,11 @@
 import { readFile } from "node:fs/promises";
 import type { OAuthAuth } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
-import { login, providersOf } from "../src/models.ts";
 import { openaiFake } from "./openai-fake.ts";
 import { context, scratch, testHome } from "./support.ts";
 
 describe("the home's sign-ins", () => {
-    it("offers only ChatGPT and OpenRouter sign-ins and keeps an OpenAI key beside Hamlet's stable ChatGPT identity", async () => {
+    it("keeps an OpenAI key beside Hamlet's stable ChatGPT identity", async () => {
         const seen: { agent: string | undefined; id: string | undefined }[] =
             [];
         const oauth: OAuthAuth = {
@@ -42,27 +41,14 @@ describe("the home's sign-ins", () => {
         } finally {
             vi.unstubAllEnvs();
         }
-        const views = await providersOf(home);
-        expect(views.map((provider) => provider.id)).not.toContain("zai");
-        expect(views.map((provider) => provider.id)).not.toContain(
-            "zai-coding-cn",
-        );
-        expect(
-            views
-                .filter((provider) => provider.methods.includes("subscription"))
-                .map((provider) => provider.id),
-        ).toEqual(["chatgpt", "openrouter"]);
-        expect(views.find((provider) => provider.id === "chatgpt")?.label).toBe(
-            "Continue with ChatGPT",
-        );
-        await login(home, "openai", "key", {
+        await home.modelHome.login("openai", "key", {
             prompt: async (prompt) => {
                 expect(prompt.type).toBe("secret");
                 return "openai-key";
             },
             notify: () => {},
         });
-        await login(home, "chatgpt", "subscription", {
+        await home.modelHome.login("chatgpt", "subscription", {
             prompt: async () => "",
             notify: () => {},
         });
@@ -74,7 +60,7 @@ describe("the home's sign-ins", () => {
                 HAMLET_BASE_URL: endpoint.url,
             },
         });
-        await login(home, "chatgpt", "subscription", {
+        await home.modelHome.login("chatgpt", "subscription", {
             prompt: async () => "",
             notify: () => {},
         });
@@ -94,10 +80,13 @@ describe("the home's sign-ins", () => {
         expect(storage.includes(Buffer.from("openai-key"))).toBe(false);
         expect(storage.includes(Buffer.from("signed-in-access"))).toBe(false);
         await expect(
-            login(home, "anthropic", "subscription", {
+            home.modelHome.login("anthropic", "subscription", {
                 prompt: async () => "",
                 notify: () => {},
             }),
-        ).rejects.toThrow("not offered");
+        ).resolves.toMatchObject({
+            ok: false,
+            error: { kind: "method-not-offered" },
+        });
     });
 });

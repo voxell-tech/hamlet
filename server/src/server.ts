@@ -21,7 +21,7 @@ import {
 import { answerWords } from "./gate.ts";
 import type { Home } from "./home.ts";
 import { clearStagedGifts, giftRefusalText, give, uploads } from "./house.ts";
-import { checkConnection, checkModel, login as signIn } from "./models.ts";
+import { loginFailureText } from "./models.ts";
 import type { Address, Login, LoginStep, ServerMessage } from "./protocol.ts";
 import { chiefAccess, legacyRefusal } from "./realm/access.ts";
 import { resolve } from "./realm/roads.ts";
@@ -202,27 +202,20 @@ export async function serveHome(
                 return undefined;
             },
             login: async (message, client) => {
-                // D9 replaces this sign-in-call compatibility catch with LoginFailure.
-                const outcome = await logins
-                    .handle(message, client)
-                    .catch(legacyRefusal);
+                const outcome = await logins.handle(message, client);
                 return outcome === undefined
                     ? undefined
                     : replyFor(message.id, outcome, home.secrets);
             },
             check: (message, client) => {
                 void (async () => {
-                    // D9 replaces these model-check compatibility catches with model failures.
                     const outcome = await changed(
                         message.what === "connection"
-                            ? await checkConnection(home, context).catch(
-                                  legacyRefusal,
-                              )
-                            : await checkModel(
-                                  home,
+                            ? await home.modelHome.checkConnection(context)
+                            : await home.modelHome.checkModel(
                                   message.model,
                                   context,
-                              ).catch(legacyRefusal),
+                              ),
                     );
                     if (!client.signal.aborted)
                         client.send(
@@ -253,7 +246,7 @@ export async function serveHome(
                     await changed(await gifts.part(message, client.signal)),
                     home.secrets,
                 ),
-            // D9/D11 replace this edit-call compatibility catch with settings and limits failures.
+            // D11 replaces this edit-call compatibility catch with limits failures.
             edit: async (message) =>
                 replyFor(
                     message.id,
@@ -483,8 +476,7 @@ function loginConnection(home: Home, refresh: () => Promise<void>) {
                 });
             signing.job = (async () => {
                 try {
-                    await signIn(
-                        home,
+                    const outcome = await home.modelHome.login(
                         message.start.provider,
                         message.start.method,
                         {
@@ -519,30 +511,39 @@ function loginConnection(home: Home, refresh: () => Promise<void>) {
                             },
                         },
                     );
+                    if (!outcome.ok) {
+                        send({ failed: loginFailureText(outcome.error) });
+                        return;
+                    }
                     await refresh();
                     send({ done: message.start.provider });
-                } catch (error) {
-                    send({
-                        failed:
-                            error instanceof Error
-                                ? error.message
-                                : String(error),
-                    });
                 } finally {
                     signing.prompt?.reject(new Error("Sign-in ended."));
                     sessions.delete(id);
                 }
-            })();
+            })().catch((error: unknown) => {
+                if (!client.signal.aborted) client.fail(error, message.id);
+            });
             return undefined;
         }
         const id = "reply" in message ? message.reply.login : message.cancel;
         const signing = sessions.get(id);
         if (signing === undefined || signing.client !== client)
-            throw new Error("There is no sign-in here with that id.");
+            return err({
+                kind: "login-unknown",
+                login: id,
+                operation: "sign-in",
+                retrySafe: false,
+            });
         if ("cancel" in message) signing.controller.abort();
         else {
             if (signing.prompt === undefined)
-                throw new Error("That sign-in is not waiting for an answer.");
+                return err({
+                    kind: "login-not-waiting",
+                    login: id,
+                    operation: "sign-in",
+                    retrySafe: false,
+                });
             signing.prompt.resolve(message.reply.value);
         }
         return ok({

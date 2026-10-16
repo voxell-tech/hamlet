@@ -3,7 +3,6 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { describe, expect, it, vi } from "vitest";
 import { localDay } from "../src/home/clock.ts";
-import { editSettings } from "../src/models.ts";
 import { HOME } from "../src/record.ts";
 import { SettingsDoc } from "../src/settings.ts";
 import { ledgerOf } from "../src/spend.ts";
@@ -47,7 +46,7 @@ describe("the home's model providers", () => {
             type: "api_key",
             key: "forgotten",
         }));
-        await editSettings(home, { endpoints: [] }, context);
+        await home.modelHome.editSettings({ endpoints: [] }, context);
         expect(await home.credentials.read("local")).toBeUndefined();
     });
 
@@ -183,8 +182,7 @@ it("restores the stored endpoint's address and fallback price after a base URL o
         },
     });
     const savedUrl = endpoint.url.replace("127.0.0.1", "[::ffff:127.0.0.1]");
-    await editSettings(
-        home,
+    await home.modelHome.editSettings(
         {
             model: "local::org/large",
             endpoints: [{ name: "local", baseUrl: savedUrl }],
@@ -207,12 +205,14 @@ it("refuses credentials in an endpoint address without changing settings", async
     const home = await testHome(scratch(), { models });
     const before = await home.harness.snapshot(SettingsDoc, context);
     await expect(
-        editSettings(
-            home,
+        home.modelHome.editSettings(
             { endpoints: [{ name: "private", baseUrl: "http://u:p@host/v1" }] },
             context,
         ),
-    ).rejects.toThrow("Keep credentials out of an endpoint's address.");
+    ).resolves.toMatchObject({
+        ok: false,
+        error: { kind: "address-has-credentials" },
+    });
     expect(await home.harness.snapshot(SettingsDoc, context)).toEqual(before);
 });
 

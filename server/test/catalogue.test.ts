@@ -1,41 +1,6 @@
 import { expect, it } from "vitest";
-import {
-    catalogueOf,
-    editCatalogue,
-    readList,
-    refreshModels,
-} from "../src/models.ts";
 import { openaiFake } from "./openai-fake.ts";
 import { context, scratch, testHome } from "./support.ts";
-
-it("reads the listing forms, ids, token prices and context", () => {
-    expect(
-        readList({
-            data: [
-                {
-                    id: "vendor/large",
-                    context_length: 200_000,
-                    pricing: { prompt: "0.000003", completion: "0.000015" },
-                },
-                { id: "plain" },
-                { no: "id" },
-            ],
-        }),
-    ).toEqual([
-        { id: "plain", price: null, context: null },
-        {
-            id: "vendor/large",
-            price: { input: 3, output: 15 },
-            context: 200_000,
-        },
-    ]);
-    expect(readList([{ name: "tiny" }])).toEqual([
-        { id: "tiny", price: null, context: null },
-    ]);
-    expect(readList({ models: [{ model: "tiny" }] })).toEqual([
-        { id: "tiny", price: null, context: null },
-    ]);
-});
 
 it("keeps the chief's price, allowance and note across a refresh and restart", async () => {
     const endpoint = await openaiFake();
@@ -47,7 +12,7 @@ it("keeps the chief's price, allowance and note across a refresh and restart", a
         },
     };
     let home = await testHome(dir, options);
-    expect(await catalogueOf(home, context)).toEqual([
+    expect(await home.modelHome.catalogue(context)).toEqual([
         expect.objectContaining({
             name: "local::org/large",
             priced: "assigned",
@@ -55,8 +20,7 @@ it("keeps the chief's price, allowance and note across a refresh and restart", a
             allowed: false,
         }),
     ]);
-    await editCatalogue(
-        home,
+    await home.modelHome.editCatalogue(
         "local::org/large",
         {
             price: { input: 9, output: 10 },
@@ -74,8 +38,8 @@ it("keeps the chief's price, allowance and note across a refresh and restart", a
             },
         ],
     });
-    await refreshModels(home, context);
-    expect(await catalogueOf(home, context)).toEqual([
+    await home.modelHome.refresh(context);
+    expect(await home.modelHome.catalogue(context)).toEqual([
         expect.objectContaining({
             priced: "yours",
             price: { input: 9, output: 10 },
