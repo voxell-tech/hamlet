@@ -3,6 +3,7 @@
 //! `hamlet_ui`.
 
 pub mod cue;
+pub mod dock;
 pub mod feel;
 pub mod icons;
 pub mod looks;
