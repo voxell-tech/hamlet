@@ -19,8 +19,9 @@ import {
     type WatchTarget,
 } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { shellOutput } from "../output.ts";
+import { shellOutput } from "../scrub.ts";
 import { FILE_READS, Files } from "./files.ts";
+import { limited, platformSandbox, type Sandbox } from "./platform.ts";
 import {
     canon,
     directoryRoot,
@@ -34,7 +35,6 @@ import {
     tempRoot,
     writable,
 } from "./policy.ts";
-import { limited, platformSandbox, type Sandbox } from "./sandbox.ts";
 
 type Reach = "read" | "write" | "move";
 
@@ -68,6 +68,7 @@ export class SandboxEnv extends NodeExecutionEnv {
     readonly #files: Files;
     readonly #roots: ReturnType<typeof rootAt>[];
 
+    /** Pins policy roots and prepares a private helper and output folder. */
     constructor(options: {
         cwd: string;
         policy: Policy;
@@ -109,6 +110,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         );
     }
 
+    /** Runs under the policy and refuses replaced roots before spawning. */
     override async exec(
         command: string | readonly string[],
         options: ShellExecOptions | undefined,
@@ -161,6 +163,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         );
     }
 
+    /** Reads within policy and rejects invalid UTF-8 before an edit can corrupt it. */
     override async readTextFile(
         path: string,
         context: Context,
@@ -184,6 +187,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         }
     }
 
+    /** Streams text through the confined helper after checking read reach. */
     override async openTextLineReader(
         path: string,
         context: Context,
@@ -192,6 +196,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         return refused ? err(refused) : this.#lines(path, context);
     }
 
+    /** Reads lines through the confined helper after checking read reach. */
     override async readTextLines(
         path: string,
         options: { maxLines?: number } | undefined,
@@ -203,6 +208,7 @@ export class SandboxEnv extends NodeExecutionEnv {
             : this.#call("readTextLines", [path, options], context);
     }
 
+    /** Reads bytes through the confined helper after checking read reach. */
     override async readBinaryFile(
         path: string,
         context: Context,
@@ -213,6 +219,7 @@ export class SandboxEnv extends NodeExecutionEnv {
             : this.#call("readBinaryFile", [path], context);
     }
 
+    /** Streams bytes within read reach, optionally refusing links. */
     override async openBinaryReader(
         path: string,
         options: { noFollow?: boolean } | undefined,
@@ -222,6 +229,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         return refused ? err(refused) : this.#binary(path, options, context);
     }
 
+    /** Lists entries only within the policy's read reach. */
     override async listDir(
         path: string,
         context: Context,
@@ -230,6 +238,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         return refused ? err(refused) : this.#call("listDir", [path], context);
     }
 
+    /** Streams directory entries only within the policy's read reach. */
     override async openDirReader(
         path: string,
         context: Context,
@@ -238,6 +247,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         return refused ? err(refused) : this.#dir(path, context);
     }
 
+    /** Watches only targets within read reach and reports confined helper events. */
     override async watch(
         targets: readonly WatchTarget[],
         onChange: (change: WatchChange) => void,
@@ -250,6 +260,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         return this.#watch(targets, onChange, context);
     }
 
+    /** Replaces file contents only within the policy's write reach. */
     override async writeFile(
         path: string,
         content: string | Uint8Array,
@@ -261,6 +272,7 @@ export class SandboxEnv extends NodeExecutionEnv {
             : this.#call("writeFile", [path, content], context);
     }
 
+    /** Appends contents only within the policy's write reach. */
     override async appendFile(
         path: string,
         content: string | Uint8Array,
@@ -272,6 +284,7 @@ export class SandboxEnv extends NodeExecutionEnv {
             : this.#call("appendFile", [path, content], context);
     }
 
+    /** Changes file size only within the policy's write reach. */
     override async truncateFile(
         path: string,
         size: number,
@@ -283,6 +296,7 @@ export class SandboxEnv extends NodeExecutionEnv {
             : this.#call("truncateFile", [path, size], context);
     }
 
+    /** Flushes file contents only within the policy's write reach. */
     override async flushFile(
         path: string,
         context: Context,
@@ -293,6 +307,7 @@ export class SandboxEnv extends NodeExecutionEnv {
             : this.#call("flushFile", [path], context);
     }
 
+    /** Requires move reach at both the source and destination. */
     override async renameFile(
         sourcePath: string,
         destinationPath: string,
@@ -306,6 +321,7 @@ export class SandboxEnv extends NodeExecutionEnv {
             : this.#call("renameFile", [sourcePath, destinationPath], context);
     }
 
+    /** Creates directories only within the policy's write reach. */
     override async createDir(
         path: string,
         options: { recursive?: boolean } | undefined,
@@ -317,6 +333,7 @@ export class SandboxEnv extends NodeExecutionEnv {
             : this.#call("createDir", [path, options], context);
     }
 
+    /** Removes entries only within move reach, protecting fixed roots. */
     override async remove(
         path: string,
         options: { recursive?: boolean; force?: boolean } | undefined,
@@ -328,6 +345,7 @@ export class SandboxEnv extends NodeExecutionEnv {
             : this.#call("remove", [path, options], context);
     }
 
+    /** Creates a directory in the confined helper's temp area. */
     override async createTempDir(
         prefix: string | undefined,
         context: Context,
@@ -335,6 +353,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         return this.#call("createTempDir", [prefix], context);
     }
 
+    /** Creates a file in the confined helper's temp area. */
     override async createTempFile(
         options: { prefix?: string; suffix?: string } | undefined,
         context: Context,
@@ -342,6 +361,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         return this.#call("createTempFile", [options], context);
     }
 
+    /** Reads file metadata only within the policy's read reach. */
     override async fileInfo(
         path: string,
         context: Context,
@@ -350,6 +370,7 @@ export class SandboxEnv extends NodeExecutionEnv {
         return refused ? err(refused) : this.#call("fileInfo", [path], context);
     }
 
+    /** Resolves a path only within the policy's read reach. */
     override async canonicalPath(
         path: string,
         context: Context,
@@ -372,6 +393,7 @@ export class SandboxEnv extends NodeExecutionEnv {
             : this.#call("skills", [path, contents], context);
     }
 
+    /** Closes the helper and removes temp contents owned by this scope. */
     override async cleanup(context: Context): Promise<void> {
         await super.cleanup(context);
         await this.#files.close();

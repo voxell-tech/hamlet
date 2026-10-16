@@ -3,10 +3,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { expect, it, vi } from "vitest";
-import { SandboxEnv } from "../src/sandbox/env.ts";
-import { closedPolicy } from "../src/sandbox/reach.ts";
-import { platformSandbox } from "../src/sandbox/sandbox.ts";
 import { encode } from "../src/sandbox/wire.ts";
+import { closedPolicy, platformSandbox, SandboxEnv } from "../src/sandbox.ts";
 import { houseEnv } from "./sandbox-support.ts";
 import { closeAfter, context, scratch } from "./support.ts";
 

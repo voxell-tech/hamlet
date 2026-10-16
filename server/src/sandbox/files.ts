@@ -9,8 +9,8 @@ import {
     type Result,
     type WatchChange,
 } from "@earendil-works/pi-durable/env";
+import { fileLimited, type Sandbox } from "./platform.ts";
 import { limitsOf, type Policy } from "./policy.ts";
-import { fileLimited, type Sandbox } from "./sandbox.ts";
 import { decode, encode, frameId } from "./wire.ts";
 
 const FILE_HELPER = fileURLToPath(new URL("./file-helper.ts", import.meta.url));
@@ -50,6 +50,7 @@ export class Files {
     >();
     readonly #events = new Map<number, (change: WatchChange) => void>();
 
+    /** Prepares the policy-confined helper, which starts on its first call. */
     constructor(
         policy: Policy,
         sandbox: Sandbox,
@@ -84,6 +85,7 @@ export class Files {
         };
     }
 
+    /** Starts the helper on demand and correlates its reply with this request. */
     async call<T>(
         method: string,
         args: unknown[],
@@ -205,6 +207,7 @@ export class Files {
         });
     }
 
+    /** Drops a watch listener and lets an unused helper become idle. */
     unlisten(id: number): void {
         this.#events.delete(id);
         this.#rest();
@@ -244,6 +247,7 @@ export class Files {
         for (const listener of listeners) listener({ error });
     }
 
+    /** Refuses new calls, stops the helper and waits for its processes to end. */
     async close(): Promise<void> {
         this.#closed = true;
         if (this.#child !== undefined)

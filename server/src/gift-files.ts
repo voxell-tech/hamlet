@@ -14,9 +14,13 @@ import {
 import type { Context } from "@earendil-works/chord";
 import type { Home } from "./home.ts";
 import { MAX_GIFT_BYTES } from "./protocol.ts";
-import { SandboxEnv } from "./sandbox/env.ts";
-import { canon, directoryRoot, within } from "./sandbox/policy.ts";
-import { closedPolicy } from "./sandbox/reach.ts";
+import {
+    canon,
+    closedPolicy,
+    directoryRoot,
+    SandboxEnv,
+    within,
+} from "./sandbox.ts";
 
 const deliveries = new WeakMap<Home, Promise<unknown>>();
 const REFUSED =

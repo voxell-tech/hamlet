@@ -15,9 +15,8 @@ import { record } from "./catalogue.ts";
 import { LEAVE, type Leave } from "./environment.ts";
 import type { Home, Part } from "./home.ts";
 import { type Manifest, ManifestsDoc } from "./manifests.ts";
-import { shellOutput } from "./output.ts";
-import { SandboxEnv } from "./sandbox/env.ts";
-import { limitsOf, type Policy } from "./sandbox/policy.ts";
+import { limitsOf, type Policy, SandboxEnv } from "./sandbox.ts";
+import { shellOutput } from "./scrub.ts";
 
 const NAME = "hamlet.hand";
 const RESERVED = new Set([

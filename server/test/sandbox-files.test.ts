@@ -10,8 +10,7 @@ import {
 import { readdir } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { expect, it } from "vitest";
-import { SandboxEnv } from "../src/sandbox/env.ts";
-import { closedPolicy } from "../src/sandbox/reach.ts";
+import { closedPolicy, SandboxEnv } from "../src/sandbox.ts";
 import { closeAfter, context, scratch } from "./support.ts";
 
 async function racing() {

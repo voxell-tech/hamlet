@@ -27,7 +27,7 @@ import { homeModels } from "./models.ts";
 import { PeerStatistics } from "./peer-statistics.ts";
 import { liveHamlets, RealmDoc } from "./realm.ts";
 import { agentKey, HOME, RecordDoc } from "./record.ts";
-import { platformSandbox, type Sandbox } from "./sandbox/sandbox.ts";
+import { platformSandbox, type Sandbox } from "./sandbox.ts";
 import { type Overrides, readOverrides, SettingsDoc } from "./settings.ts";
 import { closeSkills, refreshSkills } from "./skills.ts";
 import { AgentConversationsDoc } from "./society/docs.ts";

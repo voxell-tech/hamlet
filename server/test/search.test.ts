@@ -1,8 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SandboxEnv } from "../src/sandbox/env.ts";
-import { openPolicy } from "../src/sandbox/reach.ts";
+import { openPolicy, SandboxEnv } from "../src/sandbox.ts";
 import { find } from "../src/tools/find.ts";
 import { search } from "../src/tools/search.ts";
 import { globMatches, wanted } from "../src/tools/walk.ts";

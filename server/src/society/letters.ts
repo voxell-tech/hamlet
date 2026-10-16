@@ -30,7 +30,6 @@ import { PayerDoc } from "../errands.ts";
 import type { Home, Part } from "../home.ts";
 import { untilAborted } from "../home.ts";
 import { LimitsDoc } from "../limits.ts";
-import { safeWords } from "../plainly.ts";
 import {
     carryRealmRoad,
     carryRoad,
@@ -49,6 +48,7 @@ import {
     type HamletRecord,
     RecordDoc,
 } from "../record.ts";
+import { safeWords } from "../scrub.ts";
 import { TaskDoc } from "../tasks.ts";
 import { turnOf } from "../turn.ts";
 import { PeersDoc } from "./docs.ts";

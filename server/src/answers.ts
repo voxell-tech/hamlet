@@ -17,8 +17,8 @@ import { ReflectionEntry, retryInput, WithDoc } from "./chats.ts";
 import type { Home } from "./home.ts";
 import { untilAborted } from "./home.ts";
 import { notify } from "./notice.ts";
-import { safeWords } from "./plainly.ts";
 import { addressOf, RecordDoc } from "./record.ts";
+import { safeWords } from "./scrub.ts";
 import { turnOf } from "./turn.ts";
 import { raiseFault } from "./waits.ts";
 

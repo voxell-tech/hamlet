@@ -1,63 +1,32 @@
-/** The words a credential is replaced with (C32). */
-export const REDACTED = "[REDACTED]";
+import type { HomeBase } from "./home.ts";
+import { Scrubber } from "./scrub/scrubber.ts";
 
-/**
- * Replaces every known secret in a stream of text with {@link REDACTED}, also one split across chunks. It holds back
- * the end of what it was given while that end could begin a secret, so never more than the longest secret's length
- * less one.
- */
-export class Scrubber {
-    readonly #secrets: readonly string[];
-    readonly #pattern: RegExp | undefined;
-    #held = "";
-
-    constructor(secrets: readonly string[]) {
-        // The longest first, where one secret holds another.
-        this.#secrets = [...new Set(secrets)]
-            .filter((secret) => secret !== "")
-            .sort((a, b) => b.length - a.length);
-        this.#pattern =
-            this.#secrets.length === 0
-                ? undefined
-                : new RegExp(this.#secrets.map(literally).join("|"), "g");
-    }
-
-    /** The text that can go out now of what came so far and `chunk`. */
-    push(chunk: string): string {
-        if (this.#pattern === undefined) return chunk;
-        const text = (this.#held + chunk).replace(this.#pattern, REDACTED);
-        const held = this.#beginning(text);
-        this.#held = text.slice(text.length - held);
-        return text.slice(0, text.length - held);
-    }
-
-    /** The text it held back, let out once nothing more comes. */
-    flush(): string {
-        const held = this.#held;
-        this.#held = "";
-        return held;
-    }
-
-    /** The length of the longest end of `text` that begins a secret. */
-    #beginning(text: string): number {
-        let longest = 0;
-        for (const secret of this.#secrets) {
-            for (
-                let length = Math.min(secret.length - 1, text.length);
-                length > longest;
-                length--
-            ) {
-                if (text.endsWith(secret.slice(0, length))) {
-                    longest = length;
-                    break;
-                }
-            }
-        }
-        return longest;
-    }
+/** Words with every known credential removed before storage or display. */
+export function safeWords(home: HomeBase, text: string): string {
+    return safeValue(home, text);
 }
 
-/** A pattern that matches `text` and nothing else. */
-function literally(text: string): string {
-    return text.replace(/[\\^$.*+?()[\]{}|/-]/g, "\\$&");
+/** A JSON value with credentials removed from its strings and object keys. */
+export function safeValue<T>(
+    home: HomeBase,
+    value: T,
+    extra: readonly string[] = [],
+): T {
+    const scrubber = new Scrubber([...home.credentials.secrets(), ...extra]);
+    const scrub = (value: unknown): unknown => {
+        if (typeof value === "string")
+            return scrubber.push(value) + scrubber.flush();
+        if (Array.isArray(value)) return value.map(scrub);
+        if (value !== null && typeof value === "object")
+            return Object.fromEntries(
+                Object.entries(value).map(([key, value]) => [
+                    scrubber.push(key) + scrubber.flush(),
+                    scrub(value),
+                ]),
+            );
+        return value;
+    };
+    return scrub(value) as T;
 }
+export { shellOutput } from "./scrub/output.ts";
+export { REDACTED, Scrubber } from "./scrub/scrubber.ts";

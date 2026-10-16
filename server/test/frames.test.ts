@@ -10,7 +10,6 @@ import { type Connection, connect } from "../src/connection.ts";
 import { type Script, scriptedModels } from "../src/faux.ts";
 import type { HomeOptions } from "../src/home.ts";
 import { houseOf } from "../src/home.ts";
-import { safeValue } from "../src/plainly.ts";
 import {
     type ClientMessage,
     type Item,
@@ -19,6 +18,7 @@ import {
     type ServerMessage,
     type Transcript,
 } from "../src/protocol.ts";
+import { safeValue } from "../src/scrub.ts";
 import { agents as createSociety, tool, yes } from "./acceptance-support.ts";
 import {
     agents,

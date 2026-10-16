@@ -1,6 +1,6 @@
 import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
 import type { Part } from "./home.ts";
-import { safeValue } from "./plainly.ts";
+import { safeValue } from "./scrub.ts";
 import { fileTools } from "./tools/files.ts";
 import { Find } from "./tools/find.ts";
 import { Search } from "./tools/search.ts";

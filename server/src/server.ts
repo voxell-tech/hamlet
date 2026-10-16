@@ -11,7 +11,6 @@ import { answerWords } from "./gate.ts";
 import { clearStagedGifts, give, uploads } from "./gifts.ts";
 import type { Home } from "./home.ts";
 import { login as signIn } from "./logins.ts";
-import { safeValue, safeWords } from "./plainly.ts";
 import type {
     Address,
     Login,
@@ -27,6 +26,7 @@ import {
     resolve,
 } from "./realm.ts";
 import { say } from "./say.ts";
+import { safeValue, safeWords } from "./scrub.ts";
 import { watchState } from "./state.ts";
 import {
     newChat,

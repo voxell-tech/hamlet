@@ -49,8 +49,7 @@ import {
     named,
     RecordDoc,
 } from "../record.ts";
-import { SandboxEnv } from "../sandbox/env.ts";
-import { closedPolicy } from "../sandbox/reach.ts";
+import { closedPolicy, SandboxEnv } from "../sandbox.ts";
 import { newTask } from "../turn.ts";
 import {
     AgentConversationsDoc,

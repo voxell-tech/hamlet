@@ -1,6 +1,3 @@
-import type { HomeBase } from "./home.ts";
-import { Scrubber } from "./scrub.ts";
-
 /** A provider failure in Rust's plain words for a chief. */
 export function plainly(error: string, hello = false): string {
     const lower = error.toLowerCase();
@@ -18,32 +15,4 @@ export function plainly(error: string, hello = false): string {
     if (lower.includes("http 404"))
         return "That address did not answer as a model provider. It usually ends in /v1.";
     return `It answered with an error. Try again. (${detail})`;
-}
-
-/** Words with every known credential removed before storage or display. */
-export function safeWords(home: HomeBase, text: string): string {
-    return safeValue(home, text);
-}
-
-/** A JSON value with credentials removed from its strings and object keys. */
-export function safeValue<T>(
-    home: HomeBase,
-    value: T,
-    extra: readonly string[] = [],
-): T {
-    const scrubber = new Scrubber([...home.credentials.secrets(), ...extra]);
-    const scrub = (value: unknown): unknown => {
-        if (typeof value === "string")
-            return scrubber.push(value) + scrubber.flush();
-        if (Array.isArray(value)) return value.map(scrub);
-        if (value !== null && typeof value === "object")
-            return Object.fromEntries(
-                Object.entries(value).map(([key, value]) => [
-                    scrubber.push(key) + scrubber.flush(),
-                    scrub(value),
-                ]),
-            );
-        return value;
-    };
-    return scrub(value) as T;
 }

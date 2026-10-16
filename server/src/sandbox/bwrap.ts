@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import type { Confined, Sandbox } from "./platform.ts";
 import {
     aboveRoots,
     fixedRoots,
@@ -8,7 +9,6 @@ import {
     within,
     writeRoots,
 } from "./policy.ts";
-import type { Confined, Sandbox } from "./sandbox.ts";
 
 /** Linux bubblewrap. */
 export const Bwrap: Sandbox = {

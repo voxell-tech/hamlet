@@ -1,5 +1,5 @@
+import { platformSandbox } from "./platform.ts";
 import { hostEnv, type Policy } from "./policy.ts";
-import { platformSandbox } from "./sandbox.ts";
 
 /** An agent's policy while its hamlet works on no folder: its house, which is its home, and the shared skills to read (C18). */
 export function closedPolicy(house: string, shared: string[] = []): Policy {

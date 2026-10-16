@@ -22,8 +22,7 @@ import {
     stageTree,
 } from "../src/gift-files.ts";
 import { houseOf } from "../src/home.ts";
-import { SandboxEnv } from "../src/sandbox/env.ts";
-import { closedPolicy } from "../src/sandbox/reach.ts";
+import { closedPolicy, SandboxEnv } from "../src/sandbox.ts";
 import {
     context,
     fauxModels,

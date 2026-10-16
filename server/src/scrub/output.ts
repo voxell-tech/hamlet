@@ -5,7 +5,7 @@ import {
     type ShellExecOptions,
     type ShellOutputInfo,
 } from "@earendil-works/pi-durable/env";
-import { Scrubber } from "./scrub.ts";
+import { Scrubber } from "./scrubber.ts";
 
 /** The shell environment whose streamed and spilled output is scrubbed before either leaves memory (C32). */
 export function shellOutput(

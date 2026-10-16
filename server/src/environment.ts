@@ -6,9 +6,13 @@ import type {
 import { WithDoc } from "./chats.ts";
 import type { HomeBase } from "./home.ts";
 import { houseOf } from "./home.ts";
-import { SandboxEnv } from "./sandbox/env.ts";
-import { directoryRoot, policyHash } from "./sandbox/policy.ts";
-import { closedPolicy, openPolicy } from "./sandbox/reach.ts";
+import {
+    closedPolicy,
+    directoryRoot,
+    openPolicy,
+    policyHash,
+    SandboxEnv,
+} from "./sandbox.ts";
 import { WorkDoc } from "./work.ts";
 
 /** The name of the tool task memo a gate leaves for one call. */

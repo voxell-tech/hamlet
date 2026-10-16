@@ -1,4 +1,5 @@
 import { dirname } from "node:path";
+import type { Confined, Sandbox } from "./platform.ts";
 import {
     aboveRoots,
     canon,
@@ -7,7 +8,6 @@ import {
     type Policy,
     tempRoot,
 } from "./policy.ts";
-import type { Confined, Sandbox } from "./sandbox.ts";
 
 const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 

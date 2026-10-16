@@ -2,8 +2,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { gitProxy } from "../src/git/proxy.ts";
-import { SandboxEnv } from "../src/sandbox/env.ts";
-import { closedPolicy } from "../src/sandbox/reach.ts";
+import { closedPolicy, SandboxEnv } from "../src/sandbox.ts";
 import { gitHost, hostRef, serve } from "./git-host.ts";
 import { closeAfter, scratch, sh } from "./support.ts";
 

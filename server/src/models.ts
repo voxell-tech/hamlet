@@ -18,10 +18,11 @@ import { endpointName } from "./endpoints.ts";
 import type { Home, HomeBase, Part } from "./home.ts";
 import { LimitsDoc, limitsOf } from "./limits.ts";
 import { FileModelsStore } from "./models-store.ts";
-import { plainly, safeWords } from "./plainly.ts";
+import { plainly } from "./plainly.ts";
 import { compatible, protectedProvider } from "./providers.ts";
 import { liveHamlets, RealmDoc } from "./realm.ts";
 import { RecordDoc } from "./record.ts";
+import { safeWords } from "./scrub.ts";
 import {
     modelRef,
     type Settings,

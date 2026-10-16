@@ -1,6 +1,7 @@
 import type { Context } from "@earendil-works/chord";
 import type { Home } from "./home.ts";
-import { plainly, safeWords } from "./plainly.ts";
+import { plainly } from "./plainly.ts";
+import { safeWords } from "./scrub.ts";
 import { modelRef, SettingsDoc, settingsOf } from "./settings.ts";
 
 /** A model name resolved without pi's ambiguous provider/model spelling. */

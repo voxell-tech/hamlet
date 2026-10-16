@@ -2,9 +2,12 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { SandboxEnv } from "./sandbox/env.ts";
-import { closedPolicy } from "./sandbox/reach.ts";
-import { platformSandbox, type Sandbox } from "./sandbox/sandbox.ts";
+import {
+    closedPolicy,
+    platformSandbox,
+    type Sandbox,
+    SandboxEnv,
+} from "./sandbox.ts";
 import { shelf as readShelf } from "./skill-paper.ts";
 
 /** A skill as the front matter of its `SKILL.md` tells of it (C8). */

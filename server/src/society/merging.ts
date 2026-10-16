@@ -32,7 +32,6 @@ import { houseOf, untilAborted } from "../home.ts";
 import { InstructionsDoc, owed } from "../instructions.ts";
 import { booksOf } from "../ledger.ts";
 import { LimitsDoc } from "../limits.ts";
-import { safeWords } from "../plainly.ts";
 import {
     chiefAccess,
     chiefRefusalText,
@@ -52,8 +51,8 @@ import {
     RecordDoc,
 } from "../record.ts";
 import { stopped } from "../report.ts";
-import { SandboxEnv } from "../sandbox/env.ts";
-import { closedPolicy } from "../sandbox/reach.ts";
+import { closedPolicy, SandboxEnv } from "../sandbox.ts";
+import { safeWords } from "../scrub.ts";
 import { stopAgent } from "../talk.ts";
 import { newTask, turnOf } from "../turn.ts";
 import { lapseAgent } from "../waits.ts";

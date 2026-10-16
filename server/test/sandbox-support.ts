@@ -1,6 +1,5 @@
-import { SandboxEnv } from "../src/sandbox/env.ts";
-import type { Limits } from "../src/sandbox/policy.ts";
-import { closedPolicy } from "../src/sandbox/reach.ts";
+import type { Limits } from "../src/sandbox.ts";
+import { closedPolicy, SandboxEnv } from "../src/sandbox.ts";
 import { scratch } from "./support.ts";
 
 /** An environment on a fresh house, with `limits` changed from the defaults. */

@@ -19,7 +19,6 @@ import { expect, it, vi } from "vitest";
 import { type Connection, connect, serve } from "../src/connection.ts";
 import { scriptedModels } from "../src/faux.ts";
 import { buildHouse, houseOf } from "../src/home.ts";
-import { safeValue } from "../src/plainly.ts";
 import {
     type ClientMessage,
     parseClient,
@@ -27,7 +26,8 @@ import {
     type ServerMessage,
 } from "../src/protocol.ts";
 import { RecordDoc } from "../src/record.ts";
-import { SandboxEnv } from "../src/sandbox/env.ts";
+import { SandboxEnv } from "../src/sandbox.ts";
+import { safeValue } from "../src/scrub.ts";
 import {
     agents,
     chat,

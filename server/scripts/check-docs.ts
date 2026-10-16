@@ -21,9 +21,6 @@ const ALLOWLIST = new Set<string>([
     "providers.ts",
     "reflection.ts",
     "report.ts",
-    "sandbox/env.ts",
-    "sandbox/files.ts",
-    "scrub.ts",
     "terminal.ts",
     "waits.ts",
 ]);

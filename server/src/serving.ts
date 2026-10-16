@@ -2,7 +2,7 @@ import { rename, rm, writeFile } from "node:fs/promises";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { FAUX_MODEL, readScript, scriptedModels } from "./faux.ts";
 import { openHome } from "./home.ts";
-import { probeSandbox } from "./sandbox/probe.ts";
+import { probeSandbox } from "./sandbox.ts";
 import { serveHome } from "./server.ts";
 
 /** A home served until closed in order or stopped by a signal (S1, S3). */

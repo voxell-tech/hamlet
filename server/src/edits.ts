@@ -9,11 +9,11 @@ import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { editLimits } from "./limits/edit.ts";
 import { editSettings } from "./models.ts";
-import { safeWords } from "./plainly.ts";
 import type { Edit } from "./protocol.ts";
 import { readableAgent } from "./reads.ts";
 import { type ChiefResult, chiefAccess } from "./realm.ts";
 import { agentKey } from "./record.ts";
+import { safeWords } from "./scrub.ts";
 
 /** A chief's validated document edit, applied before its reply (S6). */
 export async function edit(

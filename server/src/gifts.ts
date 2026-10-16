@@ -13,7 +13,6 @@ import {
 import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { STARTERS } from "./library.ts";
-import { safeWords } from "./plainly.ts";
 import {
     type Address,
     type Give,
@@ -24,7 +23,8 @@ import {
 import { type ChiefResult, chiefAccess, chiefRefusalText } from "./realm.ts";
 import type { AgentRef } from "./record.ts";
 import { named, RecordDoc } from "./record.ts";
-import { directoryRoot } from "./sandbox/policy.ts";
+import { directoryRoot } from "./sandbox.ts";
+import { safeWords } from "./scrub.ts";
 import { refreshSkills } from "./skills.ts";
 
 const IDLE_MS = 60_000;

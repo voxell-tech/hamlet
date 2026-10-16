@@ -11,7 +11,7 @@ import { type Card, readList, record } from "./catalogue.ts";
 import { assumedRate, atEndpoint } from "./endpoints.ts";
 import type { HomeBase } from "./home.ts";
 import { estimateOf } from "./money.ts";
-import { safeWords } from "./plainly.ts";
+import { safeWords } from "./scrub.ts";
 import type { Endpoint } from "./settings.ts";
 
 /** The default context of an endpoint that lists no window size. */

@@ -1,7 +1,7 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { platformSandbox } from "../src/sandbox/sandbox.ts";
+import { platformSandbox } from "../src/sandbox.ts";
 import {
     closeSkills,
     houseSkills,
