@@ -15,7 +15,7 @@ use bevy::ecs::system::{Query, ResMut};
 use hamlet_core::agents::{Charter, Settlement};
 use hamlet_home::limits::Limits;
 
-pub(crate) use self::choice::{of_agent, of_hamlet};
+pub(crate) use self::choice::{assign, of_agent, of_hamlet};
 pub(crate) use self::home::narrowed;
 pub use self::home::{endpoints, shelf};
 

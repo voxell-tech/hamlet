@@ -50,7 +50,7 @@ table. The binary and the examples are the root package.
 | Crate | What it is |
 |---|---|
 | `hamlet_sandbox` | Per-platform process sandboxes |
-| `hamlet_model` | The model client, its settings, the catalogue of models, the session log |
+| `hamlet_model` | The model client, its settings, the catalogue of models, the bazaar's wares, the session log |
 | `hamlet_home` | A home on disk: its layout, charter and prompt, the chief's limits, the starter skills |
 | `hamlet_rules` | The hamlet's record and the rules over it. Plain files and functions, no Bevy |
 | `hamlet_core` | The runtime as Bevy plugins: agents, sessions, tools and oversight. No rendering |
@@ -102,6 +102,7 @@ Paths are under `crates/`.
 | The library of shared skills | `hamlet_rules/src/library.rs` |
 | Spending and limits | `hamlet_rules/src/budget/`, `hamlet_home/src/limits.rs` |
 | Models, their prices and who may run them | `hamlet_model/src/catalogue.rs`, `hamlet_rules/src/models.rs` |
+| The Agent Bazaar | Its wares in `hamlet_model/src/bazaar.rs`, kept fresh by `hamlet_core/src/bazaar.rs`; its panel in `hamlet_ui/src/bazaar.rs`; [`home.md`](home.md) |
 | The model client | `hamlet_model/src/provider/` |
 | Signing in with ChatGPT to run models on the chief's plan | `hamlet_model/src/chatgpt.rs`; its client, on the Responses API, in `hamlet_model/src/provider/responses.rs` |
 | Removing, merging, restoring an agent | `hamlet_rules/src/lifecycle.rs` |

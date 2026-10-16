@@ -20,6 +20,7 @@ use hamlet_core::core::{
     HomeDir, Link, ListModels, Model, SaveSettings, Settings, SignIn,
     Signing, TestConnection, Trial, TryModel,
 };
+use hamlet_model::bazaar::is_openrouter;
 use hamlet_model::catalogue::{self, Catalogue, Listed};
 use hamlet_model::chatgpt;
 use hamlet_model::config::providers::{
@@ -28,7 +29,6 @@ use hamlet_model::config::providers::{
 use hamlet_model::config::{Config, Endpoint};
 
 pub use self::pages::view;
-use crate::settings::Pane;
 
 const NOTHING_LOCAL: &str = "No model server answered here. Install \
                              Ollama from ollama.com, download a \
@@ -183,14 +183,15 @@ pub fn add(world: &mut World) {
 }
 
 /// Puts the endpoint that answered among the home's, lists what it
-/// serves, and shows the models for the chief to allow.
+/// serves, and opens the bazaar at its models.
 fn added(world: &mut World) {
     let Some(endpoint) = world.resource::<Welcome>().asked.clone()
     else {
         return;
     };
     let mut config = world.resource::<Settings>().config.clone();
-    settle(&mut config, endpoint);
+    let openrouter = is_openrouter(&endpoint.base_url);
+    let name = config.settle(endpoint);
     world.trigger(SaveSettings(config));
     if let Some(why) = world.resource::<Settings>().error.clone() {
         let mut welcome = world.resource_mut::<Welcome>();
@@ -199,8 +200,8 @@ fn added(world: &mut World) {
         return;
     }
     world.trigger(ListModels);
-    *world.resource_mut::<Pane>() = Pane::Models;
     close(world);
+    crate::bazaar::open_at(world, (!openrouter).then_some(name));
 }
 
 fn close(world: &mut World) {
@@ -445,31 +446,6 @@ pub fn follow(
     }
 }
 
-/// Puts `endpoint` among those of `config` and returns the name it
-/// has there. One at the same address, signed in to the same way, is
-/// given the key and keeps its name, and a name another has is
-/// numbered.
-fn settle(config: &mut Config, endpoint: Endpoint) -> String {
-    let at = |url: &str| url.trim_end_matches('/').to_string();
-    let same = config.endpoints.iter_mut().find(|known| {
-        at(&known.base_url) == at(&endpoint.base_url)
-            && known.chatgpt == endpoint.chatgpt
-    });
-    if let Some(known) = same {
-        known.api_key = endpoint.api_key;
-        return known.name.clone();
-    }
-    let name = std::iter::once(endpoint.name.clone())
-        .chain((2..).map(|n| format!("{}-{n}", endpoint.name)))
-        .find(|name| config.endpoint(name).is_none())
-        .expect("the numbers do not end");
-    config.endpoints.push(Endpoint {
-        name: name.clone(),
-        ..endpoint
-    });
-    name
-}
-
 /// Asks the model `id` of the endpoint that answered for a word,
 /// as the home's default model would be asked.
 fn pick(world: &mut World, id: &str) {
@@ -484,7 +460,7 @@ fn pick(world: &mut World, id: &str) {
     if !Config::saved(&home) {
         config.endpoints.clear();
     }
-    let name = settle(&mut config, endpoint);
+    let name = config.settle(endpoint);
     config.model = catalogue::named(&name, id);
     let mut welcome = world.resource_mut::<Welcome>();
     welcome.trying = Some(config.clone());
@@ -508,10 +484,7 @@ fn keep(world: &mut World, config: Config) {
         let local = config
             .endpoint(name)
             .is_some_and(|at| catalogue::is_local(&at.base_url));
-        all.take_in(name, &[chosen], local);
-    }
-    if let Some(model) = all.get_mut(&config.model) {
-        model.allowed = true;
+        all.add(name, &chosen, local);
     }
     let failed =
         world.resource::<Settings>().error.clone().or_else(|| {
@@ -555,30 +528,6 @@ pub(crate) fn read_narrow(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_chosen_endpoint_keeps_the_name_of_one_at_its_address() {
-        let mut config = Config::default();
-        let ollama = served(&LOCAL[0]);
-        assert_eq!(settle(&mut config, ollama), "local");
-        assert_eq!(config.endpoints.len(), 1);
-
-        // The same name at another address is another endpoint.
-        let far = |key: &str| Endpoint {
-            name: "local".into(),
-            base_url: "https://far.example/v1/".into(),
-            chatgpt: false,
-            api_key: Some(key.into()),
-        };
-        assert_eq!(settle(&mut config, far("first")), "local-2");
-        // Chosen again, it is the same one with the new key.
-        assert_eq!(settle(&mut config, far("second")), "local-2");
-        assert_eq!(config.endpoints.len(), 2);
-        assert_eq!(
-            config.endpoints[1].api_key.as_deref(),
-            Some("second")
-        );
-    }
 
     #[test]
     fn every_provider_is_named_as_an_endpoint_may_be() {

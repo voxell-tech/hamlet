@@ -6,7 +6,8 @@ it elsewhere.
 ```
 ~/.hamlet/
   config.toml     settings and endpoints (keys are in the keychain, or in api_key.<endpoint>)
-  models.toml     the models you allow, with what each costs
+  models.toml     the models you added, with what each costs
+  bazaar.json     what OpenRouter and the endpoints offer, asked again each day; safe to delete
   library/        the skills every agent shares, one folder each
   library.jsonl   what was shelved there, refused and taken out
   charter.md      your own charter, the words every agent's prompt opens with; absent until you edit it
@@ -34,6 +35,17 @@ The endpoints, their API keys and the default model are set in Settings and
 stored in `config.toml`, the keys in the OS keychain. Any server that
 speaks the OpenAI chat protocol is an endpoint, and a model is named
 `endpoint::model`.
+
+## The Agent Bazaar
+
+The Agent Bazaar (HAMLET menu, or Browse the Bazaar under an agent's
+model) shows every model OpenRouter offers, with its price, context,
+abilities and benchmark scores, and the models of each other endpoint.
+OpenRouter's list needs no key and is kept in `bazaar.json` for a day.
+Adding a model writes it to `models.toml`, allowed; one from OpenRouter
+first signs the chief in to OpenRouter when the home has no endpoint
+there. Only added models are in `models.toml`: List Models updates
+their prices and drops those an endpoint no longer serves.
 
 ## Starter skills
 

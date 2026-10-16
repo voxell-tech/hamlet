@@ -10,6 +10,7 @@ use bevy_app::{App, Plugin, Startup, Update};
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use hamlet_home::{Home, Skill};
+use hamlet_model::bazaar::{Ware, is_openrouter};
 use hamlet_model::catalogue::{self, Catalogue, Listed};
 use hamlet_model::config::{self, Config};
 use hamlet_model::provider::{Endpoints, Provider, Replay};
@@ -21,6 +22,7 @@ use tokio::sync::mpsc::{
 };
 
 use crate::agents::AgentsPlugin;
+use crate::bazaar::Bazaar;
 
 /// An endpoint's name, whether it is on this machine, and its
 /// models.
@@ -101,6 +103,7 @@ impl Plugin for CorePlugin {
                 home: self.home.root.clone(),
             },
             crate::catalogue::plugin,
+            crate::bazaar::plugin,
         ));
     }
 }
@@ -184,7 +187,7 @@ impl Shelved {
 /// The answers to something asked in the background, round after
 /// round. Only the last round asked is heard.
 #[derive(Resource)]
-struct Rounds<R: Send + 'static> {
+pub(crate) struct Rounds<R: Send + 'static> {
     tx: UnboundedSender<(u64, R)>,
     rx: UnboundedReceiver<(u64, R)>,
     /// The number of the last round asked.
@@ -200,7 +203,9 @@ impl<R: Send + 'static> Default for Rounds<R> {
 
 impl<R: Send + 'static> Rounds<R> {
     /// Begins a round and returns the taker of its answers.
-    fn begin(&mut self) -> impl Fn(R) + Clone + Send + 'static {
+    pub(crate) fn begin(
+        &mut self,
+    ) -> impl Fn(R) + Clone + Send + 'static {
         self.latest += 1;
         let (round, tx) = (self.latest, self.tx.clone());
         move |answer| {
@@ -209,7 +214,7 @@ impl<R: Send + 'static> Rounds<R> {
     }
 
     /// The next answer of the last round asked.
-    fn next(&mut self) -> Option<R> {
+    pub(crate) fn next(&mut self) -> Option<R> {
         loop {
             let (round, answer) = self.rx.try_recv().ok()?;
             // An earlier round may answer after a later one was
@@ -222,7 +227,9 @@ impl<R: Send + 'static> Rounds<R> {
 }
 
 /// True when an answer is waiting in `rounds`.
-fn answered<R: Send + 'static>(rounds: Res<Rounds<R>>) -> bool {
+pub(crate) fn answered<R: Send + 'static>(
+    rounds: Res<Rounds<R>>,
+) -> bool {
     !rounds.rx.is_empty()
 }
 
@@ -246,9 +253,10 @@ pub struct SaveSettings(pub Config);
 #[derive(Event)]
 pub struct TestConnection(pub Config);
 
-/// Asks every endpoint of the settings for its models and writes them
-/// into the home's catalogue. Each endpoint's answer lands in
-/// `Listing`.
+/// Asks every endpoint of the settings for its models: those the home
+/// added take the prices they are listed with, and what each endpoint
+/// besides OpenRouter serves is kept for the bazaar. Each endpoint's
+/// answer lands in `Listing`.
 #[derive(Event)]
 pub struct ListModels;
 
@@ -479,25 +487,42 @@ fn poll_lists(
     settings: Res<Settings>,
     mut lists: ResMut<Rounds<ListResult>>,
     mut listing: ResMut<Listing>,
+    mut market: ResMut<Bazaar>,
 ) {
     while let Some((endpoint, local, listed)) = lists.next() {
         listing.asking = listing.asking.saturating_sub(1);
         // An endpoint taken out of the settings while it was asked.
-        if !settings
-            .config
-            .endpoints
-            .iter()
-            .any(|e| e.name == endpoint)
-        {
+        let Some(at) = settings.config.endpoint(&endpoint) else {
             continue;
-        }
+        };
+        let openrouter = is_openrouter(&at.base_url);
         let said = listed.and_then(|listed| {
             let mut all = Catalogue::load(&home.0.root);
             all.take_in(&endpoint, &listed, local);
             all.save(&home.0.root).map_err(|e| format!("{e:#}"))?;
-            Ok(listed.len())
+            Ok(listed)
         });
-        listing.said.insert(endpoint, said);
+        // OpenRouter's are the bazaar's own wares, told of in full.
+        if let Ok(listed) = &said
+            && !openrouter
+        {
+            let wares = &mut market.wares;
+            wares.served.retain(|name, _| {
+                settings.config.endpoint(name).is_some()
+            });
+            wares.served.insert(
+                endpoint.clone(),
+                listed.iter().map(Ware::from).collect(),
+            );
+            market.problem = market
+                .wares
+                .save(&home.0.root)
+                .err()
+                .map(|e| format!("{e:#}"));
+        }
+        listing
+            .said
+            .insert(endpoint, said.map(|listed| listed.len()));
     }
 }
 

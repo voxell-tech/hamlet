@@ -4,6 +4,7 @@
 
 pub mod agent;
 pub mod agents;
+pub mod bazaar;
 pub mod catalogue;
 pub mod core;
 pub mod oversight;

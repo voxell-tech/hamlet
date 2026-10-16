@@ -139,6 +139,9 @@ pub(super) fn setup(world: &mut World) {
         world.init_resource::<hamlet_desktop::awake::KeepAwake>();
         world.init_resource::<hamlet_world::sky::Quality>();
     }
+    if matches!(scene, Scene::Bazaar | Scene::Ware) {
+        stock(world, agent, scene == Scene::Ware);
+    }
     if scene == Scene::Charter {
         let home = house();
         // One of its own, so that the way back to the default shows.
@@ -899,17 +902,149 @@ fn shelf() -> hamlet_model::catalogue::Catalogue {
         price: price.map(|(input, output)| Price { input, output }),
         context: price.map(|_| 200_000),
     };
-    all.take_in(
+    all.add("far", &listed("maker/large", Some((3.0, 15.0))), false);
+    all.add(
         "far",
-        &[
-            listed("maker/large", Some((3.0, 15.0))),
-            listed("maker/small", Some((0.25, 1.25))),
-        ],
+        &listed("maker/small", Some((0.25, 1.25))),
         false,
-    );
-    all.take_in("own", &[listed("qwen3.6:35b-a3b", None)], true);
-    let large = all.get_mut("far::maker/large").expect("just listed");
-    large.allowed = true;
+    )
+    .allowed = false;
+    all.add("own", &listed("qwen3.6:35b-a3b", None), true)
+        .allowed = false;
+    let large = all.get_mut("far::maker/large").expect("just added");
     large.note = "For hard questions and long plans.".into();
     all
+}
+
+/// A bazaar of a few models, one of them added, chosen among for
+/// `agent`, with the first open on its page where `open`.
+fn stock(world: &mut World, agent: Entity, open: bool) {
+    use hamlet_core::bazaar::Bazaar;
+    use hamlet_model::bazaar::{Stall, Ware, Wares};
+    use hamlet_model::catalogue::Catalogue;
+    let ware = |id: &str,
+                title: &str,
+                price: (f64, f64),
+                context: u64| Ware {
+        id: id.into(),
+        title: title.into(),
+        input: Some(price.0),
+        output: Some(price.1),
+        context: Some(context),
+        inputs: vec!["text".into()],
+        tools: Some(true),
+        reasoning: Some(true),
+        ..Ware::default()
+    };
+    let mut wares = vec![
+        Ware {
+            description: "A large model for long plans and hard \
+                          code. It reads pictures and files, thinks \
+                          before it answers and calls tools in \
+                          parallel."
+                .into(),
+            created: Some(1_790_000_000),
+            max_output: Some(128_000),
+            inputs: vec![
+                "text".into(),
+                "image".into(),
+                "file".into(),
+            ],
+            intelligence: Some(57.6),
+            coding: Some(61.2),
+            agentic: Some(64.0),
+            ..ware(
+                "maker/large",
+                "Maker: Large",
+                (3.0, 15.0),
+                1_000_000,
+            )
+        },
+        Ware {
+            created: Some(1_785_000_000),
+            intelligence: Some(43.4),
+            ..ware("maker/small", "Maker: Small", (0.1, 0.5), 200_000)
+        },
+        Ware {
+            created: Some(1_780_000_000),
+            intelligence: Some(38.0),
+            reasoning: Some(false),
+            ..ware("other/coder", "Other: Coder", (0.3, 1.2), 262_144)
+        },
+        Ware {
+            created: Some(1_770_000_000),
+            ..ware(
+                "open/weights-70b",
+                "Open: Weights 70B",
+                (0.0, 0.0),
+                131_072,
+            )
+        },
+        Ware {
+            created: Some(1_760_000_000),
+            tools: Some(false),
+            reasoning: Some(false),
+            ..ware(
+                "someone/chatty",
+                "Someone: Chatty",
+                (0.05, 0.1),
+                8_192,
+            )
+        },
+    ];
+    wares.sort_by_key(|ware| std::cmp::Reverse(ware.created));
+    let mut bazaar = Bazaar::of(Wares {
+        fetched: hamlet_model::log::now_millis() - 3 * 3_600_000,
+        openrouter: wares,
+        ..Wares::default()
+    });
+    bazaar.stalls.insert(
+        "maker/large".into(),
+        Some(Ok(vec![
+            Stall {
+                provider: "Maker".into(),
+                uptime: Some(99.84),
+                input: Some(3.0),
+                output: Some(15.0),
+                context: Some(1_000_000),
+                ..Stall::default()
+            },
+            Stall {
+                provider: "Big Cloud".into(),
+                uptime: Some(97.2),
+                input: Some(3.0),
+                output: Some(15.0),
+                context: Some(200_000),
+                quantization: Some("fp8".into()),
+                ..Stall::default()
+            },
+        ])),
+    );
+    world.insert_resource(bazaar);
+    let mut config = hamlet_model::config::Config::default();
+    config.endpoints.push(hamlet_model::config::Endpoint {
+        name: "openrouter".into(),
+        base_url: "https://openrouter.ai/api/v1".into(),
+        chatgpt: false,
+        api_key: Some("key".into()),
+    });
+    let mut all = Catalogue::default();
+    let small =
+        world.resource::<Bazaar>().wares.openrouter[1].listed();
+    all.add("openrouter", &small, false);
+    world.insert_resource(
+        hamlet_core::catalogue::ModelCatalogue::of(all),
+    );
+    world.insert_resource(hamlet_core::core::Settings {
+        config,
+        error: None,
+    });
+    world.init_resource::<hamlet_core::core::Listing>();
+    world.init_resource::<hamlet_ui::bazaar::Browsing>();
+    let mut browsing =
+        world.resource_mut::<hamlet_ui::bazaar::Browsing>();
+    browsing.for_agent = Some(agent);
+    if open {
+        browsing.open = Some("maker/large".into());
+    }
 }

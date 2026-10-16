@@ -152,6 +152,10 @@ pub enum Scene {
     ViewMenu,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
+    /// The Agent Bazaar's shelf, choosing a model for an agent.
+    Bazaar,
+    /// One model of the Agent Bazaar on its own page.
+    Ware,
 }
 
 /// The picture that stands where the world is drawn, and the part of
