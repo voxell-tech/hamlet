@@ -105,7 +105,16 @@ it("shows all hamlets, office and built roads, departed agents and closed hamlet
             reason: "Done",
         },
     ]);
-    expect(late.state.library).toEqual([]);
+    expect(late.state.library?.map((skill) => skill.name)).toEqual([
+        "call-api",
+        "manage-notes",
+        "read-webpage",
+        "system-info",
+        "weather",
+        "web-search",
+        "write-skill",
+        "write-typst",
+    ]);
     for (const frame of [...messages, ...late.messages])
         expect(parseServer(JSON.stringify(frame))).toEqual({ message: frame });
 });

@@ -85,7 +85,9 @@ it("drives the mayor alone through chat, its gate, house, reflection, spend, sto
     expect(readFileSync(join(home, "houses/home/0/NOTES.md"), "utf8")).toBe(
         "# Notes\nReflected on the work.\n",
     );
-    expect(chat.err()).toContain("Hamlet today:");
+    await vi.waitFor(() => expect(chat.err()).toContain("Hamlet today:"), {
+        timeout: 5000,
+    });
     expect(chat.err().match(/NEEDS YOU:/g)).toHaveLength(1);
     chat.child.stdin.write("/mode auto\nRun a long command.\n");
     await vi.waitFor(

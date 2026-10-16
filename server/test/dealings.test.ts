@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { Context } from "@earendil-works/chord";
 import {
     fauxAssistantMessage,
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
-import type { DocumentReader } from "@earendil-works/pi-durable";
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { submitLine } from "../src/chats.ts";
 import type { AgentRef } from "../src/hamlet.ts";
 import type { Home } from "../src/home.ts";
@@ -19,6 +17,7 @@ import {
     chatWith,
     context,
     type Faux,
+    fauxAgents,
     fauxModels,
     MAYOR,
     request,
@@ -27,42 +26,6 @@ import {
     transcript,
 } from "./support.ts";
 
-vi.mock("../src/society/votes.ts", async (original) => ({
-    ...(await original<typeof import("../src/society/votes.ts")>()),
-    voteOpen: async (
-        read: DocumentReader,
-        hamlet: string,
-        _now: number,
-        context: Context,
-    ) => {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        try {
-            const lookup = async () => {
-                await read.snapshot(LimitsDoc, hamlet, context);
-                await read.snapshot(RecordDoc, hamlet, context);
-                return read.snapshot(VotesDoc, hamlet, context);
-            };
-            const votes = await Promise.race([
-                lookup(),
-                new Promise<never>((_resolve, reject) => {
-                    timer = setTimeout(
-                        () =>
-                            reject(
-                                new Error("The vote lookup never answered."),
-                            ),
-                        2000,
-                    );
-                }),
-            ]);
-            return votes?.votes.some((v) => v.standing === "open")
-                ? `A vote is open in ${hamlet}. Wait for it to finish.`
-                : undefined;
-        } finally {
-            clearTimeout(timer);
-        }
-    },
-}));
-
 async function call(
     home: Home,
     faux: Faux,
@@ -70,12 +33,26 @@ async function call(
     tool: string,
     args: Parameters<typeof fauxToolCall>[1],
 ) {
-    faux.setResponses([
+    const realm = await home.harness.snapshot(RealmDoc, context);
+    const scripts: Parameters<typeof fauxAgents>[1] = {};
+    for (const hamlet of realm?.hamlets ?? []) {
+        const record = await home.harness.snapshot(
+            RecordDoc,
+            hamlet.id,
+            context,
+        );
+        if (record)
+            scripts[`${hamlet.id}:${record.mayor}`] = [
+                fauxAssistantMessage("Agreed to consider it"),
+            ];
+    }
+    scripts[`${mayor.hamlet}:${mayor.number}`] = [
         fauxAssistantMessage(fauxToolCall(tool, args), {
             stopReason: "toolUse",
         }),
         fauxAssistantMessage("done"),
-    ]);
+    ];
+    fauxAgents(faux, scripts);
     const chat = await chatWith(home, mayor);
     const sub = await submitLine(
         home,
@@ -385,7 +362,7 @@ it.each(["agree_road", "agree_move"])(
                 ? { a: "scout", b: "smith", reason: "Trade" }
                 : { agent: "scout", to: "mill", reason: "Learn" },
         );
-        expect(result).toContain("A vote is open");
+        expect(result).toContain("vote 1 is open");
         await home.harness.commit(async (tx) => {
             const place = (await tx.doc(RealmDoc)).hamlets.find(
                 (h) => h.id === "mill",
@@ -419,7 +396,7 @@ it.each(["home", "mill"])(
         );
         await openVote(home, hamlet);
         expect(await call(home, faux, second, "agree_move", args)).toContain(
-            `A vote is open in ${hamlet}`,
+            "vote 1 is open",
         );
         expect(
             (await home.harness.snapshot(RecordDoc, "home", context))?.agents,
