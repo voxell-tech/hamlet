@@ -40,11 +40,11 @@ use hamlet_core::agents;
 use hamlet_core::session::{
     Entry, Reply, SessionKey, SessionOutput, Transcript, UserMessage,
 };
+use hamlet_petition::AboutAppExt;
 use hamlet_rules::chief::{self, Target};
 use hamlet_rules::hamlet::HOME;
 use hamlet_world::orders::{Decree, Tell};
 
-pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};
 pub(crate) use self::entry::entry_view;
 pub use self::field::{Placeholder, keep_typed, show_placeholder};
@@ -70,6 +70,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(keep_typed)
         .add_observer(decreed)
         .add_observer(told)
+        .add_about(change::about)
         .add_plugins(rewind::plugin)
         .add_systems(
             Update,

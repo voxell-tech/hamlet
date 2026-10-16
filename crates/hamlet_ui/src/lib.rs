@@ -33,6 +33,7 @@ use bevy::state::state::OnEnter;
 use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
 use hamlet_core::core::HomeDir;
+pub use hamlet_petition as petition;
 pub use hamlet_sdk::looks::{
     ICON, brass, grim, lamp, marked, retrace, well,
 };
@@ -47,7 +48,7 @@ pub use self::me::Me;
 pub use self::roll::Roll;
 pub use self::root::toolbar;
 pub use self::screens::{
-    chat, inspector, links, overview, petition, pictures, settings,
+    chat, inspector, links, overview, pictures, settings,
 };
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};

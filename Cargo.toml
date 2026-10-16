@@ -25,6 +25,7 @@ hamlet_assets = { version = "0.1.0", path = "crates/hamlet_assets" }
 hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
 hamlet_world = { version = "0.1.0", path = "crates/hamlet_world" }
 hamlet_sdk = { version = "0.1.0", path = "crates/hamlet_sdk" }
+hamlet_petition = { version = "0.1.0", path = "crates/hamlet_petition" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
 

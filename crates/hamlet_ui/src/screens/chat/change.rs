@@ -15,6 +15,8 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, ghost, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
+use hamlet_core::oversight::danger::Danger;
+use hamlet_core::oversight::{Kind, Need, Waiting};
 use hamlet_core::session::{Entry, Transcript};
 use hamlet_core::tools::Change;
 use hamlet_core::tools::change::{Line, Mark};
@@ -195,9 +197,43 @@ fn ended(entry: Option<&Entry>) -> (Option<i32>, Option<String>) {
     }
 }
 
+/// The edit that waits as `need`: its entry in the conversation
+/// whose turn it holds, and its change.
+fn held(world: &World, need: &Need) -> Option<(Entity, u64, Change)> {
+    if need.kind != Kind::Approval(Danger::Edit) {
+        return None;
+    }
+    let session = world.get::<Waiting>(need.entity)?.session?;
+    let open = world
+        .get::<Transcript>(session)?
+        .items()
+        .iter()
+        .rev()
+        .find(|item| {
+            matches!(item.entry, Entry::Tool { exit: None, .. })
+        })?;
+    let Entry::Tool {
+        change: Some(change),
+        ..
+    } = &open.entry
+    else {
+        return None;
+    };
+    let path = need.about.lines().next()?;
+    path.starts_with(&change.path)
+        .then(|| (session, open.id, change.clone()))
+}
+
+/// The change of an edit that waits for the chief, in place of the
+/// text of the petition.
+pub(super) fn about(world: &World, need: &Need) -> Option<AnyView> {
+    let (session, id, change) = held(world, need)?;
+    Some(change_view(session, id, change))
+}
+
 /// The change of the edit at entry `id` of `session`: its file, its
 /// count and how the call ended, over its lines.
-pub(crate) fn change_view(
+pub(super) fn change_view(
     session: Entity,
     id: u64,
     change: Change,

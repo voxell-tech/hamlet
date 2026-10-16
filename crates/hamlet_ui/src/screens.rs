@@ -4,11 +4,12 @@ pub mod chat;
 pub mod inspector;
 pub mod links;
 pub mod overview;
-pub mod petition;
 pub mod pictures;
 pub mod settings;
 
 use bevy::app::App;
+
+use crate::petition;
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((

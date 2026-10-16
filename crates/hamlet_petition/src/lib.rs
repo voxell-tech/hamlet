@@ -18,22 +18,18 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
-use hamlet_core::oversight::danger::Danger;
 use hamlet_core::oversight::{Answer, Kind, Need, Veto, Waiting};
-use hamlet_core::session::{Entry, Transcript};
-use hamlet_core::tools::Change;
 use hamlet_rules::chief::rulings::Choice;
-use hamlet_world::needs::{TagAnswered, TagOpened};
-
-use crate::dock::{PanelAppExt, lit_panel, show_tab};
-use crate::feel::{Lit, Mood};
-use crate::icons::Glyph;
-use crate::looks::{
+use hamlet_sdk::dock::{PanelAppExt, lit_panel, show_tab};
+use hamlet_sdk::feel::{Lit, Mood};
+use hamlet_sdk::icons::Glyph;
+use hamlet_sdk::looks::{
     Fills, ICON, bad_action, brass, grim, lamp, marked, note, well,
 };
-use crate::me::Me;
-use crate::platform::{DisplayText, MonoText, Wraps};
-use crate::{AnyView, Cx, View, chat};
+use hamlet_sdk::me::Me;
+use hamlet_sdk::platform::{DisplayText, MonoText, Wraps};
+use hamlet_sdk::{AnyView, Cx, View};
+use hamlet_world::needs::{TagAnswered, TagOpened};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
                      questions and faults come here, oldest first.";
@@ -60,6 +56,28 @@ pub fn plugin(app: &mut App) {
     .add_observer(tag_answered)
     .add_observer(tag_opened)
     .add_systems(Update, (show_new, keep_queue));
+}
+
+/// A view of what `need` is about, in place of its text. `None` when
+/// it has none to give.
+pub type About = fn(&World, &Need) -> Option<AnyView>;
+
+/// The views that draw what a need is about. The first to give one
+/// draws it.
+#[derive(Resource, Default)]
+struct Abouts(Vec<About>);
+
+/// Lets a plugin draw what a need is about.
+pub trait AboutAppExt {
+    fn add_about(&mut self, about: About) -> &mut Self;
+}
+
+impl AboutAppExt for App {
+    fn add_about(&mut self, about: About) -> &mut Self {
+        self.init_resource::<Abouts>();
+        self.world_mut().resource_mut::<Abouts>().0.push(about);
+        self
+    }
 }
 
 /// The reason or reply the next answer carries.
@@ -203,40 +221,15 @@ fn button(need: &Need, at: usize) -> AnyView {
         .boxed()
 }
 
-/// The edit that waits as `need`: its entry in the conversation
-/// whose turn it holds, and its change.
-fn held(world: &World, need: &Need) -> Option<(Entity, u64, Change)> {
-    if need.kind != Kind::Approval(Danger::Edit) {
-        return None;
-    }
-    let session = world.get::<Waiting>(need.entity)?.session?;
-    let open = world
-        .get::<Transcript>(session)?
-        .items()
-        .iter()
-        .rev()
-        .find(|item| {
-            matches!(item.entry, Entry::Tool { exit: None, .. })
-        })?;
-    let Entry::Tool {
-        change: Some(change),
-        ..
-    } = &open.entry
-    else {
-        return None;
-    };
-    let path = need.about.lines().next()?;
-    path.starts_with(&change.path)
-        .then(|| (session, open.id, change.clone()))
-}
-
 fn strip(need: &Need) -> AnyView {
     let need = need.clone();
     AnyView::new(move |cx: &mut Cx| {
-        let about = match held(cx.world, &need) {
-            Some((session, id, change)) => {
-                chat::change_view(session, id, change)
-            }
+        let drawn =
+            cx.world.get_resource::<Abouts>().and_then(|all| {
+                all.0.iter().find_map(|about| about(cx.world, &need))
+            });
+        let about = match drawn {
+            Some(about) => about,
             // The exact text, which a tag in the world may cut.
             None => note(need.about.clone()).tagged(MonoText).boxed(),
         };

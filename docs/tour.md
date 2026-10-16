@@ -58,7 +58,8 @@ table. The binary and the examples are the root package.
 | `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
 | `hamlet_world` | The 3D world, drawn from the core's entities |
-| `hamlet_sdk` | What a feature of the window is built with: the theme, the icons and the types of a view. A feature crate depends on this and never on `hamlet_ui` |
+| `hamlet_sdk` | What a feature of the window is built with: the theme, the looks, the icons, the feel, the dock's panels and the chat's place. A feature crate depends on this and never on `hamlet_ui` |
+| `hamlet_petition` | The petitions panel, a feature built on `hamlet_sdk` alone. The views that draw what a petition is about are added to it by other plugins |
 | `hamlet_ui` | The window: panels, menus, chat and pointer around the world |
 
 Inside a crate, a module with several subjects is a file and a folder of
@@ -107,7 +108,7 @@ Paths are under `crates/`.
 | Removing, merging, restoring an agent | `hamlet_rules/src/lifecycle.rs` |
 | Founding, naming, moving, closing a hamlet | `hamlet_rules/src/realm.rs` |
 | A starter skill | `hamlet_home/starters/<name>/SKILL.md` |
-| A panel | Its file in `hamlet_ui/src/screens/`, or in `hamlet_ui/src/` |
+| A panel | Its file in `hamlet_ui/src/screens/`, or in `hamlet_ui/src/`; the petitions panel is `hamlet_petition/src/lib.rs` |
 | The right-click menu | `hamlet_ui/src/world_menu/items.rs` |
 | A colour in the panels | `assets/theme.toml`, its fields in `hamlet_sdk/src/theme.rs` |
 | How a control looks or feels | `hamlet_sdk/src/looks.rs`, `feel/`; [`ui-warmth.md`](ui-warmth.md) |
