@@ -54,3 +54,22 @@ letters.
 **Letter**:
 A message one agent sends another along a road.
 _Avoid_: mail, DM
+
+### Decisions and memory
+
+**Vote**:
+A hamlet's agents deciding whether to replace its mayor or found another
+hamlet. A chief can stop or overturn it.
+
+**Ballot**:
+One voter's choice in a vote, with its reason and evidence from its own work.
+
+**Library**:
+The skills shared by every agent of the home.
+
+**Librarian**:
+The judge of skills offered to the library, and the adviser on its shelves.
+
+**Archive**:
+What is kept of agents and hamlets that left, so a chief can restore them.
+_Avoid_: trash, deleted agents

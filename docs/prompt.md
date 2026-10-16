@@ -1,59 +1,58 @@
 # What an agent is told
 
-The system prompt an agent begins every turn with: where each part comes
-from, who may change it, and how the chief reads and edits it.
+The system prompt built before every model request, where each part comes
+from, and how the chief reads and edits it. The server builds it;
+`hamlet_core` is only the retained Rust runtime.
 
-## The parts, in the order they are sent
+## The parts, in order
 
 | Part | Where it comes from | Who changes it |
 |---|---|---|
-| The charter | The home's `charter.md`, or `assets/charter.md` when that is missing or empty | The chief |
-| The machine | The sandbox, the network, the model and the workspace | The settings |
-| The project | The folder the hamlet works on, with its own `AGENTS.md` or `CLAUDE.md` | The chief |
-| The character | `CHARACTER.md` in the agent's house | The chief. The mayor once, when it creates the agent |
-| The notes | `workspace/NOTES.md` in its house | The agent |
-| The skills | `workspace/skills/` in its house | The agent |
-| The library | The skills every agent shares | The librarian |
-| The hamlet | Who is in it and how it is run | The record |
-| The realm | The other hamlets | The record |
+| The charter | The home's stored charter, else `server/assets/charter.md` | A chief |
+| The machine | The sandbox, network, model, house and any tools that failed to load | The settings |
+| The project | The hamlet's work folder, with its `AGENTS.md` or `CLAUDE.md` | A chief |
+| The character | The agent's stored character, at most 4000 characters | A chief; the mayor once at creation |
+| The notes | `NOTES.md` in its house, at most 8000 characters | The agent |
+| The skills | Its house's skills, descriptions and usage | The agent |
+| The library | Skills shared by the home, beginning with the starters | The librarian |
+| The hamlet | Its role, agents, roads and recent decisions | The record |
+| The realm | Other hamlets, their mayors and pending agreements, or the agent's roads out | The realm's record |
+| The budget | The hamlet's spend and the task's caps | The ledger and limits |
 
-`Told` in `hamlet_core/src/agent/told.rs` puts the parts together for
-every step of a turn. The files are read again each time, so a file
-changed by hand counts from the agent's next step.
+`server/src/prompt.ts` builds the first seven parts. `society/brief.ts`
+adds the hamlet, `realm/founding.ts` the realm, and `budget.ts` the budget.
+The budget's words stay fixed for a turn; the other parts are built again
+before each request. A realm with one hamlet has no realm section.
 
-## The charter
+An errand is a one-off durable conversation. Ballots and the mayor's answer
+use the agent's own prompt. Library advice, skill judging, merged notes and
+the mayor's instruction review use only their supplied instructions.
+A ballot has only `cast_ballot`; other errands have no tools.
 
-The words every agent's prompt opens with. The default is compiled into
-the app. A home that keeps a `charter.md` with words in it is told that
-one instead. Nothing copies the default into a home on its own, so a home
-that never edited it gets each later default.
+## The charter and character
 
-Settings has a Charter page. EDIT writes the default into the home's
-`charter.md` if the home has none and opens that file in the system's
-editor. BACK TO THE DEFAULT asks first and removes the home's file.
-
-## The character
-
-One agent's own text: how it behaves and speaks. It is `CHARACTER.md` in
-the agent's house, beside `workspace/` and outside it. At most 4000
-characters of it are sent.
-
-An agent cannot write its own character. Its commands and its `edit` tool
-can write only in its workspace and the project folder, and a hamlet
-cannot work on a folder that holds Hamlet's home. With `--insecure` there
-is no sandbox, and a command can write any file the chief can.
+Neither is a file an agent can write. Both live in the home's storage and
+are edited through the protocol. An unedited charter uses the shipped
+default, so it follows later defaults. BACK TO THE DEFAULT clears the
+chief's replacement after asking first.
 
 The mayor may give a character in `create_agent`. It has no tool that
-changes one afterwards, its own included.
+changes one afterwards, its own included. Houses are closed to other
+agents, including the mayor; it asks an agent for what it needs.
 
-The file moves with the house: into the archive when the agent is removed
-or merged away, and back out when it is restored.
+Settings has the Charter page. The inspector's CHARACTER tab shows the
+selected agent's character. EDIT opens a local temporary Markdown copy,
+and each save sends an `edit` request to the server. Character filenames
+name the hamlet and agent, so kept copies can be identified.
 
-The Inspector's CHARACTER tab shows it for the selected agent. EDIT opens
-the file.
+Closing the window polls the editor once more. While saves are
+unconfirmed it keeps the window open and shows the recovery paths, with
+KEEP OPEN and CLOSE WITH COPIES. A confirmed save allows the close to
+finish. A refused or uncertain save is not silently repeated; inspect the
+server document before applying a kept copy again. Closing stops no agent.
 
 ## The whole prompt
 
-Prompt, in the right-click menu of an agent, opens the agent's whole
-prompt as it would be sent now. `session::prompt_of` builds it from the
-same `Told` the loop uses.
+Prompt in an agent's right-click menu sends `read prompt`. The server uses
+the same prompt sections as a model request, and the inspector displays
+the returned text. The window reads no house or home files to build it.

@@ -82,7 +82,7 @@ HAMLET_HOME=/tmp/hamlet-try hamlet dev
 | Command | Does |
 |---|---|
 | `hamlet server [--port <n>] [--faux <script.json>]` | Starts a server on a home; a faux script answers offline for tests and demos |
-| `hamlet chat [--to <agent>]` | Chats with the mayor or the named agent and answers what waits, in the terminal |
+| `hamlet chat [--to <agent\|name@hamlet\|mayor@hamlet>]` | Chats with the mayor or the named agent and answers what waits, in the terminal |
 | `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>]` | Serves a scratch home on a free port unless given one, and opens its window |
 | `hamlet window` | Opens a window connected to a running server |
 | `hamlet edit <charter\|character\|notes\|limits\|settings>` | Opens the chief's document in `$EDITOR` and saves through the server; limits and settings are JSON |
@@ -96,12 +96,15 @@ through an SSH tunnel. The server runs for one chief, named by
 `HAMLET_USER`, else `USER`, else `user`. Closing a client stops no work;
 end of input waits for that client's submissions and triggers no reflection.
 
-The step-2 commands are `/new`, `/resume [n]`, `/retry`, `/reflect`,
-`/stop [agent|all]`, `/queue`, `/allow`, `/always`, `/deny`, `/dismiss`,
-`/grants`, `/revoke`, `/budget`, `/reset-budget`, `/folder`, `/mode` and
-`/give <agent> <skill> [from <agent>]`. `/undo` says there is nothing to undo. The server
-parses commands; the chat client handles only `/agent` and `/hamlet` as
-address changes. Society and realm commands come with their later steps.
+The command table in `server/src/commands.ts` lists every supported deed,
+including roads, removal, merging, restoration, votes, founding and closing
+hamlets, the record and the library. `/undo` reverses the latest reversible
+removal or merge. The server parses commands; the terminal handles only
+`/agent` and `/hamlet` as address changes. `/agent` finds a living agent
+anywhere in the realm, and `/hamlet` reaches that hamlet's mayor. The CLI
+replaces its realm view on whole states as well as applying changes.
+`hamlet edit limits --hamlet <id>` edits another hamlet's limits.
+See [`../society.md`](../society.md) for the society and realm's surface.
 
 The folder is a path on the server's machine, with earlier folders kept;
 the clone given by URL comes in step 6. Manual mode holds folder edits and
@@ -131,7 +134,9 @@ places live on its machine under `HAMLET_VIEW`, else the OS's config folder
 for Hamlet. Local links and pictures resolve there too: existing absolute
 paths or paths under the received work folder, never the server's houses.
 Charter and character edits use local temporary files, with each save sent
-through `edit`.
+through `edit`. Closing polls the editor once more and waits for save
+receipts. Unconfirmed saves keep the window open with recovery paths and
+the choice to close with copies; they are not silently repeated.
 
 ### Hamlet on pi-durable
 
@@ -145,10 +150,11 @@ through `edit`.
 | The gate (C7, H11) | A `beforeTool` hook in the oversight extension |
 | The hamlet's record, the realm, oversight, the library's record, limits, settings | Session-scoped documents; a tool commits a change with a marker of its result, so a repeated call returns that result (ADR 0005) |
 | A task and its caps (H12) | A document of the task's counts, read by the gate and the budget check |
-| Spend (H8) | pi-durable's kept responses and aggregate summary usage, charged in integer micro-dollars to Hamlet's ledger by hamlet and local day, agent and task; roads join it in step 4 |
+| Spend (H8) | pi-durable's kept responses and aggregate summary usage, charged in integer micro-dollars to Hamlet's ledger by hamlet and local day, agent and task; roads are `road` ledger lines |
 | Letters (H30) | A submission to the receiver's conversation with the sender; its answer is submitted back to the sender's conversation |
 | Questions (H30) | A tool that submits to the receiver's conversation and waits for it, as pi-durable's subagent example does, so it survives a restart |
-| Votes (H13) | A task that owns the mayor's turn and each ballot as child tasks |
+| Votes (H13) | One durable task per vote, with hearing, ballot and settling phases; each model call is an errand |
+| Errands | Durable one-off conversations, deduplicated by request id and charged like other model work; ballots and the mayor's answer keep their own prompt, while library calls, merged notes and review use supplied instructions |
 | Reflection (C5) | A queued server input with its own task and a reserved ordinal, kept across a restart; zero allows only reflection a chief asks for; with a nonzero count, an orderly close waits up to 120 s for owed reflections able to run |
 | Summarising (C28) | pi-durable's compaction, set to C28's thresholds |
 | Taking a conversation back (C27) | A fork from the entry before the message, with the conversation pointed at the fork (ADR 0002) |
@@ -166,9 +172,9 @@ The window keeps `hamlet_world`, `hamlet_ui`, `hamlet_desktop`, `hamlet_vfx`
 and `hamlet_assets`. `hamlet_client` fills the components and events the
 world and panels read: `Settlement`, `Citizen`, `Mayor`, `Busy`, `Activity`,
 `Transcript`, `Status`, `Usage`, `Waiting`, `RaisedBy`, and `UserMessage`
-and `SessionOutput` as messages to and from the server. Road, departure,
-letter and vote components are retained without producers until their
-server steps.
+and `SessionOutput` as messages to and from the server. Received roads,
+traffic, departures, merge hosts, votes, consultation and town positions
+also fill the components and events their world and panels read.
 
 ## The protocol, version 0
 
@@ -221,7 +227,13 @@ and, unless reflection is set to zero, reflects on owed turns. `/resume`
 alone lists history, the non-current conversations, and `/resume <n>` returns
 by number. A rewind forks the current conversation but keeps its
 number. An address names a hamlet and agent, with `mayor` for the office;
-a chat reference adds optional `past` for a numbered conversation.
+a chat reference adds optional `past` for a numbered conversation. An open
+current `mayor` chat follows the office, including its new holder's current
+conversation pointer. Optional `from` selects a read-only peer
+conversation, and optional `kind` selects `letters` or `questions` for that
+pair; omission defaults to letters. The server refuses say, stop, rewind,
+new, resume and retry on peer watches. The inspector lists received peer
+conversations and opens the selected kind with paging.
 
 ### State and transcript
 
@@ -238,15 +250,36 @@ and `starters`, the shipped skill descriptions; each agent's optional
 `skills` lists its house's shelf. The window offers command deeds only
 when advertised, and sends file and skill gifts over the protocol.
 
+The society and realm add optional fields only:
+
+- `Agent.left`, `consulting` and `conversations` describe departures,
+  library work and incoming peer conversations.
+- `Hamlet.roads`, `votes` and `at` carry resolved road ends and traffic,
+  ready-made vote reports and the town's position.
+- `State.library` and `closed` carry the shared shelf and removed hamlets.
+- `Limits.votes` is per hamlet. `Limits.hamlets` is governed by `home`.
+- `State.houses` names the houses folder on the server's machine so local
+  links and pictures can exclude it, including through symlinks.
+
+A shelf change, a closed-list change or a shrinking hamlet set sends a
+whole `state` at the next revision. There is no new Update member for
+these cases. Archived agents remain in state with `left` until erased.
+Office road ends are resolved to the current mayor. Peer turns contribute
+to activity and spend even when no chief watches their conversation.
+
 `hamlet_client` reconciles state and changes into entities, keeping the
 entities of hamlets and agents still present. It sends `hello` with its
 last epoch and revision when reconnecting, retains unsent requests in its
 Outbox and opens its watched chats again. A lost connection retries; a
 refused token stops retries and shows the server's words.
 
-A transcript item has ID `<entryId>:<block>`, a time and a kind: chief input,
-assistant text, reasoning, tool, notice or error. Tool items carry the name,
-argument summary, change, exit, time and failure. Turn operations add or
+A transcript item has ID `<entryId>:<block>`, a time and a kind: input,
+assistant text, reasoning, tool, notice or error. Chief inputs carry
+`chief`; peer letters, questions and replies carry optional `author` as
+`name@hamlet`, with `hamlet#number` when the agent's record is gone. The
+window keeps peer inputs as agent entries, never as rewindable chief
+words. Tool items carry the name, argument summary, change, exit, time and
+failure. Turn operations add or
 replace an item, append text, close a tool, change status or usage, or reset
 the transcript before sending it again. Transcripts and turns carry an
 optional stable conversation `number`, so a client can keep watching an
@@ -385,26 +418,22 @@ and tool-call arguments unscrubbed in pi's storage; C32 is not yet met.
    `--repl`, `--insecure` and `--replay` leave it. `hamlet dev` starts the
    pair safely; the window keeps its own view files, and closing it stops
    no agent.
-4. **The society**: agents, roads, letters and questions, tasks, leaving and
-   coming back, votes, the library, objections and questions to the chief.
-5. **The realm**: several hamlets, roads and moves between them, founding
-   and removing.
+4. **The society. Done.** Agents, roads, letters and questions, tasks,
+   removal, merging and restoration, votes, the library, objections and
+   questions to the chief. The window shows the record and vote bylaws
+   and watches peer conversations read-only.
+5. **The realm. Done.** Several hamlets, roads and moves between them,
+   founding and closing. The window shows towns and closed hamlets, and
+   the terminal reaches every living agent across the realm.
 6. **The clone and the git proxy.**
 7. **Deleting the Rust runtime crates**, once the server does everything they
    did.
 
-Step 3 leaves these to steps 4 and 5, rather than keeping rules or home
-reads in the window:
-
-- **Step 4:** agents beyond the mayor, roads, letters and questions, tasks
-  across agents, removal, merge and restore, votes and their record, the
-  shared library shelf and its record, objections and questions to the
-  chief. The corresponding command deeds stay hidden unless the server
-  advertises them. File and skill gifts already work through `give`.
-- **Step 5:** several hamlets, founding, naming, moving, closing and
-  restoring them, closed-hamlet listings, and dealings between hamlets.
-  The overview shows the hamlets and budget lines received now; it reads
-  no realm or vote records from disk.
+The society and realm are exercised end to end over served scratch homes
+with per-agent faux scripts on macOS and Linux. Recorded society, leaving,
+vote, realm and library sessions are replayed by the Rust client. The
+window remains a client: every deed and document edit goes to the server,
+and the views read received state rather than the home.
 
 ## The spike
 

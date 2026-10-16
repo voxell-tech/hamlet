@@ -11,6 +11,7 @@ A chat entity has `Chat(ChatRef)`, `Transcript`, `Status`, `Usage` and a
 `TalksTo(agent)` relationship. Its reference names a hamlet and an agent,
 with `mayor` for whoever holds the office. Adding the chat sends `open`;
 removing it sends `close`. Reconnecting opens every watched chat again.
+An open office chat follows the new mayor when the office changes.
 
 The server answers with a `transcript` page. Live `turn` operations add or
 replace an item, append text, close a tool, change status or usage, or reset
@@ -23,6 +24,17 @@ The chief's chat with an agent is shared by every client. New Session sends
 one finishes its queue. History comes from `read history`; Read opens a
 numbered past conversation read-only, and Resume sends `/resume <n>`.
 Every conversation is kept. Search matches its title and who began it.
+
+AGENT CHATS in the inspector lists the selected agent's conversations with
+other agents, with their counts and last activity. Choosing letters or
+questions opens a reference with `from` and `kind`; without a kind the
+server selects letters. These watches have paging and live updates, but no
+input field, stop control or rewind. CHIEF CHAT returns to the chief's own
+conversation. The server also refuses edits of peer conversations.
+
+A peer input carries `author`, its sender's address, rather than `chief`.
+The client keeps it as an agent entry, including a letter's reply arriving
+in the chief's chat. It is never drawn as the chief's own words.
 
 ## Order and drawing
 
@@ -57,14 +69,16 @@ A web address or a file named in the chat can be clicked.
 path must exist there. A relative path is looked for under the selected
 hamlet's received work folder, and becomes a link only if its canonical
 path stays under that folder. `..` and symlinks are followed before that
-check. The work folder is a path on the server's machine; with `hamlet dev`
-it is local too. Nothing downloads a server file. House-relative paths
-such as an agent's `NOTES.md` or `skills/` stay plain text unless they name
-a file in the local work folder.
+check. The optional received `houses` folder is excluded after resolving
+links, for absolute and relative paths alike. No file under an agent's
+house becomes a link or a local picture. The work folder is a path on the
+server's machine; with `hamlet dev` it is local too. Nothing downloads a
+server file. House-relative paths such as an agent's `NOTES.md` or
+`skills/` stay plain text unless they name a file in the local work folder.
 
 **When the disk is asked.** Once for each distinct path when a paragraph
 is built, never while reading. The answer is kept until a turn ends or the
-selected chat or work folder changes.
+selected chat, work folder or received houses folder changes.
 
 **A click.** A web address goes to the system's browser. A file is checked
 once more and then shown by the system's own program, given the path as

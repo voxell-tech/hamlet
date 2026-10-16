@@ -39,10 +39,11 @@ and a robot. Free and open-source forever.
   [Ollama](https://ollama.com) by default.
 
 **Status:** early and moving fast. The agents are being rebuilt as a
-server on pi-durable that the window connects to. The mayor, tools,
-approvals, budgets, models and logins work through it; other agents,
-roads, votes, the shared library and several hamlets follow in the
-[rebuild's later steps](docs/proposals/agent-server.md#order-of-work).
+server on pi-durable that the window connects to. Agents, roads, letters,
+votes, the shared library and several hamlets work through it, alongside
+approvals, budgets, models and logins. The window reads the server's state
+and can watch agents' conversations read-only. The clone and git proxy are
+[next](docs/proposals/agent-server.md#order-of-work).
 The picture above shows the earlier Rust runtime's realm.
 
 ## Running
