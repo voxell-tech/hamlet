@@ -744,7 +744,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].before.as_deref(), Some("42:0"));
+        assert_eq!(requests[0].before.as_deref(), Some("48:0"));
         app.world_mut()
             .trigger(hamlet_client::messages::Reconnected);
         app.update();

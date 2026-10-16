@@ -254,9 +254,14 @@ it("holds mayor decisions during a vote, follows its new office and overturns it
         ),
     ).toContain("nothing else is decided");
     release?.();
-    expect(await vote).toMatchObject({
-        text: expect.stringContaining("passed"),
-    });
+    expect(await vote).toMatchObject({ kind: "notice" });
+    await vi.waitFor(async () =>
+        expect(
+            (
+                await joined(run.server.url, run.home.credentials.token)
+            ).state.agents.find((a) => a.name === "smith")?.mayor,
+        ).toBe(true),
+    );
     fauxAgents(run.faux, {
         "home:2": [fauxAssistantMessage("Smith holds the office")],
     });

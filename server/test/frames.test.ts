@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
     fauxAssistantMessage,
     fauxToolCall,
@@ -8,6 +9,7 @@ import { expect, it, vi } from "vitest";
 import { type Connection, connect } from "../src/connection.ts";
 import { type Script, scriptedModels } from "../src/faux.ts";
 import type { HomeOptions } from "../src/home.ts";
+import { houseOf } from "../src/layout.ts";
 import { safeValue } from "../src/plainly.ts";
 import {
     type ClientMessage,
@@ -17,6 +19,7 @@ import {
     type ServerMessage,
     type Transcript,
 } from "../src/protocol.ts";
+import { agents as createSociety, tool, yes } from "./acceptance-support.ts";
 import {
     agents,
     changes,
@@ -29,9 +32,14 @@ import {
     served,
 } from "./connection-support.ts";
 import { openaiFake } from "./openai-fake.ts";
-import { closeAfter, fauxModels, scratch } from "./support.ts";
+import { closeAfter, fauxAgents, fauxModels, scratch } from "./support.ts";
 
 const scenarios = [
+    "society",
+    "leaving",
+    "vote",
+    "realm",
+    "library",
     "hello",
     "turn",
     "tool",
@@ -198,6 +206,258 @@ function live(messages: ServerMessage[]): Item[] {
 
 async function record(name: Scenario): Promise<Session> {
     switch (name) {
+        case "society": {
+            const { models, faux } = fauxModels();
+            const run = await recording(null, { models });
+            await open(run);
+            await createSociety({ ...run, faux });
+            fauxAgents(faux, {
+                "home:0": [
+                    tool("tell_agent", {
+                        name: "smith",
+                        message: "Make a hinge",
+                    }),
+                    fauxAssistantMessage("Sent"),
+                    fauxAssistantMessage("Letter received"),
+                ],
+                "home:2": [fauxAssistantMessage("Hinge ready")],
+            });
+            await ask(run, { type: "say", to: mayor, text: "Tell smith" });
+            await vi.waitFor(
+                () =>
+                    expect(
+                        live(run.messages).some(
+                            (i) => i.text === "Letter received",
+                        ),
+                    ).toBe(true),
+                { timeout: 10000 },
+            );
+            await ask(run, {
+                type: "open",
+                chat: {
+                    with: { hamlet: "home", agent: "smith" },
+                    from: { hamlet: "home", number: 0 },
+                    kind: "letters",
+                },
+            });
+            fauxAgents(faux, {
+                "home:0": [
+                    tool("ask_agent", {
+                        name: "scout",
+                        message: "Where is the iron?",
+                    }),
+                    fauxAssistantMessage("Iron found"),
+                ],
+                "home:1": [fauxAssistantMessage("In the northern hill")],
+            });
+            await ask(run, { type: "say", to: mayor, text: "Ask scout" });
+            await ask(run, {
+                type: "open",
+                chat: {
+                    with: { hamlet: "home", agent: "scout" },
+                    from: { hamlet: "home", number: 0 },
+                    kind: "questions",
+                },
+            });
+            await open(run);
+            return run;
+        }
+        case "leaving": {
+            const { models, faux } = fauxModels();
+            const run = await recording(null, { models });
+            await open(run);
+            await createSociety({ ...run, faux });
+            await ask(run, {
+                type: "say",
+                to: mayor,
+                text: "/remove scout Finished",
+            });
+            await ask(run, { type: "say", to: mayor, text: "/restore scout" });
+            fauxAgents(faux, {
+                errands: [fauxAssistantMessage("# Notes\nFind and forge.")],
+            });
+            await ask(run, {
+                type: "say",
+                to: mayor,
+                text: "/merge scout into smith Together",
+            });
+            await open(run);
+            return run;
+        }
+        case "vote": {
+            const { models, faux } = fauxModels();
+            const run = await recording(null, { models });
+            await open(run);
+            await createSociety({ ...run, faux });
+            fauxAgents(faux, {
+                errands: [
+                    fauxAssistantMessage("Let them decide"),
+                    yes(),
+                    yes(),
+                    yes(),
+                ],
+            });
+            await ask(run, {
+                type: "say",
+                to: mayor,
+                text: "/vote smith New direction",
+            });
+            await vi.waitFor(() =>
+                expect(
+                    changes(run.messages).some(
+                        (u) =>
+                            u.type === "hamlet" &&
+                            u.hamlet.votes?.some(
+                                (v) => !v.open && v.report.includes("Passed:"),
+                            ),
+                    ),
+                ).toBe(true),
+            );
+            await open(run);
+            return run;
+        }
+        case "realm": {
+            const { models, faux } = fauxModels();
+            const run = await recording(null, { models });
+            await open(run);
+            await createSociety({ ...run, faux });
+            await ask(run, {
+                type: "say",
+                to: mayor,
+                text: "/found mill miller Grind flour",
+            });
+            await ask(run, {
+                type: "say",
+                to: mayor,
+                text: "/move-hamlet mill 60 80",
+            });
+            fauxAgents(faux, {
+                "mill:0": [
+                    tool("create_agent", {
+                        name: "mason",
+                        purpose: "Stonework",
+                        reason: "Build",
+                    }),
+                    fauxAssistantMessage("Mason ready"),
+                ],
+            });
+            const mill = { hamlet: "mill", agent: "mayor" };
+            await ask(run, { type: "say", to: mill, text: "Make a mason" });
+            fauxAgents(faux, {
+                "home:0": [
+                    tool("agree_road", {
+                        a: "scout",
+                        b: "mason",
+                        reason: "Trade",
+                    }),
+                    fauxAssistantMessage("Road proposed"),
+                ],
+                "mill:0": [
+                    fauxAssistantMessage("Considering"),
+                    tool("agree_road", {
+                        a: "mason",
+                        b: "scout",
+                        reason: "Trade",
+                    }),
+                    fauxAssistantMessage("Road agreed"),
+                ],
+            });
+            await ask(run, { type: "say", to: mayor, text: "Propose a road" });
+            await ask(run, { type: "say", to: mill, text: "Agree the road" });
+            await vi.waitFor(() =>
+                expect(
+                    changes(run.messages).some(
+                        (u) =>
+                            u.type === "hamlet" &&
+                            u.hamlet.roads?.some(
+                                (r) =>
+                                    r.a.hamlet !== r.b.hamlet &&
+                                    (r.a.number === 1 || r.b.number === 1),
+                            ),
+                    ),
+                ).toBe(true),
+            );
+            await ask(run, {
+                type: "say",
+                to: mayor,
+                text: "/remove-hamlet mill Finished",
+            });
+            await vi.waitFor(() =>
+                expect(
+                    run.messages.some(
+                        (m) =>
+                            m.type === "state" &&
+                            m.closed?.some((h) => h.id === "mill"),
+                    ),
+                ).toBe(true),
+            );
+            await ask(run, {
+                type: "say",
+                to: mayor,
+                text: "/erase-hamlet mill",
+            });
+            await vi.waitFor(() =>
+                expect(
+                    run.messages.filter((m) => m.type === "state").at(-1),
+                ).toMatchObject({ closed: [] }),
+            );
+            return run;
+        }
+        case "library": {
+            const { models, faux } = fauxModels();
+            const run = await recording(null, { models });
+            await open(run);
+            await createSociety({ ...run, faux });
+            const skill = join(
+                houseOf(run.home.layout, { hamlet: "home", number: 1 }),
+                "skills",
+                "map-iron",
+            );
+            await mkdir(skill, { recursive: true });
+            await writeFile(
+                join(skill, "SKILL.md"),
+                "---\nname: map-iron\ndescription: Maps iron deposits.\n---\nRead the map.\n",
+            );
+            fauxAgents(faux, {
+                "home:1": [
+                    tool("submit_skill", {
+                        skill: "map-iron",
+                        reason: "Useful maps",
+                    }),
+                    fauxAssistantMessage("Shared"),
+                ],
+                errands: [fauxAssistantMessage("ACCEPT Useful maps")],
+            });
+            await ask(run, {
+                type: "say",
+                to: { hamlet: "home", agent: "scout" },
+                text: "Share the map",
+            });
+            await vi.waitFor(() =>
+                expect(
+                    run.messages.some(
+                        (m) =>
+                            m.type === "state" &&
+                            m.library?.some((s) => s.name === "map-iron"),
+                    ),
+                ).toBe(true),
+            );
+            await ask(run, {
+                type: "say",
+                to: mayor,
+                text: "/unshelve map-iron Retire",
+            });
+            await vi.waitFor(() =>
+                expect(
+                    run.messages.filter((m) => m.type === "state").at(-1),
+                ).toMatchObject({
+                    library: expect.not.arrayContaining([
+                        expect.objectContaining({ name: "map-iron" }),
+                    ]),
+                }),
+            );
+            return run;
+        }
         case "hello":
             return recording({ responses: [] });
         case "turn": {
@@ -670,6 +930,151 @@ function checkScenario(name: Scenario, frames: Frame[]) {
         message.type === "turn" ? message.ops : [],
     );
     switch (name) {
+        case "society": {
+            expect(agents(messages).map((a) => a.name)).toEqual(
+                expect.arrayContaining(["scout", "smith", "poet"]),
+            );
+            expect(changes(messages)).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: "hamlet",
+                        hamlet: expect.objectContaining({
+                            roads: expect.arrayContaining([
+                                expect.objectContaining({ messages: 2 }),
+                            ]),
+                        }),
+                    }),
+                ]),
+            );
+            const items = messages.flatMap((m) =>
+                m.type === "transcript"
+                    ? m.items
+                    : m.type === "turn"
+                      ? m.ops.flatMap((o) => (o.op === "add" ? [o.item] : []))
+                      : [],
+            );
+            expect(items).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        author: "smith@home",
+                        text: expect.stringContaining("Hinge ready"),
+                    }),
+                ]),
+            );
+            expect(sent).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: "open",
+                        chat: expect.objectContaining({ kind: "questions" }),
+                    }),
+                ]),
+            );
+            break;
+        }
+        case "leaving": {
+            expect(agents(messages)).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        name: "scout",
+                        left: expect.objectContaining({ how: "removed" }),
+                    }),
+                    expect.objectContaining({
+                        name: "scout",
+                        left: expect.objectContaining({
+                            how: "merged",
+                            into: { hamlet: "home", number: 2 },
+                        }),
+                    }),
+                ]),
+            );
+            expect(sent).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: "say",
+                        text: "/restore scout",
+                    }),
+                ]),
+            );
+            break;
+        }
+        case "vote":
+            expect(changes(messages)).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: "hamlet",
+                        hamlet: expect.objectContaining({
+                            votes: expect.arrayContaining([
+                                expect.objectContaining({
+                                    open: false,
+                                    report: expect.stringContaining("Passed:"),
+                                }),
+                            ]),
+                        }),
+                    }),
+                ]),
+            );
+            expect(agents(messages)).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ name: "smith", mayor: true }),
+                ]),
+            );
+            break;
+        case "realm":
+            expect(changes(messages)).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: "hamlet",
+                        hamlet: expect.objectContaining({
+                            id: "mill",
+                            at: { x: 60, z: 80 },
+                        }),
+                    }),
+                ]),
+            );
+            expect(messages).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: "state",
+                        closed: expect.arrayContaining([
+                            expect.objectContaining({ id: "mill" }),
+                        ]),
+                    }),
+                ]),
+            );
+            expect(
+                messages.filter((m) => m.type === "state").at(-1),
+            ).toMatchObject({
+                closed: [],
+                hamlets: [expect.objectContaining({ id: "home" })],
+            });
+            break;
+        case "library":
+            expect(messages).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: "state",
+                        library: expect.arrayContaining([
+                            expect.objectContaining({ name: "map-iron" }),
+                        ]),
+                    }),
+                ]),
+            );
+            expect(
+                messages.filter((m) => m.type === "state").at(-1),
+            ).toMatchObject({
+                library: expect.not.arrayContaining([
+                    expect.objectContaining({ name: "map-iron" }),
+                ]),
+            });
+            expect(agents(messages)).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        name: "scout",
+                        consulting: true,
+                    }),
+                ]),
+            );
+            break;
         case "hello":
             expect(frames).toHaveLength(2);
             break;

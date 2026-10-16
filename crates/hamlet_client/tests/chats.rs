@@ -161,7 +161,7 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     assert!(!world.get::<Status>(chat).unwrap().working());
     assert_eq!(
         world.get::<Usage>(chat).unwrap().summary(),
-        "7.6k tok, 1s model time"
+        "11.3k tok, 1s model time"
     );
     assert_eq!(world.resource::<Observed>().output, expected_ops);
     assert_eq!(world.resource::<Observed>().finished, vec![chat]);
@@ -212,7 +212,7 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
     assert_eq!(later.len(), 40);
     assert_eq!(
         app.world().get::<Transcript>(chat).unwrap().earlier(),
-        Some("42:0")
+        Some("48:0")
     );
     earlier(app.world_mut(), chat);
     earlier(app.world_mut(), chat);
@@ -317,7 +317,7 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
                 .to_vec();
             app.world_mut().trigger(Rewind {
                 chat,
-                item: "32:0".into(),
+                item: "38:0".into(),
             });
             let sent = requests(&mut app);
             let [v0::ClientMessage::Rewind(rewind)] = &sent[..]
@@ -346,7 +346,7 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
             before.iter().find(|old| old.id == item.id)
         );
     }
-    assert!(said.item("32:0").is_none());
+    assert!(said.item("38:0").is_none());
     assert_eq!(
         app.world().resource::<RemovedWords>().0,
         vec![(chat, "Take back this line.".into())]
@@ -358,7 +358,7 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
     for (recording, id, code, failure) in [
         (
             include_str!("../../../server/test/frames/tool.jsonl"),
-            "28:1",
+            "34:1",
             7,
             Some("broken"),
         ),
@@ -366,7 +366,7 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
             include_str!(
                 "../../../server/test/frames/approval.jsonl"
             ),
-            "28:1",
+            "34:1",
             0,
             None,
         ),

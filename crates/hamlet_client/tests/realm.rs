@@ -58,7 +58,7 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     assert_eq!(world.resource::<Providers>().0[0].name, "faux");
     assert!(world.resource::<Grants>().0.is_empty());
     assert!(world.resource::<Deeds>().has("stop"));
-    assert!(!world.resource::<Deeds>().has("found"));
+    assert!(world.resource::<Deeds>().has("found"));
     assert_eq!(mayor(world), Some(agent));
     assert_eq!(named(world, "mayor"), Some(agent));
     assert_eq!(

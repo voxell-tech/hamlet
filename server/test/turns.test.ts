@@ -8,6 +8,7 @@ import { ChatDoc, chiefInput } from "../src/chats.ts";
 import { scriptedModels } from "../src/faux.ts";
 import { notify } from "../src/notice.ts";
 import type { Item, ServerMessage, UsageView } from "../src/protocol.ts";
+import { RecordDoc } from "../src/record.ts";
 import {
     chat,
     fold,
@@ -563,8 +564,14 @@ it("an open office chat follows a vote, the new mayor's new conversation and an 
             text,
         });
     expect(await command("/vote scout New direction")).toMatchObject({
-        text: expect.stringContaining("passed"),
+        kind: "notice",
     });
+    await vi.waitFor(async () =>
+        expect(
+            (await run.home.harness.snapshot(RecordDoc, "home", context))
+                ?.mayor,
+        ).toBe(1),
+    );
     fauxAgents(faux, {
         "home:1": [fauxAssistantMessage("The new mayor answers")],
     });

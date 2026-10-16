@@ -5,7 +5,7 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import type { Address, State } from "../src/protocol.ts";
 import { request, served } from "./connection-support.ts";
-import { fauxAgents, fauxModels } from "./support.ts";
+import { type Faux, fauxAgents, fauxModels } from "./support.ts";
 
 /** A society served over a real loopback WebSocket, with per-agent faux models. */
 export async function society() {
@@ -21,9 +21,14 @@ export function tool(name: string, args: Parameters<typeof fauxToolCall>[1]) {
     });
 }
 
+type ChiefSession = Pick<
+    Awaited<ReturnType<typeof served>>,
+    "connection" | "messages"
+>;
+
 /** Sends a chief's line and waits for its addressed receipt. */
 export function deed(
-    run: Awaited<ReturnType<typeof society>>,
+    run: ChiefSession,
     text: string,
     to: Address = { hamlet: "home", agent: "mayor" },
 ) {
@@ -37,7 +42,7 @@ export function deed(
 
 /** Reads the current chief conversation through the public protocol. */
 export async function read(
-    run: Awaited<ReturnType<typeof society>>,
+    run: ChiefSession,
     to: Address = { hamlet: "home", agent: "mayor" },
 ) {
     const result = await request(run.connection, run.messages, {
@@ -51,7 +56,7 @@ export async function read(
 }
 
 /** Creates the mayor's three voters through real tools, including the scout-smith road. */
-export async function agents(run: Awaited<ReturnType<typeof society>>) {
+export async function agents(run: ChiefSession & { faux: Faux }) {
     fauxAgents(run.faux, {
         "home:0": [
             tool("create_agent", {
