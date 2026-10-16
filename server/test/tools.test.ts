@@ -24,8 +24,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
 import { LEAVE } from "../src/environment.ts";
-import type { Home } from "../src/home.ts";
-import type { Part } from "../src/parts.ts";
+import type { Home, Part } from "../src/home.ts";
 import { bashTool } from "../src/tools/shell.ts";
 import {
     closeAfter,

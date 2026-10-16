@@ -13,7 +13,7 @@ import { envFor } from "./environment.ts";
 import { type AgentRef, agentKey } from "./hamlet.ts";
 import { historyOf } from "./history.ts";
 import type { Home } from "./home.ts";
-import { houseOf } from "./layout.ts";
+import { houseOf } from "./home.ts";
 import { refreshModels } from "./models.ts";
 import type { Address, Listed, Read, ReadResult, Reply } from "./protocol.ts";
 import { resolve } from "./realm.ts";

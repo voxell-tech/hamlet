@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { connect } from "./connection.ts";
-import { layoutOf } from "./layout.ts";
+import { layoutOf } from "./home.ts";
 
 /** The address and token of a chief's server. */
 export type ServerAddress = { url: string; token: string };

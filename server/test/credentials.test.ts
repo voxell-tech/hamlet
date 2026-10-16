@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { Credentials } from "../src/credentials.ts";
+import { Credentials } from "../src/home.ts";
 import { context, fauxModels, scratch, testHome } from "./support.ts";
 
 describe("the credentials file", () => {

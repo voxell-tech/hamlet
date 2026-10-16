@@ -17,7 +17,7 @@ import {
 } from "./gift-files.ts";
 import type { AgentRef } from "./hamlet.ts";
 import type { Home } from "./home.ts";
-import { houseOf } from "./layout.ts";
+import { houseOf } from "./home.ts";
 import { STARTERS } from "./library.ts";
 import { safeWords } from "./plainly.ts";
 import {

@@ -21,7 +21,7 @@ import {
     removeTree,
     stageTree,
 } from "../src/gift-files.ts";
-import { houseOf } from "../src/layout.ts";
+import { houseOf } from "../src/home.ts";
 import { SandboxEnv } from "../src/sandbox/env.ts";
 import { closedPolicy } from "../src/sandbox/reach.ts";
 import {

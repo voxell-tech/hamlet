@@ -8,6 +8,7 @@ import {
     type Cursor,
     createRegistry,
     DEFAULT_COMPACTION_POLICY,
+    type Extension,
     Harness,
     type HarnessSettings,
     type Registry,
@@ -16,14 +17,14 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CharacterDoc } from "./character.ts";
 import { ChatDoc, type With, WithDoc } from "./chats.ts";
-import { Credentials } from "./credentials.ts";
 import { closeEnvironments, envFor } from "./environment.ts";
 import { agentKey, HOME, WorkDoc } from "./hamlet.ts";
-import { buildHouse, type Layout, layOut } from "./layout.ts";
+import { Credentials } from "./home/credentials.ts";
+import { buildHouse, type Layout, layOut } from "./home/layout.ts";
+import { claim } from "./home/lock.ts";
+import { parts } from "./home/parts.ts";
 import { LimitsDoc } from "./limits.ts";
-import { claim } from "./lock.ts";
 import { homeModels } from "./models.ts";
-import { PARTS, type Part } from "./parts.ts";
 import { PeerStatistics } from "./peer-statistics.ts";
 import { liveHamlets, RealmDoc } from "./realm.ts";
 import { RecordDoc } from "./record.ts";
@@ -32,6 +33,7 @@ import { type Overrides, readOverrides, SettingsDoc } from "./settings.ts";
 import { closeSkills, refreshSkills } from "./skills.ts";
 import { AgentConversationsDoc } from "./society/docs.ts";
 
+/** Overrides for the resources and parts opened with a home. */
 export type HomeOptions = {
     /** pi-ai's models; by default the home's own, from its settings and credentials. */
     readonly models?: MutableModels;
@@ -154,7 +156,7 @@ export async function openHome(
         };
         await found(home, context);
         running.push(
-            ...[...PARTS, ...(options.parts ?? [])].map((part) => part(home)),
+            ...[...parts(), ...(options.parts ?? [])].map((part) => part(home)),
         );
         for (const part of running) {
             if (part.extension !== undefined) registry.install(part.extension);
@@ -245,3 +247,31 @@ async function found(home: Home, context: Context): Promise<void> {
     }, context);
     for (const agent of agents) await buildHouse(home.layout, agent);
 }
+
+/**
+ * One concept's share of an open home: an extension, installed in the order of the parts, and work it starts once
+ * every part is installed and stops before the home closes.
+ */
+export type Part = (home: Home) => {
+    readonly extension?: Extension;
+    start?(context: Context): Promise<void>;
+    stop?(context: Context): Promise<void>;
+};
+
+/** A chief's society or realm command. */
+export type Deed = (
+    home: Home,
+    given: { hamlet: string; rest: string; chief: string },
+    context: Context,
+) => Promise<string>;
+
+export { untilAborted } from "./home/abort.ts";
+export { localDay } from "./home/clock.ts";
+export { Credentials } from "./home/credentials.ts";
+export {
+    buildHouse,
+    houseOf,
+    type Layout,
+    layOut,
+    layoutOf,
+} from "./home/layout.ts";

@@ -26,9 +26,8 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { answer } from "../src/gate.ts";
 import { reserved } from "../src/hand.ts";
-import type { Home } from "../src/home.ts";
+import type { Home, Part } from "../src/home.ts";
 import { ManifestsDoc } from "../src/manifests.ts";
-import type { Part } from "../src/parts.ts";
 import {
     CHIEF,
     closeAfter,

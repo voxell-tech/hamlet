@@ -10,13 +10,12 @@ import { CharacterDoc } from "../character.ts";
 import { WithDoc } from "../chats.ts";
 import { choose, commitEdit } from "../choice.ts";
 import { type AgentRef, agentKey, checkName, tidyName } from "../hamlet.ts";
-import type { Home } from "../home.ts";
-import { buildHouse } from "../layout.ts";
+import type { Deed, Home, Part } from "../home.ts";
+import { buildHouse, localDay } from "../home.ts";
 import type { Books } from "../ledger.ts";
 import { booksOf, chargeRoad, LedgerDoc } from "../ledger.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
 import { add, zero } from "../money.ts";
-import type { Deed, Part } from "../parts.ts";
 import { liveHamlets, RealmDoc, roadsOf } from "../realm.ts";
 import {
     defineRecordTool,
@@ -26,7 +25,6 @@ import {
 } from "../record.ts";
 import { roadAfford } from "../report.ts";
 import { SettingsDoc, settingsOf } from "../settings.ts";
-import { localDay } from "../time.ts";
 import { turnOf } from "../turn.ts";
 import { voteOpen } from "./votes.ts";
 

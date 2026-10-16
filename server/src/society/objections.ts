@@ -21,19 +21,17 @@ import {
     ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { untilAborted } from "../abort.ts";
 import { AskedDoc } from "../asked.ts";
 import { ErrandEntry, RetryEntry, WithDoc } from "../chats.ts";
 import { choose } from "../choice.ts";
 import { runErrand, startErrand } from "../errands.ts";
 import { type AgentRef, agentKey } from "../hamlet.ts";
-import type { Home } from "../home.ts";
+import type { Home, Part } from "../home.ts";
+import { houseOf, localDay, untilAborted } from "../home.ts";
 import { InstructionsDoc } from "../instructions.ts";
-import { houseOf } from "../layout.ts";
 import { booksOf } from "../ledger.ts";
 import { LimitsDoc, limitsOf } from "../limits.ts";
 import { notify } from "../notice.ts";
-import type { Part } from "../parts.ts";
 import { liveHamlets, RealmDoc } from "../realm.ts";
 import { addressOf, RecordDoc } from "../record.ts";
 import { stopped } from "../report.ts";
@@ -41,7 +39,6 @@ import { SandboxEnv } from "../sandbox/env.ts";
 import { closedPolicy } from "../sandbox/reach.ts";
 import { modelRef, SettingsDoc, settingsOf } from "../settings.ts";
 import { TaskDoc } from "../tasks.ts";
-import { localDay } from "../time.ts";
 import { turnOf } from "../turn.ts";
 import {
     OversightDayDoc,

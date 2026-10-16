@@ -61,10 +61,12 @@ export class Credentials implements CredentialStore {
         return credentials;
     }
 
+    /** This installation's persistent identity for provider sign-ins. */
     get installationId(): string {
         return this.#stored.installationId;
     }
 
+    /** The token required to connect a client to this home. */
     get token(): string {
         return this.#stored.connection.token;
     }
@@ -84,10 +86,12 @@ export class Credentials implements CredentialStore {
         ].filter((secret) => secret !== "");
     }
 
+    /** The provider's stored model credential, when present. */
     async read(provider: string): Promise<Credential | undefined> {
         return this.#stored.models[provider];
     }
 
+    /** Stored model credential identities without their secret values. */
     async list(): Promise<readonly CredentialInfo[]> {
         return Object.entries(this.#stored.models).map(([provider, each]) => ({
             providerId: provider,
@@ -95,6 +99,7 @@ export class Credentials implements CredentialStore {
         }));
     }
 
+    /** Serializes a provider credential change and persists a returned value. */
     modify(
         provider: string,
         change: (
@@ -111,6 +116,7 @@ export class Credentials implements CredentialStore {
         });
     }
 
+    /** Serializes removal of a provider's stored credential. */
     delete(provider: string): Promise<void> {
         return this.#queue(async () => {
             if (this.#stored.models[provider] === undefined) return;

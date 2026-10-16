@@ -8,7 +8,7 @@ import { type ChiefResult, chiefAccess } from "./chief-access.ts";
 import { envFor } from "./environment.ts";
 import { agentKey } from "./hamlet.ts";
 import type { Home } from "./home.ts";
-import { houseOf } from "./layout.ts";
+import { houseOf } from "./home.ts";
 import { editLimits } from "./limits/edit.ts";
 import { editSettings } from "./models.ts";
 import { safeWords } from "./plainly.ts";

@@ -38,11 +38,10 @@ import { configureAgent } from "./choice.ts";
 import { closeGate } from "./gate.ts";
 import { type AgentRef, agentKey } from "./hamlet.ts";
 import { entriesOf, LineageDoc } from "./history.ts";
-import type { Home } from "./home.ts";
+import type { Home, Part } from "./home.ts";
 import { InstructionsDoc } from "./instructions.ts";
 import { reconcile } from "./ledger.ts";
 import { NoticeEntry, notify } from "./notice.ts";
-import type { Part } from "./parts.ts";
 import { liveHamlets, RealmDoc } from "./realm.ts";
 import { addressOf, RecordDoc } from "./record.ts";
 import {

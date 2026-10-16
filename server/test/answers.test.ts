@@ -318,7 +318,7 @@ it("charges cut-off summarization to its task even when the next chief line was 
     );
     if (input === undefined) throw new Error("missing original input");
     const { ledgerOf } = await import("../src/ledger.ts");
-    const { localDay } = await import("../src/time.ts");
+    const { localDay } = await import("../src/home.ts");
     const lines = await ledgerOf(home, "home", localDay(home.now()), context);
     expect(lines.filter((line) => line.what === "summary")).toMatchObject([
         {

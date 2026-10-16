@@ -31,12 +31,11 @@ import { PayerDoc } from "../errands.ts";
 import { removeHouse } from "../gift-files.ts";
 import { GrantsDoc, grantsOf, revoke } from "../grants.ts";
 import { type AgentRef, agentKey, HOME } from "../hamlet.ts";
-import type { Home } from "../home.ts";
+import type { Home, Part } from "../home.ts";
+import { houseOf } from "../home.ts";
 import { InstructionsDoc } from "../instructions.ts";
-import { houseOf } from "../layout.ts";
 import { LimitsDoc } from "../limits.ts";
 import { notify } from "../notice.ts";
-import type { Part } from "../parts.ts";
 import {
     chiefsOf,
     liveHamlets,

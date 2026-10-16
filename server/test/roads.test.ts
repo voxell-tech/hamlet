@@ -4,10 +4,10 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it } from "vitest";
+import { localDay } from "../src/home.ts";
 import { ledgerOf } from "../src/ledger.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RecordDoc } from "../src/record.ts";
-import { localDay } from "../src/time.ts";
 import { chat, mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,

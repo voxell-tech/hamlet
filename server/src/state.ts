@@ -15,7 +15,7 @@ import { DEEDS } from "./commands.ts";
 import { GrantsDoc, grantsOf } from "./grants.ts";
 import { agentKey, WorkDoc } from "./hamlet.ts";
 import type { Home } from "./home.ts";
-import { houseOf } from "./layout.ts";
+import { houseOf } from "./home.ts";
 import { booksOf } from "./ledger.ts";
 import { STARTERS } from "./library.ts";
 import { LimitsDoc, limitsOf } from "./limits.ts";

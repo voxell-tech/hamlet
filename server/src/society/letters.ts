@@ -19,7 +19,6 @@ import {
     type ToolExecutionApi,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { untilAborted } from "../abort.ts";
 import {
     LetterEntry,
     QuestionEntry,
@@ -29,9 +28,9 @@ import {
 } from "../chats.ts";
 import { PayerDoc } from "../errands.ts";
 import { type AgentRef, agentKey } from "../hamlet.ts";
-import type { Home } from "../home.ts";
+import type { Home, Part } from "../home.ts";
+import { untilAborted } from "../home.ts";
 import { LimitsDoc } from "../limits.ts";
-import type { Part } from "../parts.ts";
 import { safeWords } from "../plainly.ts";
 import {
     carryRealmRoad,

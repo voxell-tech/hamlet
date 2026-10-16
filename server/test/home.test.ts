@@ -252,7 +252,7 @@ describe("the lock on a home", () => {
 
     it("takes over the lock a dead holder left behind", async () => {
         const dir = scratch();
-        const lock = new URL("../src/lock.ts", import.meta.url).href;
+        const lock = new URL("../src/home/lock.ts", import.meta.url).href;
         const holder = spawn(
             process.execPath,
             [

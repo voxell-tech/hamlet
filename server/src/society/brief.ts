@@ -1,9 +1,9 @@
 import { defineExtension, section } from "@earendil-works/pi-durable";
 import { agentOf } from "../errands.ts";
 import { agentKey } from "../hamlet.ts";
+import type { Part } from "../home.ts";
 import { InstructionsDoc } from "../instructions.ts";
 import { LimitsDoc, limitsOf } from "../limits.ts";
-import type { Part } from "../parts.ts";
 import { liveHamlets, RealmDoc, realmRoads, roadsOf } from "../realm.ts";
 import {
     addressOf,

@@ -10,11 +10,10 @@ import { charterOf } from "./charter.ts";
 import type { With } from "./chats.ts";
 import { agentOf } from "./errands.ts";
 import { agentKey, WorkDoc } from "./hamlet.ts";
-import type { Home } from "./home.ts";
-import { houseOf } from "./layout.ts";
+import type { Home, Part } from "./home.ts";
+import { houseOf } from "./home.ts";
 import { installStarters, libraryPart } from "./library.ts";
 import { ManifestsDoc } from "./manifests.ts";
-import type { Part } from "./parts.ts";
 import { modelName, SettingsDoc, settingsOf } from "./settings.ts";
 import { houseSkills } from "./skills.ts";
 

@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
 const root = fileURLToPath(new URL("../src/", import.meta.url));
-const MODULES: readonly { name: string; folder: boolean }[] = [];
+const MODULES: readonly { name: string; folder: boolean }[] = [
+    { name: "home", folder: true },
+];
 
 function files(dir: string): string[] {
     return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>

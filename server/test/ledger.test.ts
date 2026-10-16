@@ -11,11 +11,11 @@ import type { Storage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { describe, expect, it } from "vitest";
 import { HOME } from "../src/hamlet.ts";
+import { localDay } from "../src/home.ts";
 import { booksOf, ledgerOf, resetBudget } from "../src/ledger.ts";
 import { amountOf } from "../src/money.ts";
 import { stateOf } from "../src/state.ts";
 import { followHome } from "../src/talk.ts";
-import { localDay } from "../src/time.ts";
 import {
     context,
     crashing,

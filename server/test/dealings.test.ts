@@ -133,7 +133,7 @@ it("moves the house and conversations to a new number and keeps only roads both 
     const baker = await addAgent(home, "home", "baker");
     const clerk = await addAgent(home, "home", "clerk");
     const { writeFile, readFile, access } = await import("node:fs/promises");
-    const { houseOf } = await import("../src/layout.ts");
+    const { houseOf } = await import("../src/home.ts");
     const { CharacterDoc } = await import("../src/character.ts");
     const { agentKey } = await import("../src/hamlet.ts");
     const { give, GrantsDoc, grantsOf } = await import("../src/grants.ts");
@@ -288,7 +288,7 @@ it("refuses roads and moves outside the two mayors' authority or the chief's lim
 
 it("finishes a committed house move on reopening without losing the chief's chat", async () => {
     const { mkdir, writeFile, rm, readFile } = await import("node:fs/promises");
-    const { houseOf } = await import("../src/layout.ts");
+    const { houseOf } = await import("../src/home.ts");
     const { models, faux } = fauxModels();
     const dir = scratch();
     const home = await testHome(dir, { models });
@@ -499,7 +499,7 @@ it("charges a moved sender's next question to its new hamlet without replacing t
         hamlet: "mill",
     });
     const { ledgerOf } = await import("../src/ledger.ts");
-    const { localDay } = await import("../src/time.ts");
+    const { localDay } = await import("../src/home.ts");
     expect(
         await ledgerOf(home, "mill", localDay(home.now()), context),
     ).toContainEqual(

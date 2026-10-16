@@ -9,7 +9,7 @@ import { expect, it, vi } from "vitest";
 import { type Connection, connect } from "../src/connection.ts";
 import { type Script, scriptedModels } from "../src/faux.ts";
 import type { HomeOptions } from "../src/home.ts";
-import { houseOf } from "../src/layout.ts";
+import { houseOf } from "../src/home.ts";
 import { safeValue } from "../src/plainly.ts";
 import {
     type ClientMessage,

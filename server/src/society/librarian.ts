@@ -29,12 +29,11 @@ import {
     stageSkill,
     type TreeListing,
 } from "../gift-files.ts";
-import type { Home } from "../home.ts";
-import { houseOf } from "../layout.ts";
+import type { Deed, Home, Part } from "../home.ts";
+import { houseOf } from "../home.ts";
 import { booksOf } from "../ledger.ts";
 import { libraryPart } from "../library.ts";
 import { LimitsDoc, limitsOf } from "../limits.ts";
-import type { Deed, Part } from "../parts.ts";
 import type { State } from "../protocol.ts";
 import { RecordDoc } from "../record.ts";
 import { stopped } from "../report.ts";

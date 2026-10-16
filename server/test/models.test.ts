@@ -3,10 +3,10 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { describe, expect, it, vi } from "vitest";
 import { HOME } from "../src/hamlet.ts";
+import { localDay } from "../src/home.ts";
 import { ledgerOf } from "../src/ledger.ts";
 import { editSettings } from "../src/models.ts";
 import { SettingsDoc } from "../src/settings.ts";
-import { localDay } from "../src/time.ts";
 import { openaiFake } from "./openai-fake.ts";
 import { context, fauxModels, say, scratch, testHome } from "./support.ts";
 

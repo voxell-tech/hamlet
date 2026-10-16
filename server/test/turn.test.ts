@@ -14,7 +14,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
 import { ChiefEntry } from "../src/chats.ts";
-import type { Part } from "../src/parts.ts";
+import type { Part } from "../src/home.ts";
 import { type Turn, turnOf } from "../src/turn.ts";
 import {
     CHIEF,

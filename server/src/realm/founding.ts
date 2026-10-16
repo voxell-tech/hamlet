@@ -15,11 +15,10 @@ import { agentOf } from "../errands.ts";
 import { removeHouse } from "../gift-files.ts";
 import { GrantsDoc, grantsOf, revoke } from "../grants.ts";
 import { agentKey, checkName, HOME, WorkDoc } from "../hamlet.ts";
-import type { Home } from "../home.ts";
-import { buildHouse } from "../layout.ts";
+import type { Deed, Home, Part } from "../home.ts";
+import { buildHouse } from "../home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
 import { notify } from "../notice.ts";
-import type { Deed, Part } from "../parts.ts";
 import {
     chiefsOf,
     liveHamlets,

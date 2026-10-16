@@ -13,10 +13,9 @@ import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { Compile } from "typebox/compile";
 import { record } from "./catalogue.ts";
 import { LEAVE, type Leave } from "./environment.ts";
-import type { Home } from "./home.ts";
+import type { Home, Part } from "./home.ts";
 import { type Manifest, ManifestsDoc } from "./manifests.ts";
 import { shellOutput } from "./output.ts";
-import type { Part } from "./parts.ts";
 import { SandboxEnv } from "./sandbox/env.ts";
 import { limitsOf, type Policy } from "./sandbox/policy.ts";
 

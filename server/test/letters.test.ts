@@ -146,7 +146,7 @@ it("refuses missing roads and records a mayor's refusal of a requested road", as
 
 it("charges a question across hamlets to its sender", async () => {
     const { ledgerOf } = await import("../src/ledger.ts");
-    const { localDay } = await import("../src/time.ts");
+    const { localDay } = await import("../src/home.ts");
     const { models, faux } = fauxModels(["faux-1"], 10);
     const home = await testHome(scratch(), { models });
     await addHamlet(home, "mill", "miller");

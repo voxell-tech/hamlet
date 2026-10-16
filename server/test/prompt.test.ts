@@ -11,10 +11,9 @@ import { CharacterDoc } from "../src/character.ts";
 import { CharterDoc, DEFAULT_CHARTER, editCharter } from "../src/charter.ts";
 import { commitEdit } from "../src/choice.ts";
 import { HOME } from "../src/hamlet.ts";
-import type { Home } from "../src/home.ts";
+import type { Home, Part } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { ManifestsDoc } from "../src/manifests.ts";
-import type { Part } from "../src/parts.ts";
 import { told } from "../src/told.ts";
 import {
     CHIEF,

@@ -21,11 +21,10 @@ import { LEAVE, type Leave } from "../src/environment.ts";
 import { answer } from "../src/gate.ts";
 import { GrantsDoc, grantsOf, revoke } from "../src/grants.ts";
 import { HOME } from "../src/hamlet.ts";
-import type { Home } from "../src/home.ts";
-import { buildHouse } from "../src/layout.ts";
+import type { Home, Part } from "../src/home.ts";
+import { buildHouse } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { ManifestsDoc } from "../src/manifests.ts";
-import type { Part } from "../src/parts.ts";
 import { RecordDoc } from "../src/record.ts";
 import { SettingsDoc } from "../src/settings.ts";
 import {

@@ -6,7 +6,7 @@ import type {
 import { WithDoc } from "./chats.ts";
 import { WorkDoc } from "./hamlet.ts";
 import type { HomeBase } from "./home.ts";
-import { houseOf } from "./layout.ts";
+import { houseOf } from "./home.ts";
 import { SandboxEnv } from "./sandbox/env.ts";
 import { directoryRoot, policyHash } from "./sandbox/policy.ts";
 import { closedPolicy, openPolicy } from "./sandbox/reach.ts";

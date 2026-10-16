@@ -23,19 +23,17 @@ import {
     ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { untilAborted } from "../abort.ts";
 import { WithDoc } from "../chats.ts";
 import { chiefAccess, chiefRefusalText } from "../chief-access.ts";
 import { ErrandDoc, runErrand, startErrand } from "../errands.ts";
 import { listTree, MERGE_CAPS, removeTree, stageTree } from "../gift-files.ts";
 import { revoke } from "../grants.ts";
 import { type AgentRef, agentKey, checkName } from "../hamlet.ts";
-import type { Home } from "../home.ts";
+import type { Deed, Home, Part } from "../home.ts";
+import { houseOf, untilAborted } from "../home.ts";
 import { InstructionsDoc, owed } from "../instructions.ts";
-import { houseOf } from "../layout.ts";
 import { booksOf } from "../ledger.ts";
 import { LimitsDoc } from "../limits.ts";
-import type { Deed, Part } from "../parts.ts";
 import { safeWords } from "../plainly.ts";
 import { farewell, isChief, liveHamlets, RealmDoc, roadsOf } from "../realm.ts";
 import {

@@ -8,9 +8,8 @@ import {
 } from "@earendil-works/pi-durable";
 import { WithDoc } from "./chats.ts";
 import { type AgentRef, agentKey, HOME, MAYOR } from "./hamlet.ts";
-import type { Home } from "./home.ts";
+import type { Home, Part } from "./home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "./limits.ts";
-import type { Part } from "./parts.ts";
 import { liveHamlets, RealmDoc } from "./realm.ts";
 import { RecordDoc } from "./record.ts";
 import { configureRole } from "./roles.ts";

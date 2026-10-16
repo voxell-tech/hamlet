@@ -18,7 +18,7 @@ import { ExecutionError, err } from "@earendil-works/pi-durable/env";
 import { expect, it, vi } from "vitest";
 import { type Connection, connect, serve } from "../src/connection.ts";
 import { scriptedModels } from "../src/faux.ts";
-import { buildHouse, houseOf } from "../src/layout.ts";
+import { buildHouse, houseOf } from "../src/home.ts";
 import { safeValue } from "../src/plainly.ts";
 import {
     type ClientMessage,

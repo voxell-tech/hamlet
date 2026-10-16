@@ -17,7 +17,6 @@ import {
     type TaskId,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { untilAborted } from "../abort.ts";
 import {
     ChatDoc,
     ChiefEntry,
@@ -31,11 +30,10 @@ import {
 import { reconfigure } from "../choice.ts";
 import { ErrandDoc, runErrand, startErrand } from "../errands.ts";
 import { type AgentRef, agentKey } from "../hamlet.ts";
-import type { Home } from "../home.ts";
-import { houseOf } from "../layout.ts";
+import type { Deed, Home, Part } from "../home.ts";
+import { houseOf, untilAborted } from "../home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
 import { notify } from "../notice.ts";
-import type { Deed, Part } from "../parts.ts";
 import { foundHamlet, mayFound, removeHamlet } from "../realm/founding.ts";
 import { chiefsOf, isChief, liveHamlets, RealmDoc } from "../realm.ts";
 import { type HamletRecord, named, RecordDoc } from "../record.ts";

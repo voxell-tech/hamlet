@@ -7,10 +7,9 @@ import {
     type TaskId,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { untilAborted } from "./abort.ts";
 import type { ChatId, With } from "./chats.ts";
 import type { AgentRef } from "./hamlet.ts";
-import { localDay } from "./time.ts";
+import { localDay, untilAborted } from "./home.ts";
 
 export type WaitKind = "approval" | "fault" | "question" | "objection";
 

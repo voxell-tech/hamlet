@@ -16,13 +16,12 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { houseOf } from "../src/layout.ts";
+import { houseOf, localDay } from "../src/home.ts";
 import { LedgerDoc, reconcile } from "../src/ledger.ts";
 import { libraryPart } from "../src/library.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { LibraryDoc } from "../src/society/docs.ts";
 import { libraryView } from "../src/society/librarian.ts";
-import { localDay } from "../src/time.ts";
 import { request as sendRequest, served } from "./connection-support.ts";
 import {
     context,

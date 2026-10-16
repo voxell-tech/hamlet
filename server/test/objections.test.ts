@@ -10,12 +10,11 @@ import { expect, it, vi } from "vitest";
 import { QuestionEntry, startConversation, submitLine } from "../src/chats.ts";
 import { answer } from "../src/gate.ts";
 import type { Home } from "../src/home.ts";
-import { houseOf } from "../src/layout.ts";
+import { houseOf, localDay } from "../src/home.ts";
 import { LedgerDoc, reconcile } from "../src/ledger.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { say as typed } from "../src/say.ts";
 import { SettingsDoc } from "../src/settings.ts";
-import { localDay } from "../src/time.ts";
 import type { Choice, Wait } from "../src/waits.ts";
 import {
     addAgent,
