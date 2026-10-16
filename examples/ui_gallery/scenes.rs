@@ -4,6 +4,7 @@ mod dock;
 mod sample;
 mod sheets;
 mod stalls;
+mod store;
 
 use bevy::app::{App, Plugin, PostStartup, Startup, Update};
 use bevy::asset::Handle;
@@ -92,6 +93,9 @@ impl Plugin for GalleryPlugin {
                 hamlet_ui::widgets::plugin,
                 hamlet_ui::screens::plugin,
             ));
+        if matches!(self.0, Scene::Store | Scene::StoreHamlet) {
+            app.add_plugins(store::plugin);
+        }
     }
 }
 
@@ -163,6 +167,12 @@ pub enum Scene {
     SkillStall,
     /// One skill of the Skill Stall on its own page.
     Scroll,
+    /// The Hamlet Store's shelves, in the bazaar's panel and at its
+    /// counter in the Inspector.
+    Store,
+    /// One hamlet of the Hamlet Store on its own page, its diorama
+    /// turning.
+    StoreHamlet,
     /// The Inspector at a stall's counter, with the buttons of these
     /// words pressed in turn.
     Counter(hamlet_world::bazaar::Stall, &'static [&'static str]),
