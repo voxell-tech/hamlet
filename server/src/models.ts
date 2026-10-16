@@ -15,13 +15,14 @@ import { defineExtension } from "@earendil-works/pi-durable";
 import { type Card, CatalogueDoc, type Price, takeIn } from "./catalogue.ts";
 import { choose, commitEdit } from "./choice.ts";
 import { endpointName } from "./endpoints.ts";
-import { HOME } from "./hamlet.ts";
 import type { Home, HomeBase } from "./home.ts";
 import { LimitsDoc, limitsOf } from "./limits.ts";
 import { FileModelsStore } from "./models-store.ts";
 import type { Part } from "./parts.ts";
 import { plainly, safeWords } from "./plainly.ts";
 import { compatible, protectedProvider } from "./providers.ts";
+import { liveHamlets, RealmDoc } from "./realm.ts";
+import { RecordDoc } from "./record.ts";
 import {
     modelRef,
     type Settings,
@@ -160,13 +161,25 @@ export async function syncProviders(
     const serving = modelRef(settings.model);
     const source = keySources.get(home.models);
     if (source !== undefined) source.provider = serving?.provider;
-    const choice = modelRef(
-        choose(
-            limitsOf(await home.harness.snapshot(LimitsDoc, HOME, context)),
-            settings,
-            { name: "", mayor: true },
-        ),
-    );
+    const choices = [serving];
+    for (const { id } of liveHamlets(
+        await home.harness.snapshot(RealmDoc, context),
+    )) {
+        const limits = limitsOf(
+            await home.harness.snapshot(LimitsDoc, id, context),
+        );
+        const record = await home.harness.snapshot(RecordDoc, id, context);
+        for (const agent of record?.agents ?? [])
+            choices.push(
+                modelRef(
+                    choose(limits, settings, {
+                        name: agent.name,
+                        mayor: agent.number === record?.mayor,
+                        model: agent.model,
+                    }),
+                ),
+            );
+    }
     const saved = await home.harness.snapshot(SettingsDoc, context);
     for (const endpoint of settings.endpoints) {
         const store = stores.get(home.models);
@@ -177,7 +190,7 @@ export async function syncProviders(
         );
         const seeds = [
             ...new Set(
-                [serving, choice].flatMap((ref) =>
+                choices.flatMap((ref) =>
                     ref?.provider === endpoint.name ? [ref.modelId] : [],
                 ),
             ),
@@ -228,6 +241,14 @@ export async function refreshModels(
     context: Context,
     timeout = 10_000,
 ): Promise<void> {
+    await syncProviders(
+        home,
+        settingsOf(
+            await home.harness.snapshot(SettingsDoc, context),
+            home.overrides,
+        ),
+        context,
+    );
     const providers = [...(custom.get(home.models)?.keys() ?? [])];
     if (providers.length === 0) return;
     const result = await home.models.refresh({

@@ -5,14 +5,14 @@ import { CharacterDoc } from "./character.ts";
 import { editCharter } from "./charter.ts";
 import { chatOf } from "./chats.ts";
 import { envFor } from "./environment.ts";
-import { agentKey, HOME } from "./hamlet.ts";
+import { agentKey } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./layout.ts";
 import { editLimits } from "./limits/edit.ts";
 import { editSettings } from "./models.ts";
 import { safeWords } from "./plainly.ts";
 import type { Edit } from "./protocol.ts";
-import { addressed } from "./record.ts";
+import { readableAgent, readableHamlet } from "./reads.ts";
 
 /** A chief's validated document edit, applied before its reply (S6). */
 export async function edit(
@@ -30,11 +30,7 @@ export async function edit(
             break;
         case "character":
         case "notes": {
-            if (message.agent.hamlet !== HOME)
-                throw new Error(`no hamlet named \`${message.agent.hamlet}\``);
-            const agent = await addressed(home.harness, message.agent, context);
-            if (agent === undefined)
-                throw new Error(`no agent named \`${message.agent.agent}\``);
+            const agent = await readableAgent(home, message.agent, context);
             const text = safeWords(home, message.text);
             if (message.doc === "character") {
                 const key = agentKey(agent);
@@ -65,8 +61,7 @@ export async function edit(
             break;
         }
         case "limits":
-            if (message.hamlet !== HOME)
-                throw new Error(`no hamlet named \`${message.hamlet}\``);
+            await readableHamlet(home, message.hamlet, context);
             await editLimits(home, message.hamlet, message, context);
             break;
         case "settings":

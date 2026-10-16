@@ -2,7 +2,7 @@ import { lstat, mkdir, realpath } from "node:fs/promises";
 import { constants, homedir, tmpdir, userInfo } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { chat } from "./chat.ts";
-import { reachHome } from "./client.ts";
+import { connectChief, reachHome } from "./client.ts";
 import { HOME, MAYOR } from "./hamlet.ts";
 import { serve } from "./serving.ts";
 import {
@@ -17,10 +17,10 @@ import { findApp, launch } from "./window.ts";
 const PORT = 7313;
 
 const USAGE = `usage: hamlet server [--port <n>] [--faux <script.json>]
-       hamlet chat [--to <agent>]
+       hamlet chat [--to <agent|name@hamlet|mayor@hamlet>]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>]
        hamlet window
-       hamlet edit <charter|character|notes|limits|settings>
+       hamlet edit <charter|character|notes|limits|settings> [--hamlet <id>]
        hamlet login <provider> [--key]
        hamlet models [try [model] | refresh]
 
@@ -28,11 +28,12 @@ const USAGE = `usage: hamlet server [--port <n>] [--faux <script.json>]
     --port   the port on 127.0.0.1 (${PORT}; 0 for any free one)
     --faux   answer with the responses of a script instead of a model
   chat     chat with the hamlet's mayor in the terminal; Ctrl-D quits
-    --to     chat with that agent instead
+    --to     chat with that agent anywhere in the realm instead
   dev      serve a scratch home on a free port and open its window; Ctrl-C stops
     --home   use this scratch home instead of HAMLET_HOME or the per-user temporary home
   window   open a window connected to a running server
   edit     open the chief's document in EDITOR, then save it through the server
+    --hamlet choose a hamlet for edit limits (home by default)
   login    paste a key with --key, or follow the provider's sign-in
   models   list models, refresh the list, or try a one-word hello
 
@@ -111,14 +112,22 @@ function parse(args: readonly string[]): Command | undefined {
         return { name, provider, key: flag === "--key" };
     }
     if (name === "edit") {
-        const [doc, extra] = rest;
-        if (extra !== undefined)
-            throw new Error(`unknown argument \`${extra}\`\n\n${USAGE}`);
+        const [doc, flag, hamlet, extra] = rest;
         if (!DOCUMENTS.some((name) => name === doc))
             throw new Error(
                 `edit needs one of charter, character, notes, limits or settings\n\n${USAGE}`,
             );
-        return { name, doc: doc as DocumentName };
+        if (flag !== undefined && (flag !== "--hamlet" || doc !== "limits"))
+            throw new Error(`unknown argument \`${flag}\`\n\n${USAGE}`);
+        if (extra !== undefined)
+            throw new Error(`unknown argument \`${extra}\`\n\n${USAGE}`);
+        if (flag === "--hamlet" && (!hamlet || hamlet.startsWith("--")))
+            throw new Error("--hamlet needs a hamlet id");
+        return {
+            name,
+            doc: doc as DocumentName,
+            ...(hamlet === undefined ? {} : { hamlet }),
+        };
     }
     if (name !== "server" && name !== "dev" && name !== "chat") {
         throw new Error(
@@ -255,9 +264,28 @@ async function openWindow(): Promise<void> {
 /** A chat with `to` through the local or environment-named server (S4, S13). */
 async function talk(to: string) {
     const reached = await reachHome(homeDir(), process.env);
+    const [agent = "", hamlet, extra] = to.split("@");
+    if (!agent || extra !== undefined || hamlet === "")
+        throw new Error("--to names an agent, name@hamlet or mayor@hamlet");
+    let target = { hamlet: hamlet ?? HOME, agent };
+    if (hamlet === undefined && agent !== MAYOR) {
+        const joined = await connectChief(reached);
+        try {
+            const found = joined.state.agents.find(
+                (a) => a.name === agent && !a.left,
+            );
+            if (!found) throw new Error(`no agent named \`${agent}\``);
+            target = {
+                hamlet: found.ref.hamlet,
+                agent: found.mayor ? MAYOR : found.name,
+            };
+        } finally {
+            await joined.connection.close();
+        }
+    }
     await chat({
         ...reached,
-        to: { hamlet: HOME, agent: to },
+        to: target,
         input: process.stdin,
         out: process.stdout,
         err: process.stderr,

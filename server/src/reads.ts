@@ -5,13 +5,13 @@ import { CharacterDoc } from "./character.ts";
 import { CharterDoc, charterOf } from "./charter.ts";
 import { chatOf } from "./chats.ts";
 import { envFor } from "./environment.ts";
-import { agentKey, HOME } from "./hamlet.ts";
+import { agentKey } from "./hamlet.ts";
 import { historyOf } from "./history.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./layout.ts";
 import { refreshModels } from "./models.ts";
-import type { Listed, Read, ReadResult } from "./protocol.ts";
-import { addressed } from "./record.ts";
+import type { Address, Listed, Read, ReadResult } from "./protocol.ts";
+import { isChief, RealmDoc, resolve } from "./realm.ts";
 import { houseSkills } from "./skills.ts";
 import { told } from "./told.ts";
 
@@ -54,11 +54,7 @@ export async function read(
         );
         return { ...reply, models };
     }
-    if (message.agent.hamlet !== HOME)
-        throw new Error(`no hamlet named \`${message.agent.hamlet}\``);
-    const agent = await addressed(home.harness, message.agent, context);
-    if (agent === undefined)
-        throw new Error(`no agent named \`${message.agent.agent}\``);
+    const agent = await readableAgent(home, message.agent, context);
     const chat = { agent, chief: home.chief };
     if (message.what === "history")
         return { ...reply, history: await historyOf(home, chat, context) };
@@ -90,4 +86,40 @@ export async function read(
             ),
         },
     };
+}
+
+/** A living hamlet whose papers the chief may read or edit. */
+export async function readableHamlet(
+    home: Home,
+    id: string,
+    context: Context,
+): Promise<void> {
+    const realm = await home.harness.snapshot(RealmDoc, context);
+    const place = realm?.hamlets.find((h) => h.id === id && !h.erased);
+    if (!place || !realm) throw new Error(`no hamlet named \`${id}\``);
+    if (place.removed)
+        throw new Error(
+            `Hamlet \`${id}\` was removed: ${place.removed.reason}`,
+        );
+    if (!isChief(realm, id, home.chief))
+        throw new Error(
+            `only a chief of \`${id}\` can read or edit its papers`,
+        );
+}
+/** A living agent whose papers the chief may read or edit. */
+export async function readableAgent(
+    home: Home,
+    address: Address,
+    context: Context,
+) {
+    await readableHamlet(home, address.hamlet, context);
+    const resolved = await resolve(
+        home.harness,
+        address.hamlet,
+        `${address.agent}@${address.hamlet}`,
+        context,
+    );
+    if (!resolved) throw new Error(`no agent named \`${address.agent}\``);
+    if ("gone" in resolved) throw new Error(resolved.gone);
+    return resolved.ref;
 }
