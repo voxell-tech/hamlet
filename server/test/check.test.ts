@@ -197,3 +197,26 @@ it.each([
         ).toBe(words);
     },
 );
+
+it("scrubs a successful hello before keeping its link", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), { models });
+    const key = "hello-check-credential-42";
+    await home.credentials.modify("local", async () => ({
+        type: "api_key",
+        key,
+    }));
+    const { fauxAssistantMessage } = await import(
+        "@earendil-works/pi-ai/providers/faux"
+    );
+    faux.setResponses([fauxAssistantMessage(`Hello ${key}.`)]);
+    expect(await home.modelHome.checkModel(undefined, context)).toEqual({
+        ok: true,
+        value: "Hello [REDACTED].",
+    });
+    await home.close(context);
+    const { readFile } = await import("node:fs/promises");
+    expect(
+        (await readFile(home.layout.storage)).includes(Buffer.from(key)),
+    ).toBe(false);
+});

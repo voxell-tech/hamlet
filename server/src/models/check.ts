@@ -101,10 +101,12 @@ export async function checkModel(
             );
             return answer;
         }
-        const text = answer.value.content
-            .flatMap((part) => (part.type === "text" ? [part.text] : []))
-            .join("")
-            .trim();
+        const text = home.secrets.words(
+            answer.value.content
+                .flatMap((part) => (part.type === "text" ? [part.text] : []))
+                .join("")
+                .trim(),
+        );
         if (
             answer.value.stopReason === "error" ||
             answer.value.stopReason === "aborted" ||
