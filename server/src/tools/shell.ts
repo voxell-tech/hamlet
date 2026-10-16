@@ -30,6 +30,21 @@ type Ran = {
     exitCode: number;
 };
 
+/** Arguments shared by the shell and the gate. */
+export const bashParameters = Type.Object({
+    command: Type.String({ description: "Bash command to execute" }),
+    timeout: Type.Optional(
+        Type.Number({
+            description: `Timeout in seconds, at most ${WALL_SECS}`,
+        }),
+    ),
+    network: Type.Optional(
+        Type.Boolean({
+            description: "True when the command needs the network.",
+        }),
+    ),
+});
+
 /**
  * Hamlet's `bash`: pi's, with a `network` flag, a time limit of `wallSecs` that a model may only shorten, and Rust's
  * hints (C16). The call reaches the network only when its `hamlet.leave` grants it (C19), and every credential is
@@ -41,19 +56,7 @@ export function bashTool(home: Home, wallSecs = WALL_SECS) {
     return defineTool({
         name: pi.name,
         description: `${pi.description} It stops after ${wallSecs} seconds, or sooner with \`timeout\`.`,
-        parameters: Type.Object({
-            command: Type.String({ description: "Bash command to execute" }),
-            timeout: Type.Optional(
-                Type.Number({
-                    description: `Timeout in seconds, at most ${wallSecs}`,
-                }),
-            ),
-            network: Type.Optional(
-                Type.Boolean({
-                    description: "True when the command needs the network.",
-                }),
-            ),
-        }),
+        parameters: bashParameters,
         ...(pi.structuredOutputSchema && {
             structuredOutputSchema: pi.structuredOutputSchema,
         }),

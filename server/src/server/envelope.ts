@@ -3,6 +3,7 @@ import {
     type ConnectionFailure,
     connectionFailureText,
 } from "../connection.ts";
+import { type AnswerFailure, answerFailureText } from "../gate.ts";
 import type { Fault, Malformed, Reply } from "../protocol.ts";
 import {
     type ChiefRefusal,
@@ -22,6 +23,7 @@ export type Receipt = {
 
 /** Chief-facing failures whose wording is chosen at the protocol seam. */
 export type ChiefFailure =
+    | AnswerFailure
     | LegacyRefusal
     | AddressFailure
     | ChiefRefusal["error"]
@@ -62,6 +64,8 @@ function rendered(failure: ChiefFailure): {
     kind: "notice" | "error";
 } {
     switch (failure.kind) {
+        case "answer-not-offered":
+            return { text: answerFailureText(failure), kind: "notice" };
         case "agent-missing":
         case "agent-gone":
             return { text: addressFailureText(failure), kind: "error" };

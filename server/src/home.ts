@@ -72,6 +72,8 @@ export type HomeBase = {
 
 /** A home this process holds open (S2, ADR 0005). */
 export type Home = HomeBase & {
+    /** The gate part owns its close state through this handle. */
+    gate?: { close(): void };
     readonly harness: Harness;
     readonly registry: Registry;
     readonly models: MutableModels;

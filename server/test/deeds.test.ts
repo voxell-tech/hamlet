@@ -95,7 +95,7 @@ it("shows a held edit's change and words, runs only after allow, and lets a chie
             choice: "dismiss",
         }),
     ).toMatchObject({
-        kind: "error",
+        kind: "notice",
         text: expect.stringContaining("That cannot be answered that way:"),
     });
     expect(

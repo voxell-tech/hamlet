@@ -18,3 +18,5 @@ export const Tools: Part = (home) => ({
         ],
     }),
 });
+
+export { bashParameters } from "./tools/shell.ts";

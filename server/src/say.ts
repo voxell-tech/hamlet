@@ -335,9 +335,8 @@ export async function say(
         const wait = own ?? waits[0];
         if (wait === undefined) return receipt("Nothing waits for you.");
 
-        // D6 replaces this answer-call compatibility catch with answer-not-offered.
-        try {
-            const outcome = await answerWords(
+        return receipt(
+            await answerWords(
                 home,
                 {
                     wait: wait.id,
@@ -346,19 +345,15 @@ export async function say(
                     chief: home.chief,
                 },
                 context,
-            );
-            return receipt(outcome);
-        } catch (cause) {
-            return receipt(connectionFailureText({ kind: "defect", cause }));
-        }
+            ),
+        );
     }
     if (!command && own?.kind === "question") {
-        // D6 replaces this plain-answer compatibility catch with an answer failure.
         const outcome = await answerWords(
             home,
             { wait: own.id, choice: "reply", text, chief: home.chief },
             context,
-        ).catch(legacyRefusal);
+        );
         return receipt(outcome);
     }
     if (

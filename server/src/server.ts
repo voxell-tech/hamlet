@@ -281,7 +281,6 @@ export async function serveHome(
                     ? home.secrets.value(outcome.value)
                     : replyFor(message.id, outcome, home.secrets);
             },
-            // D6 replaces this answer-call compatibility catch with answer-not-offered.
             answer: async (message) =>
                 replyFor(
                     message.id,
@@ -290,7 +289,7 @@ export async function serveHome(
                             home,
                             { ...message, chief: home.chief },
                             context,
-                        ).catch(legacyRefusal),
+                        ),
                     ),
                     home.secrets,
                 ),
