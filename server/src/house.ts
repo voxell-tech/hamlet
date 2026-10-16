@@ -21,7 +21,6 @@ export {
     stage,
     type TreeCaps,
     type TreeFailure,
-    type TreeFile,
     type TreeListing,
     treeFailureText,
 } from "./house/trees.ts";

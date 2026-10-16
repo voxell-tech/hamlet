@@ -1,5 +1,4 @@
 import type { BaseModel } from "@earendil-works/pi-ai";
-import type { Endpoint } from "../settings.ts";
 import type { Price } from "./catalogue.ts";
 
 /** Recognizes loopback and wildcard host addresses for local model pricing. */
@@ -45,23 +44,6 @@ export function atEndpoint<T extends BaseModel<string>>(
                   }
                 : model.cost,
     };
-}
-
-/** An added endpoint's name, preserving an existing address and numbering name collisions. */
-export function addEndpoint(
-    known: readonly Endpoint[],
-    proposed: Endpoint,
-): Endpoint {
-    const same = known.find(
-        (each) =>
-            each.baseUrl.replace(/\/+$/, "") ===
-            proposed.baseUrl.replace(/\/+$/, ""),
-    );
-    if (same !== undefined) return { ...same };
-    let name = proposed.name;
-    for (let n = 2; known.some((each) => each.name === name); n++)
-        name = `${proposed.name}-${n}`;
-    return { name, baseUrl: proposed.baseUrl };
 }
 
 /** Dollars per million tokens when the endpoint lists no price. */

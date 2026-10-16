@@ -232,15 +232,6 @@ export function currentOf(chat: Readonly<Chat>): ConversationId {
     return current.conversation;
 }
 
-/** Every conversation of every chat an agent has, by the agent's chats. */
-export function conversationsOf(chats: {
-    readonly chats: { readonly [chief: string]: Readonly<Chat> };
-}): ConversationId[] {
-    return Object.values(chats.chats).flatMap((chat) =>
-        chat.conversations.map((each) => each.conversation),
-    );
-}
-
 /** An earlier conversation by stable session number, without creating a chat. */
 export async function past(
     home: Home,

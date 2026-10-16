@@ -527,7 +527,6 @@ export {
 } from "./models/catalogue.ts";
 export { type ModelFailure, modelFailureText } from "./models/check.ts";
 export {
-    addEndpoint,
     assumedRate,
     atEndpoint,
     endpointName,

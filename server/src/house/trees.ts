@@ -53,8 +53,6 @@ const Report = Type.Object({
     failed: Type.Optional(Type.Boolean()),
 });
 type TreeReport = Static<typeof Report>;
-/** Regular files with their no-follow size and digest. */
-export type TreeFile = TreeReport["files"][number];
 /** Unsafe entries are reported without reading their contents. */
 export type TreeListing = Pick<TreeReport, "files" | "skipped">;
 type Operation =

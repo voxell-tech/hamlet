@@ -26,7 +26,6 @@ export {
     type ChatId,
     ChiefEntry,
     chiefInput,
-    conversationsOf,
     current,
     currentNumber,
     currentOf,
