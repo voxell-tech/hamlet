@@ -95,6 +95,7 @@ Paths are under `crates/`.
 | What an agent is told every turn | [`prompt.md`](prompt.md); the charter is `assets/charter.md` |
 | The tools an agent has | `hamlet_core/src/tools/`; the hamlet's own in `hamlet_core/src/agent/hamlet_tools.rs` |
 | The questions an agent asks the chief | `hamlet_rules/src/chief/asking.rs`; their card, in Needs You and the chat, in `hamlet_ui/src/asking.rs` |
+| Selecting and copying text in the panels | `hamlet_ui/src/select.rs`; [`chat.md`](chat.md) |
 | A chief's slash command | The table `ALL` in `hamlet_rules/src/commands.rs`, which names who carries it out |
 | What needs the chief's approval | `hamlet_core/src/oversight/danger.rs` |
 | What an agent's commands may touch | `hamlet_sandbox/src/`; [`sandbox.md`](sandbox.md) |

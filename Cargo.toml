@@ -47,6 +47,9 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 interprocess = "2"
 keyring = "4"
 libc = "0.2"
+# The text layout Bevy's text is built on, for selecting drawn words.
+# Held to the version `bevy_text` uses, so its layouts are this crate's.
+parley = { version = "0.9", default-features = false, features = ["std"] }
 process-wrap = { version = "10.0.1", features = ["tokio1"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"

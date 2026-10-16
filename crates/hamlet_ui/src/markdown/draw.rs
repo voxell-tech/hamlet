@@ -14,7 +14,9 @@ use bevy::ui::{
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{TextTokens, Tone};
-use bevy_fynix::views::{FrameProps, column, frame, label, row};
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, column, frame, label, row,
+};
 use bevy_fynix::{EntityCursor, Signal, ViewExt, component, each};
 use hamlet_core::session::{Entry, Transcript, reply_in};
 
@@ -26,6 +28,7 @@ use crate::looks::{Fills, bare};
 use crate::platform::{
     Display as DisplayFace, DisplayText, Mono, MonoText,
 };
+use crate::select::Area;
 use crate::theme::Palette;
 use crate::{AnyView, Cx, View};
 
@@ -444,12 +447,13 @@ fn block_view(
 }
 
 /// A Markdown document, one view per block. A block that has not
-/// changed keeps its nodes while the document grows.
+/// changed keeps its nodes while the document grows. Its words are
+/// selected as one.
 pub(crate) fn document(
     blocks: Signal<Vec<Block>>,
     tone: Tone,
 ) -> impl View {
-    each(
+    let blocks = each(
         blocks.map(|blocks| {
             blocks.into_iter().enumerate().collect::<Vec<_>>()
         }),
@@ -462,7 +466,12 @@ pub(crate) fn document(
             })
         },
     )
-    .within(bare())
+    .within(bare());
+    AnyView::new(move |cx: &mut Cx| {
+        let node = cx.build(blocks);
+        cx.world.entity_mut(node).insert(Area);
+        node
+    })
 }
 
 /// Words set as they were typed, with `tail` after them, if there
@@ -487,7 +496,8 @@ pub(crate) fn typed(text: &str, tail: &str) -> Option<AnyView> {
     ))
 }
 
-/// A Markdown document that is drawn once, one view per block.
+/// A Markdown document that is drawn once, one view per block. Its
+/// words are selected as one.
 pub fn fixed(text: &str, tone: Tone) -> impl View {
     let blocks = parse(text);
     AnyView::new(move |cx: &mut Cx| {
@@ -496,7 +506,7 @@ pub fn fixed(text: &str, tone: Tone) -> impl View {
             .enumerate()
             .map(|(at, block)| block_view(cx, at, block, tone))
             .collect::<Vec<_>>();
-        cx.build(column(views).gap(0.0))
+        cx.build(column(views).gap(0.0).tagged(Area))
     })
 }
 
@@ -633,6 +643,7 @@ mod tests {
         .init_resource::<chat::Unfolded>()
         .init_resource::<chat::Lines>()
         .init_resource::<chat::Reach>()
+        .init_resource::<crate::select::Selecting>()
         .add_systems(bevy::app::Update, chat::fold_lines);
         mount::<HamletTheme>(app.world_mut(), chat::transcript());
         app.update();

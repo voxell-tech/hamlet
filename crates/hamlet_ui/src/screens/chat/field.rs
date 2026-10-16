@@ -48,6 +48,35 @@ pub fn keep_typed(
     }
 }
 
+/// The most lines the field grows to before it scrolls.
+const MOST_LINES: usize = 8;
+
+/// Grows each field with the lines in it, so a quote and the words
+/// after it are both seen.
+pub fn grow(
+    root: Query<&Children, With<ChatField>>,
+    mut texts: Query<&mut EditableText>,
+) {
+    let inputs = root
+        .iter()
+        .flat_map(|children| children.iter().copied())
+        .collect::<Vec<_>>();
+    for input in inputs {
+        let Ok(mut text) = texts.get_mut(input) else {
+            continue;
+        };
+        let lines = text
+            .editor
+            .try_layout()
+            .map_or(1, |layout| layout.len().clamp(1, MOST_LINES));
+        // One line keeps the height the field is drawn at.
+        let want = (lines > 1).then_some(lines as f32);
+        if text.visible_lines != want {
+            text.visible_lines = want;
+        }
+    }
+}
+
 /// The words an empty field shows to say what can be typed.
 #[derive(Component)]
 pub struct Placeholder;

@@ -21,6 +21,7 @@ use bevy_fynix::views::{
 use hamlet_core::session::{Rewound, Status};
 
 use super::Draft;
+use super::reply::{Replying, unreplied};
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{ICON, retrace};
@@ -110,16 +111,26 @@ fn reveal(
 }
 
 /// Puts the words of the message the open conversation was taken
-/// back to in the field, with the caret at their end.
+/// back to in the field, with the caret at their end, and what it
+/// replied to over the field.
 fn retype(
     rewound: On<Rewound>,
     me: Res<Me>,
     mut draft: ResMut<Draft>,
+    mut replying: ResMut<Replying>,
 ) {
     if rewound.event().session != me.session {
         return;
     }
-    draft.text = rewound.event().text.clone();
+    let text = &rewound.event().text;
+    let (answers, words) = match unreplied(text) {
+        Some((answers, words)) => {
+            (Some((me.session, answers)), words)
+        }
+        None => (None, text.as_str()),
+    };
+    replying.0 = answers;
+    draft.text = words.to_string();
     // The field is focused two steps on. A send starts a step
     // earlier, at the one that clears it.
     draft.step = 2;

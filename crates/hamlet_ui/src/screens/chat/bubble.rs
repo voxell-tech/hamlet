@@ -20,11 +20,14 @@ use hamlet_core::session::{Entry, Transcript, reply_in};
 
 use super::entry::entry_view;
 use super::lines::{Lines, Row, fold_view};
+use super::quote;
+use super::reply::{self, Replies};
 use super::rewind::{self, Rewinds};
 use super::timeline::{Kind, Line, Who};
 use crate::looks::{Fills, bare, hairline};
 use crate::me::Me;
 use crate::platform::DisplayText;
+use crate::select::{self, Area, Quotable};
 use crate::theme::{Palette, contrast};
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx, View, markdown, with_cx};
@@ -184,6 +187,13 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
             Some(Entry::Error(_)) => (Words::Fault, ""),
             _ => (Words::Markdown, ""),
         };
+        // The message a reply answers is drawn on its own.
+        let (answers, typed) = match reply::unreplied(typed) {
+            Some((answers, words)) => (Some(answers), words),
+            None => (None, typed),
+        };
+        let replies = words != Words::Fault
+            && entry.is_some_and(reply::answerable);
         let mine = who.kind == Kind::Me;
         // The chief's own words in its own conversation with the
         // agent are what that conversation can be taken back to.
@@ -235,8 +245,29 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
             );
         }
         let reserve = if time.is_empty() { "" } else { RESERVE };
+        // The words of a message, selected as one, with the quote
+        // button at the end of what is selected.
+        let selectable = |said: AnyView| match replies {
+            true => column((
+                said,
+                select::quote_button(session, id).boxed(),
+            ))
+            .min_width(px(0.0))
+            .max_width(percent(100.0))
+            .tagged(Area)
+            .boxed(),
+            false => column((said,))
+                .min_width(px(0.0))
+                .max_width(percent(100.0))
+                .boxed(),
+        };
         // Words with a link in them are set once, span by span.
-        let linked = markdown::typed(typed, reserve);
+        let linked = match quote::quotes(typed) {
+            true => {
+                Some(quote::drawn(typed, reserve, palette.brass_4))
+            }
+            false => markdown::typed(typed, reserve),
+        };
         let hour = label(time).size(10.0).wrap(false).tone(if mine {
             Tone::Faint
         } else {
@@ -246,12 +277,18 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
             // The hour sits in the room kept at the end of the
             // last line.
             Words::Plain => {
-                inside.push(linked.unwrap_or_else(|| {
+                if let Some(answers) = &answers {
+                    inside.push(reply::answered(answers).boxed());
+                }
+                let said = linked.unwrap_or_else(|| {
                     label(component::<Transcript, _>(
                         session,
                         move |t| match t.and_then(|t| t.get(id)) {
                             Some(Entry::User { text, .. }) => {
-                                format!("{text}{reserve}")
+                                format!(
+                                    "{}{reserve}",
+                                    reply::rest(text)
+                                )
                             }
                             Some(Entry::Answered(said)) => {
                                 format!("{said}{reserve}")
@@ -260,7 +297,8 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
                         },
                     ))
                     .boxed()
-                }));
+                });
+                inside.push(selectable(said));
                 inside.push(
                     row((hour,))
                         .position(PositionType::Absolute)
@@ -284,11 +322,10 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
                     )
                     .boxed(),
                 };
+                // The hour stands outside the words, so it is never
+                // selected with them.
                 inside.push(wrapping(
-                    column((body,))
-                        .max_width(percent(100.0))
-                        .min_width(px(0.0))
-                        .boxed(),
+                    selectable(body),
                     row((hour,))
                         .margin(UiRect::left(Val::Auto))
                         .padding(UiRect::left(px(10.0)))
@@ -327,16 +364,23 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
                 }
             }));
         let above = px(if line.lead { RUN } else { 0.0 });
+        let (replying, reply_room) = match replies {
+            true => (
+                reply::mark(session, id, who.name.clone()),
+                reply::ROOM,
+            ),
+            false => (frame().boxed(), 0.0),
+        };
         let view = if mine {
             let (mark, room) = match back {
                 true => (rewind::mark(session, id), rewind::ROOM),
                 false => (frame().boxed(), 0.0),
             };
-            row((mark, bubble))
+            row((replying, mark, bubble))
                 .gap(0.0)
                 .justify(JustifyContent::FlexEnd)
                 .padding(UiRect::new(
-                    px(GUTTER + FAR - room),
+                    px(GUTTER + FAR - room - reply_room),
                     px(0.0),
                     above,
                     px(0.0),
@@ -358,17 +402,27 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
                     .shrink(0.0)
                     .justify(JustifyContent::FlexEnd),
                 bubble,
+                replying,
             ))
             .gap(0.0)
-            .padding(UiRect::new(px(0.0), px(FAR), above, px(0.0)))
+            .padding(UiRect::new(
+                px(0.0),
+                px(FAR - reply_room),
+                above,
+                px(0.0),
+            ))
             .boxed()
         };
         let node = cx.build(view);
+        let mut built = cx.world.entity_mut(node);
+        if back || replies {
+            built.insert(Hovered::default());
+        }
         if back {
-            cx.world.entity_mut(node).insert((
-                Hovered::default(),
-                Rewinds { session, entry: id },
-            ));
+            built.insert(Rewinds { session, entry: id });
+        }
+        if replies {
+            built.insert((Replies, Quotable { session, entry: id }));
         }
         node
     })

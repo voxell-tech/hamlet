@@ -3450,6 +3450,7 @@ dependencies = [
  "hamlet_testing",
  "hamlet_world",
  "image",
+ "parley",
  "pulldown-cmark",
  "reqwest",
  "serde",
