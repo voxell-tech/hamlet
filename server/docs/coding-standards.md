@@ -5,6 +5,15 @@ checked into `server/`. Use the Node version in
 [`.nvmrc`](../.nvmrc); the root [`AGENTS.md`](../../AGENTS.md) gives the
 checks and safe running rules.
 
+## Modules and folders
+
+A concept has one entry, `src/<name>.ts`, and implementation files in
+`src/<name>/` when needed. Entries use named re-exports, never `index.ts`
+or `export *`. Code outside the folder imports only its entry. Code
+inside imports siblings and other concepts' entries, never its own entry
+as a value. Type-only imports of its entry are allowed. Tests may import
+internals to exercise an internal seam. `test/` stays flat.
+
 ## Check values according to their source
 
 - External input is untrusted: client protocol messages, files from a
@@ -164,6 +173,9 @@ export function agentKey(agent: AgentRef): string {
     return `${agent.hamlet}:${agent.number}`;
 }
 ```
+
+A documented protocol schema constant also documents the immediately
+following `export type X = Static<typeof X>` alias of the same name.
 
 Document original declarations once; re-exports use that documentation.
 Use explicit prose rather than `@inheritDoc`. Add tags only when they

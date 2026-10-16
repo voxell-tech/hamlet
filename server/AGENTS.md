@@ -11,3 +11,5 @@ running.
   the work done.
 - Read [`docs/errors.md`](docs/errors.md) before adding or changing an
   error, an error message or retry advice.
+
+Module entries and import boundaries follow [Modules and folders](docs/coding-standards.md#modules-and-folders).
