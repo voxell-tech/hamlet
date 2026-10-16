@@ -23,35 +23,22 @@ import {
     ChiefEntry,
     chatOf,
     currentOf,
-    ErrandDoc,
     LetterEntry,
-    newTask,
-    notify,
     QuestionEntry,
-    runErrand,
     startConversation,
-    startErrand,
     WithDoc,
-} from "./chats.ts";
-import {
-    type Deed,
-    type Home,
-    houseOf,
-    type Part,
-    untilAborted,
-} from "./home.ts";
-import { type Limits, LimitsDoc, limitsOf } from "./limits.ts";
+} from "./chats/conversations.ts";
+import { ErrandDoc, runErrand, startErrand } from "./chats/errands.ts";
+import { notify } from "./chats/notice.ts";
+import { newTask } from "./chats/turn.ts";
+import { untilAborted } from "./home/abort.ts";
+import { houseOf } from "./home/layout.ts";
+import type { Deed, Home, Part } from "./home.ts";
+import { type Limits, LimitsDoc, limitsOf } from "./limits/rules.ts";
 import { reconfigure } from "./models.ts";
 import type { VoteView } from "./protocol.ts";
-import {
-    chiefsOf,
-    foundHamlet,
-    isChief,
-    liveHamlets,
-    mayFound,
-    RealmDoc,
-    removeHamlet,
-} from "./realm.ts";
+import { foundHamlet, mayFound, removeHamlet } from "./realm/founding.ts";
+import { chiefsOf, isChief, liveHamlets, RealmDoc } from "./realm/places.ts";
 import {
     type AgentRef,
     agentKey,

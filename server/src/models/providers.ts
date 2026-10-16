@@ -10,7 +10,7 @@ import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
 import type { HomeBase } from "../home.ts";
 import { safeWords } from "../scrub.ts";
 import type { Endpoint } from "../settings.ts";
-import { estimateOf } from "../spend.ts";
+import { estimateOf } from "../spend/money.ts";
 import { type Card, readList, record } from "./catalogue.ts";
 import { assumedRate, atEndpoint } from "./endpoints.ts";
 

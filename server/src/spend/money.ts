@@ -1,5 +1,5 @@
 import type { AssistantMessage, Model, Usage } from "@earendil-works/pi-ai";
-import { assumedRate } from "../models.ts";
+import { assumedRate } from "../models/endpoints.ts";
 
 /** Spend in tokens, millionths of a dollar and elapsed milliseconds. */
 export type Amount = { tokens: number; micros: number; ms: number };

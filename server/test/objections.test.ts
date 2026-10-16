@@ -9,8 +9,9 @@ import {
 import { expect, it, vi } from "vitest";
 import { QuestionEntry, startConversation, submitLine } from "../src/chats.ts";
 import { answer } from "../src/gate.ts";
+import { localDay } from "../src/home/clock.ts";
+import { houseOf } from "../src/home/layout.ts";
 import type { Home } from "../src/home.ts";
-import { houseOf, localDay } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import type { Choice, Wait } from "../src/oversight.ts";
 import { say as typed } from "../src/say.ts";

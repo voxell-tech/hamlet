@@ -11,7 +11,7 @@ import {
     type Tx,
 } from "@earendil-works/pi-durable";
 import type { Home } from "../home.ts";
-import { configureAgent } from "../models.ts";
+import { configureAgent } from "../models/choice.ts";
 import { type AgentRef, agentKey, HOME } from "../record.ts";
 import { InstructionsDoc } from "./instructions.ts";
 import { TaskDoc } from "./tasks.ts";

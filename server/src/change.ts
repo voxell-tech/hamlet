@@ -1,4 +1,4 @@
-import type { Change } from "./oversight.ts";
+import type { Change } from "./oversight/waits.ts";
 
 /** The tool-task memo holding the gate's edit preview. */
 export const CHANGE = "hamlet.change";

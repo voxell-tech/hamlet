@@ -22,7 +22,7 @@ import {
 import { expect, it, vi } from "vitest";
 import { erase, merge, remove, restore } from "../src/agents.ts";
 import { InstructionsDoc, submitLine, WithDoc } from "../src/chats.ts";
-import { houseOf } from "../src/home.ts";
+import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { CharacterDoc } from "../src/prompt.ts";
 import { resolve, roadsOf } from "../src/realm.ts";

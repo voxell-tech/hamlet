@@ -3,7 +3,8 @@ import type { Conversation } from "@earendil-works/pi-durable";
 import type { Home } from "../home.ts";
 import { PeersDoc } from "../letters.ts";
 import type { ChatRef } from "../protocol.ts";
-import { type ChiefResult, chiefAccess, resolve } from "../realm.ts";
+import { type ChiefResult, chiefAccess } from "../realm/access.ts";
+import { resolve } from "../realm/roads.ts";
 import { agentKey } from "../record.ts";
 
 /** A chief's read-only conversation between two agents. */

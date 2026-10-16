@@ -4,7 +4,7 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it } from "vitest";
-import { localDay } from "../src/home.ts";
+import { localDay } from "../src/home/clock.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RecordDoc } from "../src/record.ts";
 import { ledgerOf } from "../src/spend.ts";

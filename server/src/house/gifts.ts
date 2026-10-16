@@ -2,17 +2,17 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, mkdtemp, open, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import { submitLine } from "../chats.ts";
+import { submitLine } from "../chats/conversations.ts";
+import { houseOf } from "../home/layout.ts";
 import type { Home } from "../home.ts";
-import { houseOf } from "../home.ts";
-import { STARTERS } from "../library.ts";
+import { STARTERS } from "../library/shelf.ts";
 import {
     type Address,
     type Give,
     type GivePart,
     MAX_GIFT_BYTES,
 } from "../protocol.ts";
-import { type ChiefResult, chiefAccess } from "../realm.ts";
+import { type ChiefResult, chiefAccess } from "../realm/access.ts";
 import type { AgentRef } from "../record.ts";
 import { named, RecordDoc } from "../record.ts";
 import { directoryRoot } from "../sandbox.ts";

@@ -5,7 +5,11 @@ import type {
     EntryRecord,
     Harness,
 } from "@earendil-works/pi-durable";
-import { LetterEntry, QuestionEntry, ReplyEntry } from "../chats.ts";
+import {
+    LetterEntry,
+    QuestionEntry,
+    ReplyEntry,
+} from "../chats/conversations.ts";
 
 type Statistics = { count: number; last: number | null };
 

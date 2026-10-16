@@ -28,19 +28,19 @@ import {
     AgentConversationsDoc,
     ChatDoc,
     chatOf,
-    InstructionsDoc,
-    notify,
-    PayerDoc,
     WithDoc,
-} from "../chats.ts";
+} from "../chats/conversations.ts";
+import { PayerDoc } from "../chats/errands.ts";
+import { InstructionsDoc } from "../chats/instructions.ts";
+import { notify } from "../chats/notice.ts";
 import { GrantsDoc, grantsOf, revoke } from "../gate.ts";
+import { houseOf } from "../home/layout.ts";
 import type { Home, Part } from "../home.ts";
-import { houseOf } from "../home.ts";
 import { removeHouse } from "../house.ts";
 import { askAgent, PeersDoc } from "../letters.ts";
-import { LimitsDoc } from "../limits.ts";
+import { LimitsDoc } from "../limits/rules.ts";
 import { reconfigure } from "../models.ts";
-import { lapseAgent } from "../oversight.ts";
+import { lapseAgent } from "../oversight/waits.ts";
 import { CharacterDoc } from "../prompt.ts";
 import { type AgentRef, agentKey, HOME, RecordDoc } from "../record.ts";
 import { VotesDoc, voteOpen } from "../votes.ts";

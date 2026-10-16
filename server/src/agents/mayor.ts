@@ -6,13 +6,16 @@ import {
     type ToolExecutionApi,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { turnOf, WithDoc } from "../chats.ts";
+import { WithDoc } from "../chats/conversations.ts";
+import { turnOf } from "../chats/turn.ts";
+import { localDay } from "../home/clock.ts";
+import { buildHouse } from "../home/layout.ts";
 import type { Deed, Home, Part } from "../home.ts";
-import { buildHouse, localDay } from "../home.ts";
-import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
+import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
 import { choose, commitEdit } from "../models.ts";
 import { CharacterDoc } from "../prompt.ts";
-import { liveHamlets, RealmDoc, roadsOf } from "../realm.ts";
+import { liveHamlets, RealmDoc } from "../realm/places.ts";
+import { roadsOf } from "../realm/roads.ts";
 import {
     type AgentRef,
     agentKey,
@@ -24,15 +27,10 @@ import {
     tidyName,
 } from "../record.ts";
 import { SettingsDoc, settingsOf } from "../settings.ts";
-import type { Books } from "../spend.ts";
-import {
-    add,
-    booksOf,
-    chargeRoad,
-    LedgerDoc,
-    roadAfford,
-    zero,
-} from "../spend.ts";
+import type { Books } from "../spend/ledger.ts";
+import { booksOf, chargeRoad, LedgerDoc } from "../spend/ledger.ts";
+import { add, zero } from "../spend/money.ts";
+import { roadAfford } from "../spend.ts";
 import { voteOpen } from "../votes.ts";
 
 /** The agent lifecycle and road tools (H27, H3, H29). */

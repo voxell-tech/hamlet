@@ -2,7 +2,8 @@ import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { houseOf, localDay } from "../src/home.ts";
+import { localDay } from "../src/home/clock.ts";
+import { houseOf } from "../src/home/layout.ts";
 import { ledgerOf } from "../src/spend.ts";
 import {
     agents,

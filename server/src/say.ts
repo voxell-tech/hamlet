@@ -1,8 +1,8 @@
 import type { Context } from "@earendil-works/chord";
 import type { Submission } from "@earendil-works/pi-durable";
 import * as agents from "./agents.ts";
+import { ChatDoc, submitLine } from "./chats/conversations.ts";
 import {
-    ChatDoc,
     historyOf,
     newChat,
     reflect,
@@ -10,7 +10,6 @@ import {
     retry,
     stopAgent,
     stopChiefAgents,
-    submitLine,
 } from "./chats.ts";
 import { readCommand } from "./commands.ts";
 import { folder, setMode } from "./environment.ts";
@@ -18,15 +17,18 @@ import { answerWords, GrantsDoc, grantsOf, revoke } from "./gate.ts";
 import type { Deed, Home } from "./home.ts";
 import { giftSkill } from "./house.ts";
 import * as library from "./library.ts";
-import { LimitsDoc, limitsOf } from "./limits.ts";
-import { OversightDoc, queue, strip } from "./oversight.ts";
+import { LimitsDoc, limitsOf } from "./limits/rules.ts";
+import { OversightDoc } from "./oversight/waits.ts";
+import { queue, strip } from "./oversight/words.ts";
 import type { Say } from "./protocol.ts";
+import { type ChiefResult, chiefAccess } from "./realm/access.ts";
+import { resolve } from "./realm/roads.ts";
 import * as founding from "./realm.ts";
-import { type ChiefResult, chiefAccess, resolve } from "./realm.ts";
 import { addressed, agentKey } from "./record.ts";
 import { err, ok, type Result } from "./result.ts";
 import type { ChiefFailure, Receipt } from "./server.ts";
-import { reportOf, resetBudget } from "./spend.ts";
+import { resetBudget } from "./spend/ledger.ts";
+import { reportOf } from "./spend.ts";
 import * as voting from "./votes.ts";
 
 /** A chief's typed line: a receipt or refusal, or no immediate outcome when admitted as work. Stored words are scrubbed (H24, C32). */

@@ -5,7 +5,7 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it } from "vitest";
-import { houseOf } from "../src/home.ts";
+import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { CharacterDoc } from "../src/prompt.ts";
 import { agentKey, RecordDoc } from "../src/record.ts";

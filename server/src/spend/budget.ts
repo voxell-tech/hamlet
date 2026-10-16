@@ -9,10 +9,13 @@ import {
     SessionFailed,
     section,
 } from "@earendil-works/pi-durable";
-import { agentOf, notify, payerOf, turnOf, WithDoc } from "../chats.ts";
+import { WithDoc } from "../chats/conversations.ts";
+import { agentOf, payerOf } from "../chats/errands.ts";
+import { notify } from "../chats/notice.ts";
+import { turnOf } from "../chats/turn.ts";
+import { untilAborted } from "../home/abort.ts";
 import type { Part } from "../home.ts";
-import { untilAborted } from "../home.ts";
-import { LimitsDoc, limitsOf } from "../limits.ts";
+import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import { RecordDoc } from "../record.ts";
 import { booksOf, markUncounted, reconcile } from "./ledger.ts";
 import { micros, money } from "./money.ts";

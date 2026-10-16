@@ -4,7 +4,7 @@ import {
     type SubmissionId,
     type Tx,
 } from "@earendil-works/pi-durable";
-import type { With } from "../chats.ts";
+import type { With } from "../chats/conversations.ts";
 import type { Danger } from "./waits.ts";
 
 type Refused = { kind: Danger } | { exact: string };

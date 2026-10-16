@@ -9,7 +9,8 @@ import {
     type Tx,
 } from "@earendil-works/pi-durable";
 import { CHANGE, changeOf } from "./change.ts";
-import { ReflectionEntry, turnOf, type With, WithDoc } from "./chats.ts";
+import { ReflectionEntry, type With, WithDoc } from "./chats/conversations.ts";
+import { turnOf } from "./chats/turn.ts";
 import {
     envFor,
     footing,
@@ -20,30 +21,31 @@ import {
 } from "./environment.ts";
 import { judge, type Reach, type Standing } from "./gate/danger.ts";
 import { GrantsDoc, give, grantsOf, holds } from "./gate/grants.ts";
-import { type Manifest, ManifestsDoc } from "./hand.ts";
+import { type Manifest, ManifestsDoc } from "./hand/manifests.ts";
+import { houseOf } from "./home/layout.ts";
 import type { Home, Part } from "./home.ts";
-import { houseOf } from "./home.ts";
-import { LimitsDoc } from "./limits.ts";
+import { LimitsDoc } from "./limits/rules.ts";
 import {
     AskedDoc,
+    refuse,
+    refused,
+    TrustedDoc,
+    trustKey,
+} from "./oversight/asked.ts";
+import {
     type Choice,
     type Danger,
-    holdFor,
-    line,
     OversightDoc,
     type Ruling,
     RulingDoc,
     raise,
-    refuse,
-    refused,
     ruling,
     settle,
-    strip,
-    TrustedDoc,
-    trustKey,
     type Wait,
-} from "./oversight.ts";
-import { type ChiefResult, chiefAccess } from "./realm.ts";
+} from "./oversight/waits.ts";
+import { line, strip } from "./oversight/words.ts";
+import { holdFor } from "./oversight.ts";
+import { type ChiefResult, chiefAccess } from "./realm/access.ts";
 import { addressOf, RecordDoc } from "./record.ts";
 import { canon, within } from "./sandbox.ts";
 import { safeValue, safeWords } from "./scrub.ts";

@@ -9,7 +9,7 @@ import {
     type Tx,
 } from "@earendil-works/pi-durable";
 import type { Home } from "../home.ts";
-import { configureAgent } from "../models.ts";
+import { configureAgent } from "../models/choice.ts";
 import type { AgentRef } from "../record.ts";
 import { ErrandEntry, startConversation, WithDoc } from "./conversations.ts";
 

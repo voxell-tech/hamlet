@@ -1,6 +1,6 @@
 import type { Context } from "@earendil-works/chord";
 import type { Home } from "../home.ts";
-import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
+import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
 import { choose } from "../models.ts";
 import type { Report } from "../protocol.ts";
 import { RecordDoc } from "../record.ts";

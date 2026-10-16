@@ -9,7 +9,8 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
 import { ChatDoc, submitLine } from "../src/chats.ts";
-import { houseOf, localDay } from "../src/home.ts";
+import { localDay } from "../src/home/clock.ts";
+import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RealmDoc, roadsOf } from "../src/realm.ts";
 import { HOME, RecordDoc } from "../src/record.ts";

@@ -7,8 +7,9 @@ import {
     type TaskId,
     type Tx,
 } from "@earendil-works/pi-durable";
-import type { ChatId, With } from "../chats.ts";
-import { localDay, untilAborted } from "../home.ts";
+import type { ChatId, With } from "../chats/conversations.ts";
+import { untilAborted } from "../home/abort.ts";
+import { localDay } from "../home/clock.ts";
 import type { AgentRef } from "../record.ts";
 
 /** The reason an agent is waiting for a chief. */

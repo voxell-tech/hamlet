@@ -1,5 +1,6 @@
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
-import type { Credentials, HomeBase } from "./home.ts";
+import type { Credentials } from "./home/credentials.ts";
+import type { HomeBase } from "./home.ts";
 import { shellOutput } from "./scrub/output.ts";
 import { Scrubber } from "./scrub/scrubber.ts";
 

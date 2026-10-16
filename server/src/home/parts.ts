@@ -17,25 +17,23 @@ import { Votes } from "../votes.ts";
  * The home's own parts, in the order they install. The tools added by hand come before Hamlet's, so that Hamlet's own
  * win any name.
  */
-export function parts(): readonly Part[] {
-    return [
-        Prompt,
-        HamletBrief,
-        Founding,
-        Hand,
-        Tools,
-        Agents,
-        Letters,
-        Leaving,
-        Merging,
-        Votes,
-        Librarian,
-        Objections,
-        Dealings,
-        Gate,
-        Talk,
-        Budget,
-        Choice,
-        Providers,
-    ];
-}
+export const PARTS: readonly Part[] = [
+    Prompt,
+    HamletBrief,
+    Founding,
+    Hand,
+    Tools,
+    Agents,
+    Letters,
+    Leaving,
+    Merging,
+    Votes,
+    Librarian,
+    Objections,
+    Dealings,
+    Gate,
+    Talk,
+    Budget,
+    Choice,
+    Providers,
+];

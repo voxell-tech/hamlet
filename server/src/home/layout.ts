@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentRef } from "../record.ts";
-import { directoryRoot } from "../sandbox.ts";
+import { directoryRoot } from "../sandbox/policy.ts";
 
 /** The paths of a home's parts (C8). */
 export type Layout = {

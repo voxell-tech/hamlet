@@ -14,7 +14,7 @@ import {
 import { join } from "node:path";
 import { ExecutionError, err } from "@earendil-works/pi-durable/env";
 import { expect, it, vi } from "vitest";
-import { houseOf } from "../src/home.ts";
+import { houseOf } from "../src/home/layout.ts";
 import {
     deliverTree,
     listTree,

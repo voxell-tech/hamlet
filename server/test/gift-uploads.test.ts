@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { houseOf } from "../src/home.ts";
+import { houseOf } from "../src/home/layout.ts";
 import { uploads } from "../src/house.ts";
 import {
     context,

@@ -1,5 +1,5 @@
 import type { Permission } from "./gate.ts";
-import type { Choice } from "./oversight.ts";
+import type { Choice } from "./oversight/waits.ts";
 
 const TABLE = [
     ["new", "", "Start a new session and keep this one in history"],

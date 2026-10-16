@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { houseOf } from "../src/home.ts";
+import { houseOf } from "../src/home/layout.ts";
 import { deliverTree, listTree, removeTree, stageTree } from "../src/house.ts";
 import { closedPolicy, openPolicy, SandboxEnv } from "../src/sandbox.ts";
 import {

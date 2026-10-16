@@ -16,7 +16,8 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { houseOf, localDay } from "../src/home.ts";
+import { localDay } from "../src/home/clock.ts";
+import { houseOf } from "../src/home/layout.ts";
 import { LibraryDoc, libraryPart, libraryView } from "../src/library.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { LedgerDoc, reconcile } from "../src/spend.ts";

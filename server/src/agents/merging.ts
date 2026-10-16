@@ -23,32 +23,21 @@ import {
     ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
-import {
-    ErrandDoc,
-    InstructionsDoc,
-    newTask,
-    owed,
-    runErrand,
-    startErrand,
-    stopAgent,
-    turnOf,
-    WithDoc,
-} from "../chats.ts";
+import { WithDoc } from "../chats/conversations.ts";
+import { ErrandDoc, runErrand, startErrand } from "../chats/errands.ts";
+import { InstructionsDoc, owed } from "../chats/instructions.ts";
+import { newTask, turnOf } from "../chats/turn.ts";
+import { stopAgent } from "../chats.ts";
 import { revoke } from "../gate.ts";
+import { untilAborted } from "../home/abort.ts";
+import { houseOf } from "../home/layout.ts";
 import type { Deed, Home, Part } from "../home.ts";
-import { houseOf, untilAborted } from "../home.ts";
 import { listTree, MERGE_CAPS, removeTree, stageTree } from "../house.ts";
-import { LimitsDoc } from "../limits.ts";
-import { lapseAgent } from "../oversight.ts";
-import {
-    chiefAccess,
-    chiefRefusalText,
-    farewell,
-    isChief,
-    liveHamlets,
-    RealmDoc,
-    roadsOf,
-} from "../realm.ts";
+import { LimitsDoc } from "../limits/rules.ts";
+import { lapseAgent } from "../oversight/waits.ts";
+import { chiefAccess, chiefRefusalText } from "../realm/access.ts";
+import { isChief, liveHamlets, RealmDoc } from "../realm/places.ts";
+import { farewell, roadsOf } from "../realm/roads.ts";
 import {
     type AgentRecord,
     type AgentRef,
@@ -60,7 +49,8 @@ import {
 } from "../record.ts";
 import { closedPolicy, SandboxEnv } from "../sandbox.ts";
 import { safeWords } from "../scrub.ts";
-import { booksOf, stopped } from "../spend.ts";
+import { booksOf } from "../spend/ledger.ts";
+import { stopped } from "../spend.ts";
 import { decisionText, mayDecide, notifyChiefs, voteOpen } from "../votes.ts";
 import { lapseTrust } from "./leaving.ts";
 

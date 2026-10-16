@@ -1,5 +1,5 @@
 import type { Leave } from "../environment.ts";
-import type { Danger } from "../oversight.ts";
+import type { Danger } from "../oversight/waits.ts";
 
 /** The reach of a tool call (H11). */
 export type Reach =

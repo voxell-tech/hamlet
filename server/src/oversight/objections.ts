@@ -24,24 +24,26 @@ import {
 import {
     AgentConversationsDoc,
     ErrandEntry,
-    InstructionsDoc,
-    notify,
     RetryEntry,
-    runErrand,
-    startErrand,
-    TaskDoc,
-    turnOf,
     WithDoc,
-} from "../chats.ts";
+} from "../chats/conversations.ts";
+import { runErrand, startErrand } from "../chats/errands.ts";
+import { InstructionsDoc } from "../chats/instructions.ts";
+import { notify } from "../chats/notice.ts";
+import { TaskDoc } from "../chats/tasks.ts";
+import { turnOf } from "../chats/turn.ts";
+import { untilAborted } from "../home/abort.ts";
+import { localDay } from "../home/clock.ts";
+import { houseOf } from "../home/layout.ts";
 import type { Home, Part } from "../home.ts";
-import { houseOf, localDay, untilAborted } from "../home.ts";
-import { LimitsDoc, limitsOf } from "../limits.ts";
+import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import { choose } from "../models.ts";
-import { liveHamlets, RealmDoc } from "../realm.ts";
+import { liveHamlets, RealmDoc } from "../realm/places.ts";
 import { type AgentRef, addressOf, agentKey, RecordDoc } from "../record.ts";
 import { closedPolicy, SandboxEnv } from "../sandbox.ts";
 import { modelRef, SettingsDoc, settingsOf } from "../settings.ts";
-import { booksOf, stopped } from "../spend.ts";
+import { booksOf } from "../spend/ledger.ts";
+import { stopped } from "../spend.ts";
 import { AskedDoc } from "./asked.ts";
 import {
     OversightDayDoc,

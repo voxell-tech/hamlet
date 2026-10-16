@@ -7,18 +7,24 @@ import {
     LiveDoc,
     watchEvents,
 } from "@earendil-works/pi-durable";
-import { AgentConversationsDoc, ChatDoc, currentOf } from "./chats.ts";
+import {
+    AgentConversationsDoc,
+    ChatDoc,
+    currentOf,
+} from "./chats/conversations.ts";
 import { DEEDS } from "./commands.ts";
 import { modeWords, WorkDoc } from "./environment.ts";
 import { GrantsDoc, grantsOf } from "./gate.ts";
+import { houseOf } from "./home/layout.ts";
 import type { Home } from "./home.ts";
-import { houseOf } from "./home.ts";
-import { refreshSkills, skillNames, starterSkills } from "./house.ts";
+import { refreshSkills, skillNames, starterSkills } from "./house/skills.ts";
 import { conversationViews } from "./letters.ts";
-import { libraryView, STARTERS } from "./library.ts";
-import { LimitsDoc, limitsOf } from "./limits.ts";
+import { STARTERS } from "./library/shelf.ts";
+import { libraryView } from "./library.ts";
+import { LimitsDoc, limitsOf } from "./limits/rules.ts";
 import { choose, providersOf } from "./models.ts";
-import { OversightDoc, queue, says } from "./oversight.ts";
+import { OversightDoc } from "./oversight/waits.ts";
+import { queue, says } from "./oversight/words.ts";
 import type {
     Agent,
     Changes,
@@ -29,14 +35,8 @@ import type {
     Update,
     Wait,
 } from "./protocol.ts";
-import {
-    farewell,
-    level,
-    liveHamlets,
-    RealmDoc,
-    realmRoads,
-    roadsOf,
-} from "./realm.ts";
+import { liveHamlets, RealmDoc } from "./realm/places.ts";
+import { farewell, level, realmRoads, roadsOf } from "./realm/roads.ts";
 import {
     addressOf,
     agentKey,
@@ -45,7 +45,9 @@ import {
     RecordDoc,
 } from "./record.ts";
 import { type Settings, SettingsDoc, settingsOf } from "./settings.ts";
-import { booksOf, money, reportOf } from "./spend.ts";
+import { booksOf } from "./spend/ledger.ts";
+import { money } from "./spend/money.ts";
+import { reportOf } from "./spend.ts";
 import { Activity } from "./state/activity.ts";
 import { voteViews } from "./votes.ts";
 

@@ -1,14 +1,14 @@
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import { chatOf } from "../chats.ts";
+import { chatOf } from "../chats/conversations.ts";
 import { envFor } from "../environment.ts";
+import { houseOf } from "../home/layout.ts";
 import type { Home } from "../home.ts";
-import { houseOf } from "../home.ts";
 import { editLimits } from "../limits.ts";
 import { editCatalogue, editSettings } from "../models.ts";
 import { CharacterDoc, editCharter } from "../prompt.ts";
 import type { Edit } from "../protocol.ts";
-import { type ChiefResult, chiefAccess } from "../realm.ts";
+import { type ChiefResult, chiefAccess } from "../realm/access.ts";
 import { agentKey } from "../record.ts";
 import { readableAgent } from "./reads.ts";
 

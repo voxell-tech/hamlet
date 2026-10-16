@@ -4,7 +4,7 @@ import {
     connectionFailureText,
 } from "../connection.ts";
 import type { Fault, Malformed, Reply } from "../protocol.ts";
-import { type ChiefRefusal, chiefRefusalText } from "../realm.ts";
+import { type ChiefRefusal, chiefRefusalText } from "../realm/access.ts";
 import type { Result } from "../result.ts";
 import type { Secrets } from "../scrub.ts";
 

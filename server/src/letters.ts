@@ -21,29 +21,27 @@ import {
 } from "@earendil-works/pi-durable";
 import {
     LetterEntry,
-    PayerDoc,
     QuestionEntry,
     ReplyEntry,
     startConversation,
-    TaskDoc,
-    turnOf,
     WithDoc,
-} from "./chats.ts";
+} from "./chats/conversations.ts";
+import { PayerDoc } from "./chats/errands.ts";
+import { TaskDoc } from "./chats/tasks.ts";
+import { turnOf } from "./chats/turn.ts";
+import { untilAborted } from "./home/abort.ts";
 import type { Home, Part } from "./home.ts";
-import { untilAborted } from "./home.ts";
 import { PeersDoc } from "./letters/peers.ts";
-import { LimitsDoc } from "./limits.ts";
+import { LimitsDoc } from "./limits/rules.ts";
+import { liveHamlets, RealmDoc, type RealmEnd } from "./realm/places.ts";
 import {
     carryRealmRoad,
     carryRoad,
     hasRoad,
-    liveHamlets,
-    RealmDoc,
-    type RealmEnd,
     realmRoads,
     resolve,
     roadsOf,
-} from "./realm.ts";
+} from "./realm/roads.ts";
 import {
     type AgentRef,
     addressOf,

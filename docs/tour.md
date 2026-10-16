@@ -78,7 +78,10 @@ Each server concept has an entry `src/<name>.ts` and, when needed, its
 implementation in `src/<name>/`. Outside code imports the entry; internals
 import siblings and other entries. Entries use named re-exports, with no
 `index.ts`. Tests stay flat in `server/test/` and may exercise internals.
-The confined file helper imports its pinned skill-paper source directly.
+Shared dependency leaves and the legacy conversation core are explicit
+exceptions, listed in
+[`server/docs/coding-standards.md`](../server/docs/coding-standards.md#modules-and-folders).
+They are imported directly so that helpers do not load composed parts.
 
 `agents` owns membership and roads, `letters` peer exchanges, `votes` the
 office, `library` the shared shelf and `oversight` waits for a chief.

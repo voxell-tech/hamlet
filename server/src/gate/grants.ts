@@ -1,5 +1,5 @@
 import { defineDoc, type Tx } from "@earendil-works/pi-durable";
-import type { Limits } from "../limits.ts";
+import type { Limits } from "../limits/rules.ts";
 import { type AgentRef, agentKey } from "../record.ts";
 
 /** A standing grant for network access or unconfined commands. */

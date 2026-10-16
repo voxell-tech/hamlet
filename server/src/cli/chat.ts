@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { COMMANDS } from "../commands.ts";
-import { strip } from "../oversight.ts";
+import { strip } from "../oversight/words.ts";
 import {
     type Address,
     applyOp,

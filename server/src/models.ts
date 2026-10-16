@@ -13,7 +13,7 @@ import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { defineExtension } from "@earendil-works/pi-durable";
 import type { Home, HomeBase, Part } from "./home.ts";
-import { LimitsDoc, limitsOf } from "./limits.ts";
+import { LimitsDoc, limitsOf } from "./limits/rules.ts";
 import {
     type Card,
     CatalogueDoc,
@@ -25,7 +25,7 @@ import { endpointName } from "./models/endpoints.ts";
 import { plainly } from "./models/plainly.ts";
 import { compatible, protectedProvider } from "./models/providers.ts";
 import { FileModelsStore } from "./models/store.ts";
-import { liveHamlets, RealmDoc } from "./realm.ts";
+import { liveHamlets, RealmDoc } from "./realm/places.ts";
 import { RecordDoc } from "./record.ts";
 import { safeWords } from "./scrub.ts";
 import {

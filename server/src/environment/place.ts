@@ -3,9 +3,9 @@ import type {
     ConversationId,
     DocumentReader,
 } from "@earendil-works/pi-durable";
-import { WithDoc } from "../chats.ts";
+import { WithDoc } from "../chats/conversations.ts";
+import { houseOf } from "../home/layout.ts";
 import type { HomeBase } from "../home.ts";
-import { houseOf } from "../home.ts";
 import { WorkDoc } from "./work.ts";
 
 /** The places an agent's tools work in: its house, and the folder its hamlet works on (C20). */

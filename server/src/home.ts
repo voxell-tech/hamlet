@@ -15,18 +15,23 @@ import {
     type Storage,
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { AgentConversationsDoc, ChatDoc, type With, WithDoc } from "./chats.ts";
+import {
+    AgentConversationsDoc,
+    ChatDoc,
+    type With,
+    WithDoc,
+} from "./chats/conversations.ts";
 import { closeEnvironments, envFor, WorkDoc } from "./environment.ts";
 import { Credentials } from "./home/credentials.ts";
 import { buildHouse, type Layout, layOut } from "./home/layout.ts";
 import { claim } from "./home/lock.ts";
-import { parts } from "./home/parts.ts";
-import { closeSkills, refreshSkills } from "./house.ts";
+import { PARTS } from "./home/parts.ts";
+import { closeSkills, refreshSkills } from "./house/skills.ts";
 import { PeerStatistics } from "./letters.ts";
-import { LimitsDoc } from "./limits.ts";
+import { LimitsDoc } from "./limits/rules.ts";
 import { homeModels } from "./models.ts";
 import { CharacterDoc } from "./prompt.ts";
-import { liveHamlets, RealmDoc } from "./realm.ts";
+import { liveHamlets, RealmDoc } from "./realm/places.ts";
 import { agentKey, HOME, RecordDoc } from "./record.ts";
 import { platformSandbox, type Sandbox } from "./sandbox.ts";
 import { type Secrets, secretsFrom } from "./scrub.ts";
@@ -159,7 +164,7 @@ export async function openHome(
         };
         await found(home, context);
         running.push(
-            ...[...parts(), ...(options.parts ?? [])].map((part) => part(home)),
+            ...[...PARTS, ...(options.parts ?? [])].map((part) => part(home)),
         );
         for (const part of running) {
             if (part.extension !== undefined) registry.install(part.extension);
@@ -267,14 +272,3 @@ export type Deed = (
     given: { hamlet: string; rest: string; chief: string },
     context: Context,
 ) => Promise<string>;
-
-export { untilAborted } from "./home/abort.ts";
-export { localDay } from "./home/clock.ts";
-export { Credentials } from "./home/credentials.ts";
-export {
-    buildHouse,
-    houseOf,
-    type Layout,
-    layOut,
-    layoutOf,
-} from "./home/layout.ts";

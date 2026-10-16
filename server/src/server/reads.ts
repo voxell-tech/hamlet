@@ -1,14 +1,16 @@
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import { chatOf, historyOf } from "../chats.ts";
+import { chatOf } from "../chats/conversations.ts";
+import { historyOf } from "../chats.ts";
 import { envFor } from "../environment.ts";
+import { houseOf } from "../home/layout.ts";
 import type { Home } from "../home.ts";
-import { houseOf } from "../home.ts";
-import { houseSkills } from "../house.ts";
+import { houseSkills } from "../house/skills.ts";
 import { catalogueOf, refreshModels } from "../models.ts";
 import { CharacterDoc, CharterDoc, charterOf, told } from "../prompt.ts";
 import type { Address, Listed, Read, ReadResult } from "../protocol.ts";
-import { type ChiefResult, chiefAccess, resolve } from "../realm.ts";
+import { type ChiefResult, chiefAccess } from "../realm/access.ts";
+import { resolve } from "../realm/roads.ts";
 import { type AgentRef, agentKey } from "../record.ts";
 import { ok } from "../result.ts";
 

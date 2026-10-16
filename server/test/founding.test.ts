@@ -449,7 +449,7 @@ it.each(["mill", "dock"])(
     "refuses removing or erasing pending move endpoint %s without losing the house",
     async (endpoint) => {
         const { readFile, writeFile } = await import("node:fs/promises");
-        const { houseOf } = await import("../src/home.ts");
+        const { houseOf } = await import("../src/home/layout.ts");
         const run = await served({ models: fauxModels().models });
         await addHamlet(run.home, "mill", "miller");
         await addHamlet(run.home, "dock", "docker");

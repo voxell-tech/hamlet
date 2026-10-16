@@ -15,16 +15,12 @@ import {
 import { closeGate } from "../gate.ts";
 import type { Home, Part } from "../home.ts";
 import { configureAgent } from "../models.ts";
-import {
-    lapse,
-    OversightDoc,
-    raiseFault,
-    resetTrust,
-    settle,
-} from "../oversight.ts";
-import { chiefAccess, liveHamlets, RealmDoc } from "../realm.ts";
+import { resetTrust } from "../oversight/asked.ts";
+import { lapse, OversightDoc, raiseFault, settle } from "../oversight/waits.ts";
+import { chiefAccess } from "../realm/access.ts";
+import { liveHamlets, RealmDoc } from "../realm/places.ts";
 import { type AgentRef, addressOf, agentKey, RecordDoc } from "../record.ts";
-import { reconcile } from "../spend.ts";
+import { reconcile } from "../spend/ledger.ts";
 import {
     answerFailure,
     cancelAnswers,

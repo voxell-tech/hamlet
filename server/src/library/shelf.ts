@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { skillsIn } from "../house.ts";
+import { skillsIn } from "../house/skills.ts";
 
 /** The starter skills the server ships, one folder each (H33). */
 export const STARTERS = fileURLToPath(

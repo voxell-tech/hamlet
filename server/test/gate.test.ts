@@ -19,8 +19,8 @@ import { chatOf, startConversation, WithDoc } from "../src/chats.ts";
 import { LEAVE, type Leave } from "../src/environment.ts";
 import { answer, GrantsDoc, grantsOf, revoke } from "../src/gate.ts";
 import { ManifestsDoc } from "../src/hand.ts";
+import { buildHouse } from "../src/home/layout.ts";
 import type { Home, Part } from "../src/home.ts";
-import { buildHouse } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import {
     type Choice,

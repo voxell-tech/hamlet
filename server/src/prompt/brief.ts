@@ -1,9 +1,11 @@
 import { defineExtension, section } from "@earendil-works/pi-durable";
-import { agentOf, InstructionsDoc } from "../chats.ts";
+import { agentOf } from "../chats/errands.ts";
+import { InstructionsDoc } from "../chats/instructions.ts";
 import type { Part } from "../home.ts";
 import { PeersDoc } from "../letters.ts";
-import { LimitsDoc, limitsOf } from "../limits.ts";
-import { liveHamlets, RealmDoc, realmRoads, roadsOf } from "../realm.ts";
+import { LimitsDoc, limitsOf } from "../limits/rules.ts";
+import { liveHamlets, RealmDoc } from "../realm/places.ts";
+import { realmRoads, roadsOf } from "../realm/roads.ts";
 import {
     addressOf,
     agentKey,

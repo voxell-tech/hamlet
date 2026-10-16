@@ -13,9 +13,9 @@ import {
     type TaskId,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { untilAborted } from "../home/abort.ts";
 import type { Home } from "../home.ts";
-import { untilAborted } from "../home.ts";
-import { raiseFault } from "../oversight.ts";
+import { raiseFault } from "../oversight/waits.ts";
 import { addressOf, RecordDoc } from "../record.ts";
 import { safeWords } from "../scrub.ts";
 import { ReflectionEntry, retryInput, WithDoc } from "./conversations.ts";

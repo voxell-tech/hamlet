@@ -4,7 +4,7 @@ import {
     type Tx,
 } from "@earendil-works/pi-durable";
 import type { Home } from "../home.ts";
-import { liveHamlets, RealmDoc } from "../realm.ts";
+import { liveHamlets, RealmDoc } from "../realm/places.ts";
 import { RecordDoc } from "../record.ts";
 import { WithDoc } from "./conversations.ts";
 import { ErrandDoc } from "./errands.ts";

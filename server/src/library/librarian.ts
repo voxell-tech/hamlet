@@ -20,24 +20,25 @@ import {
     type TaskId,
     type ToolExecutionApi,
 } from "@earendil-works/pi-durable";
-import { runErrand, startErrand, turnOf, WithDoc } from "../chats.ts";
+import { WithDoc } from "../chats/conversations.ts";
+import { runErrand, startErrand } from "../chats/errands.ts";
+import { turnOf } from "../chats/turn.ts";
+import { houseOf } from "../home/layout.ts";
 import type { Deed, Home, Part } from "../home.ts";
-import { houseOf } from "../home.ts";
+import { parseSkill, refreshSkills, skillsIn } from "../house/skills.ts";
 import {
     deliverTree,
     listTree,
-    parseSkill,
-    refreshSkills,
     removeTree,
-    skillsIn,
     stageSkill,
     type TreeListing,
 } from "../house.ts";
-import { LimitsDoc, limitsOf } from "../limits.ts";
+import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import type { State } from "../protocol.ts";
 import { RecordDoc } from "../record.ts";
 import { closedPolicy, SandboxEnv } from "../sandbox.ts";
-import { booksOf, stopped } from "../spend.ts";
+import { booksOf } from "../spend/ledger.ts";
+import { stopped } from "../spend.ts";
 import { LibraryDoc, libraryPart } from "./shelf.ts";
 
 const ConsultDoc = defineDoc<{

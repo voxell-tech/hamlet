@@ -11,7 +11,7 @@ import type { Storage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { describe, expect, it } from "vitest";
 import { followHome } from "../src/chats.ts";
-import { localDay } from "../src/home.ts";
+import { localDay } from "../src/home/clock.ts";
 import { HOME } from "../src/record.ts";
 import { amountOf, booksOf, ledgerOf, resetBudget } from "../src/spend.ts";
 import { stateOf } from "../src/state.ts";

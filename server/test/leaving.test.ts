@@ -10,7 +10,7 @@ import { expect, it, vi } from "vitest";
 import { erase, merge, record, remove, restore, undo } from "../src/agents.ts";
 import { chatOf, InstructionsDoc, submitLine, WithDoc } from "../src/chats.ts";
 import { GrantsDoc, give, grantsOf } from "../src/gate.ts";
-import { houseOf } from "../src/home.ts";
+import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { raise, TrustedDoc, trustKey } from "../src/oversight.ts";
 import { resolve, roadsOf } from "../src/realm.ts";

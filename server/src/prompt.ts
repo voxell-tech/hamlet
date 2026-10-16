@@ -5,14 +5,14 @@ import {
     type PromptInput,
     section,
 } from "@earendil-works/pi-durable";
-import type { With } from "./chats.ts";
-import { agentOf } from "./chats.ts";
+import type { With } from "./chats/conversations.ts";
+import { agentOf } from "./chats/errands.ts";
 import { WorkDoc } from "./environment.ts";
-import { ManifestsDoc } from "./hand.ts";
+import { ManifestsDoc } from "./hand/manifests.ts";
+import { houseOf } from "./home/layout.ts";
 import type { Home, Part } from "./home.ts";
-import { houseOf } from "./home.ts";
-import { houseSkills } from "./house.ts";
-import { installStarters, libraryPart } from "./library.ts";
+import { houseSkills } from "./house/skills.ts";
+import { installStarters, libraryPart } from "./library/shelf.ts";
 import { CharacterDoc } from "./prompt/character.ts";
 import { charterOf } from "./prompt/charter.ts";
 import { agentKey } from "./record.ts";

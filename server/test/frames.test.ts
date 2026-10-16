@@ -7,8 +7,8 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
 import { type Connection, connect } from "../src/connection.ts";
+import { houseOf } from "../src/home/layout.ts";
 import type { HomeOptions } from "../src/home.ts";
-import { houseOf } from "../src/home.ts";
 import { type Script, scriptedModels } from "../src/models.ts";
 import {
     applyOp,

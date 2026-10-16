@@ -31,12 +31,8 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { afterEach } from "vitest";
 import { chatOf, submitLine } from "../src/chats.ts";
 import { WorkDoc } from "../src/environment.ts";
-import {
-    buildHouse,
-    type Home,
-    type HomeOptions,
-    openHome,
-} from "../src/home.ts";
+import { buildHouse } from "../src/home/layout.ts";
+import { type Home, type HomeOptions, openHome } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { OversightDoc, type Wait } from "../src/oversight.ts";
 import { RealmDoc } from "../src/realm.ts";

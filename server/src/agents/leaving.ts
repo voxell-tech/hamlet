@@ -10,20 +10,20 @@ import {
     ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
-import {
-    AgentConversationsDoc,
-    InstructionsDoc,
-    owed,
-    stopAgent,
-    WithDoc,
-} from "../chats.ts";
+import { AgentConversationsDoc, WithDoc } from "../chats/conversations.ts";
+import { InstructionsDoc, owed } from "../chats/instructions.ts";
+import { stopAgent } from "../chats.ts";
 import { revoke } from "../gate.ts";
+import { untilAborted } from "../home/abort.ts";
+import { localDay } from "../home/clock.ts";
+import { houseOf } from "../home/layout.ts";
 import type { Deed, Home, Part } from "../home.ts";
-import { houseOf, localDay, untilAborted } from "../home.ts";
 import { removeHouse } from "../house.ts";
-import { LimitsDoc } from "../limits.ts";
-import { lapseAgent, resetTrust } from "../oversight.ts";
-import { farewell, isChief, liveHamlets, RealmDoc, roadsOf } from "../realm.ts";
+import { LimitsDoc } from "../limits/rules.ts";
+import { resetTrust } from "../oversight/asked.ts";
+import { lapseAgent } from "../oversight/waits.ts";
+import { isChief, liveHamlets, RealmDoc } from "../realm/places.ts";
+import { farewell, roadsOf } from "../realm/roads.ts";
 import {
     type AgentRef,
     type Archived,

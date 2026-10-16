@@ -17,20 +17,20 @@ import {
     UserEntry,
 } from "@earendil-works/pi-durable";
 import { CHANGE, changeOf } from "./change.ts";
+import { SUMMARY_NOTICE } from "./chats/answers.ts";
 import {
     ChatDoc,
     ChiefEntry,
     chatOf,
     LetterEntry,
-    NoticeEntry,
     QuestionEntry,
     ReflectionEntry,
     ReplyEntry,
     RetryEntry,
-    SUMMARY_NOTICE,
-    usageOf,
     WithDoc,
-} from "./chats.ts";
+} from "./chats/conversations.ts";
+import { NoticeEntry } from "./chats/notice.ts";
+import { usageOf } from "./chats.ts";
 import type { Home } from "./home.ts";
 import type {
     ChatRef,
@@ -41,7 +41,7 @@ import type {
     Turn,
     UsageView,
 } from "./protocol.ts";
-import { type ChiefResult, chiefAccess } from "./realm.ts";
+import { type ChiefResult, chiefAccess } from "./realm/access.ts";
 import { addressed, agentKey, RecordDoc } from "./record.ts";
 import { ok } from "./result.ts";
 import { Scrubber } from "./scrub.ts";

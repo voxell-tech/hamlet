@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { describe, expect, it, vi } from "vitest";
-import { localDay } from "../src/home.ts";
+import { localDay } from "../src/home/clock.ts";
 import { editSettings } from "../src/models.ts";
 import { HOME } from "../src/record.ts";
 import { SettingsDoc } from "../src/settings.ts";

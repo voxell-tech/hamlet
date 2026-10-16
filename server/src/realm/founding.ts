@@ -10,22 +10,22 @@ import {
     type Tx,
 } from "@earendil-works/pi-durable";
 import {
-    agentOf,
     ChatDoc,
     currentOf,
-    notify,
     startConversation,
-    stopAgent,
     WithDoc,
-} from "../chats.ts";
+} from "../chats/conversations.ts";
+import { agentOf } from "../chats/errands.ts";
+import { notify } from "../chats/notice.ts";
+import { stopAgent } from "../chats.ts";
 import { WorkDoc } from "../environment.ts";
 import { GrantsDoc, grantsOf, revoke } from "../gate.ts";
+import { buildHouse } from "../home/layout.ts";
 import type { Deed, Home, Part } from "../home.ts";
-import { buildHouse } from "../home.ts";
 import { removeHouse } from "../house.ts";
-import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
+import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
 import { reconfigure } from "../models.ts";
-import { lapseAgent } from "../oversight.ts";
+import { lapseAgent } from "../oversight/waits.ts";
 import {
     agentKey,
     checkName,

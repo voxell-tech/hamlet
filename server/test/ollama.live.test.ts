@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { localDay } from "../src/home.ts";
+import { localDay } from "../src/home/clock.ts";
 import { HOME } from "../src/record.ts";
 import { ledgerOf } from "../src/spend.ts";
 import {

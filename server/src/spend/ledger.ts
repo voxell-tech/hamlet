@@ -12,22 +12,22 @@ import {
     type Tx,
     UsageDoc,
 } from "@earendil-works/pi-durable";
+import { AnswerDoc } from "../chats/answers.ts";
 import {
-    AnswerDoc,
     ChiefEntry,
     ErrandEntry,
     LetterEntry,
-    PayerDoc,
     QuestionEntry,
     ReflectionEntry,
     ReplyEntry,
     RetryEntry,
-    TaskDoc,
     WithDoc,
-} from "../chats.ts";
+} from "../chats/conversations.ts";
+import { PayerDoc } from "../chats/errands.ts";
+import { TaskDoc } from "../chats/tasks.ts";
+import { localDay } from "../home/clock.ts";
 import type { Home } from "../home.ts";
-import { localDay } from "../home.ts";
-import type { Limits } from "../limits.ts";
+import type { Limits } from "../limits/rules.ts";
 import { type Amount, add, amountOf, micros, zero } from "./money.ts";
 
 /** A model, summary or failed-attempt charge attributed to an agent and task. */

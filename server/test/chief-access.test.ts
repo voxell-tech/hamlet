@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { houseOf } from "../src/home.ts";
+import { houseOf } from "../src/home/layout.ts";
 import { RealmDoc } from "../src/realm.ts";
 import { request, served } from "./connection-support.ts";
 import { addHamlet, context, fauxModels } from "./support.ts";
