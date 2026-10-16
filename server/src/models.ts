@@ -16,6 +16,7 @@ import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { defineExtension } from "@earendil-works/pi-durable";
 import { Value } from "typebox/value";
+import { commitEdit } from "./chats/configure.ts";
 import type { Home, HomeBase, Part } from "./home.ts";
 import { LimitsDoc, limitsOf } from "./limits/rules.ts";
 import {
@@ -34,7 +35,6 @@ import {
     checkModel,
     type ModelFailure,
 } from "./models/check.ts";
-import { choose, commitEdit } from "./models/choice.ts";
 import {
     type LoginFailure,
     login,
@@ -56,6 +56,7 @@ import { RecordDoc } from "./record.ts";
 import { ok, type Result } from "./result.ts";
 import { safeWords } from "./scrub.ts";
 import {
+    choose,
     modelRef,
     type Settings,
     SettingsDoc,
@@ -525,14 +526,6 @@ export {
 } from "./models/catalogue.ts";
 export { type ModelFailure, modelFailureText } from "./models/check.ts";
 export {
-    Choice,
-    choose,
-    commitEdit,
-    configureAgent,
-    type Edit,
-    reconfigure,
-} from "./models/choice.ts";
-export {
     addEndpoint,
     assumedRate,
     atEndpoint,
@@ -557,4 +550,5 @@ export {
     type SettingsFailure,
     settingsFailureText,
 } from "./models/settings.ts";
+export { modelView } from "./models/state.ts";
 export { FileModelsStore } from "./models/store.ts";

@@ -213,10 +213,13 @@ one line, whether anything about how its hamlet is run got in its way.
 call with its name, its arguments cut to 200 characters and, for an edit,
 the change, then the call's end with its exit code, its time and the first
 line of a failure, and the notices meant only for people. Letters,
-questions and replies are shown with their writer as `name@hamlet`, or
-`hamlet#number` when that hamlet no longer holds the agent's record,
-including after erasure or a move. They are shown as agents' words, never
-as a chief's words that can be taken back.
+questions and replies show their writer as `name@hamlet`, using its living
+or archived record in the hamlet it wrote from. If no such record remains,
+its recorded departures and matching arrivals are followed through any
+number of moves to its current name and hamlet. Only when no record can
+be followed, such as after erasure, is the writer shown as `hamlet#number`.
+They are shown as agents' words, never as a chief's words that can be taken
+back.
 
 **C31. Not yet met.** Every model call, including each summarising call,
 records the model, where it was served, the input, cached, output and

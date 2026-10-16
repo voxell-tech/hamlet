@@ -39,7 +39,8 @@ import {
     carryRoad,
     hasRoad,
     realmRoads,
-    resolve,
+    resolveAddress,
+    resolveFailureText,
     roadsOf,
 } from "./realm/roads.ts";
 import {
@@ -242,12 +243,15 @@ export const Letters: Part = (home) => {
                                 context,
                             );
                             if (!place) throw new Error("not in a hamlet");
-                            const target = await targetOf(
+                            const resolved = await resolveAddress(
                                 api,
-                                place,
+                                place.hamlet,
                                 name,
                                 context,
                             );
+                            if (!resolved.ok)
+                                return resolveFailureText(resolved.error, name);
+                            const target = resolved.value;
                             const turn = await turnOf(
                                 home.harness,
                                 api,
@@ -294,12 +298,15 @@ export const Letters: Part = (home) => {
                                 context,
                             );
                             if (!place) throw new Error("not in a hamlet");
-                            const target = await targetOf(
+                            const resolved = await resolveAddress(
                                 api,
-                                place,
+                                place.hamlet,
                                 name,
                                 context,
                             );
+                            if (!resolved.ok)
+                                return resolveFailureText(resolved.error, name);
+                            const target = resolved.value;
                             const answer = await askAgent(
                                 home,
                                 api,
@@ -336,12 +343,15 @@ export const Letters: Part = (home) => {
                                 throw new Error(
                                     "The mayor builds roads with build_road.",
                                 );
-                            const target = await targetOf(
+                            const resolved = await resolveAddress(
                                 api,
-                                place,
+                                place.hamlet,
                                 to,
                                 context,
                             );
+                            if (!resolved.ok)
+                                return resolveFailureText(resolved.error, to);
+                            const target = resolved.value;
                             const known = (
                                 await api.snapshot(SentDoc, api.taskId, context)
                             )?.delivery;
@@ -430,18 +440,6 @@ async function words(run: () => Promise<string>) {
             ],
         };
     }
-}
-
-async function targetOf(
-    read: DocumentReader,
-    place: AgentRef,
-    name: string,
-    context: Context,
-) {
-    const target = await resolve(read, place.hamlet, name, context);
-    if (!target) throw new Error(`no agent named \`${name}\``);
-    if ("gone" in target) throw new Error(target.gone);
-    return target;
 }
 
 async function connected(

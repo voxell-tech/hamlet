@@ -15,7 +15,7 @@ import {
     ToolTask,
 } from "@earendil-works/pi-durable";
 import { describe, expect, it, vi } from "vitest";
-import { chatOf, startConversation, WithDoc } from "../src/chats.ts";
+import { current, startConversation, WithDoc } from "../src/chats.ts";
 import { LEAVE, type Leave } from "../src/environment.ts";
 import { answer, GrantsDoc, grantsOf, revoke } from "../src/gate.ts";
 import { ManifestsDoc } from "../src/hand.ts";
@@ -599,7 +599,7 @@ describe("the gate", () => {
             await vi.waitFor(async () =>
                 expect(await openWaits(home)).toMatchObject([{ asked: 2 }]),
             );
-            const joining = await chatOf(
+            const joining = await current(
                 home,
                 { agent: { hamlet: HOME, number: 0 }, chief: "bea" },
                 context,

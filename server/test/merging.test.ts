@@ -25,7 +25,7 @@ import { InstructionsDoc, submitLine, WithDoc } from "../src/chats.ts";
 import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { CharacterDoc } from "../src/prompt.ts";
-import { resolve, roadsOf } from "../src/realm.ts";
+import { resolveAddress, roadsOf } from "../src/realm.ts";
 import { agentKey, HOME, RecordDoc } from "../src/record.ts";
 import { overturn, vote } from "../src/votes.ts";
 import { mayor, request, served } from "./connection-support.ts";
@@ -160,8 +160,14 @@ it("merges houses, keeps clashes apart, inherits road use and leaves each charac
         (await home.harness.snapshot(CharacterDoc, agentKey(gone), context))
             ?.text,
     ).toBe("gone");
-    expect(await resolve(home.harness, HOME, "scout", context)).toMatchObject({
-        gone: expect.stringContaining("talk to `librarian`"),
+    expect(
+        await resolveAddress(home.harness, HOME, "scout", context),
+    ).toMatchObject({
+        ok: false,
+        error: {
+            kind: "departed",
+            farewell: expect.stringContaining("talk to `librarian`"),
+        },
     });
 }, 60_000);
 

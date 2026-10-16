@@ -24,10 +24,11 @@ import {
     type ToolExecutionApi,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { reconfigure } from "../chats/configure.ts";
 import {
     AgentConversationsDoc,
     ChatDoc,
-    chatOf,
+    current,
     WithDoc,
 } from "../chats/conversations.ts";
 import { PayerDoc } from "../chats/errands.ts";
@@ -39,7 +40,6 @@ import type { Home, Part } from "../home.ts";
 import { erase as removeHouse, treeFailureText } from "../house.ts";
 import { askAgent, PeersDoc } from "../letters.ts";
 import { LimitsDoc } from "../limits/rules.ts";
-import { reconfigure } from "../models.ts";
 import { lapseAgent } from "../oversight/waits.ts";
 import { CharacterDoc } from "../prompt.ts";
 import { type AgentRef, agentKey, HOME, RecordDoc } from "../record.ts";
@@ -51,6 +51,7 @@ import {
     RealmDoc,
     type RealmEnd,
 } from "./places.ts";
+import { resolveAddress, resolveFailureText } from "./roads.ts";
 
 const MOVE = Type.Object({
     agent: Type.String(),
@@ -204,21 +205,6 @@ async function mayor(
     if (held) throw new Error(held);
     return caller;
 }
-async function locate(tx: Tx, address: string): Promise<AgentRef> {
-    const [name, place, extra] = address.split("@");
-    if (extra !== undefined) throw new Error(`no agent named \`${address}\``);
-    for (const { id } of liveHamlets(await tx.doc(RealmDoc))) {
-        if (place !== undefined && id !== place) continue;
-        const record = await tx.doc(RecordDoc, id, id);
-        const found = record.agents.find(
-            (a) =>
-                a.name === name ||
-                (name === "mayor" && a.number === record.mayor),
-        );
-        if (found) return { hamlet: id, number: found.number };
-    }
-    throw new Error(`no agent named \`${address}\``);
-}
 function same(a: RealmEnd, b: RealmEnd): boolean {
     return "office" in a
         ? "office" in b && a.office === b.office
@@ -234,8 +220,12 @@ async function road(
     const caller = await mayor(home, tx, api, context);
     if (!(await tx.doc(LimitsDoc, HOME, HOME)).hamlets.roadsBetween)
         throw new Error("the chief's limits allow no roads between hamlets");
-    const a = await locate(tx, args.a),
-        b = await locate(tx, args.b);
+    const first = await resolveAddress(tx, caller.hamlet, args.a, context);
+    if (!first.ok) throw new Error(resolveFailureText(first.error, args.a));
+    const second = await resolveAddress(tx, caller.hamlet, args.b, context);
+    if (!second.ok) throw new Error(resolveFailureText(second.error, args.b));
+    const a = first.value.ref,
+        b = second.value.ref;
     for (const ref of [a, b])
         if (
             (await tx.doc(RecordDoc, ref.hamlet, ref.hamlet)).mayor ===
@@ -307,7 +297,15 @@ async function move(
         throw new Error(
             "A house move is still being finished. Try again shortly.",
         );
-    const ref = await locate(tx, args.agent);
+    const resolved = await resolveAddress(
+        tx,
+        caller.hamlet,
+        args.agent,
+        context,
+    );
+    if (!resolved.ok)
+        throw new Error(resolveFailureText(resolved.error, args.agent));
+    const ref = resolved.value.ref;
     if (ref.hamlet === args.to)
         throw new Error(`\`${args.agent}\` already lives in \`${args.to}\``);
     if (!liveHamlets(realm).some((h) => h.id === args.to))
@@ -431,12 +429,13 @@ async function move(
     old.roads = old.roads.filter(
         (r) => r.a !== ref.number && r.b !== ref.number,
     );
+    const at = home.now();
     old.decisions.push({
         kind: "moved_out",
         agent: ref.number,
         name,
         hamlet: args.to,
-        at: home.now(),
+        at,
         by: `mayor@${caller.hamlet}`,
         reason: args.reason,
     });
@@ -445,7 +444,7 @@ async function move(
         agent: next.number,
         name,
         hamlet: ref.hamlet,
-        at: home.now(),
+        at,
         by: `mayor@${caller.hamlet}`,
         reason: args.reason,
     });
@@ -655,7 +654,7 @@ async function chiefChats(
         for (const chief of chiefsOf(realm, hamlet, home.chief))
             chats.push(
                 (
-                    await chatOf(
+                    await current(
                         home,
                         { agent: { hamlet, number: record.mayor }, chief },
                         context,

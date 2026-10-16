@@ -1,4 +1,6 @@
 import { defineDoc, type ModelRef } from "@earendil-works/pi-durable";
+import type { Limits } from "./limits/rules.ts";
+import { MAYOR } from "./record.ts";
 
 /** A place models are served, named for the models it serves. */
 export type Endpoint = {
@@ -114,4 +116,24 @@ export function modelRef(name: string): ModelRef | undefined {
 /** The name `endpoint::id` of a model. */
 export function modelName(model: ModelRef): string {
     return `${model.provider}::${model.modelId}`;
+}
+
+/** The model an agent runs: the chief's pin, an allowed mayor choice, the hamlet's model or the home's default (H29). */
+export function choose(
+    limits: Readonly<Limits>,
+    settings: Readonly<Settings>,
+    agent: { name: string; mayor: boolean; model?: string | null },
+): string {
+    const name = agent.mayor ? MAYOR : agent.name;
+    const pinned = Object.hasOwn(limits.pinned, name)
+        ? limits.pinned[name]
+        : undefined;
+    return (
+        pinned ??
+        (agent.model && limits.models.includes(agent.model)
+            ? agent.model
+            : undefined) ??
+        limits.model ??
+        settings.model
+    );
 }

@@ -3,10 +3,13 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { followHome, InstructionsDoc, owed, stopAgent } from "../src/chats.ts";
+import { InstructionsDoc, owed, stopAgent } from "../src/chats.ts";
 import { ended, settle } from "../src/oversight.ts";
+import type { Changes, State } from "../src/protocol.ts";
 import { agentKey } from "../src/record.ts";
+import { watchState } from "../src/state.ts";
 import {
+    closeAfter,
     context,
     crashing,
     fauxModels,
@@ -62,15 +65,23 @@ it("stops a held turn, drops its queued chief line, lapses waits and spares the 
         ),
         fauxAssistantMessage("The next line answers."),
     ]);
+    const updates: (State | Changes)[] = [];
+    const state = await watchState(
+        home,
+        (message) => updates.push(message),
+        context,
+    );
+    closeAfter(() => state.stop());
     const first = await say(home, "Run a command.");
     await vi.waitFor(async () => expect(await openWaits(home)).toHaveLength(1));
     const ids = (await openWaits(home)).map((wait) => wait.id);
+    await state.refresh();
     const queued = await say(home, "Drop this.");
     expect(await stopAgent(home, MAYOR, context)).toBe("Stopping mayor.");
     expect(await first.wait(context)).toMatchObject({ status: "unanswered" });
     expect(await queued.wait(context)).toMatchObject({ status: "unanswered" });
     expect(await openWaits(home)).toEqual([]);
-    await followHome(home, context);
+    await home.follow.settled(context);
     const instructions = await home.harness.snapshot(
         InstructionsDoc,
         agentKey(MAYOR),
@@ -87,6 +98,14 @@ it("stops a held turn, drops its queued chief line, lapses waits and spares the 
             ([, how]) => how,
         ),
     ).toEqual(["stopped"]);
+    await state.refresh();
+    expect(
+        updates.flatMap((message) =>
+            message.type === "change" ? message.changes : [],
+        ),
+    ).toContainEqual(
+        expect.objectContaining({ type: "wait-closed", how: "stopped" }),
+    );
     const after = await say(home, "After the stop.");
     await vi.waitFor(async () => expect(await openWaits(home)).toHaveLength(1));
     const [wait] = await openWaits(home);

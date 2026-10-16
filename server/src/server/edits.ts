@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import { chatOf } from "../chats/conversations.ts";
+import { current } from "../chats/conversations.ts";
 import { agentEnv } from "../environment.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Home } from "../home.ts";
@@ -48,7 +48,7 @@ export async function edit(
                     (await tx.doc(CharacterDoc, key, key)).text = text;
                 }, context);
             } else {
-                const conversation = await chatOf(
+                const conversation = await current(
                     home,
                     { agent, chief: home.chief },
                     context,

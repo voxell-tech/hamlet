@@ -1,3 +1,4 @@
+import { type ConversationFailure, conversationFailureText } from "../chats.ts";
 import { type CommandFailure, commandFailureText } from "../commands.ts";
 import {
     type ConnectionFailure,
@@ -33,6 +34,7 @@ import {
 import { type AddressFailure, addressFailureText } from "../realm/roads.ts";
 import type { Result } from "../result.ts";
 import type { Secrets } from "../scrub.ts";
+import { type WatchFailure, watchFailureText } from "../transcript.ts";
 
 /** A completed chief operation, before wire correlation and credential scrubbing. */
 export type Receipt = {
@@ -53,6 +55,8 @@ export type ChiefFailure =
     | GiftRefusal
     | WorkFailure
     | NotesFailure
+    | WatchFailure
+    | ConversationFailure
     | LegacyRefusal
     | AddressFailure
     | ChiefRefusal["error"]
@@ -60,18 +64,19 @@ export type ChiefFailure =
     | Malformed
     | ConnectionFailure;
 
-/** Correlates and scrubs an operation's outcome exactly once for display. */
+/** Correlates and scrubs once; typed conversation refusals remain notices. */
 export function replyFor(
     to: string,
     outcome: Result<Receipt, ChiefFailure>,
     secrets: Secrets,
+    origin: "typed" | "protocol" = "protocol",
 ): Reply {
     return secrets.value({
         type: "reply",
         to,
         ...(outcome.ok
             ? { ...outcome.value, kind: outcome.value.kind ?? "notice" }
-            : rendered(outcome.error)),
+            : rendered(outcome.error, origin)),
     });
 }
 
@@ -88,7 +93,10 @@ export function faultFor(
     });
 }
 
-function rendered(failure: ChiefFailure): {
+function rendered(
+    failure: ChiefFailure,
+    origin: "typed" | "protocol" = "protocol",
+): {
     text: string;
     kind: "notice" | "error";
 } {
@@ -161,6 +169,21 @@ function rendered(failure: ChiefFailure): {
         case "notes-unavailable":
         case "notes-write-refused":
             return { text: notesFailureText(failure), kind: "error" };
+        case "no-item":
+        case "read-only-peer":
+        case "past-read-only":
+        case "no-peer-conversation":
+            return { text: watchFailureText(failure), kind: "error" };
+        case "busy":
+        case "nothing-to-carry-on":
+        case "no-past-session":
+        case "chat-gone":
+        case "not-chief-line":
+        case "conversation-changed":
+            return {
+                text: conversationFailureText(failure),
+                kind: origin === "typed" ? "notice" : "error",
+            };
         case "agent-missing":
         case "agent-gone":
             return { text: addressFailureText(failure), kind: "error" };

@@ -1,8 +1,8 @@
 import type { Context } from "@earendil-works/chord";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { commitEdit } from "../chats/configure.ts";
 import type { Home } from "../home.ts";
-import { commitEdit } from "../models.ts";
 import { type ChiefRefusal, chiefAccess } from "../realm/access.ts";
 import { err, ok, type Result } from "../result.ts";
 import { LimitsDoc, type LimitsRefusal, parseLimits } from "./rules.ts";

@@ -29,7 +29,7 @@ import type {
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterEach } from "vitest";
-import { chatOf, submitLine } from "../src/chats.ts";
+import { current, submitLine } from "../src/chats.ts";
 import { WorkDoc } from "../src/environment.ts";
 import { buildHouse } from "../src/home/layout.ts";
 import { type Home, type HomeOptions, openHome } from "../src/home.ts";
@@ -147,7 +147,7 @@ export async function openWaits(home: Home): Promise<Readonly<Wait>[]> {
 
 /** The current conversation of the home's chief with its mayor. */
 export function mayorChat(home: Home): Promise<Conversation> {
-    return chatOf(home, { agent: MAYOR, chief: home.chief }, context);
+    return current(home, { agent: MAYOR, chief: home.chief }, context);
 }
 
 /** Has the first hamlet work on `folder`, in `mode`. */
@@ -324,7 +324,7 @@ export function chatWith(
     home: Home,
     ref: import("../src/record.ts").AgentRef,
 ): Promise<Conversation> {
-    return chatOf(home, { agent: ref, chief: home.chief }, context);
+    return current(home, { agent: ref, chief: home.chief }, context);
 }
 
 /** Per-agent faux scripts selected by the prompt's workspace, with a separate errand queue. */
@@ -376,4 +376,24 @@ export function houseEnv(limits?: Partial<SandboxLimits>): {
     });
     closeAfter(() => env.cleanup(context));
     return { house, env };
+}
+
+/** Captures a deed's admitted work through the same callback used by the server. */
+export async function admitted(
+    run: (
+        submitted: (submission: Submission) => void,
+    ) => Promise<
+        import("../src/result.ts").Result<
+            import("../src/server.ts").Receipt,
+            import("../src/chats.ts").ConversationFailure
+        >
+    >,
+): Promise<Submission> {
+    let submission: Submission | undefined;
+    const outcome = await run((value) => {
+        submission = value;
+    });
+    if (!outcome.ok || !submission)
+        throw new Error("The deed admitted no work");
+    return submission;
 }

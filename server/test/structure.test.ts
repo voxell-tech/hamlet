@@ -34,6 +34,7 @@ const LEAVES = new Set([
     "spend/ledger.ts",
     "spend/money.ts",
     "spend/usage.ts",
+    "state/activity.ts",
 ]);
 const SHARED_ENTRIES = new Set([
     "change.ts",
@@ -50,12 +51,10 @@ const SHARED_ENTRIES = new Set([
 const SHARED_CORE = new Set([
     "chats/conversations.ts",
     "chats/errands.ts",
-    "chats/roles.ts",
-    "models/choice.ts",
+    "chats/configure.ts",
+    "chats/documents.ts",
 ]);
 const ALLOWED_CYCLES = [
-    // Conversation configuration deepening (D3) removes this shared core's cycle.
-    [...SHARED_CORE],
     // Record deepening (D4) owns founding decisions without the votes round trip.
     ["realm/dealings.ts", "votes.ts", "realm/founding.ts"],
     // Record deepening (D4) owns departure and merge invariants together.

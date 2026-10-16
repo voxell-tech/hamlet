@@ -163,7 +163,7 @@ export async function usageOf(
 }
 
 /** Past and current conversations, newest first, with no empty or reflection-only titles (C24). */
-export async function historyOf(
+export async function history(
     home: Home,
     chat: ChatId,
     context: Context,

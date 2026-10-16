@@ -262,3 +262,35 @@ it("shows the budget and follows the mayor's thinking, fetching, failure and res
         revisions.every((revision, i) => revision > (revisions[i - 1] ?? 0)),
     ).toBe(true);
 }, 20_000);
+
+it("reports a failed publication through its caller and keeps watching", async () => {
+    const { SettingsDoc } = await import("../src/settings.ts");
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    const failures: unknown[] = [];
+    let fail = true;
+    const state = await watchState(
+        home,
+        () => {
+            if (fail) {
+                fail = false;
+                throw new Error("publication failed");
+            }
+        },
+        context,
+        (error) => failures.push(error),
+    );
+    try {
+        await home.harness.commit(async (tx) => {
+            (await tx.doc(SettingsDoc)).allowNet = true;
+        }, context);
+        await state.refresh();
+        expect(failures).toHaveLength(1);
+        expect(String(failures[0])).toContain("publication failed");
+        await home.harness.commit(async (tx) => {
+            (await tx.doc(SettingsDoc)).allowNet = false;
+        }, context);
+        expect((await state.snapshot()).settings.allowNet).toBe(false);
+    } finally {
+        await state.stop();
+    }
+});

@@ -4,12 +4,12 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it, vi } from "vitest";
 import {
-    followHome,
-    historyOf,
-    newChat,
+    carryOn,
+    conversationFailureText,
+    history,
     ReflectionDoc,
-    retry,
-    rewind,
+    start,
+    takeBack,
     usageOf,
 } from "../src/chats.ts";
 import { answer } from "../src/gate.ts";
@@ -45,7 +45,7 @@ describe("rewind", () => {
         });
         await (await say(home, "one")).wait(context);
         await (await say(home, "two")).wait(context);
-        await followHome(home, context);
+        await home.follow.settled(context);
         const old = await mayorChat(home);
         const before = await transcript(old);
         const target = before.filter(
@@ -67,23 +67,26 @@ describe("rewind", () => {
             context,
         );
         const paid = await usageOf(home, old.id, context);
-        expect(await rewind(home, chat, `${target.id}:0`, context)).toBe("two");
+        expect(
+            await takeBack(home, chat, `${target.id}:0`, context),
+        ).toMatchObject({ ok: true, value: { text: "two", kind: "rewound" } });
         const fork = await mayorChat(home);
         expect(fork.id).not.toBe(old.id);
+        expect(
+            (await home.harness.snapshot(ReflectionDoc, fork.id, context))
+                ?.unreflected,
+        ).toBe(1);
         expect(await openWaits(home)).toEqual([]);
         expect(
             (await fork.context(context)).messages
                 .filter((message) => message.role !== "system")
                 .map((message) => message.content),
         ).toEqual(["one", [{ type: "text", text: "1" }]]);
-        expect(
-            (await home.harness.snapshot(ReflectionDoc, fork.id, context))
-                ?.unreflected,
-        ).toBe(1);
         expect((await usageOf(home, fork.id, context)).calls).toBe(paid.calls);
-        await expect(retry(home, chat, context)).rejects.toThrow(
-            "the last message was answered",
-        );
+        expect(await carryOn(home, chat, context)).toMatchObject({
+            ok: false,
+            error: { kind: "nothing-to-carry-on" },
+        });
         await (await say(home, "three")).wait(context);
         const after = await transcript(fork);
         expect(
@@ -92,7 +95,7 @@ describe("rewind", () => {
                 .every((entry) => entry.id > (before.at(-1)?.id ?? 0)),
         ).toBe(true);
         expect(
-            (await historyOf(home, chat, context))[0]?.tokens,
+            (await history(home, chat, context))[0]?.tokens,
         ).toBeGreaterThanOrEqual(paid.input + paid.output);
         expect(await transcript(old)).toEqual(before);
         await home.close(context);
@@ -137,10 +140,13 @@ describe("rewind", () => {
         const second = await say(home, "two");
         await vi.waitFor(() => expect(release).toBeTypeOf("function"));
         await say(home, "three");
-        await expect(
-            rewind(home, chat, `${first.id}:0`, context),
-        ).rejects.toThrow("A turn is running here. Stop it, then rewind.");
+        const busy = await takeBack(home, chat, `${first.id}:0`, context);
         release?.();
+        expect(busy).toMatchObject({ ok: false, error: { kind: "busy" } });
+        if (busy.ok) throw new Error("Rewind admitted while busy");
+        expect(conversationFailureText(busy.error)).toBe(
+            "A turn is running here. Stop it, then rewind.",
+        );
         await second.wait(context);
         await (await mayorChat(home)).waitForIdle(context);
         const entries = await transcript(await mayorChat(home));
@@ -148,11 +154,11 @@ describe("rewind", () => {
         const assistant = entries.find(
             (entry) => entry.kind === "pi.assistant",
         );
-        await expect(
-            rewind(home, chat, `${assistant?.id}:0`, context),
-        ).rejects.toThrow("chief's message");
-        await rewind(home, chat, `${chief[2]?.id}:0`, context);
-        await rewind(home, chat, `${first.id}:0`, context);
+        expect(
+            await takeBack(home, chat, `${assistant?.id}:0`, context),
+        ).toMatchObject({ ok: false, error: { kind: "not-chief-line" } });
+        await takeBack(home, chat, `${chief[2]?.id}:0`, context);
+        await takeBack(home, chat, `${first.id}:0`, context);
         expect(
             (await (await mayorChat(home)).context(context)).messages,
         ).toEqual([]);
@@ -184,7 +190,8 @@ it("rewinds only waits from that conversation while a past conversation finishes
     ]);
     const oldInput = await say(home, "Old work.");
     await vi.waitFor(() => expect(release).toBeTypeOf("function"));
-    const current = await newChat(home, chat, context);
+    await start(home, chat, context);
+    const current = await mayorChat(home);
     at = 2000;
     await (await say(home, "Take back only this.")).wait(context);
     const target = (await transcript(current)).find(
@@ -199,7 +206,7 @@ it("rewinds only waits from that conversation while a past conversation finishes
     );
     const [wait] = await openWaits(home);
     if (wait === undefined) throw new Error("missing old approval");
-    await rewind(home, chat, `${target?.id}:0`, context);
+    await takeBack(home, chat, `${target?.id}:0`, context);
     expect(await openWaits(home)).toEqual([wait]);
     await answer(
         home,
@@ -239,7 +246,7 @@ it("reflects only the kept branch at close, never the message the chief took bac
     const target = (await transcript(await mayorChat(home))).filter(
         (entry) => entry.kind === "hamlet.chief",
     )[1];
-    await rewind(home, chat, `${target?.id}:0`, context);
+    await takeBack(home, chat, `${target?.id}:0`, context);
     await home.close(context);
     expect(reflected).toEqual([
         ["Keep this.", expect.stringContaining("Reflection time")],
@@ -285,7 +292,10 @@ it("refuses a rewind with only a queued write and no running turn", async () => 
     expect(
         (await home.harness.snapshot(LiveDoc, conversation.id, context))?.run,
     ).toBeUndefined();
-    await expect(rewind(home, chat, `${target}:0`, context)).rejects.toThrow(
+    const busy = await takeBack(home, chat, `${target}:0`, context);
+    expect(busy).toMatchObject({ ok: false, error: { kind: "busy" } });
+    if (busy.ok) throw new Error("Rewind admitted with a queued write");
+    expect(conversationFailureText(busy.error)).toBe(
         "A turn is running here. Stop it, then rewind.",
     );
 });

@@ -298,6 +298,10 @@ describe("the window commands", () => {
         const module = join(repo, "server", "src", "cli", "window.ts");
         mkdirSync(dirname(module), { recursive: true });
         copyFileSync(new URL("../src/cli/window.ts", import.meta.url), module);
+        copyFileSync(
+            new URL("../src/cli/process.ts", import.meta.url),
+            join(dirname(module), "process.ts"),
+        );
         writeFileSync(
             join(repo, "server", "package.json"),
             '{"type":"module"}',
@@ -382,6 +386,24 @@ describe("the window commands", () => {
         expect(run.err()).toContain(app);
         expect(run.err()).not.toContain("hamlet server");
         expect(run.err()).not.toContain("hamlet dev");
+    });
+
+    it("launches the window without reading the chief's stdin", async () => {
+        const fake = fakeApp();
+        const marker = join(scratch(), "stdin-read");
+        const preload = join(scratch(), "observe-stdin.mjs");
+        writeFileSync(
+            preload,
+            `import { writeFileSync } from "node:fs"; process.stdin.on("resume", () => writeFileSync(${JSON.stringify(marker)}, "read"));`,
+        );
+        const run = hamlet(["window"], scratch(), undefined, {
+            ...fake.env,
+            HAMLET_SERVER: "ws://127.0.0.1:7313",
+            HAMLET_TOKEN: "remote-test-token",
+            NODE_OPTIONS: `--import ${preload}`,
+        });
+        expect(await run.ended).toBe(3);
+        expect(existsSync(marker)).toBe(false);
     });
 
     it("uses an environment-named server instead of the local home", async () => {
