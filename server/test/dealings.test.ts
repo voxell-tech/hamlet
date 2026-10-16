@@ -111,6 +111,9 @@ it("opens a cross-hamlet road only when both mayors agree and tells the other ma
         }),
     ).toContain("A road now joins");
     expect(
+        JSON.stringify(await transcript(await chatWith(home, MAYOR))),
+    ).toContain("A road now joins");
+    expect(
         (await roads()).some(
             (r) =>
                 r.a.hamlet === "home" &&
@@ -183,6 +186,13 @@ it("moves the house and conversations to a new number and keeps only roads both 
             reason: "Welcome",
         }),
     ).toContain("moved from");
+    const notices = (await transcript(await chatWith(home, MAYOR))).filter(
+        (entry) => entry.kind === "hamlet.notice",
+    );
+    expect(JSON.stringify(notices)).toContain("You agreed that `scout` moves");
+    expect(JSON.stringify(notices)).toContain(
+        "`scout` moved from `home` to `mill` with its house.",
+    );
     const moved = { hamlet: "mill", number: 2 };
     expect(
         (await home.harness.snapshot(RecordDoc, "home", context))?.agents.some(
@@ -413,3 +423,135 @@ it.each(["home", "mill"])(
         ).toBeNull();
     },
 );
+
+it("charges a moved sender's next question to its new hamlet without replacing the peer conversation", async () => {
+    const { models, faux } = fauxModels(["faux-1"], 1);
+    const home = await testHome(scratch(), {
+        models,
+        env: { HAMLET_REFLECT_EVERY: "0" },
+    });
+    const mill = await addHamlet(home, "mill", "miller");
+    const scout = await addAgent(home, "home", "scout");
+    const baker = await addAgent(home, "home", "baker");
+    await home.harness.commit(async (tx) => {
+        (await tx.doc(RecordDoc, "home", "home")).roads.push({
+            a: scout.number,
+            b: baker.number,
+            messages: 0,
+            lastFrom: null,
+            lastUsed: 0,
+            since: 1,
+            by: "chief",
+        });
+    }, context);
+    const ask = async (from: AgentRef) => {
+        const steps = [
+            fauxAssistantMessage(
+                fauxToolCall("ask_agent", {
+                    name: "baker",
+                    message: "How much flour?",
+                }),
+                { stopReason: "toolUse" },
+            ),
+            fauxAssistantMessage("Thanks"),
+        ];
+        fauxAgents(faux, {
+            [`${scout.hamlet}:${scout.number}`]: steps,
+            [`${from.hamlet}:${from.number}`]: steps,
+            [`home:${baker.number}`]: [fauxAssistantMessage("Three sacks")],
+        });
+        const result = await (
+            await submitLine(
+                home,
+                { agent: from, chief: home.chief },
+                { id: randomUUID(), text: "Ask the baker" },
+                context,
+            )
+        ).wait(context);
+        expect(result.status).toBe("done");
+    };
+    await ask(scout);
+    const { PeersDoc } = await import("../src/society/docs.ts");
+    const { PayerDoc } = await import("../src/errands.ts");
+    const peer = (
+        await home.harness.snapshot(PeersDoc, `home:${baker.number}`, context)
+    )?.questions[`home:${scout.number}`];
+    if (peer === undefined) throw new Error("No question conversation");
+    await call(home, faux, MAYOR, "agree_move", {
+        agent: "scout",
+        to: "mill",
+        keep_roads: ["baker"],
+        reason: "Learn",
+    });
+    await call(home, faux, mill, "agree_move", {
+        agent: "scout",
+        to: "mill",
+        keep_roads: ["baker"],
+        reason: "Welcome",
+    });
+    const moved = { hamlet: "mill", number: 1 };
+    await ask(moved);
+    expect(
+        (await home.harness.snapshot(PeersDoc, `home:${baker.number}`, context))
+            ?.questions["mill:1"],
+    ).toBe(peer);
+    expect(await home.harness.snapshot(PayerDoc, peer, context)).toMatchObject({
+        hamlet: "mill",
+    });
+    const { ledgerOf } = await import("../src/ledger.ts");
+    const { localDay } = await import("../src/time.ts");
+    expect(
+        await ledgerOf(home, "mill", localDay(home.now()), context),
+    ).toContainEqual(
+        expect.objectContaining({
+            what: "model",
+            of: "home",
+            agent: baker.number,
+            micros: expect.any(Number),
+        }),
+    );
+});
+
+it("keeps an unsplit merge in its hamlet until the chief splits or erases it", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), {
+        models,
+        env: { HAMLET_REFLECT_EVERY: "0" },
+    });
+    const mill = await addHamlet(home, "mill", "miller");
+    await addAgent(home, "home", "librarian");
+    await addAgent(home, "home", "scout");
+    const { merge } = await import("../src/society/merging.ts");
+    await merge(
+        home,
+        {
+            hamlet: "home",
+            chief: home.chief,
+            rest: "scout into librarian Overlap",
+        },
+        context,
+    );
+    const args = { agent: "librarian", to: "mill", reason: "Learn" };
+    for (const mayor of [MAYOR, mill])
+        expect(await call(home, faux, mayor, "agree_move", args)).toContain(
+            "split or erase",
+        );
+    expect((await home.harness.snapshot(RealmDoc, context))?.moves).toEqual([]);
+    expect(
+        (await home.harness.snapshot(RecordDoc, "home", context))?.agents.map(
+            (a) => a.name,
+        ),
+    ).toContain("librarian");
+    const { restore } = await import("../src/society/leaving.ts");
+    expect(
+        await restore(
+            home,
+            { hamlet: "home", chief: home.chief, rest: "scout" },
+            context,
+        ),
+    ).toContain("Split");
+    await call(home, faux, MAYOR, "agree_move", args);
+    expect(await call(home, faux, mill, "agree_move", args)).toContain(
+        "moved from",
+    );
+});

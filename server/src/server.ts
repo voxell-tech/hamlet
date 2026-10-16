@@ -5,6 +5,11 @@ import type { AuthPrompt } from "@earendil-works/pi-ai";
 import type { Submission } from "@earendil-works/pi-durable";
 import { requireWritable } from "./agent-chats.ts";
 import { checkConnection, checkModel } from "./check.ts";
+import {
+    type ChiefResult,
+    chiefAccess,
+    chiefRefusalText,
+} from "./chief-access.ts";
 import { type Client, type Server, serve } from "./connection.ts";
 import { edit } from "./edits.ts";
 import { answerWords } from "./gate.ts";
@@ -20,10 +25,17 @@ import type {
     ServerMessage,
 } from "./protocol.ts";
 import { read } from "./reads.ts";
-import { isChief, RealmDoc, resolve } from "./realm.ts";
+import { resolve } from "./realm.ts";
 import { say } from "./say.ts";
 import { watchState } from "./state.ts";
-import { newChat, resumeChat, retry, rewind, stopAgent } from "./talk.ts";
+import {
+    newChat,
+    resumeChat,
+    retry,
+    rewind,
+    stopAgent,
+    stopChiefAgents,
+} from "./talk.ts";
 import { type ChatWatch, pageChat, turnTools, watchChat } from "./turns.ts";
 
 /** Serves `home` over protocol v0 on 127.0.0.1 at `port`, to clients with its token (S4, S5). */
@@ -48,10 +60,34 @@ export async function serveHome(
     };
     const deed = async (
         id: string,
-        run: () => Promise<string>,
+        run: () => Promise<string | ChiefResult<string>>,
+        address?: Address,
     ): Promise<Reply> => {
         try {
-            const text = await run();
+            if (address) {
+                const access = await chiefAccess(
+                    home,
+                    address.hamlet,
+                    "change chat",
+                    context,
+                );
+                if (!access.ok)
+                    return {
+                        type: "reply",
+                        to: id,
+                        kind: "error",
+                        text: safeWords(home, chiefRefusalText(access)),
+                    };
+            }
+            const outcome = await run();
+            if (typeof outcome !== "string" && !outcome.ok)
+                return {
+                    type: "reply",
+                    to: id,
+                    kind: "error",
+                    text: safeWords(home, chiefRefusalText(outcome)),
+                };
+            const text = typeof outcome === "string" ? outcome : outcome.value;
             await state.refresh();
             return {
                 type: "reply",
@@ -72,16 +108,6 @@ export async function serveHome(
         }
     };
     const chatOf = async (address: Address) => {
-        const realm = await home.harness.snapshot(RealmDoc, context);
-        const place = realm?.hamlets.find((h) => h.id === address.hamlet);
-        if (!place || place.erased)
-            throw new Error(`no hamlet named \`${address.hamlet}\``);
-        if (place.removed)
-            throw new Error(
-                `Hamlet \`${place.id}\` was removed: ${place.removed.reason}`,
-            );
-        if (!realm || !isChief(realm, address.hamlet, home.chief))
-            throw new Error("Only a chief of that hamlet may instruct it.");
         const target = await resolve(
             home.harness,
             address.hamlet,
@@ -147,19 +173,27 @@ export async function serveHome(
                     if (
                         message.before !== undefined &&
                         watching.get(client)?.has(chat)
-                    )
+                    ) {
+                        const page = await pageChat(
+                            home,
+                            message.chat,
+                            message.before,
+                            context,
+                        );
+                        if (!page.ok)
+                            return {
+                                type: "fault",
+                                to: message.id,
+                                text: safeWords(home, chiefRefusalText(page)),
+                            };
                         return safeValue(home, {
-                            ...(await pageChat(
-                                home,
-                                message.chat,
-                                message.before,
-                                context,
-                            )),
+                            ...page.value,
                             to: message.id,
                         });
+                    }
                     const previous = watching.get(client)?.get(chat);
                     let buffered: ServerMessage[] | undefined = [];
-                    const watch = await watchChat(
+                    const outcome = await watchChat(
                         home,
                         message.chat,
                         (message) => {
@@ -171,6 +205,13 @@ export async function serveHome(
                         context,
                         message.before,
                     );
+                    if (!outcome.ok)
+                        return {
+                            type: "fault",
+                            to: message.id,
+                            text: safeWords(home, chiefRefusalText(outcome)),
+                        };
+                    const watch = outcome.value;
                     if (client.signal.aborted) {
                         await watch.stop();
                         return undefined;
@@ -248,49 +289,68 @@ export async function serveHome(
                     ),
                 ),
             stop: (message) =>
-                deed(message.id, async () =>
-                    stopAgent(
-                        home,
+                deed(
+                    message.id,
+                    async () =>
                         message.agent === undefined
-                            ? undefined
-                            : (await chatOf(message.agent)).agent,
-                        context,
-                    ),
+                            ? stopChiefAgents(home, context)
+                            : stopAgent(
+                                  home,
+                                  (await chatOf(message.agent)).agent,
+                                  context,
+                              ),
+                    message.agent,
                 ),
             new: (message) =>
-                deed(message.id, async () => {
-                    await newChat(home, await chatOf(message.to), context);
-                    return "Started a new session.";
-                }),
+                deed(
+                    message.id,
+                    async () => {
+                        await newChat(home, await chatOf(message.to), context);
+                        return "Started a new session.";
+                    },
+                    message.to,
+                ),
             resume: (message) =>
-                deed(message.id, async () => {
-                    await resumeChat(
-                        home,
-                        await chatOf(message.to),
-                        message.number,
-                        context,
-                    );
-                    return "Went back to an earlier session.";
-                }),
-            retry: (message) =>
-                deed(message.id, async () => {
-                    await retry(home, await chatOf(message.to), context);
-                    return "Carrying on from where it stopped.";
-                }),
-            rewind: async (message) => {
-                const result = await deed(message.id, async () => {
-                    requireWritable(message.chat);
-                    if (message.chat.past !== undefined)
-                        throw new Error(
-                            "Open the current conversation to rewind it.",
+                deed(
+                    message.id,
+                    async () => {
+                        await resumeChat(
+                            home,
+                            await chatOf(message.to),
+                            message.number,
+                            context,
                         );
-                    return rewind(
-                        home,
-                        await chatOf(message.chat.with),
-                        message.item,
-                        context,
-                    );
-                });
+                        return "Went back to an earlier session.";
+                    },
+                    message.to,
+                ),
+            retry: (message) =>
+                deed(
+                    message.id,
+                    async () => {
+                        await retry(home, await chatOf(message.to), context);
+                        return "Carrying on from where it stopped.";
+                    },
+                    message.to,
+                ),
+            rewind: async (message) => {
+                const result = await deed(
+                    message.id,
+                    async () => {
+                        requireWritable(message.chat);
+                        if (message.chat.past !== undefined)
+                            throw new Error(
+                                "Open the current conversation to rewind it.",
+                            );
+                        return rewind(
+                            home,
+                            await chatOf(message.chat.with),
+                            message.item,
+                            context,
+                        );
+                    },
+                    message.chat.with,
+                );
                 return result.kind === "error"
                     ? result
                     : { ...result, kind: "rewound" };

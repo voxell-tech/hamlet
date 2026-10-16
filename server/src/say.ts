@@ -1,6 +1,7 @@
 import type { Context } from "@earendil-works/chord";
 import type { Submission } from "@earendil-works/pi-durable";
 import { ChatDoc, submitLine } from "./chats.ts";
+import { chiefAccess, chiefRefusalText } from "./chief-access.ts";
 import { readCommand } from "./commands.ts";
 import { answerWords } from "./gate.ts";
 import { giftSkill } from "./gifts.ts";
@@ -14,7 +15,7 @@ import type { Deed } from "./parts.ts";
 import { safeWords } from "./plainly.ts";
 import type { Reply, Say } from "./protocol.ts";
 import * as founding from "./realm/founding.ts";
-import { isChief, liveHamlets, RealmDoc, resolve } from "./realm.ts";
+import { resolve } from "./realm.ts";
 import { addressed } from "./record.ts";
 import { reportOf } from "./report.ts";
 import * as agents from "./society/agents.ts";
@@ -22,7 +23,14 @@ import * as leaving from "./society/leaving.ts";
 import * as library from "./society/librarian.ts";
 import * as merging from "./society/merging.ts";
 import * as voting from "./society/votes.ts";
-import { newChat, reflect, resumeChat, retry, stopAgent } from "./talk.ts";
+import {
+    newChat,
+    reflect,
+    resumeChat,
+    retry,
+    stopAgent,
+    stopChiefAgents,
+} from "./talk.ts";
 import { OversightDoc } from "./waits.ts";
 import { queue, strip } from "./words.ts";
 import { folder, setMode } from "./work.ts";
@@ -34,16 +42,8 @@ export async function say(
     context: Context,
     submitted?: (submission: Submission) => void,
 ): Promise<Reply | undefined> {
-    const realm = await home.harness.snapshot(RealmDoc, context);
-    const place = realm?.hamlets.find((h) => h.id === message.to.hamlet);
-    if (!place || place.erased)
-        throw new Error(`no hamlet named \`${message.to.hamlet}\``);
-    if (!liveHamlets(realm).includes(place))
-        throw new Error(
-            `Hamlet \`${place.id}\` was removed: ${place.removed?.reason ?? ""}`,
-        );
-    if (!realm || !isChief(realm, place.id, home.chief))
-        throw new Error("Only a chief of that hamlet may instruct it.");
+    const access = await chiefAccess(home, message.to.hamlet, "say", context);
+    if (!access.ok) return reply(message.id, chiefRefusalText(access), "error");
     const text = safeWords(home, message.text);
     const command = readCommand(text);
     if (command !== undefined && "error" in command)
@@ -85,6 +85,14 @@ export async function say(
         );
         if (!target) throw new Error(`no agent named \`${command.agent}\``);
         if ("gone" in target) throw new Error(target.gone);
+        const access = await chiefAccess(
+            home,
+            target.hamlet,
+            "instruct",
+            context,
+        );
+        if (!access.ok)
+            return reply(message.id, chiefRefusalText(access), "error");
         const sub = await submitLine(
             home,
             { agent: target.ref, chief: home.chief },
@@ -197,7 +205,12 @@ export async function say(
                                   },
                             context,
                         );
-            return reply(message.id, text);
+            return typeof text === "string" || text.ok
+                ? reply(
+                      message.id,
+                      typeof text === "string" ? text : text.value,
+                  )
+                : reply(message.id, chiefRefusalText(text), "error");
         } catch (error) {
             return reply(
                 message.id,
@@ -211,7 +224,7 @@ export async function say(
     }
     if (command?.command === "stop") {
         if (command.agent === null) {
-            await stopAgent(home, undefined, context);
+            await stopChiefAgents(home, context);
             return reply(message.id, "Stopping everything.");
         }
         const target = await resolve(
@@ -227,12 +240,9 @@ export async function say(
                 "error",
             );
         if ("gone" in target) return reply(message.id, target.gone, "error");
-        if (!isChief(realm, target.hamlet, home.chief))
-            return reply(
-                message.id,
-                "Only a chief of that hamlet may stop it.",
-                "error",
-            );
+        const access = await chiefAccess(home, target.hamlet, "stop", context);
+        if (!access.ok)
+            return reply(message.id, chiefRefusalText(access), "error");
         await stopAgent(home, target.ref, context);
         return reply(message.id, `Stopping ${command.agent}.`);
     }
@@ -368,19 +378,19 @@ export async function say(
         if (wait === undefined)
             return reply(message.id, "Nothing waits for you.");
         try {
-            return reply(
-                message.id,
-                await answerWords(
-                    home,
-                    {
-                        wait: wait.id,
-                        choice: command.choice,
-                        text: command.text,
-                        chief: home.chief,
-                    },
-                    context,
-                ),
+            const outcome = await answerWords(
+                home,
+                {
+                    wait: wait.id,
+                    choice: command.choice,
+                    text: command.text,
+                    chief: home.chief,
+                },
+                context,
             );
+            return outcome.ok
+                ? reply(message.id, outcome.value)
+                : reply(message.id, chiefRefusalText(outcome), "error");
         } catch (error) {
             return reply(
                 message.id,
@@ -391,15 +401,16 @@ export async function say(
             );
         }
     }
-    if (!command && own?.kind === "question")
-        return reply(
-            message.id,
-            await answerWords(
-                home,
-                { wait: own.id, choice: "reply", text, chief: home.chief },
-                context,
-            ),
+    if (!command && own?.kind === "question") {
+        const outcome = await answerWords(
+            home,
+            { wait: own.id, choice: "reply", text, chief: home.chief },
+            context,
         );
+        return outcome.ok
+            ? reply(message.id, outcome.value)
+            : reply(message.id, chiefRefusalText(outcome), "error");
+    }
     if (
         !text.trimStart().startsWith("/") &&
         own !== undefined &&

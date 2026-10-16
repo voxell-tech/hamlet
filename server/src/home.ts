@@ -24,6 +24,7 @@ import { LimitsDoc } from "./limits.ts";
 import { claim } from "./lock.ts";
 import { homeModels } from "./models.ts";
 import { PARTS, type Part } from "./parts.ts";
+import { PeerStatistics } from "./peer-statistics.ts";
 import { liveHamlets, RealmDoc } from "./realm.ts";
 import { RecordDoc } from "./record.ts";
 import { platformSandbox, type Sandbox } from "./sandbox/sandbox.ts";
@@ -66,6 +67,8 @@ export type Home = HomeBase & {
     readonly harness: Harness;
     readonly registry: Registry;
     readonly models: MutableModels;
+    /** Peer counts advanced from this harness's committed entries. */
+    readonly peerStatistics: PeerStatistics;
     /** Room kept free for an answer, in tokens, which compaction keeps (C28). */
     readonly compaction: { reserveTokens: number };
     /** Stops every part, then closes the storage and lets the home go. */
@@ -126,6 +129,8 @@ export async function openHome(
                 lock.release(),
             ]);
         });
+        const peerStatistics = new PeerStatistics(harness);
+        void harness.closed.then(() => peerStatistics.close());
         const running: ReturnType<Part>[] = [];
         let closing: Promise<void> | undefined;
         const home: Home = {
@@ -134,6 +139,7 @@ export async function openHome(
             registry,
             models,
             compaction,
+            peerStatistics,
             close: (context) => {
                 closing ??= (async () => {
                     for (const part of running.reverse()) {

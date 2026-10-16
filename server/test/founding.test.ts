@@ -182,6 +182,13 @@ it("records removal asks without removing and counts only distinct live mayors s
         farm: await addHamlet(home, "farm", "farmer"),
         fort: await addHamlet(home, "fort", "keeper"),
     };
+    await home.harness.commit(async (tx) => {
+        const mill = (await tx.doc(RealmDoc)).hamlets.find(
+            (h) => h.id === "mill",
+        );
+        if (!mill) throw new Error("No mill");
+        mill.chiefs = [];
+    }, context);
     const ask = async (by: keyof typeof refs, target = "mill") => {
         faux.setResponses([
             fauxAssistantMessage(
@@ -207,6 +214,10 @@ it("records removal asks without removing and counts only distinct live mayors s
     expect(await ask("farm")).toContain("Not enough mayors");
     expect(await ask("farm")).toContain("Not enough mayors");
     expect(await ask("fort")).toContain("/remove-hamlet mill confirms it");
+    expect(
+        JSON.stringify(await transcript(await chatWith(home, refs.mill))),
+    ).toContain("/remove-hamlet mill confirms it");
+
     expect(
         (await home.harness.snapshot(RealmDoc, context))?.hamlets.find(
             (h) => h.id === "mill",

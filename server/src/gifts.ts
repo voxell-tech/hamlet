@@ -4,6 +4,11 @@ import { dirname, join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { submitLine } from "./chats.ts";
 import {
+    type ChiefResult,
+    chiefAccess,
+    chiefRefusalText,
+} from "./chief-access.ts";
+import {
     checkShelf,
     checkSkill,
     deliver,
@@ -45,13 +50,18 @@ async function resolved(
     home: Home,
     to: Address,
     context: Context,
-): Promise<{ ref: AgentRef; name: string }> {
+): Promise<ChiefResult<{ ref: AgentRef; name: string }>> {
+    const access = await chiefAccess(home, to.hamlet, "give", context);
+    if (!access.ok) return access;
     const record = await home.harness.snapshot(RecordDoc, to.hamlet, context);
     const agent = record === undefined ? undefined : named(record, to.agent);
     if (agent === undefined) throw new Error(`no agent named \`${to.agent}\``);
     return {
-        ref: { hamlet: to.hamlet, number: agent.number },
-        name: agent.name,
+        ok: true,
+        value: {
+            ref: { hamlet: to.hamlet, number: agent.number },
+            name: agent.name,
+        },
     };
 }
 
@@ -146,11 +156,13 @@ export function uploads(home: Home, context: Context) {
         upload.timer = setTimeout(() => discard(upload), IDLE_MS);
         upload.timer.unref();
     };
-    const finish = async (upload: Upload): Promise<string> => {
+    const finish = async (upload: Upload): Promise<ChiefResult<string>> => {
         receiving(upload);
         upload.phase = "delivering";
         detach(upload);
-        const { ref: agent } = await resolved(home, upload.to, context);
+        const target = await resolved(home, upload.to, context);
+        if (!target.ok) return target;
+        const agent = target.value.ref;
         if (agent.number !== upload.agent.number)
             throw new Error("The receiving agent is no longer present.");
         const roots = [
@@ -183,14 +195,25 @@ export function uploads(home: Home, context: Context) {
             },
             context,
         );
-        return `Handed over ${paths.map((path) => `\`${path}\``).join(", ")}.`;
+        return {
+            ok: true,
+            value: `Handed over ${paths.map((path) => `\`${path}\``).join(", ")}.`,
+        };
     };
     return {
         async begin(
             message: Extract<Give, { files: unknown }>,
             owner: AbortSignal,
         ): Promise<Reply> {
-            const { ref: agent } = await resolved(home, message.to, context);
+            const target = await resolved(home, message.to, context);
+            if (!target.ok)
+                return {
+                    type: "reply",
+                    to: message.id,
+                    kind: "error",
+                    text: chiefRefusalText(target),
+                };
+            const agent = target.value.ref;
             const bytes = manifestSize(message.files);
             await checkShelf(
                 houseOf(home.layout, agent),
@@ -246,13 +269,17 @@ export function uploads(home: Home, context: Context) {
                     await (await open(path, "wx")).close();
                 }
                 receiving(upload);
-                if (message.files.every((file) => file.size === 0))
+                if (message.files.every((file) => file.size === 0)) {
+                    const outcome = await finish(upload);
                     return {
                         type: "reply",
                         to: message.id,
-                        kind: "notice",
-                        text: await finish(upload),
+                        kind: outcome.ok ? "notice" : "error",
+                        text: outcome.ok
+                            ? outcome.value
+                            : chiefRefusalText(outcome),
                     };
+                }
                 touch(upload);
                 return {
                     type: "reply",
@@ -263,7 +290,10 @@ export function uploads(home: Home, context: Context) {
                 };
             });
         },
-        async part(message: GivePart, owner: AbortSignal): Promise<string> {
+        async part(
+            message: GivePart,
+            owner: AbortSignal,
+        ): Promise<ChiefResult<string>> {
             const upload = pending.get(message.upload);
             if (upload === undefined || upload.owner !== owner)
                 throw new Error(
@@ -301,7 +331,7 @@ export function uploads(home: Home, context: Context) {
                 )
                     return finish(upload);
                 touch(upload);
-                return "Received the gift part.";
+                return { ok: true, value: "Received the gift part." };
             });
         },
         async stop() {
@@ -327,7 +357,7 @@ export async function give(
     home: Home,
     message: Extract<Give, { skill: unknown }>,
     context: Context,
-): Promise<string> {
+): Promise<ChiefResult<string>> {
     const skill = message.skill;
     return "starter" in skill
         ? giftSkill(home, message.to, skill.starter, undefined, context)
@@ -341,23 +371,25 @@ export async function giftSkill(
     skill: string,
     from: Address | undefined,
     context: Context,
-): Promise<string> {
+): Promise<ChiefResult<string>> {
     if (!/^[a-zA-Z0-9_-]+$/.test(skill))
         throw new Error("a skill is named in letters, digits and hyphens");
     const target = await resolved(home, to, context);
-    const agent = target.ref;
+    if (!target.ok) return target;
+    const agent = target.value.ref;
     const house = houseOf(home.layout, agent);
     if (await lstat(join(house, "skills", skill)).catch(() => undefined))
         throw new Error(
-            `\`${target.name}\` already has a skill named \`${skill}\``,
+            `\`${target.value.name}\` already has a skill named \`${skill}\``,
         );
     let source = STARTERS;
     let shelf = "";
     let giver: string | null = null;
     if (from !== undefined) {
         const given = await resolved(home, from, context);
-        source = houseOf(home.layout, given.ref);
-        giver = `${given.name}${from.hamlet === to.hamlet ? "" : `@${from.hamlet}`}`;
+        if (!given.ok) return given;
+        source = houseOf(home.layout, given.value.ref);
+        giver = `${given.value.name}${from.hamlet === to.hamlet ? "" : `@${from.hamlet}`}`;
         shelf = "skills";
     }
     if (
@@ -369,7 +401,7 @@ export async function giftSkill(
     )
         throw new Error(
             from === undefined
-                ? `no starter skill named \`${skill}\`. Say whose it is: /give ${target.name} ${skill} from <agent>`
+                ? `no starter skill named \`${skill}\`. Say whose it is: /give ${target.value.name} ${skill} from <agent>`
                 : `\`${from.agent}\` has no skill named \`${skill}\``,
         );
     let stage: string | undefined;
@@ -402,5 +434,5 @@ export async function giftSkill(
             from: giver,
         });
     }, context);
-    return `Gave \`${to.agent}\` the skill \`${skill}\`.`;
+    return { ok: true, value: `Gave \`${to.agent}\` the skill \`${skill}\`.` };
 }

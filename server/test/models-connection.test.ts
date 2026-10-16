@@ -195,7 +195,7 @@ it("reads and edits the catalogue and settings and forgets an endpoint's credent
     ).toMatchObject({
         type: "reply",
         kind: "error",
-        text: "no hamlet named `missing`",
+        text: "Cannot read or edit papers: no hamlet named `missing`. Choose a living hamlet.",
     });
 });
 

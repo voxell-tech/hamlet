@@ -151,9 +151,10 @@ it("finishes the whole gift and its letter when the connection closes after ever
             },
             run.owner.signal,
         );
-        const delivered = expect(part).resolves.toBe(
-            "Handed over `inbox/folder`.",
-        );
+        const delivered = expect(part).resolves.toEqual({
+            ok: true,
+            value: "Handed over `inbox/folder`.",
+        });
         await entered.ready;
         run.owner.abort();
         await removal;

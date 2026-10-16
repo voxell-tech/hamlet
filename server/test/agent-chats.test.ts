@@ -5,8 +5,8 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
 import {
-    agentConversation,
     conversationViews,
+    agentConversation as peerConversation,
     requireWritable,
 } from "../src/agent-chats.ts";
 import { QuestionEntry, submitLine } from "../src/chats.ts";
@@ -23,6 +23,15 @@ import {
     testHome,
     transcript,
 } from "./support.ts";
+
+async function agentConversation(...args: Parameters<typeof peerConversation>) {
+    const outcome = await peerConversation(...args);
+    if (!outcome.ok)
+        throw new Error(
+            "Only a chief of that hamlet may watch its conversations.",
+        );
+    return outcome.value;
+}
 
 it("resolves a read-only peer conversation without opening a chief conversation", async () => {
     const { models, faux } = fauxModels();
@@ -95,8 +104,8 @@ it("refuses a peer watch by a chief of neither agent", async () => {
         for (const h of (await tx.doc(RealmDoc)).hamlets)
             h.chiefs = ["another-chief"];
     }, context);
-    await expect(
-        agentConversation(
+    expect(
+        await peerConversation(
             home,
             {
                 with: { hamlet: "home", agent: "scout" },
@@ -105,7 +114,7 @@ it("refuses a peer watch by a chief of neither agent", async () => {
             },
             context,
         ),
-    ).rejects.toThrow("Only a chief");
+    ).toMatchObject({ ok: false, error: { kind: "not-chief" } });
 });
 
 it("watches questions live, pages them and refuses rewind without changing the chief's chat", async () => {
@@ -329,4 +338,109 @@ it("defaults a peer watch to letters and selects questions explicitly for the sa
         "Question from `mayor` (waiting for your answer):\nA question",
         "Question answer",
     ]);
+});
+
+it("does not reread old peer entries on state refresh and updates counts after new entries and restart", async () => {
+    const { openNodeSqliteStorage } = await import(
+        "@earendil-works/pi-durable/storage/sqlite/node"
+    );
+    const { startConversation } = await import("../src/chats.ts");
+    const { PeersDoc } = await import("../src/society/docs.ts");
+    const { RealmDoc } = await import("../src/realm.ts");
+    const { stateOf } = await import("../src/state.ts");
+    let watched:
+        | import("@earendil-works/pi-durable").ConversationId
+        | undefined;
+    let readEntries = 0;
+    const openStorage = async (file: string) => {
+        const storage = await openNodeSqliteStorage(file);
+        const scanEntries: typeof storage.scanEntries = async (...args) => {
+            const page = await storage.scanEntries(...args);
+            if (args[0].conversationId === watched)
+                readEntries += page.items.length;
+            return page;
+        };
+        return new Proxy(storage, {
+            get: (target, property) =>
+                property === "scanEntries"
+                    ? scanEntries
+                    : Reflect.get(target, property, target),
+        });
+    };
+    const options = {
+        models: fauxModels().models,
+        openStorage,
+        env: { HAMLET_REFLECT_EVERY: "0" },
+    };
+    let home = await testHome(scratch(), options);
+    const scout = await addAgent(home, "home", "scout");
+    watched = await home.harness.commit(async (tx) => {
+        const id = await startConversation(home, tx, {
+            ...scout,
+            chief: null,
+            chat: 0,
+        });
+        (await tx.doc(PeersDoc, "home:1", "home:1")).questions["home:0"] = id;
+        for (let n = 1; n <= 1001; n++)
+            await tx.appendEntry(QuestionEntry, id, {
+                data: {
+                    from: { hamlet: "home", number: 0 },
+                    task: `question:${n}`,
+                    at: n,
+                },
+            });
+        return id;
+    }, context);
+    const state = async () =>
+        (await stateOf(home, { epoch: 1, revision: 0 }, context)).agents.find(
+            (a) => a.name === "scout",
+        )?.conversations;
+    expect(await state()).toEqual([
+        {
+            with: { hamlet: "home", number: 0 },
+            kind: "questions",
+            count: 1001,
+            last: 1001,
+        },
+    ]);
+    readEntries = 0;
+    await home.harness.commit(async (tx) => {
+        const place = (await tx.doc(RealmDoc)).hamlets[0];
+        if (place) place.title = "A new name";
+    }, context);
+    await state();
+    expect(readEntries).toBe(0);
+    await home.harness.commit(async (tx) => {
+        if (watched === undefined) throw new Error("No peer conversation");
+        await tx.appendEntry(QuestionEntry, watched, {
+            data: {
+                from: { hamlet: "home", number: 0 },
+                task: "next",
+                at: 2000,
+            },
+        });
+    }, context);
+    expect(await state()).toEqual([
+        {
+            with: { hamlet: "home", number: 0 },
+            kind: "questions",
+            count: 1002,
+            last: 2000,
+        },
+    ]);
+    expect(readEntries).toBe(0);
+    const dir = home.dir;
+    await home.close(context);
+    home = await testHome(dir, options);
+    expect(await state()).toEqual([
+        {
+            with: { hamlet: "home", number: 0 },
+            kind: "questions",
+            count: 1002,
+            last: 2000,
+        },
+    ]);
+    readEntries = 0;
+    await state();
+    expect(readEntries).toBe(0);
 });

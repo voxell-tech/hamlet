@@ -33,6 +33,7 @@ import {
     type With,
     WithDoc,
 } from "./chats.ts";
+import { chiefAccess } from "./chief-access.ts";
 import { configureAgent } from "./choice.ts";
 import { closeGate } from "./gate.ts";
 import { type AgentRef, agentKey } from "./hamlet.ts";
@@ -416,6 +417,30 @@ async function follow(
             context,
         );
     }
+}
+
+/** Stops every agent of the living hamlets this chief leads. */
+export async function stopChiefAgents(
+    home: Home,
+    context: Context,
+): Promise<string> {
+    const realm = await home.harness.snapshot(RealmDoc, context);
+    for (const place of realm?.hamlets ?? []) {
+        const access = await chiefAccess(home, place.id, "stop", context);
+        if (!access.ok) continue;
+        const record = await home.harness.snapshot(
+            RecordDoc,
+            place.id,
+            context,
+        );
+        for (const agent of record?.agents ?? [])
+            await stopAgent(
+                home,
+                { hamlet: place.id, number: agent.number },
+                context,
+            );
+    }
+    return "Stopping everything.";
 }
 
 /** Stops an agent's running conversations and drops their queued inputs (C25, H34). */

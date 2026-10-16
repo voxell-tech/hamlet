@@ -177,7 +177,7 @@ it("refuses typed lines to an unfounded hamlet before a command or model turn", 
         ).toMatchObject({
             type: "reply",
             kind: "error",
-            text: "no hamlet named `nowhere`",
+            text: "Cannot say: no hamlet named `nowhere`. Choose a living hamlet.",
         });
     }
     expect(faux.state.callCount).toBe(0);

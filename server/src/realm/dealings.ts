@@ -27,6 +27,7 @@ import {
 import { CharacterDoc } from "../character.ts";
 import { ChatDoc, chatOf, WithDoc } from "../chats.ts";
 import { reconfigure } from "../choice.ts";
+import { PayerDoc } from "../errands.ts";
 import { removeHouse } from "../gift-files.ts";
 import { GrantsDoc, grantsOf, revoke } from "../grants.ts";
 import { type AgentRef, agentKey, HOME } from "../hamlet.ts";
@@ -36,7 +37,13 @@ import { houseOf } from "../layout.ts";
 import { LimitsDoc } from "../limits.ts";
 import { notify } from "../notice.ts";
 import type { Part } from "../parts.ts";
-import { liveHamlets, type Realm, RealmDoc, type RealmEnd } from "../realm.ts";
+import {
+    chiefsOf,
+    liveHamlets,
+    type Realm,
+    RealmDoc,
+    type RealmEnd,
+} from "../realm.ts";
 import { RecordDoc } from "../record.ts";
 import { AgentConversationsDoc, PeersDoc, VotesDoc } from "../society/docs.ts";
 import { askAgent } from "../society/letters.ts";
@@ -60,6 +67,27 @@ type Agreement = {
     notice?: boolean;
     ask: { to: AgentRef; text: string } | null;
 };
+type MoveFailure = {
+    kind: "unsplit-merge";
+    operation: "agree-move";
+    agent: AgentRef;
+    name: string;
+    absorbed: string;
+    archive: string;
+    retrySafe: true;
+    recovery: "split-or-erase";
+};
+type AgreementResult =
+    | { ok: true; value: Agreement }
+    | { ok: false; error: MoveFailure };
+function moveFailureText(error: MoveFailure): string {
+    switch (error.kind) {
+        case "unsplit-merge":
+            return `Cannot move \`${error.name}\`: \`${error.absorbed}\` is still merged into it. Ask a chief to split or erase that archive first: /restore ${error.archive} or /erase ${error.archive}.`;
+    }
+    const unhandled: never = error.kind;
+    throw new Error(`Unclassified move failure: ${unhandled}`);
+}
 const AgreementDoc = defineDoc<{ result: Agreement | null; notified: boolean }>(
     {
         kind: "hamlet.agreement-call",
@@ -88,7 +116,10 @@ export const Dealings: Part = (home) => {
                     execute: async (args, api, context) => {
                         const result = await decide(
                             api,
-                            (tx) => road(home, tx, api, args, context),
+                            async (tx) => ({
+                                ok: true,
+                                value: await road(home, tx, api, args, context),
+                            }),
                             context,
                         );
                         return deliver(home, api, result, context);
@@ -120,18 +151,28 @@ export const Dealings: Part = (home) => {
 };
 async function decide(
     api: ToolExecutionApi,
-    change: (tx: Tx) => Promise<Agreement>,
+    change: (tx: Tx) => Promise<AgreementResult>,
     context: Context,
-): Promise<Agreement> {
+): Promise<AgreementResult> {
     return api.commit(async (tx) => {
         const call = await tx.doc(AgreementDoc, api.taskId);
-        call.result ??= await change(tx);
+        if (!call.result) {
+            const outcome = await change(tx);
+            if (!outcome.ok) return outcome;
+            call.result = outcome.value;
+        }
         return {
-            ...call.result,
-            hamlets: [...call.result.hamlets],
-            ask: call.result.ask
-                ? { to: { ...call.result.ask.to }, text: call.result.ask.text }
-                : null,
+            ok: true,
+            value: {
+                ...call.result,
+                hamlets: [...call.result.hamlets],
+                ask: call.result.ask
+                    ? {
+                          to: { ...call.result.ask.to },
+                          text: call.result.ask.text,
+                      }
+                    : null,
+            },
         };
     }, context);
 }
@@ -257,7 +298,7 @@ async function move(
     api: ToolExecutionApi,
     args: { agent: string; to: string; keep_roads?: string[]; reason: string },
     context: Context,
-): Promise<Agreement> {
+): Promise<AgreementResult> {
     const caller = await mayor(home, tx, api, context);
     const realm = await tx.doc(RealmDoc);
     if (realm.pending)
@@ -287,6 +328,24 @@ async function move(
         throw new Error(`the hamlet \`${args.to}\` is full`);
     const agent = old.agents.find((a) => a.number === ref.number);
     if (!agent) throw new Error(`no agent named \`${args.agent}\``);
+    const merged = old.archive.find(
+        (entry) =>
+            entry.back === null && entry.merge?.kept.number === ref.number,
+    );
+    if (merged)
+        return {
+            ok: false,
+            error: {
+                kind: "unsplit-merge",
+                operation: "agree-move",
+                agent: ref,
+                name: agent.name,
+                absorbed: merged.agent.name,
+                archive: merged.id,
+                retrySafe: true,
+                recovery: "split-or-erase",
+            },
+        };
     const keep = old.agents
         .filter(
             (a) =>
@@ -320,14 +379,17 @@ async function move(
     if (!leaving || !joining) {
         const other = caller.hamlet === ref.hamlet ? args.to : ref.hamlet;
         return {
-            hamlets: [ref.hamlet, args.to],
-            words: `You agreed that \`${agent.name}\` moves to \`${args.to}\`. The other mayor has not yet.`,
-            ask: {
-                to: {
-                    hamlet: other,
-                    number: (await tx.doc(RecordDoc, other, other)).mayor,
+            ok: true,
+            value: {
+                hamlets: [ref.hamlet, args.to],
+                words: `You agreed that \`${agent.name}\` moves to \`${args.to}\`. The other mayor has not yet.`,
+                ask: {
+                    to: {
+                        hamlet: other,
+                        number: (await tx.doc(RecordDoc, other, other)).mayor,
+                    },
+                    text: `The mayor of \`${caller.hamlet}\` agrees that \`${agent.name}\` moves from \`${ref.hamlet}\` to \`${args.to}\` with its house, keeping its roads to [${args.keep_roads?.join(", ") ?? ""}]. Its reason: ${args.reason}\nDecide. To agree, call agree_move with the same agent and hamlet, and the roads you agree it keeps. To refuse, say why in a sentence.`,
                 },
-                text: `The mayor of \`${caller.hamlet}\` agrees that \`${agent.name}\` moves from \`${ref.hamlet}\` to \`${args.to}\` with its house, keeping its roads to [${args.keep_roads?.join(", ") ?? ""}]. Its reason: ${args.reason}\nDecide. To agree, call agree_move with the same agent and hamlet, and the roads you agree it keeps. To refuse, say why in a sentence.`,
             },
         };
     }
@@ -389,10 +451,13 @@ async function move(
     realm.moves = realm.moves.filter((m) => !same(m.agent, ref));
     realm.pending = { from: ref, to: next };
     return {
-        notice: false,
-        hamlets: [ref.hamlet, args.to],
-        words: `\`${name}\` moved from \`${ref.hamlet}\` to \`${args.to}\` with its house. Roads kept: [${kept.join(", ")}]. Roads that lapsed: [${lapsed.join(", ")}].`,
-        ask: null,
+        ok: true,
+        value: {
+            notice: false,
+            hamlets: [ref.hamlet, args.to],
+            words: `\`${name}\` moved from \`${ref.hamlet}\` to \`${args.to}\` with its house. Roads kept: [${kept.join(", ")}]. Roads that lapsed: [${lapsed.join(", ")}].`,
+            ask: null,
+        },
     };
 }
 async function transfer(
@@ -436,6 +501,8 @@ async function transfer(
                 if (conversation !== undefined) {
                     table[after] = conversation;
                     delete table[before];
+                    const payer = await tx.doc(PayerDoc, conversation);
+                    if (payer.hamlet === from.hamlet) payer.hamlet = to.hamlet;
                 }
             }
         }
@@ -526,9 +593,16 @@ async function finishMove(home: Home, context: Context): Promise<void> {
 async function deliver(
     home: Home,
     api: ToolExecutionApi,
-    result: Agreement,
+    outcome: AgreementResult,
     context: Context,
 ) {
+    if (!outcome.ok)
+        return {
+            output: [
+                { type: "text" as const, text: moveFailureText(outcome.error) },
+            ],
+        };
+    const result = outcome.value;
     const chats =
         result.notice === false
             ? []
@@ -574,7 +648,7 @@ async function chiefChats(
         const record = await home.harness.snapshot(RecordDoc, hamlet, context);
         const place = realm?.hamlets.find((h) => h.id === hamlet);
         if (!record || !place) continue;
-        for (const chief of place.chiefs)
+        for (const chief of chiefsOf(realm, hamlet, home.chief))
             chats.push(
                 (
                     await chatOf(

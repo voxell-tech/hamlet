@@ -1,14 +1,10 @@
 import type { Context } from "@earendil-works/chord";
-import type {
-    Conversation,
-    ConversationId,
-    Cursor,
-} from "@earendil-works/pi-durable";
-import { LetterEntry, QuestionEntry, ReplyEntry } from "./chats.ts";
+import type { Conversation } from "@earendil-works/pi-durable";
+import { type ChiefResult, chiefAccess } from "./chief-access.ts";
 import { type AgentRef, agentKey } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import type { Agent, ChatRef } from "./protocol.ts";
-import { isChief, RealmDoc, resolve } from "./realm.ts";
+import { resolve } from "./realm.ts";
 import { PeersDoc } from "./society/docs.ts";
 
 type PeerView = NonNullable<Agent["conversations"]>[number];
@@ -32,7 +28,7 @@ export async function conversationViews(
                 number = Number(key.slice(split + 1));
             if (split < 1 || !Number.isSafeInteger(number) || number < 0)
                 continue;
-            const stats = await statistics(home, id, context);
+            const stats = await home.peerStatistics.read(id, context);
             if (stats) views.push({ with: { hamlet, number }, kind, ...stats });
         }
     return views.sort((a, b) => (b.last ?? 0) - (a.last ?? 0));
@@ -43,13 +39,15 @@ export async function agentConversation(
     home: Home,
     chat: ChatRef,
     context: Context,
-): Promise<Conversation> {
+): Promise<ChiefResult<Conversation>> {
     if (!chat.from) throw new Error("Choose the other agent's conversation.");
-    const realm = await home.harness.snapshot(RealmDoc, context);
-    if (!realm || !isChief(realm, chat.with.hamlet, home.chief))
-        throw new Error(
-            "Only a chief of that hamlet may watch its conversations.",
-        );
+    const access = await chiefAccess(
+        home,
+        chat.with.hamlet,
+        "watch conversations",
+        context,
+    );
+    if (!access.ok) return access;
     const target = await resolve(
         home.harness,
         chat.with.hamlet,
@@ -73,45 +71,11 @@ export async function agentConversation(
             : await home.harness.conversation(id, context);
     if (!conversation)
         throw new Error("There is no conversation with that agent here.");
-    return conversation;
+    return { ok: true, value: conversation };
 }
 
 /** Refusal of changes to a watched conversation between agents. */
 export function requireWritable(chat: ChatRef): void {
     if (chat.from)
         throw new Error("Conversations between agents are read-only.");
-}
-
-async function statistics(home: Home, id: ConversationId, context: Context) {
-    const conversation = await home.harness.conversation(id, context);
-    if (!conversation) return undefined;
-    let count = 0,
-        last: number | null = null;
-    let cursor: Cursor | undefined;
-    do {
-        const page = await conversation.entries(
-            { order: "ascending" },
-            500,
-            cursor,
-            context,
-        );
-        for (const entry of page.items) {
-            if (
-                LetterEntry.is(entry) ||
-                QuestionEntry.is(entry) ||
-                ReplyEntry.is(entry)
-            ) {
-                count++;
-                last = Math.max(last ?? 0, entry.data.at);
-            }
-            for (const message of entry.model ?? [])
-                if (
-                    "timestamp" in message &&
-                    typeof message.timestamp === "number"
-                )
-                    last = Math.max(last ?? 0, message.timestamp);
-        }
-        cursor = page.next;
-    } while (cursor !== undefined);
-    return { count, last };
 }
