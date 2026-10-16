@@ -276,7 +276,7 @@ it("refuses roads and moves outside the two mayors' authority or the chief's lim
     expect(await move(dock, "scout")).toContain("only the mayor");
     expect(await move(mill, "smith")).toContain("already lives");
     await home.harness.commit(async (tx) => {
-        (await tx.doc(LimitsDoc, "mill", "mill")).mostAgents = 2;
+        (await tx.doc(LimitsDoc, "mill", "mill")).mostAgents = 1;
     }, context);
     expect(await move(MAYOR, "scout")).toContain("is full");
 }, 30000);
@@ -544,4 +544,40 @@ it("keeps an unsplit merge in its hamlet until the chief splits or erases it", a
     expect(await call(home, faux, mill, "agree_move", args)).toContain(
         "moved from",
     );
+});
+
+it("agree_move fits two agents beside the receiving mayor and refuses a third with its existing text", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), { models });
+    const mill = await addHamlet(home, "mill", "miller");
+    await addAgent(home, "mill", "baker", "Bakes");
+    await addAgent(home, "home", "scout", "Maps");
+    await addAgent(home, "home", "smith", "Builds");
+    await home.harness.commit(async (tx) => {
+        (await tx.doc(LimitsDoc, "mill", "mill")).mostAgents = 2;
+    }, context);
+    const args = { agent: "scout", to: "mill", reason: "Learn" };
+    expect(await call(home, faux, MAYOR, "agree_move", args)).toContain(
+        "other mayor has not yet",
+    );
+    expect(await call(home, faux, mill, "agree_move", args)).toContain(
+        "moved from",
+    );
+    expect((await livingAgents(home, "mill")).map((a) => a.name)).toEqual([
+        "miller",
+        "baker",
+        "scout",
+    ]);
+    for (const mayor of [MAYOR, mill])
+        expect(
+            await call(home, faux, mayor, "agree_move", {
+                ...args,
+                agent: "smith",
+            }),
+        ).toContain("the hamlet `mill` is full");
+    expect((await livingAgents(home, "mill")).map((a) => a.name)).toEqual([
+        "miller",
+        "baker",
+        "scout",
+    ]);
 });

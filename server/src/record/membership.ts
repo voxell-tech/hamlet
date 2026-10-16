@@ -521,7 +521,7 @@ export async function foundRecord(
     return ok(undefined);
 }
 
-/** Checks the total living membership against the chief's current cap (H27). */
+/** Checks living agents other than the mayor against the chief's current cap (H27). */
 export async function roomFor(
     tx: Tx,
     hamlet: string,
@@ -529,7 +529,8 @@ export async function roomFor(
 ): Promise<Result<void, RecordRefusal>> {
     const r = await tx.doc(RecordDoc, hamlet, hamlet);
     const limits = await tx.doc(LimitsDoc, hamlet, hamlet);
-    return r.agents.length >= limits.mostAgents
+    return r.agents.filter((a) => a.number !== r.mayor).length >=
+        limits.mostAgents
         ? refusal(operation, hamlet, {
               kind: "hamlet-full",
               most: limits.mostAgents,

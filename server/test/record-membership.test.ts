@@ -27,7 +27,7 @@ import {
     testHome,
 } from "./support.ts";
 
-test("admission owns realm names, the total membership cap and stable restoration", async () => {
+test("admission owns realm names, the resident cap and stable restoration", async () => {
     const home = await testHome(scratch(), { models: fauxModels().models });
     await addHamlet(home, "other", "other-mayor");
     await home.harness.commit(async (tx) => {
@@ -46,6 +46,9 @@ test("admission owns realm names, the total membership cap and stable restoratio
         expect(
             await admit(tx, "other", { ...options, name: "feline-biologist" }),
         ).toMatchObject({ ok: false, error: { kind: "name-taken" } });
+        expect(await admit(tx, "home", { ...options, name: "second" })).toEqual(
+            { ok: true, value: { hamlet: "home", number: 2 } },
+        );
         expect(
             await admit(tx, "home", { ...options, name: "third" }),
         ).toMatchObject({ ok: false, error: { kind: "hamlet-full", most: 2 } });
@@ -69,7 +72,7 @@ test("admission owns realm names, the total membership cap and stable restoratio
             value: { agent: { number: 1, name: "returned" } },
         });
         const record = await tx.doc(RecordDoc, "home", "home");
-        expect(record.next).toBe(2);
+        expect(record.next).toBe(3);
         expect(nameOf(record, 1)).toBe("returned");
         expect(endName(record, "office")).toBe("mayor");
         expect(byWords("chief:chief")).toBe("the chief chief");
