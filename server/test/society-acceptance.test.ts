@@ -76,7 +76,7 @@ it("creates a society with a road, carries a letter and its reply, then asks a q
         items: [
             expect.objectContaining({
                 author: "founder@home",
-                text: "Where is the iron?",
+                text: "Question from `mayor` (waiting for your answer):\nWhere is the iron?",
             }),
             expect.objectContaining({ text: "In the northern hill" }),
         ],
