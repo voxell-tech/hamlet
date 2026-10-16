@@ -66,6 +66,8 @@ export type Wait = {
 export const OversightDoc = defineDoc<{
     /** Waits raised so far, which numbers the next one. */
     raised: number;
+    /** Local days containing wait events, when indexed. */
+    days?: string[];
     waits: { [id: string]: Wait };
 }>({
     kind: "hamlet.oversight",
@@ -317,6 +319,10 @@ async function put(tx: Tx, raising: Raising, at: number): Promise<string> {
 /** Appends `event` to the record of its day. */
 async function note(tx: Tx, event: WaitEvent): Promise<void> {
     const day = localDay(event.at);
+    const oversight = await tx.doc(OversightDoc);
+    oversight.days ??= [];
+    const days = oversight.days;
+    if (!days.includes(day)) days.push(day);
     (await tx.doc(OversightDayDoc, day, day)).events.push(event);
 }
 
@@ -372,32 +378,44 @@ export function forChat(waits: readonly Wait[], chat: ChatId): readonly Wait[] {
     );
 }
 
-/** Recorded endings through `at`, using local calendar days rather than 24-hour steps. */
+/** Recorded endings, with `at` bounding the calendar scan of unindexed records. */
 export async function ended(
     read: DocumentReader,
     ids: readonly string[],
     context: Context,
     at = Date.now(),
 ): Promise<Map<string, How>> {
-    const wanted = new Set(ids);
-    const times = ids
+    const valid = ids.filter((id) => /^\d+-\d+$/.test(id));
+    const wanted = new Set(valid);
+    const found = new Map<string, How>();
+    if (valid.length === 0) return found;
+    const times = valid
         .map((id) => Number(id.slice(0, id.lastIndexOf("-"))))
         .filter(Number.isFinite);
-    const found = new Map<string, How>();
     if (times.length === 0) return found;
-    const day = new Date(Math.min(at, ...times));
-    const last = localDay(Math.max(at, ...times));
-    while (localDay(day.getTime()) <= last) {
-        for (const event of (
-            await read.snapshot(
-                OversightDayDoc,
-                localDay(day.getTime()),
-                context,
-            )
-        )?.events ?? []) {
+    const days = new Set(
+        (await read.snapshot(OversightDoc, context))?.days ?? [],
+    );
+    const checked = new Set<string>();
+    const check = async (day: string) => {
+        checked.add(day);
+        for (const event of (await read.snapshot(OversightDayDoc, day, context))
+            ?.events ?? []) {
             if (event.type === "settled" && wanted.has(event.id))
                 found.set(event.id, event.how);
         }
+    };
+    for (const day of days) {
+        await check(day);
+        if (found.size === wanted.size) return found;
+    }
+    // Unindexed records remain readable through their original calendar range.
+    const day = new Date(Math.min(at, ...times));
+    const last = localDay(Math.max(at, ...times));
+    while (localDay(day.getTime()) <= last) {
+        const key = localDay(day.getTime());
+        if (!checked.has(key)) await check(key);
+        if (found.size === wanted.size) return found;
         day.setDate(day.getDate() + 1);
     }
     return found;

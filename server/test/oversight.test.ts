@@ -88,7 +88,66 @@ it("finds endings across midnight and ignores open or unknown ids", async () => 
             ),
         context,
     );
-    expect(await ended(home.harness, [id, "unknown"], context, later)).toEqual(
+    expect(
+        await ended(home.harness, [id, "unknown", ""], context, later),
+    ).toEqual(new Map([[id, "dismiss"]]));
+});
+
+it("finds an ending recorded on an earlier day after the wall clock goes back", async () => {
+    const raised = new Date(2026, 9, 16, 12).getTime();
+    const settled = new Date(2026, 9, 14, 12).getTime();
+    const later = new Date(2026, 9, 17, 12).getTime();
+    const home = await testHome(scratch(), { now: () => later });
+    const id = await home.harness.commit(
+        (tx) =>
+            raiseFault(
+                tx,
+                { by: "mayor", agent: MAYOR, about: "clock moved", chat: null },
+                raised,
+            ),
+        context,
+    );
+    await home.harness.commit(
+        (tx) =>
+            settle(
+                tx,
+                id,
+                { how: "dismiss", text: "", chief: home.chief },
+                settled,
+            ),
+        context,
+    );
+    expect(await ended(home.harness, [id], context, later)).toEqual(
         new Map([[id, "dismiss"]]),
+    );
+});
+
+it("reads existing unindexed day records without changing their stored version", async () => {
+    const { OversightDoc } = await import("../src/oversight/waits.ts");
+    const at = new Date(2026, 9, 14, 12).getTime();
+    const home = await testHome(scratch(), { now: () => at });
+    const id = await home.harness.commit(
+        (tx) =>
+            raiseFault(
+                tx,
+                { by: "mayor", agent: MAYOR, about: "old record", chat: null },
+                at,
+            ),
+        context,
+    );
+    await home.harness.commit(async (tx) => {
+        await settle(
+            tx,
+            id,
+            { how: "dismiss", text: "", chief: home.chief },
+            at,
+        );
+        delete (await tx.doc(OversightDoc)).days;
+    }, context);
+    expect(await ended(home.harness, [id], context, at)).toEqual(
+        new Map([[id, "dismiss"]]),
+    );
+    expect(await ended(home.harness, ["", "unknown"], context, at)).toEqual(
+        new Map(),
     );
 });
