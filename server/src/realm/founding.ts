@@ -17,7 +17,7 @@ import { WorkDoc } from "../environment.ts";
 import { GrantsDoc, grantsOf, revoke } from "../gate.ts";
 import { buildHouse } from "../home/layout.ts";
 import type { Home, Part } from "../home.ts";
-import { erase as removeHouse, treeFailureText } from "../house.ts";
+import { erase as removeHouse, type TreeFailure } from "../house.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
 import { lapseAgent } from "../oversight/waits.ts";
 import {
@@ -417,46 +417,53 @@ async function finish(
 async function finishHamlets(home: Home, context: Context): Promise<void> {
     const realm = await home.harness.snapshot(RealmDoc, context);
     for (const place of realm?.hamlets ?? []) {
-        try {
-            if (place.erased) {
-                const dir = join(home.layout.houses, place.id);
-                try {
-                    await lstat(dir);
-                } catch (error) {
-                    if (
-                        error instanceof Error &&
-                        "code" in error &&
-                        error.code === "ENOENT"
-                    )
-                        continue;
-                    throw error;
-                }
-                const treeOutcome1 = await removeHouse(home, dir);
-                if (!treeOutcome1.ok)
-                    throw new Error(treeFailureText(treeOutcome1.error));
-                continue;
-            }
-            const record = await home.harness.snapshot(
-                RecordDoc,
-                place.id,
-                context,
-            );
-            for (const agent of record?.agents ?? []) {
-                const ref = { hamlet: place.id, number: agent.number };
-                if (place.removed) await stopAgent(home, ref, context);
-                else if (
-                    realm?.pending?.to.hamlet !== ref.hamlet ||
-                    realm.pending.to.number !== ref.number
-                )
-                    await buildHouse(home.layout, ref);
-            }
-        } catch {
+        const report = () =>
             console.error(
                 `Hamlet cleanup failed for \`${place.id}\`. Inspect its houses before the next restart; cleanup will be attempted again.`,
             );
+        try {
+            const outcome = await finishHamlet(home, place, realm, context);
+            if (!outcome.ok) report();
+        } catch {
+            report();
         }
     }
 }
+async function finishHamlet(
+    home: Home,
+    place: HamletPlace,
+    realm: Readonly<Realm> | undefined,
+    context: Context,
+): Promise<Result<void, TreeFailure>> {
+    if (place.erased) {
+        const dir = join(home.layout.houses, place.id);
+        try {
+            await lstat(dir);
+        } catch (error) {
+            if (
+                error instanceof Error &&
+                "code" in error &&
+                error.code === "ENOENT"
+            )
+                return ok(undefined);
+            throw error;
+        }
+        const removed = await removeHouse(home, dir);
+        return removed.ok ? ok(undefined) : removed;
+    }
+    const record = await home.harness.snapshot(RecordDoc, place.id, context);
+    for (const agent of record?.agents ?? []) {
+        const ref = { hamlet: place.id, number: agent.number };
+        if (place.removed) await stopAgent(home, ref, context);
+        else if (
+            realm?.pending?.to.hamlet !== ref.hamlet ||
+            realm.pending.to.number !== ref.number
+        )
+            await buildHouse(home.layout, ref);
+    }
+    return ok(undefined);
+}
+
 /** The proposed founding and its origin. */
 export type FoundingRequest = {
     hamlet: string;

@@ -31,7 +31,11 @@ import { notify } from "../chats/notice.ts";
 import { GrantsDoc, grantsOf, revoke } from "../gate.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Home, Part } from "../home.ts";
-import { erase as removeHouse, treeFailureText } from "../house.ts";
+import {
+    erase as removeHouse,
+    type TreeFailure,
+    treeFailureText,
+} from "../house.ts";
 import { askAgent, letterFailureText, PeersDoc } from "../letters.ts";
 import { LimitsDoc } from "../limits/rules.ts";
 import { lapseAgent } from "../oversight/waits.ts";
@@ -87,6 +91,7 @@ type AgreementResult = Result<
     Agreement,
     | RecordRefusal
     | DecisionHeld
+    | MoveFailure
     | { kind: "agreement-address"; failure: ResolveFailure; name: string }
 >;
 const AgreementDoc = defineDoc<{ result: Agreement | null; notified: boolean }>(
@@ -99,7 +104,7 @@ const AgreementDoc = defineDoc<{ result: Agreement | null; notified: boolean }>(
 );
 /** Agreements between hamlets. */
 export const Dealings: Part = (home) => {
-    let finishing: Promise<void> | undefined;
+    let finishing: Promise<Result<void, MoveFailure>> | undefined;
     const finish = (context: Context) =>
         (finishing ??= finishMove(home, context).finally(() => {
             finishing = undefined;
@@ -130,20 +135,29 @@ export const Dealings: Part = (home) => {
                     parameters: MOVE,
                     replay: "safe",
                     execute: async (args, api, context) => {
-                        await finish(context);
+                        const before = await finish(context);
+                        if (!before.ok)
+                            return deliver(home, api, before, context);
                         const result = await decide(
                             api,
                             (tx) => move(home, tx, api, args, context),
                             context,
                         );
-                        await finish(context);
-                        return deliver(home, api, result, context);
+                        const after = await finish(context);
+                        return deliver(
+                            home,
+                            api,
+                            after.ok ? result : after,
+                            context,
+                        );
                     },
                 }),
             ],
         }),
         async start(context) {
-            await finish(context);
+            const recovered = await finish(context);
+            if (!recovered.ok)
+                throw new Error(moveFailureText(recovered.error));
         },
     };
 };
@@ -505,9 +519,37 @@ async function transfer(
     ))
         await revoke(tx, from, grant.permission, "move", home.now());
 }
-async function finishMove(home: Home, context: Context): Promise<void> {
+/** An unfinished house move whose files need inspection before recovery. */
+export type MoveFailure = {
+    operation: "finish-move";
+    from: AgentRef;
+    to: AgentRef;
+    retrySafe: false;
+} & (
+    | { kind: "move-house-occupied" }
+    | { kind: "move-house-missing" }
+    | { kind: "move-house-tree"; failure: TreeFailure }
+);
+/** Pending house-move wording for the agreeing mayors and startup diagnostics. */
+export function moveFailureText(failure: MoveFailure): string {
+    switch (failure.kind) {
+        case "move-house-occupied":
+            return "The new house is not empty; the move is still pending.";
+        case "move-house-missing":
+            return "The moving house is missing; the move is still pending.";
+        case "move-house-tree":
+            return treeFailureText(failure.failure);
+    }
+    const unhandled: never = failure;
+    throw new Error(`Unclassified move recovery: ${unhandled}`);
+}
+/** Completes a committed house move, leaving refused recovery pending. */
+export async function finishMove(
+    home: Home,
+    context: Context,
+): Promise<Result<void, MoveFailure>> {
     const pending = (await home.harness.snapshot(RealmDoc, context))?.pending;
-    if (!pending) return;
+    if (!pending) return ok(undefined);
     const source = houseOf(home.layout, pending.from),
         target = houseOf(home.layout, pending.to);
     const exists = async (path: string) => {
@@ -524,14 +566,20 @@ async function finishMove(home: Home, context: Context): Promise<void> {
         if (await exists(target)) {
             const info = await lstat(target);
             if (!info.isDirectory() || info.isSymbolicLink())
-                throw new Error(
-                    "The new house is not empty; the move is still pending.",
-                );
+                return err({
+                    ...pending,
+                    operation: "finish-move",
+                    retrySafe: false,
+                    kind: "move-house-occupied",
+                });
             const names = await readdir(target);
             if (names.some((n) => !["NOTES.md", "skills", "inbox"].includes(n)))
-                throw new Error(
-                    "The new house is not empty; the move is still pending.",
-                );
+                return err({
+                    ...pending,
+                    operation: "finish-move",
+                    retrySafe: false,
+                    kind: "move-house-occupied",
+                });
             for (const name of names) {
                 const path = join(target, name),
                     info = await lstat(path);
@@ -543,20 +591,32 @@ async function finishMove(home: Home, context: Context): Promise<void> {
                         : !info.isDirectory() ||
                           (await readdir(path)).length !== 0)
                 )
-                    throw new Error(
-                        "The new house is not empty; the move is still pending.",
-                    );
+                    return err({
+                        ...pending,
+                        operation: "finish-move",
+                        retrySafe: false,
+                        kind: "move-house-occupied",
+                    });
             }
             const treeOutcome1 = await removeHouse(home, target);
             if (!treeOutcome1.ok)
-                throw new Error(treeFailureText(treeOutcome1.error));
+                return err({
+                    ...pending,
+                    operation: "finish-move",
+                    retrySafe: false,
+                    kind: "move-house-tree",
+                    failure: treeOutcome1.error,
+                });
         }
         await mkdir(dirname(target), { recursive: true });
         await rename(source, target);
     } else if (!(await exists(target)))
-        throw new Error(
-            "The moving house is missing; the move is still pending.",
-        );
+        return err({
+            ...pending,
+            operation: "finish-move",
+            retrySafe: false,
+            kind: "move-house-missing",
+        });
     const chats = await chiefChats(
         home,
         [pending.from.hamlet, pending.to.hamlet],
@@ -583,6 +643,7 @@ async function finishMove(home: Home, context: Context): Promise<void> {
         realm.pending = null;
         await reconfigure(home, tx);
     }, context);
+    return ok(undefined);
 }
 async function deliver(
     home: Home,
@@ -592,6 +653,12 @@ async function deliver(
 ): Promise<ToolExecutionResult> {
     if (!outcome.ok) {
         const failure = outcome.error;
+        if (
+            failure.kind === "move-house-occupied" ||
+            failure.kind === "move-house-missing" ||
+            failure.kind === "move-house-tree"
+        )
+            return refusedTool(moveFailureText(failure));
         if (failure.kind === "agreement-address")
             return refusedTool(
                 resolveFailureText(failure.failure, failure.name),

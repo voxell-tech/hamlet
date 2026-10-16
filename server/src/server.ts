@@ -87,6 +87,7 @@ export async function serveHome(
         return target.ok ? ok(target.value.chat) : target;
     };
     const cleared = await clearStagedGifts(home);
+    // Startup requires an empty staging area before accepting new gifts.
     if (!cleared.ok) throw new Error(giftRefusalText(cleared.error));
     const gifts = uploads(home, context);
     const logins = loginSessions(home, () => state.refresh());

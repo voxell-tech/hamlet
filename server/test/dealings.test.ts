@@ -652,3 +652,28 @@ it("agree_road refuses an unqualified office as an agent road end", async () => 
         }),
     ).toContain("name two agents; mayors already have roads to each other");
 });
+
+it("returns a blocked pending house move as a classified refusal", async () => {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { houseOf } = await import("../src/home/layout.ts");
+    const { finishMove } = await import("../src/realm/dealings.ts");
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    await addHamlet(home, "mill", "miller");
+    const from = await addAgent(home, "home", "scout");
+    const to = { hamlet: "mill", number: 1 };
+    await mkdir(houseOf(home.layout, to), { recursive: true });
+    await writeFile(`${houseOf(home.layout, to)}/blocked`, "Keep me");
+    await home.harness.commit(async (tx) => {
+        (await tx.doc(RealmDoc)).pending = { from, to };
+    }, context);
+    expect(await finishMove(home, context)).toMatchObject({
+        ok: false,
+        error: {
+            kind: "move-house-occupied",
+            operation: "finish-move",
+            from,
+            to,
+            retrySafe: false,
+        },
+    });
+});
