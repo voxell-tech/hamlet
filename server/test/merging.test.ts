@@ -4,6 +4,7 @@ import {
     mkdir,
     open,
     readFile,
+    rename,
     symlink,
     unlink,
     writeFile,
@@ -504,7 +505,7 @@ it("refuses a blocked destination before archiving either agent", async () => {
     ).toHaveLength(0);
 }, 30_000);
 
-it("opens with a blocked pending merge and retries it through restore without erasing", async () => {
+it("opens with a blocked pending merge and retries it through merge without splitting", async () => {
     const { home, models, put, get } = await pair();
     await put(2, "found.txt", "Dune");
     await merge(home, deed, context);
@@ -520,14 +521,17 @@ it("opens with a blocked pending merge and retries it through restore without er
             ?.merge?.applied,
     ).toBe(false);
     expect(JSON.stringify(await transcript(await mayorChat(again)))).toContain(
-        "/restore",
+        "/merge",
     );
     await unlink(
         join(houseOf(again.layout, { hamlet: HOME, number: 1 }), "found.txt"),
     );
-    expect(await restore(again, { ...deed, rest: "scout" }, context)).toContain(
-        "Split",
-    );
+    expect(await merge(again, deed, context)).toContain("Merged");
+    expect(await get(1, "found.txt")).toBe("Dune");
+    expect(
+        (await again.harness.snapshot(RecordDoc, HOME, context))?.archive[0]
+            ?.back,
+    ).toBeNull();
     expect(await get(2, "found.txt")).toBe("Dune");
 }, 60_000);
 
@@ -819,3 +823,66 @@ it("refuses unreadable kept notes before committing and preserves every original
     expect(await readFile(file)).toEqual(bytes);
     expect(words).toContain("UTF-8");
 }, 60_000);
+
+it("finishes pending merge files with /merge while running, without splitting or archiving twice", async () => {
+    const { home, put, get } = await pair();
+    await put(2, "found.txt", "Dune");
+    await merge(home, deed, context);
+    await home.harness.commit(async (tx) => {
+        const entry = (await tx.doc(RecordDoc, HOME, HOME)).archive[0];
+        if (!entry?.merge) throw new Error("No merge");
+        entry.merge.applied = false;
+    }, context);
+    await put(1, "found.txt", "Keep this instead");
+    await expect(merge(home, deed, context)).resolves.toContain(
+        "files are still pending",
+    );
+    await unlink(
+        join(houseOf(home.layout, { hamlet: HOME, number: 1 }), "found.txt"),
+    );
+    const archived = (await home.harness.snapshot(RecordDoc, HOME, context))
+        ?.archive[0];
+    if (!archived) throw new Error("No archive");
+    const retry = { ...deed, rest: `${archived.id} into librarian` };
+    expect(await merge(home, retry, context)).toContain(
+        "Merged `scout` into `librarian`",
+    );
+    expect(await merge(home, retry, context)).toContain(
+        "Merged `scout` into `librarian`",
+    );
+    const record = await home.harness.snapshot(RecordDoc, HOME, context);
+    expect(record?.agents.map((a) => a.name)).toEqual(["founder", "librarian"]);
+    expect(record?.archive).toHaveLength(1);
+    expect(record?.archive[0]).toMatchObject({
+        back: null,
+        merge: { applied: true },
+    });
+    expect(await get(1, "found.txt")).toBe("Dune");
+    expect(await restore(home, { ...deed, rest: "scout" }, context)).toContain(
+        "Split",
+    );
+    expect(
+        (await home.harness.snapshot(RecordDoc, HOME, context))?.agents.map(
+            (a) => a.name,
+        ),
+    ).toContain("scout");
+});
+
+it("merges a new living agent when an older archive has the same absorbed name", async () => {
+    const { home, put, get } = await pair();
+    await merge(home, deed, context);
+    const keptHouse = houseOf(home.layout, { hamlet: HOME, number: 1 });
+    await rename(
+        join(keptHouse, "merged/scout"),
+        join(keptHouse, "merged/old-scout"),
+    );
+    const scout = await addAgent(home, HOME, "scout");
+    await put(scout.number, "new.txt", "New work");
+    expect(await merge(home, deed, context)).toContain(
+        "Merged `scout` into `librarian`",
+    );
+    expect(
+        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
+    ).toHaveLength(2);
+    expect(await get(1, "new.txt")).toBe("New work");
+});

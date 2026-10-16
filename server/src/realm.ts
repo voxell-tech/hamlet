@@ -81,6 +81,15 @@ export const RealmDoc = defineDoc<Realm>({
 export function liveHamlets(realm: Readonly<Realm> | undefined): HamletPlace[] {
     return realm?.hamlets.filter((h) => h.removed === null && !h.erased) ?? [];
 }
+/** The humans told about a hamlet, including the home chief for an empty list. */
+export function chiefsOf(
+    realm: Readonly<Realm> | undefined,
+    hamlet: string,
+    homeChief: string,
+): readonly string[] {
+    const place = realm?.hamlets.find((h) => h.id === hamlet);
+    return place ? (place.chiefs.length ? place.chiefs : [homeChief]) : [];
+}
 /** A chief's authority over a living hamlet (C7). */
 export function isChief(
     realm: Readonly<Realm>,

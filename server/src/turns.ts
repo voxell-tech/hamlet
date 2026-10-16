@@ -31,6 +31,11 @@ import {
     RetryEntry,
     WithDoc,
 } from "./chats.ts";
+import {
+    type ChiefResult,
+    chiefAccess,
+    chiefRefusalText,
+} from "./chief-access.ts";
 import { agentKey } from "./hamlet.ts";
 import { usageOf } from "./history.ts";
 import type { Home } from "./home.ts";
@@ -69,12 +74,29 @@ export async function watchChat(
     to: string | undefined,
     context: Context,
     before?: string,
-): Promise<ChatWatch> {
+): Promise<ChiefResult<ChatWatch>> {
+    const access = await chiefAccess(
+        home,
+        chat.with.hamlet,
+        "watch chat",
+        context,
+    );
+    if (!access.ok) return access;
     let stopped = false;
     let watch: Awaited<ReturnType<Conversation["watch"]>> | undefined;
     let id: Conversation["id"] | undefined;
     const bind = async () => {
-        const conversation = await conversationOf(home, chat, context);
+        const outcome = await conversationOf(home, chat, context);
+        if (!outcome.ok) {
+            await watch?.stop();
+            send({
+                type: "fault",
+                ...(to === undefined ? {} : { to }),
+                text: chiefRefusalText(outcome),
+            });
+            return;
+        }
+        const conversation = outcome.value;
         if (id === conversation.id || stopped) return;
         await watch?.stop();
         if (stopped) return;
@@ -151,11 +173,14 @@ export async function watchChat(
         throw error;
     }
     return {
-        stop: async () => {
-            stopped = true;
-            await office?.stop();
-            await pointer?.stop();
-            await watch?.stop();
+        ok: true,
+        value: {
+            stop: async () => {
+                stopped = true;
+                await office?.stop();
+                await pointer?.stop();
+                await watch?.stop();
+            },
         },
     };
 }
@@ -166,8 +191,10 @@ export async function pageChat(
     chat: ChatRef,
     before: string,
     context: Context,
-): Promise<Transcript> {
-    const conversation = await conversationOf(home, chat, context);
+): Promise<ChiefResult<Transcript>> {
+    const outcome = await conversationOf(home, chat, context);
+    if (!outcome.ok) return outcome;
+    const conversation = outcome.value;
     const watch = await conversation.watch(context);
     try {
         const fold = await readBack(home, conversation, watch.value, context);
@@ -177,8 +204,11 @@ export async function pageChat(
             : (await home.harness.snapshot(WithDoc, conversation.id, context))
                   ?.chat;
         return {
-            ...transcriptOf(chat, fold, usage, before),
-            ...(number === undefined ? {} : { number }),
+            ok: true,
+            value: {
+                ...transcriptOf(chat, fold, usage, before),
+                ...(number === undefined ? {} : { number }),
+            },
         };
     } finally {
         await watch.stop();
@@ -213,14 +243,24 @@ async function conversationOf(
     home: Home,
     chat: ChatRef,
     context: Context,
-): Promise<Conversation> {
+): Promise<ChiefResult<Conversation>> {
+    const access = await chiefAccess(
+        home,
+        chat.with.hamlet,
+        "open chat",
+        context,
+    );
+    if (!access.ok) return access;
     if (chat.from) return agentConversation(home, chat, context);
     const agent = await addressed(home.harness, chat.with, context);
     if (agent === undefined) {
         throw new Error(`no agent named \`${chat.with.agent}\``);
     }
     if (chat.past === undefined) {
-        return chatOf(home, { agent, chief: home.chief }, context);
+        return {
+            ok: true,
+            value: await chatOf(home, { agent, chief: home.chief }, context),
+        };
     }
     const key = agentKey(agent);
     const past = (await home.harness.snapshot(ChatDoc, key, context))?.chats[
@@ -231,7 +271,7 @@ async function conversationOf(
     if (!conversation) {
         throw new Error(`There is no past session \`${chat.past}\` here.`);
     }
-    return conversation;
+    return { ok: true, value: conversation };
 }
 
 /** The transcript of `conversation` as of `view`, from the whole of its history. */

@@ -38,6 +38,7 @@ import {
 } from "./connection-support.ts";
 import { swappingDirectory } from "./race-support.ts";
 import {
+    addHamlet,
     closeAfter,
     context,
     fauxModels,
@@ -1572,25 +1573,10 @@ it("rolls back earlier roots when a later delivery fails, with no server paths i
 it("records a skill giver's hamlet when it differs from the receiving agent's", async () => {
     const { models } = fauxModels();
     const run = await served({ models });
-    const source = await buildHouse(run.home.layout, {
-        hamlet: "other",
-        number: 0,
-    });
+    const giver = await addHamlet(run.home, "other", "cartographer");
+    const source = houseOf(run.home.layout, giver);
     await mkdir(join(source, "skills/maps"));
     await writeFile(join(source, "skills/maps/SKILL.md"), "Maps");
-    await run.home.harness.commit(async (tx) => {
-        const record = await tx.doc(RecordDoc, "other", "other");
-        record.agents = [
-            {
-                number: 0,
-                name: "cartographer",
-                purpose: "Maps",
-                since: 1,
-                model: null,
-            },
-        ];
-        record.mayor = 0;
-    }, context);
     expect(
         await request(run.connection, run.messages, {
             type: "give",

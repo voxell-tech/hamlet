@@ -154,7 +154,8 @@ it("summarises at the selected 80% threshold and keeps the unanswered message ex
         undefined,
         context,
     );
-    closeAfter(() => watch.stop());
+    if (!watch.ok) throw new Error("Chat refused");
+    closeAfter(() => watch.value.stop());
     faux.setResponses(
         Array.from({ length: 20 }, () => (request) => {
             if (

@@ -4,6 +4,7 @@ import { editCatalogue } from "./catalogue.ts";
 import { CharacterDoc } from "./character.ts";
 import { editCharter } from "./charter.ts";
 import { chatOf } from "./chats.ts";
+import { type ChiefResult, chiefAccess } from "./chief-access.ts";
 import { envFor } from "./environment.ts";
 import { agentKey } from "./hamlet.ts";
 import type { Home } from "./home.ts";
@@ -12,14 +13,14 @@ import { editLimits } from "./limits/edit.ts";
 import { editSettings } from "./models.ts";
 import { safeWords } from "./plainly.ts";
 import type { Edit } from "./protocol.ts";
-import { readableAgent, readableHamlet } from "./reads.ts";
+import { readableAgent } from "./reads.ts";
 
 /** A chief's validated document edit, applied before its reply (S6). */
 export async function edit(
     home: Home,
     message: Edit,
     context: Context,
-): Promise<string> {
+): Promise<ChiefResult<string>> {
     switch (message.doc) {
         case "charter":
             await editCharter(
@@ -30,7 +31,9 @@ export async function edit(
             break;
         case "character":
         case "notes": {
-            const agent = await readableAgent(home, message.agent, context);
+            const resolved = await readableAgent(home, message.agent, context);
+            if (!resolved.ok) return resolved;
+            const agent = resolved.value;
             const text = safeWords(home, message.text);
             if (message.doc === "character") {
                 const key = agentKey(agent);
@@ -60,10 +63,17 @@ export async function edit(
             }
             break;
         }
-        case "limits":
-            await readableHamlet(home, message.hamlet, context);
+        case "limits": {
+            const access = await chiefAccess(
+                home,
+                message.hamlet,
+                "edit limits",
+                context,
+            );
+            if (!access.ok) return access;
             await editLimits(home, message.hamlet, message, context);
             break;
+        }
         case "settings":
             await editSettings(home, message.set, context);
             break;
@@ -71,5 +81,5 @@ export async function edit(
             await editCatalogue(home, message.model, message.set, context);
             break;
     }
-    return "Saved.";
+    return { ok: true, value: "Saved." };
 }

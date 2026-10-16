@@ -25,6 +25,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { untilAborted } from "../abort.ts";
 import { WithDoc } from "../chats.ts";
+import { chiefAccess, chiefRefusalText } from "../chief-access.ts";
 import { ErrandDoc, runErrand, startErrand } from "../errands.ts";
 import { listTree, MERGE_CAPS, removeTree, stageTree } from "../gift-files.ts";
 import { revoke } from "../grants.ts";
@@ -558,6 +559,49 @@ export const merge: Deed = async (home, given, context) =>
             reason: reason.join(" ") || "a chief asked",
             by: `chief:${given.chief}`,
         };
+        const access = await chiefAccess(
+            home,
+            given.hamlet,
+            "merge",
+            context,
+            given.chief,
+        );
+        if (!access.ok) return chiefRefusalText(access);
+        const record = await home.harness.snapshot(
+            RecordDoc,
+            given.hamlet,
+            context,
+        );
+        const pending = record?.archive.findLast(
+            (entry) =>
+                entry.back === null &&
+                entry.merge &&
+                (entry.id === absorb ||
+                    (entry.agent.name === absorb &&
+                        record &&
+                        !named(record, absorb))),
+        );
+        if (
+            record &&
+            pending?.merge &&
+            named(record, keep)?.number === pending.merge.kept.number
+        ) {
+            const outcome = await retryFiles(
+                home,
+                given.hamlet,
+                pending,
+                context,
+            );
+            if (!outcome.ok) return pendingText(outcome.error);
+            const kept = record.agents.find(
+                (agent) => agent.number === pending.merge?.kept.number,
+            );
+            return report(
+                pending,
+                false,
+                kept?.purpose ?? pending.merge.kept.purpose,
+            );
+        }
         const agents = await home.harness.commit(
             (tx) => allowed(home, tx, args),
             context,
@@ -1130,6 +1174,8 @@ for (const rel of JSON.parse(fs.readFileSync(p.join(stage, "manifest.json"), "ut
                             operation: "merge",
                             hamlet,
                             archive: entry.id,
+                            kept: merge.kept.name,
+                            absorbed: entry.agent.name,
                             retrySafe: true,
                         },
                     };
@@ -1154,6 +1200,8 @@ for (const rel of JSON.parse(fs.readFileSync(p.join(stage, "manifest.json"), "ut
                         operation: "merge",
                         hamlet,
                         archive: entry.id,
+                        kept: merge.kept.name,
+                        absorbed: entry.agent.name,
                         retrySafe: true,
                     },
                 };
@@ -1447,6 +1495,8 @@ type PendingFiles = {
     operation: "merge" | "split";
     hamlet: string;
     archive: string;
+    kept: string;
+    absorbed: string;
     retrySafe: true;
 };
 
@@ -1459,9 +1509,9 @@ function pendingText(error: PendingFiles | NotesFailure): string {
         case "notes-unreadable":
             return notesFailureText(error);
         case "changed-notes":
-            return `The merge of \`${error.archive}\` is pending because the kept agent's notes changed. Both versions are kept. Save its newer NOTES.md aside and put its merged/${error.archive.replace(/-\d+$/, "")}/NOTES.before.md back as NOTES.md, then use /restore ${error.archive} to retry safely. Do not erase its house.`;
+            return `The merge of \`${error.archive}\` is pending because the kept agent's notes changed. Both versions are kept. Save its newer NOTES.md aside and put its merged/${error.absorbed}/NOTES.before.md back as NOTES.md, then use /merge ${error.archive} into ${error.kept} to retry safely. Do not erase its house.`;
         case "pending-files":
-            return `The ${error.operation} of \`${error.archive}\` in \`${error.hamlet}\` is recorded but its files are still pending. Inspect both houses and keep conflicting paths aside, then use /restore ${error.archive} to retry safely. Do not erase its house.`;
+            return `The ${error.operation} of \`${error.archive}\` in \`${error.hamlet}\` is recorded but its files are still pending. Inspect both houses and keep conflicting paths aside, then use ${error.operation === "merge" ? `/merge ${error.archive} into ${error.kept}` : `/restore ${error.archive}`} to retry safely. Do not erase its house.`;
     }
     const unhandled: never = error;
     throw new Error(`Unclassified pending files: ${unhandled}`);
@@ -1473,12 +1523,14 @@ async function retryFiles(
     entry: Archived,
     context: Context,
 ): Promise<{ ok: true } | { ok: false; error: PendingFiles | NotesFailure }> {
+    const merge = entry.merge;
+    if (!merge) throw new Error("File work needs a merge archive.");
     let failure: PendingFiles | NotesFailure | undefined;
     try {
         failure = await stoppedHouses(
             home,
             hamlet,
-            entry.merge ? [entry.agent, entry.merge.kept] : [entry.agent],
+            [entry.agent, merge.kept],
             context,
             async () => {
                 if (entry.back === null) {
@@ -1495,6 +1547,8 @@ async function retryFiles(
             operation: entry.back === null ? "merge" : "split",
             hamlet,
             archive: entry.id,
+            kept: merge.kept.name,
+            absorbed: entry.agent.name,
             retrySafe: true,
         };
     }

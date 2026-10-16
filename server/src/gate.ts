@@ -11,6 +11,7 @@ import {
 import { AskedDoc, refuse, refused, TrustedDoc, trustKey } from "./asked.ts";
 import { CHANGE, changeOf } from "./change.ts";
 import { ReflectionEntry, type With, WithDoc } from "./chats.ts";
+import { type ChiefResult, chiefAccess } from "./chief-access.ts";
 import { judge, type Reach, type Standing } from "./danger.ts";
 import { envFor, LEAVE, type Leave, placeOf } from "./environment.ts";
 import { footing } from "./footing.ts";
@@ -156,17 +157,33 @@ export async function answerWords(
     home: Home,
     given: Answer,
     context: Context,
-): Promise<string> {
+): Promise<ChiefResult<string>> {
     const wait = (await home.harness.snapshot(OversightDoc, context))?.waits[
         given.wait
     ];
-    if (wait === undefined) return "Nothing waits for you.";
+    if (wait === undefined)
+        return { ok: true, value: "Nothing waits for you." };
+    const hamlet = wait.agent?.hamlet ?? wait.chat?.hamlet;
+    if (hamlet) {
+        const access = await chiefAccess(
+            home,
+            hamlet,
+            "answer wait",
+            context,
+            given.chief,
+        );
+        if (!access.ok) return access;
+    }
     if (!wait.answers.includes(given.choice))
         throw new Error(`That cannot be answered that way:\n${strip(wait)}`);
     const settled = await answer(home, given, context);
-    return settled === undefined
-        ? "Nothing waits for you."
-        : `Answered /${given.choice}: ${line(settled, 80)}`;
+    return {
+        ok: true,
+        value:
+            settled === undefined
+                ? "Nothing waits for you."
+                : `Answered /${given.choice}: ${line(settled, 80)}`,
+    };
 }
 
 /** The gate every tool call passes before it runs (C7, H11). */

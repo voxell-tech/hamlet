@@ -20,7 +20,13 @@ import { buildHouse } from "../layout.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
 import { notify } from "../notice.ts";
 import type { Deed, Part } from "../parts.ts";
-import { liveHamlets, type Realm, RealmDoc, realmRoads } from "../realm.ts";
+import {
+    chiefsOf,
+    liveHamlets,
+    type Realm,
+    RealmDoc,
+    realmRoads,
+} from "../realm.ts";
 import { defineRecordTool, RecordDoc } from "../record.ts";
 import { stopAgent } from "../talk.ts";
 import { lapseAgent } from "../waits.ts";
@@ -346,10 +352,10 @@ async function tellChiefs(
     hamlet: string,
     words: string,
 ): Promise<void> {
-    const place = (await tx.doc(RealmDoc)).hamlets.find((h) => h.id === hamlet);
+    const realm = await tx.doc(RealmDoc);
     const record = await tx.doc(RecordDoc, hamlet, hamlet);
     const key = agentKey({ hamlet, number: record.mayor });
-    for (const chief of place?.chiefs ?? []) {
+    for (const chief of chiefsOf(realm, hamlet, home.chief)) {
         const chats = (await tx.doc(ChatDoc, key, key)).chats;
         let chat = chats[chief];
         if (!chat) {

@@ -37,7 +37,7 @@ import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
 import { notify } from "../notice.ts";
 import type { Deed, Part } from "../parts.ts";
 import { foundHamlet, mayFound, removeHamlet } from "../realm/founding.ts";
-import { isChief, liveHamlets, RealmDoc } from "../realm.ts";
+import { chiefsOf, isChief, liveHamlets, RealmDoc } from "../realm.ts";
 import { type HamletRecord, named, RecordDoc } from "../record.ts";
 import { SandboxEnv } from "../sandbox/env.ts";
 import { closedPolicy } from "../sandbox/reach.ts";
@@ -1043,12 +1043,10 @@ export async function notifyChiefs(
     text: string,
 ): Promise<void> {
     const r = await tx.doc(RecordDoc, hamlet, hamlet);
-    const chiefs =
-        (await tx.doc(RealmDoc)).hamlets.find((h) => h.id === hamlet)?.chiefs ??
-        [];
+    const chiefs = chiefsOf(await tx.doc(RealmDoc), hamlet, home.chief);
     const key = agentKey({ hamlet, number: r.mayor });
     const chats = (await tx.doc(ChatDoc, key, key)).chats;
-    for (const chief of chiefs.length ? chiefs : [home.chief]) {
+    for (const chief of chiefs) {
         let chat = chats[chief];
         if (!chat) {
             const conversation = await startConversation(home, tx, {
