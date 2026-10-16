@@ -28,6 +28,7 @@ export class Activity {
     working = false;
     pending = 0;
     faulted = false;
+    consulting = false;
     readonly #blocks = new Map<number, string>();
     readonly #calls = new Set<string>();
 
@@ -201,6 +202,7 @@ export class Activity {
     }
 
     private rest(): void {
+        this.consulting = false;
         this.activity = {
             doing: "rest",
             doingWords: WORDS.rest,
@@ -209,19 +211,31 @@ export class Activity {
         };
     }
     private think(): void {
+        this.consulting = false;
         if (this.activity.doing === "think") return;
         this.activity.doing = "think";
         this.activity.doingWords = WORDS.think;
         this.activity.step++;
     }
     private tool(name: string, args: unknown): void {
+        this.consulting = name === "ask_librarian" || name === "submit_skill";
         const doing = doingOf(name, args);
         this.activity.doing = doing;
-        this.activity.doingWords = WORDS[doing];
+        this.activity.doingWords =
+            name === "request_road"
+                ? "Asking the mayor for a road"
+                : name === "agree_road"
+                  ? "Waiting for the other mayor about a road"
+                  : name === "agree_move"
+                    ? "Waiting for the other mayor about a move"
+                    : this.consulting
+                      ? "Consulting the librarian"
+                      : WORDS[doing];
         this.activity.step++;
         this.saying = { text: "", thought: true };
     }
     private ended(failed: boolean): void {
+        this.consulting = false;
         if (failed) this.activity.failures++;
         this.activity.doing = "think";
         this.activity.doingWords = WORDS.think;
@@ -269,5 +283,14 @@ function doingOf(name: string, args: unknown): Doing {
         return text.includes("notes.md") ? "read-notes" : "run";
     }
     if (name === "create_agent") return "think";
-    return name === "ask_agent" ? "await" : "custom";
+    return [
+        "ask_agent",
+        "request_road",
+        "agree_road",
+        "agree_move",
+        "ask_librarian",
+        "submit_skill",
+    ].includes(name)
+        ? "await"
+        : "custom";
 }

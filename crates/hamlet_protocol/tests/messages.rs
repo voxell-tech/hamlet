@@ -50,6 +50,7 @@ fn address() -> Address {
 
 fn chat() -> ChatRef {
     ChatRef {
+        kind: None,
         from: None,
         with: address(),
         past: Some(2),
@@ -268,6 +269,7 @@ fn watches_open_pages_and_close_without_a_request_id() {
         ClientMessage::Open(Open {
             id: ID.into(),
             chat: ChatRef {
+                kind: None,
                 from: None,
                 with: address(),
                 past: None,
@@ -697,4 +699,24 @@ fn society_and_realm_fields_round_trip_without_losing_departures_or_ballots()
     server(wire);
     let wire = json!({"type": "open", "id": ID, "chat": {"with": {"hamlet": "home", "agent": "mayor"}, "from": b}});
     client(serde_json::from_value(wire.clone()).unwrap(), wire);
+}
+
+#[test]
+fn a_peer_watch_selects_questions() {
+    client(
+        ClientMessage::Open(Open {
+            id: ID.into(),
+            chat: ChatRef {
+                from: Some(AgentRef {
+                    hamlet: "home".into(),
+                    number: 2,
+                }),
+                kind: Some(ChatRefKind::Questions),
+                past: None,
+                with: address(),
+            },
+            before: None,
+        }),
+        json!({"type": "open", "id": ID, "chat": {"with": {"hamlet": "home", "agent": "mayor"}, "from": {"hamlet": "home", "number": 2}, "kind": "questions"}}),
+    );
 }

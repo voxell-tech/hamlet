@@ -8,11 +8,12 @@ import {
     watchEvents,
 } from "@earendil-works/pi-durable";
 import { Activity } from "./activity.ts";
-import { ChatDoc, conversationsOf, currentOf } from "./chats.ts";
+import { conversationViews } from "./agent-chats.ts";
+import { ChatDoc, currentOf } from "./chats.ts";
 import { choose } from "./choice.ts";
 import { DEEDS } from "./commands.ts";
 import { GrantsDoc, grantsOf } from "./grants.ts";
-import { agentKey, HOME, WorkDoc } from "./hamlet.ts";
+import { agentKey, WorkDoc } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./layout.ts";
 import { booksOf } from "./ledger.ts";
@@ -25,14 +26,26 @@ import type {
     Changes,
     Grant,
     Hamlet,
+    Road,
     State,
     Update,
     Wait,
 } from "./protocol.ts";
-import { addressOf, named, RecordDoc } from "./record.ts";
+import {
+    farewell,
+    level,
+    liveHamlets,
+    RealmDoc,
+    realmRoads,
+    roadsOf,
+} from "./realm.ts";
+import { addressOf, type HamletRecord, named, RecordDoc } from "./record.ts";
 import { reportOf } from "./report.ts";
 import { type Settings, SettingsDoc, settingsOf } from "./settings.ts";
 import { refreshSkills, skillNames, starterSkills } from "./skills.ts";
+import { AgentConversationsDoc } from "./society/docs.ts";
+import { libraryView } from "./society/librarian.ts";
+import { voteViews } from "./society/votes.ts";
 import { OversightDoc } from "./waits.ts";
 import { queue, says } from "./words.ts";
 import { modeWords } from "./work.ts";
@@ -41,7 +54,7 @@ const starters = starterSkills(STARTERS);
 
 type Work = Pick<
     Activity,
-    "activity" | "saying" | "working" | "pending" | "faulted"
+    "activity" | "saying" | "working" | "pending" | "faulted" | "consulting"
 >;
 
 /** The whole realm's state, which a client starts from (S5). */
@@ -53,112 +66,223 @@ export async function stateOf(
     savedSettings?: Settings,
 ): Promise<State> {
     const read = home.harness;
-    const record =
-        (await read.snapshot(RecordDoc, HOME, context)) ??
-        RecordDoc.definition.initial(HOME);
-    const limits = limitsOf(await read.snapshot(LimitsDoc, HOME, context));
-    const work =
-        (await read.snapshot(WorkDoc, HOME, context)) ??
-        WorkDoc.definition.initial(HOME);
+    const realm = await read.snapshot(RealmDoc, context);
+    const places = liveHamlets(realm);
+    const records: Record<string, Readonly<HamletRecord>> = {};
+    for (const h of places)
+        records[h.id] =
+            (await read.snapshot(RecordDoc, h.id, context)) ??
+            RecordDoc.definition.initial(h.id);
     const settings = settingsOf(
         savedSettings ?? (await read.snapshot(SettingsDoc, context)),
         home.overrides,
     );
     const oversight = await read.snapshot(OversightDoc, context);
-    const books = await booksOf(
-        home,
-        HOME,
-        limits.budget.period,
-        null,
-        context,
-    );
-    const budget = await reportOf(home, HOME, context, undefined, books);
-    const hamlet: Hamlet = {
-        id: HOME,
-        name: HOME,
-        folder: work.folder,
-        before: [...work.before],
-        mode: work.mode,
-        modeWords: modeWords(work.mode),
-        limits: structuredClone(limits),
-        budget,
-    };
-    const agents: Agent[] = [];
-    const currentChats = new Map<number, Record<string, number>>();
-    for (const agent of record.agents) {
-        const ref = { hamlet: HOME, number: agent.number };
-        const chats = await read.snapshot(ChatDoc, agentKey(ref), context);
-        currentChats.set(
-            agent.number,
-            Object.fromEntries(
-                Object.entries(chats?.chats ?? {}).map(([chief, chat]) => [
-                    chief,
-                    chat.current,
-                ]),
-            ),
+    const hamlets: Hamlet[] = [],
+        agents: Agent[] = [],
+        grants: Grant[] = grantsOf(await read.snapshot(GrantsDoc, context)).map(
+            (g) => ({ ...g, source: "grant" }),
         );
-        const works: Work[] = [];
-        for (const id of chats ? conversationsOf(chats) : []) {
-            const observed = activity.get(id);
-            if (observed !== undefined) works.push(observed);
-            else {
-                const live = await read.snapshot(LiveDoc, id, context);
-                const inbox = await read.snapshot(InboxDoc, id, context);
-                works.push({
-                    working: live?.run !== undefined,
-                    pending: inbox?.items.length ?? 0,
-                    faulted: false,
-                    activity: {
-                        doing: live?.run === undefined ? "rest" : "think",
-                        doingWords:
-                            live?.run === undefined ? "At rest" : "Thinking",
-                        step: 0,
-                        failures: 0,
-                    },
-                    saying: { text: "", thought: false },
+    const currentChats = new Map<string, Record<string, number>>();
+    const crossRoads = realm ? realmRoads(realm, records) : [];
+    for (const place of places) {
+        const hamlet = place.id;
+        const record = records[hamlet];
+        if (!record) continue;
+        const limits = limitsOf(
+            await read.snapshot(LimitsDoc, hamlet, context),
+        );
+        const work =
+            (await read.snapshot(WorkDoc, hamlet, context)) ??
+            WorkDoc.definition.initial(hamlet);
+        const books = await booksOf(
+            home,
+            hamlet,
+            limits.budget.period,
+            null,
+            context,
+        );
+        const refOf = (end: number | "office") => ({
+            hamlet,
+            number: end === "office" ? record.mayor : end,
+        });
+        const roads: Road[] = roadsOf(record).map((r) => ({
+            a: refOf(r.a),
+            b: refOf(r.b),
+            messages: r.messages,
+            lastFrom: r.lastFrom === null ? null : refOf(r.lastFrom),
+            level: level(r, home.now(), limits.road.growsOverDays),
+        }));
+        for (const road of crossRoads.filter(
+            (r) => r.a.hamlet === hamlet || r.b.hamlet === hamlet,
+        )) {
+            const end = road.lastFrom;
+            const lastFrom =
+                end === null
+                    ? null
+                    : "office" in end
+                      ? {
+                            hamlet: end.office,
+                            number: records[end.office]?.mayor ?? 0,
+                        }
+                      : end;
+            roads.push({
+                a: road.a,
+                b: road.b,
+                messages: road.messages,
+                lastFrom,
+                level: level(road, home.now(), limits.road.growsOverDays),
+            });
+        }
+        hamlets.push({
+            id: hamlet,
+            name: place.title ?? hamlet,
+            at: place.at,
+            roads,
+            votes: await voteViews(home, hamlet, context),
+            folder: work.folder,
+            before: [...work.before],
+            mode: work.mode,
+            modeWords: modeWords(work.mode),
+            limits: structuredClone(limits),
+            budget: await reportOf(home, hamlet, context, undefined, books),
+        });
+        const departed = record.archive.filter(
+            (a) =>
+                a.back === null &&
+                !record.agents.some((live) => live.number === a.agent.number),
+        );
+        for (const agent of [
+            ...record.agents,
+            ...departed.map((a) => a.agent),
+        ]) {
+            const ref = { hamlet, number: agent.number },
+                key = agentKey(ref);
+            const chats = await read.snapshot(ChatDoc, key, context);
+            currentChats.set(
+                key,
+                Object.fromEntries(
+                    Object.entries(chats?.chats ?? {}).map(([chief, chat]) => [
+                        chief,
+                        chat.current,
+                    ]),
+                ),
+            );
+            const index = await read.snapshot(
+                AgentConversationsDoc,
+                key,
+                context,
+            );
+            const works: Work[] = [];
+            for (const id of index?.ids ?? []) {
+                const observed = activity.get(id);
+                if (observed) works.push(observed);
+                else {
+                    const live = await read.snapshot(LiveDoc, id, context);
+                    const inbox = await read.snapshot(InboxDoc, id, context);
+                    works.push({
+                        working: live?.run !== undefined,
+                        pending:
+                            inbox?.items.filter((i) => i.mode !== "write")
+                                .length ?? 0,
+                        faulted: false,
+                        consulting: false,
+                        activity: {
+                            doing: live?.run === undefined ? "rest" : "think",
+                            doingWords:
+                                live?.run === undefined
+                                    ? "At rest"
+                                    : "Thinking",
+                            step: 0,
+                            failures: 0,
+                        },
+                        saying: { text: "", thought: false },
+                    });
+                }
+            }
+            const current = chats?.chats[home.chief];
+            const active =
+                works.find((w) => w.working) ??
+                (current && activity.get(currentOf(current))) ??
+                works.at(-1);
+            const spent = books.agents[String(agent.number)] ?? {
+                tokens: 0,
+                micros: 0,
+                ms: 0,
+            };
+            const left = departed.find((a) => a.agent.number === agent.number);
+            const busy = !left && works.some((w) => w.working || w.pending > 0);
+            agents.push({
+                ref,
+                name: agent.name,
+                purpose: agent.purpose,
+                since: agent.since,
+                mayor: !left && record.mayor === agent.number,
+                model: choose(limits, settings, {
+                    name: agent.name,
+                    mayor: !left && record.mayor === agent.number,
+                    model: agent.model,
+                }),
+                busy,
+                faulted: !busy && (active?.faulted ?? false),
+                activity: structuredClone(
+                    left
+                        ? {
+                              doing: "rest",
+                              doingWords: "At rest",
+                              step: 0,
+                              failures: 0,
+                          }
+                        : (active?.activity ?? {
+                              doing: "rest",
+                              doingWords: "At rest",
+                              step: 0,
+                              failures: 0,
+                          }),
+                ),
+                saying: structuredClone(
+                    active?.saying ?? { text: "", thought: false },
+                ),
+                spent: { ...spent, cost: money(spent.micros) },
+                skills: left
+                    ? []
+                    : await skillNames(
+                          join(houseOf(home.layout, ref), "skills"),
+                      ),
+                consulting: !left && works.some((w) => w.consulting),
+                conversations: await conversationViews(home, ref, context),
+                ...(left
+                    ? {
+                          left: {
+                              how: left.how,
+                              into:
+                                  left.into === null
+                                      ? null
+                                      : { hamlet, number: left.into },
+                              at: left.at,
+                              by: byWords(left.by),
+                              reason: left.reason,
+                              words: farewell(left, record),
+                          },
+                      }
+                    : {}),
+            });
+        }
+        for (const permission of ["network", "unconfined"] as const)
+            for (const name of limits.permissions[permission]) {
+                const agent = named(record, name);
+                grants.push({
+                    agent: agent ? { hamlet, number: agent.number } : null,
+                    name,
+                    permission,
+                    by: null,
+                    source: "limits",
                 });
             }
-        }
-        const current = chats?.chats[home.chief];
-        const active =
-            works.find((work) => work.working) ??
-            (current && activity.get(currentOf(current))) ??
-            works.at(-1);
-        const spent = books.agents[String(agent.number)] ?? {
-            tokens: 0,
-            micros: 0,
-            ms: 0,
-        };
-        const busy = works.some((work) => work.working || work.pending > 0);
-        agents.push({
-            ref,
-            name: agent.name,
-            purpose: agent.purpose,
-            since: agent.since,
-            mayor: record.mayor === agent.number,
-            model: choose(limits, settings, {
-                name: agent.name,
-                mayor: record.mayor === agent.number,
-            }),
-            busy,
-            faulted: !busy && (active?.faulted ?? false),
-            activity: structuredClone(
-                active?.activity ?? {
-                    doing: "rest",
-                    doingWords: "At rest",
-                    step: 0,
-                    failures: 0,
-                },
-            ),
-            saying: structuredClone(
-                active?.saying ?? { text: "", thought: false },
-            ),
-            spent: { ...spent, cost: money(spent.micros) },
-            skills: await skillNames(join(houseOf(home.layout, ref), "skills")),
-        });
     }
-    const waits = queue(oversight).map(
-        (wait): Wait => ({
+    const waits = queue(oversight).map((wait): Wait => {
+        const record = wait.chat && records[wait.chat.hamlet];
+        return {
             id: wait.id,
             ...(wait.kind === "approval"
                 ? {
@@ -174,36 +298,22 @@ export async function stateOf(
             answers: [...wait.answers],
             since: wait.since,
             asked: wait.asked,
-            chat: wait.chat && {
-                with: {
-                    hamlet: wait.chat.hamlet,
-                    agent: addressOf(record, wait.chat.number),
-                },
-                ...(currentChats.get(wait.chat.number)?.[
-                    wait.chat.chief ?? ""
-                ] === wait.chat.chat
-                    ? {}
-                    : { past: wait.chat.chat }),
-            },
-        }),
-    );
-    const grants: Grant[] = grantsOf(
-        await read.snapshot(GrantsDoc, context),
-    ).map((grant) => ({ ...grant, source: "grant" }));
-    for (const permission of ["network", "unconfined"] as const)
-        for (const name of limits.permissions[permission]) {
-            const agent = named(record, name);
-            grants.push({
-                agent:
-                    agent === undefined
-                        ? null
-                        : { hamlet: HOME, number: agent.number },
-                name,
-                permission,
-                by: null,
-                source: "limits",
-            });
-        }
+            chat:
+                wait.chat && record
+                    ? {
+                          with: {
+                              hamlet: wait.chat.hamlet,
+                              agent: addressOf(record, wait.chat.number),
+                          },
+                          ...(currentChats.get(agentKey(wait.chat))?.[
+                              wait.chat.chief ?? ""
+                          ] === wait.chat.chat
+                              ? {}
+                              : { past: wait.chat.chat }),
+                      }
+                    : null,
+        };
+    });
     return {
         type: "state",
         ...at,
@@ -211,10 +321,24 @@ export async function stateOf(
         sandbox: home.sandbox.name,
         deeds: [...DEEDS],
         starters: structuredClone(await starters),
-        hamlets: [hamlet],
+        hamlets,
         agents,
         waits,
         grants,
+        library: await libraryView(home, context),
+        closed: (realm?.hamlets ?? []).flatMap((h) =>
+            h.removed && !h.erased
+                ? [
+                      {
+                          id: h.id,
+                          name: h.title ?? h.id,
+                          at: h.removed.at,
+                          by: byWords(h.removed.by),
+                          reason: h.removed.reason,
+                      },
+                  ]
+                : [],
+        ),
         settings: {
             model: settings.model,
             reflectEvery: settings.reflectEvery,
@@ -233,11 +357,18 @@ export async function stateOf(
         providers: await providersOf(home),
     };
 }
+function byWords(by: string): string {
+    return by === "mayor"
+        ? "the mayor"
+        : by.startsWith("chief:")
+          ? `the chief ${by.slice(6)}`
+          : by;
+}
 
 /** The realm's current snapshot and serialized changes, including unopened chats. */
 export async function watchState(
     home: Home,
-    send: (message: Changes) => void,
+    send: (message: Changes | State) => void,
     context: Context,
 ) {
     const at = { epoch: home.now(), revision: 0 };
@@ -249,26 +380,46 @@ export async function watchState(
     let state = await stateOf(home, at, context);
     let line = Promise.resolve();
     const discover = async () => {
-        const record = await home.harness.snapshot(RecordDoc, HOME, context);
-        for (const agent of record?.agents ?? []) {
-            const chats = await home.harness.snapshot(
-                ChatDoc,
-                agentKey({ hamlet: HOME, number: agent.number }),
+        const wanted = new Set<ConversationId>();
+        const realm = await home.harness.snapshot(RealmDoc, context);
+        for (const { id: hamlet } of liveHamlets(realm)) {
+            const record = await home.harness.snapshot(
+                RecordDoc,
+                hamlet,
                 context,
             );
-            for (const id of chats ? conversationsOf(chats) : []) {
-                if (watches.has(id)) continue;
-                const watch = await watchEvents(home.harness, id, context);
-                watches.set(id, watch);
-                const work = new Activity(watch.snapshot);
-                activity.set(id, work);
-                watch.start(async (events) => {
-                    for (const event of events) work.note(event);
-                    if (!work.working) refreshSkills(home.layout.houses);
-                    schedule();
-                });
+            for (const agent of [
+                ...(record?.agents ?? []),
+                ...(record?.archive
+                    .filter((a) => a.back === null)
+                    .map((a) => a.agent) ?? []),
+            ]) {
+                const index = await home.harness.snapshot(
+                    AgentConversationsDoc,
+                    agentKey({ hamlet, number: agent.number }),
+                    context,
+                );
+                for (const id of index?.ids ?? []) {
+                    wanted.add(id);
+                    if (watches.has(id)) continue;
+                    const watch = await watchEvents(home.harness, id, context);
+                    watches.set(id, watch);
+                    const work = new Activity(watch.snapshot);
+                    activity.set(id, work);
+                    watch.start(async (events) => {
+                        for (const event of events) work.note(event);
+                        if (!work.working) refreshSkills(home.layout.houses);
+                        schedule();
+                    });
+                }
             }
         }
+        for (const [id, watch] of watches)
+            if (!wanted.has(id)) {
+                await watch.stop();
+                watches.delete(id);
+                activity.delete(id);
+            }
     };
     const schedule = () => {
         if (stopped) return line;
@@ -284,10 +435,22 @@ export async function watchState(
                     if (!works.has(id)) works.set(id, structuredClone(work));
                 const next = await stateOf(home, at, context, works, settings);
                 const changes = changed(state, next, endings);
-                if (changes.length === 0) return;
+                const whole =
+                    JSON.stringify(state.library) !==
+                        JSON.stringify(next.library) ||
+                    JSON.stringify(state.closed) !==
+                        JSON.stringify(next.closed) ||
+                    state.hamlets.some(
+                        (h) => !next.hamlets.some((n) => n.id === h.id),
+                    );
+                if (!whole && changes.length === 0) return;
                 at.revision++;
                 state = { ...next, ...at };
-                send({ type: "change", ...at, changes });
+                send(
+                    whole
+                        ? structuredClone(state)
+                        : { type: "change", ...at, changes },
+                );
             })
             .catch((error: unknown) => {
                 if (!stopped)
@@ -332,6 +495,12 @@ export async function watchState(
                         "hamlet.oversight",
                         "hamlet.grants",
                         "hamlet.ledger",
+                        "hamlet.realm",
+                        "hamlet.votes",
+                        "hamlet.library",
+                        "hamlet.instructions",
+                        "hamlet.agent-conversations",
+                        "hamlet.peers",
                     ].includes(change.record.kind),
             )
         )

@@ -5,7 +5,6 @@ import {
 import type { StorageWrite } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
 import { HOME } from "../src/hamlet.ts";
-import { MayorTools } from "../src/mayor.ts";
 import { RecordDoc } from "../src/record.ts";
 import {
     context,
@@ -55,7 +54,6 @@ describe("a record tool", () => {
             ]);
             const before = await testHome(dir, {
                 models,
-                parts: [MayorTools],
                 openStorage: crashing(crashes),
             });
             const submission = await say(before, "Hire a tester.");
@@ -63,7 +61,7 @@ describe("a record tool", () => {
                 reason: "failed",
             });
 
-            const after = await testHome(dir, { models, parts: [MayorTools] });
+            const after = await testHome(dir, { models });
             const settled = await (
                 await after.harness.submission(submission.id, context)
             )?.wait(context);
@@ -91,7 +89,7 @@ describe("a record tool", () => {
 
     it("stays safe to run again as an agent is given it", async () => {
         const { models } = fauxModels();
-        const home = await testHome(scratch(), { models, parts: [MayorTools] });
+        const home = await testHome(scratch(), { models });
         const tool = (await (await mayorChat(home)).agent(context)).tools.find(
             (candidate) => candidate.name === "create_agent",
         );

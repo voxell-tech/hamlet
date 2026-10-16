@@ -52,6 +52,9 @@
                 },
                 "from": {
                     "$ref": "#/$defs/AgentRef"
+                },
+                "kind": {
+                    "enum": ["letters", "questions"]
                 }
             },
             "additionalProperties": false

@@ -16,6 +16,7 @@ import {
     ToolTask,
     UserEntry,
 } from "@earendil-works/pi-durable";
+import { agentConversation } from "./agent-chats.ts";
 import { SUMMARY_NOTICE } from "./answers.ts";
 import { record } from "./catalogue.ts";
 import { CHANGE, changeOf } from "./change.ts";
@@ -23,7 +24,10 @@ import {
     ChatDoc,
     ChiefEntry,
     chatOf,
+    LetterEntry,
+    QuestionEntry,
     ReflectionEntry,
+    ReplyEntry,
     RetryEntry,
     WithDoc,
 } from "./chats.ts";
@@ -81,9 +85,10 @@ export async function watchChat(
             await watch.stop();
             return;
         }
-        const number = (
-            await home.harness.snapshot(WithDoc, conversation.id, context)
-        )?.chat;
+        const number = chat.from
+            ? undefined
+            : (await home.harness.snapshot(WithDoc, conversation.id, context))
+                  ?.chat;
         let fold = await readBack(home, conversation, watch.value, context);
         let usage = await usageOf(home, conversation.id, context);
         if (stopped) return;
@@ -118,11 +123,9 @@ export async function watchChat(
     const agent = await addressed(home.harness, chat.with, context);
     if (agent === undefined)
         throw new Error(`no agent named \`${chat.with.agent}\``);
-    const pointer = await home.harness.watchDoc(
-        ChatDoc,
-        agentKey(agent),
-        context,
-    );
+    const pointer = chat.from
+        ? undefined
+        : await home.harness.watchDoc(ChatDoc, agentKey(agent), context);
     try {
         await bind();
         pointer?.start(bind);
@@ -152,9 +155,10 @@ export async function pageChat(
     try {
         const fold = await readBack(home, conversation, watch.value, context);
         const usage = await usageOf(home, conversation.id, context);
-        const number = (
-            await home.harness.snapshot(WithDoc, conversation.id, context)
-        )?.chat;
+        const number = chat.from
+            ? undefined
+            : (await home.harness.snapshot(WithDoc, conversation.id, context))
+                  ?.chat;
         return {
             ...transcriptOf(chat, fold, usage, before),
             ...(number === undefined ? {} : { number }),
@@ -193,6 +197,7 @@ async function conversationOf(
     chat: ChatRef,
     context: Context,
 ): Promise<Conversation> {
+    if (chat.from) return agentConversation(home, chat, context);
     const agent = await addressed(home.harness, chat.with, context);
     if (agent === undefined) {
         throw new Error(`no agent named \`${chat.with.agent}\``);
@@ -406,7 +411,13 @@ function itemsOf(entry: EntryRecord): [number, Item][] {
         const { at } = entry.data;
         return [[0, { id, at, kind: "notice", text: textOf(message) }]];
     }
-    if (UserEntry.is(entry) && message?.role === "user") {
+    if (
+        (UserEntry.is(entry) ||
+            LetterEntry.is(entry) ||
+            QuestionEntry.is(entry) ||
+            ReplyEntry.is(entry)) &&
+        message?.role === "user"
+    ) {
         const at = message.timestamp;
         return [[0, { id, at, kind: "user", text: textOf(message) }]];
     }

@@ -6,8 +6,7 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { describe, expect, it } from "vitest";
 import type { Home } from "../src/home.ts";
-import { Letters, QuestionsDoc } from "../src/letters.ts";
-import { MayorTools } from "../src/mayor.ts";
+import { PeersDoc } from "../src/society/docs.ts";
 import {
     context,
     crashing,
@@ -18,8 +17,6 @@ import {
     testHome,
     transcript,
 } from "./support.ts";
-
-const parts = [MayorTools, Letters];
 
 const create = fauxAssistantMessage(
     fauxToolCall("create_agent", {
@@ -32,8 +29,8 @@ const create = fauxAssistantMessage(
 
 const ask = fauxAssistantMessage(
     fauxToolCall("ask_agent", {
-        agent: "tester",
-        question: "Do the tests pass?",
+        name: "tester",
+        message: "Do the tests pass?",
     }),
     { stopReason: "toolUse" },
 );
@@ -94,7 +91,6 @@ async function askAcrossRestart(
     const { models, faux } = fauxModels();
     const first = await testHome(dir, {
         models,
-        parts,
         openStorage: crashes ? crashing(crashes) : openNodeSqliteStorage,
     });
     faux.setResponses(before);
@@ -105,22 +101,22 @@ async function askAcrossRestart(
         fauxAssistantMessage("Yes, all green."),
         fauxAssistantMessage("The tester says all green."),
     ]);
-    const home = await testHome(dir, { models, parts });
+    const home = await testHome(dir, { models });
     const settled = await (
         await home.harness.submission(submission.id, context)
     )?.wait(context);
     expect(settled?.status).toBe("done");
-    const asked = (await home.harness.snapshot(QuestionsDoc, context))
-        ?.conversations["1:0"];
+    const asked = (await home.harness.snapshot(PeersDoc, "home:1", context))
+        ?.questions["home:0"];
     if (asked === undefined) throw new Error("tester was never asked");
     const questions = (await transcript(asked, home.harness)).filter(
-        (entry) => entry.kind === "pi.user",
+        (entry) => entry.kind === "hamlet.question",
     );
     expect(questions).toHaveLength(1);
     const result = (await transcript(await mayorChat(home))).find(
         (entry) =>
             entry.kind === "pi.tool-result" &&
-            JSON.stringify(entry.model).includes("tester:"),
+            JSON.stringify(entry.model).includes("`tester`:"),
     );
     return JSON.stringify(result?.model);
 }

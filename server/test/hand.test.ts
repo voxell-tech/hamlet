@@ -650,15 +650,20 @@ describe("tools added by hand", () => {
                 .map((tool) => tool.name)
                 .sort(),
         ).toEqual([
+            "ask_agent",
             "ask_chief",
             "ask_librarian",
             "bash",
+            "build_road",
+            "create_agent",
             "edit",
             "find",
             "object",
             "read",
             "search",
+            "set_model",
             "submit_skill",
+            "tell_agent",
             "write",
         ]);
     });
