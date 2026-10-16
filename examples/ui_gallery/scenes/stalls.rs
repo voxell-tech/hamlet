@@ -9,6 +9,9 @@ use bevy::ecs::system::{Commands, Local, Query, Res};
 use bevy::ecs::world::World;
 use bevy::ui::widget::Text;
 use bevy::ui_widgets::{Activate, Button};
+use hamlet_core::market::{Account, Market};
+use hamlet_model::market::lot::{Kind, Payouts, User};
+use hamlet_model::market::samples;
 use hamlet_ui::bazaar::StallShown;
 use hamlet_world::pick::{Selected, Thing};
 
@@ -26,10 +29,35 @@ pub(super) fn setup(world: &mut World, agent: Entity) {
         return;
     };
     stock(world, agent, false);
+    world.insert_resource(stocked());
     world.insert_resource(StallShown(stall));
     if let Scene::Counter(..) = scene {
         world.insert_resource(Selected(Some(Thing::Stall(stall))));
     }
+}
+
+/// The bazaar's server as if it had sent its sample listings.
+pub(super) fn stocked() -> Market {
+    let mut market = Market::default();
+    for kind in Kind::ALL {
+        market.shelves.lots.insert(kind, samples::lots(kind));
+    }
+    market.shelves.asked = true;
+    market.account = Account::In(User {
+        id: "u_wren".into(),
+        login: "wren".into(),
+        name: Some("Wren Halloway".into()),
+        avatar_url: None,
+        payouts: Some(Payouts {
+            connected: true,
+            enabled: false,
+        }),
+    });
+    market.mine = samples::lots(Kind::Agent)
+        .into_iter()
+        .filter(|lot| lot.seller.login == "wren")
+        .collect();
+    market
 }
 
 /// Presses, one after another, the buttons whose words the scene

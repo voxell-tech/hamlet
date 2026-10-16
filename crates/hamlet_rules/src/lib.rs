@@ -10,6 +10,7 @@ pub mod gifts;
 pub mod hamlet;
 pub mod library;
 pub mod lifecycle;
+pub mod market;
 mod models;
 pub mod realm;
 mod record;

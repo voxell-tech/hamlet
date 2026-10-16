@@ -1,6 +1,7 @@
-//! The Tinker's Stall: plugins that add to Hamlet itself, found by
-//! their words and their shelf, each on a page of its own with what
-//! it adds, what it asks to be let do and what changed in it.
+//! The Tinker's Stall: plugins, tools other chiefs made for every
+//! agent to call, found by their words and their shelf, each on a
+//! page of its own with the tools it adds, what they ask to be let do
+//! and what changed in it.
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
@@ -16,56 +17,38 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
 use bevy_fynix::{ViewExt, derived, keyed, resource};
+use hamlet_core::market::Market;
 use hamlet_model::market::plugins::{
-    Addition, Contraption, Kind, Part, Permission, contraptions,
+    Addition, Contraption, Kind, Permission,
 };
-use hamlet_model::market::{Order, Price, Seller, Standing, shown};
-use hamlet_world::bazaar::Traded;
+use hamlet_model::market::{
+    Order, Price, Seller, Standing, lot, shown,
+};
 
 use super::artisans::{
-    chip, count, deal_box, finder, heading, named, orders, part,
-    pressed_card, rating, said, terms, typed,
+    chip, count, finder, heading, mark, named, orders, part,
+    pressed_card, rating, tags, typed,
 };
+use super::trade;
 use crate::icons::{Glyph, glyph};
-use crate::looks::{
-    action, bare, buttons, good_action, note, page_head, stated,
-};
+use crate::looks::{bare, buttons, note, page_head, stated};
 use crate::platform::Wraps;
-use crate::roll::moved;
-use crate::{AnyView, Cx, with_cx};
+use crate::roll::{either, moved};
+use crate::{AnyView, Cx};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Tinkering>()
         .add_systems(Update, read_words);
 }
 
-/// What the chief is looking at in the Tinker's Stall, and what they
-/// installed.
-#[derive(Resource)]
+/// What the chief is looking at in the Tinker's Stall.
+#[derive(Resource, Default)]
 struct Tinkering {
-    all: Vec<Contraption>,
     words: String,
     kind: Option<Kind>,
     order: Order,
-    /// The plugin open on a page of its own, by its id.
+    /// The plugin open on a page of its own, by its listing's id.
     open: Option<String>,
-    /// Installed while the app runs. Nothing is added to Hamlet yet.
-    installed: Vec<String>,
-    said: Option<String>,
-}
-
-impl Default for Tinkering {
-    fn default() -> Self {
-        Tinkering {
-            all: contraptions(),
-            words: String::new(),
-            kind: None,
-            order: Order::default(),
-            open: None,
-            installed: Vec::new(),
-            said: None,
-        }
-    }
 }
 
 /// The field the stall is searched in.
@@ -90,6 +73,7 @@ pub(super) fn page() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         // Drawn without the bazaar's plugin in the gallery.
         cx.world.init_resource::<Tinkering>();
+        cx.world.init_resource::<Market>();
         let page = keyed(
             resource::<Tinkering, _>(|tinkering| {
                 tinkering.open.clone()
@@ -113,16 +97,23 @@ struct Card {
     summary: String,
     price: Price,
     standing: Standing,
-    kind: Kind,
-    installed: bool,
+    mark: Option<&'static str>,
 }
 
 fn cards(world: &World) -> Vec<Card> {
     let tinkering = world.resource::<Tinkering>();
+    let market = world.resource::<Market>();
+    let all = market
+        .lots(lot::Kind::Plugin)
+        .iter()
+        .map(Contraption::of)
+        .collect::<Vec<_>>();
     let kept = |contraption: &Contraption| {
-        tinkering.kind.is_none_or(|kind| contraption.kind == kind)
+        tinkering
+            .kind
+            .is_none_or(|kind| contraption.kind == Some(kind))
     };
-    shown(&tinkering.all, &tinkering.words, kept, tinkering.order)
+    shown(&all, &tinkering.words, kept, tinkering.order)
         .into_iter()
         .map(|contraption| Card {
             id: contraption.id.clone(),
@@ -131,8 +122,7 @@ fn cards(world: &World) -> Vec<Card> {
             summary: contraption.summary.clone(),
             price: contraption.price,
             standing: contraption.standing,
-            kind: contraption.kind,
-            installed: tinkering.installed.contains(&contraption.id),
+            mark: mark(market, &contraption.id),
         })
         .collect()
 }
@@ -172,17 +162,22 @@ fn shelves() -> AnyView {
         },
     )
     .within(bare());
-    let list =
-        keyed(derived(cards).when(moved::<Tinkering>()), |cards| {
+    let list = keyed(
+        derived(cards)
+            .when(either(moved::<Tinkering>(), moved::<Market>())),
+        |cards| {
             if cards.is_empty() {
-                return note("No plugins match your search.").boxed();
+                return bare().boxed();
             }
             column(cards.iter().map(card).collect::<Vec<_>>())
                 .gap(8.0)
                 .boxed()
-        })
-        .within(bare());
-    column((search, kinds, list)).gap(12.0).boxed()
+        },
+    )
+    .within(bare());
+    column((search, kinds, trade::shelves(lot::Kind::Plugin), list))
+        .gap(12.0)
+        .boxed()
 }
 
 fn card(card: &Card) -> AnyView {
@@ -193,16 +188,11 @@ fn card(card: &Card) -> AnyView {
             .size(11.0)
             .boxed(),
     ];
-    if card.installed {
+    if let Some(mark) = card.mark {
         foot.push(
-            row((stated(
-                Glyph::Check,
-                "INSTALLED",
-                Tone::Accent,
-                11.0,
-            ),))
-            .margin(UiRect::left(Val::Auto))
-            .boxed(),
+            row((stated(Glyph::Check, mark, Tone::Accent, 11.0),))
+                .margin(UiRect::left(Val::Auto))
+                .boxed(),
         );
     }
     let body = column((
@@ -212,19 +202,21 @@ fn card(card: &Card) -> AnyView {
     ))
     .gap(4.0);
     pressed_card(body, move |world| {
-        let mut tinkering = world.resource_mut::<Tinkering>();
-        tinkering.open = Some(id.clone());
-        tinkering.said = None;
+        world.resource_mut::<Tinkering>().open = Some(id.clone());
+        trade::ask(world, &id);
     })
 }
 
 /// The plugin `id` on a page of its own.
 fn contraption_page(id: String) -> AnyView {
     let found = derived(move |world: &World| {
-        let tinkering = world.resource::<Tinkering>();
-        tinkering.all.iter().find(|c| c.id == id).cloned()
+        let market = world.resource::<Market>();
+        match market.detail_of(&id) {
+            Some(detail) => Some(Contraption::of_detail(detail)),
+            None => market.lot(&id).map(Contraption::of),
+        }
     })
-    .when(moved::<Tinkering>());
+    .when(moved::<Market>());
     let body = keyed(found, |contraption| match contraption {
         None => note("This plugin is no longer listed.").boxed(),
         Some(contraption) => about(contraption),
@@ -264,14 +256,23 @@ fn about(contraption: &Contraption) -> AnyView {
         ))
         .gap(4.0)
         .boxed(),
+        trade::cover(c.cover.clone()),
         label(c.summary.clone()).size(13.0).boxed(),
-        install(c),
+        trade::deal(
+            lot::Kind::Plugin,
+            c.id.clone(),
+            c.price,
+            &c.publisher,
+        ),
         label(c.description.clone())
             .size(12.0)
             .tone(Tone::Dim)
             .boxed(),
-        part("Adds", column(adds).gap(8.0).boxed()),
+        part("Tools it adds", column(adds).gap(8.0).boxed()),
     ];
+    if !c.tags.is_empty() {
+        parts.push(tags(&c.tags));
+    }
     if !c.asks.is_empty() {
         let asks = c.asks.iter().map(permission).collect::<Vec<_>>();
         parts
@@ -287,29 +288,16 @@ fn about(contraption: &Contraption) -> AnyView {
     column(parts).gap(14.0).boxed()
 }
 
-/// One thing a plugin adds, behind the mark of its part.
+/// One tool a plugin adds.
 fn addition(addition: &Addition) -> AnyView {
-    let mark = match addition.part {
-        Part::Panel => Glyph::Minimal,
-        Part::Tool => Glyph::Robot,
-        Part::Command => Glyph::Play,
-        Part::InChat => Glyph::Talk,
-        Part::Theme => Glyph::Sun,
-    };
     row((
-        row((glyph(mark, 14.0).tone(Tone::Faint),))
+        row((glyph(Glyph::Robot, 14.0).tone(Tone::Faint),))
             .padding(UiRect::top(px(2.0))),
         column((
-            row((
-                label(addition.name.clone())
-                    .size(12.0)
-                    .bold(true)
-                    .wrap(false),
-                note(addition.part.name()).size(11.0).wrap(false),
-            ))
-            .gap(8.0)
-            .align(AlignItems::Center)
-            .tagged(Wraps),
+            label(addition.name.clone())
+                .size(12.0)
+                .bold(true)
+                .wrap(false),
             note(addition.words.clone()),
         ))
         .gap(2.0)
@@ -337,70 +325,5 @@ fn permission(asks: &Permission) -> AnyView {
     ))
     .gap(8.0)
     .align(AlignItems::Center)
-    .boxed()
-}
-
-/// The box a plugin is installed, or bought, from.
-fn install(contraption: &Contraption) -> AnyView {
-    let (id, name) =
-        (contraption.id.clone(), contraption.name.clone());
-    let price = contraption.price;
-    let terms = terms(price, &contraption.publisher);
-    let now = {
-        let id = id.clone();
-        derived(move |world: &World| {
-            let tinkering = world.resource::<Tinkering>();
-            (
-                tinkering.installed.contains(&id),
-                tinkering.said.clone(),
-            )
-        })
-        .when(moved::<Tinkering>())
-    };
-    keyed(now, move |(installed, words)| {
-        let deal = if *installed {
-            let id = id.clone();
-            row((
-                stated(Glyph::Check, "INSTALLED", Tone::Accent, 12.0),
-                action(Glyph::Cross, "REMOVE", move |world| {
-                    let mut tinkering =
-                        world.resource_mut::<Tinkering>();
-                    tinkering.installed.retain(|kept| *kept != id);
-                    tinkering.said = None;
-                }),
-            ))
-            .gap(10.0)
-            .align(AlignItems::Center)
-            .tagged(Wraps)
-            .boxed()
-        } else {
-            let (id, name) = (id.clone(), name.clone());
-            let get = move |world: &mut World| {
-                let mut tinkering = world.resource_mut::<Tinkering>();
-                tinkering.installed.push(id.clone());
-                tinkering.said = Some(format!(
-                    "Cogsworth bolts {name} on with a flourish. \
-                     Installing is pretend for now: Hamlet gains \
-                     nothing yet, and nothing was paid."
-                ));
-                // The merchant in the world cheers the sale.
-                world.trigger(Traded);
-            };
-            match price {
-                Price::Free => {
-                    good_action(Glyph::Plus, "INSTALL", get)
-                }
-                _ => good_action(Glyph::Coins, "BUY", get),
-            }
-        };
-        let terms = terms.clone();
-        let words = words.clone();
-        with_cx(move |cx| {
-            column((deal_box(cx, price, terms, deal), said(words)))
-                .gap(8.0)
-                .boxed()
-        })
-    })
-    .within(bare())
     .boxed()
 }

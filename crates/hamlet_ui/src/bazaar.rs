@@ -6,10 +6,12 @@
 
 mod artisans;
 mod counter;
+mod desk;
 mod hamlets;
 mod plugins;
 mod shelf;
 mod skills;
+mod trade;
 mod ware;
 
 use bevy::app::{App, Update};
@@ -32,6 +34,7 @@ use hamlet_model::bazaar::{Filter, Sort, Ware, is_openrouter};
 use hamlet_model::catalogue::{self, Catalogue};
 use hamlet_model::config::providers::{OPENROUTER, PROVIDERS};
 use hamlet_model::config::{Config, Endpoint};
+use hamlet_model::market::lot::Kind;
 use hamlet_world::bazaar::Stall;
 use hamlet_world::pick::{Selected, Thing};
 
@@ -63,9 +66,11 @@ pub(crate) fn plugin(app: &mut App) {
     .add_plugins((
         artisans::plugin,
         counter::plugin,
+        desk::plugin,
         hamlets::plugin,
         plugins::plugin,
         skills::plugin,
+        trade::plugin,
     ))
     .add_systems(
         Update,
@@ -125,10 +130,10 @@ pub(crate) fn wares(stall: Stall) -> AnyView {
         )
         .within(bare())
         .boxed(),
-        Stall::Community => artisans::page(),
-        Stall::Plugins => plugins::page(),
+        Stall::Community => trade::stall(Kind::Agent, artisans::page),
+        Stall::Plugins => trade::stall(Kind::Plugin, plugins::page),
         Stall::Skills => skills::page(),
-        Stall::Hamlets => hamlets::page(),
+        Stall::Hamlets => trade::stall(Kind::Hamlet, hamlets::page),
     }
 }
 

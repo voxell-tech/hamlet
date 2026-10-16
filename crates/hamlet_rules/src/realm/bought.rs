@@ -2,11 +2,11 @@
 //! agents moved in with their characters, notes and skills.
 
 use anyhow::{Result, bail};
-use hamlet_home::Home;
-use hamlet_model::market::hamlets::{Listing, Settler};
+use hamlet_model::market::package::Hamlet as Bought;
 
 use super::{Origin, Realm, TITLE_LONGEST};
 use crate::hamlet::{Hamlet, check_name};
+use crate::market::install::move_in;
 
 impl Realm {
     /// Founds `bought` for `user`, who is its chief, and moves in its
@@ -15,14 +15,14 @@ impl Realm {
     /// nothing behind.
     pub fn found_bought(
         &self,
-        bought: &Listing,
+        bought: &Bought,
         user: &str,
     ) -> Result<Hamlet> {
-        self.may_found(
-            &bought.name,
-            &bought.mayor.name,
-            &bought.purpose,
-        )?;
+        let purpose = match bought.purpose.trim() {
+            "" => "came from the Agent Bazaar",
+            purpose => purpose,
+        };
+        self.may_found(&bought.name, &bought.mayor.name, purpose)?;
         if bought.title.chars().count() > TITLE_LONGEST {
             bail!("a hamlet's name is at most 32 letters");
         }
@@ -39,9 +39,6 @@ impl Realm {
                 );
             }
             names.push(name);
-            for skill in &settler.skills {
-                check_name(&skill.name)?;
-            }
         }
         let most = Hamlet::at(self.home(), &bought.name)
             .limits()?
@@ -58,17 +55,23 @@ impl Realm {
         let hamlet = self.found(
             &bought.name,
             &bought.mayor.name,
-            &bought.purpose,
+            purpose,
             Origin::Human {
                 user: user.to_string(),
             },
         )?;
-        self.name_hamlet(&bought.name, user, &bought.title)?;
+        if !bought.title.trim().is_empty() {
+            self.name_hamlet(&bought.name, user, &bought.title)?;
+        }
         move_in(&hamlet.house(&bought.mayor.name)?, &bought.mayor)?;
         for agent in &bought.agents {
+            let purpose = match agent.purpose.trim() {
+                "" => "came with the hamlet",
+                purpose => purpose,
+            };
             hamlet.create(
                 &agent.name,
-                &agent.purpose,
+                purpose,
                 "came with the hamlet, bought at the Agent Bazaar",
             )?;
             move_in(&hamlet.house(&agent.name)?, agent)?;
@@ -77,76 +80,91 @@ impl Realm {
     }
 }
 
-/// Writes what `settler` knows into its house.
-fn move_in(house: &Home, settler: &Settler) -> Result<()> {
-    if !settler.character.trim().is_empty() {
-        house.set_character(&settler.character)?;
-    }
-    if !settler.notes.trim().is_empty() {
-        std::fs::write(house.notes(), &settler.notes)?;
-    }
-    for skill in &settler.skills {
-        let folder = house.skills().join(&skill.name);
-        std::fs::create_dir_all(&folder)?;
-        std::fs::write(folder.join("SKILL.md"), skill.file())?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use hamlet_model::market::hamlets::for_sale;
+    use hamlet_model::market::package::{Agent, File, NOTES};
     use hamlet_testing::Scratch;
 
     use super::*;
     use crate::hamlet::HOME;
+    use crate::market::pack_hamlet;
+
+    fn agent(name: &str) -> Agent {
+        Agent {
+            name: name.into(),
+            purpose: format!("{name} works."),
+            model: None,
+            files: vec![
+                File {
+                    path: NOTES.into(),
+                    data: format!("# Notes\n{name}").into_bytes(),
+                    executable: false,
+                },
+                File {
+                    path: format!(
+                        "workspace/skills/{name}-way/SKILL.md"
+                    ),
+                    data: b"---\nname: way\n---\n".to_vec(),
+                    executable: false,
+                },
+            ],
+        }
+    }
+
+    fn press() -> Bought {
+        Bought {
+            name: "lamplight".into(),
+            title: "Lamplight Press".into(),
+            kind: "Publishing house".into(),
+            purpose: "Turns a manuscript into a book.".into(),
+            seed: "7341".into(),
+            mayor: agent("publisher"),
+            agents: vec![agent("editor"), agent("setter")],
+        }
+    }
 
     #[test]
-    fn a_bought_hamlet_is_founded_whole_and_only_once() {
+    fn a_bought_hamlet_is_founded_whole_only_once_and_packs_back() {
         let dir = Scratch::new("realm-bought");
         let realm = Realm::open(&dir).unwrap();
         let home = realm.hamlet(HOME).unwrap();
-        let all = for_sale();
-        home.create(&all[0].agents[0].name, "Digs.", "t").unwrap();
+        home.create("editor", "Digs.", "t").unwrap();
 
         // One of its agents' names is taken: nothing is founded.
-        let first = &all[0];
-        assert!(realm.found_bought(first, "alice").is_err());
-        assert!(!Hamlet::at(&dir, &first.name).root().exists());
+        assert!(realm.found_bought(&press(), "alice").is_err());
+        assert!(!Hamlet::at(&dir, "lamplight").root().exists());
         assert_eq!(realm.hamlets().len(), 1);
 
-        // Every other one stands whole, under the name it is shown
-        // by and with its chief.
-        for bought in &all[1..] {
-            let hamlet = realm.found_bought(bought, "alice").unwrap();
-            assert_eq!(hamlet.mayor().name, bought.mayor.name);
-            assert_eq!(hamlet.residents().len(), bought.agents.len());
-            for settler in bought.everyone() {
-                let house = hamlet.house(&settler.name).unwrap();
-                let skills = house
-                    .skill_index()
-                    .into_iter()
-                    .map(|skill| skill.name)
-                    .collect::<Vec<_>>();
-                let kept = settler
-                    .skills
-                    .iter()
-                    .map(|skill| skill.name.clone())
-                    .collect::<Vec<_>>();
-                assert_eq!(skills, kept);
-                assert_eq!(
-                    std::fs::read_to_string(house.notes()).unwrap(),
-                    settler.notes
-                );
-                assert!(house.character().exists());
-            }
-        }
-        let places = realm.hamlets();
-        let second =
-            places.iter().find(|p| p.name == all[1].name).unwrap();
-        assert_eq!(second.shown(), all[1].title);
-        assert_eq!(second.chiefs, ["alice"]);
+        let bought = Bought {
+            agents: vec![agent("proofer"), agent("setter")],
+            ..press()
+        };
+        let hamlet = realm.found_bought(&bought, "alice").unwrap();
+        assert_eq!(hamlet.mayor().name, "publisher");
+        assert_eq!(hamlet.residents().len(), 2);
+        let place = realm
+            .hamlets()
+            .into_iter()
+            .find(|p| p.name == "lamplight")
+            .unwrap();
+        assert_eq!(place.shown(), "Lamplight Press");
+        assert_eq!(place.chiefs, ["alice"]);
         // Bought again, it is refused.
-        assert!(realm.found_bought(&all[1], "alice").is_err());
+        assert!(realm.found_bought(&bought, "alice").is_err());
+
+        let packed = pack_hamlet(
+            &realm,
+            "lamplight",
+            "Publishing house",
+            true,
+        )
+        .unwrap();
+        assert_eq!(packed.title, bought.title);
+        assert_eq!(packed.purpose, bought.purpose);
+        for (sold, again) in bought.everyone().zip(packed.everyone())
+        {
+            assert_eq!(sold.name, again.name);
+            assert_eq!(sold.text(NOTES), again.text(NOTES));
+        }
     }
 }

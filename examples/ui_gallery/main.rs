@@ -41,7 +41,7 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 46] = [
+const SHOTS: [Shot; 48] = [
     Shot {
         name: "menu",
         scene: Scene::Menu,
@@ -248,10 +248,7 @@ const SHOTS: [Shot; 46] = [
     },
     Shot {
         name: "counter-artisan",
-        scene: Scene::Counter(
-            Stall::Community,
-            &["PR Reviewer", "HIRE"],
-        ),
+        scene: Scene::Counter(Stall::Community, &["PR Reviewer"]),
         size: UVec2::new(1440, 1000),
         scale: 1.0,
     },
@@ -263,10 +260,7 @@ const SHOTS: [Shot; 46] = [
     },
     Shot {
         name: "counter-plugin",
-        scene: Scene::Counter(
-            Stall::Plugins,
-            &["Excalidraw Whiteboard"],
-        ),
+        scene: Scene::Counter(Stall::Plugins, &["Calendar"]),
         size: UVec2::new(1440, 1000),
         scale: 1.0,
     },
@@ -284,7 +278,19 @@ const SHOTS: [Shot; 46] = [
     },
     Shot {
         name: "artisan",
-        scene: Scene::Stall(Stall::Community, &["Marigold Almanac"]),
+        scene: Scene::Stall(Stall::Community, &["Ledger Keeper"]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "sell",
+        scene: Scene::Stall(Stall::Community, &["SELL"]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "yours",
+        scene: Scene::Stall(Stall::Community, &["YOURS"]),
         size: UVec2::new(1440, 1000),
         scale: 1.0,
     },
@@ -296,10 +302,7 @@ const SHOTS: [Shot; 46] = [
     },
     Shot {
         name: "plugin",
-        scene: Scene::Stall(
-            Stall::Plugins,
-            &["Ledger of Changes", "INSTALL"],
-        ),
+        scene: Scene::Stall(Stall::Plugins, &["Charts"]),
         size: UVec2::new(1440, 1000),
         scale: 1.0,
     },

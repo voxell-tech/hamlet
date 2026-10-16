@@ -1,7 +1,8 @@
-//! The Artisans' Stall: agents other chiefs made, found by their
-//! words and their craft, each on a page of its own with its maker,
-//! what chiefs say of it and the way to hire it. Its cards, its
-//! controls and its facts serve the Tinker's Stall too.
+//! The Artisans' Stall: agents other chiefs made and put up at the
+//! bazaar's server, found by their words and their craft, each on a
+//! page of its own with its maker, what chiefs say of it and the way
+//! to hire it. Its cards, its controls and its facts serve the
+//! Tinker's Stall too.
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
@@ -20,21 +21,23 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, keyed, resource, style,
 };
-use hamlet_model::market::artisans::{Craft, Hireling, hirelings};
+use hamlet_core::market::Market;
+use hamlet_model::market::artisans::{Craft, Hireling};
+use hamlet_model::market::lot::Kind;
 use hamlet_model::market::{
     Order, Price, SELLERS_SHARE, Seller, Standing, shown,
 };
-use hamlet_world::bazaar::Traded;
 
 use super::shelf::small;
+use super::trade;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    CONTROL, Fills, ICON, action, bare, brass, buttons, good_action,
-    note, pad, page_head, stated, well,
+    CONTROL, Fills, ICON, bare, brass, buttons, note, pad, page_head,
+    stated, well,
 };
 use crate::platform::{DisplayText, Wraps};
-use crate::roll::moved;
+use crate::roll::{either, moved};
 use crate::theme::HamletTheme;
 use crate::{AnyView, Cx, View, with_cx};
 
@@ -43,33 +46,14 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(Update, read_words);
 }
 
-/// What the chief is looking at in the Artisans' Stall, and whom
-/// they hired.
-#[derive(Resource)]
+/// What the chief is looking at in the Artisans' Stall.
+#[derive(Resource, Default)]
 struct Hiring {
-    all: Vec<Hireling>,
     words: String,
     craft: Option<Craft>,
     order: Order,
-    /// The hireling open on a page of its own, by its id.
+    /// The hireling open on a page of its own, by its listing's id.
     open: Option<String>,
-    /// Hired while the app runs. No agent moves in yet.
-    hired: Vec<String>,
-    said: Option<String>,
-}
-
-impl Default for Hiring {
-    fn default() -> Self {
-        Hiring {
-            all: hirelings(),
-            words: String::new(),
-            craft: None,
-            order: Order::default(),
-            open: None,
-            hired: Vec::new(),
-            said: None,
-        }
-    }
 }
 
 /// The field the stall is searched in.
@@ -106,6 +90,7 @@ pub(super) fn page() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         // Drawn without the bazaar's plugin in the gallery.
         cx.world.init_resource::<Hiring>();
+        cx.world.init_resource::<Market>();
         let page = keyed(
             resource::<Hiring, _>(|hiring| hiring.open.clone()),
             |open| match open {
@@ -127,16 +112,44 @@ struct Card {
     purpose: String,
     price: Price,
     standing: Standing,
-    craft: Craft,
-    hired: bool,
+    /// Where it stands with the chief, if anywhere.
+    mark: Option<&'static str>,
+}
+
+/// Where the listing `id` stands with the chief, for its card.
+pub(super) fn mark(
+    market: &Market,
+    id: &str,
+) -> Option<&'static str> {
+    if market.kept_version(id).is_some() {
+        Some("INSTALLED")
+    } else if market.owns(id) {
+        Some("OWNED")
+    } else if market
+        .lot(id)
+        .zip(market.user())
+        .is_some_and(|(lot, user)| lot.seller.id == user.id)
+    {
+        Some("YOURS")
+    } else {
+        None
+    }
 }
 
 fn cards(world: &World) -> Vec<Card> {
     let hiring = world.resource::<Hiring>();
+    let market = world.resource::<Market>();
+    let all = market
+        .lots(Kind::Agent)
+        .iter()
+        .map(Hireling::of)
+        .collect::<Vec<_>>();
     let kept = |hireling: &Hireling| {
-        hiring.craft.is_none_or(|craft| hireling.craft == craft)
+        hiring
+            .craft
+            .is_none_or(|craft| hireling.craft == Some(craft))
     };
-    shown(&hiring.all, &hiring.words, kept, hiring.order)
+    shown(&all, &hiring.words, kept, hiring.order)
         .into_iter()
         .map(|hireling| Card {
             id: hireling.id.clone(),
@@ -145,8 +158,7 @@ fn cards(world: &World) -> Vec<Card> {
             purpose: hireling.purpose.clone(),
             price: hireling.price,
             standing: hireling.standing,
-            craft: hireling.craft,
-            hired: hiring.hired.contains(&hireling.id),
+            mark: mark(market, &hireling.id),
         })
         .collect()
 }
@@ -184,17 +196,22 @@ fn shelves() -> AnyView {
         },
     )
     .within(bare());
-    let list =
-        keyed(derived(cards).when(moved::<Hiring>()), |cards| {
+    let list = keyed(
+        derived(cards)
+            .when(either(moved::<Hiring>(), moved::<Market>())),
+        |cards| {
             if cards.is_empty() {
-                return note("No agents match your search.").boxed();
+                return bare().boxed();
             }
             column(cards.iter().map(card).collect::<Vec<_>>())
                 .gap(8.0)
                 .boxed()
-        })
-        .within(bare());
-    column((search, crafts, list)).gap(12.0).boxed()
+        },
+    )
+    .within(bare());
+    column((search, crafts, trade::shelves(Kind::Agent), list))
+        .gap(12.0)
+        .boxed()
 }
 
 fn card(card: &Card) -> AnyView {
@@ -203,9 +220,9 @@ fn card(card: &Card) -> AnyView {
         rating(card.standing, 11.0),
         note(format!("by {}", card.maker.name)).size(11.0).boxed(),
     ];
-    if card.hired {
+    if let Some(mark) = card.mark {
         foot.push(
-            row((stated(Glyph::Check, "HIRED", Tone::Accent, 11.0),))
+            row((stated(Glyph::Check, mark, Tone::Accent, 11.0),))
                 .margin(UiRect::left(bevy::ui::Val::Auto))
                 .boxed(),
         );
@@ -217,9 +234,8 @@ fn card(card: &Card) -> AnyView {
     ))
     .gap(4.0);
     pressed_card(body, move |world| {
-        let mut hiring = world.resource_mut::<Hiring>();
-        hiring.open = Some(id.clone());
-        hiring.said = None;
+        world.resource_mut::<Hiring>().open = Some(id.clone());
+        trade::ask(world, &id);
     })
 }
 
@@ -455,9 +471,6 @@ pub(super) fn deal_box(
     let (amount, per) = match price {
         Price::Free => ("Free".to_string(), ""),
         Price::Once(dollars) => (format!("${dollars:.2}"), "once"),
-        Price::Monthly(dollars) => {
-            (format!("${dollars:.2}"), "a month")
-        }
     };
     column((
         row((
@@ -489,25 +502,18 @@ pub(super) fn deal_box(
     .radius(cx.theme().space.round)
 }
 
-/// What came of the last thing done at a stall.
-pub(super) fn said(words: Option<String>) -> AnyView {
-    match words {
-        Some(words) => {
-            label(words).size(12.0).tone(Tone::Accent).boxed()
-        }
-        None => bare().boxed(),
-    }
-}
-
 /// The hireling `id` on a page of its own.
 fn hireling_page(id: String) -> AnyView {
     let found = {
         let id = id.clone();
         derived(move |world: &World| {
-            let hiring = world.resource::<Hiring>();
-            hiring.all.iter().find(|h| h.id == id).cloned()
+            let market = world.resource::<Market>();
+            match market.detail_of(&id) {
+                Some(detail) => Some(Hireling::of_detail(detail)),
+                None => market.lot(&id).map(Hireling::of),
+            }
         })
-        .when(moved::<Hiring>())
+        .when(moved::<Market>())
     };
     let body = keyed(found, |hireling| match hireling {
         None => note("This agent is no longer at the stall.").boxed(),
@@ -542,17 +548,36 @@ fn about(hireling: &Hireling) -> AnyView {
         ))
         .gap(4.0)
         .boxed(),
+        trade::cover(h.cover.clone()),
         label(h.purpose.clone()).size(13.0).boxed(),
-        hire(&h),
-        part(
+        trade::deal(Kind::Agent, h.id.clone(), h.price, &h.maker),
+    ];
+    if !h.description.trim().is_empty() {
+        parts.push(
+            label(h.description.clone())
+                .size(12.0)
+                .tone(Tone::Dim)
+                .boxed(),
+        );
+    }
+    if !h.character.trim().is_empty() {
+        parts.push(part(
             "How it works",
             label(h.character.clone())
                 .size(12.0)
                 .tone(Tone::Dim)
                 .boxed(),
-        ),
-        part("Skills", tags(&h.skills)),
-    ];
+        ));
+    }
+    if !h.skills.is_empty() {
+        parts.push(part("Skills", tags(&h.skills)));
+    }
+    let mut facts = vec![format!("Version {}", h.version)];
+    if let Some(model) = &h.model {
+        facts.push(format!("made on {model}"));
+    }
+    facts.push(format!("updated {}", h.updated));
+    parts.push(note(facts.join(", ")).size(11.0).boxed());
     if let Some(review) = h.reviews.first() {
         parts.push(part(
             "What users say",
@@ -575,56 +600,4 @@ fn about(hireling: &Hireling) -> AnyView {
 /// Stars, five in all, `lit` of them filled.
 pub(super) fn stars(lit: u8) -> String {
     (0..5).map(|at| if at < lit { '★' } else { '☆' }).collect()
-}
-
-/// The box a hireling is hired from.
-fn hire(hireling: &Hireling) -> AnyView {
-    let (id, name) = (hireling.id.clone(), hireling.name.clone());
-    let price = hireling.price;
-    let terms = terms(price, &hireling.maker);
-    let now = {
-        let id = id.clone();
-        derived(move |world: &World| {
-            let hiring = world.resource::<Hiring>();
-            (hiring.hired.contains(&id), hiring.said.clone())
-        })
-        .when(moved::<Hiring>())
-    };
-    keyed(now, move |(hired, words)| {
-        let deal = if *hired {
-            let id = id.clone();
-            row((
-                stated(Glyph::Check, "HIRED", Tone::Accent, 12.0),
-                action(Glyph::Cross, "LET GO", move |world| {
-                    let mut hiring = world.resource_mut::<Hiring>();
-                    hiring.hired.retain(|hired| *hired != id);
-                    hiring.said = None;
-                }),
-            ))
-            .gap(10.0)
-            .align(AlignItems::Center)
-            .boxed()
-        } else {
-            let (id, name) = (id.clone(), name.clone());
-            good_action(Glyph::Coins, "HIRE", move |world| {
-                let mut hiring = world.resource_mut::<Hiring>();
-                hiring.hired.push(id.clone());
-                hiring.said = Some(format!(
-                    "{name} shakes your hand. Hiring is pretend for \
-                     now: nobody moves in yet, and nothing was paid."
-                ));
-                // The merchant in the world cheers the sale.
-                world.trigger(Traded);
-            })
-        };
-        let terms = terms.clone();
-        let words = words.clone();
-        with_cx(move |cx| {
-            column((deal_box(cx, price, terms, deal), said(words)))
-                .gap(8.0)
-                .boxed()
-        })
-    })
-    .within(bare())
-    .boxed()
 }

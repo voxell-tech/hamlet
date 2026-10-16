@@ -1,10 +1,15 @@
 //! The bazaar's listings besides models: agents chiefs made, plugins
-//! and whole hamlets, each with who sells it and what it costs. Mock
-//! data for now.
+//! and whole hamlets, each with who sells it and what it costs. They
+//! are sold through the bazaar's server, hamlet-server.
 
+pub mod account;
 pub mod artisans;
+pub mod client;
 pub mod hamlets;
+pub mod lot;
+pub mod package;
 pub mod plugins;
+pub mod samples;
 
 use serde::{Deserialize, Serialize};
 
@@ -12,27 +17,41 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Seller {
     pub name: String,
+    /// Their GitHub login.
+    #[serde(default)]
+    pub login: String,
     /// The bazaar has checked who they are.
     pub verified: bool,
 }
 
-/// What a listing costs, in dollars.
+/// What a listing costs, in dollars, paid once.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Price {
     Free,
     Once(f64),
-    Monthly(f64),
 }
 
 impl Price {
+    /// The price of `cents`, as the server gives it.
+    pub fn of_cents(cents: u32) -> Price {
+        match cents {
+            0 => Price::Free,
+            cents => Price::Once(f64::from(cents) / 100.0),
+        }
+    }
+
+    pub fn cents(self) -> u32 {
+        match self {
+            Price::Free => 0,
+            Price::Once(dollars) => (dollars * 100.0).round() as u32,
+        }
+    }
+
     /// The price in a few words.
     pub fn words(self) -> String {
         match self {
             Price::Free => "Free".into(),
             Price::Once(dollars) => format!("${dollars:.2}"),
-            Price::Monthly(dollars) => {
-                format!("${dollars:.2} a month")
-            }
         }
     }
 }
@@ -48,19 +67,7 @@ pub struct Standing {
 }
 
 /// The part of each sale that goes to its seller, in percent.
-pub const SELLERS_SHARE: u32 = 80;
-
-impl Price {
-    /// What it costs over a year, to set a price paid once beside one
-    /// paid each month.
-    pub fn yearly(self) -> f64 {
-        match self {
-            Price::Free => 0.0,
-            Price::Once(dollars) => dollars,
-            Price::Monthly(dollars) => dollars * 12.0,
-        }
-    }
-}
+pub const SELLERS_SHARE: u32 = 90;
 
 /// A listing as it is found and ordered at its stall.
 pub trait Listing {
@@ -127,7 +134,7 @@ pub fn shown<'a, T: Listing>(
                 .total_cmp(&one.stars)
                 .then(other.reviews.cmp(&one.reviews)),
             Order::Cheapest => {
-                a.price().yearly().total_cmp(&b.price().yearly())
+                a.price().cents().cmp(&b.price().cents())
             }
             Order::Newest => b.updated().cmp(a.updated()),
         }
@@ -175,13 +182,7 @@ mod tests {
     #[test]
     fn listings_are_found_by_every_word_and_ordered() {
         let all = [
-            Stocked(
-                "Wick",
-                Price::Monthly(2.0),
-                4.5,
-                30,
-                "2026-09-01",
-            ),
+            Stocked("Wick", Price::Once(12.0), 4.5, 30, "2026-09-01"),
             Stocked(
                 "Quill",
                 Price::Once(10.0),
@@ -192,7 +193,6 @@ mod tests {
             Stocked("Bellows", Price::Free, 4.9, 40, "2025-12-30"),
         ];
         let all_of = |order| names(shown(&all, "", |_| true, order));
-        // Two dollars a month is more than ten dollars once.
         assert_eq!(
             all_of(Order::Cheapest),
             ["Bellows", "Quill", "Wick"]

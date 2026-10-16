@@ -13,7 +13,9 @@ use bevy::ecs::world::World;
 use bevy::ui::widget::Text;
 use bevy::ui_widgets::{Activate, Button};
 use bevy_fynix::dock::DockTree;
-use hamlet_model::market::hamlets;
+use hamlet_model::market::hamlets::Listing;
+use hamlet_model::market::lot::Kind;
+use hamlet_model::market::samples;
 use hamlet_ui::bazaar::StallShown;
 use hamlet_world::WorldCamera;
 use hamlet_world::bazaar::Stall;
@@ -26,8 +28,8 @@ use hamlet_world::pick::{Selected, Thing};
 use super::Scene;
 use super::dock::seed_dock;
 
-/// The hamlet opened on its own page.
-const OPENED: &str = "lamplight";
+/// The hamlet opened on its own page, by its listing's id.
+const OPENED: &str = "l_lamplight";
 
 /// The update its row is pressed on, once the panels are built.
 const PRESS: u32 = 8;
@@ -39,6 +41,7 @@ pub(super) fn plugin(app: &mut App) {
     ));
     let pal = app.world().resource::<Palette>().clone();
     app.insert_resource(Land::new(7, GenSettings::default(), pal))
+        .insert_resource(super::stalls::stocked())
         .insert_resource(StallShown(Stall::Hamlets))
         .add_systems(
             PostStartup,
@@ -84,7 +87,11 @@ fn open(
     if *update != PRESS {
         return;
     }
-    let Some(listing) = hamlets::find(OPENED) else {
+    let Some(listing) = samples::lots(Kind::Hamlet)
+        .iter()
+        .find(|lot| lot.id == OPENED)
+        .map(Listing::of)
+    else {
         return;
     };
     let row = texts

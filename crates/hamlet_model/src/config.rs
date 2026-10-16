@@ -27,6 +27,10 @@ pub struct Config {
     pub allow_net: bool,
     /// The places models are served. None of them stands apart.
     pub endpoints: Vec<Endpoint>,
+    /// The bazaar's server, where agents, hamlets and plugins are
+    /// bought and sold. `HAMLET_BAZAAR_URL` overrides it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bazaar_url: Option<String>,
 }
 
 /// A place models are served.
@@ -91,6 +95,7 @@ impl Default for Config {
                 chatgpt: false,
                 api_key: None,
             }],
+            bazaar_url: None,
         }
     }
 }
