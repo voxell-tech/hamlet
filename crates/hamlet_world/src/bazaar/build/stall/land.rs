@@ -35,7 +35,8 @@ fn cottage(
         0.1,
     );
     for side in [-1.0f32, 1.0] {
-        let tilt = rot * Quat::from_rotation_z(side * 0.6);
+        // Each slope falls away from the ridge.
+        let tilt = rot * Quat::from_rotation_z(-side * 0.6);
         mb.rbox(
             at + rot
                 * Vec3::new(

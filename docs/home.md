@@ -46,17 +46,18 @@ OpenRouter's list needs no key and is kept in `bazaar.json` for a day.
 In the world the bazaar is a market beside the first town: a
 merchant's pavilion and five stalls round it, each with its keeper.
 Select the pavilion to see the models the home bought; select a stall
-and the Inspector becomes its keeper's counter, the same wares as that
-stall's tab in the bazaar's panel. Where a chief set it down is kept in
+and the Inspector shows what it sells, the same page as that stall's
+tab in the bazaar's panel. Far from the camera the bazaar is drawn
+plain and its small things are hidden, as towns and robots are. Where a chief set it down is kept in
 `bazaar.place`.
 
 | Stall | Keeper | Sells | Buying |
 |---|---|---|---|
-| Agent Stall | Brannoc, the mind-monger | Models, as below | Adds the model to `models.toml` |
-| Artisans' Stall | Wren Halloway | Agents other chiefs made (mock) | Pretend: kept only while the app runs |
-| Tinker's Stall | Tobias Cogsworth | Plugins that add to Hamlet (mock) | Pretend: kept only while the app runs |
-| Skill Stall | Sister Marjoram | Skills listed on skills.sh | Shelves the skill in `library/`, recorded in `library.jsonl` with `from` its source; no librarian is asked, since the chief chose it |
-| Hamlet Store | Lady Ashgrove | Whole hamlets (mock), each shown as a turning diorama | Founds the hamlet at once: its mayor, its agents and their characters, notes and skills |
+| AI Models | Brannoc | Models, as below | Adds the model to `models.toml` |
+| Community Agents | Wren Halloway | Agents other users made (mock) | Pretend: kept only while the app runs |
+| Plugins | Tobias Cogsworth | Extensions that add features to Hamlet (mock) | Pretend: kept only while the app runs |
+| Skills | Sister Marjoram | Skills listed on skills.sh | Shelves the skill in `library/`, recorded in `library.jsonl` with `from` its source; no librarian is asked, since the chief chose it |
+| Hamlet Templates | Lady Ashgrove | Ready-made hamlets (mock), each shown as a turning diorama | Founds the hamlet at once: its mayor, its agents and their characters, notes and skills |
 
 Adding a model writes it to `models.toml`, allowed; one from OpenRouter
 first signs the chief in to OpenRouter when the home has no endpoint

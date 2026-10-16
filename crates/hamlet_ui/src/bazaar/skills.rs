@@ -27,7 +27,6 @@ use hamlet_model::skills_sh::{
     Order, Scroll, Unrolled, front, shown,
 };
 
-use super::shelf::small;
 use crate::icons::Glyph;
 use crate::looks::{
     Fills, ICON, action, bare, buttons, good_action, note, page_head,
@@ -199,13 +198,8 @@ fn shown_row(shown: &Shown) -> AnyView {
         vec![row((note(shown.told.clone()),)).fills_width().boxed()];
     if shown.shelved {
         below.push(
-            stated(
-                Glyph::Check,
-                "IN THE LIBRARY",
-                Tone::Accent,
-                11.0,
-            )
-            .boxed(),
+            stated(Glyph::Check, "IN LIBRARY", Tone::Accent, 11.0)
+                .boxed(),
         );
     }
     button(
@@ -255,16 +249,13 @@ fn ask_wider(world: &mut World) {
 }
 
 fn controls() -> impl View {
-    let search = row((
-        small("FIND"),
-        text_field(
-            resource::<Perusing, _>(|p| p.words.clone()),
-            |world, text| peruse(world, |p| p.words = text),
-        )
-        .grow(1.0)
-        .rules(well)
-        .tagged(Seeking),
-    ))
+    let search = row((text_field(
+        resource::<Perusing, _>(|p| p.words.clone()),
+        |world, text| peruse(world, |p| p.words = text),
+    )
+    .grow(1.0)
+    .rules(well)
+    .tagged(Seeking),))
     .gap(12.0)
     .align(AlignItems::Center);
     let orders = buttons(vec![
@@ -286,8 +277,8 @@ fn controls() -> impl View {
         )
         .min_width(px(130.0))
         .boxed(),
-        action(Glyph::Lens, "ASK SKILLS.SH", ask_wider),
-        action(Glyph::Restore, "LOOK AGAIN", |world| {
+        action(Glyph::Lens, "SEARCH ALL", ask_wider),
+        action(Glyph::Restore, "REFRESH", |world| {
             world.trigger(FetchScrolls)
         }),
     ]);
@@ -300,15 +291,12 @@ fn summary(world: &World) -> String {
     let market = world.resource::<SkillMarket>();
     let all = &market.scrolls.scrolls;
     if market.fetching && all.is_empty() {
-        return "Asking skills.sh for its scrolls...".into();
+        return "Loading skills from skills.sh...".into();
     }
     if all.is_empty() {
         return market.problem.as_ref().map_or_else(
-            || {
-                "No scrolls on the table yet. Choose Look Again."
-                    .into()
-            },
-            |why| format!("skills.sh could not be asked: {why}"),
+            || "No skills loaded yet. Choose Refresh.".into(),
+            |why| format!("Couldn't reach skills.sh: {why}"),
         );
     }
     let count = shown(all, &perusing.words, perusing.order).len();
@@ -320,15 +308,7 @@ fn summary(world: &World) -> String {
         1 => "an hour ago".to_string(),
         hours => format!("{hours} hours ago"),
     };
-    let asking = match market.fetching {
-        true => " Asking again...",
-        false => "",
-    };
-    format!(
-        "{count} of the {} most installed skills on skills.sh, \
-         asked {ago}. Each is free to take to the library.{asking}",
-        all.len()
-    )
+    format!("{count} skills, updated {ago}.")
 }
 
 /// What skills.sh found for the words searched, besides what the
@@ -403,9 +383,15 @@ fn shelf() -> AnyView {
                 .gap(2.0)
                 .boxed(),
             };
-            column((small("FOUND ON SKILLS.SH"), rows))
-                .gap(6.0)
-                .boxed()
+            column((
+                label("More on skills.sh")
+                    .size(12.0)
+                    .bold(true)
+                    .tone(Tone::Faint),
+                rows,
+            ))
+            .gap(6.0)
+            .boxed()
         }
     })
     .within(bare());
@@ -478,18 +464,6 @@ fn about(scroll: &Scroll, opened: &Opened) -> AnyView {
     }
     parts.push(taking(scroll.id(), opened.shelved));
     parts.push(facts(scroll));
-    let (page, repository) = (scroll.page(), scroll.repository());
-    parts.push(
-        buttons(vec![
-            action(Glyph::Globe, "SOURCE", move |_| {
-                hamlet_desktop::open::browse(&repository);
-            }),
-            action(Glyph::Globe, "ON SKILLS.SH", move |_| {
-                hamlet_desktop::open::browse(&page);
-            }),
-        ])
-        .boxed(),
-    );
     parts.push(preview(&opened.files));
     column(parts).gap(14.0).boxed()
 }
@@ -497,10 +471,13 @@ fn about(scroll: &Scroll, opened: &Opened) -> AnyView {
 /// A fact of a skill: its name over what it is, which fits a narrow
 /// Inspector as well as the wide panel.
 fn fact(name: &'static str, value: String) -> AnyView {
-    column((small(name), label(value).size(13.0)))
-        .gap(2.0)
-        .padding(UiRect::right(px(14.0)))
-        .boxed()
+    column((
+        label(name).size(11.0).tone(Tone::Faint),
+        label(value).size(13.0),
+    ))
+    .gap(2.0)
+    .padding(UiRect::right(px(14.0)))
+    .boxed()
 }
 
 /// A count in full, its thousands apart: `1,094,811`.
@@ -517,17 +494,14 @@ fn grouped(n: u64) -> String {
 }
 
 fn facts(scroll: &Scroll) -> AnyView {
-    let mut all = vec![fact("INSTALLS", grouped(scroll.installs))];
-    if let Some(rank) = scroll.rank {
-        all.push(fact("PLACE", format!("#{rank} of all time")));
-    }
-    let kept = match scroll.official {
-        true => format!("{}, by its makers", scroll.source),
-        false => scroll.source.clone(),
-    };
-    all.push(fact("KEPT IN", kept));
-    all.push(fact("SHELVED AS", scroll.skill.clone()));
-    buttons(all).boxed()
+    let repository = scroll.repository();
+    buttons(vec![
+        fact("Installs", grouped(scroll.installs)),
+        action(Glyph::Globe, "VIEW SOURCE", move |_| {
+            hamlet_desktop::open::browse(&repository);
+        }),
+    ])
+    .boxed()
 }
 
 /// The way to the library, or how the skill is on its way there.
@@ -551,29 +525,22 @@ fn taking(id: String, shelved: bool) -> AnyView {
         };
         let take = {
             let id = id.clone();
-            good_action(
-                Glyph::Book,
-                "TAKE TO THE LIBRARY",
-                move |world| {
-                    let by = world
-                        .get_resource::<Me>()
-                        .map_or("chief".into(), |me| {
-                            format!("chief:{}", me.user)
-                        });
-                    world.trigger(TakeSkill { id: id.clone(), by });
-                },
-            )
+            good_action(Glyph::Book, "ADD TO LIBRARY", move |world| {
+                let by = world
+                    .get_resource::<Me>()
+                    .map_or("chief".into(), |me| {
+                        format!("chief:{}", me.user)
+                    });
+                world.trigger(TakeSkill { id: id.clone(), by });
+            })
         };
         let parts = match mine {
-            Some(Taking::Fetching) => vec![said(
-                "Sister Marjoram is fetching its files from \
-                 skills.sh..."
-                    .into(),
-                Tone::Dim,
-            )],
+            Some(Taking::Fetching) => {
+                vec![said("Downloading...".into(), Tone::Dim)]
+            }
             Some(Taking::Shelving(files)) => vec![said(
                 format!(
-                    "Shelving its {files} file{}...",
+                    "Adding {files} file{}...",
                     if *files == 1 { "" } else { "s" }
                 ),
                 Tone::Dim,
@@ -581,21 +548,20 @@ fn taking(id: String, shelved: bool) -> AnyView {
             Some(Taking::Shelved(folder)) => vec![
                 stated(
                     Glyph::Check,
-                    "IN THE LIBRARY",
+                    "IN YOUR LIBRARY",
                     Tone::Accent,
                     12.0,
                 )
                 .boxed(),
                 note(format!(
-                    "On the shelves as `{folder}`. Every agent can \
-                     use it from its next step."
+                    "Saved as `{folder}`. All agents can use it now."
                 ))
                 .boxed(),
             ],
             _ if shelved => vec![
                 stated(
                     Glyph::Check,
-                    "IN THE LIBRARY",
+                    "IN YOUR LIBRARY",
                     Tone::Accent,
                     12.0,
                 )
@@ -605,27 +571,17 @@ fn taking(id: String, shelved: bool) -> AnyView {
                 buttons(vec![take]).boxed(),
                 said(
                     format!(
-                        "It could not be shelved: {}.",
+                        "Couldn't add it: {}.",
                         why.trim_end_matches('.')
                     ),
                     Tone::Critical,
                 ),
             ],
             None if *busy => vec![
-                note(
-                    "Sister Marjoram is shelving another scroll. \
-                     This one can follow once it is done.",
-                )
-                .boxed(),
+                note("Adding another skill. Try again in a moment.")
+                    .boxed(),
             ],
-            None => vec![
-                buttons(vec![take]).boxed(),
-                note(
-                    "Free. Read its SKILL.md first: once shelved, \
-                     every agent may follow it.",
-                )
-                .boxed(),
-            ],
+            None => vec![buttons(vec![take]).boxed()],
         };
         column(parts).gap(6.0).boxed()
     })
@@ -684,9 +640,15 @@ fn preview(files: &Option<Result<Unrolled, String>>) -> AnyView {
             .fill(palette.card);
         cx.build(
             column((
-                small("SKILL.MD"),
+                label("SKILL.md")
+                    .size(12.0)
+                    .bold(true)
+                    .tone(Tone::Faint),
                 page,
-                small("ITS FILES"),
+                label("Files")
+                    .size(12.0)
+                    .bold(true)
+                    .tone(Tone::Faint),
                 note(told.clone()),
             ))
             .gap(8.0),

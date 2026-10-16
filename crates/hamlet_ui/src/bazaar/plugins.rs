@@ -23,8 +23,8 @@ use hamlet_model::market::{Order, Price, Seller, Standing, shown};
 use hamlet_world::bazaar::Traded;
 
 use super::artisans::{
-    by, chip, count, day, deal_box, fact, finder, heading, named,
-    orders, part, pressed_card, rating, said, terms, typed,
+    chip, count, deal_box, finder, heading, named, orders, part,
+    pressed_card, rating, said, terms, typed,
 };
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
@@ -175,42 +175,23 @@ fn shelves() -> AnyView {
     let list =
         keyed(derived(cards).when(moved::<Tinkering>()), |cards| {
             if cards.is_empty() {
-                return note(
-                    "No contraption of that sort on the bench. Try \
-                     other words.",
-                )
-                .boxed();
+                return note("No plugins match your search.").boxed();
             }
             column(cards.iter().map(card).collect::<Vec<_>>())
                 .gap(8.0)
                 .boxed()
         })
         .within(bare());
-    column((
-        note(
-            "Plugins teach Hamlet new tricks: panels to open, tools \
-             for the agents and commands for the chief. Their \
-             makers are paid for every sale.",
-        ),
-        search,
-        kinds,
-        list,
-    ))
-    .gap(12.0)
-    .boxed()
+    column((search, kinds, list)).gap(12.0).boxed()
 }
 
 fn card(card: &Card) -> AnyView {
     let id = card.id.clone();
     let mut foot = vec![
         rating(card.standing, 11.0),
-        note(format!(
-            "{} installs  ·  {}",
-            count(card.standing.owners),
-            card.kind.name()
-        ))
-        .size(11.0)
-        .boxed(),
+        note(format!("{} installs", count(card.standing.owners)))
+            .size(11.0)
+            .boxed(),
     ];
     if card.installed {
         foot.push(
@@ -226,8 +207,7 @@ fn card(card: &Card) -> AnyView {
     }
     let body = column((
         heading(card.name.clone(), card.price),
-        by(&card.publisher),
-        label(card.summary.clone()).size(12.0),
+        label(card.summary.clone()).size(12.0).tone(Tone::Dim),
         row(foot).gap(8.0).align(AlignItems::Center).tagged(Wraps),
     ))
     .gap(4.0);
@@ -246,15 +226,13 @@ fn contraption_page(id: String) -> AnyView {
     })
     .when(moved::<Tinkering>());
     let body = keyed(found, |contraption| match contraption {
-        None => {
-            note("This plugin is no longer on the bench.").boxed()
-        }
+        None => note("This plugin is no longer listed.").boxed(),
         Some(contraption) => about(contraption),
     })
     .within(bare());
     column((
         page_head(
-            "TINKER'S",
+            "PLUGINS",
             |world| world.resource_mut::<Tinkering>().open = None,
             Glyph::Bolt,
             "PLUGIN",
@@ -268,77 +246,45 @@ fn contraption_page(id: String) -> AnyView {
 fn about(contraption: &Contraption) -> AnyView {
     let c = contraption;
     let adds = c.adds.iter().map(addition).collect::<Vec<_>>();
-    let asks = match c.asks.is_empty() {
-        true => vec![note("Nothing. It keeps to itself.").boxed()],
-        false => c.asks.iter().map(permission).collect::<Vec<_>>(),
-    };
-    let changes = c
-        .changes
-        .iter()
-        .map(|change| {
-            fact_owned(change.version.clone(), change.words.clone())
-        })
-        .collect::<Vec<_>>();
-    column((
+    let mut parts = vec![
         column((
             named(c.name.clone()),
             row((
-                by(&c.publisher),
-                note(format!("v{}", c.version)).size(11.0),
+                rating(c.standing, 12.0),
+                note(format!(
+                    "{} installs  by {}",
+                    count(c.standing.owners),
+                    c.publisher.name
+                ))
+                .size(12.0),
             ))
-            .gap(10.0)
+            .gap(8.0)
             .align(AlignItems::Center)
             .tagged(Wraps),
         ))
-        .gap(4.0),
-        row((
-            rating(c.standing, 12.0),
-            note(format!("{} installs", count(c.standing.owners))),
-        ))
-        .gap(10.0)
-        .align(AlignItems::Center),
-        label(c.summary.clone()).size(13.0),
+        .gap(4.0)
+        .boxed(),
+        label(c.summary.clone()).size(13.0).boxed(),
         install(c),
-        label(c.description.clone()).size(13.0),
-        part("WHAT IT ADDS", column(adds).gap(8.0).boxed()),
-        part("WHAT IT ASKS TO DO", column(asks).gap(6.0).boxed()),
-        part("WHAT CHANGED", column(changes).gap(4.0).boxed()),
-        part(
-            "ABOUT",
-            column((
-                fact("SHELF", c.kind.name().to_string()),
-                fact("UPDATED", day(&c.updated)),
-                fact(
-                    "RATED",
-                    format!(
-                        "{:.1} of 5, by {} chiefs",
-                        c.standing.stars, c.standing.reviews
-                    ),
-                ),
-            ))
-            .gap(4.0)
+        label(c.description.clone())
+            .size(12.0)
+            .tone(Tone::Dim)
             .boxed(),
-        ),
-    ))
-    .gap(14.0)
-    .boxed()
-}
-
-/// A fact whose name is not known until the app runs.
-fn fact_owned(name: String, value: String) -> AnyView {
-    row((
-        label(name)
-            .size(11.0)
-            .bold(true)
-            .wrap(false)
-            .tone(Tone::Faint),
-        column((label(value).size(12.0),))
-            .grow(1.0)
-            .min_width(px(0.0)),
-    ))
-    .gap(10.0)
-    .align(AlignItems::FlexStart)
-    .boxed()
+        part("Adds", column(adds).gap(8.0).boxed()),
+    ];
+    if !c.asks.is_empty() {
+        let asks = c.asks.iter().map(permission).collect::<Vec<_>>();
+        parts
+            .push(part("Permissions", column(asks).gap(6.0).boxed()));
+    }
+    if let Some(change) = c.changes.first() {
+        parts.push(part(
+            "Latest version",
+            note(format!("{}: {}", change.version, change.words))
+                .boxed(),
+        ));
+    }
+    column(parts).gap(14.0).boxed()
 }
 
 /// One thing a plugin adds, behind the mark of its part.
@@ -399,7 +345,7 @@ fn install(contraption: &Contraption) -> AnyView {
     let (id, name) =
         (contraption.id.clone(), contraption.name.clone());
     let price = contraption.price;
-    let terms = terms(price, &contraption.publisher, "sale");
+    let terms = terms(price, &contraption.publisher);
     let now = {
         let id = id.clone();
         derived(move |world: &World| {

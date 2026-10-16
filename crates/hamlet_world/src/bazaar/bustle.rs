@@ -84,11 +84,13 @@ pub(super) fn scatter(
 /// Turns each part that turns, while the bazaar is seen.
 pub(super) fn spin(
     clock: Res<Clock>,
-    bazaars: Query<&ViewVisibility, With<Bazaar>>,
+    bazaars: Query<(&ViewVisibility, &super::Lod), With<Bazaar>>,
     mut parts: Query<(&Turning, &mut Transform)>,
     mut redraw: MessageWriter<RequestRedraw>,
 ) {
-    if parts.is_empty() || !bazaars.iter().any(|seen| seen.get()) {
+    if parts.is_empty()
+        || !bazaars.iter().any(|(seen, lod)| seen.get() && lod.close)
+    {
         return;
     }
     for (part, mut at) in &mut parts {
@@ -160,11 +162,13 @@ fn mote(kind: Kind, k: usize, t: f32, called: bool) -> (Vec3, f32) {
 pub(super) fn stir(
     clock: Res<Clock>,
     selected: Res<Selected>,
-    bazaars: Query<&ViewVisibility, With<Bazaar>>,
+    bazaars: Query<(&ViewVisibility, &super::Lod), With<Bazaar>>,
     mut motes: Query<(&Mote, &mut Transform, &mut Visibility)>,
     mut redraw: MessageWriter<RequestRedraw>,
 ) {
-    if motes.is_empty() || !bazaars.iter().any(|seen| seen.get()) {
+    if motes.is_empty()
+        || !bazaars.iter().any(|(seen, lod)| seen.get() && lod.close)
+    {
         return;
     }
     let called = selected.0 == Some(Thing::Stall(Stall::Plugins));

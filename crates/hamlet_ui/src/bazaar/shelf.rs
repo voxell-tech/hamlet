@@ -17,15 +17,12 @@ use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_core::bazaar::{Bazaar, FetchWares, LookAt};
 use hamlet_core::catalogue::ModelCatalogue;
 use hamlet_core::core::{ListModels, Listing, Settings};
-use hamlet_model::bazaar::{
-    Sort, Ware, is_openrouter, makers, shown,
-};
+use hamlet_model::bazaar::{Sort, Ware, is_openrouter, shown};
 
 use super::{Browsing, SHOWN, added};
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, ICON, action, bare, buttons, note, plate, stated, tick,
-    well,
+    Fills, ICON, action, bare, buttons, note, plate, stated, well,
 };
 use crate::platform::{DisplayText, Wraps};
 use crate::roll::{either, moved};
@@ -39,14 +36,6 @@ const PRICES: [(&str, Option<f64>); 5] = [
     ("Up to $1", Some(1.0)),
     ("Up to $5", Some(5.0)),
     ("Up to $20", Some(20.0)),
-];
-
-/// The least context a ware can be asked to hold, in tokens.
-const SIZES: [(&str, Option<u64>); 4] = [
-    ("Any context", None),
-    ("32k or more", Some(32_000)),
-    ("128k or more", Some(128_000)),
-    ("1M or more", Some(1_000_000)),
 ];
 
 /// The field the shelf is narrowed in.
@@ -125,14 +114,12 @@ pub(super) fn tokens(count: u64) -> String {
 
 /// What a row tells of a ware besides its name and price.
 fn facts(ware: &Ware) -> String {
-    let mut facts = vec![ware.id.clone()];
+    let mut facts = Vec::new();
     if let Some(context) = ware.context {
         facts.push(format!("{} context", tokens(context)));
     }
-    match ware.tools {
-        Some(true) => facts.push("tools".into()),
-        Some(false) => facts.push("no tools".into()),
-        None => {}
+    if ware.tools == Some(false) {
+        facts.push("no tools".into());
     }
     if ware.reasoning == Some(true) {
         facts.push("reasoning".into());
@@ -140,10 +127,7 @@ fn facts(ware: &Ware) -> String {
     if ware.sees() {
         facts.push("images".into());
     }
-    if let Some(index) = ware.intelligence {
-        facts.push(format!("intelligence {index:.0}"));
-    }
-    facts.join("  ·  ")
+    facts.join(", ")
 }
 
 /// One row of the shelf, as it is drawn.
@@ -285,70 +269,15 @@ fn source_choice() -> AnyView {
     .boxed()
 }
 
-/// The choice of the maker of the models shown.
-fn maker_choice() -> AnyView {
-    let all = derived(|world: &World| {
-        let browsing = world.resource::<Browsing>();
-        makers(browsing.wares(world.resource::<Bazaar>()))
-    })
-    .when(either(moved::<Browsing>(), moved::<Bazaar>()));
-    keyed(all, |all| {
-        if all.is_empty() {
-            return bare().boxed();
-        }
-        let names = std::iter::once("Any maker".to_string())
-            .chain(all.iter().cloned())
-            .collect::<Vec<_>>();
-        let (at, set) = (all.clone(), all.clone());
-        choice(
-            names,
-            move |b| {
-                b.filter.maker.as_ref().map_or(0, |maker| {
-                    at.iter()
-                        .position(|m| m == maker)
-                        .map_or(0, |i| i + 1)
-                })
-            },
-            move |b, chosen| {
-                b.filter.maker = chosen
-                    .checked_sub(1)
-                    .and_then(|i| set.get(i).cloned());
-            },
-        )
-    })
-    .within(bare())
-    .boxed()
-}
-
-/// A switch of the filter and its words.
-fn switch(
-    words: &'static str,
-    on: fn(&Browsing) -> bool,
-    set: fn(&mut Browsing, bool),
-) -> AnyView {
-    row((
-        tick(resource::<Browsing, _>(on)).on_change(
-            move |world, to| browse(world, |b| set(b, to)),
-        ),
-        label(words).size(12.0),
-    ))
-    .gap(6.0)
-    .align(AlignItems::Center)
-    .boxed()
-}
-
 fn controls() -> impl View {
-    let search = row((
-        small("FIND"),
-        text_field(
-            resource::<Browsing, _>(|b| b.filter.words.clone()),
-            |world, text| browse(world, |b| b.filter.words = text),
-        )
-        .grow(1.0)
-        .min_width(px(0.0))
-        .rules(well)
-        .tagged(Searching),
-    ))
+    let search = row((text_field(
+        resource::<Browsing, _>(|b| b.filter.words.clone()),
+        |world, text| browse(world, |b| b.filter.words = text),
+    )
+    .grow(1.0)
+    .min_width(px(0.0))
+    .rules(well)
+    .tagged(Searching),))
     .gap(12.0)
     .align(AlignItems::Center);
     let orders = buttons(vec![
@@ -363,7 +292,6 @@ fn controls() -> impl View {
             },
             |b, chosen| b.sort = Sort::ALL[chosen],
         ),
-        maker_choice(),
         choice(
             PRICES.iter().map(|(name, _)| name.to_string()).collect(),
             |b| {
@@ -376,37 +304,8 @@ fn controls() -> impl View {
             },
             |b, chosen| b.filter.most_input = PRICES[chosen].1,
         ),
-        choice(
-            SIZES.iter().map(|(name, _)| name.to_string()).collect(),
-            |b| {
-                SIZES
-                    .iter()
-                    .position(|(_, least)| {
-                        *least == b.filter.least_context
-                    })
-                    .unwrap_or(0)
-            },
-            |b, chosen| b.filter.least_context = SIZES[chosen].1,
-        ),
     ]);
-    let switches = buttons(vec![
-        switch(
-            "Calls tools",
-            |b| b.filter.tools,
-            |b, on| b.filter.tools = on,
-        ),
-        switch(
-            "Reasons",
-            |b| b.filter.reasoning,
-            |b, on| b.filter.reasoning = on,
-        ),
-        switch(
-            "Reads images",
-            |b| b.filter.sees,
-            |b, on| b.filter.sees = on,
-        ),
-    ]);
-    column((search, orders, switches)).gap(10.0)
+    column((search, orders)).gap(10.0)
 }
 
 /// How many wares are shown of how many, and how fresh they are.
@@ -419,10 +318,7 @@ fn summary(world: &World) -> String {
         None if bazaar.fetching => "Asking OpenRouter...".into(),
         None if wares.is_empty() => {
             bazaar.problem.as_ref().map_or_else(
-                || {
-                    "Nothing on the shelf yet. Choose Look Again."
-                        .into()
-                },
+                || "No models yet. Choose Look Again.".into(),
                 |why| format!("OpenRouter could not be asked: {why}"),
             )
         }
@@ -435,10 +331,7 @@ fn summary(world: &World) -> String {
                 1 => "an hour ago".to_string(),
                 hours => format!("{hours} hours ago"),
             };
-            format!(
-                "{count} of {} models. OpenRouter was asked {ago}.",
-                wares.len()
-            )
+            format!("{count} models, updated {ago}.")
         }
         Some(name) => {
             let listing = world.resource::<Listing>();
@@ -450,13 +343,9 @@ fn summary(world: &World) -> String {
                     format!("Asking {name}...")
                 }
                 _ if wares.is_empty() => format!(
-                    "Nothing from {name} yet. Choose Look Again."
+                    "No models from {name} yet. Choose Look Again."
                 ),
-                _ => format!(
-                    "{count} of {} models from {name}. Little is \
-                     told of them besides their names.",
-                    wares.len()
-                ),
+                _ => format!("{count} models from {name}."),
             }
         }
     }
@@ -479,11 +368,8 @@ pub(super) fn heading() -> AnyView {
         if let Some(agent) = agent {
             parts.push(
                 row((
-                    note(format!(
-                        "Choosing a model for {agent}. Open one to \
-                         have {agent} run it."
-                    )),
-                    action(Glyph::Cross, "FOR NOBODY", |world| {
+                    note(format!("Choosing a model for {agent}.")),
+                    action(Glyph::Cross, "CANCEL", |world| {
                         world.resource_mut::<Browsing>().for_agent =
                             None;
                     }),

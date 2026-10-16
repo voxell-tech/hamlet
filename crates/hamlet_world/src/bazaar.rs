@@ -27,12 +27,13 @@ pub use self::shoppers::Shopper;
 pub use self::stalls::{Keeper, Stall};
 use crate::chief::mascot::{self, Rig};
 use crate::chief::{Chief, Look, Settled, place};
+use crate::generator::DetailSettings;
 use crate::generator::land::Land;
 use crate::generator::society::{Claim, Place as Ground, Society};
 use crate::lantern::NightLight;
 use crate::palette::Palette;
 use crate::pick::{self, Footprint, Named, Thing, hit_box};
-use crate::{Clock, Sky, Stock};
+use crate::{Clock, Sky, Stock, WorldCamera};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Pitched>()
@@ -41,7 +42,8 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                (repitch, pitch).chain().in_set(Pitching),
+                (repitch, pitch, tag_detail).chain().in_set(Pitching),
+                detail,
                 (merchant::tend, shoppers::stroll, keepers::tend)
                     .before(mascot::stand),
                 (shine, twinkle, bustle::spin, bustle::stir),
@@ -77,6 +79,82 @@ impl Pitched {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Bazaar {
     pub held: Vec2,
+}
+
+/// The bazaar's meshes near and far, and whether the camera is close
+/// enough for its small things to be drawn and to move.
+#[derive(Component, Clone, Debug)]
+struct Lod {
+    near: Handle<Mesh>,
+    far: Handle<Mesh>,
+    close: bool,
+}
+
+/// Something small of the bazaar, hidden when the camera is not
+/// close.
+#[derive(Component)]
+struct Detail;
+
+/// Marks as small every part of a new bazaar and of its booths but
+/// the boxes it is picked by.
+fn tag_detail(
+    mut commands: Commands,
+    new: Query<Entity, Added<Bazaar>>,
+    children: Query<&Children>,
+    booths: Query<(), With<Booth>>,
+    picked: Query<(), With<Thing>>,
+) {
+    for bazaar in &new {
+        let parts =
+            children.get(bazaar).into_iter().flatten().copied();
+        let inside = parts
+            .clone()
+            .filter(|part| booths.contains(*part))
+            .flat_map(|booth| {
+                children.get(booth).into_iter().flatten().copied()
+            })
+            .collect::<Vec<_>>();
+        for part in parts.chain(inside) {
+            if !booths.contains(part) && !picked.contains(part) {
+                commands.entity(part).try_insert(Detail);
+            }
+        }
+    }
+}
+
+/// Draws the bazaar plain from far away and hides its small things
+/// past the distance robots are hidden at, as the towns are.
+fn detail(
+    set: Res<DetailSettings>,
+    camera: Single<&Transform, With<WorldCamera>>,
+    mut bazaars: Query<(&GlobalTransform, &mut Lod, &mut Mesh3d)>,
+    mut parts: Query<&mut Visibility, With<Detail>>,
+    added: Query<(), Added<Detail>>,
+) {
+    for (at, mut lod, mut mesh) in &mut bazaars {
+        let away = camera.translation.distance(at.translation());
+        let shape = if away < set.town_far {
+            &lod.near
+        } else {
+            &lod.far
+        };
+        if mesh.0 != *shape {
+            mesh.0 = shape.clone();
+        }
+        let close = away < set.robots_far;
+        if lod.close == close && added.is_empty() {
+            continue;
+        }
+        lod.close = close;
+        let want = if close {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        for mut seen in &mut parts {
+            seen.set_if_neq(want);
+        }
+    }
 }
 
 /// One stall of the bazaar, standing where it does in it.
@@ -229,6 +307,8 @@ fn pitch(
         .map_or(Vec2::ZERO, |site| site.at);
     let toward = (home - at).normalize_or(Vec2::Y);
     let built = build::build(&pal);
+    let near = meshes.add(built.walls);
+    let far = meshes.add(build::far(&pal));
     let glow = pal.glass_lit.to_linear();
     let lit = materials.add(StandardMaterial {
         base_color: pal.glass_lit,
@@ -259,7 +339,12 @@ fn pitch(
                 bulbs: bulbs.clone(),
                 colours,
             },
-            Mesh3d(meshes.add(built.walls)),
+            Mesh3d(near.clone()),
+            Lod {
+                near,
+                far,
+                close: true,
+            },
             MeshMaterial3d(stock.matte.clone()),
             Transform::from_translation(land.on_ground(at))
                 .with_rotation(Quat::from_rotation_y(
@@ -601,7 +686,7 @@ fn twinkle(
     clock: Res<Clock>,
     sky: Res<Sky>,
     merchants: Query<&Merchant>,
-    fairies: Query<(&Fairies, &ViewVisibility)>,
+    fairies: Query<(&Fairies, &ViewVisibility, &Lod)>,
     mut glows: Query<(&Glow, &mut PointLight)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut redraw: MessageWriter<RequestRedraw>,
@@ -619,8 +704,8 @@ fn twinkle(
     let (rounds, faster) = CHASE;
     let rounds = rounds * (1.0 + faster * level);
     let mut seen = false;
-    for (fairies, view) in &fairies {
-        seen |= view.get();
+    for (fairies, view, lod) in &fairies {
+        seen |= view.get() && lod.close;
         for (k, bulb) in fairies.bulbs.iter().enumerate() {
             let chase = if still {
                 1.0

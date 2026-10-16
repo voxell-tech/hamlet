@@ -51,12 +51,12 @@ impl Kind {
 
     pub fn name(self) -> &'static str {
         match self {
-            Kind::Drawing => "Drawing",
-            Kind::Planning => "Planning",
+            Kind::Drawing => "Diagrams",
+            Kind::Planning => "Productivity",
             Kind::Data => "Data",
             Kind::Language => "Voice and language",
-            Kind::Maps => "Maps",
-            Kind::Looks => "Looks",
+            Kind::Maps => "Integrations",
+            Kind::Looks => "Themes",
         }
     }
 }
@@ -217,388 +217,438 @@ fn change(version: &str, words: &str) -> Change {
     }
 }
 
+/// One plugin, as a listing gives it.
+#[allow(clippy::too_many_arguments)]
+fn plugin(
+    (id, name, publisher): (&str, &str, Seller),
+    (version, updated, price, standing): (
+        &str,
+        &str,
+        Price,
+        Standing,
+    ),
+    (summary, description): (&str, &str),
+    kind: Kind,
+    adds: Vec<Addition>,
+    asks: Vec<Permission>,
+    changes: Vec<Change>,
+) -> Contraption {
+    Contraption {
+        id: id.into(),
+        name: name.into(),
+        publisher,
+        version: version.into(),
+        updated: updated.into(),
+        price,
+        standing,
+        summary: summary.into(),
+        description: description.into(),
+        kind,
+        adds,
+        asks,
+        changes,
+    }
+}
+
 /// The plugins on offer.
 pub fn contraptions() -> Vec<Contraption> {
     use Part::*;
     use Permission::*;
     vec![
-        Contraption {
-            id: "excalidraw".into(),
-            name: "Excalidraw Canvas".into(),
-            publisher: seller("Sketchwright & Daughters", true),
-            version: "2.4.0".into(),
-            updated: "2026-10-06".into(),
-            price: Price::Free,
-            standing: standing(4.9, 1240, 48_200),
-            summary: "A hand-drawn canvas where agents sketch \
-                      diagrams and graphs."
-                .into(),
-            description: "Opens an Excalidraw canvas in a panel of \
-                          its own. Agents draw on it as they think: \
-                          boxes and arrows for a plan, a graph of \
-                          what they found, a map of the code. Drag, \
-                          scribble and hand it back."
-                .into(),
-            kind: Kind::Drawing,
-            adds: vec![
+        plugin(
+            (
+                "excalidraw",
+                "Excalidraw Whiteboard",
+                seller("Mara Lindqvist", true),
+            ),
+            (
+                "2.4.0",
+                "2026-10-06",
+                Price::Free,
+                standing(4.9, 1240, 48_200),
+            ),
+            (
+                "A whiteboard where agents draw diagrams and you \
+                 edit them.",
+                "Adds an Excalidraw whiteboard panel. Agents can \
+                 draw flowcharts, architecture sketches and mind \
+                 maps while they work, and you can move, edit or \
+                 annotate anything they drew. Boards are saved as \
+                 .excalidraw files in the workspace.",
+            ),
+            Kind::Drawing,
+            vec![
                 adds(
                     Panel,
-                    "Canvas",
-                    "A drawing board beside the world.",
+                    "Whiteboard",
+                    "An Excalidraw canvas docked beside the world.",
                 ),
                 adds(
                     Tool,
-                    "draw",
-                    "Agents draw shapes, arrows, graphs and text.",
+                    "whiteboard.draw",
+                    "Lets agents add shapes, arrows and text.",
                 ),
-                adds(Command, "/sketch", "Opens a new drawing."),
+                adds(Command, "/whiteboard", "Opens a new board."),
             ],
-            asks: vec![ReadWorkspace, WriteWorkspace],
-            changes: vec![
-                change("2.4.0", "Graphs from a table of numbers."),
-                change("2.3.0", "Agents can label their arrows."),
-                change("2.2.1", "Faster with large drawings."),
+            vec![ReadWorkspace, WriteWorkspace],
+            vec![
+                change(
+                    "2.4.0",
+                    "Agents can turn a table into a chart.",
+                ),
+                change("2.3.0", "Export boards as PNG or SVG."),
             ],
-        },
-        Contraption {
-            id: "mermaid".into(),
-            name: "Mermaid Renderer".into(),
-            publisher: seller("Tidewater Tools", true),
-            version: "1.8.2".into(),
-            updated: "2026-09-12".into(),
-            price: Price::Free,
-            standing: standing(4.7, 860, 31_400),
-            summary: "Draws Mermaid diagrams right in the chat."
-                .into(),
-            description: "Flowcharts, sequence diagrams, timelines \
-                          and family trees written in Mermaid are \
-                          drawn where they are written, in the chat \
-                          and in notes."
-                .into(),
-            kind: Kind::Drawing,
-            adds: vec![
+        ),
+        plugin(
+            (
+                "mermaid",
+                "Mermaid Diagrams",
+                seller("Diagramming Co.", true),
+            ),
+            (
+                "1.8.2",
+                "2026-09-28",
+                Price::Free,
+                standing(4.7, 860, 61_400),
+            ),
+            (
+                "Renders Mermaid code blocks in chat as diagrams.",
+                "Any ```mermaid block an agent writes is drawn as a \
+                 diagram right in the chat: flowcharts, sequence \
+                 diagrams, Gantt charts, ER diagrams and more. \
+                 Click a diagram to copy it as SVG.",
+            ),
+            Kind::Drawing,
+            vec![adds(
+                InChat,
+                "Mermaid blocks",
+                "Draws diagrams instead of code.",
+            )],
+            vec![],
+            vec![change("1.8.2", "Supports Mermaid 11 syntax.")],
+        ),
+        plugin(
+            ("github", "GitHub", seller("Octoplane Labs", true)),
+            (
+                "3.1.0",
+                "2026-10-11",
+                Price::Free,
+                standing(4.8, 2210, 92_300),
+            ),
+            (
+                "Issues and pull requests in a panel, and GitHub \
+                 tools for agents.",
+                "Sign in once and see your issues and pull requests \
+                 in a panel. Agents can read issues, open branches, \
+                 comment on and review pull requests, and check CI \
+                 runs. Every write action waits for your approval.",
+            ),
+            Kind::Maps,
+            vec![
+                adds(
+                    Panel,
+                    "Pull requests",
+                    "Your open PRs and review requests.",
+                ),
+                adds(
+                    Tool,
+                    "github.issues",
+                    "Search, read and comment on issues.",
+                ),
+                adds(
+                    Tool,
+                    "github.pulls",
+                    "Open, review and comment on PRs.",
+                ),
+                adds(
+                    Command,
+                    "/pr",
+                    "Opens the pull request for this branch.",
+                ),
+            ],
+            vec![
+                Network("api.github.com".into()),
+                ReadWorkspace,
+                RunCommands,
+            ],
+            vec![
+                change("3.1.0", "Agents can read failing CI logs."),
+                change("3.0.0", "New pull requests panel."),
+            ],
+        ),
+        plugin(
+            ("linear", "Linear", seller("Northbeam Studio", false)),
+            (
+                "1.2.0",
+                "2026-08-30",
+                Price::Monthly(3.0),
+                standing(4.5, 310, 8_900),
+            ),
+            (
+                "Turn chats into Linear issues and track them from \
+                 Hamlet.",
+                "Agents can create and update Linear issues, move \
+                 them between states and link them to the work they \
+                 did. A panel lists the issues assigned to you.",
+            ),
+            Kind::Planning,
+            vec![
+                adds(
+                    Panel,
+                    "My issues",
+                    "Your assigned issues by cycle.",
+                ),
+                adds(
+                    Tool,
+                    "linear.issue",
+                    "Create and update issues.",
+                ),
+            ],
+            vec![Network("api.linear.app".into())],
+            vec![change("1.2.0", "Supports sub-issues.")],
+        ),
+        plugin(
+            ("gcal", "Google Calendar", seller("Tempo Tools", true)),
+            (
+                "2.0.3",
+                "2026-09-14",
+                Price::Free,
+                standing(4.4, 540, 23_700),
+            ),
+            (
+                "Lets agents check your calendar and schedule \
+                 meetings.",
+                "Agents can see when you are free, draft events and \
+                 send invites once you approve. A panel shows today \
+                 and the next seven days.",
+            ),
+            Kind::Planning,
+            vec![
+                adds(Panel, "Calendar", "Today and the week ahead."),
+                adds(
+                    Tool,
+                    "calendar.events",
+                    "Read and draft events.",
+                ),
+            ],
+            vec![Network("www.googleapis.com".into()), Notifications],
+            vec![change(
+                "2.0.3",
+                "Fixes time zones for all-day events.",
+            )],
+        ),
+        plugin(
+            ("notion", "Notion", seller("Paperlane", false)),
+            (
+                "1.5.1",
+                "2026-09-02",
+                Price::Once(9.0),
+                standing(4.3, 280, 11_200),
+            ),
+            (
+                "Search, read and write Notion pages from your \
+                 agents.",
+                "Connect a Notion workspace and agents can search \
+                 pages, read databases and append notes or meeting \
+                 summaries to the page you choose.",
+            ),
+            Kind::Planning,
+            vec![
+                adds(
+                    Tool,
+                    "notion.search",
+                    "Search pages and databases.",
+                ),
+                adds(Tool, "notion.append", "Add blocks to a page."),
+            ],
+            vec![Network("api.notion.com".into())],
+            vec![change("1.5.1", "Reads database rows as tables.")],
+        ),
+        plugin(
+            ("sql", "SQL Browser", seller("Rowan Patel", true)),
+            (
+                "0.9.4",
+                "2026-10-01",
+                Price::Free,
+                standing(4.6, 190, 7_400),
+            ),
+            (
+                "Browse SQLite and Postgres databases, and let \
+                 agents query them.",
+                "Adds a table browser for SQLite files and Postgres \
+                 connections. Agents can run read-only queries by \
+                 default; writes need a setting and your approval.",
+            ),
+            Kind::Data,
+            vec![
+                adds(
+                    Panel,
+                    "Databases",
+                    "Tables, columns and query results.",
+                ),
+                adds(Tool, "sql.query", "Run read-only SQL."),
+            ],
+            vec![ReadWorkspace, Network("your database host".into())],
+            vec![change("0.9.4", "Postgres connections over SSH.")],
+        ),
+        plugin(
+            ("csv", "CSV Viewer", seller("Gridline", false)),
+            (
+                "1.3.0",
+                "2026-07-19",
+                Price::Free,
+                standing(4.5, 420, 19_800),
+            ),
+            (
+                "Opens CSV and Excel files as sortable tables.",
+                "Shows CSV, TSV and XLSX files from the workspace \
+                 as tables you can sort and filter. Agents can read \
+                 a sheet as structured rows instead of raw text.",
+            ),
+            Kind::Data,
+            vec![
+                adds(
+                    Panel,
+                    "Table",
+                    "Sort, filter and search a sheet.",
+                ),
+                adds(Tool, "sheet.read", "Read rows and columns."),
+            ],
+            vec![ReadWorkspace],
+            vec![change("1.3.0", "Opens .xlsx files.")],
+        ),
+        plugin(
+            (
+                "browser",
+                "Browser Automation",
+                seller("Headless Inc.", true),
+            ),
+            (
+                "2.2.0",
+                "2026-10-09",
+                Price::Monthly(5.0),
+                standing(4.2, 650, 15_300),
+            ),
+            (
+                "Gives agents a real browser to click, fill forms \
+                 and take screenshots.",
+                "Agents get a sandboxed Chromium they can drive: \
+                 open pages, click, type, fill forms and take \
+                 screenshots. Every site visited is listed for you \
+                 to review.",
+            ),
+            Kind::Maps,
+            vec![
+                adds(Tool, "browser.open", "Open and read a page."),
+                adds(
+                    Tool,
+                    "browser.act",
+                    "Click, type and submit forms.",
+                ),
+                adds(
+                    Panel,
+                    "Browser",
+                    "Watch what the agent is doing.",
+                ),
+            ],
+            vec![Network("any site".into()), RunCommands],
+            vec![change("2.2.0", "Screenshots of the whole page.")],
+        ),
+        plugin(
+            ("clipper", "Web Clipper", seller("Saved Pages", false)),
+            (
+                "1.0.6",
+                "2026-06-22",
+                Price::Free,
+                standing(4.1, 130, 5_600),
+            ),
+            (
+                "Save web pages as clean Markdown for your agents \
+                 to read.",
+                "Paste a link and the page is saved to the \
+                 workspace as Markdown, without ads or menus, with \
+                 its title, author and date.",
+            ),
+            Kind::Data,
+            vec![adds(Command, "/clip", "Save a page as Markdown.")],
+            vec![Network("any site".into()), WriteWorkspace],
+            vec![change("1.0.6", "Keeps images as links.")],
+        ),
+        plugin(
+            ("voice", "Voice Mode", seller("Hush Audio", true)),
+            (
+                "1.4.2",
+                "2026-09-25",
+                Price::Monthly(4.0),
+                standing(4.4, 380, 12_100),
+            ),
+            (
+                "Talk to your agents and hear their replies.",
+                "Hold a key to speak to the agent you are chatting \
+                 with, and have replies read aloud. Speech is \
+                 transcribed on this computer; only the text is \
+                 sent to the model.",
+            ),
+            Kind::Language,
+            vec![
+                adds(Command, "/talk", "Start talking to the agent."),
                 adds(
                     InChat,
-                    "Mermaid blocks",
-                    "Draws ```mermaid blocks as diagrams.",
+                    "Read aloud",
+                    "A play button on each reply.",
+                ),
+            ],
+            vec![Microphone, Speakers],
+            vec![change("1.4.2", "Lower latency on Apple silicon.")],
+        ),
+        plugin(
+            ("slack", "Slack Bridge", seller("Relay Works", true)),
+            (
+                "2.1.1",
+                "2026-10-03",
+                Price::Monthly(6.0),
+                standing(4.3, 470, 9_800),
+            ),
+            (
+                "Chat with your agents from Slack.",
+                "Mention an agent in a Slack channel or DM it, and \
+                 the conversation continues in Hamlet. Agents can \
+                 post summaries back to a channel you pick.",
+            ),
+            Kind::Maps,
+            vec![
+                adds(
+                    Tool,
+                    "slack.post",
+                    "Post a message to a channel.",
                 ),
                 adds(
                     Command,
-                    "/diagram",
-                    "Asks an agent for a diagram.",
+                    "/slack",
+                    "Link a channel to an agent.",
                 ),
             ],
-            asks: vec![],
-            changes: vec![
-                change("1.8.2", "Dark diagrams match the panels."),
-                change("1.8.0", "Timelines and mind maps."),
-            ],
-        },
-        Contraption {
-            id: "almanac".into(),
-            name: "Almanac Calendar".into(),
-            publisher: seller("Fairweather Clockworks", true),
-            version: "3.0.1".into(),
-            updated: "2026-10-11".into(),
-            price: Price::Monthly(2.0),
-            standing: standing(4.6, 410, 12_700),
-            summary: "Your calendar in a panel, and agents that can \
-                      book time."
-                .into(),
-            description: "Shows the week from your calendar. Agents \
-                          can find a free hour, propose a meeting \
-                          and remind you before it begins. Nothing \
-                          is booked without your say."
-                .into(),
-            kind: Kind::Planning,
-            adds: vec![
-                adds(
-                    Panel,
-                    "Almanac",
-                    "The week, the day and what is next.",
-                ),
-                adds(
-                    Tool,
-                    "calendar",
-                    "Agents read and propose events.",
-                ),
-                adds(Command, "/today", "Tells what the day holds."),
-            ],
-            asks: vec![
-                Network("calendar.google.com".into()),
-                Notifications,
-            ],
-            changes: vec![
-                change("3.0.1", "Time zones for travelling chiefs."),
-                change("3.0.0", "Agents may propose, never book."),
-            ],
-        },
-        Contraption {
-            id: "kanban".into(),
-            name: "Taskboard".into(),
-            publisher: seller("Millpond Works", false),
-            version: "1.2.0".into(),
-            updated: "2026-08-03".into(),
-            price: Price::Once(6.0),
-            standing: standing(4.4, 190, 5_300),
-            summary: "A kanban board the whole hamlet works from."
-                .into(),
-            description: "Cards in columns: to do, doing, done. \
-                          Agents pick up cards, move them as they \
-                          work, and leave a note on each when they \
-                          finish."
-                .into(),
-            kind: Kind::Planning,
-            adds: vec![
-                adds(Panel, "Taskboard", "Columns of cards to drag."),
-                adds(
-                    Tool,
-                    "board",
-                    "Agents take, move and close cards.",
-                ),
-            ],
-            asks: vec![ReadWorkspace, WriteWorkspace],
-            changes: vec![
-                change("1.2.0", "Swimlanes for each hamlet."),
-                change("1.1.0", "Cards can wait on other cards."),
-            ],
-        },
-        Contraption {
-            id: "ledger".into(),
-            name: "Ledger of Changes".into(),
-            publisher: seller("Hearthforge Collective", true),
-            version: "0.9.0".into(),
-            updated: "2026-10-14".into(),
-            price: Price::Free,
-            standing: standing(4.8, 520, 19_900),
-            summary: "Every change to the workspace, kept with git."
-                .into(),
-            description: "Keeps the workspace in git and shows its \
-                          history as a ledger: who changed what, \
-                          and why. Agents commit their own work \
-                          with a message, and any day can be taken \
-                          back."
-                .into(),
-            kind: Kind::Data,
-            adds: vec![
-                adds(
-                    Panel,
-                    "Ledger",
-                    "The history of the workspace.",
-                ),
-                adds(
-                    Tool,
-                    "commit",
-                    "Agents commit what they changed.",
-                ),
-                adds(
-                    Command,
-                    "/undo-day",
-                    "Takes back a day's changes.",
-                ),
-            ],
-            asks: vec![ReadWorkspace, WriteWorkspace, RunCommands],
-            changes: vec![
-                change("0.9.0", "Branches for each agent."),
-                change("0.8.3", "Diffs of pictures, side by side."),
-            ],
-        },
-        Contraption {
-            id: "abacus".into(),
-            name: "Abacus Sheets".into(),
-            publisher: seller("Ledgerlight", false),
-            version: "1.0.4".into(),
-            updated: "2026-07-22".into(),
-            price: Price::Once(4.0),
-            standing: standing(4.3, 140, 4_100),
-            summary: "Opens spreadsheets and CSV files in a panel."
-                .into(),
-            description: "Reads .csv, .tsv and .xlsx files from the \
-                          workspace into a table you can sort and \
-                          filter, and lets agents read a sheet by \
-                          its columns."
-                .into(),
-            kind: Kind::Data,
-            adds: vec![
-                adds(Panel, "Sheets", "A table of any sheet."),
-                adds(Tool, "sheet", "Agents read rows and columns."),
-            ],
-            asks: vec![ReadWorkspace],
-            changes: vec![change(
-                "1.0.4",
-                "Opens sheets of a million rows.",
-            )],
-        },
-        Contraption {
-            id: "voice".into(),
-            name: "Voices of the Hamlet".into(),
-            publisher: seller("Bellwether Sound", true),
-            version: "2.1.0".into(),
-            updated: "2026-09-30".into(),
-            price: Price::Monthly(5.0),
-            standing: standing(4.5, 300, 7_600),
-            summary: "Gives each agent a voice of its own.".into(),
-            description: "Agents read their replies aloud, each in \
-                          a voice that suits its character, and you \
-                          may answer by speaking."
-                .into(),
-            kind: Kind::Language,
-            adds: vec![
-                adds(Tool, "speak", "Agents say a reply aloud."),
-                adds(
-                    Command,
-                    "/listen",
-                    "Takes what you say as a message.",
-                ),
-            ],
-            asks: vec![
-                Speakers,
-                Microphone,
-                Network("voice.bellwether.example".into()),
-            ],
-            changes: vec![
-                change("2.1.0", "The mayor sounds grander."),
-                change("2.0.0", "Speak back to your agents."),
-            ],
-        },
-        Contraption {
-            id: "babel".into(),
-            name: "Babel Translator".into(),
-            publisher: seller("Tidewater Tools", true),
-            version: "1.5.1".into(),
-            updated: "2026-06-08".into(),
-            price: Price::Monthly(3.0),
-            standing: standing(4.2, 95, 3_800),
-            summary: "Translates the chat and notes as you read \
-                      them."
-                .into(),
-            description: "Shows any message or note in the language \
-                          you choose, and lets agents work in one \
-                          language while you read in another."
-                .into(),
-            kind: Kind::Language,
-            adds: vec![
-                adds(
-                    InChat,
-                    "Translate",
-                    "A message in your language.",
-                ),
-                adds(Tool, "translate", "Agents translate a text."),
-            ],
-            asks: vec![Network("api.babel.example".into())],
-            changes: vec![change("1.5.1", "Forty more languages.")],
-        },
-        Contraption {
-            id: "cartographer".into(),
-            name: "Cartographer's Tiles".into(),
-            publisher: seller("Compass Rose Guild", false),
-            version: "0.6.0".into(),
-            updated: "2026-09-05".into(),
-            price: Price::Free,
-            standing: standing(4.0, 60, 2_200),
-            summary: "Maps of the real world, for places agents \
-                      talk of."
-                .into(),
-            description: "A map panel of OpenStreetMap tiles. \
-                          Agents pin the places they mention, draw \
-                          a route, and look up what is nearby."
-                .into(),
-            kind: Kind::Maps,
-            adds: vec![
-                adds(Panel, "Map", "Tiles of the world, with pins."),
-                adds(
-                    Tool,
-                    "map",
-                    "Agents pin places and draw routes.",
-                ),
-            ],
-            asks: vec![Network("tile.openstreetmap.org".into())],
-            changes: vec![change(
-                "0.6.0",
-                "Routes on foot and by bicycle.",
-            )],
-        },
-        Contraption {
-            id: "lichen".into(),
-            name: "Lantern & Lichen Themes".into(),
-            publisher: seller("Inkwell Atelier", true),
-            version: "1.3.0".into(),
-            updated: "2026-10-12".into(),
-            price: Price::Once(3.0),
-            standing: standing(4.8, 230, 9_100),
-            summary: "Three new looks for the panels.".into(),
-            description: "Moonlit Harbour in blues and silver, \
-                          Harvest Hall in wheat and rust, and \
-                          Frostfern in pale green. Each keeps the \
-                          lamplight warm."
-                .into(),
-            kind: Kind::Looks,
-            adds: vec![
-                adds(Theme, "Moonlit Harbour", "Blues and silver."),
-                adds(Theme, "Harvest Hall", "Wheat and rust."),
-                adds(Theme, "Frostfern", "Pale green and birch."),
-            ],
-            asks: vec![],
-            changes: vec![change("1.3.0", "Frostfern, for winter.")],
-        },
-        Contraption {
-            id: "crier".into(),
-            name: "Town Crier".into(),
-            publisher: seller("Fairweather Clockworks", true),
-            version: "1.1.0".into(),
-            updated: "2026-08-19".into(),
-            price: Price::Monthly(1.5),
-            standing: standing(4.4, 150, 6_000),
-            summary: "Rings your phone when something needs you."
-                .into(),
-            description: "When an agent waits for your word, the \
-                          Town Crier sends it to your phone, and \
-                          your answer comes back the same way."
-                .into(),
-            kind: Kind::Planning,
-            adds: vec![
-                adds(Command, "/crier", "Chooses what is cried."),
-                adds(Tool, "cry", "Agents send you a message."),
-            ],
-            asks: vec![
-                Notifications,
-                Network("push.crier.example".into()),
-            ],
-            changes: vec![change("1.1.0", "Quiet hours at night.")],
-        },
-        Contraption {
-            id: "lore".into(),
-            name: "Lore Search".into(),
-            publisher: seller("The Thornfield Library", true),
-            version: "2.0.0".into(),
-            updated: "2026-10-02".into(),
-            price: Price::Free,
-            standing: standing(4.6, 280, 11_300),
-            summary: "Finds any word in every note, chat and file."
-                .into(),
-            description: "Builds an index of the workspace, the \
-                          notes and the chats, and finds a word \
-                          among them as fast as you type it."
-                .into(),
-            kind: Kind::Data,
-            adds: vec![
-                adds(Panel, "Lore", "Search everything at once."),
-                adds(
-                    Tool,
-                    "recall",
-                    "Agents search what was written.",
-                ),
-                adds(
-                    Command,
-                    "/find",
-                    "Searches from the command line.",
-                ),
-            ],
-            asks: vec![ReadWorkspace],
-            changes: vec![
-                change("2.0.0", "Searches the chats too."),
-                change("1.4.0", "Finds words by their meaning."),
-            ],
-        },
+            vec![Network("slack.com".into()), Notifications],
+            vec![change("2.1.1", "Threads stay in one chat.")],
+        ),
+        plugin(
+            ("nord", "Nord Theme", seller("Arctic Ice Studio", true)),
+            (
+                "1.1.0",
+                "2026-05-11",
+                Price::Free,
+                standing(4.8, 900, 34_000),
+            ),
+            (
+                "The cool, calm Nord colour palette for Hamlet's \
+                 panels.",
+                "Recolours the panels in the Nord palette, with \
+                 light and dark variants.",
+            ),
+            Kind::Looks,
+            vec![adds(Theme, "Nord", "Light and dark.")],
+            vec![],
+            vec![change("1.1.0", "Adds a light variant.")],
+        ),
     ]
 }

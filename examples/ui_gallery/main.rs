@@ -250,7 +250,7 @@ const SHOTS: [Shot; 46] = [
         name: "counter-artisan",
         scene: Scene::Counter(
             Stall::Community,
-            &["Quillfeather", "HIRE"],
+            &["PR Reviewer", "HIRE"],
         ),
         size: UVec2::new(1440, 1000),
         scale: 1.0,
@@ -263,7 +263,10 @@ const SHOTS: [Shot; 46] = [
     },
     Shot {
         name: "counter-plugin",
-        scene: Scene::Counter(Stall::Plugins, &["Excalidraw Canvas"]),
+        scene: Scene::Counter(
+            Stall::Plugins,
+            &["Excalidraw Whiteboard"],
+        ),
         size: UVec2::new(1440, 1000),
         scale: 1.0,
     },

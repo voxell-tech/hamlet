@@ -38,9 +38,6 @@ use crate::roll::moved;
 use crate::theme::HamletTheme;
 use crate::{AnyView, Cx, View, with_cx};
 
-/// The width of the name of a fact.
-const NAMED: f32 = 104.0;
-
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Hiring>()
         .add_systems(Update, read_words);
@@ -190,42 +187,22 @@ fn shelves() -> AnyView {
     let list =
         keyed(derived(cards).when(moved::<Hiring>()), |cards| {
             if cards.is_empty() {
-                return note(
-                    "Nobody here plies that trade. Try other words.",
-                )
-                .boxed();
+                return note("No agents match your search.").boxed();
             }
             column(cards.iter().map(card).collect::<Vec<_>>())
                 .gap(8.0)
                 .boxed()
         })
         .within(bare());
-    column((
-        note(
-            "Agents made by other chiefs, each with a purpose, a \
-             character and the skills to match. Their makers are \
-             paid for every hire.",
-        ),
-        search,
-        crafts,
-        list,
-    ))
-    .gap(12.0)
-    .boxed()
+    column((search, crafts, list)).gap(12.0).boxed()
 }
 
 fn card(card: &Card) -> AnyView {
     let id = card.id.clone();
-    let mut foot = vec![rating(card.standing, 11.0)];
-    foot.push(
-        note(format!(
-            "{} hired  ·  {}",
-            count(card.standing.owners),
-            card.craft.name()
-        ))
-        .size(11.0)
-        .boxed(),
-    );
+    let mut foot = vec![
+        rating(card.standing, 11.0),
+        note(format!("by {}", card.maker.name)).size(11.0).boxed(),
+    ];
     if card.hired {
         foot.push(
             row((stated(Glyph::Check, "HIRED", Tone::Accent, 11.0),))
@@ -235,8 +212,7 @@ fn card(card: &Card) -> AnyView {
     }
     let body = column((
         heading(card.name.clone(), card.price),
-        by(&card.maker),
-        label(card.purpose.clone()).size(12.0),
+        label(card.purpose.clone()).size(12.0).tone(Tone::Dim),
         row(foot).gap(8.0).align(AlignItems::Center).tagged(Wraps),
     ))
     .gap(4.0);
@@ -266,23 +242,6 @@ pub(super) fn heading(name: String, price: Price) -> impl View {
 /// needs in a narrow panel.
 pub(super) fn named(name: String) -> impl View {
     label(name).size(16.0).bold(true).tagged(DisplayText)
-}
-
-/// Who sells a listing, and a mark when the bazaar knows them.
-pub(super) fn by(seller: &Seller) -> AnyView {
-    let mut parts = vec![
-        note(format!("by {}", seller.name))
-            .size(11.0)
-            .wrap(false)
-            .boxed(),
-    ];
-    if seller.verified {
-        parts.push(
-            stated(Glyph::Check, "VERIFIED", Tone::Faint, 10.0)
-                .boxed(),
-        );
-    }
-    row(parts).gap(6.0).align(AlignItems::Center).boxed()
 }
 
 /// Stars out of five and the reviews they come from.
@@ -441,17 +400,11 @@ pub(super) fn orders<R: Resource>(
 
 /// The name of a part of a page.
 pub(super) fn part(name: &'static str, body: AnyView) -> AnyView {
-    column((small(name), body)).gap(6.0).boxed()
-}
-
-/// A fact: its name and what it is.
-pub(super) fn fact(name: &'static str, value: String) -> AnyView {
-    row((
-        row((small(name),)).width(px(NAMED)).shrink(0.0),
-        column((label(value).size(12.0),)).fills_width(),
+    column((
+        label(name).size(12.0).bold(true).tone(Tone::Faint),
+        body,
     ))
-    .gap(8.0)
-    .align(AlignItems::FlexStart)
+    .gap(6.0)
     .boxed()
 }
 
@@ -478,28 +431,14 @@ pub(super) fn tags(words: &[String]) -> AnyView {
     })
 }
 
-/// A day as `YYYY-MM-DD`, in words.
-pub(super) fn day(day: &str) -> String {
-    chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
-        .map(|at| at.format("%-d %B %Y").to_string())
-        .unwrap_or_else(|_| day.to_string())
-}
-
 /// What a price is, and who is paid, for the box where a listing is
 /// bought.
-pub(super) fn terms(
-    price: Price,
-    seller: &Seller,
-    sale: &str,
-) -> String {
+pub(super) fn terms(price: Price, seller: &Seller) -> String {
     match price {
-        Price::Free => {
-            format!("{} asks nothing for it.", seller.name)
-        }
+        Price::Free => String::new(),
         _ => format!(
-            "{}% of each {sale} goes to {}, who made it. The bazaar \
-             keeps the rest for its lamps.",
-            SELLERS_SHARE, seller.name
+            "{} receives {}% of each sale.",
+            seller.name, SELLERS_SHARE
         ),
     }
 }
@@ -537,7 +476,10 @@ pub(super) fn deal_box(
         ))
         .gap(10.0)
         .align(AlignItems::Center),
-        note(terms),
+        match terms.is_empty() {
+            true => bare().boxed(),
+            false => note(terms).boxed(),
+        },
     ))
     .gap(8.0)
     .padding(UiRect::axes(px(14.0), px(12.0)))
@@ -574,7 +516,7 @@ fn hireling_page(id: String) -> AnyView {
     .within(bare());
     column((
         page_head(
-            "ARTISANS",
+            "AGENTS",
             |world| world.resource_mut::<Hiring>().open = None,
             Glyph::Robot,
             "AGENT",
@@ -588,90 +530,43 @@ fn hireling_page(id: String) -> AnyView {
 fn about(hireling: &Hireling) -> AnyView {
     let h = hireling.clone();
     let mut parts = vec![
-        column((named(h.name.clone()), by(&h.maker)))
-            .gap(4.0)
-            .boxed(),
+        column((
+            named(h.name.clone()),
+            row((
+                rating(h.standing, 12.0),
+                note(format!("by {}", h.maker.name)).size(12.0),
+            ))
+            .gap(8.0)
+            .align(AlignItems::Center)
+            .tagged(Wraps),
+        ))
+        .gap(4.0)
+        .boxed(),
         label(h.purpose.clone()).size(13.0).boxed(),
         hire(&h),
         part(
-            "CHARACTER",
-            label(h.character.clone()).size(13.0).boxed(),
+            "How it works",
+            label(h.character.clone())
+                .size(12.0)
+                .tone(Tone::Dim)
+                .boxed(),
         ),
-        part("SKILLS", tags(&h.skills)),
-        part(
-            "MADE ON",
+        part("Skills", tags(&h.skills)),
+    ];
+    if let Some(review) = h.reviews.first() {
+        parts.push(part(
+            "What users say",
             column((
-                label(h.model.clone()).size(12.0).bold(true),
-                note(
-                    "Any mind can run it. This is the one its maker \
-                     shaped it on.",
-                ),
+                label(format!("\"{}\"", review.words)).size(12.0),
+                note(format!(
+                    "{}  {}",
+                    stars(review.stars),
+                    review.by
+                ))
+                .size(11.0),
             ))
             .gap(3.0)
             .boxed(),
-        ),
-        part(
-            "STANDING",
-            column((
-                fact(
-                    "RATED",
-                    format!(
-                        "{:.1} of 5, by {} chiefs",
-                        h.standing.stars, h.standing.reviews
-                    ),
-                ),
-                fact(
-                    "HIRED",
-                    format!("{} times", count(h.standing.owners)),
-                ),
-                fact("CRAFT", h.craft.name().to_string()),
-                fact(
-                    "VERSION",
-                    format!("{}, {}", h.version, day(&h.updated)),
-                ),
-            ))
-            .gap(4.0)
-            .boxed(),
-        ),
-    ];
-    if !h.reviews.is_empty() {
-        let reviews = h
-            .reviews
-            .iter()
-            .map(|review| {
-                with_cx({
-                    let review = review.clone();
-                    move |cx| {
-                        let palette = &cx.theme().palette;
-                        column((
-                            row((
-                                label(stars(review.stars))
-                                    .size(11.0)
-                                    .wrap(false)
-                                    .tone(Tone::Faint),
-                                note(review.by.clone())
-                                    .size(11.0)
-                                    .wrap(false),
-                            ))
-                            .gap(8.0)
-                            .align(AlignItems::Center),
-                            label(format!("\"{}\"", review.words))
-                                .size(12.0),
-                        ))
-                        .gap(3.0)
-                        .padding(UiRect::axes(px(12.0), px(8.0)))
-                        .fill(palette.card)
-                        .border(1.0)
-                        .border_color(palette.seam)
-                        .radius(cx.theme().space.round)
-                        .boxed()
-                    }
-                })
-            })
-            .collect::<Vec<_>>();
-        parts.push(part(
-            "WHAT CHIEFS SAY",
-            column(reviews).gap(6.0).boxed(),
         ));
     }
     column(parts).gap(14.0).boxed()
@@ -686,7 +581,7 @@ pub(super) fn stars(lit: u8) -> String {
 fn hire(hireling: &Hireling) -> AnyView {
     let (id, name) = (hireling.id.clone(), hireling.name.clone());
     let price = hireling.price;
-    let terms = terms(price, &hireling.maker, "hire");
+    let terms = terms(price, &hireling.maker);
     let now = {
         let id = id.clone();
         derived(move |world: &World| {

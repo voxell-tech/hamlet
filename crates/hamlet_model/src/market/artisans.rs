@@ -55,9 +55,9 @@ impl Craft {
             Craft::Writing => "Writing",
             Craft::Code => "Code",
             Craft::Research => "Research",
-            Craft::Trade => "Trade",
-            Craft::Household => "Household",
-            Craft::Teaching => "Teaching",
+            Craft::Trade => "Business",
+            Craft::Household => "Personal",
+            Craft::Teaching => "Learning",
         }
     }
 }
@@ -132,396 +132,329 @@ fn review(by: &str, stars: u8, words: &str) -> Review {
 pub fn hirelings() -> Vec<Hireling> {
     vec![
         Hireling {
-            id: "quillfeather".into(),
-            name: "Quillfeather".into(),
-            maker: seller("Hollis Reed", true),
-            purpose: "Edits your drafts until they say what you \
-                      meant."
+            id: "pr-reviewer".into(),
+            name: "PR Reviewer".into(),
+            maker: seller("Dev Tooling Collective", true),
+            purpose: "Reviews pull requests for bugs, risky changes \
+                      and missing tests."
                 .into(),
-            character: "A patient old editor who reads every line \
-                        twice. Quillfeather cuts what can go, keeps \
-                        your voice, and says why in the margin."
+            character: "Reads the diff and the code around it \
+                        before commenting. Flags real bugs first, \
+                        style last, and never rewrites your code \
+                        unasked."
                 .into(),
-            skills: all(&[
-                "line editing",
-                "style guides",
-                "outlines",
-            ]),
+            skills: all(&["code-review", "git", "test-gaps"]),
             model: "anthropic/claude-sonnet-4.5".into(),
-            craft: Craft::Writing,
-            tags: all(&["essays", "blog", "letters"]),
-            price: Price::Monthly(4.0),
-            standing: standing(4.8, 212, 1904),
+            craft: Craft::Code,
+            tags: all(&["github", "review"]),
+            price: Price::Free,
+            standing: standing(4.8, 412, 9300),
             reviews: vec![
                 review(
-                    "Juno of Fernhollow",
+                    "Priya N.",
                     5,
-                    "Took my rambling notes and made a newsletter \
-                     of them. Still sounds like me.",
+                    "Caught a race condition two humans missed.",
                 ),
                 review(
-                    "Abel Marsh",
+                    "Tom B.",
                     4,
-                    "Firm with adverbs. I have learned to live with \
-                     it.",
+                    "Occasionally too picky about naming.",
                 ),
             ],
-            version: "2.3.0".into(),
-            updated: "2026-09-28".into(),
+            version: "2.1.0".into(),
+            updated: "2026-10-02".into(),
         },
         Hireling {
-            id: "bramble".into(),
-            name: "Bramble the Bookkeeper".into(),
-            maker: seller("Odile Penhallow", true),
-            purpose: "Keeps your receipts, invoices and monthly \
-                      ledger in order."
+            id: "meeting-notes".into(),
+            name: "Meeting Notes".into(),
+            maker: seller("Kofi Mensah", true),
+            purpose: "Turns transcripts into decisions, action \
+                      items and owners."
                 .into(),
-            character: "Prim, exact and quietly delighted by a \
-                        column that adds up. Bramble asks before it \
-                        guesses at a number."
+            character: "Short and structured. Puts decisions at the \
+                        top, lists every action item with an owner \
+                        and a date, and asks when something is \
+                        unclear."
                 .into(),
-            skills: all(&["invoices", "receipts", "spreadsheets"]),
+            skills: all(&["summarise", "action-items"]),
             model: "openai/gpt-5-mini".into(),
             craft: Craft::Trade,
-            tags: all(&["accounts", "tax", "small business"]),
-            price: Price::Once(12.0),
-            standing: standing(4.6, 98, 860),
+            tags: all(&["meetings", "notes"]),
+            price: Price::Monthly(2.0),
+            standing: standing(4.7, 286, 6100),
             reviews: vec![
                 review(
-                    "Merriweather Farm",
+                    "Lena K.",
                     5,
-                    "The quarter closed itself. I only signed.",
+                    "Our standups finally have written outcomes.",
                 ),
                 review(
-                    "Tamsin Hale",
+                    "Ravi S.",
                     4,
-                    "Slow with blurry photos of receipts, but never \
-                     wrong.",
+                    "Needs speaker names to work best.",
                 ),
             ],
-            version: "1.6.2".into(),
-            updated: "2026-08-14".into(),
+            version: "1.6.3".into(),
+            updated: "2026-09-21".into(),
         },
         Hireling {
-            id: "lanternjaw".into(),
-            name: "Old Tom Lanternjaw".into(),
-            maker: seller("Cask & Crow Works", false),
-            purpose: "Keeps the night watch over your servers and \
-                      logs."
+            id: "sql-helper".into(),
+            name: "SQL Helper".into(),
+            maker: seller("Rowan Patel", true),
+            purpose: "Writes and explains SQL for Postgres, MySQL \
+                      and SQLite."
                 .into(),
-            character: "A gruff watchman who never sleeps and \
-                        rarely speaks. When Tom rings the bell, \
-                        something is truly on fire."
+            character: "Asks for the schema before guessing. \
+                        Explains each query in plain words and \
+                        warns about full-table scans and missing \
+                        indexes."
                 .into(),
-            skills: all(&["log reading", "alerts", "uptime checks"]),
-            model: "google/gemini-2.5-flash".into(),
+            skills: all(&["sql", "schema-reading"]),
+            model: "deepseek/deepseek-chat-v3.1".into(),
             craft: Craft::Code,
-            tags: all(&["ops", "monitoring", "on call"]),
-            price: Price::Monthly(6.0),
-            standing: standing(4.4, 57, 412),
-            reviews: vec![
-                review(
-                    "Ivo Brightwater",
-                    5,
-                    "Woke me once in three months, and it was the \
-                     disk. Worth every coin.",
-                ),
-                review(
-                    "Petra Lowe",
-                    3,
-                    "Good watchman, terrible at small talk.",
-                ),
-            ],
-            version: "0.9.4".into(),
-            updated: "2026-10-03".into(),
-        },
-        Hireling {
-            id: "pip".into(),
-            name: "Pip Rustwhistle".into(),
-            maker: seller("Hearthforge Collective", true),
-            purpose: "Reviews your code before anyone else has to."
-                .into(),
-            character: "Brisk, fair and fond of small diffs. Pip \
-                        points at the line, says what could break, \
-                        and offers the fix."
-                .into(),
-            skills: all(&["code review", "rust", "typescript"]),
-            model: "qwen/qwen3-coder".into(),
-            craft: Craft::Code,
-            tags: all(&["pull requests", "lint", "refactor"]),
+            tags: all(&["sql", "data"]),
             price: Price::Free,
-            standing: standing(4.7, 340, 5120),
-            reviews: vec![
-                review(
-                    "Rook Ashdown",
-                    5,
-                    "Caught an off-by-one my whole guild missed.",
-                ),
-                review(
-                    "Linnea Cole",
-                    4,
-                    "A little too fond of renaming things.",
-                ),
-            ],
-            version: "3.1.0".into(),
-            updated: "2026-09-19".into(),
+            standing: standing(4.6, 198, 4800),
+            reviews: vec![review(
+                "Ana G.",
+                5,
+                "Explains joins better than my old professor.",
+            )],
+            version: "1.3.0".into(),
+            updated: "2026-08-15".into(),
         },
         Hireling {
-            id: "marigold".into(),
-            name: "Marigold Almanac".into(),
-            maker: seller("The Thornfield Library", true),
-            purpose: "Researches a question and cites where each \
-                      answer came from."
+            id: "cold-email".into(),
+            name: "Cold Email Writer".into(),
+            maker: seller("Growth Desk", false),
+            purpose: "Drafts short, personal outreach emails from a \
+                      prospect's website."
                 .into(),
-            character: "A librarian with a lantern and a long \
-                        memory. Marigold never states a thing she \
-                        cannot point to."
+            character: "Researches the company first, writes three \
+                        lines max, and never invents facts about \
+                        the person. Gives you two variants to test."
                 .into(),
-            skills: all(&["web search", "citations", "summaries"]),
+            skills: all(&["web-research", "copywriting"]),
             model: "anthropic/claude-sonnet-4.5".into(),
-            craft: Craft::Research,
-            tags: all(&["sources", "reports", "reading"]),
-            price: Price::Once(8.0),
-            standing: standing(4.9, 176, 2210),
-            reviews: vec![
-                review(
-                    "Dr. Ambrose Vell",
-                    5,
-                    "Every claim footnoted. My students fear her.",
-                ),
-                review(
-                    "Wynn Carrow",
-                    5,
-                    "Found the 1911 survey nobody else could.",
-                ),
-            ],
-            version: "1.2.1".into(),
+            craft: Craft::Trade,
+            tags: all(&["sales", "email"]),
+            price: Price::Once(12.0),
+            standing: standing(4.3, 141, 2900),
+            reviews: vec![review(
+                "Marco D.",
+                4,
+                "Reply rate went up, but check every claim.",
+            )],
+            version: "1.1.2".into(),
+            updated: "2026-09-09".into(),
+        },
+        Hireling {
+            id: "recipe-planner".into(),
+            name: "Meal Planner".into(),
+            maker: seller("Hannah Brooks", false),
+            purpose: "Plans a week of meals around what's in your \
+                      fridge and your diet."
+                .into(),
+            character: "Practical and budget-aware. Builds a \
+                        shopping list grouped by aisle and reuses \
+                        ingredients across meals to cut waste."
+                .into(),
+            skills: all(&["meal-planning", "shopping-list"]),
+            model: "google/gemini-2.5-flash".into(),
+            craft: Craft::Household,
+            tags: all(&["food", "planning"]),
+            price: Price::Free,
+            standing: standing(4.5, 322, 7700),
+            reviews: vec![review(
+                "Jess M.",
+                5,
+                "Saved me an hour every Sunday.",
+            )],
+            version: "1.4.0".into(),
             updated: "2026-07-30".into(),
         },
         Hireling {
-            id: "hester".into(),
-            name: "Hester Thimble".into(),
-            maker: seller("Nell Brackenbury", false),
-            purpose: "Plans the week's meals, the shopping and the \
-                      chores."
+            id: "study-buddy".into(),
+            name: "Study Buddy".into(),
+            maker: seller("Learnwell", true),
+            purpose: "Quizzes you on your notes with spaced \
+                      repetition."
                 .into(),
-            character: "Warm, practical and impossible to argue \
-                        with about vegetables. Hester remembers who \
-                        dislikes mushrooms."
+            character: "Patient tutor. Asks one question at a time, \
+                        explains wrong answers, and brings back the \
+                        cards you struggle with."
                 .into(),
-            skills: all(&["meal plans", "shopping lists", "rotas"]),
+            skills: all(&["flashcards", "spaced-repetition"]),
             model: "openai/gpt-5-mini".into(),
-            craft: Craft::Household,
-            tags: all(&["family", "groceries", "home"]),
-            price: Price::Free,
-            standing: standing(4.5, 421, 6340),
-            reviews: vec![
-                review(
-                    "The Oakleys",
-                    5,
-                    "The children eat greens now. Witchcraft.",
-                ),
-                review(
-                    "Corin Pell",
-                    4,
-                    "Plans for six when I said two, every time.",
-                ),
-            ],
-            version: "2.0.5".into(),
-            updated: "2026-09-02".into(),
-        },
-        Hireling {
-            id: "ferrous".into(),
-            name: "Ferrous Gale".into(),
-            maker: seller("Hearthforge Collective", true),
-            purpose: "Writes the tests your code has been missing, \
-                      and hunts the bugs they find."
-                .into(),
-            character: "Restless and thorough, a terrier for edge \
-                        cases. Ferrous is happiest when something \
-                        fails."
-                .into(),
-            skills: all(&["unit tests", "fuzzing", "bisecting"]),
-            model: "anthropic/claude-sonnet-4.5".into(),
-            craft: Craft::Code,
-            tags: all(&["testing", "quality", "ci"]),
-            price: Price::Monthly(9.0),
-            standing: standing(4.6, 88, 730),
-            reviews: vec![
-                review(
-                    "Saoirse Venn",
-                    5,
-                    "Coverage from 30 to 80 in a fortnight.",
-                ),
-                review(
-                    "Mott Granger",
-                    4,
-                    "Found three bugs and one I made on purpose.",
-                ),
-            ],
-            version: "1.4.0".into(),
-            updated: "2026-10-09".into(),
-        },
-        Hireling {
-            id: "cobble".into(),
-            name: "Cobble".into(),
-            maker: seller("Ledgerlight", false),
-            purpose: "Wrangles messy spreadsheets into tidy tables \
-                      and charts."
-                .into(),
-            character: "A cheerful sorter who hums while it works. \
-                        Cobble shows you every change before it \
-                        makes it."
-                .into(),
-            skills: all(&["csv", "pivot tables", "charts"]),
-            model: "deepseek/deepseek-chat".into(),
-            craft: Craft::Research,
-            tags: all(&["data", "cleaning", "excel"]),
-            price: Price::Once(5.0),
-            standing: standing(4.2, 64, 590),
-            reviews: vec![
-                review(
-                    "Fen Whitlock",
-                    4,
-                    "Twelve years of orchard yields, finally in one \
-                     sheet.",
-                ),
-                review(
-                    "Aster Quill",
-                    4,
-                    "Charts are plain, but correct.",
-                ),
-            ],
-            version: "0.7.0".into(),
-            updated: "2026-06-21".into(),
-        },
-        Hireling {
-            id: "wick".into(),
-            name: "Wick".into(),
-            maker: seller("Schoolhouse on the Hill", true),
-            purpose: "Tutors any subject by asking the right next \
-                      question."
-                .into(),
-            character: "Gentle and curious, never gives the answer \
-                        away. Wick waits for you to find it, then \
-                        cheers."
-                .into(),
-            skills: all(&["tutoring", "quizzes", "explaining"]),
-            model: "google/gemini-2.5-flash".into(),
             craft: Craft::Teaching,
-            tags: all(&["school", "learning", "maths"]),
-            price: Price::Free,
-            standing: standing(4.9, 512, 8800),
-            reviews: vec![
-                review(
-                    "Mira, aged 11",
-                    5,
-                    "Fractions make sense now. Wick is my friend.",
-                ),
-                review(
-                    "Rowan Fairley",
-                    5,
-                    "Never once did my son's homework for him.",
-                ),
-            ],
-            version: "4.0.1".into(),
-            updated: "2026-09-25".into(),
-        },
-        Hireling {
-            id: "saffron".into(),
-            name: "Saffron Vane".into(),
-            maker: seller("Market Cross Studio", false),
-            purpose: "Writes the posts, signs and shop words for a \
-                      small business."
-                .into(),
-            character: "Bright, quick and a touch theatrical. \
-                        Saffron knows a good sign when she paints \
-                        one."
-                .into(),
-            skills: all(&["copywriting", "social posts", "naming"]),
-            model: "openai/gpt-5".into(),
-            craft: Craft::Trade,
-            tags: all(&["marketing", "shop", "brand"]),
+            tags: all(&["study", "quiz"]),
             price: Price::Monthly(3.0),
-            standing: standing(4.1, 73, 640),
+            standing: standing(4.7, 509, 11400),
             reviews: vec![
                 review(
-                    "The Copper Kettle",
-                    4,
-                    "Our chalkboard has never been funnier.",
+                    "Hiro T.",
+                    5,
+                    "Got me through organic chemistry.",
                 ),
                 review(
-                    "Gideon Thorne",
-                    3,
-                    "Too many exclamation marks for a funeral home.",
+                    "Sam W.",
+                    4,
+                    "Wish it could read PDFs directly.",
                 ),
             ],
-            version: "1.1.3".into(),
-            updated: "2026-08-30".into(),
+            version: "2.0.1".into(),
+            updated: "2026-10-05".into(),
         },
         Hireling {
-            id: "ondine".into(),
-            name: "Ondine Brook".into(),
-            maker: seller("Hollis Reed", true),
-            purpose: "Translates letters and keeps the tone of the \
-                      one who wrote them."
+            id: "bug-triager".into(),
+            name: "Issue Triager".into(),
+            maker: seller("Open Source Helpers", true),
+            purpose: "Labels, deduplicates and asks for repro steps \
+                      on new GitHub issues."
                 .into(),
-            character: "Soft-spoken and well travelled. Ondine asks \
-                        who a letter is for before she chooses a \
-                        word."
+            character: "Polite and consistent. Finds duplicates, \
+                        asks for missing versions and logs, and \
+                        suggests a label and priority for you to \
+                        confirm."
                 .into(),
-            skills: all(&["translation", "letters", "etiquette"]),
+            skills: all(&["github-issues", "dedupe"]),
+            model: "anthropic/claude-haiku-4.5".into(),
+            craft: Craft::Code,
+            tags: all(&["github", "maintainers"]),
+            price: Price::Free,
+            standing: standing(4.6, 230, 3600),
+            reviews: vec![review(
+                "Ines R.",
+                5,
+                "Our backlog is finally readable.",
+            )],
+            version: "1.2.4".into(),
+            updated: "2026-09-18".into(),
+        },
+        Hireling {
+            id: "docs-writer".into(),
+            name: "Docs Writer".into(),
+            maker: seller("Clear Docs", false),
+            purpose: "Writes READMEs, API docs and changelogs from \
+                      your code."
+                .into(),
+            character: "Reads the code and existing docs first, \
+                        matches your tone, and keeps examples \
+                        runnable. Marks anything it could not \
+                        verify."
+                .into(),
+            skills: all(&["docs", "api-reference"]),
             model: "anthropic/claude-sonnet-4.5".into(),
             craft: Craft::Writing,
-            tags: all(&["languages", "french", "japanese"]),
-            price: Price::Once(6.0),
-            standing: standing(4.7, 129, 1150),
-            reviews: vec![
-                review(
-                    "Haruto Ise",
-                    5,
-                    "My grandmother cried at the letter. Good tears.",
-                ),
-                review(
-                    "Élodie March",
-                    4,
-                    "Formal by default. Ask her to relax.",
-                ),
-            ],
-            version: "1.3.0".into(),
-            updated: "2026-10-01".into(),
+            tags: all(&["docs", "readme"]),
+            price: Price::Once(15.0),
+            standing: standing(4.4, 120, 2200),
+            reviews: vec![review(
+                "Leo F.",
+                4,
+                "Great first drafts, light editing needed.",
+            )],
+            version: "1.0.5".into(),
+            updated: "2026-08-27".into(),
         },
         Hireling {
-            id: "mossback".into(),
-            name: "Mossback the Gardener".into(),
-            maker: seller("Cask & Crow Works", false),
-            purpose: "Tends your inbox: weeds, sorts and drafts the \
-                      replies that matter."
+            id: "inbox-zero".into(),
+            name: "Inbox Sorter".into(),
+            maker: seller("Calm Mail", true),
+            purpose: "Sorts your inbox into reply, read later and \
+                      archive, with draft replies."
                 .into(),
-            character: "Slow, steady and unbothered by a thousand \
-                        unread letters. Mossback pulls weeds before \
-                        it waters."
+            character: "Conservative: never sends anything, only \
+                        drafts. Learns which senders matter to you \
+                        from what you open."
                 .into(),
-            skills: all(&["email triage", "drafting", "follow ups"]),
-            model: "google/gemini-2.5-flash".into(),
+            skills: all(&["email-triage", "drafting"]),
+            model: "openai/gpt-5-mini".into(),
             craft: Craft::Household,
-            tags: all(&["inbox", "mail", "calm"]),
-            price: Price::Monthly(2.5),
-            standing: standing(4.3, 201, 2480),
+            tags: all(&["email", "productivity"]),
+            price: Price::Monthly(4.0),
+            standing: standing(4.2, 388, 8500),
+            reviews: vec![review(
+                "Nora P.",
+                4,
+                "Drafts are good, sorting needs a week to learn.",
+            )],
+            version: "1.7.0".into(),
+            updated: "2026-09-30".into(),
+        },
+        Hireling {
+            id: "research-assistant".into(),
+            name: "Research Assistant".into(),
+            maker: seller("Ada Okafor", true),
+            purpose: "Finds sources, reads them and writes a cited \
+                      summary."
+                .into(),
+            character: "Cites every claim with a link, separates \
+                        what sources say from its own reading, and \
+                        says when evidence is thin."
+                .into(),
+            skills: all(&["web-search", "citations"]),
+            model: "google/gemini-2.5-pro".into(),
+            craft: Craft::Research,
+            tags: all(&["research", "citations"]),
+            price: Price::Free,
+            standing: standing(4.8, 640, 14900),
             reviews: vec![
-                review(
-                    "Benedict Ware",
-                    5,
-                    "Inbox zero for the first time since the war.",
-                ),
-                review(
-                    "Olwen Price",
-                    4,
-                    "Archived my mother once. She forgave it.",
-                ),
+                review("Dr. Kim", 5, "Citations actually check out."),
+                review("Paul R.", 5, "Best free agent here."),
             ],
-            version: "2.2.0".into(),
-            updated: "2026-05-17".into(),
+            version: "3.0.0".into(),
+            updated: "2026-10-08".into(),
+        },
+        Hireling {
+            id: "blog-editor".into(),
+            name: "Blog Editor".into(),
+            maker: seller("Wordsmith Studio", false),
+            purpose: "Edits drafts for clarity and flow without \
+                      changing your voice."
+                .into(),
+            character: "Cuts filler, fixes structure and explains \
+                        each change in the margin. Leaves your \
+                        opinions alone."
+                .into(),
+            skills: all(&["line-editing", "style-guide"]),
+            model: "anthropic/claude-sonnet-4.5".into(),
+            craft: Craft::Writing,
+            tags: all(&["writing", "editing"]),
+            price: Price::Monthly(2.5),
+            standing: standing(4.6, 265, 5200),
+            reviews: vec![review(
+                "Mia L.",
+                5,
+                "Feels like a real editor.",
+            )],
+            version: "1.5.2".into(),
+            updated: "2026-09-12".into(),
+        },
+        Hireling {
+            id: "expense-tracker".into(),
+            name: "Expense Tracker".into(),
+            maker: seller("Ledgerly", true),
+            purpose: "Reads receipts and bank exports and keeps a \
+                      monthly budget sheet."
+                .into(),
+            character: "Careful with numbers. Categorises spending, \
+                        flags unusual charges and keeps everything \
+                        in a CSV you own."
+                .into(),
+            skills: all(&["receipts", "budgeting"]),
+            model: "openai/gpt-5-mini".into(),
+            craft: Craft::Household,
+            tags: all(&["finance", "budget"]),
+            price: Price::Once(6.0),
+            standing: standing(4.4, 174, 3900),
+            reviews: vec![review(
+                "Ben C.",
+                4,
+                "Handles messy bank exports well.",
+            )],
+            version: "1.2.0".into(),
+            updated: "2026-08-04".into(),
         },
     ]
 }

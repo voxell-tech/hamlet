@@ -38,14 +38,13 @@ use hamlet_rules::realm::Realm;
 use hamlet_world::diorama::{self, Dioramas, Model};
 use hamlet_world::pick::{Thing, focus_on, select};
 
-use super::shelf::small;
 use crate::icons::Glyph;
 use crate::looks::{
     action, bare, buttons, good_action, note, page_head, plate,
     stated, title,
 };
 use crate::roll::{either, moved};
-use crate::{AnyView, Cx, Me, Roll, markdown};
+use crate::{AnyView, Cx, Me, Roll};
 
 /// Seconds the payment takes to go through, so that the chief sees
 /// it go.
@@ -477,18 +476,14 @@ fn rows_now(world: &World) -> (Vec<Row>, String) {
                 listing.standing.stars,
                 thousands(listing.standing.owners)
             ),
-            agents: format!(
-                "A mayor and {}",
-                agents(listing.agents.len())
-            ),
+            agents: format!("{} agents", listing.agents.len() + 1),
             owned: holdings.owns(&listing.name).is_some(),
         })
         .collect();
-    let held = format!(
-        "Your realm holds {} of the {} hamlets your limits allow.",
-        holdings.hamlets.len(),
-        holdings.most
-    );
+    let held = match holdings.full() {
+        true => full(holdings),
+        false => String::new(),
+    };
     (rows, held)
 }
 
@@ -511,12 +506,10 @@ fn shown_row(shown: &Row) -> AnyView {
             still(shown.model),
             column((
                 row(top).gap(10.0).align(AlignItems::Center),
-                label(format!("{} · {}", shown.price, shown.kind))
+                note(shown.kind.clone()),
+                label(format!("{}  {}", shown.price, shown.agents))
                     .size(12.0)
                     .tone(Tone::Faint),
-                note(shown.agents.clone()),
-                note(shown.seller.clone()),
-                note(shown.standing.clone()),
             ))
             .gap(3.0)
             .grow(1.0)
@@ -542,7 +535,10 @@ fn list() -> AnyView {
     let now = derived(rows_now)
         .when(either(moved::<Holdings>(), moved::<Store>()));
     let body = keyed(now, |(rows, held)| {
-        let mut parts = vec![note(held.clone()).boxed()];
+        let mut parts = Vec::new();
+        if !held.is_empty() {
+            parts.push(note(held.clone()).boxed());
+        }
         parts.push(
             column(rows.iter().map(shown_row).collect::<Vec<_>>())
                 .gap(2.0)
@@ -551,17 +547,7 @@ fn list() -> AnyView {
         column(parts).gap(10.0).boxed()
     })
     .within(bare());
-    column((
-        note(
-            "Whole hamlets, kept and ready. Buy one and it is \
-             founded in your realm at once: its mayor, its agents, \
-             their characters, notes and skills.",
-        ),
-        said(),
-        body,
-    ))
-    .gap(12.0)
-    .boxed()
+    column((said(), body)).gap(12.0).boxed()
 }
 
 /// The state of the hamlet `name` at the store, for its buttons.
@@ -610,7 +596,7 @@ fn deal_view(listing: &Listing) -> AnyView {
                 buttons(vec![
                     good_action(
                         Glyph::Coins,
-                        "BUY AND FOUND",
+                        "BUY AND SET UP",
                         move |world| buy(world, &name),
                     ),
                     label(price_words(*price)).size(13.0).boxed(),
@@ -644,14 +630,9 @@ fn deal_view(listing: &Listing) -> AnyView {
         Deal::Owned(hamlet) => {
             let hamlet = *hamlet;
             buttons(vec![
-                stated(
-                    Glyph::Check,
-                    "IN YOUR REALM",
-                    Tone::Accent,
-                    12.0,
-                )
-                .boxed(),
-                action(Glyph::Aim, "SEE IT", move |world| {
+                stated(Glyph::Check, "OWNED", Tone::Accent, 12.0)
+                    .boxed(),
+                action(Glyph::Aim, "GO TO IT", move |world| {
                     visit(world, hamlet)
                 }),
             ])
@@ -662,36 +643,21 @@ fn deal_view(listing: &Listing) -> AnyView {
     .boxed()
 }
 
-/// One who comes with the hamlet: its name, what it is for, how it
-/// is, and the skills it keeps.
+/// One who comes with the hamlet: its name and what it does.
 fn settler(settler: &Settler) -> AnyView {
-    let skills = settler
-        .skills
-        .iter()
-        .map(|skill| skill.name.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let mut parts = vec![
-        label(settler.name.clone()).size(13.0).bold(true).boxed(),
-        label(settler.purpose.clone()).size(13.0).boxed(),
-        note(settler.character.clone()).boxed(),
-    ];
-    if !skills.is_empty() {
-        parts.push(
-            label(format!("Skills: {skills}"))
-                .size(12.0)
-                .tone(Tone::Faint)
-                .boxed(),
-        );
-    }
-    column(parts).gap(2.0).boxed()
+    column((
+        label(settler.name.clone()).size(12.0).bold(true),
+        note(settler.purpose.clone()),
+    ))
+    .gap(1.0)
+    .boxed()
 }
 
 /// The hamlet `name` on a page of its own: its town turning, what it
 /// is, who comes with it and what they know, and the way to buy it.
 fn hamlet(name: &str) -> AnyView {
     let back = page_head(
-        "HAMLET STORE",
+        "HAMLETS",
         |world| world.resource_mut::<Store>().open = None,
         Glyph::Hamlet,
         "HAMLET",
@@ -708,60 +674,29 @@ fn hamlet(name: &str) -> AnyView {
         column((
             title(listing.title.clone()),
             note(format!(
-                "{} · {}",
-                listing.kind,
+                "{}  {}",
+                standing_words(&listing.standing),
                 seller_words(&listing.seller)
             )),
-            note(standing_words(&listing.standing)),
         ))
         .gap(4.0)
         .boxed(),
-        column((
-            turning(model(&listing)),
-            note(format!(
-                "Its town, drawn small: {} in the hall by the \
-                 common, and a house and a robot for each of its \
-                 agents.",
-                listing.mayor.name
-            )),
-        ))
-        .gap(6.0)
-        .boxed(),
+        turning(model(&listing)),
         deal_view(&listing),
         said(),
         label(listing.description.clone()).size(13.0).boxed(),
-        column((
-            small("WHAT IT IS FOR"),
-            label(listing.purpose.clone()).size(13.0),
-        ))
-        .gap(4.0)
-        .boxed(),
-        column((small("ITS MAYOR"), settler(&listing.mayor)))
-            .gap(6.0)
-            .boxed(),
     ];
-    let mut agents = vec![small("ITS AGENTS").boxed()];
-    agents.extend(listing.agents.iter().map(settler));
-    parts.push(column(agents).gap(10.0).boxed());
-    parts.push(
-        column((
-            small("FROM THE MAYOR'S NOTES"),
-            markdown::fixed(sample(&listing.mayor.notes), Tone::Body),
-        ))
-        .gap(6.0)
-        .boxed(),
-    );
+    let mut team = vec![
+        label("Comes with")
+            .size(12.0)
+            .bold(true)
+            .tone(Tone::Faint)
+            .boxed(),
+        settler(&listing.mayor),
+    ];
+    team.extend(listing.agents.iter().map(settler));
+    parts.push(column(team).gap(8.0).boxed());
     column((back, column(parts).gap(14.0))).gap(16.0).boxed()
-}
-
-/// Notes without the heading they open with.
-fn sample(notes: &str) -> &str {
-    match notes.trim_start().strip_prefix('#') {
-        Some(headed) => {
-            headed.split_once('\n').map_or("", |(_, rest)| rest)
-        }
-        None => notes,
-    }
 }
 
 /// What the stall sells: the hamlets on its shelves, or one of them
@@ -819,7 +754,7 @@ mod tests {
         world.insert_resource(Me::of(mayor, mayor, "alice", None));
         world.run_system_cached(count).unwrap();
 
-        buy(world, "inkwell");
+        buy(world, "lit-review");
         // Nothing is founded until the payment has gone through.
         world.run_system_cached(settle).unwrap();
         assert_eq!(world.resource::<Holdings>().hamlets.len(), 1);
@@ -828,11 +763,11 @@ mod tests {
             .advance_by(Duration::from_secs_f32(PAYING));
         world.run_system_cached(settle).unwrap();
         world.run_system_cached(count).unwrap();
-        let inkwell =
-            world.resource::<Holdings>().owns("inkwell").unwrap();
+        let bought =
+            world.resource::<Holdings>().owns("lit-review").unwrap();
         assert_eq!(
             world.resource::<Selected>().0,
-            Some(Thing::Common(inkwell))
+            Some(Thing::Common(bought))
         );
         let store = world.resource::<Store>();
         assert!(store.said.as_ref().is_some_and(|(_, wrong)| !wrong));

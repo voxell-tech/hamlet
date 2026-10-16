@@ -12,14 +12,14 @@ use hamlet_core::core::Settings;
 use hamlet_model::bazaar::{Stall, Ware};
 
 use super::artisans::named;
-use super::shelf::{dollars, heading, price_words, small, tokens};
+use super::shelf::{dollars, heading, price_words, tokens};
 use super::{Browsing, Then, acquire, added, name_of};
+use crate::AnyView;
 use crate::icons::Glyph;
 use crate::looks::{
     action, bare, buttons, good_action, note, page_head, stated,
 };
 use crate::roll::{either, moved};
-use crate::{AnyView, markdown};
 
 /// The width of the name of a fact.
 const NAMED: f32 = 118.0;
@@ -57,16 +57,12 @@ pub(super) fn page(id: String) -> AnyView {
 }
 
 fn about(ware: &Ware, openrouter: bool) -> AnyView {
-    let mut parts = vec![
-        column((named(ware.title.clone()), note(ware.id.clone())))
-            .gap(4.0)
-            .boxed(),
-    ];
+    let mut parts = vec![named(ware.title.clone()).boxed()];
     if ware.tools == Some(false) {
         parts.push(
             label(
-                "This model cannot call tools. An agent that runs \
-                 it can talk but cannot read, write or run anything.",
+                "This model can't use tools, so agents can only \
+                 chat with it.",
             )
             .size(12.0)
             .tone(Tone::Critical)
@@ -74,9 +70,14 @@ fn about(ware: &Ware, openrouter: bool) -> AnyView {
         );
     }
     parts.push(actions(ware.id.clone()));
-    if !ware.description.trim().is_empty() {
+    if let Some(first) = ware.description.split("\n\n").next()
+        && !first.trim().is_empty()
+    {
         parts.push(
-            markdown::fixed(&ware.description, Tone::Body).boxed(),
+            label(first.trim().to_string())
+                .size(12.0)
+                .tone(Tone::Dim)
+                .boxed(),
         );
     }
     parts.push(facts(ware));
@@ -135,7 +136,7 @@ fn actions(id: String) -> AnyView {
             ));
         }
         if *default {
-            all.push(note("The home's default model.").boxed());
+            all.push(note("Your default model.").boxed());
         } else {
             let id = id.clone();
             all.push(action(
@@ -153,7 +154,9 @@ fn actions(id: String) -> AnyView {
 /// A fact of a ware: its name and what it is.
 fn fact(name: &'static str, value: String) -> AnyView {
     row((
-        row((small(name),)).width(px(NAMED)).shrink(0.0),
+        row((label(name).size(12.0).tone(Tone::Faint),))
+            .width(px(NAMED))
+            .shrink(0.0),
         label(value).size(13.0),
     ))
     .gap(8.0)
@@ -161,73 +164,32 @@ fn fact(name: &'static str, value: String) -> AnyView {
     .boxed()
 }
 
-fn yes(said: Option<bool>) -> String {
-    match said {
-        Some(true) => "Yes".into(),
-        Some(false) => "No".into(),
-        None => "Not told".into(),
-    }
-}
-
 fn facts(ware: &Ware) -> AnyView {
     let mut all = Vec::new();
-    if !ware.maker().is_empty() {
-        all.push(fact("MAKER", ware.maker().to_string()));
+    let price = match ware.price() {
+        Some(_) => {
+            format!("{} per million tokens", price_words(ware))
+        }
+        None => price_words(ware),
+    };
+    all.push(fact("Price", price));
+    if let Some(context) = ware.context {
+        all.push(fact(
+            "Context",
+            format!("{} tokens", tokens(context)),
+        ));
+    }
+    if !ware.inputs.is_empty() {
+        all.push(fact("Reads", ware.inputs.join(", ")));
     }
     let released = ware.created.and_then(|at| {
         chrono::DateTime::from_timestamp(at as i64, 0)
     });
     if let Some(at) = released {
-        all.push(fact(
-            "RELEASED",
-            at.format("%-d %B %Y").to_string(),
-        ));
+        all.push(fact("Released", at.format("%B %Y").to_string()));
     }
-    let price = match ware.price() {
-        Some(_) => {
-            format!("{} for a million tokens", price_words(ware))
-        }
-        None => price_words(ware),
-    };
-    all.push(fact("PRICE", price));
-    if let Some(context) = ware.context {
-        all.push(fact(
-            "CONTEXT",
-            format!("{} tokens", tokens(context)),
-        ));
-    }
-    if let Some(most) = ware.max_output {
-        all.push(fact(
-            "LONGEST ANSWER",
-            format!("{} tokens", tokens(most)),
-        ));
-    }
-    if !ware.inputs.is_empty() {
-        all.push(fact("READS", ware.inputs.join(", ")));
-    }
-    all.push(fact("CALLS TOOLS", yes(ware.tools)));
-    all.push(fact("REASONS", yes(ware.reasoning)));
-    let indexes = [
-        ("INTELLIGENCE", ware.intelligence),
-        ("CODING", ware.coding),
-        ("AGENTIC", ware.agentic),
-    ];
-    for (name, index) in indexes {
-        if let Some(index) = index {
-            all.push(fact(name, format!("{index:.1}")));
-        }
-    }
-    if let Some(day) = &ware.expires {
-        all.push(fact("RETIRES", day.clone()));
-    }
-    if ware.intelligence.is_some() {
-        all.push(
-            note(
-                "Indexes are Artificial Analysis's, as OpenRouter \
-                 gives them.",
-            )
-            .boxed(),
-        );
+    if let Some(index) = ware.intelligence {
+        all.push(fact("Intelligence", format!("{index:.0} / 100")));
     }
     column(all).gap(6.0).boxed()
 }
@@ -253,7 +215,7 @@ fn stall(stall: &Stall) -> AnyView {
     }
     column((
         label(stall.provider.clone()).size(13.0).bold(true),
-        note(told.join("  ·  ")),
+        note(told.join(", ")),
     ))
     .gap(2.0)
     .boxed()
@@ -274,16 +236,15 @@ fn stalls(id: String) -> AnyView {
         Some(Some(Ok(stalls))) if stalls.is_empty() => {
             note("No provider serves it now.").boxed()
         }
-        Some(Some(Ok(stalls))) => {
-            column(stalls.iter().map(stall).collect::<Vec<_>>())
-                .gap(8.0)
-                .boxed()
-        }
+        Some(Some(Ok(stalls))) => column(
+            stalls.iter().take(3).map(stall).collect::<Vec<_>>(),
+        )
+        .gap(8.0)
+        .boxed(),
     })
     .within(bare());
     column((
-        small("WHO SERVES IT"),
-        note("OpenRouter picks among them for each call."),
+        label("Providers").size(12.0).bold(true).tone(Tone::Faint),
         list,
     ))
     .gap(6.0)

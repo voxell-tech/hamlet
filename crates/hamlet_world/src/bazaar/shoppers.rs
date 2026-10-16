@@ -299,7 +299,7 @@ pub(super) fn stroll(
     clock: Res<Clock>,
     set: Res<ChiefSettings>,
     mut shoppers: Query<(&Shopper, &mut Transform, &mut Stance)>,
-    bazaars: Query<&ViewVisibility, With<Bazaar>>,
+    bazaars: Query<(&ViewVisibility, &super::Lod), With<Bazaar>>,
     mut redraw: MessageWriter<RequestRedraw>,
 ) {
     let mut walking = false;
@@ -319,7 +319,9 @@ pub(super) fn stroll(
             crest: mascot::crest(LOOKS[round].hat),
         });
     }
-    if walking && bazaars.iter().any(|seen| seen.get()) {
+    if walking
+        && bazaars.iter().any(|(seen, lod)| seen.get() && lod.close)
+    {
         redraw.write(RequestRedraw);
     }
 }

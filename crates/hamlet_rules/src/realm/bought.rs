@@ -106,13 +106,13 @@ mod tests {
         let dir = Scratch::new("realm-bought");
         let realm = Realm::open(&dir).unwrap();
         let home = realm.hamlet(HOME).unwrap();
-        home.create("quarry", "Digs.", "t").unwrap();
         let all = for_sale();
+        home.create(&all[0].agents[0].name, "Digs.", "t").unwrap();
 
         // One of its agents' names is taken: nothing is founded.
-        let lamplight = &all[0];
-        assert!(realm.found_bought(lamplight, "alice").is_err());
-        assert!(!Hamlet::at(&dir, &lamplight.name).root().exists());
+        let first = &all[0];
+        assert!(realm.found_bought(first, "alice").is_err());
+        assert!(!Hamlet::at(&dir, &first.name).root().exists());
         assert_eq!(realm.hamlets().len(), 1);
 
         // Every other one stands whole, under the name it is shown
@@ -142,10 +142,10 @@ mod tests {
             }
         }
         let places = realm.hamlets();
-        let ink =
-            places.iter().find(|p| p.name == "inkwell").unwrap();
-        assert_eq!(ink.shown(), "Inkwell Row");
-        assert_eq!(ink.chiefs, ["alice"]);
+        let second =
+            places.iter().find(|p| p.name == all[1].name).unwrap();
+        assert_eq!(second.shown(), all[1].title);
+        assert_eq!(second.chiefs, ["alice"]);
         // Bought again, it is refused.
         assert!(realm.found_bought(&all[1], "alice").is_err());
     }

@@ -779,6 +779,51 @@ fn gate(mb: &mut Mb, glass: &mut Mb, pal: &Palette) -> Vec<Vec3> {
 /// The bazaar's cloth, timber and wares, the lit glass of its
 /// lanterns, what glows among its wares and the bulbs of its fairy
 /// lights apart from them, the spots of its lanterns and flags, and
+/// The bazaar as a few plain shapes, for when it is seen from far
+/// away: its paving, the pavilion's canopy and a block for each stall
+/// in its cloth.
+pub(super) fn far(pal: &Palette) -> Mesh {
+    let mut mb = Mb::new();
+    mb.tube(
+        Vec3::ZERO,
+        Vec3::Y * FLOOR,
+        PAVED + 0.45,
+        PAVED + 0.45,
+        16,
+        pal.dirt,
+        true,
+    );
+    let (rim, eave) = RIM;
+    mb.tube(
+        PAVILION + Vec3::Y * FLOOR,
+        PAVILION + Vec3::Y * eave,
+        POSTS,
+        POSTS,
+        8,
+        pal.awnings[2],
+        false,
+    );
+    mb.lathe(
+        PAVILION + Vec3::Y * eave,
+        &[(rim, 0.0), (0.0, 3.4)],
+        8,
+        |_, s| stripe(pal, 0, s),
+    );
+    for (k, stall) in Stall::ALL.into_iter().enumerate() {
+        let (at, turn) = placing(stall);
+        let cloth = pal.stalls[k % pal.stalls.len()].cloth;
+        mb.rbox(
+            at + Vec3::Y * 1.4,
+            Vec3::new(1.6, 1.3, 1.0),
+            0.05,
+            turn,
+            cloth,
+            0.2,
+        );
+    }
+    mb.build()
+}
+
 /// the parts that turn.
 pub(super) fn build(pal: &Palette) -> Built {
     let (mut mb, mut glass, mut gleam) =

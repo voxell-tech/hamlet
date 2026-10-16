@@ -194,7 +194,7 @@ pub(super) fn tend(
     selected: Res<Selected>,
     booths: Query<(&Booth, &GlobalTransform)>,
     mascots: Query<&GlobalTransform, With<Mascot>>,
-    bazaars: Query<&ViewVisibility, With<Bazaar>>,
+    bazaars: Query<(&ViewVisibility, &super::Lod), With<Bazaar>>,
     mut keepers: Query<(
         &mut Stallholder,
         &ChildOf,
@@ -278,7 +278,9 @@ pub(super) fn tend(
             crest: mascot::crest(LOOKS[stall as usize].hat),
         });
     }
-    if moving && bazaars.iter().any(|seen| seen.get()) {
+    if moving
+        && bazaars.iter().any(|(seen, lod)| seen.get() && lod.close)
+    {
         redraw.write(RequestRedraw);
     }
 }
