@@ -13,13 +13,13 @@ import { HOME } from "../src/hamlet.ts";
 import { houseOf } from "../src/layout.ts";
 import { ledgerOf } from "../src/ledger.ts";
 import { LimitsDoc } from "../src/limits.ts";
-import { roadsOf } from "../src/realm.ts";
+import { RealmDoc, roadsOf } from "../src/realm.ts";
 import { RecordDoc } from "../src/record.ts";
 import { VotesDoc } from "../src/society/docs.ts";
 import {
+    vote as callVote,
     overturn,
     mayor as seatMayor,
-    vote,
     voteOpen,
     votes,
 } from "../src/society/votes.ts";
@@ -38,6 +38,26 @@ import {
 } from "./support.ts";
 
 const deed = { hamlet: HOME, chief: "chief", rest: "scout A new direction" };
+
+async function settledVote(
+    ...args: Parameters<typeof callVote>
+): Promise<string> {
+    const [home, given, context] = args;
+    await callVote(...args);
+    const id = (
+        await home.harness.snapshot(VotesDoc, given.hamlet, context)
+    )?.votes.at(-1)?.id;
+    await vi.waitFor(
+        async () => {
+            const v = (
+                await home.harness.snapshot(VotesDoc, given.hamlet, context)
+            )?.votes.find((v) => v.id === id);
+            expect(v?.standing).not.toBe("open");
+        },
+        { timeout: 10_000 },
+    );
+    return votes(home, given, context);
+}
 
 const blockUntilAbort: FauxResponseFactory = (_p, options) =>
     new Promise((_resolve, reject) => {
@@ -86,8 +106,8 @@ it("needs two thirds of every voter, so silence is not a yes", async () => {
     const { home, faux } = await hamlet(["scout", "smith", "poet", "scribe"]);
     const ballot = ballots([1, 2], [4]);
     fauxAgents(faux, { errands: [ballot, ballot, ballot, ballot, ballot] });
-    expect(await vote(home, deed, context)).toBe(
-        "Vote 1 failed: 2 yes of 4 agents (3 needed), 0 no, 1 abstained, 1 did not answer. The chief has been told and may overturn it.",
+    expect(await settledVote(home, deed, context)).toContain(
+        "2 yes of 4 agents (3 needed), 0 no, 1 abstained, 1 did not answer.",
     );
     expect((await home.harness.snapshot(RecordDoc, HOME, context))?.mayor).toBe(
         0,
@@ -99,8 +119,8 @@ it("passes, moves the office without removing its old holder, and a chief overtu
     const { home, faux } = await hamlet();
     const ballot = ballots([1, 2]);
     fauxAgents(faux, { errands: [ballot, ballot, ballot, ballot] });
-    expect(await vote(home, deed, context)).toContain(
-        "Vote 1 passed: 2 yes of 3 agents (2 needed)",
+    expect(await settledVote(home, deed, context)).toContain(
+        "Passed: 2 yes of 3 agents (2 needed)",
     );
     const r = await home.harness.snapshot(RecordDoc, HOME, context);
     expect(r?.mayor).toBe(1);
@@ -141,8 +161,16 @@ it("runs a chief's vote and mayor commands over a WebSocket", async () => {
     expect(await command("/vote scout A new direction")).toMatchObject({
         type: "reply",
         kind: "notice",
-        text: expect.stringContaining("Vote 1 passed"),
+        text: expect.stringContaining("Vote 1 is called"),
     });
+    await vi.waitFor(
+        async () =>
+            expect(
+                (await run.home.harness.snapshot(VotesDoc, HOME, context))
+                    ?.votes[0]?.standing,
+            ).toBe("passed"),
+        { timeout: 10_000 },
+    );
     expect(await command("/votes")).toMatchObject({
         text: expect.stringContaining("The mayor answered: I laid the roads."),
     });
@@ -166,18 +194,22 @@ it("runs a chief's vote and mayor commands over a WebSocket", async () => {
 // server/src/society/votes.ts: chief authorization is being fixed by the leaving run.
 it.skip("refuses bad calls before any model is asked", async () => {
     const { home, faux } = await hamlet(["scout", "smith"]);
-    await expect(vote(home, deed, context)).rejects.toThrow(
+    await expect(settledVote(home, deed, context)).rejects.toThrow(
         "at least 3 agents",
     );
     await addAgent(home, HOME, "poet");
     await expect(
-        vote(home, { ...deed, rest: "mayor x" }, context),
+        settledVote(home, { ...deed, rest: "mayor x" }, context),
     ).rejects.toThrow("mayor already");
     await expect(
-        vote(home, { ...deed, rest: "nobody x" }, context),
+        settledVote(home, { ...deed, rest: "nobody x" }, context),
     ).rejects.toThrow("candidate must be an agent");
+    await home.harness.commit(async (tx) => {
+        const h = (await tx.doc(RealmDoc)).hamlets.find((h) => h.id === HOME);
+        if (h) h.chiefs = ["chief"];
+    }, context);
     await expect(
-        vote(home, { ...deed, chief: "outsider" }, context),
+        settledVote(home, { ...deed, chief: "outsider" }, context),
     ).rejects.toThrow("Only a chief");
     fauxAgents(faux, {
         "home:0": [
@@ -235,8 +267,8 @@ it.each([true, false])(
             );
         };
         fauxAgents(faux, { errands: [script, script, script, script] });
-        expect(await vote(home, deed, context)).toContain(
-            "Vote 1 failed: 3 yes of 3 agents",
+        expect(await settledVote(home, deed, context)).toContain(
+            "3 yes of 3 agents",
         );
         expect(
             (
@@ -279,7 +311,7 @@ it("keeps a vote open while its ballots wait, holds decisions, and lets a chief 
             },
         ],
     });
-    const pending = vote(home, deed, context);
+    const pending = settledVote(home, deed, context);
     await vi.waitFor(
         async () =>
             expect(
@@ -292,7 +324,7 @@ it("keeps a vote open while its ballots wait, holds decisions, and lets a chief 
         "nothing else is decided",
     );
     await expect(
-        vote(home, { ...deed, rest: "smith Another" }, context),
+        settledVote(home, { ...deed, rest: "smith Another" }, context),
     ).rejects.toThrow("only one vote");
     await (await say(home, "remove scout")).wait(context);
     expect(
@@ -301,7 +333,7 @@ it("keeps a vote open while its ballots wait, holds decisions, and lets a chief 
     expect(await overturn(home, { ...deed, rest: "1 Stop now" }, context)).toBe(
         "Vote 1 is stopped.",
     );
-    expect(await pending).toContain("Vote 1 failed");
+    expect(await pending).toContain("Failed (stopped by a chief)");
     expect(
         await voteOpen(home.harness, HOME, home.now(), context),
     ).toBeUndefined();
@@ -329,7 +361,9 @@ it("allows at most three requests per ballot and charges every hearing and ballo
             : fauxAssistantMessage("No ballot.");
     };
     fauxAgents(faux, { errands: Array.from({ length: 13 }, () => invalid) });
-    expect(await vote(home, deed, context)).toContain("3 did not answer");
+    expect(await settledVote(home, deed, context)).toContain(
+        "3 did not answer",
+    );
     expect([...requests.values()]).toEqual([3, 3, 3]);
     const v = (await home.harness.snapshot(VotesDoc, HOME, context))?.votes[0];
     const lines = await ledgerOf(home, HOME, localDay(home.now()), context);
@@ -353,7 +387,9 @@ it("ends a ballot whose model never answers within ballotMinutes", async () => {
             blockUntilAbort,
         ],
     });
-    expect(await vote(home, deed, context)).toContain("3 did not answer");
+    expect(await settledVote(home, deed, context)).toContain(
+        "3 did not answer",
+    );
 }, 10_000);
 
 it("an agent calls a durable vote and gets the count; the mayor's own call needs no hearing", async () => {
@@ -405,7 +441,7 @@ it("resumes between unsealed ballots without asking a finished voter again", asy
     fauxAgents(faux, {
         errands: [fauxAssistantMessage("I helped."), first, blockUntilAbort],
     });
-    const pending = vote(home, deed, context).catch(() => "closed");
+    const pending = settledVote(home, deed, context).catch(() => "closed");
     await vi.waitFor(
         async () =>
             expect(
@@ -449,7 +485,7 @@ it("does not replace a mayor the chief changed while the vote was open", async (
     fauxAgents(faux, {
         errands: [fauxAssistantMessage("I helped."), block, block, block],
     });
-    const pending = vote(home, deed, context);
+    const pending = settledVote(home, deed, context);
     await vi.waitFor(() => expect(faux.state.callCount).toBe(4), {
         timeout: 10_000,
     });
@@ -503,7 +539,7 @@ it("grounds a ballot in that voter's own history and offers no file tools", asyn
         return ballots([])(p, o, s, m);
     };
     fauxAgents(faux, { errands: [script, script, script, script, script] });
-    await vote(home, deed, context);
+    await settledVote(home, deed, context);
     expect(
         (
             await home.harness.snapshot(VotesDoc, HOME, context)
@@ -537,7 +573,9 @@ it("lapses an old open vote before starting another and refuses a recent failed 
     ).toBeUndefined();
     const ballot = ballots([1, 2, 3]);
     fauxAgents(faux, { errands: [ballot, ballot, ballot, ballot] });
-    expect(await vote(home, deed, context)).toContain("Vote 2 passed");
+    expect(await settledVote(home, deed, context)).toContain(
+        "Passed: 3 yes of 3 agents",
+    );
     expect(
         (await home.harness.snapshot(VotesDoc, HOME, context))?.votes[0]
             ?.standing,
@@ -551,7 +589,7 @@ it("lapses an old open vote before starting another and refuses a recent failed 
         });
     }, context);
     await expect(
-        vote(home, { ...deed, rest: "smith Again" }, context),
+        settledVote(home, { ...deed, rest: "smith Again" }, context),
     ).rejects.toThrow("failed a short while ago");
 }, 30_000);
 
@@ -600,7 +638,7 @@ it("records only the first ballot, cuts the hearing to 600 characters, and rejec
     expect(
         (await home.harness.snapshot(VotesDoc, HOME, context))?.votes ?? [],
     ).toEqual([]);
-    await vote(home, deed, context);
+    await settledVote(home, deed, context);
     const v = (await home.harness.snapshot(VotesDoc, HOME, context))?.votes[0];
     expect(v?.answer).toHaveLength(600);
     expect(v?.ballots).toHaveLength(3);
@@ -667,7 +705,7 @@ it("closes and stops lapsed work before another vote asks its voters", async () 
             blockUntilAbort,
         ],
     });
-    const old = vote(home, deed, context);
+    const old = settledVote(home, deed, context);
     await vi.waitFor(() => expect(faux.state.callCount).toBe(4), {
         timeout: 10_000,
     });
@@ -675,9 +713,9 @@ it("closes and stops lapsed work before another vote asks its voters", async () 
     const ballot = ballots([1, 2, 3]);
     fauxAgents(faux, { errands: [ballot, ballot, ballot, ballot] });
     expect(
-        await vote(home, { ...deed, rest: "smith New motion" }, context),
-    ).toContain("Vote 2 passed");
-    expect(await old).toContain("Vote 1 failed");
+        await settledVote(home, { ...deed, rest: "smith New motion" }, context),
+    ).toContain("Passed: 3 yes of 3 agents");
+    expect(await old).toContain("Failed (lapsed)");
 }, 15_000);
 
 it("resumes call_vote itself without calling a second vote", async () => {
@@ -731,3 +769,31 @@ it("resumes call_vote itself without calling a second vote", async () => {
             ?.standing,
     ).toBe("passed");
 }, 30_000);
+
+it("accepts a chief's vote without holding its connection, so that chief can stop it", async () => {
+    const { models, faux } = fauxModels();
+    const run = await served({ models });
+    for (const name of ["scout", "smith", "poet"])
+        await addAgent(run.home, HOME, name);
+    fauxAgents(faux, {
+        errands: [
+            blockUntilAbort,
+            blockUntilAbort,
+            blockUntilAbort,
+            blockUntilAbort,
+        ],
+    });
+    const command = (text: string) =>
+        request(run.connection, run.messages, {
+            type: "say",
+            id: randomUUID(),
+            to: mayor,
+            text,
+        });
+    const called = command("/vote scout New direction");
+    const stopped = command("/overturn 1 Stop now");
+    expect(await called).toMatchObject({
+        text: expect.stringContaining("Vote 1 is called"),
+    });
+    expect(await stopped).toMatchObject({ text: "Vote 1 is stopped." });
+}, 5_000);

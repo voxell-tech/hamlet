@@ -1,15 +1,21 @@
 import type { Context } from "@earendil-works/chord";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Type } from "@earendil-works/pi-ai";
 import {
     defineDoc,
     defineExtension,
     defineTool,
+    GenerationTask,
+    hook,
+    ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { untilAborted } from "../abort.ts";
+import { resetTrust } from "../asked.ts";
 import { WithDoc } from "../chats.ts";
 import { removeHouse } from "../gift-files.ts";
 import { revoke } from "../grants.ts";
-import { agentKey, checkName } from "../hamlet.ts";
+import { type AgentRef, agentKey, checkName } from "../hamlet.ts";
 import type { Home } from "../home.ts";
 import { InstructionsDoc, owed } from "../instructions.ts";
 import { houseOf } from "../layout.ts";
@@ -26,8 +32,9 @@ import {
 import { stopAgent } from "../talk.ts";
 import { localDay } from "../time.ts";
 import { lapseAgent } from "../waits.ts";
-import { split } from "./merging.ts";
-import { voteOpen } from "./votes.ts";
+import { AgentConversationsDoc } from "./docs.ts";
+import { serialHouseWork, split } from "./merging.ts";
+import { decisionText, mayDecide, voteOpen } from "./votes.ts";
 
 const RemovalDoc = defineDoc<{ number: number | null; text: string }>({
     kind: "hamlet.removal-call",
@@ -40,6 +47,47 @@ const RemovalDoc = defineDoc<{ number: number | null; text: string }>({
 export const Leaving: Part = (home) => ({
     extension: defineExtension({
         name: "hamlet.leaving",
+        hooks: [
+            hook(GenerationTask, {
+                beforeRequest: async (_request, api, context) => {
+                    const place = await api.snapshot(
+                        WithDoc,
+                        api.conversationId,
+                        context,
+                    );
+                    if (!place) return undefined;
+                    const r = await api.snapshot(
+                        RecordDoc,
+                        place.hamlet,
+                        context,
+                    );
+                    if (r?.agents.some((a) => a.number === place.number))
+                        return undefined;
+                    void home.harness.abortTask(api.taskId, BACKGROUND_CONTEXT);
+                    return untilAborted(context);
+                },
+            }),
+            hook(ToolTask, {
+                beforeTool: async (_call, api, context) => {
+                    const place = await api.snapshot(
+                        WithDoc,
+                        api.conversationId,
+                        context,
+                    );
+                    if (!place) return undefined;
+                    const r = await api.snapshot(
+                        RecordDoc,
+                        place.hamlet,
+                        context,
+                    );
+                    if (r?.agents.some((a) => a.number === place.number))
+                        return undefined;
+                    return {
+                        block: "This agent has left the hamlet. Ask a chief to restore it before giving it more work.",
+                    };
+                },
+            }),
+        ],
         tools: [
             defineTool({
                 name: "remove_agent",
@@ -88,6 +136,17 @@ export const Leaving: Part = (home) => ({
                                 number: null,
                                 text: "Only the mayor can remove an agent.",
                             };
+                        const decision = await mayDecide(
+                            tx,
+                            place.hamlet,
+                            home.now(),
+                            "remove",
+                        );
+                        if (!decision.ok)
+                            return {
+                                number: null,
+                                text: decisionText(decision.error),
+                            };
                         const gone = await depart(
                             home,
                             tx,
@@ -118,6 +177,27 @@ export const Leaving: Part = (home) => ({
             }),
         ],
     }),
+    async start(context) {
+        const realm = await home.harness.snapshot(RealmDoc, context);
+        for (const { id } of liveHamlets(realm)) {
+            const r = await home.harness.snapshot(RecordDoc, id, context);
+            for (const entry of r?.archive ?? []) {
+                if (entry.back !== null) continue;
+                const ref = { hamlet: id, number: entry.agent.number };
+                try {
+                    await home.harness.commit(async (tx) => {
+                        await lapseAgent(tx, ref, home.now());
+                        await lapseTrust(tx, ref);
+                    }, context);
+                    await stopAgent(home, ref, context);
+                } catch {
+                    console.error(
+                        `The departed agent \`${entry.id}\` could not be stopped. Its model and tools remain blocked; inspect its archived house before restoring it.`,
+                    );
+                }
+            }
+        }
+    },
 });
 
 /** A chief's removal deed. */
@@ -205,6 +285,7 @@ async function depart(
         back: null,
     };
     await lapseAgent(tx, { hamlet, number: agent.number }, at);
+    await lapseTrust(tx, { hamlet, number: agent.number });
     for (const permission of ["network", "unconfined"] as const)
         await revoke(tx, { hamlet, number: agent.number }, permission, by, at);
     r.agents = r.agents.filter((a) => a.number !== agent.number);
@@ -237,7 +318,8 @@ export const restore: Deed = async (home, given, context) => {
         const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
         const entry = r.archive.findLast(
             (a) =>
-                a.back === null && (a.id === which || a.agent.name === which),
+                (a.back === null || (a.merge && !a.merge.applied)) &&
+                (a.id === which || a.agent.name === which),
         );
         if (!entry)
             throw new Error(
@@ -263,7 +345,7 @@ export const restore: Deed = async (home, given, context) => {
             throw new Error(
                 `nothing is archived under \`${which}\`; /record lists what is`,
             );
-        checkName(name);
+        if (name !== archived.agent.name) checkName(name);
         for (const h of liveHamlets(await tx.doc(RealmDoc)))
             if (
                 (await tx.doc(RecordDoc, h.id, h.id)).agents.some(
@@ -322,41 +404,89 @@ export const restore: Deed = async (home, given, context) => {
     }, context);
 };
 
-/** A chief's permanent erasure deed. */
-export const erase: Deed = async (home, given, context) => {
-    const which = given.rest.trim();
-    const entry = await home.harness.commit(async (tx) => {
-        await chief(tx, given.hamlet, given.chief);
-        const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
-        const entry = r.archive.findLast(
-            (a) =>
-                a.back === null && (a.id === which || a.agent.name === which),
-        );
-        if (!entry)
-            throw new Error(
-                `nothing is archived under \`${which}\`. Only an agent that was removed or merged can be deleted for good; /remove it first`,
-            );
-        r.archive = r.archive.filter((a) => a !== entry);
-        r.decisions.push({
-            kind: "erased",
-            at: home.now(),
-            by: `chief:${given.chief}`,
-            reason: "",
-            agent: entry.agent.number,
-            name: entry.agent.name,
-            archive: entry.id,
-        });
-        return JSON.parse(JSON.stringify(entry)) as Archived;
-    }, context);
-    const bytes = await removeHouse(
-        home,
-        houseOf(home.layout, {
-            hamlet: given.hamlet,
-            number: entry.agent.number,
-        }),
-    );
-    return `Deleted \`${entry.agent.name}\` for good. Freed ${bytes} bytes. It cannot be restored.`;
+type EraseFailure = {
+    kind: "merge-pending";
+    operation: "erase";
+    hamlet: string;
+    archive: string;
+    retrySafe: true;
 };
+
+/** A chief's permanent erasure deed. */
+export const erase: Deed = async (home, given, context) =>
+    serialHouseWork(home, context, async () => {
+        const which = given.rest.trim();
+        const outcome = await home.harness.commit(
+            async (
+                tx,
+            ): Promise<
+                | {
+                      ok: true;
+                      value: Pick<Archived["agent"], "name" | "number">;
+                  }
+                | { ok: false; error: EraseFailure }
+            > => {
+                await chief(tx, given.hamlet, given.chief);
+                const r = await tx.doc(RecordDoc, given.hamlet, given.hamlet);
+                const entry = r.archive.findLast(
+                    (a) =>
+                        a.back === null &&
+                        (a.id === which || a.agent.name === which),
+                );
+                if (!entry)
+                    throw new Error(
+                        `nothing is archived under \`${which}\`. Only an agent that was removed or merged can be deleted for good; /remove it first`,
+                    );
+                if (entry.merge && !entry.merge.applied)
+                    return {
+                        ok: false,
+                        error: {
+                            kind: "merge-pending",
+                            operation: "erase",
+                            hamlet: given.hamlet,
+                            archive: entry.id,
+                            retrySafe: true,
+                        },
+                    };
+                r.archive = r.archive.filter((a) => a !== entry);
+                r.decisions.push({
+                    kind: "erased",
+                    at: home.now(),
+                    by: `chief:${given.chief}`,
+                    reason: "",
+                    agent: entry.agent.number,
+                    name: entry.agent.name,
+                    archive: entry.id,
+                });
+                return {
+                    ok: true,
+                    value: {
+                        name: entry.agent.name,
+                        number: entry.agent.number,
+                    },
+                };
+            },
+            context,
+        );
+        if (!outcome.ok) {
+            const error = outcome.error;
+            switch (error.kind) {
+                case "merge-pending":
+                    return `Cannot erase \`${error.archive}\`: its merge has not finished. Inspect its houses and use /restore ${error.archive} to finish or split it first.`;
+            }
+            const unhandled: never = error.kind;
+            throw new Error(`Unclassified erasure failure: ${unhandled}`);
+        }
+        const entry = outcome.value;
+        const bytes = await removeHouse(
+            home,
+            houseOf(home.layout, {
+                hamlet: given.hamlet,
+                number: entry.number,
+            }),
+        );
+        return `Deleted \`${entry.name}\` for good. Freed ${bytes} bytes. It cannot be restored.`;
+    });
 
 /** The hamlet's history and archived agents. */
 export const record: Deed = async (home, given, context) => {
@@ -446,4 +576,11 @@ function history(
         default:
             return undefined;
     }
+}
+
+/** Takes edit and command trust back from every conversation of a departing agent. */
+export async function lapseTrust(tx: Tx, agent: AgentRef): Promise<void> {
+    const key = agentKey(agent);
+    for (const id of (await tx.doc(AgentConversationsDoc, key, key)).ids)
+        await resetTrust(tx, await tx.doc(WithDoc, id));
 }

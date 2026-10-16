@@ -153,7 +153,15 @@ export async function openHome(
         for (const part of running) {
             if (part.extension !== undefined) registry.install(part.extension);
         }
-        for (const part of running) await part.start?.(context);
+        for (const part of running) {
+            try {
+                await part.start?.(context);
+            } catch {
+                console.error(
+                    `Hamlet could not start ${part.extension?.name ?? "a home part"}. The home is open; inspect its pending work before restarting.`,
+                );
+            }
+        }
         harness.resume();
         return home;
     } catch (error) {

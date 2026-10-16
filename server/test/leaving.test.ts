@@ -7,7 +7,8 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { submitLine } from "../src/chats.ts";
+import { TrustedDoc, trustKey } from "../src/asked.ts";
+import { chatOf, submitLine, WithDoc } from "../src/chats.ts";
 import { GrantsDoc, give, grantsOf } from "../src/grants.ts";
 import { agentKey, HOME } from "../src/hamlet.ts";
 import { InstructionsDoc } from "../src/instructions.ts";
@@ -23,6 +24,8 @@ import {
     restore,
     undo,
 } from "../src/society/leaving.ts";
+import { merge } from "../src/society/merging.ts";
+import { mayor as seatMayor } from "../src/society/votes.ts";
 import { raise } from "../src/waits.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
@@ -380,3 +383,120 @@ it("replays a committed removal's result even if a vote opened before its tool r
         (await again.harness.snapshot(RecordDoc, HOME, context))?.archive,
     ).toHaveLength(1);
 }, 30_000);
+
+it("stops an archived turn after a crash between departure and stopping it", async () => {
+    const { models, faux } = fauxModels();
+    let armed = false;
+    let departed = false;
+    const home = await testHome(scratch(), {
+        models,
+        openStorage: crashing((writes) => {
+            if (!armed) return false;
+            if (departed) return true;
+            departed = JSON.stringify(writes).includes("Gone at crash");
+            return false;
+        }),
+    });
+    const scout = await addAgent(home, HOME, "scout");
+    let started = false;
+    faux.setResponses([
+        (_p, options) =>
+            new Promise((_resolve, reject) => {
+                started = true;
+                options?.signal?.addEventListener(
+                    "abort",
+                    () => reject(new Error("stopped")),
+                    { once: true },
+                );
+            }),
+    ]);
+    const sub = await submitLine(
+        home,
+        { agent: scout, chief: home.chief },
+        { id: randomUUID(), text: "Work" },
+        context,
+    );
+    await vi.waitFor(() => expect(started).toBe(true));
+    armed = true;
+    await expect(
+        remove(home, { ...deed, rest: "scout Gone at crash" }, context),
+    ).rejects.toThrow();
+    await home.harness.closed;
+    faux.setResponses([
+        fauxAssistantMessage(
+            fauxToolCall("write", {
+                path: "after.txt",
+                content: "must not act after leaving",
+            }),
+            { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage("done"),
+    ]);
+    const again = await testHome(home.dir, { models });
+    const resumed = await again.harness.submission(sub.id, context);
+    expect((await resumed?.wait(context))?.status).not.toBe("done");
+    expect(existsSync(join(houseOf(home.layout, scout), "after.txt"))).toBe(
+        false,
+    );
+}, 30_000);
+
+it.each(["remove", "merge"])(
+    "takes conversation trust back when an agent leaves by %s",
+    async (how) => {
+        const home = await testHome(scratch(), { models: fauxModels().models });
+        const scout = await addAgent(home, HOME, "scout");
+        await addAgent(home, HOME, "smith");
+        const chat = await chatOf(
+            home,
+            { agent: scout, chief: home.chief },
+            context,
+        );
+        const key = await home.harness.commit(async (tx) => {
+            const key = trustKey(await tx.doc(WithDoc, chat.id));
+            Object.assign(await tx.doc(TrustedDoc, key, key), {
+                edit: true,
+                command: true,
+            });
+            return key;
+        }, context);
+        if (how === "remove") await remove(home, deed, context);
+        else
+            await merge(
+                home,
+                { ...deed, rest: "scout into smith Overlap" },
+                context,
+            );
+        await restore(home, { ...deed, rest: "scout" }, context);
+        expect(await home.harness.snapshot(TrustedDoc, key, context)).toEqual({
+            edit: false,
+            command: false,
+        });
+    },
+);
+
+it.each(["restore", "undo", "split"])(
+    "brings the founder back under its own name through %s",
+    async (how) => {
+        const home = await testHome(scratch(), { models: fauxModels().models });
+        await addAgent(home, HOME, "scout");
+        await addAgent(home, HOME, "smith");
+        await seatMayor(home, { ...deed, rest: "scout New mayor" }, context);
+        if (how === "split")
+            await merge(
+                home,
+                { ...deed, rest: "founder into smith Retired" },
+                context,
+            );
+        else await remove(home, { ...deed, rest: "founder Retired" }, context);
+        const words =
+            how === "undo"
+                ? await undo(home, deed, context)
+                : await restore(home, { ...deed, rest: "founder" }, context);
+        expect(words).toContain("`founder`");
+        expect(
+            (
+                await home.harness.snapshot(RecordDoc, HOME, context)
+            )?.agents.find((a) => a.number === 0)?.name,
+        ).toBe("founder");
+    },
+);
