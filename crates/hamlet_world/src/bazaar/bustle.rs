@@ -26,6 +26,8 @@ use crate::pick::{Selected, Thing};
 pub(super) struct Turning {
     pub lies: Quat,
     pub rate: f32,
+    /// The turn it starts at, in radians.
+    pub phase: f32,
 }
 
 /// A mote of light: what it is part of, and its number among them.
@@ -96,7 +98,7 @@ pub(super) fn spin(
     for (part, mut at) in &mut parts {
         at.rotation = part.lies
             * Quat::from_rotation_z(
-                TAU * (part.rate * clock.t).fract(),
+                part.phase + TAU * (part.rate * clock.t).fract(),
             );
     }
     redraw.write(RequestRedraw);

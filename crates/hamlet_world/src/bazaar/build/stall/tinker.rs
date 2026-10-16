@@ -10,8 +10,8 @@ use bevy::prelude::*;
 
 use super::super::{FLOOR, lantern, slab};
 use super::{
-    DEEP, Dressed, WIDE, WORK, backdrop, cog, counter, mast, posts,
-    sign, turning, within,
+    DEEP, Dressed, Gear, WIDE, WORK, backdrop, cog, counter, mast,
+    posts, sign, turning, within,
 };
 use crate::meshes::Mb;
 use crate::palette::{Palette, StallStyle};
@@ -104,9 +104,11 @@ pub(super) fn build(
     let crown = vault(0.0).y + 0.03;
     // The contraption on its top: two cogs on a frame, turning
     // together, a big one and a small one.
-    let big = (Vec3::new(0.3, crown + 0.72, 0.25), 0.5);
-    let small = (big.0 + Vec3::new(-0.72, -0.22, 0.0), 0.28);
-    for (at, _) in [big, small] {
+    let gear = Gear::sized(0.5, 12);
+    let pinion = gear.mate(7);
+    let big = Vec3::new(0.3, crown + 0.72, 0.25);
+    let small = gear.beside(pinion, big, Vec2::new(-0.72, -0.22));
+    for at in [big, small] {
         mb.tube(
             Vec3::new(at.x, crown - 0.05, 0.1),
             Vec3::new(at.x, at.y, 0.1),
@@ -126,20 +128,17 @@ pub(super) fn build(
             true,
         );
     }
-    let teeth = (12, 7);
     let turns = 0.16;
     let mut cogs = vec![
+        turning((big, Quat::IDENTITY), gear, pal.brass, (turns, 0.0)),
         turning(
-            (big.0, Quat::IDENTITY),
-            (big.1, teeth.0),
-            pal.brass,
-            turns,
-        ),
-        turning(
-            (small.0, Quat::IDENTITY),
-            (small.1, teeth.1),
+            (small, Quat::IDENTITY),
+            pinion,
             style.trim,
-            -turns * teeth.0 as f32 / teeth.1 as f32,
+            (
+                gear.driven(pinion, turns),
+                gear.phase_of(pinion, (big, 0.0), small),
+            ),
         ),
     ];
     // A boiler at the back, its pipe up the post and over under the
@@ -309,9 +308,9 @@ pub(super) fn build(
     );
     cogs.push(turning(
         (crank + Vec3::Z * 0.17, Quat::IDENTITY),
-        (0.12, 8),
+        Gear::sized(0.12, 8),
         pal.brass,
-        -0.4,
+        (-0.4, 0.0),
     ));
     mb.tube(
         crank + Vec3::new(0.0, 0.12, 0.0),
@@ -389,6 +388,7 @@ pub(super) fn build(
         at: stone,
         lies: Quat::IDENTITY,
         rate: 1.1,
+        phase: 0.0,
     });
     // The sign: a cog of its trim.
     let (face, crest) = sign(
@@ -402,7 +402,7 @@ pub(super) fn build(
         mb,
         Affine3A::from_translation(face + Vec3::Z * 0.02),
         |mb| {
-            cog(mb, 0.15, 9, style.trim);
+            cog(mb, Gear::sized(0.15, 9), style.trim);
         },
     );
     let lamp = lantern(

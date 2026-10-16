@@ -1,6 +1,7 @@
 //! A stall of the bazaar: what every stall is built of, and each
 //! stall itself, in a file of its own.
 
+mod gear;
 mod land;
 mod minds;
 mod scrolls;
@@ -10,6 +11,7 @@ mod workshop;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 
+use self::gear::{Gear, cog};
 pub(in crate::bazaar) use self::scrolls::SHIMMER;
 pub(in crate::bazaar) use self::tinker::SPARKS;
 use super::{Cog, FLOOR, cloth, slab};
@@ -262,53 +264,6 @@ fn sign(
     (at + Vec3::Z * 0.045, at + Vec3::Y * (half.y + 0.05))
 }
 
-/// A cog about an axle along Z: its rim with `teeth` teeth, its
-/// spokes and its hub.
-fn cog(mb: &mut Mb, radius: f32, teeth: usize, colour: Vec3) {
-    let thick = 0.04 + radius * 0.06;
-    mb.torus(
-        Vec3::ZERO,
-        Vec3::Z,
-        radius * 0.82,
-        radius * 0.12,
-        20,
-        colour,
-    );
-    for k in 0..teeth {
-        let a = k as f32 / teeth as f32 * std::f32::consts::TAU;
-        let out = Vec3::new(a.cos(), a.sin(), 0.0);
-        mb.rbox(
-            out * radius * 0.98,
-            Vec3::new(radius * 0.12, radius * 0.09, thick),
-            0.01,
-            Quat::from_rotation_z(a),
-            colour,
-            0.0,
-        );
-    }
-    for k in 0..4 {
-        let a = k as f32 / 4.0 * std::f32::consts::TAU + 0.4;
-        mb.tube(
-            Vec3::ZERO,
-            Vec3::new(a.cos(), a.sin(), 0.0) * radius * 0.78,
-            radius * 0.06,
-            radius * 0.05,
-            5,
-            colour * 0.85,
-            false,
-        );
-    }
-    mb.tube(
-        Vec3::Z * -thick * 1.4,
-        Vec3::Z * thick * 1.4,
-        radius * 0.18,
-        radius * 0.18,
-        10,
-        colour * 0.7,
-        true,
-    );
-}
-
 /// Builds `part` at `local` within what `mb` builds at already.
 fn within(mb: &mut Mb, local: Affine3A, part: impl FnOnce(&mut Mb)) {
     let outer = mb.xf;
@@ -317,20 +272,21 @@ fn within(mb: &mut Mb, local: Affine3A, part: impl FnOnce(&mut Mb)) {
     mb.at(outer);
 }
 
-/// A cog of `radius` and `teeth` of `colour` that turns `rate` times
-/// a second about an axle at `at` that lies along `lies` * Z.
+/// A cog of `gear` and `colour` that turns `rate` times a second,
+/// from `phase`, about an axle at `at` that lies along `lies` * Z.
 fn turning(
     (at, lies): (Vec3, Quat),
-    (radius, teeth): (f32, usize),
+    gear: Gear,
     colour: Vec3,
-    rate: f32,
+    (rate, phase): (f32, f32),
 ) -> Cog {
     let mut mb = Mb::new();
-    cog(&mut mb, radius, teeth, colour);
+    cog(&mut mb, gear, colour);
     Cog {
         mesh: mb.build(),
         at,
         lies,
         rate,
+        phase,
     }
 }
