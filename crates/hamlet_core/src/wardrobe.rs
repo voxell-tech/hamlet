@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use bevy_app::{App, Startup, Update};
 use bevy_ecs::prelude::*;
-use hamlet_model::market::client::{Client, refused};
+use hamlet_model::market::client::{Client, refused, signed_out};
 use hamlet_model::market::lot::Paying;
 use hamlet_model::wardrobe::{
     Asset, Category, Emote, Looks, Skin, Target,
@@ -16,6 +16,10 @@ use tokio::task::AbortHandle;
 
 use crate::core::{HomeDir, Model, Rounds, Tokio, answered, browse};
 use crate::market::{Account, Deal, Market};
+
+/// The time before a file that could not be downloaded is asked for
+/// again.
+const RETRY: Duration = Duration::from_secs(30);
 
 /// The time between asks whether a payment went through.
 const PAYMENT_POLL: Duration = Duration::from_secs(3);
@@ -34,7 +38,8 @@ pub(crate) fn plugin(app: &mut App) {
         .add_observer(ask)
         .add_observer(buy)
         .add_observer(wear)
-        .add_systems(Startup, open)
+        // The market reads the server and the token first.
+        .add_systems(Startup, open.after(crate::market::open))
         .add_systems(
             Update,
             (
@@ -71,6 +76,9 @@ pub struct Wardrobe {
     asked_for: Option<String>,
     /// Files are being downloaded.
     fetching: bool,
+    /// When each file that could not be downloaded was last asked
+    /// for, by asset id.
+    missed: BTreeMap<String, std::time::Instant>,
     paying_task: Option<AbortHandle>,
 }
 
@@ -195,8 +203,16 @@ fn signed_in(
     match (&now, &market.account) {
         (Some(_), _) => commands.trigger(AskWardrobe),
         (None, Account::Out) => {
+            // A payment waited on is the last chief's.
+            if let Some(task) = wardrobe.paying_task.take() {
+                task.abort();
+            }
+            if wardrobe.dealing() {
+                wardrobe.deal = None;
+            }
             wardrobe.owned.clear();
             wardrobe.files.clear();
+            wardrobe.missed.clear();
             for asset in &mut wardrobe.catalog {
                 asset.owned = false;
             }
@@ -220,8 +236,10 @@ fn ask(
     tokio.0.spawn(async move {
         let asked = async {
             let catalog = client.assets().await?;
+            // A token that ran out leaves the shelves to be shown, as
+            // to anyone signed out.
             let owned = match signed {
-                true => Some(client.my_assets().await?),
+                true => client.my_assets().await.ok(),
                 false => None,
             };
             anyhow::Ok((catalog, owned))
@@ -271,17 +289,15 @@ fn fetch(
     if wardrobe.fetching || !market.signed() {
         return;
     }
-    let wanted = wardrobe
-        .looks
-        .worn()
-        .filter(|id| !wardrobe.files.contains_key(*id))
-        .filter_map(|id| wardrobe.owned.get(id))
-        .map(|asset| (asset.id.clone(), asset.target, asset.category))
-        .collect::<BTreeSet<_>>();
+    let now = std::time::Instant::now();
+    let wanted = wanted(&wardrobe, now);
     if wanted.is_empty() {
         return;
     }
     wardrobe.fetching = true;
+    for (id, ..) in &wanted {
+        wardrobe.missed.insert(id.clone(), now);
+    }
     let client = market.client();
     let tell = rounds.begin();
     tokio.0.spawn(async move {
@@ -294,6 +310,33 @@ fn fetch(
         }
         tell((String::new(), File::Failed(String::new())));
     });
+}
+
+/// The assets worn and owned whose files are to be downloaded at
+/// `now`: those not in memory, a file that could not be downloaded
+/// once [`RETRY`] has passed.
+fn wanted(
+    wardrobe: &Wardrobe,
+    now: std::time::Instant,
+) -> BTreeSet<(String, Target, Category)> {
+    wardrobe
+        .looks
+        .worn()
+        .filter(|id| {
+            !matches!(
+                wardrobe.files.get(*id),
+                Some(File::Skin(_) | File::Emote(_) | File::Mesh(_))
+            )
+        })
+        .filter(|id| {
+            wardrobe
+                .missed
+                .get(*id)
+                .is_none_or(|at| now.duration_since(*at) >= RETRY)
+        })
+        .filter_map(|id| wardrobe.owned.get(id))
+        .map(|asset| (asset.id.clone(), asset.target, asset.category))
+        .collect()
 }
 
 /// What the file of an asset of `target` and `category` holds.
@@ -317,6 +360,9 @@ fn fetched(
         if id.is_empty() {
             wardrobe.fetching = false;
             continue;
+        }
+        if !matches!(file, File::Failed(_)) {
+            wardrobe.missed.remove(&id);
         }
         wardrobe.files.insert(id, file);
     }
@@ -358,6 +404,11 @@ fn wear(
             Some((true, _)) => {}
         }
     }
+    // Worn again, a file that could not be downloaded is asked for at
+    // once.
+    if let Some(id) = &id {
+        wardrobe.missed.remove(id);
+    }
     let mut looks = wardrobe.looks.clone();
     looks.wear(target, &name, category, id);
     if let Err(e) = looks.save(&home.0.root) {
@@ -377,7 +428,15 @@ fn buy(
     mut wardrobe: ResMut<Wardrobe>,
 ) {
     let id = asked.event().0.clone();
-    if wardrobe.dealing() {
+    // A purchase asked while another waits on Stripe takes its place.
+    // The one left is still the chief's if it is paid after all, once
+    // the stall is asked again.
+    if wardrobe.dealing()
+        && wardrobe
+            .deal
+            .as_ref()
+            .is_some_and(|(dealt, _)| *dealt == id)
+    {
         return;
     }
     if !market.signed() {
@@ -429,6 +488,9 @@ async fn pay(
     while tokio::time::Instant::now() < until {
         tokio::time::sleep(PAYMENT_POLL).await;
         match client.asset_paying(&purchase).await {
+            Err(e) if signed_out(&e) => {
+                return Deal::Failed("Signed out.".into());
+            }
             Ok(Paying::Paid) => {
                 return Deal::Done("It is yours.".into());
             }
@@ -526,6 +588,34 @@ mod tests {
                 let _ = stream.write_all(answer.as_bytes()).await;
             });
         }
+    }
+
+    #[test]
+    fn a_file_that_failed_is_asked_for_again_after_a_while() {
+        let skin = serde_json::from_value::<Asset>(asset(
+            "sakura", "skin", true,
+        ))
+        .unwrap();
+        let mut wardrobe = Wardrobe::default();
+        wardrobe.owned.insert("sakura".into(), skin);
+        wardrobe.looks.wear(
+            Target::Agent,
+            "juniper",
+            Category::Skin,
+            Some("sakura".into()),
+        );
+        let then = std::time::Instant::now();
+        assert_eq!(wanted(&wardrobe, then).len(), 1);
+        wardrobe.missed.insert("sakura".into(), then);
+        wardrobe
+            .files
+            .insert("sakura".into(), File::Failed("down".into()));
+        assert!(wanted(&wardrobe, then).is_empty());
+        assert_eq!(wanted(&wardrobe, then + RETRY).len(), 1);
+        wardrobe
+            .files
+            .insert("sakura".into(), File::Skin(Skin::default()));
+        assert!(wanted(&wardrobe, then + RETRY).is_empty());
     }
 
     #[test]

@@ -413,7 +413,7 @@ fn words(e: anyhow::Error) -> Why {
 }
 
 /// Reads who was signed in, and asks the server about them.
-fn open(world: &mut World) {
+pub(crate) fn open(world: &mut World) {
     let config = world.resource::<Settings>().config.clone();
     let server = account::server(&config);
     world.resource_mut::<Market>().server = server;
