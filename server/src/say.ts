@@ -3,14 +3,14 @@ import type { Submission } from "@earendil-works/pi-durable";
 import { ChatDoc, submitLine } from "./chats.ts";
 import { readCommand } from "./commands.ts";
 import { folder, setMode } from "./environment.ts";
-import { answerWords } from "./gate.ts";
-import { GrantsDoc, grantsOf, revoke } from "./grants.ts";
+import { answerWords, GrantsDoc, grantsOf, revoke } from "./gate.ts";
 import { historyOf } from "./history.ts";
 import type { Deed, Home } from "./home.ts";
 import { giftSkill } from "./house.ts";
 import { resetBudget } from "./ledger.ts";
 import * as library from "./library.ts";
 import { LimitsDoc, limitsOf } from "./limits.ts";
+import { OversightDoc, queue, strip } from "./oversight.ts";
 import type { Reply, Say } from "./protocol.ts";
 import * as founding from "./realm.ts";
 import { chiefAccess, chiefRefusalText, resolve } from "./realm.ts";
@@ -29,8 +29,6 @@ import {
     stopAgent,
     stopChiefAgents,
 } from "./talk.ts";
-import { OversightDoc } from "./waits.ts";
-import { queue, strip } from "./words.ts";
 
 /** A chief's typed line, dispatched as a command or admitted as scrubbed words (H24, C32). */
 export async function say(

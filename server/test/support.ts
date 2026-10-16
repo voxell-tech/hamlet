@@ -38,9 +38,9 @@ import {
     openHome,
 } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
+import { OversightDoc, type Wait } from "../src/oversight.ts";
 import { RealmDoc } from "../src/realm.ts";
 import { HOME, RecordDoc } from "../src/record.ts";
-import { OversightDoc, type Wait } from "../src/waits.ts";
 
 export const context = BACKGROUND_CONTEXT;
 

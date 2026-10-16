@@ -1,5 +1,5 @@
-import type { Leave } from "./environment.ts";
-import type { Danger } from "./waits.ts";
+import type { Leave } from "../environment.ts";
+import type { Danger } from "../oversight.ts";
 
 /** The reach of a tool call (H11). */
 export type Reach =
@@ -18,6 +18,7 @@ export type Standing = {
     asksCommands: boolean;
 };
 
+/** The reach granted to a call, or the approval it must await. */
 export type Verdict = { run: Leave } | { ask: Danger };
 
 const NETWORK = [

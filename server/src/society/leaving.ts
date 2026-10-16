@@ -10,14 +10,14 @@ import {
     ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { resetTrust } from "../asked.ts";
 import { WithDoc } from "../chats.ts";
-import { revoke } from "../grants.ts";
+import { revoke } from "../gate.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { houseOf, localDay, untilAborted } from "../home.ts";
 import { removeHouse } from "../house.ts";
 import { InstructionsDoc, owed } from "../instructions.ts";
 import { LimitsDoc } from "../limits.ts";
+import { lapseAgent, resetTrust } from "../oversight.ts";
 import { farewell, isChief, liveHamlets, RealmDoc, roadsOf } from "../realm.ts";
 import {
     type AgentRef,
@@ -30,7 +30,6 @@ import {
     RecordDoc,
 } from "../record.ts";
 import { stopAgent } from "../talk.ts";
-import { lapseAgent } from "../waits.ts";
 import { AgentConversationsDoc } from "./docs.ts";
 import { serialHouseWork, split } from "./merging.ts";
 import { decisionText, mayDecide, voteOpen } from "./votes.ts";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Danger, Wait } from "../src/waits.ts";
-import { clip, line, queue, says, strip, waited } from "../src/words.ts";
+import type { Danger, Wait } from "../src/oversight.ts";
+import { clip, line, queue, says, strip, waited } from "../src/oversight.ts";
 
 const wait = (
     danger: Danger | null = "network",

@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { connectChief } from "./client.ts";
 import { COMMANDS } from "./commands.ts";
+import { strip } from "./oversight.ts";
 import type {
     Address,
     ChatRef,
@@ -12,7 +13,6 @@ import type {
     State,
     Wait,
 } from "./protocol.ts";
-import { strip } from "./words.ts";
 
 /** A terminal chat over the protocol, with answers on `out` and everything else on `err` (S13, C30). */
 export async function chat(options: {

@@ -136,7 +136,7 @@ it("moves the house and conversations to a new number and keeps only roads both 
     const { houseOf } = await import("../src/home.ts");
     const { CharacterDoc } = await import("../src/character.ts");
     const { agentKey } = await import("../src/record.ts");
-    const { give, GrantsDoc, grantsOf } = await import("../src/grants.ts");
+    const { give, GrantsDoc, grantsOf } = await import("../src/gate.ts");
     const chat = await chatWith(home, scout);
     await writeFile(
         `${houseOf(home.layout, scout)}/NOTES.md`,

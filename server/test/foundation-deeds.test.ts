@@ -6,10 +6,10 @@ import {
 import { expect, it, vi } from "vitest";
 import { QuestionEntry, startConversation, submitLine } from "../src/chats.ts";
 import type { Home } from "../src/home.ts";
+import { raise } from "../src/oversight.ts";
 import type { Address } from "../src/protocol.ts";
 import { RealmDoc } from "../src/realm.ts";
 import { say } from "../src/say.ts";
-import { raise } from "../src/waits.ts";
 import {
     addAgent,
     addHamlet,

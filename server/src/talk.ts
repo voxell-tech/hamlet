@@ -19,7 +19,6 @@ import {
     recoverAnswers,
     reportAnswerFailures,
 } from "./answers.ts";
-import { resetTrust } from "./asked.ts";
 import {
     ChatDoc,
     type ChatId,
@@ -40,6 +39,13 @@ import type { Home, Part } from "./home.ts";
 import { InstructionsDoc } from "./instructions.ts";
 import { reconcile } from "./ledger.ts";
 import { NoticeEntry, notify } from "./notice.ts";
+import {
+    lapse,
+    OversightDoc,
+    raiseFault,
+    resetTrust,
+    settle,
+} from "./oversight.ts";
 import { chiefAccess, liveHamlets, RealmDoc } from "./realm.ts";
 import { type AgentRef, addressOf, agentKey, RecordDoc } from "./record.ts";
 import {
@@ -49,10 +55,8 @@ import {
     reflectEvery,
     requestReflection,
 } from "./reflection.ts";
-
 import { AgentConversationsDoc } from "./society/docs.ts";
 import { newTask, turnOf } from "./turn.ts";
-import { lapse, OversightDoc, raiseFault, settle } from "./waits.ts";
 
 const FollowDoc = defineDoc<{
     pending: SubmissionId[];

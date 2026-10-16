@@ -1,7 +1,8 @@
 import { defineDoc, type Tx } from "@earendil-works/pi-durable";
-import type { Limits } from "./limits.ts";
-import { type AgentRef, agentKey } from "./record.ts";
+import type { Limits } from "../limits.ts";
+import { type AgentRef, agentKey } from "../record.ts";
 
+/** A standing grant for network access or unconfined commands. */
 export type Permission = "network" | "unconfined";
 
 /** A lasting permission kept by the agent's number (C9, H11). */

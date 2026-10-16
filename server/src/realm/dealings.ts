@@ -28,18 +28,18 @@ import { CharacterDoc } from "../character.ts";
 import { ChatDoc, chatOf, WithDoc } from "../chats.ts";
 import { reconfigure } from "../choice.ts";
 import { PayerDoc } from "../errands.ts";
-import { GrantsDoc, grantsOf, revoke } from "../grants.ts";
+import { GrantsDoc, grantsOf, revoke } from "../gate.ts";
 import type { Home, Part } from "../home.ts";
 import { houseOf } from "../home.ts";
 import { removeHouse } from "../house.ts";
 import { InstructionsDoc } from "../instructions.ts";
 import { LimitsDoc } from "../limits.ts";
 import { notify } from "../notice.ts";
+import { lapseAgent } from "../oversight.ts";
 import { type AgentRef, agentKey, HOME, RecordDoc } from "../record.ts";
 import { AgentConversationsDoc, PeersDoc, VotesDoc } from "../society/docs.ts";
 import { askAgent } from "../society/letters.ts";
 import { voteOpen } from "../society/votes.ts";
-import { lapseAgent } from "../waits.ts";
 import {
     chiefsOf,
     liveHamlets,

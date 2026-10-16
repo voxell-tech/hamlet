@@ -13,7 +13,7 @@ import {
     raise,
     raiseFault,
     settle,
-} from "../src/waits.ts";
+} from "../src/oversight.ts";
 import {
     CHIEF,
     context,

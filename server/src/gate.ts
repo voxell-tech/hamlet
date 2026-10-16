@@ -8,10 +8,8 @@ import {
     ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { AskedDoc, refuse, refused, TrustedDoc, trustKey } from "./asked.ts";
 import { CHANGE, changeOf } from "./change.ts";
 import { ReflectionEntry, type With, WithDoc } from "./chats.ts";
-import { judge, type Reach, type Standing } from "./danger.ts";
 import {
     envFor,
     footing,
@@ -20,30 +18,37 @@ import {
     placeOf,
     WorkDoc,
 } from "./environment.ts";
-import { GrantsDoc, give, grantsOf, holds } from "./grants.ts";
+import { judge, type Reach, type Standing } from "./gate/danger.ts";
+import { GrantsDoc, give, grantsOf, holds } from "./gate/grants.ts";
 import { type Manifest, ManifestsDoc } from "./hand.ts";
 import type { Home, Part } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { LimitsDoc } from "./limits.ts";
+import {
+    AskedDoc,
+    type Choice,
+    type Danger,
+    holdFor,
+    line,
+    OversightDoc,
+    type Ruling,
+    RulingDoc,
+    raise,
+    refuse,
+    refused,
+    ruling,
+    settle,
+    strip,
+    TrustedDoc,
+    trustKey,
+    type Wait,
+} from "./oversight.ts";
 import { type ChiefResult, chiefAccess } from "./realm.ts";
 import { addressOf, RecordDoc } from "./record.ts";
 import { canon, within } from "./sandbox.ts";
 import { safeValue, safeWords } from "./scrub.ts";
 import { SettingsDoc, settingsOf } from "./settings.ts";
-import { holdFor } from "./society/objections.ts";
 import { turnOf } from "./turn.ts";
-import {
-    type Choice,
-    type Danger,
-    OversightDoc,
-    type Ruling,
-    RulingDoc,
-    raise,
-    ruling,
-    settle,
-    type Wait,
-} from "./waits.ts";
-import { line, strip } from "./words.ts";
 
 /** The turn and decision of a call, kept until its tool task ends. */
 const CallDoc = defineDoc<{
@@ -517,3 +522,20 @@ function waitBy(
         ? `mayor@${place.hamlet}`
         : name;
 }
+
+export {
+    judge,
+    type Reach,
+    type Standing,
+    type Verdict,
+} from "./gate/danger.ts";
+export {
+    type Grant,
+    type GrantEvent,
+    GrantsDoc,
+    give,
+    grantsOf,
+    holds,
+    type Permission,
+    revoke,
+} from "./gate/grants.ts";

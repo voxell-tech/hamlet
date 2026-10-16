@@ -25,13 +25,14 @@ import {
 } from "@earendil-works/pi-durable";
 import { WithDoc } from "../chats.ts";
 import { ErrandDoc, runErrand, startErrand } from "../errands.ts";
-import { revoke } from "../grants.ts";
+import { revoke } from "../gate.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { houseOf, untilAborted } from "../home.ts";
 import { listTree, MERGE_CAPS, removeTree, stageTree } from "../house.ts";
 import { InstructionsDoc, owed } from "../instructions.ts";
 import { booksOf } from "../ledger.ts";
 import { LimitsDoc } from "../limits.ts";
+import { lapseAgent } from "../oversight.ts";
 import {
     chiefAccess,
     chiefRefusalText,
@@ -55,7 +56,6 @@ import { closedPolicy, SandboxEnv } from "../sandbox.ts";
 import { safeWords } from "../scrub.ts";
 import { stopAgent } from "../talk.ts";
 import { newTask, turnOf } from "../turn.ts";
-import { lapseAgent } from "../waits.ts";
 import { lapseTrust } from "./leaving.ts";
 import { decisionText, mayDecide, notifyChiefs, voteOpen } from "./votes.ts";
 

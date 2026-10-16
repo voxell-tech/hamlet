@@ -9,10 +9,8 @@ const ALLOWLIST = new Set<string>([
     "answers.ts",
     "catalogue.ts",
     "commands.ts",
-    "danger.ts",
     "endpoints.ts",
     "git/proxy.ts",
-    "grants.ts",
     "ledger.ts",
     "models-store.ts",
     "models.ts",
@@ -22,7 +20,6 @@ const ALLOWLIST = new Set<string>([
     "reflection.ts",
     "report.ts",
     "terminal.ts",
-    "waits.ts",
 ]);
 const root = fileURLToPath(new URL("../src/", import.meta.url));
 

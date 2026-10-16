@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GrantsDoc, give, grantsOf, holds, revoke } from "../src/grants.ts";
+import { GrantsDoc, give, grantsOf, holds, revoke } from "../src/gate.ts";
 import { context, fauxModels, scratch, testHome } from "./support.ts";
 
 const SCOUT = { hamlet: "home", number: 7 };

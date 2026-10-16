@@ -15,23 +15,22 @@ import {
     ToolTask,
 } from "@earendil-works/pi-durable";
 import { describe, expect, it, vi } from "vitest";
-import { resetTrust } from "../src/asked.ts";
 import { chatOf, startConversation, WithDoc } from "../src/chats.ts";
 import { LEAVE, type Leave } from "../src/environment.ts";
-import { answer } from "../src/gate.ts";
-import { GrantsDoc, grantsOf, revoke } from "../src/grants.ts";
+import { answer, GrantsDoc, grantsOf, revoke } from "../src/gate.ts";
 import { ManifestsDoc } from "../src/hand.ts";
 import type { Home, Part } from "../src/home.ts";
 import { buildHouse } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
-import { HOME, RecordDoc } from "../src/record.ts";
-import { SettingsDoc } from "../src/settings.ts";
 import {
     type Choice,
     OversightDayDoc,
     raise,
+    resetTrust,
     type Wait,
-} from "../src/waits.ts";
+} from "../src/oversight.ts";
+import { HOME, RecordDoc } from "../src/record.ts";
+import { SettingsDoc } from "../src/settings.ts";
 import {
     CHIEF,
     closeAfter,

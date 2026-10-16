@@ -269,7 +269,7 @@ it("keeps a repeated model fault until the chief dismisses it", async () => {
     ]);
     const [wait] = await openWaits(home);
     if (wait === undefined) throw new Error("missing fault");
-    const { dismiss } = await import("../src/waits.ts");
+    const { dismiss } = await import("../src/oversight.ts");
     await home.harness.commit(
         (tx) => dismiss(tx, wait.id, home.chief, home.now()),
         context,

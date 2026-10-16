@@ -21,7 +21,6 @@ import {
     ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { AskedDoc } from "../asked.ts";
 import { ErrandEntry, RetryEntry, WithDoc } from "../chats.ts";
 import { choose } from "../choice.ts";
 import { runErrand, startErrand } from "../errands.ts";
@@ -36,8 +35,10 @@ import { type AgentRef, addressOf, agentKey, RecordDoc } from "../record.ts";
 import { stopped } from "../report.ts";
 import { closedPolicy, SandboxEnv } from "../sandbox.ts";
 import { modelRef, SettingsDoc, settingsOf } from "../settings.ts";
+import { AgentConversationsDoc } from "../society/docs.ts";
 import { TaskDoc } from "../tasks.ts";
 import { turnOf } from "../turn.ts";
+import { AskedDoc } from "./asked.ts";
 import {
     OversightDayDoc,
     OversightDoc,
@@ -46,8 +47,7 @@ import {
     raise,
     ruling,
     settle,
-} from "../waits.ts";
-import { AgentConversationsDoc } from "./docs.ts";
+} from "./waits.ts";
 
 const ToolWaitDoc = defineDoc<{
     wait: string | null;

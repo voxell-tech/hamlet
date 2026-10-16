@@ -22,6 +22,7 @@ import {
 import { InstructionsDoc, owed } from "../src/instructions.ts";
 import { booksOf, chargeRoad } from "../src/ledger.ts";
 import { defaultLimits } from "../src/limits.ts";
+import { raise } from "../src/oversight.ts";
 import { level, RealmDoc, resolve, roadsOf } from "../src/realm.ts";
 import {
     agentKey,
@@ -33,7 +34,6 @@ import {
 import { followHome, stopAgent } from "../src/talk.ts";
 import { TaskDoc } from "../src/tasks.ts";
 import { turnOf } from "../src/turn.ts";
-import { raise } from "../src/waits.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,

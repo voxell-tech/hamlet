@@ -5,9 +5,9 @@ import {
 import { expect, it, vi } from "vitest";
 import { localDay } from "../src/home.ts";
 import { InstructionsDoc, owed } from "../src/instructions.ts";
+import { OversightDayDoc, settle } from "../src/oversight.ts";
 import { agentKey } from "../src/record.ts";
 import { followHome, stopAgent } from "../src/talk.ts";
-import { OversightDayDoc, settle } from "../src/waits.ts";
 import {
     context,
     crashing,

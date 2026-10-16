@@ -5,9 +5,9 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { answer } from "../src/gate.ts";
 import { historyOf, usageOf } from "../src/history.ts";
+import { raiseFault } from "../src/oversight.ts";
 import { ReflectionDoc } from "../src/reflection.ts";
 import { followHome, newChat, retry, rewind } from "../src/talk.ts";
-import { raiseFault } from "../src/waits.ts";
 import {
     CHIEF,
     context,

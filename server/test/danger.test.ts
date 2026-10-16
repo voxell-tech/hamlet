@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { judge, type Reach, type Standing } from "../src/danger.ts";
+import { judge, type Reach, type Standing } from "../src/gate.ts";
 
 const BOXED: Standing = {
     confined: true,
