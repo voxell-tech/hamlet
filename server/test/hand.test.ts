@@ -25,9 +25,8 @@ import {
 } from "@earendil-works/pi-durable";
 import { describe, expect, it, vi } from "vitest";
 import { answer } from "../src/gate.ts";
-import { reserved } from "../src/hand.ts";
+import { ManifestsDoc, reserved } from "../src/hand.ts";
 import type { Home, Part } from "../src/home.ts";
-import { ManifestsDoc } from "../src/manifests.ts";
 import {
     CHIEF,
     closeAfter,

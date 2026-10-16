@@ -12,6 +12,7 @@ import { conversationViews } from "./agent-chats.ts";
 import { ChatDoc, currentOf } from "./chats.ts";
 import { choose } from "./choice.ts";
 import { DEEDS } from "./commands.ts";
+import { modeWords, WorkDoc } from "./environment.ts";
 import { GrantsDoc, grantsOf } from "./grants.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
@@ -52,7 +53,6 @@ import { AgentConversationsDoc } from "./society/docs.ts";
 import { voteViews } from "./society/votes.ts";
 import { OversightDoc } from "./waits.ts";
 import { queue, says } from "./words.ts";
-import { modeWords, WorkDoc } from "./work.ts";
 
 const starters = starterSkills(STARTERS);
 

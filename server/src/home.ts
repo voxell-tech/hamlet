@@ -17,7 +17,7 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CharacterDoc } from "./character.ts";
 import { ChatDoc, type With, WithDoc } from "./chats.ts";
-import { closeEnvironments, envFor } from "./environment.ts";
+import { closeEnvironments, envFor, WorkDoc } from "./environment.ts";
 import { Credentials } from "./home/credentials.ts";
 import { buildHouse, type Layout, layOut } from "./home/layout.ts";
 import { claim } from "./home/lock.ts";
@@ -31,7 +31,6 @@ import { agentKey, HOME, RecordDoc } from "./record.ts";
 import { platformSandbox, type Sandbox } from "./sandbox.ts";
 import { type Overrides, readOverrides, SettingsDoc } from "./settings.ts";
 import { AgentConversationsDoc } from "./society/docs.ts";
-import { WorkDoc } from "./work.ts";
 
 /** Overrides for the resources and parts opened with a home. */
 export type HomeOptions = {

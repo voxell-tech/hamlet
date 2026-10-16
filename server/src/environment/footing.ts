@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
-import type { Place } from "./environment.ts";
+import type { Place } from "./place.ts";
 
 /**
  * The full path a tool's `path` names (C20). A full path stays as it is. A relative one is the folder's, unless only the

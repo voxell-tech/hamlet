@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { ChatDoc, currentOf, startConversation, WithDoc } from "../chats.ts";
 import { reconfigure } from "../choice.ts";
+import { WorkDoc } from "../environment.ts";
 import { agentOf } from "../errands.ts";
 import { GrantsDoc, grantsOf, revoke } from "../grants.ts";
 import type { Deed, Home, Part } from "../home.ts";
@@ -27,7 +28,6 @@ import {
 } from "../record.ts";
 import { stopAgent } from "../talk.ts";
 import { lapseAgent } from "../waits.ts";
-import { WorkDoc } from "../work.ts";
 import { awaiting } from "./dealings.ts";
 import { chiefsOf, liveHamlets, type Realm, RealmDoc } from "./places.ts";
 import { realmRoads } from "./roads.ts";

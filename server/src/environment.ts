@@ -3,9 +3,8 @@ import type {
     ConversationId,
     DocumentReader,
 } from "@earendil-works/pi-durable";
-import { WithDoc } from "./chats.ts";
+import { placeOf } from "./environment/place.ts";
 import type { HomeBase } from "./home.ts";
-import { houseOf } from "./home.ts";
 import {
     closedPolicy,
     directoryRoot,
@@ -13,7 +12,6 @@ import {
     policyHash,
     SandboxEnv,
 } from "./sandbox.ts";
-import { WorkDoc } from "./work.ts";
 
 /** The name of the tool task memo a gate leaves for one call. */
 export const LEAVE = "hamlet.leave";
@@ -22,25 +20,6 @@ export const LEAVE = "hamlet.leave";
 export type Leave = {
     net: boolean;
 };
-
-/** The places an agent's tools work in: its house, and the folder its hamlet works on (C20). */
-export type Place = {
-    house: string;
-    folder: string | null;
-};
-
-/** The place of the agent `conversation` is with, `undefined` for a conversation with no agent. */
-export async function placeOf(
-    home: Pick<HomeBase, "layout">,
-    read: DocumentReader,
-    conversation: ConversationId,
-    context: Context,
-): Promise<Place | undefined> {
-    const agent = await read.snapshot(WithDoc, conversation, context);
-    if (agent === undefined) return undefined;
-    const work = await read.snapshot(WorkDoc, agent.hamlet, context);
-    return { house: houseOf(home.layout, agent), folder: work?.folder ?? null };
-}
 
 const environments = new WeakMap<object, Map<string, SandboxEnv>>();
 
@@ -102,3 +81,13 @@ export async function closeEnvironments(
     environments.delete(home.layout);
     for (const env of kept?.values() ?? []) await env.cleanup(context);
 }
+
+export { footing } from "./environment/footing.ts";
+export { type Place, placeOf } from "./environment/place.ts";
+export {
+    folder,
+    modeWords,
+    setMode,
+    type Work,
+    WorkDoc,
+} from "./environment/work.ts";

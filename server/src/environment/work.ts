@@ -3,9 +3,9 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 
-import type { Home } from "./home.ts";
-import { RecordDoc } from "./record.ts";
-import { canon, isDir, within } from "./sandbox.ts";
+import type { Home } from "../home.ts";
+import { RecordDoc } from "../record.ts";
+import { canon, isDir, within } from "../sandbox.ts";
 
 /** The hamlet's mode in a sentence for the chief (C21). */
 export function modeWords(mode: "manual" | "auto"): string {

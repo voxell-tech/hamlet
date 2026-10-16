@@ -7,8 +7,7 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "vitest";
-import { envFor } from "../src/environment.ts";
-import { footing } from "../src/footing.ts";
+import { envFor, footing } from "../src/environment.ts";
 import type { Home } from "../src/home.ts";
 import {
     closeAfter,

@@ -30,6 +30,7 @@ import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterEach } from "vitest";
 import { chatOf, submitLine } from "../src/chats.ts";
+import { WorkDoc } from "../src/environment.ts";
 import {
     buildHouse,
     type Home,
@@ -40,7 +41,6 @@ import { LimitsDoc } from "../src/limits.ts";
 import { RealmDoc } from "../src/realm.ts";
 import { HOME, RecordDoc } from "../src/record.ts";
 import { OversightDoc, type Wait } from "../src/waits.ts";
-import { WorkDoc } from "../src/work.ts";
 
 export const context = BACKGROUND_CONTEXT;
 

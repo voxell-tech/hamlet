@@ -13,8 +13,8 @@ import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { Compile } from "typebox/compile";
 import { record } from "./catalogue.ts";
 import { LEAVE, type Leave } from "./environment.ts";
+import { type Manifest, ManifestsDoc } from "./hand/manifests.ts";
 import type { Home, Part } from "./home.ts";
-import { type Manifest, ManifestsDoc } from "./manifests.ts";
 import { limitsOf, type Policy, SandboxEnv } from "./sandbox.ts";
 import { shellOutput } from "./scrub.ts";
 
@@ -319,3 +319,5 @@ function handTool(home: Home, manifest: Manifest) {
         },
     });
 }
+
+export { type Manifest, ManifestsDoc } from "./hand/manifests.ts";

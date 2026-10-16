@@ -6,8 +6,7 @@ import {
     createReadTool,
     createWriteTool,
 } from "@earendil-works/pi-durable/tools";
-import { placeOf } from "../environment.ts";
-import { footing } from "../footing.ts";
+import { footing, placeOf } from "../environment.ts";
 import type { Home } from "../home.ts";
 
 /** pi's `read`, `write` and `edit`, whose paths fall in the house or the folder as C20 says. */

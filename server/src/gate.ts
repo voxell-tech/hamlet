@@ -12,13 +12,19 @@ import { AskedDoc, refuse, refused, TrustedDoc, trustKey } from "./asked.ts";
 import { CHANGE, changeOf } from "./change.ts";
 import { ReflectionEntry, type With, WithDoc } from "./chats.ts";
 import { judge, type Reach, type Standing } from "./danger.ts";
-import { envFor, LEAVE, type Leave, placeOf } from "./environment.ts";
-import { footing } from "./footing.ts";
+import {
+    envFor,
+    footing,
+    LEAVE,
+    type Leave,
+    placeOf,
+    WorkDoc,
+} from "./environment.ts";
 import { GrantsDoc, give, grantsOf, holds } from "./grants.ts";
+import { type Manifest, ManifestsDoc } from "./hand.ts";
 import type { Home, Part } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { LimitsDoc } from "./limits.ts";
-import { type Manifest, ManifestsDoc } from "./manifests.ts";
 import { type ChiefResult, chiefAccess } from "./realm.ts";
 import { addressOf, RecordDoc } from "./record.ts";
 import { canon, within } from "./sandbox.ts";
@@ -38,7 +44,6 @@ import {
     type Wait,
 } from "./waits.ts";
 import { line, strip } from "./words.ts";
-import { WorkDoc } from "./work.ts";
 
 /** The turn and decision of a call, kept until its tool task ends. */
 const CallDoc = defineDoc<{

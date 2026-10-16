@@ -2,6 +2,7 @@ import type { Context } from "@earendil-works/chord";
 import type { Submission } from "@earendil-works/pi-durable";
 import { ChatDoc, submitLine } from "./chats.ts";
 import { readCommand } from "./commands.ts";
+import { folder, setMode } from "./environment.ts";
 import { answerWords } from "./gate.ts";
 import { GrantsDoc, grantsOf, revoke } from "./grants.ts";
 import { historyOf } from "./history.ts";
@@ -30,7 +31,6 @@ import {
 } from "./talk.ts";
 import { OversightDoc } from "./waits.ts";
 import { queue, strip } from "./words.ts";
-import { folder, setMode } from "./work.ts";
 
 /** A chief's typed line, dispatched as a command or admitted as scrubbed words (H24, C32). */
 export async function say(
