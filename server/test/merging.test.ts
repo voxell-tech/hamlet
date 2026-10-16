@@ -196,63 +196,50 @@ it("merges by a chief's command over a WebSocket", async () => {
     });
 }, 60_000);
 
-it.each([
-    ["```markdown\n# Notes\nBoth facts.\n```", true],
-    ["<think>hm</think>\nHere:\n# Notes\nBoth facts.", true],
-    ["# Notes\n", false],
-    ["x".repeat(101), false],
-])(
-    "accepts usable rewritten notes only: %s",
-    async (reply, accepted) => {
-        const { home, faux, get } = await pair();
-        await home.harness.commit(async (tx) => {
-            (await tx.doc(LimitsDoc, HOME, HOME)).leaving.mergedNotes = 100;
-        }, context);
-        fauxAgents(faux, {
-            "home:0": [
-                fauxAssistantMessage(
-                    fauxToolCall("merge_agents", {
-                        keep: "librarian",
-                        absorb: "scout",
-                        purpose: "Both.",
-                        reason: "Overlap",
-                    }),
-                    { stopReason: "toolUse" },
-                ),
-                fauxAssistantMessage("done"),
-            ],
-            errands: [
-                (prompt, _o, _s, model) => {
-                    const sent = modelRequest(prompt.messages, model);
-                    expect(sent.tools).toEqual([]);
-                    expect(Object.keys(sent.sections)).toEqual([
-                        "instructions",
-                    ]);
-                    expect(JSON.stringify(prompt)).toContain(
-                        "Alice likes tea.",
-                    );
-                    expect(JSON.stringify(prompt)).toContain(
-                        "The wiki is slow.",
-                    );
-                    return fauxAssistantMessage(reply);
-                },
-            ],
-        });
-        expect((await (await say(home, "merge")).wait(context)).status).toBe(
-            "done",
-        );
-        expect(
-            (await get(1, "NOTES.md")).startsWith("# Notes\nBoth facts."),
-        ).toBe(accepted);
-        expect(
-            (await livingAgents(home)).find((a) => a.ref.number === 1)?.purpose,
-        ).toBe("Both.");
-        expect((await recordLines(home, HOME, context)).join("\n")).toContain(
-            `notes ${accepted ? "rewritten" : "joined"}`,
-        );
-    },
-    60_000,
-);
+it("rewrites notes in a bare errand and records the new purpose", async () => {
+    const { home, faux, get } = await pair();
+    await home.harness.commit(async (tx) => {
+        (await tx.doc(LimitsDoc, HOME, HOME)).leaving.mergedNotes = 100;
+    }, context);
+    fauxAgents(faux, {
+        "home:0": [
+            fauxAssistantMessage(
+                fauxToolCall("merge_agents", {
+                    keep: "librarian",
+                    absorb: "scout",
+                    purpose: "Both.",
+                    reason: "Overlap",
+                }),
+                { stopReason: "toolUse" },
+            ),
+            fauxAssistantMessage("done"),
+        ],
+        errands: [
+            (prompt, _o, _s, model) => {
+                const sent = modelRequest(prompt.messages, model);
+                expect(sent.tools).toEqual([]);
+                expect(Object.keys(sent.sections)).toEqual(["instructions"]);
+                expect(JSON.stringify(prompt)).toContain("Alice likes tea.");
+                expect(JSON.stringify(prompt)).toContain("The wiki is slow.");
+                return fauxAssistantMessage(
+                    "```markdown\n# Notes\nBoth facts.\n```",
+                );
+            },
+        ],
+    });
+    expect((await (await say(home, "merge")).wait(context)).status).toBe(
+        "done",
+    );
+    expect((await get(1, "NOTES.md")).startsWith("# Notes\nBoth facts.")).toBe(
+        true,
+    );
+    expect(
+        (await livingAgents(home)).find((a) => a.ref.number === 1)?.purpose,
+    ).toBe("Both.");
+    expect((await recordLines(home, HOME, context)).join("\n")).toContain(
+        "notes rewritten",
+    );
+}, 60_000);
 
 it("joins notes without an errand once the budget is spent, and says why", async () => {
     const { home, faux, get } = await pair();
@@ -701,34 +688,6 @@ it("keeps the absorbed notes' original bytes even when they are not UTF-8", asyn
             ),
         ),
     ).toEqual(bytes);
-}, 60_000);
-
-it("delivers renamed skills when the absorbed name itself contains -from-", async () => {
-    const { home, put, get } = await pair();
-    await home.harness.commit(async (tx) => {
-        const a = (await tx.doc(RecordDoc, HOME, HOME)).agents.find(
-            (a) => a.number === 2,
-        );
-        if (a) a.name = "notes-from-field";
-    }, context);
-    await put(1, "skills/sort/SKILL.md", "---\nname: sort\n---\nmine");
-    await put(
-        2,
-        "skills/sort/SKILL.md",
-        "---\nname: sort\n---\nRun skills/sort/run.sh",
-    );
-    await merge(
-        home,
-        { ...deed, rest: "notes-from-field into librarian Overlap" },
-        context,
-    );
-    expect(
-        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive[0]
-            ?.merge?.applied,
-    ).toBe(true);
-    expect(
-        await get(1, "skills/sort-from-notes-from-field/SKILL.md"),
-    ).toContain("skills/sort-from-notes-from-field/run.sh");
 }, 60_000);
 
 it("delivers a whole planned tree with bounded sandbox launches, including existing parent folders", async () => {

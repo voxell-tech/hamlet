@@ -35,6 +35,7 @@ operations separate from entries that compose parts.
 | sandbox | `sandbox/policy.ts`, `sandbox/reach.ts` |
 | spend | `spend/ledger.ts`, `spend/money.ts`, `spend/usage.ts` |
 | state | `state/activity.ts` |
+| votes | `votes/words.ts` |
 
 These leaves may value-import only each other, the shared entries
 `change.ts`, `commands.ts`, `connection.ts`, `protocol.ts`, `record.ts`,

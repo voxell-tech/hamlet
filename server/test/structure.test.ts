@@ -41,6 +41,7 @@ const LEAVES = new Set([
     "spend/money.ts",
     "spend/usage.ts",
     "state/activity.ts",
+    "votes/words.ts",
 ]);
 const SHARED_ENTRIES = new Set([
     "change.ts",
@@ -92,7 +93,7 @@ const MODULES: readonly { name: string; folder: boolean }[] = [
     { name: "state", folder: true },
     { name: "tools", folder: true },
     { name: "transcript", folder: true },
-    { name: "votes", folder: false },
+    { name: "votes", folder: true },
 ];
 
 function files(dir: string): string[] {

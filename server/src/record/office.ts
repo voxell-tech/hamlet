@@ -1,10 +1,14 @@
 import type { Context } from "@earendil-works/chord";
 import { defineDocFamily, type Tx } from "@earendil-works/pi-durable";
 import type { Home } from "../home.ts";
-import { type Limits, LimitsDoc, limitsOf } from "../limits/rules.ts";
+import { LimitsDoc, limitsOf } from "../limits/rules.ts";
 import type { VoteView } from "../protocol.ts";
 import { ok, type Result } from "../result.ts";
+import { byName, describe as motionText, report } from "../votes/words.ts";
 import { type AgentRef, type HamletRecord, RecordDoc } from "./document.ts";
+
+export { describe as motionText } from "../votes/words.ts";
+
 import { nameOf } from "./names.ts";
 import { type RecordRefusal, refusal } from "./refusals.ts";
 
@@ -103,15 +107,6 @@ export function decisionText(error: DecisionHeld): string {
     throw new Error(`Unclassified held decision: ${unhandled}`);
 }
 
-/** A vote's recorded motion in words, independent of its execution. */
-export function motionText(
-    v: Vote,
-    r: Readonly<HamletRecord> | undefined,
-): string {
-    return v.motion.kind === "replace_mayor"
-        ? `replace the mayor: \`${nameOf(r, v.motion.candidate)}\` would become mayor, and \`${nameOf(r, v.mayor)}\`, the mayor now, would stay as an ordinary agent`
-        : `found a new hamlet \`${v.motion.hamlet}\` under a new mayor \`${v.motion.mayor}\`, whose purpose would be: ${v.motion.purpose} This hamlet and its mayor \`${nameOf(r, v.mayor)}\` stay as they are`;
-}
 /** Gives the office to a living agent; callers reconfigure conversations and notify chiefs. */
 export async function seat(
     tx: Tx,
@@ -156,52 +151,6 @@ export async function seat(
     return ok(undefined);
 }
 
-/** The recorded caller of a vote in words. */
-export function voteBy(v: Vote, r: Readonly<HamletRecord> | undefined): string {
-    return "chief" in v.by ? `chief:${v.by.chief}` : nameOf(r, v.by.agent);
-}
-/** Counts all fixed voters, including silence and ungrounded ballots. */
-export function voteTally(v: Vote, l: Readonly<Limits>) {
-    const yes = v.ballots.filter((b) => b.choice === "yes").length,
-        no = v.ballots.filter((b) => b.choice === "no").length,
-        abstain = v.ballots.filter((b) => b.choice === "abstain").length;
-    return {
-        yes,
-        no,
-        abstain,
-        silent: v.voters.length - yes - no - abstain,
-        counted: v.ballots.filter(
-            (b) => b.choice === "yes" && (!l.votes.groundedOnly || b.grounded),
-        ).length,
-        needed: Math.max(
-            1,
-            Math.ceil((v.voters.length * l.votes.passYes) / l.votes.passOf),
-        ),
-    };
-}
-/** A vote result notice with the current threshold. */
-export function voteSummary(v: Vote, limits: Readonly<Limits>): string {
-    const t = voteTally(v, limits);
-    return `Vote ${v.id} ${v.standing === "passed" ? "passed" : v.standing === "open" ? "is open" : v.standing === "overturned" ? "was overturned" : "failed"}: ${t.yes} yes of ${v.voters.length} agents (${t.needed} needed), ${t.no} no, ${t.abstain} abstained, ${t.silent} did not answer${typeof v.standing === "object" && t.counted >= t.needed ? `; ${v.standing.failed}` : ""}. The chief has been told and may overturn it.`;
-}
-/** The chief-readable hearing and ballots of one vote. */
-export function voteReport(
-    v: Vote,
-    r: Readonly<HamletRecord> | undefined,
-    limits: Readonly<Limits>,
-): string {
-    const t = voteTally(v, limits),
-        standing =
-            v.standing === "open"
-                ? "Open"
-                : v.standing === "passed"
-                  ? "Passed"
-                  : v.standing === "overturned"
-                    ? "Passed, then overturned by a chief"
-                    : `Failed (${v.standing.failed})`;
-    return `Vote ${v.id}: ${motionText(v, r)}.\nCalled by \`${voteBy(v, r)}\`: ${v.reason}${v.answer ? `\nThe mayor answered: ${v.answer}` : ""}\n${standing}: ${t.yes} yes of ${v.voters.length} agents (${t.needed} needed), ${t.no} no, ${t.abstain} abstained, ${t.silent} did not answer.\n${v.ballots.map((b) => `- ${nameOf(r, b.voter)}: ${b.choice ?? "no answer"}. ${b.reason}${b.evidence ? ` [${b.grounded ? "found in" : "not found in"} its house: "${b.evidence}"]` : ""}`).join("\n")}`;
-}
-
 /** The latest votes for the window. */
 export async function voteViews(
     home: Home,
@@ -217,10 +166,10 @@ export async function voteViews(
     ).map((v) => ({
         id: v.id,
         motion: motionText(v, r),
-        by: voteBy(v, r),
+        by: byName(v, r),
         open: v.standing === "open",
         overturnable: v.standing === "open" || v.standing === "passed",
-        report: voteReport(v, r, limits),
+        report: report(v, r, limits),
         voters: v.voters.map((number) => ({
             agent: { hamlet, number },
             cast:
