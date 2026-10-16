@@ -1,4 +1,6 @@
 import { expect, it } from "vitest";
+import { localDay } from "../src/home/clock.ts";
+import { OversightDayDoc, OversightDoc } from "../src/oversight/waits.ts";
 import {
     ended,
     forAgent,
@@ -93,17 +95,14 @@ it("finds endings across midnight and ignores open or unknown ids", async () => 
     ).toEqual(new Map([[id, "dismiss"]]));
 });
 
-it("finds an ending recorded on an earlier day after the wall clock goes back", async () => {
-    const raised = new Date(2026, 9, 16, 12).getTime();
-    const settled = new Date(2026, 9, 14, 12).getTime();
-    const later = new Date(2026, 9, 17, 12).getTime();
-    const home = await testHome(scratch(), { now: () => later });
+it("keeps the stored oversight shape limited to the raise counter and open waits", async () => {
+    const home = await testHome(scratch(), {});
     const id = await home.harness.commit(
         (tx) =>
             raiseFault(
                 tx,
-                { by: "mayor", agent: MAYOR, about: "clock moved", chat: null },
-                raised,
+                { by: "mayor", agent: MAYOR, about: "failed", chat: null },
+                home.now(),
             ),
         context,
     );
@@ -113,41 +112,65 @@ it("finds an ending recorded on an earlier day after the wall clock goes back", 
                 tx,
                 id,
                 { how: "dismiss", text: "", chief: home.chief },
-                settled,
+                home.now(),
             ),
         context,
     );
-    expect(await ended(home.harness, [id], context, later)).toEqual(
-        new Map([[id, "dismiss"]]),
-    );
+    expect(await home.harness.snapshot(OversightDoc, context)).toEqual({
+        raised: 1,
+        waits: {},
+    });
 });
 
-it("reads existing unindexed day records without changing their stored version", async () => {
-    const { OversightDoc } = await import("../src/oversight/waits.ts");
-    const at = new Date(2026, 9, 14, 12).getTime();
-    const home = await testHome(scratch(), { now: () => at });
-    const id = await home.harness.commit(
-        (tx) =>
-            raiseFault(
-                tx,
-                { by: "mayor", agent: MAYOR, about: "old record", chat: null },
-                at,
-            ),
-        context,
-    );
-    await home.harness.commit(async (tx) => {
-        await settle(
-            tx,
-            id,
-            { how: "dismiss", text: "", chief: home.chief },
-            at,
+it.each(["before", "after"] as const)(
+    "finds a settlement just %s the scan's midnight boundary without an index",
+    async (side) => {
+        const at =
+            side === "before"
+                ? new Date(2026, 9, 15, 0, 0, 0, 1).getTime()
+                : new Date(2026, 9, 15, 23, 59, 59, 998).getTime();
+        const settledAt = at + (side === "before" ? -2 : 3);
+        const home = await testHome(scratch(), { now: () => at });
+        const id = `${at}-1`;
+        const day = localDay(settledAt);
+        await home.harness.commit(async (tx) => {
+            (await tx.doc(OversightDayDoc, day, day)).events.push({
+                type: "settled",
+                at: settledAt,
+                id,
+                how: "dismiss",
+                text: "",
+                chief: home.chief,
+            });
+        }, context);
+        expect(await ended(home.harness, [id], context, at + 1)).toEqual(
+            new Map([[id, "dismiss"]]),
         );
-        delete (await tx.doc(OversightDoc)).days;
-    }, context);
-    expect(await ended(home.harness, [id], context, at)).toEqual(
-        new Map([[id, "dismiss"]]),
-    );
-    expect(await ended(home.harness, ["", "unknown"], context, at)).toEqual(
-        new Map(),
+    },
+);
+
+it("orders the second wait before the tenth by raise number, not lexical id or clock time", async () => {
+    const home = await testHome(scratch(), {});
+    const ids = [];
+    for (let number = 1; number <= 10; number++) {
+        ids.push(
+            await home.harness.commit(
+                (tx) =>
+                    raiseFault(
+                        tx,
+                        {
+                            by: "mayor",
+                            agent: MAYOR,
+                            about: `fault ${number}`,
+                            chat: null,
+                        },
+                        number === 1 ? 2000 : 1000,
+                    ),
+                context,
+            ),
+        );
+    }
+    expect((await open(home.harness, context)).map((wait) => wait.id)).toEqual(
+        ids,
     );
 });
