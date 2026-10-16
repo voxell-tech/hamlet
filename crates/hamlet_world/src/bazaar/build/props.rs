@@ -1,7 +1,7 @@
 //! What furnishes the bazaar's round besides its stalls: palms in
 //! pots, a camel at rest, a rack of rugs and a tea table.
 
-use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
+use std::f32::consts::{FRAC_PI_4, PI, TAU};
 
 use bevy::math::Affine3A;
 use bevy::prelude::*;
@@ -10,22 +10,32 @@ use super::{FLOOR, cloth, slab};
 use crate::meshes::Mb;
 use crate::palette::Palette;
 
-/// The palms, each with the way it is turned.
-const PALMS: [(Vec3, f32); 3] = [
-    (Vec3::new(-2.8, 0.0, 5.6), 0.3),
-    (Vec3::new(-2.6, 0.0, -5.4), 1.1),
-    (Vec3::new(2.6, 0.0, -5.4), 2.0),
+/// The palms, each with the way it is turned: either side of the
+/// gate, and between the backs of the stalls.
+pub(in crate::bazaar) const PALMS: [(Vec3, f32); 5] = [
+    (Vec3::new(-3.4, 0.0, 9.3), 0.3),
+    (Vec3::new(3.4, 0.0, 9.3), 2.4),
+    (Vec3::new(3.12, 0.0, -4.29), 2.0),
+    (Vec3::new(-3.12, 0.0, -4.29), 4.1),
+    (Vec3::new(-5.04, 0.0, 1.64), 1.1),
 ];
 
-/// The camel, lying by the gate with its head to the avenue.
-const CAMEL: (Vec3, f32) = (Vec3::new(-4.6, 0.0, 4.0), FRAC_PI_2);
+/// The camel, lying in the gap between two stalls with its head
+/// along the ring.
+const CAMEL: (Vec3, f32) = (Vec3::new(-4.29, 0.0, -5.91), -0.942);
 
-/// The ends of the rack of rugs.
+/// The ends of the rack of rugs, in the gap between two stalls.
 const RACK: (Vec3, Vec3) =
-    (Vec3::new(3.4, 0.0, 4.9), Vec3::new(5.0, 0.0, 3.8));
+    (Vec3::new(3.58, 0.0, -6.55), Vec3::new(5.12, 0.0, -5.43));
 
-/// The tea table.
-const TEA: Vec3 = Vec3::new(1.9, 0.0, 3.3);
+/// The tea table, in the gap between the first two stalls, and the
+/// way it turns: its cushions are toward the pavilion.
+pub(in crate::bazaar) const TEA: (Vec3, f32) =
+    (Vec3::new(7.13, 0.0, 2.32), 4.398);
+
+/// The spot over the teapot's lid, from the tea table's middle.
+pub(in crate::bazaar) const TEAPOT: Vec3 =
+    Vec3::new(-0.08, FLOOR + 0.42 + 0.3, 0.0);
 
 /// Builds `part` turned `turn` about its own up and set at `at`.
 fn placed(
@@ -48,7 +58,7 @@ pub(super) fn furnish(mb: &mut Mb, pal: &Palette) {
     }
     placed(mb, CAMEL, |mb| camel(mb, pal));
     rack(mb, pal);
-    placed(mb, (TEA, 0.0), |mb| tea(mb, pal));
+    placed(mb, TEA, |mb| tea(mb, pal));
 }
 
 /// A palm in a pot.

@@ -1,8 +1,11 @@
-//! The Agent Bazaar in the world: striped tents and stalls on ground
-//! of their own beside the first town, in no hamlet. It stands for
-//! the models the home may buy and run.
+//! The Agent Bazaar in the world: a striped pavilion and a ring of
+//! five stalls on ground of their own beside the first town, in no
+//! hamlet. It stands for all the home may buy: models, agents,
+//! plugins, skills and whole hamlets.
 
 mod build;
+mod bustle;
+mod keepers;
 mod merchant;
 mod shoppers;
 pub mod stalls;
@@ -16,7 +19,8 @@ use hamlet_vfx::flag::{
     FlagMaterial, FlagSettings, Waving, cloth, flag,
 };
 
-use self::build::FAIRY;
+use self::build::{FAIRY, PAVILION, POLE, RIM};
+pub use self::keepers::Stallholder;
 use self::merchant::{CHEERS, STANDS, turban};
 pub use self::merchant::{Merchant, Traded};
 pub use self::shoppers::Shopper;
@@ -33,13 +37,14 @@ use crate::{Clock, Sky, Stock};
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Pitched>()
         .add_observer(merchant::sold)
+        .add_observer(bustle::celebrate)
         .add_systems(
             Update,
             (
                 (repitch, pitch).chain().in_set(Pitching),
-                (merchant::tend, shoppers::stroll)
+                (merchant::tend, shoppers::stroll, keepers::tend)
                     .before(mascot::stand),
-                (shine, twinkle),
+                (shine, twinkle, bustle::spin, bustle::stir),
             ),
         );
 }
@@ -50,11 +55,11 @@ pub(crate) fn plugin(app: &mut App) {
 pub(crate) struct Pitching;
 
 /// The radius of the ground the bazaar keeps level and clear.
-pub(crate) const GROUNDS: f32 = 9.5;
+pub(crate) const GROUNDS: f32 = 15.0;
 
-/// Reach of the bazaar from its middle and its height, for the box
-/// it is picked by, the ring about it and the name over it.
-const SIZE: (f32, f32) = (7.2, 7.7);
+/// Reach of the bazaar from its middle and its height, for the ring
+/// about it and the name over it.
+const SIZE: (f32, f32) = (11.6, 8.6);
 
 /// The spot a chief has set the bazaar down on. Without one it
 /// stands where the land puts it.
@@ -73,6 +78,22 @@ impl Pitched {
 pub struct Bazaar {
     pub held: Vec2,
 }
+
+/// One stall of the bazaar, standing where it does in it.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Booth {
+    pub stall: Stall,
+    /// The spot of one who comes to the stall, from its middle.
+    pub visitor: Vec3,
+}
+
+/// The spot of one who comes to a stall, from its middle: before its
+/// counter, to the side its keeper is not on.
+const CUSTOMER: Vec3 = Vec3::new(-0.35, 0.0, 2.3);
+
+/// The reach of a stall from its middle and its height, for the box
+/// it is picked by, and how far its box stands out before it.
+const STALL: (f32, f32, f32) = (2.3, 3.6, 0.25);
 
 /// Takes the bazaar down when a chief has set it down elsewhere, so
 /// that it is pitched anew where it now stands.
@@ -95,11 +116,13 @@ fn repitch(
     }
 }
 
-/// The lit glass of the bazaar's lanterns, and its light at rest.
+/// The lit glass of the bazaar's lanterns and its light at rest, and
+/// what glows among its wares.
 #[derive(Component, Clone, Debug)]
 struct Lanterns {
     glass: Handle<StandardMaterial>,
     glow: LinearRgba,
+    gleam: Handle<StandardMaterial>,
 }
 
 /// The bulbs of the fairy lights, a material to each colour, and
@@ -196,7 +219,7 @@ fn pitch(
     society.claims.push(Claim {
         place: Ground::Bazaar,
         at,
-        radius: land.set.town.keep_apart * 0.5,
+        radius: (land.set.town.keep_apart * 0.5).max(GROUNDS),
     });
     // The gate looks toward the first town.
     let home = land
@@ -210,6 +233,10 @@ fn pitch(
     let lit = materials.add(StandardMaterial {
         base_color: pal.glass_lit,
         emissive: glow * 2.5,
+        ..default()
+    });
+    let gleam = materials.add(StandardMaterial {
+        unlit: true,
         ..default()
     });
     let colours = pal.fairy.map(|c| LinearRgba::rgb(c.x, c.y, c.z));
@@ -226,6 +253,7 @@ fn pitch(
             Lanterns {
                 glass: lit.clone(),
                 glow,
+                gleam: gleam.clone(),
             },
             Fairies {
                 bulbs: bulbs.clone(),
@@ -238,11 +266,18 @@ fn pitch(
                     toward.x.atan2(toward.y),
                 )),
             Visibility::Inherited,
-            children![(
-                Mesh3d(meshes.add(built.glass)),
-                MeshMaterial3d(lit),
-                NotShadowCaster,
-            )],
+            children![
+                (
+                    Mesh3d(meshes.add(built.glass)),
+                    MeshMaterial3d(lit),
+                    NotShadowCaster,
+                ),
+                (
+                    Mesh3d(meshes.add(built.gleam)),
+                    MeshMaterial3d(gleam.clone()),
+                    NotShadowCaster,
+                ),
+            ],
         ))
         .id();
     for (mesh, bulb) in built.bulbs.into_iter().zip(bulbs) {
@@ -253,16 +288,18 @@ fn pitch(
             ChildOf(bazaar),
         ));
     }
-    for (k, x) in [-1.2f32, 1.2].into_iter().enumerate() {
+    // Glows over the plaza before the pavilion, and over the
+    // promenade behind it.
+    for (k, at) in GLOWS.into_iter().enumerate() {
         commands.spawn((
-            Glow(k * FAIRY / 2),
+            Glow(k * FAIRY / GLOWS.len()),
             PointLight {
                 intensity: 0.0,
                 range: GLOW_REACH,
                 shadow_maps_enabled: false,
                 ..default()
             },
-            Transform::from_xyz(x, 2.3, 2.6),
+            Transform::from_translation(at),
             ChildOf(bazaar),
         ));
     }
@@ -281,6 +318,19 @@ fn pitch(
             ));
         }
     }
+    for cog in built.cogs {
+        commands.spawn((
+            bustle::Turning {
+                lies: cog.lies,
+                rate: cog.rate,
+            },
+            Mesh3d(meshes.add(cog.mesh)),
+            MeshMaterial3d(stock.matte.clone()),
+            Transform::from_translation(cog.at)
+                .with_rotation(cog.lies),
+            ChildOf(bazaar),
+        ));
+    }
     // A light under the pavilion's front that flares after a sale,
     // by day or by night.
     commands.spawn((
@@ -296,7 +346,7 @@ fn pitch(
             shadow_maps_enabled: false,
             ..default()
         },
-        Transform::from_xyz(0.0, 3.0, 1.6),
+        Transform::from_xyz(0.0, 3.0, 2.8),
         ChildOf(bazaar),
     ));
     // Each lantern lights what is about it after dark.
@@ -315,28 +365,43 @@ fn pitch(
             ChildOf(bazaar),
         ));
     }
-    let (wide, tall) = SIZE;
+    // The bazaar itself is picked by its pavilion, and the stalls
+    // about it by their own boxes. Its name is shown over the
+    // pavilion, and its ring is as wide as all of it.
+    let (wide, tall) = (RIM.0, POLE);
     let boxed = commands
         .spawn((
             hit_box(
                 Thing::Bazaar,
                 Vec3::new(wide * 2.0, tall, wide * 2.0),
-                Vec3::new(0.0, tall * 0.5, 0.0),
+                PAVILION + Vec3::Y * tall * 0.5,
                 &mut meshes,
             ),
             ChildOf(bazaar),
         ))
         .id();
-    // Its name is shown over it, and its ring is as wide as it is.
     commands.entity(boxed).insert((
         Named,
         Footprint {
-            radius: wide,
+            radius: SIZE.0,
             height: tall,
             lift: tall * 0.5,
         },
     ));
     pick::watch(&mut commands, boxed);
+    for stall in Stall::ALL {
+        booth(
+            &mut commands,
+            (&mut meshes, &mut materials, &pal, &stock),
+            (bazaar, stall),
+            &gleam,
+        );
+    }
+    bustle::scatter(
+        &mut commands,
+        (&mut meshes, &mut materials, &pal),
+        bazaar,
+    );
 
     // The merchant before the counter, and the shoppers going round
     // the stalls.
@@ -366,6 +431,58 @@ fn pitch(
         .entity(keeper)
         .insert((Merchant { sold: None }, rig));
 }
+
+/// Stands `stall` in `bazaar`: its box to pick it by, with its name
+/// over it and its ring about it, and its keeper.
+fn booth(
+    commands: &mut Commands,
+    making: Making,
+    (bazaar, stall): (Entity, Stall),
+    gleam: &Handle<StandardMaterial>,
+) {
+    let (at, turn) = build::placing(stall);
+    let booth = commands
+        .spawn((
+            Booth {
+                stall,
+                visitor: CUSTOMER,
+            },
+            Transform::from_translation(at).with_rotation(turn),
+            Visibility::Inherited,
+            ChildOf(bazaar),
+        ))
+        .id();
+    let (reach, tall, out) = STALL;
+    let boxed = commands
+        .spawn((
+            hit_box(
+                Thing::Stall(stall),
+                Vec3::new(reach * 2.0, tall, 2.6),
+                Vec3::new(0.0, tall * 0.5, out),
+                making.0,
+            ),
+            ChildOf(booth),
+        ))
+        .id();
+    commands.entity(boxed).insert((
+        Named,
+        Footprint {
+            radius: reach,
+            height: tall,
+            lift: tall * 0.5,
+        },
+    ));
+    pick::watch(commands, boxed);
+    keepers::stand(commands, making, (booth, stall), gleam);
+}
+
+/// The glows over the plaza and the promenade, from the bazaar's
+/// middle.
+const GLOWS: [Vec3; 3] = [
+    Vec3::new(-2.6, 3.0, 6.6),
+    Vec3::new(2.6, 3.0, 6.6),
+    Vec3::new(0.0, 3.0, -9.0),
+];
 
 /// The light of one of its lanterns after dark, and how far it
 /// reaches.
@@ -399,6 +516,10 @@ const FLARE_REACH: f32 = 18.0;
 const GLASS: (f32, f32) = (1.2, 16.0);
 const FLASH: f32 = 9.0;
 
+/// Brightness of what glows among the wares by day, and the gain
+/// after dark.
+const GLEAM: (f32, f32) = (1.1, 2.6);
+
 /// Brightness of the bazaar `since` seconds after a sale: up at once,
 /// flickering while the merchant cheers, and down again.
 fn flare(since: f32) -> f32 {
@@ -410,8 +531,9 @@ fn flare(since: f32) -> f32 {
     up * down * (0.75 + 0.25 * (since * 12.0).sin())
 }
 
-/// Burns the lanterns, glowing after dark and brighter still after
-/// a sale, and the flare under the pavilion.
+/// Burns the lanterns and what glows among the wares, brighter after
+/// dark and brighter still after a sale, and the flare under the
+/// pavilion.
 fn shine(
     clock: Res<Clock>,
     sky: Res<Sky>,
@@ -445,6 +567,17 @@ fn shine(
             && let Some(mut glass) = materials.get_mut(&lantern.glass)
         {
             glass.emissive = to;
+        }
+        let (day, night) = GLEAM;
+        let bright = day + night * sky.look.candle + level;
+        let to = Color::linear_rgb(bright, bright, bright);
+        let differs = materials
+            .get(&lantern.gleam)
+            .is_some_and(|gleam| gleam.base_color != to);
+        if differs
+            && let Some(mut gleam) = materials.get_mut(&lantern.gleam)
+        {
+            gleam.base_color = to;
         }
     }
     if level > 0.0 {
@@ -528,5 +661,5 @@ fn twinkle(
 }
 
 /// The spot of one who comes to the bazaar, from its middle: in the
-/// avenue, a little before the merchant and to its side.
-pub(crate) const VISITOR: Vec3 = Vec3::new(-1.3, 0.0, 3.7);
+/// plaza, a little before the merchant and to its side.
+pub(crate) const VISITOR: Vec3 = Vec3::new(-1.1, 0.0, 4.5);

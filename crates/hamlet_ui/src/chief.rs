@@ -120,17 +120,22 @@ pub(crate) fn accompany(
     selected: Res<Selected>,
     libraries: Query<Entity, With<Library>>,
     bazaars: Query<Entity, With<Bazaar>>,
+    booths: Query<(Entity, &hamlet_world::bazaar::Booth)>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
     if !me.is_changed() && !selected.is_changed() {
         return;
     }
-    // To the library or the bazaar when that is what was chosen.
+    // To the library, the bazaar or one of its stalls when that is
+    // what was chosen.
     let with = match selected.0 {
         Some(Thing::Library) => libraries.iter().next(),
-        Some(Thing::Bazaar | Thing::Stall(_)) => {
-            bazaars.iter().next()
-        }
+        Some(Thing::Bazaar) => bazaars.iter().next(),
+        Some(Thing::Stall(stall)) => booths
+            .iter()
+            .find(|(_, booth)| booth.stall == stall)
+            .map(|(booth, _)| booth)
+            .or_else(|| bazaars.iter().next()),
         chosen => company(chosen, me.agent),
     };
     for (chief, mut beside) in &mut chiefs {
