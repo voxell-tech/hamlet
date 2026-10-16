@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Context } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
     calculateCost,
@@ -52,6 +53,7 @@ import type { Limits as SandboxLimits } from "../src/sandbox/policy.ts";
 import { closedPolicy } from "../src/sandbox/reach.ts";
 import { SandboxEnv } from "../src/sandbox.ts";
 import { replyFor } from "../src/server.ts";
+import { LedgerDoc, type LedgerLine, reconcile } from "../src/spend.ts";
 import { stateOf } from "../src/state.ts";
 
 export const context = BACKGROUND_CONTEXT;
@@ -465,4 +467,18 @@ export async function admitted(
     if (!outcome.ok || !submission)
         throw new Error("The deed admitted no work");
     return submission;
+}
+
+/** The kept lines of one local day, including calls a rewind took out. */
+export async function ledgerOf(
+    home: Home,
+    hamlet: string,
+    day: string,
+    context: Context,
+): Promise<readonly LedgerLine[]> {
+    await reconcile(home, context);
+    return (
+        (await home.harness.snapshot(LedgerDoc, `${hamlet}/${day}`, context))
+            ?.lines ?? []
+    );
 }

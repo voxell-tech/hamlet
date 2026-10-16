@@ -18,12 +18,13 @@ import {
     requireMayor,
     restore,
 } from "../src/record.ts";
-import { ledgerOf } from "../src/spend.ts";
+
 import {
     addAgent,
     addHamlet,
     context,
     fauxModels,
+    ledgerOf,
     scratch,
     testHome,
 } from "./support.ts";

@@ -89,14 +89,14 @@ The structure test checks that boundary and forbids value-import cycles.
 | `home.ts`, `home/` | Composition, layout, credentials, lock, clock and part lifetimes | `openHome` returns a `Home` with the harness and owned capabilities; `Part` installs work and its close handle |
 | `record.ts`, `record/` | Agent identity, membership, names, local roads, the office and votes' records | Transactional `admit`, `depart`, `restore`, `moveMember`, `layRoad`, `takeUpRoad`, `seat` and `mayDecide`; typed refusals and memoised mayor tools |
 | `agents.ts`, `agents/` | Agent creation and model choices, departure, restoration, erasure, merging and splitting | `Agents`, `Leaving`, `Merging` parts and the chief's agent and road deeds |
-| `realm.ts`, `realm/` | Places, chief access, addresses, founding, closing and agreements across hamlets | Realm deeds and views; `livingAgent` for chiefs and `resolveAddress` for tools |
+| `realm.ts`, `realm/` | Places, chief access, addresses, founding, closing and agreements across hamlets | Realm deeds and views; `livingAgent` for chiefs, `resolveAddress` for tools and `findInState` for clients |
 | `letters.ts`, `letters/` | Letters, questions, peer conversations and their counts | `Letters`, `askAgent`, `conversationViews` and `PeerStatistics` |
 | `votes.ts`, `votes/` | Calling votes, hearings, ballots and execution | `Votes`, `vote`, `votes`, `overturn` and `mayor`; record views re-exported from `record.ts` |
 | `library.ts`, `library/` | Shared skills, starters, librarian calls and publication | `Librarian`, `unshelve`, `libraryView`, `installStarters` and `libraryPart` |
 | `house.ts`, `house/` | House notes, skill papers, gifts and confined tree work | Home-owned `Houses.of` readers; `uploads`, `give`, `giftSkill`, `stage`, `deliver`, `list`, `remove` and `erase` |
 | `environment.ts`, `environment/` | Tool reach, cached environments, the work folder and its mode | `Confinement`, `agentEnv`, `houseReader`, `treeWorker`, `toolRunner`, `insideHouse`, `folder` and `setMode` |
 | `sandbox.ts`, `sandbox/` | File helpers and platform confinement with Seatbelt or bubblewrap | `SandboxEnv`, `Sandbox`, `platformSandbox` and `probeSandbox`; policies are built by `environment.ts` |
-| `scrub.ts`, `scrub/` | Credential scrubbing of stored text, values, streams and shell output | `secretsFrom` builds `Home.secrets`; `safeWords`, `safeValue`, `Scrubber` and `shellOutput` |
+| `scrub.ts`, `scrub/` | Credential scrubbing of stored text, values, streams and shell output | `secretsFrom` builds `Home.secrets`; `words`, `value` and `shell` scrub through the capability; `Scrubber` handles streams |
 | `oversight.ts`, `oversight/` | Waits, rulings, refusal history, trust, questions and objections | `open`, `forAgent`, `forChat`, `ended` and `view` query waits; `raise`, `settle`, `lapse` and `Objections` change them |
 | `gate.ts`, `gate/` | Tool admission, standing permissions and chief answers | `Gate`, `answer`, `answerWords` and `closeGate`; the hook uses the pure `rule` in `gate/rule.ts` |
 | `chats.ts`, `chats/` | Conversations, their deeds, configuration, turns, errands, reflection and follow-up work | `current`, `past`, `history`, `start`, `resume`, `carryOn`, `takeBack`, `stop`, `reflect` and `runErrand`; `Talk` supplies `Home.follow.settled` |
@@ -106,7 +106,7 @@ The structure test checks that boundary and forbids value-import cycles.
 | `limits.ts`, `limits/` | Hamlet limits and their editing | `LimitsSchema`, `parseLimits`, `limitsOf` and `editLimits` |
 | `models.ts`, `models/` | Model links, provider state, catalogue, settings, credentials' use and sign-ins | Home-owned `ModelHome` syncs, refreshes, edits, lists providers, signs in and checks connections; `models/faux.ts` supplies offline models |
 | `prompt.ts`, `prompt/` | Charter, character, notes, skills, hamlet brief and prompt inspection | `Prompt`, `HamletBrief`, `editCharter`, `charterOf` and `told` |
-| `tools.ts`, `tools/` | The six built-in file and shell tools, confined runs and tool failures | `Tools`, `runConfined`, `leaveFor` and `toolFailureText` |
+| `tools.ts`, `tools/` | The six built-in file and shell tools, confined runs and tool failures | `Tools`, `runConfined`, `leaveFor`, `toolFailureText` and `toolDefect` |
 | `hand.ts`, `hand/` | Tools added by hand, manifest parsing and watching | `Hand`, `parseManifest`, `manifestFaultText`, `reservedNames` and `ManifestsDoc` |
 | `say.ts` | Dispatch of the chief's typed line | `say` returns a receipt or typed chief failure, or admits agent work without an immediate outcome |
 | `server.ts`, `server/` | Protocol request routing, reads, edits, envelopes and sign-in sessions | `serveHome`; `server/envelope.ts` correlates, renders and scrubs receipts and failures with `replyFor` and `faultFor` |
@@ -115,7 +115,7 @@ The structure test checks that boundary and forbids value-import cycles.
 | `connection.ts` | Authenticated WebSocket transport and the connection defect path | `serve`, `connect` and `Client` |
 | `commands.ts` | The advertised command table and typed command parsing | `COMMANDS`, `readCommand` and `commandFailureText` |
 | `settings.ts` | Settings, environment overrides and pure model choice | `SettingsDoc`, `settingsOf`, `readOverrides`, `modelRef` and `choose` |
-| `change.ts` | Bounded edit previews | `changeOf`, `changeBetween` and `linesOf` |
+| `change.ts` | Bounded edit previews and text excerpts | `changeOf`, `changeBetween`, `linesOf` and Unicode `clip` |
 | `result.ts` | The shared success or failure shape | `Result`, `ok` and `err` |
 
 `git/` holds `proxy.ts` and `pktline.ts`; the proxy is not wired into the
@@ -123,8 +123,8 @@ server.
 
 The record's operations live in `record/membership.ts`, `roads.ts` and
 `office.ts`; `document.ts` holds the records and stable identities,
-`names.ts` their words, `refusals.ts` the refusal family and `tools.ts` the
-replay-safe tool wrappers. Agent lifecycle work composes these operations.
+`names.ts` their words and realm-wide name uniqueness, `refusals.ts` the
+refusal family and `tools.ts` the replay-safe tool wrappers. Agent lifecycle work composes these operations.
 Merge planning is in `agents/merge-plan.ts`, confined file application and
 journal recovery in `agents/merge-files.ts`, and tools, deeds and house
 holds in `agents/merging.ts`. Votes keep their durable phases in
@@ -138,7 +138,12 @@ to refuse new reflection approvals. Model and role configuration lives in
 `chats/configure.ts`; pure model selection lives in `settings.ts`.
 
 `Home.confinement` owns cached tool environments; `Home.houses` owns the
-read-only notes and skill readers and closes them with the home.
+read-only notes and skill readers and closes them with the home. `House.notes`
+returns a classified read; `House.notesText` supplies optional prompt text,
+and `House.build` constructs its house. `realm/founding.ts` owns the shared
+hamlet-count cap for founding and restoration. `sandbox/policy.ts` names
+process resource limits `executionLimits`; `limitsOf` belongs to hamlet
+limits.
 `Home.modelHome` owns model state; `Home.models` exposes its pi-ai models
 to the harness. `server/sign-in.ts` owns each client's interactive sign-in
 sessions and cancellation, using `ModelHome.login`.

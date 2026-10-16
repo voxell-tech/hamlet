@@ -7,12 +7,13 @@ import { expect, it } from "vitest";
 import { localDay } from "../src/home/clock.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RecordDoc, recordRefusalText } from "../src/record.ts";
-import { ledgerOf } from "../src/spend.ts";
+
 import { chat, mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,
     context,
     fauxModels,
+    ledgerOf,
     mayorChat,
     say,
     scratch,

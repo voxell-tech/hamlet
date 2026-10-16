@@ -81,12 +81,14 @@ with unreachable `never` checks; dispatch helpers delegate to them.
 | `NotesFailure` | `house/skills.ts` | `notesFailureText` |
 | `TreeFailure` | `house/trees.ts` | `treeFailureText` |
 | `GiftRefusal` | `house/gift-rules.ts` | `giftRefusalText`, including gift-specific tree wording |
-| `LibraryRefusal` | `library/librarian.ts` | `libraryRefusalText` |
+| `LibraryRefusal` (shelf removal and offer admission) | `library/librarian.ts` | `libraryRefusalText` |
 | `SettingsFailure` | `models/failure.ts` | `settingsFailureText` |
 | `CatalogueFailure` | `models/failure.ts` | `catalogueFailureText` |
 | `ProviderFailure` | `models/failure.ts` | `providerFailureText`, using `models/plainly.ts` for model and connection checks |
 | `LoginFailure` (including provider failures) | `models/failure.ts`, re-exported by `models/logins.ts` | `loginFailureText` |
 | `ModelFailure` (including provider failures) | `models/failure.ts`, re-exported by `models/check.ts` | `modelFailureText` |
+| `LimitsRefusal` | `limits/rules.ts` | `limitsRefusalText` |
+| `MoveFailure` (pending house recovery) | `realm/dealings.ts` | `moveFailureText` |
 | `SpendFailure` (hamlet or task cap) | `spend/afford.ts` | `spendFailureText` |
 | `ManifestFault` | `hand/manifests.ts` | `manifestFaultText` via its exhaustive `reasonText`; also accepts stored legacy strings |
 | `SearchFailure`, `RunFailure`, their union `ToolFailure` | `tools/failure.ts` | `toolFailureText` |
@@ -103,7 +105,8 @@ Small internal outcomes stay at their operation:
 - `letters.ts`'s `QuestionAdmission` carries a `question-cycle` refusal,
   rendered inline by `askAgent`.
 - `realm/dealings.ts`'s `AgreementResult` combines record and decision
-  refusals with `agreement-address`, rendered with `resolveFailureText`.
+  refusals with `MoveFailure` and `agreement-address`, rendered with
+  `moveFailureText` and `resolveFailureText`.
 - `library/librarian.ts`'s private `CleanupFailure` is rendered by
   `cleanupFailureText` after publication.
 - `chats/errands.ts`'s `ErrandOutcome` distinguishes `done` (with text) from
@@ -161,11 +164,19 @@ scrubbing before storage or display, including structured tool output,
 streamed and spilled output and protocol messages. `Home.secrets` reads the
 home's current credentials for each operation; its `words`, `value` and
 `shell` capabilities scrub text, structured values
-and shell output. The storage helpers `safeWords` and `safeValue` in
-`src/scrub.ts` use that same capability. Scrubbing does not make arbitrary
-provider text or private paths suitable to send. A stream must
-also scrub credentials split between chunks. Test the boundary's output,
+and shell output. Storage and display callers use that same capability.
+Scrubbing does not make arbitrary provider text or private paths suitable
+to send. A stream must also scrub credentials split between chunks. Test the boundary's output,
 not just the scrubber in isolation.
+
+Startup must establish its recovery invariants before accepting requests.
+If `clearStagedGifts` refuses, the gift area could not be reset to an empty
+server-owned stage. If a committed house move cannot finish, the recorded
+membership and its house are not reconciled. These are startup defects:
+startup stops with the existing rendered refusal, rather than accepting
+work in that state. During a running tool call, move recovery refusals
+remain `MoveFailure` values. Hamlet cleanup returns `TreeFailure` to its
+per-hamlet reporter and continues processing other hamlets.
 
 ## Errors read by an agent
 
@@ -173,7 +184,12 @@ A model reads a refused or failed tool call as part of its conversation.
 Tell it which operation failed, the relevant safe reason, and what it can
 do instead: correct an argument, read an existing path, ask a chief, or
 choose a permitted tool. State uncertain effects and retry safety here
-too. A bare exception name gives the agent no useful plan; automatic
+too. `tools/failure.ts`'s `toolDefect` logs a scrubbed private cause and
+throws a safe message retaining that cause. Librarian defects use this
+path because the harness includes thrown messages in model-visible tool
+errors. Expected offer refusals use `libraryRefusalText`.
+
+A bare exception name gives the agent no useful plan; automatic
 retries can repeat unsafe effects. Recovery advice must respect the gate,
 sandbox and the agent's permissions.
 

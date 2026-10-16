@@ -4,7 +4,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
 import { localDay } from "../src/home/clock.ts";
 import { houseOf } from "../src/home/layout.ts";
-import { ledgerOf } from "../src/spend.ts";
+
 import {
     agents,
     deed,
@@ -16,7 +16,7 @@ import {
 } from "./acceptance-support.ts";
 import { hamlet } from "./cli-support.ts";
 import { joined } from "./connection-support.ts";
-import { context, fauxAgents, scratch } from "./support.ts";
+import { context, fauxAgents, ledgerOf, scratch } from "./support.ts";
 
 vi.setConfig({ testTimeout: 30000 });
 

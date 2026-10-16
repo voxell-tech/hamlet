@@ -14,7 +14,7 @@ import { houseOf } from "../src/home/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RealmDoc } from "../src/realm.ts";
 import { decisionText, HOME, mayDecide } from "../src/record.ts";
-import { ledgerOf } from "../src/spend.ts";
+
 import {
     vote as callVoteDeed,
     overturn as overturnDeed,
@@ -30,6 +30,7 @@ import {
     deedWords,
     fauxAgents,
     fauxModels,
+    ledgerOf,
     livingAgents,
     mayorNumber,
     request as modelRequest,

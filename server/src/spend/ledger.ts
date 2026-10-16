@@ -421,20 +421,6 @@ export async function resetBudget(
     return "The budget starts again from here. What was spent before is kept in the ledger.";
 }
 
-/** The kept lines of one local day, including calls a rewind took out. */
-export async function ledgerOf(
-    home: Home,
-    hamlet: string,
-    day: string,
-    context: Context,
-): Promise<readonly LedgerLine[]> {
-    await reconcile(home, context);
-    return (
-        (await home.harness.snapshot(LedgerDoc, `${hamlet}/${day}`, context))
-            ?.lines ?? []
-    );
-}
-
 /** The price of a road charged to its hamlet and task (H3). */
 export async function chargeRoad(
     tx: Tx,

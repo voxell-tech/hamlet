@@ -12,7 +12,6 @@ export {
     chargeRoad,
     LedgerDoc,
     type LedgerLine,
-    ledgerOf,
     markUncounted,
     type RoadCharge,
     reconcile,

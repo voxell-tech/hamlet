@@ -5,9 +5,16 @@ import { describe, expect, it, vi } from "vitest";
 import { localDay } from "../src/home/clock.ts";
 import { HOME } from "../src/record.ts";
 import { SettingsDoc } from "../src/settings.ts";
-import { ledgerOf } from "../src/spend.ts";
+
 import { openaiFake } from "./openai-fake.ts";
-import { context, fauxModels, say, scratch, testHome } from "./support.ts";
+import {
+    context,
+    fauxModels,
+    ledgerOf,
+    say,
+    scratch,
+    testHome,
+} from "./support.ts";
 
 describe("the home's model providers", () => {
     it("retries a busy endpoint and keeps overrides out of the home", async () => {
