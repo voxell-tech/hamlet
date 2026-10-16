@@ -18,7 +18,7 @@ use anyhow::Result;
 use hamlet_home::Home;
 use hamlet_model::log::{self, Log, ToolRecord};
 use hamlet_model::provider::{CallRecord, Delta, Provider};
-use hamlet_rules::chief::rulings;
+use hamlet_rules::chief::{asking, rulings};
 use hamlet_rules::hamlet::{Hamlet, MAYOR, Resident};
 use hamlet_rules::realm::{Realm, Rules};
 use hamlet_rules::{budget, vote};
@@ -619,6 +619,11 @@ impl Agent {
                     degraded: outcome.degraded,
                     output: &outcome.output,
                 })?;
+                if call.name == rulings::ASK_CHIEF
+                    && let Some(said) = asking::said(&outcome.output)
+                {
+                    on(Event::Answered(said.to_string()));
+                }
                 self.messages.push(json!({"role": "tool", "tool_call_id": call.id, "content": outcome.output}));
             }
             if self.ballot.as_ref().is_some_and(|b| b.cast.is_some())

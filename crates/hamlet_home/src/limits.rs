@@ -235,7 +235,8 @@ pub struct Asking {
     /// Refusals in one turn after which an agent's further requests
     /// are refused without asking.
     pub refusals: u32,
-    /// Questions one turn may put to the chief.
+    /// Times one turn may ask the chief questions, each with several
+    /// at most.
     pub questions: u32,
 }
 

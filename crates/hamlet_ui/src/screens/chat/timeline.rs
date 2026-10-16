@@ -437,6 +437,10 @@ pub(super) fn timeline(
                             };
                             (by, owner)
                         }
+                        // The chief answered the agent's questions.
+                        Some(Entry::Answered(_)) => {
+                            (cast.chief(&me.user), owner)
+                        }
                         _ => (owner, other),
                     };
                     place(row, by, to, said_at(&transcript, first));

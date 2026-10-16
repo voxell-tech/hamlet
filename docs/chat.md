@@ -151,6 +151,63 @@ row shows are kept up to `picture_memory` bytes, the oldest dropped first.
 
 The limits are `[chat]` in `assets/ui.toml`.
 
+## Questions to the chief
+
+An agent asks the chief with `ask_chief`, and its turn waits for the
+answer. One call holds every question the agent has, so a skill that
+grills the chief asks them all at once:
+
+```json
+{"message": "Before I plan the shelf.",
+ "questions": [
+   {"question": "Paper or ebook?",
+    "description": "Shipping depends on it.",
+    "options": [{"title": "Paper", "description": "Three days"},
+                {"title": "Ebook"}],
+    "text_input": true}]}
+```
+
+A call has 1 to 10 questions, and a question at most 6 options with
+titles of its own. `description` is optional on a question and on an
+option. `text_input` lets the chief answer in words of their own and is
+true unless the agent says otherwise; a question with no options always
+takes words. A call of the older form, `{"question": "..."}`, is one
+question that takes words. `hamlet_rules/src/chief/asking.rs` reads and
+checks a call, and a call it refuses tells the agent why.
+
+**Where it is answered.** One card, `hamlet_ui/src/asking.rs`, is shown
+in Needs You and over the field of the chat with the agent that asked,
+and both read the same answers, so what is begun in one stands in the
+other. The card shows one question at a time, with "1 of 3" and the way
+between them at its head. The options are a list of rows, each with its
+letter, its title and its description, and the one picked is lit. A
+line under them, Other, takes words. Each question takes one option or
+words, not both, and picking an option moves on to the next question.
+SUBMIT, on the last question, sends the answers when each question has
+one, and otherwise shows the first without one. DISMISS tells the agent
+to go on with its best judgement.
+
+**The answer is the chief's reply.** The agent is given it as words, each
+question quoted over the option picked or the words typed:
+
+```
+The chief answers:
+> Paper or ebook?
+Paper
+```
+
+A line typed to the agent in the chat or the terminal still answers the
+whole card at once, as `The chief answers: ...`. The tool's description
+tells the agent not to write the questions in its reply too, and to take
+them as answered. In the chat the answer is a bubble of the chief's own,
+`Entry::Answered`, made from the `ask_chief` result both as it comes and
+when the log is read back. It has no mark to rewind to, since it is a
+tool's answer and not a message of the log. A card dismissed shows
+nothing.
+
+`[asking] questions` in `limits.toml` counts the calls of one turn, not
+the questions in them.
+
 ## What it costs
 
 The chat is put in order again only when a conversation's shape changes:

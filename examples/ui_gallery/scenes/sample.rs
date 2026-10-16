@@ -17,18 +17,19 @@ use hamlet_core::agents::{
 };
 use hamlet_core::core::HomeDir;
 use hamlet_core::oversight::danger::Danger;
-use hamlet_core::oversight::{Kind, Waiting};
+use hamlet_core::oversight::{Asks, Kind, Waiting};
 use hamlet_core::session::archive::Past;
 use hamlet_core::session::{
     ASKED, MAIL, SessionKey, TalksTo, Transcript,
 };
 use hamlet_home::Home;
 use hamlet_rules::budget::{AgentBudget, Amount};
+use hamlet_rules::chief::asking::Pick;
 use hamlet_rules::chief::rulings::Choice;
 use hamlet_ui::history::{History, Reading};
 use hamlet_ui::links::{Aimed, Roots};
 use hamlet_ui::{
-    Me, chat, history, inspector, menu, overview, welcome,
+    Me, asking, chat, history, inspector, menu, overview, welcome,
 };
 use hamlet_world::chief;
 use hamlet_world::pick::{Also, Selected, Thing};
@@ -307,6 +308,50 @@ pub(super) fn setup(world: &mut World) {
             ],
             session: Some(held),
         });
+        // Questions put the way a skill that grills the chief puts
+        // them.
+        let asked = hamlet_rules::chief::asking::read(
+            &json!({
+                "message": "Before I plan the orchard's winter.",
+                "questions": [
+                    {"question": "Which trees come first?",
+                     "description": "The frost reaches the low rows \
+                                     a week early.",
+                     "options": [
+                        {"title": "Pears",
+                         "description": "Bruise in the cold"},
+                        {"title": "Apples"},
+                        {"title": "Both",
+                         "description": "Takes two more days"}
+                     ]},
+                    {"question": "How much may the straw cost?",
+                     "description": "Per bale."}
+                ]
+            })
+            .to_string(),
+        )
+        .expect("questions");
+        // Asked in the open chat, so the chat shows the card too.
+        let open = world.get_resource::<Me>().map(|me| me.session);
+        let card = world
+            .spawn((
+                Waiting {
+                    id: "3".into(),
+                    kind: Kind::Question,
+                    by: "Juniper".into(),
+                    about: asked.about(),
+                    since: Instant::now(),
+                    order: 0,
+                    asked: 1,
+                    answers: vec![Choice::Reply, Choice::Dismiss],
+                    session: open,
+                },
+                Asks(asked),
+            ))
+            .id();
+        // The first answered, and shown again to see it picked.
+        asking::choose(world, card, 2, 0, Some(Pick::Offer(0)));
+        asking::turn(world, card, 2, 0);
     }
 }
 
@@ -408,6 +453,25 @@ fn second_talk() -> Transcript {
         json!({"type": "assistant", "message": {
         "content": "No note says when the pears were grafted, so I \
                     wrote this spring into the almanac as a guess."}}),
+    ));
+    // Questions the chief answered on a card.
+    let asked = json!({"questions": [
+        {"question": "Is this spring right?",
+         "options": ["Yes", "No"]},
+        {"question": "Who keeps the key to the press?"}]})
+    .to_string();
+    log.push(said(
+        7,
+        json!({"type": "assistant", "message": {"content": "",
+            "tool_calls": [{"id": "q", "function": {
+                "name": "ask_chief", "arguments": asked}}]}}),
+    ));
+    log.push(said(
+        8,
+        json!({"type": "tool", "name": "ask_chief", "exit_code": 0,
+            "output": "The chief answers:\n> Is this spring right?\n\
+                       No\n\n> Who keeps the key to the press?\nWren, \
+                       since the autumn fair"}),
     ));
     Transcript::from_log(&log)
 }

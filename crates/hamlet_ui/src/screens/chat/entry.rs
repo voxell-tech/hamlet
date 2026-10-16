@@ -205,6 +205,24 @@ pub(crate) fn entry_view(session: Entity, id: u64) -> AnyView {
                 .padding(UiRect::axes(px(12.0), px(0.0)))
                 .boxed()
             }
+            Some(Entry::Answered(_)) => column((
+                label("Your answer")
+                    .size(11.0)
+                    .bold(true)
+                    .tone(Tone::Faint)
+                    .tagged(DisplayText),
+                label(text(|e| match e {
+                    Entry::Answered(s) => s.clone(),
+                    _ => String::new(),
+                })),
+            ))
+            .gap(2.0)
+            .padding(UiRect::axes(px(12.0), px(8.0)))
+            .border(1.0)
+            .border_color(cx.theme().palette.brass_6)
+            .radius(cx.theme().space.round)
+            .fill(cx.theme().palette.card)
+            .boxed(),
             None => frame().boxed(),
         };
         cx.build(view)

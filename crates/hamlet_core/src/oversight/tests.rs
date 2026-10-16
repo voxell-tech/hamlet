@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use bevy_app::AppExit;
 use hamlet_home::Home;
 use hamlet_model::log;
+use hamlet_rules::chief::asking::Pick;
 use hamlet_rules::chief::rulings::{Choice, Party};
 use hamlet_rules::hamlet::MAYOR;
 use hamlet_sandbox::{Policy, Sandbox, Unsandboxed};
@@ -80,12 +81,14 @@ fn answer(app: &mut App, entity: Entity, choice: Choice, text: &str) {
 /// Everything that waits, oldest first.
 fn waits(world: &mut World) -> Vec<Need> {
     let mut rows = world
-        .query::<(Entity, &Waiting)>()
+        .query::<(Entity, &Waiting, Option<&Asks>)>()
         .iter(world)
         .collect::<Vec<_>>();
-    rows.sort_by_key(|(_, waiting)| waiting.order);
+    rows.sort_by_key(|(_, waiting, _)| waiting.order);
     rows.into_iter()
-        .map(|(entity, waiting)| Need::of(entity, waiting))
+        .map(|(entity, waiting, asks)| {
+            Need::of(entity, waiting, asks)
+        })
         .collect()
 }
 
@@ -694,9 +697,54 @@ fn an_agent_asks_the_chief_a_question_and_waits_for_the_reply() {
     assert!(queue(&mut app).is_empty());
     let told = told(&mayor_log(&home));
     assert_eq!(told[0], "The chief answers: paper");
-    assert!(
-        told[1].contains("asked the chief 1 questions"),
-        "{told:?}"
+    assert!(told[1].contains("asked the chief once"), "{told:?}");
+    session::shutdown(app.world_mut());
+}
+
+#[test]
+fn an_agent_asks_several_questions_and_hears_each_answer() {
+    let rt = Runtime::new().unwrap();
+    let (mut app, home) = app(
+        "questions",
+        &rt,
+        vec![
+            call(
+                "ask_chief",
+                json!({"questions": [
+                    {"question": "Paper or ebook?",
+                     "options": [{"title": "Paper", "description": "Ships"}, "Ebook"]},
+                    {"question": "Budget?"}
+                ]}),
+            ),
+            says("Paper, under 30."),
+        ],
+    );
+    say(&mut app, &with_mayor(), "order Dune");
+    let needs = waiting(&mut app, 1);
+    let asked = needs[0].questions.clone().unwrap();
+    assert_eq!(asked.questions.len(), 2);
+    assert!(needs[0].about.contains("a) Paper - Ships"));
+    let entity = needs[0].entity;
+    // Answers that leave a question out answer nothing.
+    app.world_mut().trigger(Answered {
+        entity,
+        picks: vec![Pick::Offer(0)],
+        chief: ALICE.into(),
+    });
+    app.world_mut().flush();
+    assert_eq!(queue(&mut app).len(), 1);
+    app.world_mut().trigger(Answered {
+        entity,
+        picks: vec![Pick::Offer(0), Pick::Words("under 30".into())],
+        chief: ALICE.into(),
+    });
+    app.world_mut().flush();
+    settle(&mut app, &with_mayor());
+    assert!(queue(&mut app).is_empty());
+    assert_eq!(
+        told(&mayor_log(&home))[0],
+        "The chief answers:\n> Paper or ebook?\nPaper\n\n> \
+         Budget?\nunder 30"
     );
     session::shutdown(app.world_mut());
 }

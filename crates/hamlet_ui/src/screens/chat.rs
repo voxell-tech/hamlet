@@ -33,7 +33,7 @@ use bevy::ui::{
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, label, overlay, row, text_field,
+    BehaviorExt, FrameProps, column, label, overlay, row, text_field,
 };
 use bevy_fynix::{ScopedExt, resource};
 use hamlet_core::agents;
@@ -364,7 +364,11 @@ pub fn message_bar() -> impl View {
     .grow(1.0)
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
-    row((field,)).gap(8.0).align(AlignItems::Center)
+    column((
+        crate::asking::in_chat(),
+        row((field,)).gap(8.0).align(AlignItems::Center),
+    ))
+    .gap(0.0)
 }
 
 #[cfg(test)]

@@ -44,4 +44,4 @@ In `hamlet_ui/src/`:
 
 `cargo run --example ui_gallery -- --scene controls --out <dir>` draws
 every control in each state. The scene `waiting` shows Needs You with
-something waiting.
+questions, an approval and an edit waiting.
