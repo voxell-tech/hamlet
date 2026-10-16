@@ -455,4 +455,5 @@ export {
     DEFAULT_WINDOW,
     protectedProvider,
 } from "./models/providers.ts";
+export { modelView } from "./models/state.ts";
 export { FileModelsStore } from "./models/store.ts";

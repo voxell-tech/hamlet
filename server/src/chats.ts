@@ -81,5 +81,6 @@ export {
     reflectEvery,
     requestReflection,
 } from "./chats/reflection.ts";
+export { chatState, chatStateDocs, conversationIds } from "./chats/state.ts";
 export { TaskDoc } from "./chats/tasks.ts";
 export { newTask, type Turn, turnOf } from "./chats/turn.ts";

@@ -54,6 +54,12 @@ export async function serveHome(
         home,
         (message) => server?.broadcast(home.secrets.value(message)),
         context,
+        (error) =>
+            console.error(
+                home.secrets.words(
+                    `hamlet: could not show the realm: ${String(error)}`,
+                ),
+            ),
     );
     // Each client's open chats, by the chat as it named them.
     const watching = new Map<Client, Map<string, ChatWatch>>();

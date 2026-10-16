@@ -48,3 +48,5 @@ export {
     resolveAddress,
     roadsOf,
 } from "./realm/roads.ts";
+
+export { type RealmState, realmView } from "./realm/state.ts";

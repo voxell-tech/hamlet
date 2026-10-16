@@ -16,15 +16,23 @@ const WORDS: Record<Doing, string> = {
     await: "Waiting for an agent's answer",
 };
 
+/** Committed work retained for one conversation when a state refresh is queued. */
+export type Work = Pick<
+    Activity,
+    "activity" | "saying" | "working" | "pending" | "faulted" | "consulting"
+>;
+
+/** A zero-step activity before the first committed work event. */
+export function activityOf(
+    doing: "rest" | "think" = "rest",
+): Agent["activity"] {
+    return { doing, doingWords: WORDS[doing], step: 0, failures: 0 };
+}
+
 /** The work and words of one conversation, folded only from committed events. */
 export class Activity {
     /** The current work step and its accumulated tool failures. */
-    activity: Agent["activity"] = {
-        doing: "rest",
-        doingWords: WORDS.rest,
-        step: 0,
-        failures: 0,
-    };
+    activity: Agent["activity"] = activityOf();
     /** The current visible text or reasoning fragment. */
     saying: Agent["saying"] = { text: "", thought: false };
     /** An active generation run in the committed conversation. */
@@ -211,12 +219,7 @@ export class Activity {
 
     private rest(): void {
         this.consulting = false;
-        this.activity = {
-            doing: "rest",
-            doingWords: WORDS.rest,
-            step: 0,
-            failures: 0,
-        };
+        this.activity = activityOf();
     }
     private think(): void {
         this.consulting = false;

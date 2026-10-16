@@ -31,6 +31,7 @@ operations separate from entries that compose parts.
 | realm | `realm/access.ts`, `realm/places.ts`, `realm/roads.ts` |
 | sandbox | `sandbox/policy.ts` |
 | spend | `spend/ledger.ts`, `spend/money.ts`, `spend/usage.ts` |
+| state | `state/activity.ts` |
 
 These leaves may value-import only each other, the shared entries
 `change.ts`, `commands.ts`, `connection.ts`, `protocol.ts`, `record.ts`,

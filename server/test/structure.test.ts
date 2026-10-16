@@ -33,6 +33,7 @@ const LEAVES = new Set([
     "spend/ledger.ts",
     "spend/money.ts",
     "spend/usage.ts",
+    "state/activity.ts",
 ]);
 const SHARED_ENTRIES = new Set([
     "change.ts",
