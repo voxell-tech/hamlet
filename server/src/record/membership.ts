@@ -400,7 +400,6 @@ export async function restore(
         given.selector,
     );
     if (!valid.ok) return valid;
-    const _limits = await tx.doc(LimitsDoc, hamlet, hamlet);
     const room = await roomFor(tx, hamlet, "restore");
     if (!room.ok) return room;
     if (entry.merge) {

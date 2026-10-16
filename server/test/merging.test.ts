@@ -83,7 +83,6 @@ it("merges houses, keeps clashes apart, inherits road use and leaves each charac
     const { home, kept, gone, put, get } = await pair();
     await addAgent(home, HOME, "poet");
     await home.harness.commit(async (tx) => {
-        const _r = await tx.doc(RecordDoc, HOME, HOME);
         for (const [a, b, messages] of [
             ["office", 1, 1],
             ["office", 2, 3],
@@ -866,3 +865,16 @@ const restore = deedWords(restoreDeed);
 
 const vote = deedWords(voteDeed);
 const overturn = deedWords(overturnDeed);
+
+it("records applied once the merge's files have been delivered", async () => {
+    const { home, put, get } = await pair();
+    await put(2, "found.txt", "Dune");
+    expect(await merge(home, deed, context)).toContain(
+        "Merged `scout` into `librarian`",
+    );
+    expect(await get(1, "found.txt")).toBe("Dune");
+    expect(
+        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive[0]
+            ?.merge?.applied,
+    ).toBe(true);
+});

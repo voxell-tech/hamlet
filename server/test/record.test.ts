@@ -209,3 +209,11 @@ it("preserves the model's error diagnostic when removal returns a refusal", asyn
         ],
     });
 });
+
+it("offers create_agent as replay safe", async () => {
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    const tools = (await (await mayorChat(home)).agent(context)).tools;
+    expect(tools.find((tool) => tool.name === "create_agent")?.replay).toBe(
+        "safe",
+    );
+});
