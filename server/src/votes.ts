@@ -17,7 +17,6 @@ import { newTask } from "./chats/turn.ts";
 import { untilAborted } from "./home/abort.ts";
 import type { Home, Part } from "./home.ts";
 import { LimitsDoc } from "./limits/rules.ts";
-import type { VoteView } from "./protocol.ts";
 import { isChief, liveHamlets, RealmDoc } from "./realm/places.ts";
 import { mayFound, removeHamlet } from "./realm.ts";
 import {
@@ -687,6 +686,3 @@ export {
     VotesDoc,
     voteViews,
 } from "./record.ts";
-
-/** A vote's public words. */
-export type VoteWords = VoteView;

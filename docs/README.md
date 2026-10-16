@@ -9,8 +9,9 @@ not built. What is left for later is kept outside this repository.
 
 1. [`../README.md`](../README.md): what Hamlet is and how to run it.
 2. [`tour.md`](tour.md): the map of the code. Where everything is, where to
-   change what, how a change travels from a typed line to the drawn world,
-   and how to see your work without a window.
+   change what, the server modules and their interfaces, how a change
+   travels from a typed line to the drawn world, and how to see your work
+   without a window.
 3. [`../AGENTS.md`](../AGENTS.md): the checks to run before a commit and
    the rules of working here.
 

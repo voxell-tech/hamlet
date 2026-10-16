@@ -67,41 +67,88 @@ They are porting references, described in [`core.md`](core.md):
 | `hamlet_rules` | Records and rules over them, without Bevy |
 | `hamlet_core` | Runtime plugins: agents, sessions, tools and oversight |
 
-The active runtime is `server/`, its own Node package. `src/protocol.ts`
-defines the wire shapes; `src/state.ts` and `src/transcript.ts` publish state
-and watched conversations; `src/server.ts` routes requests; `src/cli.ts`
-implements the `hamlet` command. Recorded faux sessions in
+## The server
+
+The active runtime is `server/`, its own Node package. Paths in this
+section are under `server/src/`. Recorded faux sessions in
 `server/test/frames/` are checked by the server tests and replayed by the
 Rust client tests.
 
-Each server concept has an entry `src/<name>.ts` and, when needed, its
-implementation in `src/<name>/`. Outside code imports the entry; internals
-import siblings and other entries. Entries use named re-exports, with no
+Each concept has an entry `<name>.ts` and, when needed, implementation
+files in `<name>/`. Outside code imports the entry; internals import
+siblings and other entries. Entries use named re-exports, with no
 `index.ts`. Tests stay flat in `server/test/` and may exercise internals.
-Shared dependency leaves and the legacy conversation core are explicit
-exceptions, listed in
+The directly importable dependency leaves and shared conversation core
+are listed in
 [`server/docs/coding-standards.md`](../server/docs/coding-standards.md#modules-and-folders).
-They are imported directly so that helpers do not load composed parts.
+Their value dependencies cannot reach composed entries, even indirectly.
+The structure test checks that boundary and forbids value-import cycles.
 
-`record` owns membership, names, local roads and the mayor's office.
-`agents` composes lifecycle tools, deeds and house work, `letters` peer
-exchanges, `votes` elections, `library` the shared shelf and `oversight`
-waits for a chief.
-`realm` owns places, founding, closing and agreements between hamlets.
-Their documents live with their owners; `record.ts` holds the hamlet
-record and stable agent identity. `home` composes the parts and owns the
-layout, credentials and clock. `house`, `environment`, `sandbox` and
-`scrub` own agent files, tool reach, confinement and credential scrubbing.
-`chats` owns conversations and their work; `spend`, `models` and `prompt`
-own the other turn capabilities. `hand` and `tools` install tools;
-`say` dispatches the chief's typed line. `protocol.ts`, `connection.ts`,
-`commands.ts`, `settings.ts`, `change.ts` and `result.ts` are shared leaves.
-`git/` holds the unwired proxy.
+| Entry and folder | Owns | Interface |
+|---|---|---|
+| `home.ts`, `home/` | Composition, layout, credentials, lock, clock and part lifetimes | `openHome` returns a `Home` with the harness and owned capabilities; `Part` installs work and its close handle |
+| `record.ts`, `record/` | Agent identity, membership, names, local roads, the office and votes' records | Transactional `admit`, `depart`, `restore`, `moveMember`, `layRoad`, `takeUpRoad`, `seat` and `mayDecide`; typed refusals and memoised mayor tools |
+| `agents.ts`, `agents/` | Agent creation and model choices, departure, restoration, erasure, merging and splitting | `Agents`, `Leaving`, `Merging` parts and the chief's agent and road deeds |
+| `realm.ts`, `realm/` | Places, chief access, addresses, founding, closing and agreements across hamlets | Realm deeds and views; `livingAgent` for chiefs and `resolveAddress` for tools |
+| `letters.ts`, `letters/` | Letters, questions, peer conversations and their counts | `Letters`, `askAgent`, `conversationViews` and `PeerStatistics` |
+| `votes.ts`, `votes/` | Calling votes, hearings, ballots and execution | `Votes`, `vote`, `votes`, `overturn` and `mayor`; record views re-exported from `record.ts` |
+| `library.ts`, `library/` | Shared skills, starters, librarian calls and publication | `Librarian`, `unshelve`, `libraryView`, `installStarters` and `libraryPart` |
+| `house.ts`, `house/` | House notes, skill papers, gifts and confined tree work | Home-owned `Houses.of` readers; `uploads`, `give`, `giftSkill`, `stage`, `deliver`, `list`, `remove` and `erase` |
+| `environment.ts`, `environment/` | Tool reach, cached environments, the work folder and its mode | `Confinement`, `agentEnv`, `houseReader`, `treeWorker`, `toolRunner`, `insideHouse`, `folder` and `setMode` |
+| `sandbox.ts`, `sandbox/` | File helpers and platform confinement with Seatbelt or bubblewrap | `SandboxEnv`, `Sandbox`, `platformSandbox` and `probeSandbox`; policies are built by `environment.ts` |
+| `scrub.ts`, `scrub/` | Credential scrubbing of stored text, values, streams and shell output | `secretsFrom` builds `Home.secrets`; `safeWords`, `safeValue`, `Scrubber` and `shellOutput` |
+| `oversight.ts`, `oversight/` | Waits, rulings, refusal history, trust, questions and objections | `open`, `forAgent`, `forChat`, `ended` and `view` query waits; `raise`, `settle`, `lapse` and `Objections` change them |
+| `gate.ts`, `gate/` | Tool admission, standing permissions and chief answers | `Gate`, `answer`, `answerWords` and `closeGate`; the hook uses the pure `rule` in `gate/rule.ts` |
+| `chats.ts`, `chats/` | Conversations, their deeds, configuration, turns, errands, reflection and follow-up work | `current`, `past`, `history`, `start`, `resume`, `carryOn`, `takeBack`, `stop`, `reflect` and `runErrand`; `Talk` supplies `Home.follow.settled` |
+| `transcript.ts`, `transcript/` | Watched and paged conversations, their item fold and read-only peers | `watchChat`, `pageChat`, `turnTools`, `agentConversation` and `requireWritable` |
+| `state.ts`, `state/` | Realm state and changes composed from owners' views, plus activity | `stateOf` and `watchState`; watch failures go to the supplied reporter |
+| `spend.ts`, `spend/` | Ledger, accounting, budgets, affordability and spend reports | `booksIn` counts within a transaction, `booksOf` reads through a commit, `canSpend` checks hamlet and task caps; `Budget`, `reportOf` and `chargeRoad` |
+| `limits.ts`, `limits/` | Hamlet limits and their editing | `LimitsSchema`, `parseLimits`, `limitsOf` and `editLimits` |
+| `models.ts`, `models/` | Model links, provider state, catalogue, settings, credentials' use and sign-ins | Home-owned `ModelHome` syncs, refreshes, edits, lists providers, signs in and checks connections; `models/faux.ts` supplies offline models |
+| `prompt.ts`, `prompt/` | Charter, character, notes, skills, hamlet brief and prompt inspection | `Prompt`, `HamletBrief`, `editCharter`, `charterOf` and `told` |
+| `tools.ts`, `tools/` | The six built-in file and shell tools, confined runs and tool failures | `Tools`, `runConfined`, `leaveFor` and `toolFailureText` |
+| `hand.ts`, `hand/` | Tools added by hand, manifest parsing and watching | `Hand`, `parseManifest`, `manifestFaultText`, `reservedNames` and `ManifestsDoc` |
+| `say.ts` | Dispatch of the chief's typed line | `say` returns a receipt or typed chief failure, or admits agent work without an immediate outcome |
+| `server.ts`, `server/` | Protocol request routing, reads, edits, envelopes and sign-in sessions | `serveHome`; `server/envelope.ts` correlates, renders and scrubs receipts and failures with `replyFor` and `faultFor` |
+| `cli.ts`, `cli/` | Serving, discovery, terminal clients, editor, sign-in and window launch | `main(argv, env, io)` returns an exit code on caller-owned streams; `server/bin/hamlet` invokes it |
+| `protocol.ts` | Protocol v0 schemas, types and parsing | `parseClient`, `parseServer`, `checkEdit`, `protocolSchema` and the shared transcript `applyOp` |
+| `connection.ts` | Authenticated WebSocket transport and the connection defect path | `serve`, `connect` and `Client` |
+| `commands.ts` | The advertised command table and typed command parsing | `COMMANDS`, `readCommand` and `commandFailureText` |
+| `settings.ts` | Settings, environment overrides and pure model choice | `SettingsDoc`, `settingsOf`, `readOverrides`, `modelRef` and `choose` |
+| `change.ts` | Bounded edit previews | `changeOf`, `changeBetween` and `linesOf` |
+| `result.ts` | The shared success or failure shape | `Result`, `ok` and `err` |
+
+`git/` holds `proxy.ts` and `pktline.ts`; the proxy is not wired into the
+server.
+
+The record's operations live in `record/membership.ts`, `roads.ts` and
+`office.ts`; `document.ts` holds the records and stable identities,
+`names.ts` their words, `refusals.ts` the refusal family and `tools.ts` the
+replay-safe tool wrappers. Agent lifecycle work composes these operations.
+Merge planning is in `agents/merge-plan.ts`, confined file application and
+journal recovery in `agents/merge-files.ts`, and tools, deeds and house
+holds in `agents/merging.ts`. Votes keep their durable phases in
+`votes/task.ts` and pure wording, tallying and evidence checks in
+`votes/words.ts`.
+
+Conversation deeds live in `chats/deeds.ts`; `chats/follow.ts` owns the
+follow pipeline and its close work. Call `Home.follow.settled` to wait for
+admitted follow-up work. Closing that part calls `gate.ts`'s `closeGate`
+to refuse new reflection approvals. Model and role configuration lives in
+`chats/configure.ts`; pure model selection lives in `settings.ts`.
+
+`Home.confinement` owns cached tool environments; `Home.houses` owns the
+read-only notes and skill readers and closes them with the home.
+`Home.modelHome` owns model state; `Home.models` exposes its pi-ai models
+to the harness. `server/sign-in.ts` owns each client's interactive sign-in
+sessions and cancellation, using `ModelHome.login`.
 
 The state includes departed agents, roads, votes and closed hamlets.
 Changes to the shelf, the closed list or the set of hamlets shrinking
 replace the whole state; the client reconciles it without losing surviving
 entities.
+
+## Inside the Rust crates
 
 Inside a crate, a module with several subjects is a file and a folder of
 the same name, and each file opens with a line saying what it holds. Read
@@ -136,21 +183,26 @@ repository root.
 | What an agent is told every turn | `server/src/prompt.ts`, `prompt/`; composition is in `home/parts.ts`; the charter is `server/assets/charter.md` |
 | The tools an agent has | `server/src/tools.ts`, `tools/`; the mayor's tools in `server/src/agents/mayor.ts` |
 | A chief's slash command | `server/src/commands.ts`; the server advertises supported deeds in `state.deeds` |
-| What needs the chief's approval | `server/src/gate.ts`, `gate/danger.ts`, `oversight.ts` |
-| What an agent's commands may touch | `server/src/sandbox/`, `environment.ts`; [`sandbox.md`](sandbox.md) describes the reach policy |
+| A conversation deed or follow-up work | `server/src/chats/deeds.ts`, `chats/follow.ts`; wait through `Home.follow.settled` |
+| Membership, names, road or office invariants | `server/src/record.ts`, `record/membership.ts`, `record/names.ts`, `record/roads.ts`, `record/office.ts` |
+| Chief-facing failure wording and reply kinds | `server/src/server/envelope.ts` chooses the owner's renderer and scrubs the envelope |
+| Notes, skill readers or gifts | `server/src/house.ts`, `house/skills.ts`, `house/gifts.ts`, `house/trees.ts`; readers belong to `Home.houses` |
+| The server command or terminal clients | `server/src/cli.ts` (`main`), `cli/`; `server/bin/hamlet` is the executable |
+| What needs the chief's approval | `server/src/gate.ts`, `gate/call.ts`, `gate/rule.ts`, `gate/standing.ts`; waits and queries in `oversight.ts` |
+| What an agent's commands may touch | `server/src/environment.ts` builds confinement; `sandbox.ts`, `sandbox/` run it; [`sandbox.md`](sandbox.md) describes the reach policy |
 | The folder a hamlet works on | `server/src/environment.ts`, `environment/work.ts`; the panel is `hamlet_ui/src/folder.rs` |
 | The workbench and its clockwork on a common | `hamlet_world/src/works.rs` |
-| Agents, roads and model choices | `server/src/agents.ts`, `agents/mayor.ts` |
+| Agents, roads and model choices | `server/src/agents.ts`, `agents/mayor.ts`; membership and road rules in `record/`, model choice in `settings.ts` |
 | Letters, questions and watching peer chats | `server/src/letters.ts`, `letters/peers.ts`, `transcript.ts`; `hamlet_ui/src/inspector/conversations.rs` |
-| Removal, merging and restoration | `server/src/agents.ts`, `agents/leaving.ts`, `agents/merging.ts`; `hamlet_client/src/realm.rs` supplies departure components |
-| Votes and the mayor's office | `server/src/votes.ts`; the window's `hamlet_ui/src/overview/record.rs` |
+| Removal, merging and restoration | `server/src/agents.ts`, `agents/leaving.ts`, `agents/merging.ts`, `agents/merge-plan.ts`, `agents/merge-files.ts`; `hamlet_client/src/realm.rs` supplies departure components |
+| Votes and the mayor's office | `server/src/votes.ts`, `votes/task.ts`, `votes/words.ts`; office rules and vote records in `record/office.ts`; the window's `hamlet_ui/src/overview/record.rs` |
 | The shared library | `server/src/library.ts`, `library/librarian.ts`; `hamlet_ui/src/inspector/gone.rs` |
 | Instructions and objections | `server/src/chats/instructions.ts`, `oversight/objections.ts` |
 | Founding, closing and dealings across hamlets | `server/src/realm/founding.ts`, `dealings.ts`; [`society.md`](society.md) |
-| Spending and limits | `server/src/spend.ts`, `spend/`, `limits.ts`, `limits/edit.ts` |
-| Models, their prices and who may run them | `server/src/models.ts`, `models/catalogue.ts`, `models/providers.ts` |
+| Spending and limits | `server/src/spend.ts`, `spend/afford.ts` (`canSpend`), `spend/ledger.ts` (`booksIn`); limits in `limits.ts`, `limits/edit.ts` |
+| Models, their prices and who may run them | `server/src/models.ts` (`ModelHome`), `models/catalogue.ts`, `models/providers.ts`; pure choice in `settings.ts` |
 | The model harness | `server/src/home.ts`, `chats/turn.ts`; pi-durable owns the model calls |
-| Signing in with ChatGPT to run models on the chief's plan | `server/src/models/logins.ts`, `home/credentials.ts`, `models/providers.ts` |
+| Signing in with ChatGPT to run models on the chief's plan | `server/src/server/sign-in.ts` for client sessions; `models.ts`, `models/logins.ts`, `home/credentials.ts` for providers and credentials |
 | A starter skill | `server/assets/starters/<name>/SKILL.md` |
 | The protocol or its Rust types | `server/src/protocol.ts`; export with `npm run schema`, then `cargo run -p hamlet_protocol_gen` |
 | Connection, reconnection or received components | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs` |
@@ -170,7 +222,7 @@ repository root.
 | The wizard or the Hearth | `hamlet_world/src/chief/`; [`chief.md`](chief.md) |
 | The window's saved layout, size and look | `hamlet_ui/src/remember.rs`, `window.rs`, `hamlet_world/src/chief/look.rs`; files under `HAMLET_VIEW` |
 | Final editor saves and closing the window | `hamlet_desktop/src/editor.rs`, `hamlet_ui/src/saving.rs`, `window.rs` |
-| The server's settings or chief documents | `server/src/settings.ts`, `server/reads.ts`, `server/edits.ts`; the panels send protocol requests |
+| The server's settings or chief documents | `server/src/settings.ts`, `server/src/server/reads.ts`, `server/src/server/edits.ts`; the panels send protocol requests |
 
 ## Tuning while the app runs
 

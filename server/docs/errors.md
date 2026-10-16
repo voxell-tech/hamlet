@@ -57,6 +57,59 @@ context from prose. Internal diagnostics may include the failing
 capability and a safe underlying cause. Keep the operation and request id
 available for tracing without recording secrets.
 
+## Failure families in the server
+
+`src/result.ts` owns `Result`, `ok` and `err`. Families live with the
+operation that establishes their facts; entries expose the public ones.
+Paths below are under `src/`. Family renderers handle kinds exhaustively
+with unreachable `never` checks; dispatch helpers delegate to them.
+
+| Family | Definition | Renderer |
+|---|---|---|
+| `ChiefRefusal` (the failure arm of `ChiefResult`) | `realm/access.ts` | `chiefRefusalText` |
+| `AddressFailure` (including chief access) | `realm/roads.ts` | `addressFailureText` |
+| `ResolveFailure` (tool addresses) | `realm/roads.ts` | `resolveFailureText` |
+| `RecordRefusal` (membership, roads, office, votes and realm deeds) | `record/refusals.ts` | `recordRefusalText`, with chief or agent audience |
+| `DecisionHeld` (an open vote) | `record/office.ts` | `decisionText`; `record/tools.ts`'s `toolText` dispatches this family and `RecordRefusal` for agents |
+| `ConversationFailure` | `chats/failure.ts` | `conversationFailureText` |
+| `WatchFailure` (including address and conversation failures) | `transcript/failure.ts` | `watchFailureText` |
+| `CommandFailure` | `commands.ts` | `commandFailureText` |
+| `Malformed` | `protocol.ts` | The envelope uses its parser-selected `text` |
+| `ConnectionFailure` (transport rejection or defect) | `connection.ts` | `connectionFailureText` |
+| `AnswerFailure` | `gate.ts` | `answerFailureText` |
+| `WorkFailure` (work-folder edits) | `environment/work.ts` | `workFailureText` |
+| `NotesFailure` | `house/skills.ts` | `notesFailureText` |
+| `TreeFailure` | `house/trees.ts` | `treeFailureText` |
+| `GiftRefusal` | `house/gift-rules.ts` | `giftRefusalText`, including gift-specific tree wording |
+| `LibraryRefusal` | `library/librarian.ts` | `libraryRefusalText` |
+| `SettingsFailure` | `models/failure.ts` | `settingsFailureText` |
+| `CatalogueFailure` | `models/failure.ts` | `catalogueFailureText` |
+| `ProviderFailure` | `models/failure.ts` | `providerFailureText`, using `models/plainly.ts` for model and connection checks |
+| `LoginFailure` (including provider failures) | `models/failure.ts`, re-exported by `models/logins.ts` | `loginFailureText` |
+| `ModelFailure` (including provider failures) | `models/failure.ts`, re-exported by `models/check.ts` | `modelFailureText` |
+| `SpendFailure` (hamlet or task cap) | `spend/afford.ts` | `spendFailureText` |
+| `ManifestFault` | `hand/manifests.ts` | `manifestFaultText` via its exhaustive `reasonText`; also accepts stored legacy strings |
+| `SearchFailure`, `RunFailure`, their union `ToolFailure` | `tools/failure.ts` | `toolFailureText` |
+| `LetterFailure` | `letters.ts` | `letterFailureText`, delegating refused addresses |
+
+Small internal outcomes stay at their operation:
+
+- `agents/merge-files.ts` owns `PrepareFailure`, its merge-specific
+  `NotesFailure`, and `PendingFiles`. `prepareText` delegates record and
+  tree refusals; `pendingText` renders journal recovery advice. Both use
+  the local `notesFailureText` for unreadable notes.
+- `agents/leaving.ts`'s private `EraseFailure` is translated inline into a
+  notice receipt by the erasure deed.
+- `letters.ts`'s `QuestionAdmission` carries a `question-cycle` refusal,
+  rendered inline by `askAgent`.
+- `realm/dealings.ts`'s `AgreementResult` combines record and decision
+  refusals with `agreement-address`, rendered with `resolveFailureText`.
+- `library/librarian.ts`'s private `CleanupFailure` is rendered by
+  `cleanupFailureText` after publication.
+- `chats/errands.ts`'s `ErrandOutcome` distinguishes `done` (with text) from
+  `failed`, `aborted` and `timeout` (with a reason); its caller chooses the
+  fallback or recovery words.
+
 ## The client boundary
 
 [`src/protocol.ts`](../src/protocol.ts) defines the public wire shapes.
@@ -76,14 +129,26 @@ diagnostic stream. Server wording is therefore chief-facing copy, not a
 debug log. Preserve request correlation so clients can place the failure
 beside the action that caused it.
 
-`src/server/envelope.ts` translates returned chief failures into replies
-or faults and scrubs each envelope once. Its exhaustive switch delegates
-wording to the owning family. A thrown handler error reaches the
-connection as a defect: the server logs its cause with the request id and
-sends a correlated fault. Detached handler work uses the same defect path.
-Narrow compatibility catches at owner calls retain error replies for
-unclassified refusals. Typed conversation commands and typed answers retain
-their notice receipts for those refusals. Scrubbing stays in the envelope.
+`src/server/envelope.ts` is the single policy point for chief-facing reply
+and fault wording, reply kinds, request correlation and envelope scrubbing.
+Its `ChiefFailure` union collects the chief-facing families above;
+`replyFor` and `faultFor` use an exhaustive kind switch to select the
+owning renderer, then call `Home.secrets.value` once. Successful receipts
+are correlated and scrubbed there too. The wire never exposes the failure
+union itself.
+
+The envelope preserves the boundary's notice policies: typed conversation
+refusals are notices while their protocol equivalents are errors; command
+usage chooses notice or error by command; provider failures during model
+checks are notices, and sign-in failures are errors. `say` turns an
+unavailable typed answer into a notice receipt. Sign-in progress is a
+separate protocol message: `server/sign-in.ts` uses `loginFailureText` and
+scrubs progress with both current credentials and that session's secrets.
+
+A thrown handler error reaches the connection as a defect: the server
+logs its scrubbed cause with the request id and sends a correlated fault
+through `faultFor`. Detached handler work uses `Client.fail` for that same
+path. Expected refusals return typed outcomes rather than entering it.
 
 Translate internal errors deliberately before sending them. Keep richer
 diagnostics on the server, subject to the same rules about safe data.

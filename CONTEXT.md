@@ -55,7 +55,25 @@ letters.
 A message one agent sends another along a road.
 _Avoid_: mail, DM
 
+### Deeds and answers
+
+**Deed**:
+An action a chief asks the hamlet to carry out.
+
+**Refusal**:
+An answer saying why an action cannot be carried out.
+
+**Receipt**:
+An acknowledgement that a chief's request was handled.
+
 ### Decisions and memory
+
+**Record**:
+A hamlet's account of its agents, departures, roads and mayor's office,
+and the decisions that changed them.
+
+**Decision**:
+A choice by a mayor or a chief, kept in the record with its reason.
 
 **Vote**:
 A hamlet's agents deciding whether to replace its mayor or found another

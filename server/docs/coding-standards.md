@@ -37,19 +37,24 @@ operations separate from entries that compose parts.
 | state | `state/activity.ts` |
 | votes | `votes/words.ts` |
 
-These leaves may value-import only each other, the shared entries
+The shared conversation core is also directly importable:
+`chats/conversations.ts`, `chats/errands.ts`, `chats/configure.ts` and
+`chats/documents.ts`. The value-dependency closure of these leaves and
+that core may contain only other leaves, the core, and the shared entries
 `change.ts`, `commands.ts`, `connection.ts`, `protocol.ts`, `record.ts`,
-`result.ts`, `sandbox.ts`, `scrub.ts`, `settings.ts`, and the legacy shared
-conversation core: `chats/conversations.ts`, `chats/errands.ts`,
-`chats/configure.ts`, `chats/documents.ts`. That core is also directly importable
-and follows the same dependency rule. Type-only imports may reach the
-owning entries. Shared entries and their folders follow the same leaf rule. Only `cli/serving.ts` value-imports the composition root
-`home.ts`; home helpers are imported from their leaves.
+`result.ts`, `sandbox.ts`, `scrub.ts`, `settings.ts` or files
+under those entries' folders. Entry boundaries still apply to direct
+imports. The restriction applies transitively, including shared-entry
+internals. Type-only imports of owning entries are allowed. Only
+`cli/serving.ts` value-imports the composition root `home.ts`; home helpers
+are imported from their leaves.
 
-`test/structure.test.ts` checks these paths and the value-import graph,
-including named re-exports, side-effect imports and literal dynamic
-imports. Value-import cycles are forbidden; dependency leaves keep composed
-entries out of the value graph.
+`test/structure.test.ts` checks module folders, entry boundaries and the
+transitive leaf rule. Its source graph includes named re-exports,
+side-effect imports and literal dynamic imports. Declaration-level
+`import type` and `export type` create no value edge; inline `type`
+specifiers still do under Node's type stripping. Value-import cycles,
+including self-imports, are checked against an empty allowlist.
 
 ## Check values according to their source
 
