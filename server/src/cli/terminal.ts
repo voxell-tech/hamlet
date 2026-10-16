@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,6 +14,7 @@ import {
 import { HOME, MAYOR } from "../record.ts";
 import { connectChief, type ServerAddress } from "./client.ts";
 import type { CommandIO } from "./io.ts";
+import { startProcess } from "./process.ts";
 
 /** The chief documents accepted by the terminal's edit command. */
 export const DOCUMENTS = [
@@ -185,19 +185,16 @@ async function inEditor(
     );
     try {
         await writeFile(path, text, { mode: 0o600 });
-        const child = spawn(
+        const child = startProcess(
             "sh",
             ["-c", `exec ${editor} "$1"`, "hamlet-edit", path],
-            { env, stdio: "pipe" },
+            env,
+            io,
         );
-        io.stdin.pipe(child.stdin);
-        child.stdout.pipe(io.stdout, { end: false });
-        child.stderr.pipe(io.stderr, { end: false });
         const exit = await new Promise<number | string>((resolve, reject) => {
             child.once("error", reject);
             child.once("exit", (code, signal) => resolve(code ?? signal ?? ""));
         });
-        io.stdin.unpipe(child.stdin);
         if (exit !== 0)
             throw new Error(
                 `The editor ended with ${exit}. Nothing was saved.`,

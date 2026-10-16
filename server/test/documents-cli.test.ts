@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { inProcess as hamlet, server } from "./cli-support.ts";
+import { inProcess as hamlet, server, tty } from "./cli-support.ts";
 import { scratch } from "./support.ts";
 
 function editor(code: string) {
@@ -120,4 +120,21 @@ it("saves nothing when EDITOR fails and removes its private temporary document",
     const next = editor("");
     expect(await hamlet(["edit", "notes"], home, "", next).ended).toBe(0);
     expect(readFileSync(next.seen, "utf8")).toBe("# Notes\n");
+});
+
+it("gives a terminal editor the chief's terminal on stdin and stdout", async () => {
+    const home = scratch();
+    await server(home, { responses: [] });
+    const script = join(scratch(), "terminal-editor.sh");
+    writeFileSync(
+        script,
+        "[ -t 0 ] && echo stdin-tty || echo stdin-not-tty\n[ -t 1 ] && echo stdout-tty || echo stdout-not-tty\n",
+    );
+    const result = await tty(["edit", "charter"], home, [], {
+        EDITOR: `/bin/sh ${script}`,
+    });
+    expect(result.code).toBe(0);
+    expect(result.output).toContain("stdin-tty");
+    expect(result.output).toContain("stdout-tty");
+    expect(result.output).not.toContain("not-tty");
 });
