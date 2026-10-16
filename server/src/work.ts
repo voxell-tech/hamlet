@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import { WorkDoc } from "./hamlet.ts";
+
 import type { Home } from "./home.ts";
 import { RecordDoc } from "./record.ts";
 import { canon, isDir, within } from "./sandbox/policy.ts";
@@ -92,3 +92,21 @@ export async function setMode(
         (working ? "" : " It counts once this hamlet works on a folder.")
     );
 }
+
+import { defineDocFamily } from "@earendil-works/pi-durable";
+
+/** The folder a hamlet works on, those it worked on before, and whether its agents ask before changing it (C20, C21). */
+export type Work = {
+    folder: string | null;
+    mode: "manual" | "auto";
+    before: string[];
+};
+
+/** Each hamlet's work, by hamlet id. */
+export const WorkDoc = defineDocFamily<Work, string>({
+    kind: "hamlet.work",
+    version: 1,
+    scope: "session",
+    family: true,
+    initial: () => ({ folder: null, mode: "manual", before: [] }),
+});

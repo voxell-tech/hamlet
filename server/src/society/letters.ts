@@ -27,7 +27,6 @@ import {
     WithDoc,
 } from "../chats.ts";
 import { PayerDoc } from "../errands.ts";
-import { type AgentRef, agentKey } from "../hamlet.ts";
 import type { Home, Part } from "../home.ts";
 import { untilAborted } from "../home.ts";
 import { LimitsDoc } from "../limits.ts";
@@ -43,7 +42,13 @@ import {
     resolve,
     roadsOf,
 } from "../realm.ts";
-import { addressOf, type HamletRecord, RecordDoc } from "../record.ts";
+import {
+    type AgentRef,
+    addressOf,
+    agentKey,
+    type HamletRecord,
+    RecordDoc,
+} from "../record.ts";
 import { TaskDoc } from "../tasks.ts";
 import { turnOf } from "../turn.ts";
 import { PeersDoc } from "./docs.ts";

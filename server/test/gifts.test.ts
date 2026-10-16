@@ -10,10 +10,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { ChatDoc } from "../src/chats.ts";
-import { HOME } from "../src/hamlet.ts";
 import type { Home } from "../src/home.ts";
 import { houseOf } from "../src/home.ts";
-import { RecordDoc } from "../src/record.ts";
+import { HOME, RecordDoc } from "../src/record.ts";
 import { say } from "../src/say.ts";
 import { context, fauxModels, MAYOR, scratch, testHome } from "./support.ts";
 

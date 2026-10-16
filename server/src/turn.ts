@@ -16,7 +16,7 @@ import {
     ReplyEntry,
     RetryEntry,
 } from "./chats.ts";
-import type { AgentRef } from "./hamlet.ts";
+import type { AgentRef } from "./record.ts";
 
 /** A turn: the run one input starts, until its answer. */
 export type Turn = {

@@ -1,6 +1,6 @@
 import type { Context } from "@earendil-works/chord";
-import type { Home } from "./home.ts";
-import { isChief, RealmDoc } from "./realm.ts";
+import type { Home } from "../home.ts";
+import { isChief, RealmDoc } from "./places.ts";
 
 /** A refused chief operation, safe to repeat after the named recovery. */
 export type ChiefRefusal = {

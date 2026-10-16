@@ -139,7 +139,7 @@ describe("reflection", () => {
         ).toHaveLength(1);
         expect(faux.state.callCount).toBe(4);
         const { ChatDoc } = await import("../src/chats.ts");
-        const { agentKey } = await import("../src/hamlet.ts");
+        const { agentKey } = await import("../src/record.ts");
         const key = agentKey(MAYOR);
         expect(
             (await reopened.harness.snapshot(ChatDoc, key, context))?.chats[
@@ -223,7 +223,7 @@ it("bounds shutdown reflection at 120 seconds and resumes the same submission af
     ).toHaveLength(1);
     expect(faux.state.callCount).toBe(3);
     const { ChatDoc } = await import("../src/chats.ts");
-    const { agentKey } = await import("../src/hamlet.ts");
+    const { agentKey } = await import("../src/record.ts");
     expect(
         (await reopened.harness.snapshot(ChatDoc, agentKey(MAYOR), context))
             ?.chats[CHIEF]?.reflections,

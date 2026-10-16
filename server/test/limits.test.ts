@@ -2,9 +2,9 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { describe, expect, it } from "vitest";
-import { HOME } from "../src/hamlet.ts";
 import { editLimits } from "../src/limits/edit.ts";
 import { LimitsDoc } from "../src/limits.ts";
+import { HOME } from "../src/record.ts";
 import { context, fauxModels, scratch, testHome } from "./support.ts";
 
 describe("a chief's limits", () => {

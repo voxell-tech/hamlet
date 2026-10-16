@@ -8,8 +8,8 @@ import {
     type Tx,
 } from "@earendil-works/pi-durable";
 import type { ChatId, With } from "./chats.ts";
-import type { AgentRef } from "./hamlet.ts";
 import { localDay, untilAborted } from "./home.ts";
+import type { AgentRef } from "./record.ts";
 
 export type WaitKind = "approval" | "fault" | "question" | "objection";
 

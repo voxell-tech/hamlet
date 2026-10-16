@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { connect } from "../src/connection.ts";
 import { FAUX_MODEL } from "../src/faux.ts";
-import { HOME } from "../src/hamlet.ts";
 import { openHome } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import type { Item } from "../src/protocol.ts";
+import { HOME } from "../src/record.ts";
 import { hamlet, server } from "./cli-support.ts";
 import { closeAfter, context, fauxModels, scratch } from "./support.ts";
 

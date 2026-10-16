@@ -3,12 +3,10 @@ import type { Static, TSchema } from "@earendil-works/pi-ai";
 import {
     type DocumentReader,
     defineDoc,
-    defineDocFamily,
     defineTool,
     type ToolRegistration,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { type AgentRef, FOUNDER, MAYOR } from "./hamlet.ts";
 
 /** An agent as its hamlet's record keeps it (C9). */
 export type AgentRecord = {
@@ -244,4 +242,48 @@ export function defineRecordTool<P extends TSchema>(tool: {
             return { output: [{ type: "text", text }] };
         },
     });
+}
+
+import { defineDocFamily } from "@earendil-works/pi-durable";
+
+/** The id of the first hamlet. */
+export const HOME = "home";
+
+/** The address of the mayor's office: it reaches whoever holds it (H27). */
+export const MAYOR = "mayor";
+
+/** The name of the first mayor. */
+export const FOUNDER = "founder";
+
+/** An agent, by its hamlet and its number in the hamlet's record (C9). */
+export type AgentRef = {
+    hamlet: string;
+    number: number;
+};
+
+/** The key of an agent's member in a family of documents kept per agent. */
+export function agentKey(agent: AgentRef): string {
+    return `${agent.hamlet}:${agent.number}`;
+}
+
+/** An agent name normalized from a model's spelling (C10). */
+export function tidyName(name: string): string {
+    let tidy = "";
+    for (const c of name.trim()) {
+        if (/[A-Z]/.test(c) && /[a-z]$/.test(tidy)) tidy += "-";
+        if (c === " " || c === "_" || c === "-") {
+            if (!tidy.endsWith("-")) tidy += "-";
+        } else tidy += c.replace(/[A-Z]/g, (c) => c.toLowerCase());
+    }
+    return tidy.replace(/^-+|-+$/g, "");
+}
+
+/** Validation of an agent's name (C10). */
+export function checkName(name: string): void {
+    if (!/^[a-z-]{1,24}$/.test(name))
+        throw new Error(
+            "a name is 1 to 24 lowercase letters and hyphens, such as `librarian`",
+        );
+    if ([MAYOR, FOUNDER, "all"].includes(name))
+        throw new Error(`\`${name}\` is reserved`);
 }

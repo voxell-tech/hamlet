@@ -19,7 +19,6 @@ const ALLOWLIST = new Set<string>([
     "money.ts",
     "protocol.ts",
     "providers.ts",
-    "realm/founding.ts",
     "reflection.ts",
     "report.ts",
     "sandbox/env.ts",

@@ -4,8 +4,8 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "vitest";
-import { HOME } from "../src/hamlet.ts";
 import { LimitsDoc } from "../src/limits.ts";
+import { HOME } from "../src/record.ts";
 import { reportOf } from "../src/report.ts";
 import { told } from "../src/told.ts";
 import {

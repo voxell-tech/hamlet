@@ -22,12 +22,11 @@ import {
 import { expect, it, vi } from "vitest";
 import { CharacterDoc } from "../src/character.ts";
 import { submitLine, WithDoc } from "../src/chats.ts";
-import { agentKey, HOME } from "../src/hamlet.ts";
 import { houseOf } from "../src/home.ts";
 import { InstructionsDoc } from "../src/instructions.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { resolve, roadsOf } from "../src/realm.ts";
-import { RecordDoc } from "../src/record.ts";
+import { agentKey, HOME, RecordDoc } from "../src/record.ts";
 import { erase, remove, restore } from "../src/society/leaving.ts";
 import { merge } from "../src/society/merging.ts";
 import { overturn, vote } from "../src/society/votes.ts";

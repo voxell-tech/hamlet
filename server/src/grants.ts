@@ -1,6 +1,6 @@
 import { defineDoc, type Tx } from "@earendil-works/pi-durable";
-import { type AgentRef, agentKey } from "./hamlet.ts";
 import type { Limits } from "./limits.ts";
+import { type AgentRef, agentKey } from "./record.ts";
 
 export type Permission = "network" | "unconfined";
 

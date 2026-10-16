@@ -4,19 +4,19 @@ import { catalogueOf } from "./catalogue.ts";
 import { CharacterDoc } from "./character.ts";
 import { CharterDoc, charterOf } from "./charter.ts";
 import { chatOf } from "./chats.ts";
-import {
-    type ChiefResult,
-    chiefAccess,
-    chiefRefusalText,
-} from "./chief-access.ts";
 import { envFor } from "./environment.ts";
-import { type AgentRef, agentKey } from "./hamlet.ts";
 import { historyOf } from "./history.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { refreshModels } from "./models.ts";
 import type { Address, Listed, Read, ReadResult, Reply } from "./protocol.ts";
-import { resolve } from "./realm.ts";
+import {
+    type ChiefResult,
+    chiefAccess,
+    chiefRefusalText,
+    resolve,
+} from "./realm.ts";
+import { type AgentRef, agentKey } from "./record.ts";
 import { houseSkills } from "./skills.ts";
 import { told } from "./told.ts";
 

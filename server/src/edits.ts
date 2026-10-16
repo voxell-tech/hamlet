@@ -4,9 +4,7 @@ import { editCatalogue } from "./catalogue.ts";
 import { CharacterDoc } from "./character.ts";
 import { editCharter } from "./charter.ts";
 import { chatOf } from "./chats.ts";
-import { type ChiefResult, chiefAccess } from "./chief-access.ts";
 import { envFor } from "./environment.ts";
-import { agentKey } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { editLimits } from "./limits/edit.ts";
@@ -14,6 +12,8 @@ import { editSettings } from "./models.ts";
 import { safeWords } from "./plainly.ts";
 import type { Edit } from "./protocol.ts";
 import { readableAgent } from "./reads.ts";
+import { type ChiefResult, chiefAccess } from "./realm.ts";
+import { agentKey } from "./record.ts";
 
 /** A chief's validated document edit, applied before its reply (S6). */
 export async function edit(

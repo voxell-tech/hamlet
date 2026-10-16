@@ -6,10 +6,9 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it } from "vitest";
 import { CharacterDoc } from "../src/character.ts";
-import { agentKey } from "../src/hamlet.ts";
 import { houseOf } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
-import { RecordDoc } from "../src/record.ts";
+import { agentKey, RecordDoc } from "../src/record.ts";
 import {
     context,
     fauxModels,

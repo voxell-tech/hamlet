@@ -11,10 +11,9 @@ import {
 import { connect } from "node:net";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { HOME } from "../src/hamlet.ts";
 import { openHome } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
-import { addressed, addressOf, RecordDoc } from "../src/record.ts";
+import { addressed, addressOf, HOME, RecordDoc } from "../src/record.ts";
 import { SettingsDoc, settingsOf } from "../src/settings.ts";
 import { context, fauxModels, scratch, testHome } from "./support.ts";
 

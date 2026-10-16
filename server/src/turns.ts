@@ -31,12 +31,6 @@ import {
     RetryEntry,
     WithDoc,
 } from "./chats.ts";
-import {
-    type ChiefResult,
-    chiefAccess,
-    chiefRefusalText,
-} from "./chief-access.ts";
-import { agentKey } from "./hamlet.ts";
 import { usageOf } from "./history.ts";
 import type { Home } from "./home.ts";
 import { NoticeEntry } from "./notice.ts";
@@ -49,7 +43,8 @@ import type {
     Transcript,
     UsageView,
 } from "./protocol.ts";
-import { addressed, RecordDoc } from "./record.ts";
+import { type ChiefResult, chiefAccess, chiefRefusalText } from "./realm.ts";
+import { addressed, agentKey, RecordDoc } from "./record.ts";
 import { Scrubber } from "./scrub.ts";
 
 /** Characters of a tool's arguments a transcript shows (agent/event.rs:10). */

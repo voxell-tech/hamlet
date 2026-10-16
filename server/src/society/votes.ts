@@ -29,14 +29,26 @@ import {
 } from "../chats.ts";
 import { reconfigure } from "../choice.ts";
 import { ErrandDoc, runErrand, startErrand } from "../errands.ts";
-import { type AgentRef, agentKey } from "../hamlet.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { houseOf, untilAborted } from "../home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
 import { notify } from "../notice.ts";
-import { foundHamlet, mayFound, removeHamlet } from "../realm/founding.ts";
-import { chiefsOf, isChief, liveHamlets, RealmDoc } from "../realm.ts";
-import { type HamletRecord, named, RecordDoc } from "../record.ts";
+import {
+    chiefsOf,
+    foundHamlet,
+    isChief,
+    liveHamlets,
+    mayFound,
+    RealmDoc,
+    removeHamlet,
+} from "../realm.ts";
+import {
+    type AgentRef,
+    agentKey,
+    type HamletRecord,
+    named,
+    RecordDoc,
+} from "../record.ts";
 import { SandboxEnv } from "../sandbox/env.ts";
 import { closedPolicy } from "../sandbox/reach.ts";
 import { newTask } from "../turn.ts";

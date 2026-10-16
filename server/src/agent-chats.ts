@@ -1,10 +1,9 @@
 import type { Context } from "@earendil-works/chord";
 import type { Conversation } from "@earendil-works/pi-durable";
-import { type ChiefResult, chiefAccess } from "./chief-access.ts";
-import { type AgentRef, agentKey } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import type { Agent, ChatRef } from "./protocol.ts";
-import { resolve } from "./realm.ts";
+import { type ChiefResult, chiefAccess, resolve } from "./realm.ts";
+import { type AgentRef, agentKey } from "./record.ts";
 import { PeersDoc } from "./society/docs.ts";
 
 type PeerView = NonNullable<Agent["conversations"]>[number];

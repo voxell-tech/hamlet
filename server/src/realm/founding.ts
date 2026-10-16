@@ -14,22 +14,23 @@ import { reconfigure } from "../choice.ts";
 import { agentOf } from "../errands.ts";
 import { removeHouse } from "../gift-files.ts";
 import { GrantsDoc, grantsOf, revoke } from "../grants.ts";
-import { agentKey, checkName, HOME, WorkDoc } from "../hamlet.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { buildHouse } from "../home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
 import { notify } from "../notice.ts";
 import {
-    chiefsOf,
-    liveHamlets,
-    type Realm,
-    RealmDoc,
-    realmRoads,
-} from "../realm.ts";
-import { defineRecordTool, RecordDoc } from "../record.ts";
+    agentKey,
+    checkName,
+    defineRecordTool,
+    HOME,
+    RecordDoc,
+} from "../record.ts";
 import { stopAgent } from "../talk.ts";
 import { lapseAgent } from "../waits.ts";
+import { WorkDoc } from "../work.ts";
 import { awaiting } from "./dealings.ts";
+import { chiefsOf, liveHamlets, type Realm, RealmDoc } from "./places.ts";
+import { realmRoads } from "./roads.ts";
 
 /** The realm's founding and closing tools and prompt. */
 export const Founding: Part = (home) => {
@@ -222,6 +223,7 @@ export const Founding: Part = (home) => {
     };
 };
 
+/** Founds a hamlet for the chief and builds its mayor's house. */
 export const found: Deed = async (home, given, context) => {
     const [hamlet = "", mayor = "", ...purpose] = given.rest
         .trim()
@@ -240,12 +242,14 @@ export const found: Deed = async (home, given, context) => {
     await buildHouse(home.layout, { hamlet, number: 0 });
     return `The hamlet \`${hamlet}\` is founded under the mayor \`${mayor}\`, and it is yours. /hamlet ${hamlet} talks to it.`;
 };
+/** Lists the realm's living hamlets by title and id. */
 export const hamlets: Deed = async (home, _given, context) => {
     const realm = await home.harness.snapshot(RealmDoc, context);
     return liveHamlets(realm)
         .map((h) => `- ${h.title ?? h.id} (\`${h.id}\`)`)
         .join("\n");
 };
+/** Sets or clears a chief-controlled hamlet's displayed title. */
 export const nameHamlet: Deed = async (home, given, context) => {
     const [id = "", ...words] = given.rest.trim().split(/\s+/);
     const title = words.join(" ");
@@ -256,6 +260,7 @@ export const nameHamlet: Deed = async (home, given, context) => {
     }, context);
     return `The hamlet \`${id}\` is shown as ${title || id}.`;
 };
+/** Sets a chief-controlled hamlet's position in the world. */
 export const moveHamlet: Deed = async (home, given, context) => {
     const [id = "", x, z, extra] = given.rest.trim().split(/\s+/);
     if (
@@ -274,6 +279,7 @@ export const moveHamlet: Deed = async (home, given, context) => {
     }, context);
     return `The town of \`${id}\` is set down at ${x}, ${z}.`;
 };
+/** Archives a chief-controlled hamlet and finishes its pending house work. */
 export const removeHamletDeed: Deed = async (home, given, context) => {
     const [hamlet = "", ...reason] = given.rest.trim().split(/\s+/);
     await home.harness.commit(async (tx) => {
@@ -287,6 +293,7 @@ export const removeHamletDeed: Deed = async (home, given, context) => {
     await finish(home, context);
     return `The hamlet \`${hamlet}\` was removed and its houses archived.`;
 };
+/** Restores a chief-controlled hamlet and its recorded agents and roads. */
 export const restoreHamlet: Deed = async (home, given, context) => {
     const id = given.rest.trim();
     await home.harness.commit(async (tx) => {

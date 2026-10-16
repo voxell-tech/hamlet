@@ -30,24 +30,23 @@ import { reconfigure } from "../choice.ts";
 import { PayerDoc } from "../errands.ts";
 import { removeHouse } from "../gift-files.ts";
 import { GrantsDoc, grantsOf, revoke } from "../grants.ts";
-import { type AgentRef, agentKey, HOME } from "../hamlet.ts";
 import type { Home, Part } from "../home.ts";
 import { houseOf } from "../home.ts";
 import { InstructionsDoc } from "../instructions.ts";
 import { LimitsDoc } from "../limits.ts";
 import { notify } from "../notice.ts";
+import { type AgentRef, agentKey, HOME, RecordDoc } from "../record.ts";
+import { AgentConversationsDoc, PeersDoc, VotesDoc } from "../society/docs.ts";
+import { askAgent } from "../society/letters.ts";
+import { voteOpen } from "../society/votes.ts";
+import { lapseAgent } from "../waits.ts";
 import {
     chiefsOf,
     liveHamlets,
     type Realm,
     RealmDoc,
     type RealmEnd,
-} from "../realm.ts";
-import { RecordDoc } from "../record.ts";
-import { AgentConversationsDoc, PeersDoc, VotesDoc } from "../society/docs.ts";
-import { askAgent } from "../society/letters.ts";
-import { voteOpen } from "../society/votes.ts";
-import { lapseAgent } from "../waits.ts";
+} from "./places.ts";
 
 const MOVE = Type.Object({
     agent: Type.String(),

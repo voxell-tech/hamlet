@@ -14,14 +14,16 @@ import { resetTrust } from "../asked.ts";
 import { WithDoc } from "../chats.ts";
 import { removeHouse } from "../gift-files.ts";
 import { revoke } from "../grants.ts";
-import { type AgentRef, agentKey, checkName } from "../hamlet.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { houseOf, localDay, untilAborted } from "../home.ts";
 import { InstructionsDoc, owed } from "../instructions.ts";
 import { LimitsDoc } from "../limits.ts";
 import { farewell, isChief, liveHamlets, RealmDoc, roadsOf } from "../realm.ts";
 import {
+    type AgentRef,
     type Archived,
+    agentKey,
+    checkName,
     type Decision,
     type HamletRecord,
     named,

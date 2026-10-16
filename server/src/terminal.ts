@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { connectChief, type ServerAddress } from "./client.ts";
 import type { Connection } from "./connection.ts";
-import { HOME, MAYOR } from "./hamlet.ts";
 import {
     type ClientMessage,
     type Edit,
@@ -14,6 +13,7 @@ import {
     type ServerMessage,
     type State,
 } from "./protocol.ts";
+import { HOME, MAYOR } from "./record.ts";
 
 export const DOCUMENTS = [
     "charter",

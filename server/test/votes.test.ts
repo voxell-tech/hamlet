@@ -9,12 +9,11 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
 import { ChatDoc, submitLine } from "../src/chats.ts";
-import { HOME } from "../src/hamlet.ts";
 import { houseOf, localDay } from "../src/home.ts";
 import { ledgerOf } from "../src/ledger.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RealmDoc, roadsOf } from "../src/realm.ts";
-import { RecordDoc } from "../src/record.ts";
+import { HOME, RecordDoc } from "../src/record.ts";
 import { VotesDoc } from "../src/society/docs.ts";
 import {
     vote as callVote,

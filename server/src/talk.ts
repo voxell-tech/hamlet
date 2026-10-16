@@ -33,17 +33,15 @@ import {
     type With,
     WithDoc,
 } from "./chats.ts";
-import { chiefAccess } from "./chief-access.ts";
 import { configureAgent } from "./choice.ts";
 import { closeGate } from "./gate.ts";
-import { type AgentRef, agentKey } from "./hamlet.ts";
 import { entriesOf, LineageDoc } from "./history.ts";
 import type { Home, Part } from "./home.ts";
 import { InstructionsDoc } from "./instructions.ts";
 import { reconcile } from "./ledger.ts";
 import { NoticeEntry, notify } from "./notice.ts";
-import { liveHamlets, RealmDoc } from "./realm.ts";
-import { addressOf, RecordDoc } from "./record.ts";
+import { chiefAccess, liveHamlets, RealmDoc } from "./realm.ts";
+import { type AgentRef, addressOf, agentKey, RecordDoc } from "./record.ts";
 import {
     enterReflection,
     ReflectDoc,

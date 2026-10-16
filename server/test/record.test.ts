@@ -4,8 +4,7 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import type { StorageWrite } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
-import { HOME } from "../src/hamlet.ts";
-import { RecordDoc } from "../src/record.ts";
+import { HOME, RecordDoc } from "../src/record.ts";
 import {
     context,
     crashing,

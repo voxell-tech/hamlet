@@ -3,7 +3,7 @@ import { constants, homedir, tmpdir, userInfo } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { chat } from "./chat.ts";
 import { connectChief, reachHome } from "./client.ts";
-import { HOME, MAYOR } from "./hamlet.ts";
+import { HOME, MAYOR } from "./record.ts";
 import { serve } from "./serving.ts";
 import {
     DOCUMENTS,

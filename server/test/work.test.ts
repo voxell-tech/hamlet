@@ -4,10 +4,10 @@ import { mkdir, symlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { HOME, WorkDoc } from "../src/hamlet.ts";
 import type { Home } from "../src/home.ts";
-import { RecordDoc } from "../src/record.ts";
+import { HOME, RecordDoc } from "../src/record.ts";
 import { say } from "../src/say.ts";
+import { WorkDoc } from "../src/work.ts";
 import { context, fauxModels, scratch, testHome } from "./support.ts";
 
 it("keeps the folder, its earlier folders and mode through a restart without a model call", async () => {

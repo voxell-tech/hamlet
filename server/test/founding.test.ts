@@ -6,10 +6,10 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { WorkDoc } from "../src/hamlet.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RealmDoc } from "../src/realm.ts";
 import { RecordDoc } from "../src/record.ts";
+import { WorkDoc } from "../src/work.ts";
 import { request as send, served } from "./connection-support.ts";
 import {
     addAgent,

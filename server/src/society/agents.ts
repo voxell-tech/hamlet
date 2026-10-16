@@ -9,7 +9,6 @@ import {
 import { CharacterDoc } from "../character.ts";
 import { WithDoc } from "../chats.ts";
 import { choose, commitEdit } from "../choice.ts";
-import { type AgentRef, agentKey, checkName, tidyName } from "../hamlet.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { buildHouse, localDay } from "../home.ts";
 import type { Books } from "../ledger.ts";
@@ -18,10 +17,14 @@ import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
 import { add, zero } from "../money.ts";
 import { liveHamlets, RealmDoc, roadsOf } from "../realm.ts";
 import {
+    type AgentRef,
+    agentKey,
+    checkName,
     defineRecordTool,
     type HamletRecord,
     named,
     RecordDoc,
+    tidyName,
 } from "../record.ts";
 import { roadAfford } from "../report.ts";
 import { SettingsDoc, settingsOf } from "../settings.ts";

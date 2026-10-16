@@ -4,9 +4,9 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it, vi } from "vitest";
 import { answer } from "../src/gate.ts";
-import { HOME } from "../src/hamlet.ts";
 import { historyOf } from "../src/history.ts";
 import { LimitsDoc } from "../src/limits.ts";
+import { HOME } from "../src/record.ts";
 import { ReflectionDoc } from "../src/reflection.ts";
 import { followHome, newChat, resumeChat, retry } from "../src/talk.ts";
 import {

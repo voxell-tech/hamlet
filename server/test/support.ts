@@ -30,7 +30,6 @@ import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterEach } from "vitest";
 import { chatOf, submitLine } from "../src/chats.ts";
-import { HOME, WorkDoc } from "../src/hamlet.ts";
 import {
     buildHouse,
     type Home,
@@ -39,8 +38,9 @@ import {
 } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RealmDoc } from "../src/realm.ts";
-import { RecordDoc } from "../src/record.ts";
+import { HOME, RecordDoc } from "../src/record.ts";
 import { OversightDoc, type Wait } from "../src/waits.ts";
+import { WorkDoc } from "../src/work.ts";
 
 export const context = BACKGROUND_CONTEXT;
 
@@ -277,7 +277,7 @@ export async function addAgent(
     hamlet: string,
     name: string,
     purpose = "",
-): Promise<import("../src/hamlet.ts").AgentRef> {
+): Promise<import("../src/record.ts").AgentRef> {
     const agent = await home.harness.commit(async (tx) => {
         const record = await tx.doc(RecordDoc, hamlet, hamlet);
         const number = record.next++;
@@ -299,7 +299,7 @@ export async function addHamlet(
     home: Home,
     id: string,
     mayor: string,
-): Promise<import("../src/hamlet.ts").AgentRef> {
+): Promise<import("../src/record.ts").AgentRef> {
     await home.harness.commit(async (tx) => {
         (await tx.doc(RealmDoc)).hamlets.push({
             id,
@@ -324,7 +324,7 @@ export async function addHamlet(
 /** The chief's conversation with an agent. */
 export function chatWith(
     home: Home,
-    ref: import("../src/hamlet.ts").AgentRef,
+    ref: import("../src/record.ts").AgentRef,
 ): Promise<Conversation> {
     return chatOf(home, { agent: ref, chief: home.chief }, context);
 }

@@ -13,7 +13,6 @@ import { ChatDoc, currentOf } from "./chats.ts";
 import { choose } from "./choice.ts";
 import { DEEDS } from "./commands.ts";
 import { GrantsDoc, grantsOf } from "./grants.ts";
-import { agentKey, WorkDoc } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { booksOf } from "./ledger.ts";
@@ -39,7 +38,13 @@ import {
     realmRoads,
     roadsOf,
 } from "./realm.ts";
-import { addressOf, type HamletRecord, named, RecordDoc } from "./record.ts";
+import {
+    addressOf,
+    agentKey,
+    type HamletRecord,
+    named,
+    RecordDoc,
+} from "./record.ts";
 import { reportOf } from "./report.ts";
 import { type Settings, SettingsDoc, settingsOf } from "./settings.ts";
 import { refreshSkills, skillNames, starterSkills } from "./skills.ts";
@@ -48,7 +53,7 @@ import { libraryView } from "./society/librarian.ts";
 import { voteViews } from "./society/votes.ts";
 import { OversightDoc } from "./waits.ts";
 import { queue, says } from "./words.ts";
-import { modeWords } from "./work.ts";
+import { modeWords, WorkDoc } from "./work.ts";
 
 const starters = starterSkills(STARTERS);
 

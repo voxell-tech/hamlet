@@ -24,21 +24,30 @@ import {
     type Tx,
 } from "@earendil-works/pi-durable";
 import { WithDoc } from "../chats.ts";
-import { chiefAccess, chiefRefusalText } from "../chief-access.ts";
 import { ErrandDoc, runErrand, startErrand } from "../errands.ts";
 import { listTree, MERGE_CAPS, removeTree, stageTree } from "../gift-files.ts";
 import { revoke } from "../grants.ts";
-import { type AgentRef, agentKey, checkName } from "../hamlet.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { houseOf, untilAborted } from "../home.ts";
 import { InstructionsDoc, owed } from "../instructions.ts";
 import { booksOf } from "../ledger.ts";
 import { LimitsDoc } from "../limits.ts";
 import { safeWords } from "../plainly.ts";
-import { farewell, isChief, liveHamlets, RealmDoc, roadsOf } from "../realm.ts";
+import {
+    chiefAccess,
+    chiefRefusalText,
+    farewell,
+    isChief,
+    liveHamlets,
+    RealmDoc,
+    roadsOf,
+} from "../realm.ts";
 import {
     type AgentRecord,
+    type AgentRef,
     type Archived,
+    agentKey,
+    checkName,
     named,
     RecordDoc,
 } from "../record.ts";

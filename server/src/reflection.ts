@@ -7,10 +7,9 @@ import {
     type Tx,
 } from "@earendil-works/pi-durable";
 import { ChatDoc, ReflectionEntry, reflectionInput, WithDoc } from "./chats.ts";
-import { agentKey } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import { notify } from "./notice.ts";
-import { RecordDoc } from "./record.ts";
+import { agentKey, RecordDoc } from "./record.ts";
 import { SettingsDoc } from "./settings.ts";
 import { newTask, type Turn } from "./turn.ts";
 

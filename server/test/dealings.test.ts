@@ -5,10 +5,10 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it } from "vitest";
 import { submitLine } from "../src/chats.ts";
-import type { AgentRef } from "../src/hamlet.ts";
 import type { Home } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RealmDoc, realmRoads } from "../src/realm.ts";
+import type { AgentRef } from "../src/record.ts";
 import { RecordDoc } from "../src/record.ts";
 import { VotesDoc } from "../src/society/docs.ts";
 import {
@@ -135,7 +135,7 @@ it("moves the house and conversations to a new number and keeps only roads both 
     const { writeFile, readFile, access } = await import("node:fs/promises");
     const { houseOf } = await import("../src/home.ts");
     const { CharacterDoc } = await import("../src/character.ts");
-    const { agentKey } = await import("../src/hamlet.ts");
+    const { agentKey } = await import("../src/record.ts");
     const { give, GrantsDoc, grantsOf } = await import("../src/grants.ts");
     const chat = await chatWith(home, scout);
     await writeFile(

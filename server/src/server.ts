@@ -5,11 +5,6 @@ import type { AuthPrompt } from "@earendil-works/pi-ai";
 import type { Submission } from "@earendil-works/pi-durable";
 import { requireWritable } from "./agent-chats.ts";
 import { checkConnection, checkModel } from "./check.ts";
-import {
-    type ChiefResult,
-    chiefAccess,
-    chiefRefusalText,
-} from "./chief-access.ts";
 import { type Client, type Server, serve } from "./connection.ts";
 import { edit } from "./edits.ts";
 import { answerWords } from "./gate.ts";
@@ -25,7 +20,12 @@ import type {
     ServerMessage,
 } from "./protocol.ts";
 import { read } from "./reads.ts";
-import { resolve } from "./realm.ts";
+import {
+    type ChiefResult,
+    chiefAccess,
+    chiefRefusalText,
+    resolve,
+} from "./realm.ts";
 import { say } from "./say.ts";
 import { watchState } from "./state.ts";
 import {

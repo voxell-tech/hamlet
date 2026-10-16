@@ -11,10 +11,10 @@ import {
     UsageDoc,
 } from "@earendil-works/pi-durable";
 import { ChatDoc, type ChatId, ChiefEntry } from "./chats.ts";
-import { agentKey } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import { micros } from "./money.ts";
 import type { Past, UsageView } from "./protocol.ts";
+import { agentKey } from "./record.ts";
 import { usageSummary } from "./usage.ts";
 
 /** The branch put aside by a rewind, including a rewind of the first entry. */

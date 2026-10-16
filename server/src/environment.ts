@@ -4,12 +4,12 @@ import type {
     DocumentReader,
 } from "@earendil-works/pi-durable";
 import { WithDoc } from "./chats.ts";
-import { WorkDoc } from "./hamlet.ts";
 import type { HomeBase } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { SandboxEnv } from "./sandbox/env.ts";
 import { directoryRoot, policyHash } from "./sandbox/policy.ts";
 import { closedPolicy, openPolicy } from "./sandbox/reach.ts";
+import { WorkDoc } from "./work.ts";
 
 /** The name of the tool task memo a gate leaves for one call. */
 export const LEAVE = "hamlet.leave";

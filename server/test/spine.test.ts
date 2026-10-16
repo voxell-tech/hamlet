@@ -19,12 +19,17 @@ import {
     ReplyEntry,
     startConversation,
 } from "../src/chats.ts";
-import { agentKey, checkName, HOME, tidyName } from "../src/hamlet.ts";
 import { InstructionsDoc, owed } from "../src/instructions.ts";
 import { booksOf, chargeRoad } from "../src/ledger.ts";
 import { defaultLimits } from "../src/limits.ts";
 import { level, RealmDoc, resolve, roadsOf } from "../src/realm.ts";
-import { RecordDoc } from "../src/record.ts";
+import {
+    agentKey,
+    checkName,
+    HOME,
+    RecordDoc,
+    tidyName,
+} from "../src/record.ts";
 import { followHome, stopAgent } from "../src/talk.ts";
 import { TaskDoc } from "../src/tasks.ts";
 import { turnOf } from "../src/turn.ts";

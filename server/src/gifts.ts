@@ -4,18 +4,12 @@ import { dirname, join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { submitLine } from "./chats.ts";
 import {
-    type ChiefResult,
-    chiefAccess,
-    chiefRefusalText,
-} from "./chief-access.ts";
-import {
     checkShelf,
     checkSkill,
     deliver,
     manifestSize,
     stageSkill,
 } from "./gift-files.ts";
-import type { AgentRef } from "./hamlet.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { STARTERS } from "./library.ts";
@@ -27,6 +21,8 @@ import {
     MAX_GIFT_BYTES,
     type Reply,
 } from "./protocol.ts";
+import { type ChiefResult, chiefAccess, chiefRefusalText } from "./realm.ts";
+import type { AgentRef } from "./record.ts";
 import { named, RecordDoc } from "./record.ts";
 import { directoryRoot } from "./sandbox/policy.ts";
 import { refreshSkills } from "./skills.ts";
