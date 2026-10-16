@@ -237,7 +237,8 @@ function standing(
     const decided: string[] = [],
         mine: string[] = [];
     for (const d of [...record.decisions].reverse()) {
-        if (d.at < since || count >= 6) continue;
+        if (d.at < since) continue;
+        if (d.kind !== "road_refused" && count >= 6) continue;
         if (d.kind === "road_refused" && d.from !== reader) continue;
         const by =
             "by" in d
@@ -250,7 +251,7 @@ function standing(
         const reason = "reason" in d ? clip(d.reason) || "no reason given" : "";
         const words = decisionWords(record, d, by);
         if (!words) continue;
-        count++;
+        if (d.kind !== "road_refused") count++;
         (d.kind === "road_refused" ? mine : decided).push(
             `- ${words}: ${reason}`,
         );

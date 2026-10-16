@@ -239,3 +239,52 @@ it("tells mayors the recent record and caps mixed decisions at six in total (H17
         expect(section.match(/: (?:created|model)-\d/g) ?? []).toHaveLength(6);
     }
 });
+
+it("keeps the reader's refused road outside the six general decisions (H17)", async () => {
+    const { models, faux } = fauxModels();
+    const home = await testHome(scratch(), { models, now: () => 1000 });
+    const scout = await addAgent(home, "home", "scout", "Maps");
+    await home.harness.commit(async (tx) => {
+        const r = await tx.doc(RecordDoc, "home", "home");
+        r.decisions = [
+            {
+                kind: "road_refused",
+                from: scout.number,
+                to: "smith",
+                at: 100,
+                by: "mayor",
+                reason: "Not yet",
+            },
+        ];
+        for (let n = 0; n < 6; n++)
+            r.decisions.push({
+                kind: "created",
+                name: `peer-${n}`,
+                purpose: "Works",
+                agent: 10 + n,
+                at: 200 + n,
+                by: "mayor",
+                reason: `Needed-${n}`,
+            });
+    }, context);
+    let section = "";
+    faux.setResponses([
+        (prompt, _options, _state, model) => {
+            section = request(prompt.messages, model).sections.hamlet ?? "";
+            return fauxAssistantMessage("ok");
+        },
+    ]);
+    await (
+        await submitLine(
+            home,
+            { agent: scout, chief: home.chief },
+            { id: "touched", text: "Hello" },
+            context,
+        )
+    ).wait(context);
+    expect(section).toContain("What touched you:");
+    expect(section).toContain(
+        "The mayor did not build the road you asked for to `smith`: Not yet",
+    );
+    expect(section.match(/The mayor created/g)).toHaveLength(6);
+});
