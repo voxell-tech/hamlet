@@ -3324,6 +3324,7 @@ dependencies = [
  "hamlet_model",
  "hamlet_rules",
  "hamlet_sandbox",
+ "hamlet_sdk",
  "hamlet_ui",
  "hamlet_vfx",
  "hamlet_world",

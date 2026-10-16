@@ -8,11 +8,24 @@ pub mod icons;
 pub mod looks;
 pub mod me;
 pub mod platform;
+pub mod tabs;
 pub mod theme;
 
+use bevy::app::App;
 use bevy_fynix::Bevy;
 
 use self::theme::HamletTheme;
+
+/// What every panel is built on: the typefaces, the tabs, the icons
+/// and the feel. A theme is the app's to give.
+pub fn plugin(app: &mut App) {
+    app.add_plugins((
+        tabs::plugin,
+        platform::plugin,
+        icons::plugin,
+        feel::plugin,
+    ));
+}
 
 /// The context a view of the window is built in.
 pub type Cx<'a> = bevy_fynix::Cx<'a, Bevy, HamletTheme>;

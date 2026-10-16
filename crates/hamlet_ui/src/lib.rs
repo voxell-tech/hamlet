@@ -22,7 +22,6 @@ mod sounds;
 mod status;
 pub mod tuning;
 pub mod welcome;
-pub mod widgets;
 mod window;
 mod world_menu;
 mod world_view;
@@ -37,7 +36,10 @@ use hamlet_core::core::HomeDir;
 pub use hamlet_sdk::looks::{
     ICON, brass, grim, lamp, marked, retrace, well,
 };
-pub use hamlet_sdk::{AnyView, Cx, View, cue, looks, theme, with_cx};
+pub use hamlet_sdk::{
+    AnyView, Cx, View, cue, feel, icons, looks, platform, tabs,
+    theme, with_cx,
+};
 use hamlet_world::pick::Selected;
 
 pub use self::dock::{lit_panel, panel};
@@ -49,7 +51,6 @@ pub use self::screens::{
 };
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
-pub use self::widgets::{feel, icons, platform, tabs};
 pub use self::window::{ShowRequests, window_plugin};
 
 /// The panels: the dock, its panels and the world's place in them.
@@ -91,7 +92,7 @@ impl Plugin for UiPlugin {
             (world_view::plugin, world_menu::plugin, hover::plugin),
             (
                 theme::plugin,
-                widgets::plugin,
+                hamlet_sdk::plugin,
                 tuning::plugin,
                 cursor::plugin,
                 sounds::plugin,
