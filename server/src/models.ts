@@ -47,6 +47,7 @@ import {
     type SettingsEdit,
     type SettingsFailure,
     settingsFailureText,
+    validateEndpointNames,
     validateSettings,
 } from "./models/settings.ts";
 import { FileModelsStore } from "./models/store.ts";
@@ -203,7 +204,7 @@ export class ModelHome {
         context: Context,
     ): Promise<Result<void, SettingsFailure>> {
         const home = this.#home();
-        const valid = validateSettings({ endpoints: settings.endpoints });
+        const valid = validateEndpointNames(settings.endpoints);
         if (!valid.ok) return valid;
         if (!this.#owned) return ok(undefined);
         await this.#readCards(context);

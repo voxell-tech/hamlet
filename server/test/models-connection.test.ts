@@ -325,3 +325,94 @@ it("normalizes provider listing forms through the owned refresh interface", asyn
         }),
     );
 });
+
+const badBaseUrls = [
+    "localhost:11434/v1",
+    "http://chief:secret@127.0.0.1:1/v1",
+];
+
+it.each(badBaseUrls)(
+    "keeps provider startup and settings watches with the override %s",
+    async (baseUrl) => {
+        const run = await served({
+            env: { HAMLET_MODEL: "local::tiny", HAMLET_BASE_URL: baseUrl },
+        });
+        expect(run.home.models.getProvider("local")?.baseUrl).toBe(baseUrl);
+        const { SettingsDoc } = await import("../src/settings.ts");
+        expect(
+            (await run.home.harness.snapshot(SettingsDoc, context))?.link.state,
+        ).toBe("failed");
+        const endpoint = await openaiFake();
+        await run.home.harness.commit(async (tx) => {
+            (await tx.doc(SettingsDoc)).endpoints.push({
+                name: "backup",
+                baseUrl: endpoint.url,
+            });
+        }, context);
+        await vi.waitFor(() =>
+            expect(run.home.models.getProvider("backup")?.baseUrl).toBe(
+                endpoint.url,
+            ),
+        );
+    },
+);
+
+it.each(badBaseUrls)(
+    "saves the chief's settings independently of the override %s",
+    async (baseUrl) => {
+        const run = await served({
+            env: { HAMLET_MODEL: "local::tiny", HAMLET_BASE_URL: baseUrl },
+        });
+        expect(
+            await request(run.connection, run.messages, {
+                type: "edit",
+                id: randomUUID(),
+                doc: "settings",
+                set: { reflectEvery: 7 },
+            }),
+        ).toMatchObject({ kind: "notice", text: "Saved." });
+        const { SettingsDoc } = await import("../src/settings.ts");
+        expect(
+            await run.home.harness.snapshot(SettingsDoc, context),
+        ).toMatchObject({ reflectEvery: 7, saved: true });
+        expect(
+            await run.home.modelHome.editSettings(
+                { endpoints: [{ name: "other", baseUrl }] },
+                context,
+            ),
+        ).toMatchObject({
+            ok: false,
+            error: {
+                kind: baseUrl.startsWith("http:")
+                    ? "address-has-credentials"
+                    : "address-scheme",
+            },
+        });
+    },
+);
+
+it.each(badBaseUrls)(
+    "uses catalogue price edits despite the override %s",
+    async (baseUrl) => {
+        const run = await served({
+            env: { HAMLET_MODEL: "local::tiny", HAMLET_BASE_URL: baseUrl },
+        });
+        const name = "openai::gpt-4o-mini";
+        expect(
+            await run.home.modelHome.editCatalogue(
+                name,
+                { price: { input: 2, output: 3 } },
+                context,
+            ),
+        ).toEqual({ ok: true, value: undefined });
+        expect(await run.home.modelHome.catalogue(context)).toContainEqual(
+            expect.objectContaining({ name, priced: "yours" }),
+        );
+        expect(run.home.models.getModel("openai", "gpt-4o-mini")).toMatchObject(
+            {
+                cost: { input: 2, output: 3 },
+                priceKnown: true,
+            },
+        );
+    },
+);

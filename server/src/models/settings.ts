@@ -1,6 +1,6 @@
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { err, ok, type Result } from "../result.ts";
-import type { Settings } from "../settings.ts";
+import type { Endpoint, Settings } from "../settings.ts";
 import { endpointName } from "./endpoints.ts";
 import type { SettingsFailure } from "./failure.ts";
 
@@ -23,8 +23,33 @@ export function validateSettings(
         (!Number.isSafeInteger(set.reflectEvery) || set.reflectEvery < 0)
     )
         return err({ ...facts, kind: "reflect-every-not-whole" });
-    const names = new Set<string>();
+    const names = validateEndpointNames(set.endpoints ?? []);
+    if (!names.ok) return names;
     for (const endpoint of set.endpoints ?? []) {
+        let url: URL;
+        try {
+            url = new URL(endpoint.baseUrl);
+        } catch {
+            return err({
+                ...facts,
+                kind: "address-scheme",
+                reason: "invalid-url",
+            });
+        }
+        if (url.protocol !== "http:" && url.protocol !== "https:")
+            return err({ ...facts, kind: "address-scheme", reason: "scheme" });
+        if (url.username || url.password)
+            return err({ ...facts, kind: "address-has-credentials" });
+    }
+    return ok(undefined);
+}
+/** Endpoint identities checked during sync, independently of process-only address overrides. */
+export function validateEndpointNames(
+    endpoints: readonly Endpoint[],
+): Result<void, SettingsFailure> {
+    const facts = { operation: "edit-settings", retrySafe: true } as const;
+    const names = new Set<string>();
+    for (const endpoint of endpoints) {
         if (!endpointName(endpoint.name))
             return err({
                 ...facts,
@@ -44,20 +69,6 @@ export function validateSettings(
                 name: endpoint.name,
             });
         names.add(endpoint.name);
-        let url: URL;
-        try {
-            url = new URL(endpoint.baseUrl);
-        } catch {
-            return err({
-                ...facts,
-                kind: "address-scheme",
-                reason: "invalid-url",
-            });
-        }
-        if (url.protocol !== "http:" && url.protocol !== "https:")
-            return err({ ...facts, kind: "address-scheme", reason: "scheme" });
-        if (url.username || url.password)
-            return err({ ...facts, kind: "address-has-credentials" });
     }
     return ok(undefined);
 }
