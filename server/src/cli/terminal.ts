@@ -4,17 +4,18 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { connectChief, type ServerAddress } from "./client.ts";
-import type { Connection } from "./connection.ts";
+import type { Connection } from "../connection.ts";
 import {
     type ClientMessage,
     type Edit,
     parseClient,
     type ServerMessage,
     type State,
-} from "./protocol.ts";
-import { HOME, MAYOR } from "./record.ts";
+} from "../protocol.ts";
+import { HOME, MAYOR } from "../record.ts";
+import { connectChief, type ServerAddress } from "./client.ts";
 
+/** The chief documents accepted by the terminal's edit command. */
 export const DOCUMENTS = [
     "charter",
     "character",
@@ -22,7 +23,9 @@ export const DOCUMENTS = [
     "limits",
     "settings",
 ] as const;
+/** A chief document editable through the terminal. */
 export type DocumentName = (typeof DOCUMENTS)[number];
+/** A terminal operation performed over an authenticated chief connection. */
 export type TerminalCommand =
     | { name: "edit"; doc: DocumentName; hamlet?: string }
     | { name: "login"; provider: string; key: boolean }

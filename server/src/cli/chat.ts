@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { connectChief } from "./client.ts";
-import { COMMANDS } from "./commands.ts";
-import { strip } from "./oversight.ts";
+import { COMMANDS } from "../commands.ts";
+import { strip } from "../oversight.ts";
 import type {
     Address,
     ChatRef,
@@ -12,7 +11,8 @@ import type {
     ServerMessage,
     State,
     Wait,
-} from "./protocol.ts";
+} from "../protocol.ts";
+import { connectChief } from "./client.ts";
 
 /** A terminal chat over the protocol, with answers on `out` and everything else on `err` (S13, C30). */
 export async function chat(options: {

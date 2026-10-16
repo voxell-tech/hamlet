@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { connectChief, reachHome } from "../src/client.ts";
+import { connectChief, reachHome } from "../src/cli/client.ts";
 import { hamlet, server } from "./cli-support.ts";
 import { scratch } from "./support.ts";
 

@@ -12,7 +12,6 @@ import {
     stopChiefAgents,
 } from "./chats.ts";
 import { type Client, type Server, serve } from "./connection.ts";
-import { edit } from "./edits.ts";
 import { answerWords } from "./gate.ts";
 import type { Home } from "./home.ts";
 import { clearStagedGifts, give, uploads } from "./house.ts";
@@ -24,7 +23,6 @@ import type {
     Reply,
     ServerMessage,
 } from "./protocol.ts";
-import { read } from "./reads.ts";
 import {
     type ChiefResult,
     chiefAccess,
@@ -33,6 +31,8 @@ import {
 } from "./realm.ts";
 import { say } from "./say.ts";
 import { safeValue, safeWords } from "./scrub.ts";
+import { edit } from "./server/edits.ts";
+import { read } from "./server/reads.ts";
 import { watchState } from "./state.ts";
 import {
     type ChatWatch,

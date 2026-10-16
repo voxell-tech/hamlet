@@ -295,16 +295,16 @@ describe("the window commands", () => {
 
     it("finds HAMLET_APP, PATH, release and debug in order, and names how to build a missing app", async () => {
         const repo = scratch();
-        const module = join(repo, "server", "src", "window.ts");
+        const module = join(repo, "server", "src", "cli", "window.ts");
         mkdirSync(dirname(module), { recursive: true });
-        copyFileSync(new URL("../src/window.ts", import.meta.url), module);
+        copyFileSync(new URL("../src/cli/window.ts", import.meta.url), module);
         writeFileSync(
             join(repo, "server", "package.json"),
             '{"type":"module"}',
         );
         const { findApp } = (await import(
             pathToFileURL(module).href
-        )) as typeof import("../src/window.ts");
+        )) as typeof import("../src/cli/window.ts");
         const fake = fakeApp();
         const release = join(repo, "target", "release", "hamlet-app");
         const debug = join(repo, "target", "debug", "hamlet-app");

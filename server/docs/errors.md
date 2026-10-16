@@ -85,7 +85,7 @@ safe identity should survive redaction.
 Select safe fields and wording first, then apply C32's credential
 scrubbing before storage or display, including structured tool output,
 streamed and spilled output and protocol messages. `safeWords` and
-`safeValue` in `src/plainly.ts` scrub known credentials; that does not make
+`safeValue` in `src/scrub.ts` scrub known credentials; that does not make
 arbitrary provider text or private paths suitable to send. A stream must
 also scrub credentials split between chunks. Test the boundary's output,
 not just the scrubber in isolation.

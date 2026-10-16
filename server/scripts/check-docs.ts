@@ -8,7 +8,6 @@ const ALLOWLIST = new Set<string>([
     "commands.ts",
     "git/proxy.ts",
     "protocol.ts",
-    "terminal.ts",
 ]);
 const root = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -20,6 +19,14 @@ function files(dir: string): string[] {
               ? [`${dir}${entry.name}`]
               : [],
     );
+}
+
+function modifiers(node: ts.Node): readonly ts.ModifierLike[] {
+    const found: ts.ModifierLike[] = [];
+    node.forEachChild((child) => {
+        if (ts.isModifierLike(child)) found.push(child);
+    });
+    return found;
 }
 
 function documented(node: ts.Node): boolean {
@@ -81,8 +88,7 @@ for (const file of files(root)) {
     const nodes: ts.Node[] = [];
     for (const [index, statement] of source.statements.entries()) {
         if (
-            !("modifiers" in statement) ||
-            !statement.modifiers?.some(
+            !modifiers(statement).some(
                 (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
             )
         )
@@ -95,11 +101,19 @@ for (const file of files(root)) {
             nodes.push(statement);
         if (ts.isClassDeclaration(statement)) {
             for (const member of statement.members) {
-                const modifiers =
-                    "modifiers" in member ? member.modifiers : undefined;
                 if (
-                    (member.name && ts.isPrivateIdentifier(member.name)) ||
-                    modifiers?.some(
+                    ts.isClassStaticBlockDeclaration(member) ||
+                    ts.isSemicolonClassElement(member)
+                )
+                    continue;
+                const named =
+                    ts.isPropertyDeclaration(member) ||
+                    ts.isMethodDeclaration(member) ||
+                    ts.isGetAccessorDeclaration(member) ||
+                    ts.isSetAccessorDeclaration(member);
+                if (
+                    (named && ts.isPrivateIdentifier(member.name)) ||
+                    modifiers(member).some(
                         (modifier) =>
                             modifier.kind === ts.SyntaxKind.PrivateKeyword ||
                             modifier.kind === ts.SyntaxKind.ProtectedKeyword,

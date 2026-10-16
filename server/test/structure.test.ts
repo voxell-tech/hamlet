@@ -5,28 +5,37 @@ import { expect, test } from "vitest";
 
 const root = fileURLToPath(new URL("../src/", import.meta.url));
 const MODULES: readonly { name: string; folder: boolean }[] = [
-    { name: "chats", folder: true },
-    { name: "transcript", folder: true },
-    { name: "state", folder: true },
     { name: "agents", folder: true },
-    { name: "letters", folder: true },
-    { name: "votes", folder: false },
-    { name: "prompt", folder: true },
-    { name: "models", folder: true },
-    { name: "spend", folder: true },
-    { name: "limits", folder: true },
-    { name: "oversight", folder: true },
-    { name: "gate", folder: true },
+    { name: "change", folder: false },
+    { name: "chats", folder: true },
+    { name: "cli", folder: true },
+    { name: "commands", folder: false },
+    { name: "connection", folder: false },
     { name: "environment", folder: true },
+    { name: "gate", folder: true },
     { name: "hand", folder: true },
-    { name: "tools", folder: true },
-    { name: "house", folder: true },
-    { name: "library", folder: true },
-    { name: "scrub", folder: true },
-    { name: "sandbox", folder: true },
-    { name: "record", folder: false },
-    { name: "realm", folder: true },
     { name: "home", folder: true },
+    { name: "house", folder: true },
+    { name: "letters", folder: true },
+    { name: "library", folder: true },
+    { name: "limits", folder: true },
+    { name: "models", folder: true },
+    { name: "oversight", folder: true },
+    { name: "prompt", folder: true },
+    { name: "protocol", folder: false },
+    { name: "realm", folder: true },
+    { name: "record", folder: false },
+    { name: "result", folder: false },
+    { name: "sandbox", folder: true },
+    { name: "say", folder: false },
+    { name: "scrub", folder: true },
+    { name: "server", folder: true },
+    { name: "settings", folder: false },
+    { name: "spend", folder: true },
+    { name: "state", folder: true },
+    { name: "tools", folder: true },
+    { name: "transcript", folder: true },
+    { name: "votes", folder: false },
 ];
 
 function files(dir: string): string[] {
@@ -40,9 +49,21 @@ function files(dir: string): string[] {
 }
 
 test("concept internals are reached through their entry", () => {
+    expect(
+        readdirSync(root, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory() && entry.name !== "git")
+            .map((entry) => entry.name)
+            .sort(),
+    ).toEqual(
+        MODULES.filter((module) => module.folder).map((module) => module.name),
+    );
     const failures: string[] = [];
     for (const file of files(root)) {
         const text = readFileSync(file, "utf8");
+        if (file.endsWith(`${sep}index.ts`) || /\bexport\s+\*/.test(text))
+            failures.push(
+                `${relative(root, file)}: use named entries and re-exports`,
+            );
         for (const match of text.matchAll(
             /\b(import|export)\s+(type\s+)?(\{[^}]*\}|\*\s+as\s+\w+|\w+)\s+from\s+["']([^"']+)["']/g,
         )) {

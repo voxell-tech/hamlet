@@ -7,7 +7,7 @@ import type { ServerAddress } from "./client.ts";
 /** The window executable named by the environment or found on this machine. */
 export function findApp(env: NodeJS.ProcessEnv): string {
     if (env.HAMLET_APP) return env.HAMLET_APP;
-    const repo = fileURLToPath(new URL("../../", import.meta.url));
+    const repo = fileURLToPath(new URL("../../../", import.meta.url));
     const candidates = [
         ...(env.PATH?.split(delimiter) ?? []).map((dir) =>
             resolve(dir, "hamlet-app"),

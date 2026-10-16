@@ -1,17 +1,17 @@
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { constants, homedir, tmpdir, userInfo } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { chat } from "./chat.ts";
-import { connectChief, reachHome } from "./client.ts";
-import { HOME, MAYOR } from "./record.ts";
-import { serve } from "./serving.ts";
+import { chat } from "./cli/chat.ts";
+import { connectChief, reachHome } from "./cli/client.ts";
+import { serve } from "./cli/serving.ts";
 import {
     DOCUMENTS,
     type DocumentName,
     type TerminalCommand,
     terminal,
-} from "./terminal.ts";
-import { findApp, launch } from "./window.ts";
+} from "./cli/terminal.ts";
+import { findApp, launch } from "./cli/window.ts";
+import { HOME, MAYOR } from "./record.ts";
 
 /** The port a server listens on unless it is given another. */
 const PORT = 7313;

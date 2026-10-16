@@ -19,8 +19,8 @@ from, and how the chief reads and edits it. The server builds it;
 | The realm | Other hamlets, their mayors and pending agreements, or the agent's roads out | The realm's record |
 | The budget | The hamlet's spend and the task's caps | The ledger and limits |
 
-`server/src/prompt.ts` builds the first seven parts. `society/brief.ts`
-adds the hamlet, `realm/founding.ts` the realm, and `budget.ts` the budget.
+`server/src/prompt.ts` builds the first seven parts. `prompt/brief.ts`
+adds the hamlet, `realm/founding.ts` the realm, and `spend/budget.ts` the budget.
 The budget's words stay fixed for a turn; the other parts are built again
 before each request. A realm with one hamlet has no realm section.
 
