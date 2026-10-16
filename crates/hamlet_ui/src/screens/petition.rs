@@ -11,6 +11,7 @@ use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use bevy::ui::{AlignItems, UiRect, px};
+use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, row, scroll,
@@ -24,11 +25,11 @@ use hamlet_core::tools::Change;
 use hamlet_rules::chief::rulings::Choice;
 use hamlet_world::needs::{TagAnswered, TagOpened};
 
-use crate::dock::show_tab;
-use crate::feel::Mood;
+use crate::dock::{PanelAppExt, lit_panel, show_tab};
+use crate::feel::{Lit, Mood};
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, bad_action, brass, grim, lamp, marked, note, well,
+    Fills, ICON, bad_action, brass, grim, lamp, marked, note, well,
 };
 use crate::me::Me;
 use crate::platform::{DisplayText, MonoText, Wraps};
@@ -41,11 +42,24 @@ const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
 const TICK: f32 = 10.0;
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Reason>()
-        .init_resource::<Queue>()
-        .add_observer(tag_answered)
-        .add_observer(tag_opened)
-        .add_systems(Update, (show_new, keep_queue));
+    app.add_panel(
+        "needs",
+        DockWindowKind::new("PETITIONS", || {
+            lit_panel(
+                screen(),
+                Lit {
+                    alarm: true,
+                    flash: false,
+                },
+            )
+        })
+        .icon(Glyph::Bell.image(ICON)),
+    )
+    .init_resource::<Reason>()
+    .init_resource::<Queue>()
+    .add_observer(tag_answered)
+    .add_observer(tag_opened)
+    .add_systems(Update, (show_new, keep_queue));
 }
 
 /// The reason or reply the next answer carries.

@@ -36,7 +36,7 @@ In `hamlet_ui/src/`:
   every text tone to a contrast of 4.5:1 or better on every surface it
   meets.
 - `looks.rs` holds the looks of each kind of button and field.
-- `feel/` holds the behaviour: a control's warmth, press, flame and
+- `widgets/feel/` holds the behaviour: a control's warmth, press, flame and
   sparks, and the light that falls into a panel. Its tuning is
   `FeelSettings`, from `assets/ui.toml`.
 

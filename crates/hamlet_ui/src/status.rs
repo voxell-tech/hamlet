@@ -24,7 +24,7 @@ use crate::icons::{Glyph, glyph};
 use crate::links::Aimed;
 use crate::looks::{hairline, note};
 use crate::me::Me;
-use crate::needs::Queue;
+use crate::petition::Queue;
 use crate::window::Layout;
 use crate::{AnyView, Cx, View};
 

@@ -70,7 +70,7 @@ pub(super) struct Lamp {
 
 impl UiMaterial for Lamp {
     fn fragment_shader() -> ShaderRef {
-        "embedded://hamlet_ui/feel/lamp.wgsl".into()
+        "embedded://hamlet_ui/widgets/feel/lamp.wgsl".into()
     }
 }
 

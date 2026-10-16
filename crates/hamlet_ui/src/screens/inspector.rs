@@ -11,6 +11,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::world::World;
+use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_core::agents::Left;
 use hamlet_world::pick::{Selected, Thing};
@@ -20,27 +21,48 @@ pub(crate) use self::agent::{now, show_prompt};
 pub(crate) use self::gone::{of_agent, skills_screen};
 pub(crate) use self::papers::house;
 pub use self::papers::{Papers, keep_papers};
-use crate::dock::show_tab;
-use crate::looks::filling;
+use crate::dock::{PanelAppExt, lit_panel, panel, show_tab};
+use crate::feel::Lit;
+use crate::icons::Glyph;
+use crate::looks::{ICON, filling};
 use crate::me::{Me, talk_to};
 use crate::{View, overview, tabs};
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Section>()
-        .init_resource::<Papers>()
-        .init_resource::<Briefing>()
-        .add_observer(papers::papers_on_job)
-        .add_systems(
-            Update,
-            (
-                tabs::mark::<Section>,
-                agent::leave_prompt.run_if(resource_changed::<Me>),
-                keep_papers.run_if(
-                    resource_changed::<Me>
-                        .or_eager(resource_changed::<Section>),
-                ),
+    app.add_panel(
+        "agent",
+        DockWindowKind::new("INSPECTOR", || {
+            lit_panel(
+                screen(),
+                Lit {
+                    alarm: false,
+                    flash: true,
+                },
+            )
+        })
+        .icon(Glyph::Lens.image(ICON)),
+    )
+    // Closed until asked for from the View menu or a tab bar's plus.
+    .add_panel(
+        "skills",
+        DockWindowKind::new("SKILLS", || panel(skills_screen()))
+            .icon(Glyph::Book.image(ICON)),
+    )
+    .init_resource::<Section>()
+    .init_resource::<Papers>()
+    .init_resource::<Briefing>()
+    .add_observer(papers::papers_on_job)
+    .add_systems(
+        Update,
+        (
+            tabs::mark::<Section>,
+            agent::leave_prompt.run_if(resource_changed::<Me>),
+            keep_papers.run_if(
+                resource_changed::<Me>
+                    .or_eager(resource_changed::<Section>),
             ),
-        );
+        ),
+    );
 }
 
 /// The subject of the panel: every hamlet when nothing is selected, a
