@@ -25,7 +25,7 @@ pub(super) fn worn(
     let (mut head, mut held, mut glows) =
         (Mb::new(), Mb::new(), Mb::new());
     match stall {
-        Stall::Agents => {
+        Stall::Models => {
             // A tall cap of its stall's cloth with a band and a
             // tassel, a pointed beard, and an orb of thought in its
             // hand.
@@ -87,7 +87,7 @@ pub(super) fn worn(
                 },
             );
         }
-        Stall::Artisans => {
+        Stall::Community => {
             // A kerchief of its stall's cloth knotted behind, goggles
             // on its brow, a pencil behind its ear, and a hammer.
             head.blob(

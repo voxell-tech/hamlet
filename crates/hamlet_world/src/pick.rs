@@ -162,7 +162,7 @@ impl Thing {
             }
             Thing::Library => "The Library".into(),
             Thing::Bazaar => "The Agent Bazaar".into(),
-            Thing::Stall(stall) => format!("The {}", stall.name()),
+            Thing::Stall(stall) => stall.name().into(),
             Thing::Clockwork(hamlet) => {
                 format!("The Clockwork of {}", resident(hamlet))
             }

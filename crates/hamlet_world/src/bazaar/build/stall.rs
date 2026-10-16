@@ -48,8 +48,8 @@ pub(super) fn stall(
 ) -> Dressed {
     let style = pal.stalls[stall as usize];
     match stall {
-        Stall::Agents => minds::build(mb, (glass, gleam), pal, style),
-        Stall::Artisans => {
+        Stall::Models => minds::build(mb, (glass, gleam), pal, style),
+        Stall::Community => {
             workshop::build(mb, (glass, gleam), pal, style)
         }
         Stall::Plugins => {

@@ -230,26 +230,26 @@ const SHOTS: [Shot; 46] = [
     },
     Shot {
         name: "counter-agents",
-        scene: Scene::Counter(Stall::Agents, &[]),
+        scene: Scene::Counter(Stall::Models, &[]),
         size: UVec2::new(1440, 1000),
         scale: 1.0,
     },
     Shot {
         name: "counter-ware",
-        scene: Scene::Counter(Stall::Agents, &["Maker: Large"]),
+        scene: Scene::Counter(Stall::Models, &["Maker: Large"]),
         size: UVec2::new(1440, 1000),
         scale: 1.0,
     },
     Shot {
         name: "counter-artisans",
-        scene: Scene::Counter(Stall::Artisans, &[]),
+        scene: Scene::Counter(Stall::Community, &[]),
         size: UVec2::new(1440, 1000),
         scale: 1.0,
     },
     Shot {
         name: "counter-artisan",
         scene: Scene::Counter(
-            Stall::Artisans,
+            Stall::Community,
             &["Quillfeather", "HIRE"],
         ),
         size: UVec2::new(1440, 1000),
@@ -275,13 +275,13 @@ const SHOTS: [Shot; 46] = [
     },
     Shot {
         name: "artisans",
-        scene: Scene::Stall(Stall::Artisans, &[]),
+        scene: Scene::Stall(Stall::Community, &[]),
         size: UVec2::new(1440, 1000),
         scale: 1.0,
     },
     Shot {
         name: "artisan",
-        scene: Scene::Stall(Stall::Artisans, &["Marigold Almanac"]),
+        scene: Scene::Stall(Stall::Community, &["Marigold Almanac"]),
         size: UVec2::new(1440, 1000),
         scale: 1.0,
     },

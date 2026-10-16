@@ -154,7 +154,7 @@ pub(super) const ROUNDS: [&[Stop]; 8] = [
     &[
         stop(Spot::Stall(Stall::Hamlets, -0.3), 6.0, Doing::Idle),
         by(0.0, GATE),
-        stop(Spot::Stall(Stall::Agents, -0.4), 7.0, Doing::Gaze),
+        stop(Spot::Stall(Stall::Models, -0.4), 7.0, Doing::Gaze),
         by(0.0, GATE),
         stop(Spot::At(0.6, 5.6, PI), 5.0, Doing::Idle),
         by(0.0, GATE),
@@ -164,7 +164,7 @@ pub(super) const ROUNDS: [&[Stop]; 8] = [
         by(216.0, OUT),
         stop(Spot::Stall(Stall::Plugins, -0.5), 6.0, Doing::Gaze),
         by(144.0, OUT),
-        stop(Spot::Stall(Stall::Artisans, 0.0), 6.0, Doing::Idle),
+        stop(Spot::Stall(Stall::Community, 0.0), 6.0, Doing::Idle),
         by(144.0, OUT),
         by(180.0, OUT + 0.3),
         by(216.0, OUT),
@@ -173,7 +173,7 @@ pub(super) const ROUNDS: [&[Stop]; 8] = [
     &[
         stop(Spot::Tea, 24.0, Doing::Idle),
         by(72.0, OUT),
-        stop(Spot::Stall(Stall::Agents, -0.1), 6.0, Doing::Idle),
+        stop(Spot::Stall(Stall::Models, -0.1), 6.0, Doing::Idle),
         by(72.0, OUT),
     ],
     &[
@@ -183,9 +183,9 @@ pub(super) const ROUNDS: [&[Stop]; 8] = [
         by(216.0, OUT),
     ],
     &[
-        stop(Spot::Stall(Stall::Artisans, -0.5), 9.0, Doing::Idle),
+        stop(Spot::Stall(Stall::Community, -0.5), 9.0, Doing::Idle),
         by(72.0, OUT),
-        stop(Spot::Stall(Stall::Agents, -0.6), 6.0, Doing::Idle),
+        stop(Spot::Stall(Stall::Models, -0.6), 6.0, Doing::Idle),
         by(72.0, OUT),
         stop(Spot::Tea, 7.0, Doing::Idle),
         by(72.0, OUT),
@@ -204,7 +204,7 @@ pub(super) const ROUNDS: [&[Stop]; 8] = [
         by(288.0, OUT),
     ],
     &[
-        stop(Spot::Stall(Stall::Agents, 0.1), 6.0, Doing::Idle),
+        stop(Spot::Stall(Stall::Models, 0.1), 6.0, Doing::Idle),
         by(0.0, GATE),
         stop(Spot::Stall(Stall::Hamlets, -0.6), 8.0, Doing::Read),
         by(0.0, GATE),
@@ -215,7 +215,7 @@ pub(super) const ROUNDS: [&[Stop]; 8] = [
     &[
         stop(Spot::At(0.9, 3.95, PI), 10.0, Doing::Idle),
         by(0.0, GATE),
-        stop(Spot::Stall(Stall::Agents, 0.3), 5.0, Doing::Idle),
+        stop(Spot::Stall(Stall::Models, 0.3), 5.0, Doing::Idle),
         by(0.0, GATE),
         stop(Spot::Stall(Stall::Hamlets, 0.3), 6.0, Doing::Idle),
         by(0.0, GATE),

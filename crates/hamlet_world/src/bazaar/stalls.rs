@@ -3,17 +3,17 @@
 /// A stall of the bazaar.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub enum Stall {
-    /// Models: the minds agents think with, from OpenRouter and the
-    /// home's endpoints.
+    /// The models agents run, from OpenRouter and the home's
+    /// endpoints.
     #[default]
-    Agents,
-    /// Agents other chiefs made, ready to join a hamlet.
-    Artisans,
-    /// Plugins: contraptions that add to Hamlet itself.
+    Models,
+    /// Agents other users made, ready to join a hamlet.
+    Community,
+    /// Extensions that add features to Hamlet itself.
     Plugins,
     /// Skills from skills.sh, for the library.
     Skills,
-    /// Whole hamlets: a mayor, its agents and all they know.
+    /// Whole hamlets, mayor, agents and notes, ready to use.
     Hamlets,
 }
 
@@ -30,8 +30,8 @@ pub struct Keeper {
 
 impl Stall {
     pub const ALL: [Stall; 5] = [
-        Stall::Agents,
-        Stall::Artisans,
+        Stall::Models,
+        Stall::Community,
         Stall::Plugins,
         Stall::Skills,
         Stall::Hamlets,
@@ -39,43 +39,42 @@ impl Stall {
 
     pub fn name(self) -> &'static str {
         match self {
-            Stall::Agents => "Agent Stall",
-            Stall::Artisans => "Artisans' Stall",
-            Stall::Plugins => "Tinker's Stall",
-            Stall::Skills => "Skill Stall",
-            Stall::Hamlets => "Hamlet Store",
+            Stall::Models => "AI Models",
+            Stall::Community => "Community Agents",
+            Stall::Plugins => "Plugins",
+            Stall::Skills => "Skills",
+            Stall::Hamlets => "Hamlet Templates",
         }
     }
 
     /// What it sells, in a few words.
     pub fn sells(self) -> &'static str {
         match self {
-            Stall::Agents => {
-                "Minds for your agents, from OpenRouter and your own \
-                 endpoints."
+            Stall::Models => {
+                "Language models for your agents, from OpenRouter \
+                 and your own endpoints."
             }
-            Stall::Artisans => {
-                "Agents other chiefs made by hand, ready to join a \
-                 hamlet."
+            Stall::Community => {
+                "Ready-made agents built by other users."
             }
             Stall::Plugins => {
-                "Contraptions that add to Hamlet itself."
+                "Extensions that add features to Hamlet."
             }
             Stall::Skills => {
-                "Skills from skills.sh, for the library."
+                "Skills from skills.sh to add to your library."
             }
             Stall::Hamlets => {
-                "Whole hamlets: a mayor, its agents and all they \
-                 know."
+                "Complete hamlets with a mayor, agents and notes, \
+                 ready to use."
             }
         }
     }
 
     pub fn keeper(self) -> Keeper {
         match self {
-            Stall::Agents => Keeper {
+            Stall::Models => Keeper {
                 name: "Brannoc",
-                title: "the mind-monger",
+                title: "sells AI models",
                 greetings: [
                     "Minds, fresh from OpenRouter! Quick ones, deep \
                      ones, cheap ones. Every one of them can hold a \
@@ -86,9 +85,9 @@ impl Stall {
                      mind that bankrupts the hamlet is no bargain.",
                 ],
             },
-            Stall::Artisans => Keeper {
+            Stall::Community => Keeper {
                 name: "Wren Halloway",
-                title: "broker of crafted agents",
+                title: "sells community agents",
                 greetings: [
                     "Every agent here was made by a chief's own \
                      hand: a purpose, a character and the skills to \
@@ -101,7 +100,7 @@ impl Stall {
             },
             Stall::Plugins => Keeper {
                 name: "Tobias Cogsworth",
-                title: "the tinker",
+                title: "sells plugins",
                 greetings: [
                     "Gears, gadgets and gizmos! Each one teaches \
                      Hamlet a new trick.",
@@ -113,7 +112,7 @@ impl Stall {
             },
             Stall::Skills => Keeper {
                 name: "Sister Marjoram",
-                title: "keeper of the skill-scrolls",
+                title: "sells skills",
                 greetings: [
                     "Scrolls from skills.sh, every one. Take one to \
                      the library and all your agents may learn it.",
@@ -125,7 +124,7 @@ impl Stall {
             },
             Stall::Hamlets => Keeper {
                 name: "Lady Ashgrove",
-                title: "seller of land and those who keep it",
+                title: "sells hamlet templates",
                 greetings: [
                     "Why found a hamlet when you can buy one \
                      standing? Mayor, agents, notes and all.",

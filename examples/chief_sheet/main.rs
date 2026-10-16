@@ -281,7 +281,7 @@ fn bazaar() -> Vec<Do> {
         Night(true),
         Wait(60),
         Shot("44-the-bazaar-by-night"),
-        See(On::Stall(Stall::Agents), 12.0, 0.3, -0.2),
+        See(On::Stall(Stall::Models), 12.0, 0.3, -0.2),
         Wait(30),
         Shot("45-a-stall-by-night"),
         See(On::Merchant, 9.0, 0.35, -0.4),

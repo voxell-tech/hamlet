@@ -94,9 +94,9 @@ const NEAR: f32 = 3.0;
 fn habit(stall: Stall, t: f32) -> (Doing, bool) {
     let (long, working, work, rest) = match stall {
         // Gazes into its great orb, then cries its minds.
-        Stall::Agents => (15.0, 7.0, Doing::Gaze, Doing::Attend),
+        Stall::Models => (15.0, 7.0, Doing::Gaze, Doing::Attend),
         // Bends to the robot it builds, then stands back.
-        Stall::Artisans => (16.0, 10.0, Doing::Tend, Doing::Idle),
+        Stall::Community => (16.0, 10.0, Doing::Tend, Doing::Idle),
         // Works its grindstone, then looks about.
         Stall::Plugins => (14.0, 9.0, Doing::Tend, Doing::Idle),
         // Reads at its lectern, then looks about.

@@ -82,21 +82,10 @@ pub(crate) fn plugin(app: &mut App) {
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct StallShown(pub Stall);
 
-/// The icon of each stall, on its tab and at its counter.
-pub(crate) fn glyph(stall: Stall) -> Glyph {
-    match stall {
-        Stall::Agents => Glyph::Chip,
-        Stall::Artisans => Glyph::Robot,
-        Stall::Plugins => Glyph::Bolt,
-        Stall::Skills => Glyph::Book,
-        Stall::Hamlets => Glyph::Hamlet,
-    }
-}
-
 /// The tab of each stall.
 const TABS: [(StallShown, Glyph, &str); 5] = [
-    (StallShown(Stall::Agents), Glyph::Chip, "AGENTS"),
-    (StallShown(Stall::Artisans), Glyph::Robot, "ARTISANS"),
+    (StallShown(Stall::Models), Glyph::Chip, "MODELS"),
+    (StallShown(Stall::Community), Glyph::Robot, "AGENTS"),
     (StallShown(Stall::Plugins), Glyph::Bolt, "PLUGINS"),
     (StallShown(Stall::Skills), Glyph::Book, "SKILLS"),
     (StallShown(Stall::Hamlets), Glyph::Hamlet, "HAMLETS"),
@@ -127,7 +116,7 @@ pub fn open_stall(world: &mut World, stall: Stall) {
 /// the bazaar's panel.
 pub(crate) fn wares(stall: Stall) -> AnyView {
     match stall {
-        Stall::Agents => keyed(
+        Stall::Models => keyed(
             resource::<Browsing, _>(|browsing| browsing.open.clone()),
             |open| match open {
                 Some(id) => ware::page(id.clone()),
@@ -136,7 +125,7 @@ pub(crate) fn wares(stall: Stall) -> AnyView {
         )
         .within(bare())
         .boxed(),
-        Stall::Artisans => artisans::page(),
+        Stall::Community => artisans::page(),
         Stall::Plugins => plugins::page(),
         Stall::Skills => skills::page(),
         Stall::Hamlets => hamlets::page(),
@@ -214,7 +203,7 @@ enum Then {
 /// some.
 pub fn open(world: &mut World, for_agent: Option<Entity>) {
     if for_agent.is_some() {
-        world.resource_mut::<StallShown>().0 = Stall::Agents;
+        world.resource_mut::<StallShown>().0 = Stall::Models;
     }
     let mut browsing = world.resource_mut::<Browsing>();
     browsing.for_agent = for_agent;
