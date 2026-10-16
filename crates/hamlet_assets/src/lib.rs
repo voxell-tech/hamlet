@@ -42,8 +42,10 @@ pub const WORLD: File = file!("world.toml");
 pub const PALETTE: File = file!("palette.toml");
 /// The tuning of the effects.
 pub const VFX: File = file!("vfx.toml");
-/// The panels' answers to the hand.
+/// The window's frame and the chat's answers to the hand.
 pub const UI: File = file!("ui.toml");
+/// The controls' answers to the hand.
+pub const FEEL: File = file!("feel.toml");
 /// The panels' theme.
 pub const THEME: File = file!("theme.toml");
 

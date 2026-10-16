@@ -8,14 +8,17 @@ mod drag;
 mod foot;
 
 use bevy::app::{App, Update};
-use bevy::asset::embedded_asset;
+use bevy::asset::{Asset, embedded_asset};
 use bevy::color::{Color, ColorToComponents, LinearRgba};
 use bevy::ecs::component::Component;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::on_message;
+use bevy::ecs::world::World;
 use bevy::math::Vec3;
+use bevy::reflect::TypePath;
 use bevy::ui_render::prelude::UiMaterialPlugin;
+use hamlet_assets::{File, Tuning, TuningPlugin, designed, follow};
 
 pub use self::backdrop::Lit;
 pub use self::foot::FootLight;
@@ -27,6 +30,7 @@ pub fn plugin(app: &mut App) {
     embedded_asset!(app, "feel/backdrop.wgsl");
     embedded_asset!(app, "feel/lamp.wgsl");
     app.add_plugins((
+        TuningPlugin::<FeelTuning>::default(),
         UiMaterialPlugin::<backdrop::Backdrop>::default(),
         UiMaterialPlugin::<control::Lamp>::default(),
     ))
@@ -162,6 +166,23 @@ pub(crate) struct FeelSettings {
     pub settle: f32,
     pub ring: f32,
 }
+
+/// The feel's tuning, as `assets/feel.toml` has it.
+#[derive(Asset, TypePath, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FeelTuning {
+    pub feel: FeelSettings,
+}
+
+impl Tuning for FeelTuning {
+    const FILE: File = hamlet_assets::FEEL;
+
+    fn apply(&self, was: &Self, world: &mut World) {
+        follow(world, &was.feel, &self.feel);
+    }
+}
+
+designed!(FeelTuning { FeelSettings => feel });
 
 /// The colours of the light.
 #[derive(Clone, PartialEq)]

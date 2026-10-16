@@ -38,7 +38,7 @@ In `hamlet_ui/src/`:
 - `looks.rs` holds the looks of each kind of button and field.
 - `widgets/feel/` holds the behaviour: a control's warmth, press, flame and
   sparks, and the light that falls into a panel. Its tuning is
-  `FeelSettings`, from `assets/ui.toml`.
+  `FeelSettings`, from `assets/feel.toml`.
 
 ## Seeing it
 

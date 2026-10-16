@@ -1,44 +1,6 @@
-# How the panels answer the hand: how lit, how fast, how far light falls.
-# What each value means is written beside its field, in the module its
-# section tunes. crates/hamlet_ui/src/tuning.rs names the struct of each.
-
-[feel]
-warm = 12.0
-give = 30.0
-fade = 4.5
-squash = 0.03
-pop = 0.02
-sink = 1.5
-shake = 3.0
-rattle = 34.0
-lit_plain = 0.5
-lit_bad = 0.55
-lit_good = 0.75
-lit_field = 0.45
-banked = 0.3
-cover = 0.75
-kindle = 0.6
-waver = 0.06
-spill = 0.35
-smoulder = 0.5
-reach = 22.0
-burst = 16.0
-embers = 6
-rise = 34.0
-ember_life = 0.9
-ember_size = 3.4
-foot = 0.26
-flare = 0.2
-arrive = 0.18
-arrive_from = 0.94
-glide = 18.0
-breath = 2.2
-hover_wait = 1.0
-hover_in = 0.1
-hover_out = 0.08
-hover_from = 0.95
-settle = 3.0
-ring = 0.6
+# How the window's frame and the chat answer the hand. What each value
+# means is written beside its field, in the module its section tunes.
+# crates/hamlet_ui/src/tuning.rs names the struct of each.
 
 [chrome]
 edge = 5.0

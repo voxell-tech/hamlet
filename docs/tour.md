@@ -114,7 +114,7 @@ Paths are under `crates/`.
 | How a control looks or feels | `hamlet_ui/src/looks.rs`, `widgets/feel/`; [`ui-warmth.md`](ui-warmth.md) |
 | An icon | `hamlet_ui/src/widgets/icons.rs`; [`icons.md`](icons.md) |
 | A colour in the world | `assets/palette.toml` |
-| A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`. What each value means is beside its field in the code |
+| A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`, `feel.toml`. What each value means is beside its field in the code |
 | The height something stands at | `LandData::surface`: the ground as it is drawn, never the smooth `height` |
 | How a house looks | `hamlet_world/src/generator/house.rs` |
 | How a robot moves | `hamlet_world/src/keeper/acts/`; [`robots.md`](robots.md) |
