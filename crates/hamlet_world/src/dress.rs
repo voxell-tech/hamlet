@@ -48,6 +48,14 @@ pub fn register_source(app: &mut App) {
 #[derive(Resource)]
 pub struct Closet(Dir);
 
+impl Closet {
+    /// Keeps `bytes` in memory as `path`, to be loaded as
+    /// `wardrobe://path`.
+    pub fn keep(&self, path: &Path, bytes: Vec<u8>) {
+        self.0.insert_asset(path, bytes);
+    }
+}
+
 /// The meshes of the worn assets, as the asset server loads them, by
 /// asset id; and a count that moves each time what is worn may have
 /// changed.

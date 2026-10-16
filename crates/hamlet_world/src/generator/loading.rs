@@ -10,7 +10,7 @@ mod tests;
 
 use bevy::prelude::*;
 
-pub(super) use self::builds::finish_loading;
+pub(super) use self::builds::{finish_loading, fit_out};
 pub(super) use self::lanes::{Lanes, clear_lanes};
 use self::layer::Layer;
 pub(super) use self::stream::stream;

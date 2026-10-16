@@ -34,6 +34,7 @@ impl Pass<'_, '_, '_> {
                 cleared: agent.cleared,
                 leader: town.leader == agent.id,
                 wings: agent.wings,
+                attire: self.attires.version(town.id),
             };
             let spot = plot(land, town.site, agent.plot);
             let yard = house::yard_of(
@@ -135,6 +136,7 @@ impl Pass<'_, '_, '_> {
                 wings: agent.wings,
                 yard,
             },
+            self.attires.get(town.id),
             entity,
             old,
             way,

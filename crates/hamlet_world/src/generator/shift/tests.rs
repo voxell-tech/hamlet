@@ -6,6 +6,7 @@ use bevy::window::RequestRedraw;
 
 use super::{HouseMotion, Prop, Shift, shift_houses};
 use crate::Clock;
+use crate::generator::attire::Attires;
 use crate::generator::house::{self, Remains};
 use crate::generator::land::Land;
 use crate::generator::loading::{Loading, finish_loading};
@@ -32,6 +33,7 @@ fn app(set: GenSettings) -> App {
         .add_message::<RequestRedraw>()
         .init_resource::<Clock>()
         .init_resource::<Drawn>()
+        .init_resource::<Attires>()
         .init_resource::<Loading>()
         .init_resource::<Tally>()
         .init_resource::<GenOptions>()

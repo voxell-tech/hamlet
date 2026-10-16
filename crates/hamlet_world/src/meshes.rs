@@ -155,6 +155,25 @@ impl Mb {
         self.pos.len() * vertex + self.idx.len() * index
     }
 
+    /// Adds the triangles of `other`.
+    pub fn append(&mut self, other: Mb) {
+        let base = self.pos.len() as u32;
+        self.pos.extend(other.pos);
+        self.nor.extend(other.nor);
+        self.col.extend(other.col);
+        self.uv.extend(other.uv);
+        self.idx.extend(other.idx.into_iter().map(|i| i + base));
+    }
+
+    /// Multiplies every vertex colour by `by`.
+    pub fn tint(&mut self, by: Vec3) {
+        for c in &mut self.col {
+            for (c, by) in c.iter_mut().zip(by.to_array()) {
+                *c *= by;
+            }
+        }
+    }
+
     pub fn at(&mut self, xf: Affine3A) -> &mut Self {
         self.xf = xf;
         self

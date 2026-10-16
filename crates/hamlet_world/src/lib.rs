@@ -72,6 +72,7 @@ pub fn base(app: &mut App) {
         sound::plugin,
         debug::plugin,
         dress::plugin,
+        keeper::wear::plugin,
     ))
     .init_resource::<Clock>()
     .init_resource::<Stage>()

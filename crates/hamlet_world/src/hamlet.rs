@@ -9,6 +9,8 @@ mod state;
 #[cfg(test)]
 mod tests;
 mod view;
+mod wearer;
+mod wearing;
 
 use bevy::prelude::*;
 use hamlet_core::agents::{LivesIn, Settlement};
@@ -56,6 +58,7 @@ impl Plugin for HamletPlugin {
                 .before(housing::house),
         )
         .add_systems(Update, lantern::burn)
+        .add_systems(Update, wearer::name_robots.before(WorldSystems))
         .add_observer(housing::leave)
         .add_observer(housing::come_back)
         .add_observer(housing::move_out)
@@ -85,6 +88,10 @@ impl Plugin for HamletPlugin {
             )
                 .chain()
                 .before(WorldSystems),
+        )
+        .add_systems(
+            Update,
+            wearing::wear.after(housing::house).before(WorldSystems),
         );
     }
 }

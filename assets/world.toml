@@ -143,6 +143,8 @@ amble = 1.0
 turn_rate = 12.0
 roll_above = 1.6
 roll_ease = 0.3
+emote_blend = 0.3
+emote_spread = 0.5
 
 [house_motion]
 rise = 0.6
@@ -288,6 +290,16 @@ spin = 1.1
 lamp_glow = 3.0
 lumens = 22000.0
 reach = 5.0
+
+[attire]
+puff_life = 3.2
+puffs = 10
+lantern_radius = 0.11
+lantern_height = 0.24
+lantern_string = 0.14
+lanterns = 8
+sway_speed = 1.7
+lantern_glow = 2.5
 
 [sound]
 muted = false

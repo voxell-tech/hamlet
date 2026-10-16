@@ -9,7 +9,8 @@ use bevy::tasks::futures_lite::future::poll_once;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on};
 use hamlet_vfx::flag::{FlagSettings, cloth};
 
-use super::house::{self, Remains, TownStyle};
+use super::attire::Attire;
+use super::house::{self, Fit, Remains, Spots, TownStyle};
 use super::land::Land;
 use super::layout::{End, Route};
 use super::shift::Way;
@@ -17,6 +18,7 @@ use super::society::{AgentId, Pair, RoadLevel};
 use super::yard::Yard;
 use super::{common, road};
 use crate::meshes::Mb;
+use crate::palette::Palette;
 
 /// Triangles and bytes of mesh data.
 #[derive(Clone, Copy, Default)]
@@ -57,19 +59,33 @@ pub(super) struct HouseRecipe {
 
 pub(super) struct HouseBuilt {
     pub body: Mesh,
-    /// The window panes and where the door lantern hangs. Only a
-    /// house that is lived in has them.
-    pub fittings: Option<(Mesh, Vec3)>,
-    /// The leader's banner, and where it hangs from.
-    pub banner: Option<(Mesh, Vec3)>,
+    /// Only a house that is lived in has them.
+    pub fittings: Option<Fittings>,
     pub cost: Cost,
 }
 
-fn build_house(land: &Land, recipe: HouseRecipe) -> HouseBuilt {
+/// What a house that is lived in has besides its body.
+pub(super) struct Fittings {
+    pub panes: Mesh,
+    pub spots: Spots,
+    /// A banner, where it hangs from and its length.
+    pub banner: Option<(Mesh, Vec3, f32)>,
+    /// The scale its worn mesh is drawn at, if it wears one.
+    pub worn: Option<Vec3>,
+    /// The ends of the row its lanterns hang in.
+    pub eaves: [Vec3; 2],
+}
+
+pub(super) fn build_house(
+    land: &Land,
+    pal: &Palette,
+    recipe: HouseRecipe,
+    fit: Fit,
+) -> HouseBuilt {
     if let Some(remains) = recipe.remains {
         let rest = match remains {
             Remains::Ruin => {
-                house::ruin(land, recipe.agent, recipe.hall)
+                house::ruin(land, pal, recipe.agent, recipe.hall)
             }
             Remains::Bare => Mb::new(),
         };
@@ -77,30 +93,36 @@ fn build_house(land: &Land, recipe: HouseRecipe) -> HouseBuilt {
             cost: Cost::of(&[&rest]),
             body: rest.build(),
             fittings: None,
-            banner: None,
         };
     }
-    let built = house::house(
+    let built = house::dressed(
         land,
+        pal,
         recipe.agent,
-        &TownStyle::of(land, recipe.site),
+        &TownStyle::on(pal, land.seed, recipe.site),
         recipe.hall,
         recipe.leader,
         recipe.wings,
         &recipe.yard,
+        &fit,
     );
     HouseBuilt {
         cost: Cost::of(&[&built.body, &built.panes]),
         body: built.body.build(),
-        fittings: Some((built.panes.build(), built.lamp)),
-        banner: built.banner.map(|(at, colours)| {
-            let cloth = cloth(
-                &FlagSettings::default(),
-                house::BANNER.x,
-                house::BANNER.y,
-                &colours,
-            );
-            (cloth, at)
+        fittings: Some(Fittings {
+            panes: built.panes.build(),
+            spots: built.spots,
+            banner: built.banner.map(|(at, colours, long)| {
+                let cloth = cloth(
+                    &FlagSettings::default(),
+                    long,
+                    house::BANNER.y,
+                    &colours,
+                );
+                (cloth, at, long)
+            }),
+            worn: built.worn,
+            eaves: built.eaves,
         }),
     }
 }
@@ -183,6 +205,8 @@ pub(super) struct HouseJob {
     pub way: Option<Way>,
     /// Seconds before what it replaces goes, and before it comes.
     pub wait: (f32, f32),
+    /// What its hamlet wore when it was asked for.
+    pub attire: Attire,
     task: Task<HouseBuilt>,
 }
 
@@ -207,24 +231,32 @@ impl Builds {
             && self.commons.is_empty()
     }
 
+    /// Starts building a house wearing `attire`.
     pub fn house(
         &mut self,
         land: &Land,
         recipe: HouseRecipe,
+        attire: Option<&Attire>,
         entity: Entity,
         old: Option<Entity>,
         way: Option<Way>,
         wait: (f32, f32),
     ) {
         let land = land.clone();
-        let task = AsyncComputeTaskPool::get()
-            .spawn(async move { build_house(&land, recipe) });
+        let attire = attire.cloned().unwrap_or_default();
+        let pal = attire.palette(&land.pal);
+        let fit = attire.fit();
+        let task = AsyncComputeTaskPool::get().spawn(async move {
+            let pal = pal.as_ref().unwrap_or(&land.pal);
+            build_house(&land, pal, recipe, fit)
+        });
         self.houses.push(HouseJob {
             agent: recipe.agent,
             entity,
             old,
             way,
             wait,
+            attire,
             task,
         });
     }

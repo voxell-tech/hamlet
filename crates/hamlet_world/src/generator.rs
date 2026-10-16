@@ -2,6 +2,7 @@
 //! (docs/endless-world.md): land from a seed, a town per leader, a
 //! house and a robot per agent, a road per pair.
 
+pub mod attire;
 mod building;
 pub(crate) mod common;
 mod debug;
@@ -34,6 +35,7 @@ use bevy::prelude::*;
 pub(crate) use hamlet_vfx::magic::glow;
 use hamlet_vfx::{Density, Now, Tints, VfxPlugin, VfxSystems};
 
+use self::attire::Attires;
 pub use self::ground::DetailSettings;
 use self::house::HouseSettings;
 use self::kit::{Kit, setup, state_index};
@@ -87,7 +89,7 @@ impl Default for GenPlugin {
 
 impl Plugin for GenPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(base);
+        app.add_plugins((base, attire::plugin));
         let pal = app.world().resource::<Palette>().clone();
         app.add_plugins(VfxPlugin {
             tints: Tints {
@@ -142,7 +144,8 @@ impl Plugin for GenPlugin {
                     sync.run_if(
                         reshaped
                             .or_eager(resource_changed::<Land>)
-                            .or_eager(resource_changed::<GenOptions>),
+                            .or_eager(resource_changed::<GenOptions>)
+                            .or_eager(resource_changed::<Attires>),
                     ),
                     tell_states.run_if(resource_changed::<Society>),
                     shift_houses,
@@ -393,9 +396,11 @@ mod tests {
             &mut panes,
             Affine3A::IDENTITY,
             &land,
+            &land.pal,
             AgentId(1),
             &style,
             false,
+            None,
             None,
         );
         println!(

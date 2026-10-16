@@ -7,6 +7,7 @@ use hamlet_assets::{File, Tuning, designed, follow};
 use crate::bubble::BubbleSettings;
 use crate::chief::ChiefSettings;
 use crate::debug::DebugSettings;
+use crate::generator::attire::AttireSettings;
 use crate::generator::house::HouseSettings;
 use crate::generator::land::LandSettings;
 use crate::generator::layout::TownSettings;
@@ -39,6 +40,7 @@ pub(crate) struct WorldTuning {
     pub chief: ChiefSettings,
     pub play: PlaySettings,
     pub works: WorksSettings,
+    pub attire: AttireSettings,
     pub sound: SoundSettings,
     pub debug: DebugSettings,
     pub generator: GenSettings,
@@ -63,6 +65,7 @@ impl Tuning for WorldTuning {
         follow(world, &was.chief, &self.chief);
         follow(world, &was.play, &self.play);
         follow(world, &was.works, &self.works);
+        follow(world, &was.attire, &self.attire);
         follow(world, &was.sound, &self.sound);
         follow(world, &was.debug, &self.debug);
     }
@@ -82,6 +85,7 @@ designed!(WorldTuning {
     ChiefSettings => chief,
     PlaySettings => play,
     WorksSettings => works,
+    AttireSettings => attire,
     SoundSettings => sound,
     DebugSettings => debug,
     GenSettings => generator,
