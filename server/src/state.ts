@@ -23,8 +23,7 @@ import { STARTERS } from "./library/shelf.ts";
 import { libraryView } from "./library.ts";
 import { LimitsDoc, limitsOf } from "./limits/rules.ts";
 import { choose, providersOf } from "./models.ts";
-import { OversightDoc } from "./oversight/waits.ts";
-import { queue, says } from "./oversight/words.ts";
+import { ended, open, view } from "./oversight/waits.ts";
 import type {
     Agent,
     Changes,
@@ -33,17 +32,10 @@ import type {
     Road,
     State,
     Update,
-    Wait,
 } from "./protocol.ts";
 import { liveHamlets, RealmDoc } from "./realm/places.ts";
 import { farewell, level, realmRoads, roadsOf } from "./realm/roads.ts";
-import {
-    addressOf,
-    agentKey,
-    type HamletRecord,
-    named,
-    RecordDoc,
-} from "./record.ts";
+import { agentKey, type HamletRecord, named, RecordDoc } from "./record.ts";
 import { type Settings, SettingsDoc, settingsOf } from "./settings.ts";
 import { booksOf } from "./spend/ledger.ts";
 import { money } from "./spend/money.ts";
@@ -78,7 +70,7 @@ export async function stateOf(
         savedSettings ?? (await read.snapshot(SettingsDoc, context)),
         home.overrides,
     );
-    const oversight = await read.snapshot(OversightDoc, context);
+    const oversight = await open(read, context);
     const hamlets: Hamlet[] = [],
         agents: Agent[] = [],
         grants: Grant[] = grantsOf(await read.snapshot(GrantsDoc, context)).map(
@@ -285,40 +277,7 @@ export async function stateOf(
                 });
             }
     }
-    const waits = queue(oversight).map((wait): Wait => {
-        const record = wait.chat && records[wait.chat.hamlet];
-        return {
-            id: wait.id,
-            ...(wait.kind === "approval"
-                ? {
-                      kind: "approval" as const,
-                      danger: wait.danger ?? "unconfined",
-                  }
-                : { kind: wait.kind, danger: null }),
-            by: wait.by,
-            agent: wait.agent && { ...wait.agent },
-            says: says(wait.danger),
-            about: wait.about,
-            change: wait.change && structuredClone(wait.change),
-            answers: [...wait.answers],
-            since: wait.since,
-            asked: wait.asked,
-            chat:
-                wait.chat && record
-                    ? {
-                          with: {
-                              hamlet: wait.chat.hamlet,
-                              agent: addressOf(record, wait.chat.number),
-                          },
-                          ...(currentChats.get(agentKey(wait.chat))?.[
-                              wait.chat.chief ?? ""
-                          ] === wait.chat.chat
-                              ? {}
-                              : { past: wait.chat.chat }),
-                      }
-                    : null,
-        };
-    });
+    const waits = oversight.map((wait) => view(wait, records, currentChats));
     return {
         type: "state",
         houses: home.layout.houses,
@@ -380,7 +339,6 @@ export async function watchState(
     const at = { epoch: home.now(), revision: 0 };
     const activity = new Map<ConversationId, Activity>();
     const watches = new Map<ConversationId, AgentEventStream>();
-    const endings = new Map<string, string>();
     let savedSettings = await home.harness.snapshot(SettingsDoc, context);
     let stopped = false;
     let state = await stateOf(home, at, context);
@@ -440,6 +398,17 @@ export async function watchState(
                 for (const [id, work] of activity)
                     if (!works.has(id)) works.set(id, structuredClone(work));
                 const next = await stateOf(home, at, context, works, settings);
+                const endings = await ended(
+                    home.harness,
+                    state.waits
+                        .filter(
+                            (wait) =>
+                                !next.waits.some((each) => each.id === wait.id),
+                        )
+                        .map((wait) => wait.id),
+                    context,
+                    home.now(),
+                );
                 const changes = changed(state, next, endings);
                 const whole =
                     JSON.stringify(state.library) !==
@@ -472,21 +441,6 @@ export async function watchState(
             if (change.type !== "document" || change.value === null) continue;
             if (change.record.kind === "hamlet.settings")
                 savedSettings = change.value as Settings;
-            if (
-                change.record.kind === "hamlet.oversight-day" &&
-                Array.isArray(change.value.events)
-            )
-                for (const event of change.value.events) {
-                    if (
-                        event !== null &&
-                        typeof event === "object" &&
-                        !Array.isArray(event) &&
-                        event.type === "settled" &&
-                        typeof event.id === "string" &&
-                        typeof event.how === "string"
-                    )
-                        endings.set(event.id, event.how);
-                }
         }
         if (
             changes.some(

@@ -1,56 +1,40 @@
-import type { Context } from "@earendil-works/chord";
+import { type Context, copyJson } from "@earendil-works/chord";
 import {
     type ConversationId,
+    type DocumentReader,
     defineDoc,
     defineDocFamily,
     type Harness,
     type TaskId,
     type Tx,
 } from "@earendil-works/pi-durable";
+import type { Static } from "typebox";
 import type { ChatId, With } from "../chats/conversations.ts";
 import { untilAborted } from "../home/abort.ts";
 import { localDay } from "../home/clock.ts";
-import type { AgentRef } from "../record.ts";
+import type * as protocol from "../protocol.ts";
+import {
+    type AgentRef,
+    addressOf,
+    agentKey,
+    type HamletRecord,
+} from "../record.ts";
+import { says } from "./words.ts";
 
 /** The reason an agent is waiting for a chief. */
 export type WaitKind = "approval" | "fault" | "question" | "objection";
 
 /** The reason a call needs a chief's approval (H11). */
-export type Danger =
-    | "network"
-    | "unconfined"
-    | "destructive"
-    | "reserved"
-    | "edit"
-    | "command";
+export type Danger = Static<typeof protocol.WaitDanger>;
 
 /** A chief's answer to a wait. */
-export type Choice =
-    | "allow"
-    | "always"
-    | "deny"
-    | "go"
-    | "withdraw"
-    | "reply"
-    | "dismiss";
+export type Choice = protocol.Choice;
 
-/** The end of a wait: a chief's answer, or an end that came without one (H34). */
+/** The end of a wait, including ends without a chief's answer. */
 export type How = Choice | "stopped" | "rewound" | "lapsed";
 
-/** The change an edit asks for, at most 200 lines of 240 characters (C30). */
-export type Change = {
-    /** The file, as the call named it. */
-    path: string;
-    /** True when the call makes the file. */
-    created: boolean;
-    lines: { mark: " " | "+" | "-"; text: string }[];
-    /** The lines of the whole change, those that stay among them. */
-    total: number;
-    added: number;
-    removed: number;
-    /** The count of its lines, in words. */
-    count: string;
-};
+/** The bounded edit preview read by a chief (C30). */
+export type Change = protocol.Change;
 
 /** A tool call a wait holds. */
 export type HeldCall = {
@@ -201,7 +185,9 @@ export async function settle(
     const oversight = await tx.doc(OversightDoc);
     const wait = oversight.waits[id];
     if (wait === undefined) return undefined;
-    const settled = JSON.parse(JSON.stringify(wait)) as Wait;
+    // SAFETY: copyJson detaches the typed transaction draft; its return type loses the document shape.
+    // Verified by: waits.test.ts settlement across restart and stop.test.ts held-turn settlement.
+    const settled = copyJson(wait) as Wait;
     for (const { task } of settled.calls) {
         const status = (await tx.task(task))?.state.status;
         // A task that ended, such as one stopped, has nothing to rule on.
@@ -346,4 +332,113 @@ export async function lapseAgent(
     );
     for (const wait of waits)
         await settle(tx, wait.id, { how: "lapsed", text: "", chief: null }, at);
+}
+
+/** Open waits in raise order, also usable within a commit. */
+export async function open(
+    read: DocumentReader | Tx,
+    context: Context,
+): Promise<readonly Wait[]> {
+    const oversight =
+        "doc" in read
+            ? await read.doc(OversightDoc)
+            : await read.snapshot(OversightDoc, context);
+    const order = (wait: Wait) =>
+        Number(wait.id.slice(wait.id.lastIndexOf("-") + 1));
+    return Object.values(oversight?.waits ?? {}).sort(
+        (a, b) => order(a) - order(b),
+    );
+}
+
+/** Waits raised by the stable agent identity, across its chats. */
+export function forAgent(
+    waits: readonly Wait[],
+    ref: AgentRef,
+): readonly Wait[] {
+    return waits.filter(
+        (wait) =>
+            wait.agent?.hamlet === ref.hamlet &&
+            wait.agent.number === ref.number,
+    );
+}
+
+/** Waits belonging to a chief's chat, across its numbered conversations. */
+export function forChat(waits: readonly Wait[], chat: ChatId): readonly Wait[] {
+    return waits.filter(
+        (wait) =>
+            wait.chat?.hamlet === chat.agent.hamlet &&
+            wait.chat.number === chat.agent.number &&
+            wait.chat.chief === chat.chief,
+    );
+}
+
+/** Recorded endings through `at`, using local calendar days rather than 24-hour steps. */
+export async function ended(
+    read: DocumentReader,
+    ids: readonly string[],
+    context: Context,
+    at = Date.now(),
+): Promise<Map<string, How>> {
+    const wanted = new Set(ids);
+    const times = ids
+        .map((id) => Number(id.slice(0, id.lastIndexOf("-"))))
+        .filter(Number.isFinite);
+    const found = new Map<string, How>();
+    if (times.length === 0) return found;
+    const day = new Date(Math.min(at, ...times));
+    const last = localDay(Math.max(at, ...times));
+    while (localDay(day.getTime()) <= last) {
+        for (const event of (
+            await read.snapshot(
+                OversightDayDoc,
+                localDay(day.getTime()),
+                context,
+            )
+        )?.events ?? []) {
+            if (event.type === "settled" && wanted.has(event.id))
+                found.set(event.id, event.how);
+        }
+        day.setDate(day.getDate() + 1);
+    }
+    return found;
+}
+
+/** A chief's view; current chat numbers omit the past-session selector. */
+export function view(
+    wait: Wait,
+    records: Readonly<Record<string, Readonly<HamletRecord>>>,
+    currentChats: ReadonlyMap<
+        string,
+        Readonly<Record<string, number>>
+    > = new Map(),
+): protocol.Wait {
+    const record = wait.chat && records[wait.chat.hamlet];
+    return {
+        id: wait.id,
+        ...(wait.kind === "approval"
+            ? { kind: "approval" as const, danger: wait.danger ?? "unconfined" }
+            : { kind: wait.kind, danger: null }),
+        by: wait.by,
+        agent: wait.agent && { ...wait.agent },
+        says: says(wait.danger),
+        about: wait.about,
+        change: wait.change && structuredClone(wait.change),
+        answers: [...wait.answers],
+        since: wait.since,
+        asked: wait.asked,
+        chat:
+            wait.chat && record
+                ? {
+                      with: {
+                          hamlet: wait.chat.hamlet,
+                          agent: addressOf(record, wait.chat.number),
+                      },
+                      ...(currentChats.get(agentKey(wait.chat))?.[
+                          wait.chat.chief ?? ""
+                      ] === wait.chat.chat
+                          ? {}
+                          : { past: wait.chat.chat }),
+                  }
+                : null,
+    };
 }

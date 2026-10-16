@@ -14,12 +14,15 @@ export {
     type Danger,
     dismiss,
     type Ending,
+    ended,
+    forAgent,
+    forChat,
     type HeldCall,
     type How,
     lapse,
     lapseAgent,
     OversightDayDoc,
-    OversightDoc,
+    open,
     type Raising,
     type Ruling,
     RulingDoc,
@@ -27,8 +30,9 @@ export {
     raiseFault,
     ruling,
     settle,
+    view,
     type Wait,
     type WaitEvent,
     type WaitKind,
 } from "./oversight/waits.ts";
-export { clip, line, queue, says, strip, waited } from "./oversight/words.ts";
+export { clip, line, says, strip, waited } from "./oversight/words.ts";

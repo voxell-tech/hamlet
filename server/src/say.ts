@@ -19,8 +19,8 @@ import type { Deed, Home } from "./home.ts";
 import { giftSkill } from "./house.ts";
 import * as library from "./library.ts";
 import { LimitsDoc, limitsOf } from "./limits/rules.ts";
-import { OversightDoc } from "./oversight/waits.ts";
-import { queue, strip } from "./oversight/words.ts";
+import { forAgent, forChat, open } from "./oversight/waits.ts";
+import { strip } from "./oversight/words.ts";
 import type { Say } from "./protocol.ts";
 import { chiefAccess, legacyRefusal } from "./realm/access.ts";
 import { resolve } from "./realm/roads.ts";
@@ -308,27 +308,18 @@ export async function say(
             return receipt(connectionFailureText({ kind: "defect", cause }));
         }
     }
-    const waits = queue(await home.harness.snapshot(OversightDoc, context));
+    const waits = await open(home.harness, context);
     const chat =
         agent === undefined
             ? undefined
             : (await home.harness.snapshot(ChatDoc, agentKey(agent), context))
                   ?.chats[home.chief];
     const own =
-        waits.find(
-            (wait) =>
-                agent !== undefined &&
-                wait.chat?.hamlet === agent.hamlet &&
-                wait.chat.number === agent.number &&
-                wait.chat.chief === home.chief &&
-                wait.chat.chat === chat?.current,
-        ) ??
-        waits.find(
-            (wait) =>
-                agent !== undefined &&
-                wait.agent?.hamlet === agent.hamlet &&
-                wait.agent.number === agent.number,
-        );
+        agent === undefined
+            ? undefined
+            : (forChat(waits, { agent, chief: home.chief }).find(
+                  (wait) => wait.chat?.chat === chat?.current,
+              ) ?? forAgent(waits, agent)[0]);
     if (command?.command === "queue")
         return receipt(
             waits.length === 0

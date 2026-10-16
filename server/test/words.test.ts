@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Danger, Wait } from "../src/oversight.ts";
-import { clip, line, queue, says, strip, waited } from "../src/oversight.ts";
+import { clip, line, says, strip, waited } from "../src/oversight.ts";
 
 const wait = (
     danger: Danger | null = "network",
@@ -86,18 +86,4 @@ describe("the chief's words for a wait", () => {
     ])("names %s ms waited as %s", (ms, words) =>
         expect(waited(Number(ms))).toBe(words),
     );
-    it("reads oldest first even at the same millisecond or after the clock went back", () => {
-        const first = wait();
-        const second = { ...first, id: "900-2", since: 900 };
-        const tenth = { ...first, id: "900-10", since: 900 };
-        expect(
-            queue({
-                waits: {
-                    [tenth.id]: tenth,
-                    [second.id]: second,
-                    [first.id]: first,
-                },
-            }).map((wait) => wait.id),
-        ).toEqual(["1000-1", "900-2", "900-10"]);
-    });
 });

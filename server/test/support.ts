@@ -34,7 +34,7 @@ import { WorkDoc } from "../src/environment.ts";
 import { buildHouse } from "../src/home/layout.ts";
 import { type Home, type HomeOptions, openHome } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
-import { OversightDoc, type Wait } from "../src/oversight.ts";
+import { open, type Wait } from "../src/oversight.ts";
 import { RealmDoc } from "../src/realm.ts";
 import { HOME, RecordDoc } from "../src/record.ts";
 
@@ -139,8 +139,7 @@ export function say(
 
 /** The waits open for a chief now. */
 export async function openWaits(home: Home): Promise<Readonly<Wait>[]> {
-    const oversight = await home.harness.snapshot(OversightDoc, context);
-    return Object.values(oversight?.waits ?? {});
+    return [...(await open(home.harness, context))];
 }
 
 /** The current conversation of the home's chief with its mayor. */

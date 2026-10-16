@@ -56,14 +56,3 @@ export function waited(ms: number): string {
     if (minutes < 60) return `${minutes} min`;
     return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min`;
 }
-
-/** The open waits in raise order, encoded after the last hyphen in each id. */
-export function queue(
-    oversight: Readonly<{ waits: { [id: string]: Wait } }> | undefined,
-): Readonly<Wait>[] {
-    const order = (wait: Wait) =>
-        Number(wait.id.slice(wait.id.lastIndexOf("-") + 1));
-    return Object.values(oversight?.waits ?? {}).sort(
-        (a, b) => order(a) - order(b),
-    );
-}

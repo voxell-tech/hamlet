@@ -16,7 +16,13 @@ import { closeGate } from "../gate.ts";
 import type { Home, Part } from "../home.ts";
 import { configureAgent } from "../models.ts";
 import { resetTrust } from "../oversight/asked.ts";
-import { lapse, OversightDoc, raiseFault, settle } from "../oversight/waits.ts";
+import {
+    forAgent,
+    lapse,
+    open,
+    raiseFault,
+    settle,
+} from "../oversight/waits.ts";
 import { chiefAccess } from "../realm/access.ts";
 import { liveHamlets, RealmDoc } from "../realm/places.ts";
 import { type AgentRef, addressOf, agentKey, RecordDoc } from "../record.ts";
@@ -491,14 +497,8 @@ export async function stopAgent(
                 { how: "stopped", chief: home.chief },
                 home.now(),
             );
-            for (const wait of Object.values(
-                (await tx.doc(OversightDoc)).waits,
-            )) {
-                if (
-                    wait.kind !== "fault" &&
-                    wait.agent?.hamlet === place.agent.hamlet &&
-                    wait.agent.number === place.agent.number
-                )
+            for (const wait of forAgent(await open(tx, context), place.agent)) {
+                if (wait.kind !== "fault")
                     await settle(
                         tx,
                         wait.id,
