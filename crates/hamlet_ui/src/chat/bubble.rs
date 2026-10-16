@@ -182,7 +182,11 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
         let mine = who.kind == Kind::Me;
         // The chief's own words in its own conversation with the
         // agent are what that conversation can be taken back to.
-        let back = mine
+        let back = cx
+            .world
+            .get::<hamlet_client::chats::Chat>(session)
+            .is_none_or(|chat| chat.0.from.is_none())
+            && mine
             && words == Words::Plain
             && session == cx.world.resource::<Me>().session;
         let palette = &cx.theme().palette;

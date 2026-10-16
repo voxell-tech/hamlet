@@ -42,16 +42,18 @@ pub enum Section {
     Character,
     /// Its past sessions, each to be read or gone back to.
     History,
+    Peers,
     /// The whole of its prompt, which no tab leads to.
     Prompt,
 }
 
 /// The sections that have a tab, with the icon and the name on it.
-const TABS: [(Section, Glyph, &str); 4] = [
+const TABS: [(Section, Glyph, &str); 5] = [
     (Section::Conversation, Glyph::Talk, "CHAT"),
     (Section::Notes, Glyph::Notes, "NOTES"),
     (Section::Character, Glyph::Robot, "CHARACTER"),
     (Section::History, Glyph::History, "ARCHIVE"),
+    (Section::Peers, Glyph::Talk, "AGENT CHATS"),
 ];
 
 /// The system prompt of an agent, as it was last read for the chief.
@@ -157,6 +159,9 @@ fn header(agent: Entity, with: Option<String>) -> AnyView {
                 world_menu::stop(world, agent)
             }),))
             .display(rolled(move |world| {
+                if super::conversations::read_only(world) {
+                    return Display::None;
+                }
                 match world.get::<Busy>(agent) {
                     Some(_) => Display::Flex,
                     None => Display::None,
@@ -334,14 +339,35 @@ fn tabs() -> AnyView {
 fn sections() -> impl View {
     keyed(resource::<Section, _>(|s| *s), |section| match section {
         Section::Conversation => {
-            column((chat::transcript(), chat::message_bar()))
-                .fills_height()
-                .gap(8.0)
-                .boxed()
+            keyed(resource::<Me, _>(|m| m.session), |_| {
+                crate::with_cx(|cx| {
+                    let bar = if super::conversations::read_only(
+                        cx.world,
+                    ) {
+                        column((
+                            note("READ ONLY"),
+                            action(
+                                Glyph::Back,
+                                "CHIEF CHAT",
+                                super::conversations::chief,
+                            ),
+                        ))
+                        .gap(4.0)
+                        .boxed()
+                    } else {
+                        chat::message_bar().boxed()
+                    };
+                    column((chat::transcript(), bar))
+                        .fills_height()
+                        .gap(8.0)
+                })
+            })
+            .boxed()
         }
         Section::Notes => notes().boxed(),
         Section::Character => character().boxed(),
         Section::History => crate::history::screen(),
+        Section::Peers => super::conversations::screen().boxed(),
         Section::Prompt => with_cx(prompt),
     })
     .within(filling())
@@ -743,6 +769,79 @@ mod tests {
         assert_ne!(
             app.world().resource::<Briefing>().text,
             "Wrong prompt"
+        );
+    }
+    #[test]
+    fn the_inspector_selects_letters_or_questions_and_watches_them_read_only()
+     {
+        use hamlet_client::chats::Chat;
+        use serde_json::json;
+        let mut app = inspector_app();
+        let mut state = hamlet_testing::realm::state();
+        state
+            .agents
+            .push(hamlet_testing::realm::agent("home", 1, "scout"));
+        state.agents[0].conversations = Some(serde_json::from_value(json!([
+            {"with":{"hamlet":"home","number":1},"kind":"letters","count":2,"last":1000},
+            {"with":{"hamlet":"home","number":1},"kind":"questions","count":1,"last":2000}
+        ])).unwrap());
+        receive(
+            &mut app,
+            serde_json::to_value(v0::ServerMessage::State(state))
+                .unwrap(),
+        );
+        assert!(words(&mut app).contains(&"AGENT CHATS".into()));
+        press(&mut app, "AGENT CHATS");
+        app.update();
+        for (label, kind) in [
+            ("LETTERS WITH SCOUT", "letters"),
+            ("QUESTIONS WITH SCOUT", "questions"),
+        ] {
+            press(&mut app, label);
+            app.update();
+            app.update();
+            let session = app.world().resource::<Me>().session;
+            let chat =
+                app.world().get::<Chat>(session).unwrap().0.clone();
+            assert_eq!(
+                serde_json::to_value(&chat).unwrap(),
+                json!({
+                    "with":{"hamlet":"home","agent":"mayor"}, "from":{"hamlet":"home","number":1}, "kind":kind
+                })
+            );
+            assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, v0::ClientMessage::Open(open) if open.chat == chat)));
+            receive(
+                &mut app,
+                json!({"type":"transcript","chat":chat,"items":[
+                    {"id":"1:0","at":1,"kind":"user","text":"Question","author":"scout@home"},
+                    {"id":"2:0","at":2,"kind":"assistant","text":"Answer"}
+                ], "earlier":"1:0","working":true,"pending":0,"usage":{
+                    "input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"","micros":0,"ms":0
+                }}),
+            );
+            let world = app.world_mut();
+            assert_eq!(world.query_filtered::<Entity, bevy::ecs::query::With<crate::chat::ChatField>>().iter(world).count(), 0);
+            assert_eq!(
+                world
+                    .query::<&crate::chat::Rewinds>()
+                    .iter(world)
+                    .count(),
+                0
+            );
+            assert!(words(&mut app).contains(&"READ ONLY".into()));
+            press(&mut app, "AGENT CHATS");
+            app.update();
+        }
+        press(&mut app, "CHIEF CHAT");
+        app.update();
+        let session = app.world().resource::<Me>().session;
+        assert!(
+            app.world()
+                .get::<Chat>(session)
+                .unwrap()
+                .0
+                .from
+                .is_none()
         );
     }
 }

@@ -2,6 +2,7 @@
 //! is.
 
 mod agent;
+mod conversations;
 mod gone;
 mod papers;
 
