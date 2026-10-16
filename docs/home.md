@@ -42,6 +42,10 @@ The Agent Bazaar (HAMLET menu, or Browse the Bazaar under an agent's
 model) shows every model OpenRouter offers, with its price, context,
 abilities and benchmark scores, and the models of each other endpoint.
 OpenRouter's list needs no key and is kept in `bazaar.json` for a day.
+In the world the bazaar is a market of striped tents beside the first
+town: select it to see the models the home bought, and its merchant
+cheers each one added. Where a chief set it down is kept in
+`bazaar.place`.
 Adding a model writes it to `models.toml`, allowed; one from OpenRouter
 first signs the chief in to OpenRouter when the home has no endpoint
 there. Only added models are in `models.toml`: List Models updates

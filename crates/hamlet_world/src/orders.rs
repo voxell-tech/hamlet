@@ -11,6 +11,7 @@ use hamlet_core::core::HomeDir;
 use hamlet_rules::gifts::{self, Offer};
 use hamlet_rules::hamlet::{HOME, Hamlet};
 
+use crate::bazaar::Pitched;
 use crate::chief::{Player, Stands};
 use crate::generator::society::Place;
 use crate::hamlet::{hamlet_of, town_of};
@@ -176,6 +177,13 @@ fn set_down(world: &mut World, set: SetDown) {
                 let _ = Stands(set.to).write_at(&file);
             }
             world.resource_mut::<Stood>().0 = Some(set.to);
+        }
+        Place::Bazaar => {
+            if let Some(home) = world.get_resource::<HomeDir>() {
+                let file = Pitched::file(&home.0.root);
+                let _ = Stands(set.to).write_at(&file);
+            }
+            world.resource_mut::<Pitched>().0 = Some(set.to);
         }
     }
 }

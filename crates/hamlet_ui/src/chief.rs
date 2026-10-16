@@ -21,6 +21,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
 use hamlet_core::core::HomeDir;
 use hamlet_core::session::UserMessage;
+use hamlet_world::bazaar::{Bazaar, Pitched};
 use hamlet_world::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Light, Look, Player,
     Stands,
@@ -62,12 +63,19 @@ pub(crate) fn enter(world: &mut World) {
     if let Some(stands) = Stands::read(&home, &user) {
         world.entity_mut(chief).insert(stands);
     }
-    // The place the library was last set down, too.
+    // The places the library and the bazaar were last set down,
+    // too.
     let kept = Stands::read_at(&Stood::file(&home));
     if let (Some(Stands(at)), Some(mut stood)) =
         (kept, world.get_resource_mut::<Stood>())
     {
         stood.0 = Some(at);
+    }
+    let kept = Stands::read_at(&Pitched::file(&home));
+    if let (Some(Stands(at)), Some(mut pitched)) =
+        (kept, world.get_resource_mut::<Pitched>())
+    {
+        pitched.0 = Some(at);
     }
 }
 
@@ -111,14 +119,16 @@ pub(crate) fn accompany(
     me: Res<Me>,
     selected: Res<Selected>,
     libraries: Query<Entity, With<Library>>,
+    bazaars: Query<Entity, With<Bazaar>>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
     if !me.is_changed() && !selected.is_changed() {
         return;
     }
-    // To the library when that is what was chosen.
+    // To the library or the bazaar when that is what was chosen.
     let with = match selected.0 {
         Some(Thing::Library) => libraries.iter().next(),
+        Some(Thing::Bazaar) => bazaars.iter().next(),
         chosen => company(chosen, me.agent),
     };
     for (chief, mut beside) in &mut chiefs {

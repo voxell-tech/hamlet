@@ -154,6 +154,14 @@ pub struct Palette {
     /// A robot's body paint, in the order of `keeper::Paint::ALL`.
     #[serde(with = "tint::linear_list")]
     pub paints: [Vec3; 7],
+    /// The cloth of the bazaar's awnings, each striped with
+    /// `whitewash`.
+    #[serde(with = "tint::linear_list")]
+    pub awnings: [Vec3; 4],
+    /// The bulbs of the bazaar's fairy lights, in their turn along a
+    /// string.
+    #[serde(with = "tint::linear_list")]
+    pub fairy: [Vec3; 6],
     /// A chief's cloak, in the order of `chief::Cloak::ALL`.
     #[serde(with = "tint::linear_list")]
     pub cloaks: [Vec3; 8],

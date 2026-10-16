@@ -3,6 +3,7 @@
 //!
 //! Every still: `cargo run --example chief_sheet`
 //! Into a folder: `cargo run --example chief_sheet -- --out <dir>`
+//! The bazaar's alone: `cargo run --example chief_sheet -- --bazaar`
 
 // Bevy systems take many parameters and long query types by nature.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -21,6 +22,7 @@ use hamlet_core::agents::{
 use hamlet_home::limits::Caps;
 use hamlet_rules::budget::{Amount, Report, Standing};
 use hamlet_rules::hamlet::HOME;
+use hamlet_world::bazaar::{Bazaar, Merchant, Pitched, Traded};
 use hamlet_world::chief::mascot::Doing;
 use hamlet_world::chief::{
     self, Beside, ChiefSettings, Cloak, Hat, Holds, Light, Look,
@@ -49,6 +51,8 @@ enum On {
     Agent,
     Library,
     Librarian,
+    Bazaar,
+    Merchant,
 }
 
 /// One thing the sheet does.
@@ -74,6 +78,10 @@ enum Do {
     MoveLibrary,
     /// Has an agent call on the librarian.
     Consult,
+    /// Sets the bazaar down a little way off.
+    MoveBazaar,
+    /// Has the chief buy a model at the bazaar.
+    Trade,
     Shot(&'static str),
 }
 
@@ -221,10 +229,40 @@ fn script() -> Vec<Do> {
         See(On::Library, 44.0, 0.55, -0.1),
         Wait(90),
         Shot("34-the-library-set-down-elsewhere"),
+    ]);
+    steps.extend(bazaar());
+    steps
+}
+
+/// The bazaar by day and by night, its merchant, a sale and a move.
+fn bazaar() -> Vec<Do> {
+    use Do::*;
+    vec![
+        Night(false),
+        See(On::Bazaar, 40.0, 0.5, -0.1),
+        Wait(60),
+        Shot("35-the-bazaar"),
+        See(On::Bazaar, 26.0, -0.35, -0.35),
+        Wait(30),
+        Shot("36-the-bazaar-near"),
+        See(On::Merchant, 7.5, 0.3, -0.45),
+        Wait(40),
+        Shot("37-the-merchant"),
+        See(On::Bazaar, 34.0, 0.5, -0.15),
+        Night(true),
+        Wait(60),
+        Shot("38-the-bazaar-by-night"),
+        Trade,
+        Wait(30),
+        Shot("39-a-sale-by-night"),
+        Night(false),
+        MoveBazaar,
+        See(On::Bazaar, 40.0, 0.5, -0.1),
+        Wait(90),
+        Shot("40-the-bazaar-set-down-elsewhere"),
         // The last file is given time to be written.
         Wait(40),
-    ]);
-    steps
+    ]
 }
 
 #[derive(Resource)]
@@ -258,7 +296,10 @@ fn main() {
     Target::insert(&mut app, SIZE, 1.0);
     app.insert_resource(Sheet {
         out,
-        steps: script(),
+        steps: match std::env::args().any(|a| a == "--bazaar") {
+            true => bazaar(),
+            false => script(),
+        },
         at: 0,
         wait: 0,
         settled: 0,
@@ -430,6 +471,20 @@ fn direct(
                 agent: None,
             });
         }
+        Do::Trade => commands.trigger(Traded),
+        Do::MoveBazaar => {
+            commands.queue(|world: &mut World| {
+                let at = world
+                    .query::<&Bazaar>()
+                    .iter(world)
+                    .next()
+                    .map(|bazaar| bazaar.held);
+                if let Some(at) = at {
+                    world.resource_mut::<Pitched>().0 =
+                        Some(at + Vec2::new(-22.0, 10.0));
+                }
+            });
+        }
         Do::MoveLibrary => {
             commands.queue(|world: &mut World| {
                 let at = world
@@ -466,6 +521,8 @@ fn aim(
     mascots: Query<&Transform, With<Mascot>>,
     libraries: Query<&Transform, With<Library>>,
     librarians: Query<&GlobalTransform, With<Librarian>>,
+    bazaars: Query<&Transform, With<Bazaar>>,
+    merchants: Query<&GlobalTransform, With<Merchant>>,
     agents: Query<&Housed>,
     robots: Query<(&Robot, &Transform)>,
     mut orbit: ResMut<Orbit>,
@@ -481,9 +538,13 @@ fn aim(
         return;
     };
     let library = libraries.iter().next();
-    let front = match (on, library) {
-        (On::Library | On::Librarian, Some(library)) => {
+    let bazaar = bazaars.iter().next();
+    let front = match (on, library, bazaar) {
+        (On::Library | On::Librarian, Some(library), _) => {
             library.rotation * Vec3::Z
+        }
+        (On::Bazaar | On::Merchant, _, Some(bazaar)) => {
+            bazaar.rotation * Vec3::Z
         }
         _ => place.rotation * Vec3::Z,
     };
@@ -491,6 +552,10 @@ fn aim(
         On::Library => library.map(|at| at.translation),
         On::Librarian => {
             librarians.iter().next().map(|at| at.translation())
+        }
+        On::Bazaar => bazaar.map(|at| at.translation),
+        On::Merchant => {
+            merchants.iter().next().map(|at| at.translation())
         }
         On::Hearth => Some(place.translation),
         On::Mascot => {

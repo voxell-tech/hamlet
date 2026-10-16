@@ -13,8 +13,9 @@ use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::px;
 use bevy_fynix::dock::{DockTree, DockWindowKind};
-use bevy_fynix::views::{FrameProps, scroll};
-use bevy_fynix::{keyed, resource};
+use bevy_fynix::tokens::Tone;
+use bevy_fynix::views::{FrameProps, column, scroll};
+use bevy_fynix::{ViewExt, derived, keyed, resource};
 use hamlet_core::bazaar::Bazaar;
 use hamlet_core::catalogue::ModelCatalogue;
 use hamlet_core::core::{
@@ -27,8 +28,12 @@ use hamlet_model::config::{Config, Endpoint};
 
 use crate::dock::{PanelAppExt, panel, show_tab};
 use crate::icons::Glyph;
-use crate::looks::{Fills, ICON};
-use crate::{AnyView, Cx};
+use crate::looks::{
+    Fills, ICON, action, back, bare, buttons, good_action, note,
+    title,
+};
+use crate::roll::{either, moved};
+use crate::{AnyView, Cx, View};
 
 /// The panel's id in the dock.
 const PANEL: &str = "bazaar";
@@ -227,6 +232,8 @@ fn acquire(world: &mut World, id: &str, then: Then) {
             .say(format!("It could not be added. ({e:#})"), true);
         return;
     }
+    // The merchant in the world cheers the sale.
+    world.trigger(hamlet_world::bazaar::Traded);
     let done = match then {
         Then::Keep => format!("Added {}.", ware.title),
         Then::MakeDefault => {
@@ -301,6 +308,75 @@ fn signed_in(
             browsing.say(why, true);
         }
     }
+}
+
+/// The bazaar as the Inspector shows it while it is selected in the
+/// world: the models the home bought there, and the way in.
+pub(crate) fn stall() -> impl View {
+    let bought = derived(|world: &World| {
+        let mut bought = world
+            .resource::<ModelCatalogue>()
+            .catalogue
+            .allowed()
+            .map(|model| {
+                let name = match model.title.is_empty() {
+                    true => model.name(),
+                    false => model.title.clone(),
+                };
+                (name, model.card())
+            })
+            .collect::<Vec<_>>();
+        bought.sort();
+        let offered =
+            world.resource::<Bazaar>().wares.openrouter.len();
+        (bought, offered)
+    })
+    .when(either(moved::<ModelCatalogue>(), moved::<Bazaar>()));
+    let list = keyed(bought, |(bought, offered)| {
+        let mut rows = vec![
+            note(match offered {
+                0 => "Nothing from OpenRouter on the shelves yet."
+                    .to_string(),
+                offered => format!(
+                    "{offered} models from OpenRouter on the \
+                     shelves. The home has bought {}.",
+                    bought.len()
+                ),
+            })
+            .boxed(),
+        ];
+        rows.extend(bought.iter().map(|(name, card)| {
+            crate::lists::item(name.clone(), card.clone(), Tone::Body)
+        }));
+        column(rows).gap(8.0).boxed()
+    })
+    .within(bare());
+    column((
+        title("THE AGENT BAZAAR"),
+        buttons(vec![
+            back("ALL HAMLETS", |world| {
+                hamlet_world::pick::select(world, None)
+            })
+            .boxed(),
+            good_action(Glyph::Coins, "OPEN THE BAZAAR", |world| {
+                open(world, None)
+            }),
+            action(Glyph::Move, "MOVE", |world| {
+                hamlet_world::moving::pick_up(
+                    world,
+                    hamlet_world::generator::society::Place::Bazaar,
+                )
+            }),
+        ]),
+        note(
+            "Every model the home may run is bought here. The \
+             merchant shows you what OpenRouter and your endpoints \
+             offer, and cheers each one you add.",
+        ),
+        scroll((list,)).fills_height(),
+    ))
+    .fills_height()
+    .gap(10.0)
 }
 
 /// The bazaar panel's contents: the shelf, or one ware on a page of

@@ -76,6 +76,8 @@ enum Showing {
     Chief(Entity),
     /// The library's shelves.
     Library,
+    /// The models the home bought at the bazaar.
+    Bazaar,
     Agent,
 }
 
@@ -84,6 +86,7 @@ fn showing(world: &World) -> Showing {
     match selected {
         None => Showing::Overview,
         Some(Thing::Library) => Showing::Library,
+        Some(Thing::Bazaar) => Showing::Bazaar,
         Some(Thing::Common(hamlet))
             if world.get_entity(hamlet).is_ok() =>
         {
@@ -121,6 +124,7 @@ pub fn screen() -> impl View {
             Showing::Gone(agent) => gone::ruin(*agent),
             Showing::Chief(chief) => crate::chief::panel(*chief),
             Showing::Library => gone::library().boxed(),
+            Showing::Bazaar => crate::bazaar::stall().boxed(),
             Showing::Agent => agent::living().boxed(),
         }
     })

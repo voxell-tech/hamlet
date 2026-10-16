@@ -122,6 +122,8 @@ pub enum Thing {
     ChiefPlace(Entity),
     /// The library every agent shares.
     Library,
+    /// The Agent Bazaar, where the home's models are bought.
+    Bazaar,
     /// The clockwork on a hamlet's workbench, which sets its mode.
     Clockwork(Entity),
     /// The workbench on a hamlet's common, which stands for its
@@ -157,6 +159,7 @@ impl Thing {
                 format!("{}'s Hearth", resident(chief))
             }
             Thing::Library => "The Library".into(),
+            Thing::Bazaar => "The Agent Bazaar".into(),
             Thing::Clockwork(hamlet) => {
                 format!("The Clockwork of {}", resident(hamlet))
             }

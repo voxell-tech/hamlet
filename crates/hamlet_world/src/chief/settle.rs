@@ -9,6 +9,7 @@ use super::mascot::{self, Rig};
 use super::{
     Chief, ChiefSettings, Look, Mascot, Place, Settled, Stands, place,
 };
+use crate::bazaar::{self, Bazaar};
 use crate::generator::land::Land;
 use crate::generator::society::{Claim, Place as Ground, Society};
 use crate::generator::{flora, glow};
@@ -57,6 +58,7 @@ pub(super) fn hold_ground(
     set: Res<ChiefSettings>,
     places: Query<&Place>,
     libraries: Query<&Library>,
+    bazaars: Query<&Bazaar>,
     mut land: ResMut<Land>,
 ) {
     let mut rounds = places
@@ -66,6 +68,11 @@ pub(super) fn hold_ground(
             libraries
                 .iter()
                 .map(|library| (library.held, library::GROUNDS)),
+        )
+        .chain(
+            bazaars
+                .iter()
+                .map(|bazaar| (bazaar.held, bazaar::GROUNDS)),
         )
         .collect::<Vec<_>>();
     rounds.sort_by(|a, b| {

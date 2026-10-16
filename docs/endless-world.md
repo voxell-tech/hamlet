@@ -112,8 +112,8 @@ cannot take is recorded and refused by the world, and the town stays.
 ## Another kind of place: the chief's
 
 Moving is built on `society::Place`, a thing that holds a round of ground
-and can be picked up and set down. A town is one kind and the Hearth is
-another. A kind of place needs four things:
+and can be picked up and set down. A town is one kind, and the Hearth,
+the library and the bazaar are others. A kind of place needs four things:
 
 1. **A claim on its ground** (`society.claim`), which keeps towns and new
    sites off it and lets the camera go to it.

@@ -102,7 +102,7 @@ Paths are under `crates/`.
 | The library of shared skills | `hamlet_rules/src/library.rs` |
 | Spending and limits | `hamlet_rules/src/budget/`, `hamlet_home/src/limits.rs` |
 | Models, their prices and who may run them | `hamlet_model/src/catalogue.rs`, `hamlet_rules/src/models.rs` |
-| The Agent Bazaar | Its wares in `hamlet_model/src/bazaar.rs`, kept fresh by `hamlet_core/src/bazaar.rs`; its panel in `hamlet_ui/src/bazaar.rs`; [`home.md`](home.md) |
+| The Agent Bazaar | Its wares in `hamlet_model/src/bazaar.rs`, kept fresh by `hamlet_core/src/bazaar.rs`; its panel in `hamlet_ui/src/bazaar.rs`; its tents, stalls and merchant in the world in `hamlet_world/src/bazaar/`; [`home.md`](home.md) |
 | The model client | `hamlet_model/src/provider/` |
 | Signing in with ChatGPT to run models on the chief's plan | `hamlet_model/src/chatgpt.rs`; its client, on the Responses API, in `hamlet_model/src/provider/responses.rs` |
 | Removing, merging, restoring an agent | `hamlet_rules/src/lifecycle.rs` |
@@ -148,7 +148,7 @@ These draw to files and open nothing:
 |---|---|
 | `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes |
 | `cargo run --release --example far_lands -- --out <dir>` | The land, many towns, a town being moved; `--bench` times it |
-| `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library |
+| `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library, the bazaar; `--bazaar` for the bazaar's alone |
 | `cargo run --example cursor_sheet` | Every cursor |
 | `cargo run --release --example sound_sheet` | Every sound and the music, as WAV files |
 

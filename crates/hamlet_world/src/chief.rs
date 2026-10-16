@@ -18,6 +18,7 @@ use hamlet_core::core::HomeDir;
 
 pub use self::look::{Cloak, Hat, Holds, Light, Look};
 pub use self::wickstep::{Mascot, Phase, Stay};
+use crate::bazaar::Bazaar;
 use crate::generator::land::Land;
 use crate::hand::PlaySettings;
 use crate::library::Library;
@@ -41,11 +42,13 @@ pub(super) fn plugin(app: &mut App) {
                                 Or<(
                                     Changed<Place>,
                                     Changed<Library>,
+                                    Changed<Bazaar>,
                                 )>,
                             >,
                         )
                         .or_eager(any_component_removed::<Place>)
-                        .or_eager(any_component_removed::<Library>),
+                        .or_eager(any_component_removed::<Library>)
+                        .or_eager(any_component_removed::<Bazaar>),
                 ),
                 dress::dress,
                 wickstep::step,
