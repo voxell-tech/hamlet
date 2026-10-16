@@ -3437,6 +3437,8 @@ dependencies = [
  "bevy",
  "bevy_fynix",
  "hamlet_assets",
+ "hamlet_core",
+ "hamlet_rules",
  "hamlet_world",
  "serde",
 ]

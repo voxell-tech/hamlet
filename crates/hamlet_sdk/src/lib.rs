@@ -4,6 +4,7 @@
 
 pub mod cue;
 pub mod icons;
+pub mod me;
 pub mod platform;
 pub mod theme;
 

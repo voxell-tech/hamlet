@@ -5,12 +5,12 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::name::Name;
 use bevy::ecs::query::{Added, Changed, Or, With};
-use bevy::ecs::resource::Resource;
 use bevy::ecs::system::Query;
 use bevy::ecs::world::World;
 use hamlet_core::agents::{self, Citizen, Mayor};
 use hamlet_core::session::{self, SessionKey};
 use hamlet_rules::hamlet::HOME;
+pub use hamlet_sdk::me::Me;
 use hamlet_world::pick::{Selected, Thing, select};
 
 use crate::dock::show_tab;
@@ -39,20 +39,6 @@ pub(crate) fn plugin(app: &mut App) {
         agent: mayor,
         with: None,
     });
-}
-
-/// The chat session this window shows and sends to.
-#[derive(Resource)]
-pub struct Me {
-    pub session: Entity,
-    pub key: SessionKey,
-    pub user: String,
-    /// The session with the mayor, whoever the chat is with.
-    pub mayor: Entity,
-    /// The agent the chat is with.
-    pub agent: Entity,
-    /// That agent's name. `None` for the mayor.
-    pub with: Option<String>,
 }
 
 /// The session a chat with `agent` is kept under, and the agent's
@@ -183,33 +169,9 @@ pub(crate) fn reseat(world: &mut World) {
 }
 
 #[cfg(test)]
-impl Me {
-    /// The chat of `user` with `agent`, kept in `session`: with the
-    /// mayor unless `with` names the agent.
-    pub(crate) fn of(
-        session: Entity,
-        agent: Entity,
-        user: &str,
-        with: Option<&str>,
-    ) -> Me {
-        let key = match with {
-            Some(name) => SessionKey::with_agent("app", user, name),
-            None => SessionKey::with_mayor("app", user, HOME),
-        };
-        Me {
-            session,
-            key,
-            user: user.into(),
-            mayor: session,
-            agent,
-            with: with.map(str::to_string),
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use bevy::ecs::observer::On;
+    use bevy::ecs::resource::Resource;
     use bevy::ecs::system::{Commands, ResMut};
     use hamlet_core::agents::{AgentsPlugin, Settlement};
     use hamlet_core::core::HomeDir;
