@@ -27,8 +27,9 @@ import { houseOf } from "../src/layout.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { resolve, roadsOf } from "../src/realm.ts";
 import { RecordDoc } from "../src/record.ts";
-import { remove, restore } from "../src/society/leaving.ts";
+import { erase, remove, restore } from "../src/society/leaving.ts";
 import { merge } from "../src/society/merging.ts";
+import { overturn, vote } from "../src/society/votes.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,
@@ -492,7 +493,7 @@ it("refuses a blocked destination before archiving either agent", async () => {
     const { home, put } = await pair();
     await put(1, "blocked", "a file, not a folder");
     await put(2, "blocked/inside", "cannot be delivered here");
-    await expect(merge(home, deed, context)).rejects.toThrow();
+    expect(await merge(home, deed, context)).toContain("before merging");
     expect(
         (await home.harness.snapshot(RecordDoc, HOME, context))?.agents.map(
             (a) => a.name,
@@ -648,4 +649,173 @@ it("opens with a blocked pending split and retries its files through restore", a
         "is finished",
     );
     expect(await get(1, "NOTES.md")).toContain("Alice likes tea.");
+}, 60_000);
+
+it("refuses to erase an unapplied merge and keeps its archived house available for retry", async () => {
+    const { home, get } = await pair();
+    await merge(home, deed, context);
+    await home.harness.commit(async (tx) => {
+        const a = (await tx.doc(RecordDoc, HOME, HOME)).archive[0];
+        if (a?.merge) a.merge.applied = false;
+    }, context);
+    expect(await erase(home, { ...deed, rest: "scout" }, context)).toContain(
+        "merge has not finished",
+    );
+    expect(
+        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
+    ).toHaveLength(1);
+    expect(await get(2, "NOTES.md")).toContain("The wiki is slow.");
+}, 60_000);
+
+it.each(["folder-link", "dangling-link"])(
+    "refuses a %s destination before committing the merge",
+    async (kind) => {
+        const { home, put } = await pair();
+        const root = houseOf(home.layout, { hamlet: HOME, number: 1 });
+        if (kind === "folder-link") {
+            await mkdir(join(root, "sub"));
+            await symlink("sub", join(root, "docs"));
+            await put(2, "docs/a.txt", "must stay safe");
+        } else {
+            await symlink("missing", join(root, "a.txt"));
+            await put(2, "a.txt", "must stay safe");
+        }
+        let words: string;
+        try {
+            words = await merge(home, deed, context);
+        } catch (error) {
+            if (!(error instanceof Error)) throw error;
+            words = error.message;
+        }
+        expect(
+            (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
+        ).toHaveLength(0);
+        expect(words).toContain("before merging");
+    },
+    60_000,
+);
+
+it("keeps the absorbed notes' original bytes even when they are not UTF-8", async () => {
+    const { home, gone } = await pair();
+    const bytes = Buffer.from([0xff, 0xfe]);
+    await writeFile(join(houseOf(home.layout, gone), "NOTES.md"), bytes);
+    await merge(home, deed, context);
+    expect(
+        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive[0]
+            ?.merge?.applied,
+    ).toBe(true);
+    expect(
+        await readFile(
+            join(
+                houseOf(home.layout, { hamlet: HOME, number: 1 }),
+                "merged/scout/NOTES.md",
+            ),
+        ),
+    ).toEqual(bytes);
+}, 60_000);
+
+it("delivers renamed skills when the absorbed name itself contains -from-", async () => {
+    const { home, put, get } = await pair();
+    await home.harness.commit(async (tx) => {
+        const a = (await tx.doc(RecordDoc, HOME, HOME)).agents.find(
+            (a) => a.number === 2,
+        );
+        if (a) a.name = "notes-from-field";
+    }, context);
+    await put(1, "skills/sort/SKILL.md", "---\nname: sort\n---\nmine");
+    await put(
+        2,
+        "skills/sort/SKILL.md",
+        "---\nname: sort\n---\nRun skills/sort/run.sh",
+    );
+    await merge(
+        home,
+        { ...deed, rest: "notes-from-field into librarian Overlap" },
+        context,
+    );
+    expect(
+        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive[0]
+            ?.merge?.applied,
+    ).toBe(true);
+    expect(
+        await get(1, "skills/sort-from-notes-from-field/SKILL.md"),
+    ).toContain("skills/sort-from-notes-from-field/run.sh");
+}, 60_000);
+
+it("delivers a whole planned tree with bounded sandbox launches, including existing parent folders", async () => {
+    const { home, put, get } = await pair();
+    await put(1, "docs/mine.txt", "mine");
+    for (let i = 0; i < 40; i++)
+        await put(2, `docs/file-${i}.txt`, `file ${i}`);
+    const commands = vi.spyOn(home.sandbox, "command");
+    try {
+        await merge(home, deed, context);
+        expect(commands.mock.calls.length).toBeLessThan(20);
+        expect(await get(1, "docs/file-39.txt")).toBe("file 39");
+        expect(await get(1, "docs/mine.txt")).toBe("mine");
+    } finally {
+        commands.mockRestore();
+    }
+}, 60_000);
+
+it("does not absorb a voter when a vote opens during the mayor's notes errand", async () => {
+    const { home, faux } = await pair();
+    await addAgent(home, HOME, "poet");
+    fauxAgents(faux, {
+        "home:0": [
+            fauxAssistantMessage(
+                fauxToolCall("merge_agents", {
+                    keep: "librarian",
+                    absorb: "scout",
+                    purpose: "Both",
+                    reason: "Overlap",
+                }),
+                { stopReason: "toolUse" },
+            ),
+            fauxAssistantMessage("done"),
+        ],
+        errands: [
+            async () => {
+                await vote(
+                    home,
+                    { ...deed, rest: "scout New direction" },
+                    context,
+                );
+                return fauxAssistantMessage("# Notes\nBoth facts.");
+            },
+            (_p, options) =>
+                new Promise((_resolve, reject) => {
+                    options?.signal?.addEventListener(
+                        "abort",
+                        () => reject(new Error("stopped")),
+                        { once: true },
+                    );
+                }),
+        ],
+    });
+    await (await say(home, "merge")).wait(context);
+    expect(
+        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
+    ).toHaveLength(0);
+    expect(JSON.stringify(await transcript(await mayorChat(home)))).toContain(
+        "nothing else is decided",
+    );
+    await overturn(home, { ...deed, rest: "1 Stop now" }, context);
+}, 60_000);
+
+it("refuses unreadable kept notes before committing and preserves every original byte", async () => {
+    const { home, kept } = await pair();
+    const file = join(houseOf(home.layout, kept), "NOTES.md");
+    const bytes = Buffer.concat([
+        Buffer.from("# Notes\nAlice likes tea.\nI had a caf"),
+        Buffer.from([0xe9]),
+        Buffer.from(" today.\n"),
+    ]);
+    await writeFile(file, bytes);
+    const words = await merge(home, deed, context);
+    expect(
+        (await home.harness.snapshot(RecordDoc, HOME, context))?.archive,
+    ).toHaveLength(0);
+    expect(await readFile(file)).toEqual(bytes);
+    expect(words).toContain("UTF-8");
 }, 60_000);

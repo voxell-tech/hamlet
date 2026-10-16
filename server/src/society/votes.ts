@@ -165,7 +165,7 @@ export const Votes: Part = (home) => {
                     evidence: args.evidence.trim(),
                     grounded: grounded(args.evidence, poll.corpus),
                 });
-                await news(
+                await notifyChiefs(
                     home,
                     tx,
                     poll.hamlet,
@@ -440,7 +440,7 @@ function voteTask(home: Home) {
                                     evidence: "",
                                     grounded: false,
                                 });
-                                await news(
+                                await notifyChiefs(
                                     home,
                                     tx,
                                     hamlet,
@@ -520,7 +520,12 @@ function voteTask(home: Home) {
                                 }
                             }
                             vote.standing = failed ? { failed } : "passed";
-                            await news(home, tx, hamlet, summary(vote, limits));
+                            await notifyChiefs(
+                                home,
+                                tx,
+                                hamlet,
+                                summary(vote, limits),
+                            );
                         }
                         return {
                             status: "terminal",
@@ -543,7 +548,7 @@ function voteTask(home: Home) {
                             v.standing = {
                                 failed: `it passed but could not be done: ${error instanceof Error ? error.message : String(error)}`,
                             };
-                            await news(
+                            await notifyChiefs(
                                 home,
                                 tx,
                                 hamlet,
@@ -629,7 +634,12 @@ async function expire(
             const key = runKey(hamlet, v.id),
                 runner = (await tx.doc(RunDoc, key, key)).runner;
             if (runner !== null) runners.push(runner);
-            await news(home, tx, hamlet, `Vote ${v.id} failed (lapsed).`);
+            await notifyChiefs(
+                home,
+                tx,
+                hamlet,
+                `Vote ${v.id} failed (lapsed).`,
+            );
         }
         return runners;
     }, context);
@@ -706,7 +716,7 @@ async function callVote(
         task: newTask(home.now()),
     };
     doc.votes.push(v);
-    await news(
+    await notifyChiefs(
         home,
         tx,
         given.hamlet,
@@ -1025,7 +1035,8 @@ async function historyOf(
         .map((e) => e.text);
 }
 
-async function news(
+/** Appends civic notices to every chief's chat with this hamlet's mayor. */
+export async function notifyChiefs(
     home: Home,
     tx: Tx,
     hamlet: string,
@@ -1110,7 +1121,7 @@ export const overturn: Deed = async (home, given, context) => {
             );
         if (v.standing === "open") {
             v.standing = { failed: "stopped by a chief" };
-            await news(
+            await notifyChiefs(
                 home,
                 tx,
                 given.hamlet,
@@ -1150,7 +1161,7 @@ export const overturn: Deed = async (home, given, context) => {
             done = `The hamlet \`${v.motion.hamlet}\` is removed and archived.`;
         }
         v.standing = "overturned";
-        await news(
+        await notifyChiefs(
             home,
             tx,
             given.hamlet,
@@ -1197,6 +1208,53 @@ export async function voteOpen(
         ? `vote ${v.id} is open (${describe(v, await read.snapshot(RecordDoc, hamlet, context))}); nothing else is decided in this hamlet until it closes. Try again then`
         : undefined;
 }
+/** A mayor's decision held by the hamlet's open vote. */
+export type DecisionHeld = {
+    kind: "vote-open";
+    operation: "merge" | "remove";
+    hamlet: string;
+    vote: number;
+    motion: string;
+    retrySafe: true;
+};
+
+/** Checks the vote and current limits on the same transaction as a mayor's decision. */
+export async function mayDecide(
+    tx: Tx,
+    hamlet: string,
+    now: number,
+    operation: DecisionHeld["operation"],
+): Promise<{ ok: true } | { ok: false; error: DecisionHeld }> {
+    const limits = await tx.doc(LimitsDoc, hamlet, hamlet);
+    const v = (await tx.doc(VotesDoc, hamlet, hamlet)).votes.find(
+        (v) =>
+            v.standing === "open" &&
+            Math.max(0, now - v.called) < limits.votes.openMinutes * 60_000,
+    );
+    if (!v) return { ok: true };
+    return {
+        ok: false,
+        error: {
+            kind: "vote-open",
+            operation,
+            hamlet,
+            vote: v.id,
+            motion: describe(v, await tx.doc(RecordDoc, hamlet, hamlet)),
+            retrySafe: true,
+        },
+    };
+}
+
+/** The safe retry advice for a decision refused during a vote. */
+export function decisionText(error: DecisionHeld): string {
+    switch (error.kind) {
+        case "vote-open":
+            return `vote ${error.vote} is open (${error.motion}); nothing else is decided in this hamlet until it closes. Try again then`;
+    }
+    const unhandled: never = error.kind;
+    throw new Error(`Unclassified held decision: ${unhandled}`);
+}
+
 /** The latest votes for the window. */
 export async function voteViews(
     home: Home,
@@ -1264,7 +1322,7 @@ export async function seat(
         to: given.number,
     });
     await reconfigure(home, tx);
-    await news(
+    await notifyChiefs(
         home,
         tx,
         given.hamlet,

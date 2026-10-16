@@ -1,8 +1,15 @@
 import { isUtf8 } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+    lstat,
+    mkdir,
+    mkdtemp,
+    readFile,
+    rm,
+    writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Type } from "@earendil-works/pi-ai";
@@ -17,15 +24,9 @@ import {
     type Tx,
 } from "@earendil-works/pi-durable";
 import { untilAborted } from "../abort.ts";
-import { chatOf, WithDoc } from "../chats.ts";
-import { runErrand, startErrand } from "../errands.ts";
-import {
-    deliverTree,
-    listTree,
-    MERGE_CAPS,
-    removeTree,
-    stageTree,
-} from "../gift-files.ts";
+import { WithDoc } from "../chats.ts";
+import { ErrandDoc, runErrand, startErrand } from "../errands.ts";
+import { listTree, MERGE_CAPS, removeTree, stageTree } from "../gift-files.ts";
 import { revoke } from "../grants.ts";
 import { type AgentRef, agentKey, checkName } from "../hamlet.ts";
 import type { Home } from "../home.ts";
@@ -33,8 +34,8 @@ import { InstructionsDoc, owed } from "../instructions.ts";
 import { houseOf } from "../layout.ts";
 import { booksOf } from "../ledger.ts";
 import { LimitsDoc } from "../limits.ts";
-import { notify } from "../notice.ts";
 import type { Deed, Part } from "../parts.ts";
+import { safeWords } from "../plainly.ts";
 import { farewell, isChief, liveHamlets, RealmDoc, roadsOf } from "../realm.ts";
 import {
     type AgentRecord,
@@ -48,7 +49,8 @@ import { closedPolicy } from "../sandbox/reach.ts";
 import { stopAgent } from "../talk.ts";
 import { newTask, turnOf } from "../turn.ts";
 import { lapseAgent } from "../waits.ts";
-import { voteOpen } from "./votes.ts";
+import { lapseTrust } from "./leaving.ts";
+import { decisionText, mayDecide, notifyChiefs, voteOpen } from "./votes.ts";
 
 type Planned = {
     files: Map<string, Buffer>;
@@ -57,6 +59,36 @@ type Planned = {
     after: string;
     notes: "joined" | "rewritten" | "plain";
 };
+type NotesFailure = {
+    kind: "notes-unreadable";
+    operation: "merge" | "split";
+    agent: AgentRef;
+    reason: "not-utf8" | "unavailable";
+    retrySafe: true;
+};
+type PrepareFailure =
+    | {
+          kind: "destination-blocked";
+          operation: "merge";
+          path: string;
+          retrySafe: true;
+      }
+    | NotesFailure;
+type Prepared =
+    | { ok: true; value: Planned }
+    | { ok: false; error: PrepareFailure };
+
+function prepareText(error: PrepareFailure): string {
+    switch (error.kind) {
+        case "notes-unreadable":
+            return notesFailureText(error);
+        case "destination-blocked":
+            return `The merge cannot safely deliver \`${error.path}\`; keep its destination and any linked parent aside before merging.`;
+    }
+    const unhandled: never = error;
+    throw new Error(`Unclassified merge preparation failure: ${unhandled}`);
+}
+
 type Given = {
     hamlet: string;
     keep: string;
@@ -113,7 +145,8 @@ async function stoppedHouses<T>(
 
 const operations = new WeakMap<Home, Promise<unknown>>();
 
-async function serial<T>(
+/** Serializes merge, split and erasure file work within one home. */
+export async function serialHouseWork<T>(
     home: Home,
     context: Context,
     action: () => Promise<T>,
@@ -139,6 +172,16 @@ export const Merging: Part = (home) => ({
         hooks: [
             hook(GenerationTask, {
                 beforeRequest: async (_request, api, context) => {
+                    if (
+                        (
+                            await api.snapshot(
+                                ErrandDoc,
+                                api.conversationId,
+                                context,
+                            )
+                        )?.kind === "ballot"
+                    )
+                        return undefined;
                     const place = await api.snapshot(
                         WithDoc,
                         api.conversationId,
@@ -160,6 +203,16 @@ export const Merging: Part = (home) => ({
             }),
             hook(ToolTask, {
                 beforeTool: async (_call, api, context) => {
+                    if (
+                        (
+                            await api.snapshot(
+                                ErrandDoc,
+                                api.conversationId,
+                                context,
+                            )
+                        )?.kind === "ballot"
+                    )
+                        return undefined;
                     const place = await api.snapshot(
                         WithDoc,
                         api.conversationId,
@@ -191,7 +244,7 @@ export const Merging: Part = (home) => ({
                 }),
                 replay: "safe",
                 execute: async (args, api, context) =>
-                    serial(home, context, async () => {
+                    serialHouseWork(home, context, async () => {
                         const place = await api.snapshot(
                             WithDoc,
                             api.conversationId,
@@ -212,13 +265,25 @@ export const Merging: Part = (home) => ({
                                     context,
                                 )
                             )?.archive.find((a) => a.id === saved.archive);
-                            if (entry)
-                                await retryFiles(
+                            if (entry) {
+                                const outcome = await retryFiles(
                                     home,
                                     place.hamlet,
                                     entry,
                                     context,
                                 );
+                                if (!outcome.ok)
+                                    return {
+                                        output: [
+                                            {
+                                                type: "text",
+                                                text: pendingText(
+                                                    outcome.error,
+                                                ),
+                                            },
+                                        ],
+                                    };
+                            }
                             return {
                                 output: [{ type: "text", text: saved.text }],
                             };
@@ -257,12 +322,24 @@ export const Merging: Part = (home) => ({
                             [agents.kept, agents.gone],
                             context,
                             async () => {
-                                const plan = await prepare(
+                                const prepared = await prepare(
                                     home,
                                     place.hamlet,
                                     agents,
                                     context,
                                 );
+                                if (!prepared.ok)
+                                    return {
+                                        output: [
+                                            {
+                                                type: "text",
+                                                text: prepareText(
+                                                    prepared.error,
+                                                ),
+                                            },
+                                        ],
+                                    };
+                                const plan = prepared.value;
                                 let why = "";
                                 if (plan.notes === "joined") {
                                     const limits = await api.snapshot(
@@ -351,42 +428,81 @@ export const Merging: Part = (home) => ({
                                                     : answer.text;
                                     }
                                 }
-                                const entry = await api.commit(async (tx) => {
-                                    const call = await tx.doc(
-                                        MergeCallDoc,
-                                        api.taskId,
-                                    );
-                                    const r = await tx.doc(
-                                        RecordDoc,
-                                        place.hamlet,
-                                        place.hamlet,
-                                    );
-                                    if (r.mayor !== place.number)
-                                        throw new Error(
-                                            "Only the mayor can merge agents.",
+                                const committed = await api.commit(
+                                    async (tx) => {
+                                        const decision = await mayDecide(
+                                            tx,
+                                            place.hamlet,
+                                            home.now(),
+                                            "merge",
                                         );
-                                    const entry = await archive(
-                                        home,
-                                        tx,
-                                        given,
-                                        agents,
-                                        plan,
-                                    );
-                                    call.archive = entry.id;
-                                    call.text =
-                                        report(
-                                            entry,
-                                            plan.notes === "joined",
-                                            args.purpose,
-                                        ) + (why ? ` ${why}` : "");
-                                    return entry;
-                                }, context);
-                                await retryFiles(
+                                        if (!decision.ok) return decision;
+                                        const call = await tx.doc(
+                                            MergeCallDoc,
+                                            api.taskId,
+                                        );
+                                        const r = await tx.doc(
+                                            RecordDoc,
+                                            place.hamlet,
+                                            place.hamlet,
+                                        );
+                                        if (r.mayor !== place.number)
+                                            throw new Error(
+                                                "Only the mayor can merge agents.",
+                                            );
+                                        const entry = await archive(
+                                            home,
+                                            tx,
+                                            given,
+                                            agents,
+                                            plan,
+                                        );
+                                        call.archive = entry.id;
+                                        call.text =
+                                            report(
+                                                entry,
+                                                plan.notes === "joined",
+                                                args.purpose,
+                                            ) + (why ? ` ${why}` : "");
+                                        return {
+                                            ok: true,
+                                            value: entry,
+                                        } satisfies {
+                                            ok: true;
+                                            value: Archived;
+                                        };
+                                    },
+                                    context,
+                                );
+                                if (!committed.ok)
+                                    return {
+                                        output: [
+                                            {
+                                                type: "text",
+                                                text: decisionText(
+                                                    committed.error,
+                                                ),
+                                            },
+                                        ],
+                                    };
+                                const entry = committed.value;
+                                const outcome = await retryFiles(
                                     home,
                                     place.hamlet,
                                     entry,
                                     context,
                                 );
+                                if (!outcome.ok)
+                                    return {
+                                        output: [
+                                            {
+                                                type: "text",
+                                                text: pendingText(
+                                                    outcome.error,
+                                                ),
+                                            },
+                                        ],
+                                    };
                                 const result = await api.snapshot(
                                     MergeCallDoc,
                                     api.taskId,
@@ -428,7 +544,7 @@ export const Merging: Part = (home) => ({
 
 /** A chief's merge deed. */
 export const merge: Deed = async (home, given, context) =>
-    serial(home, context, async () => {
+    serialHouseWork(home, context, async () => {
         const [absorb = "", into, keep = "", ...reason] = given.rest
             .trim()
             .split(/\s+/);
@@ -452,7 +568,14 @@ export const merge: Deed = async (home, given, context) =>
             [agents.kept, agents.gone],
             context,
             async () => {
-                const plan = await prepare(home, args.hamlet, agents, context);
+                const prepared = await prepare(
+                    home,
+                    args.hamlet,
+                    agents,
+                    context,
+                );
+                if (!prepared.ok) return prepareText(prepared.error);
+                const plan = prepared.value;
                 const entry = await home.harness.commit(
                     (tx) => archive(home, tx, args, agents, plan),
                     context,
@@ -548,14 +671,55 @@ async function notes(
     home: Home,
     ref: AgentRef,
     context: Context,
-): Promise<string> {
+    operation: "merge" | "split" = "merge",
+): Promise<
+    | { ok: true; value: { text: string; bytes: Buffer } }
+    | { ok: false; error: NotesFailure }
+> {
     const env = envFor(home, ref, false);
     try {
-        const read = await env.readTextFile(
+        const read = await env.readBinaryFile(
             join(houseOf(home.layout, ref), "NOTES.md"),
             context,
         );
-        return read.ok ? read.value : "# Notes\n";
+        if (!read.ok) {
+            if (read.error.code === "not_found")
+                return {
+                    ok: true,
+                    value: {
+                        text: "# Notes\n",
+                        bytes: Buffer.from("# Notes\n"),
+                    },
+                };
+            return {
+                ok: false,
+                error: {
+                    kind: "notes-unreadable",
+                    operation,
+                    agent: ref,
+                    reason: "unavailable",
+                    retrySafe: true,
+                },
+            };
+        }
+        if (!isUtf8(read.value))
+            return {
+                ok: false,
+                error: {
+                    kind: "notes-unreadable",
+                    operation,
+                    agent: ref,
+                    reason: "not-utf8",
+                    retrySafe: true,
+                },
+            };
+        return {
+            ok: true,
+            value: {
+                text: Buffer.from(read.value).toString("utf8"),
+                bytes: Buffer.from(read.value),
+            },
+        };
     } finally {
         await env.cleanup(context);
     }
@@ -577,7 +741,7 @@ async function prepare(
     hamlet: string,
     { kept, gone }: { kept: AgentRecord; gone: AgentRecord },
     context: Context,
-): Promise<Planned> {
+): Promise<Prepared> {
     const source = houseOf(home.layout, { hamlet, number: gone.number });
     const target = houseOf(home.layout, { hamlet, number: kept.number });
     const stage = await mkdtemp(join(tmpdir(), "hamlet-merge-"));
@@ -619,21 +783,24 @@ async function prepare(
                 );
             files.set(rel, bytes);
         };
-        const before = await notes(
+        const keptNotes = await notes(
             home,
             { hamlet, number: kept.number },
             context,
         );
-        const theirs = from.files.some((f) => f.path === "NOTES.md")
-            ? await readFile(join(stage, "NOTES.md"), "utf8")
-            : "# Notes\n";
+        if (!keptNotes.ok) return keptNotes;
+        const before = keptNotes.value.text;
+        const theirBytes = from.files.some((f) => f.path === "NOTES.md")
+            ? await readFile(join(stage, "NOTES.md"))
+            : Buffer.from("# Notes\n");
+        const theirs = theirBytes.toString("utf8");
         const both = !!substance(before) && !!substance(theirs);
         const body = substance(theirs)
             ? `${before.trimEnd()}\n\n## From ${gone.name}\n${substance(theirs)}`
             : before.trimEnd();
         const after = `${body.trimEnd()}\n\n${mergedParagraph(gone)}`;
-        put(`merged/${gone.name}/NOTES.before.md`, Buffer.from(before));
-        put(`merged/${gone.name}/NOTES.md`, Buffer.from(theirs));
+        put(`merged/${gone.name}/NOTES.before.md`, keptNotes.value.bytes);
+        put(`merged/${gone.name}/NOTES.md`, theirBytes);
         const renamed = new Map<string, string>();
         for (const f of from.files) {
             const skill = /^skills\/([^/]+)\//.exec(f.path)?.[1];
@@ -674,24 +841,41 @@ async function prepare(
             }
             put(rel, bytes);
         }
-        const env = envFor(home, { hamlet, number: kept.number }, false);
-        try {
-            for (const rel of files.keys()) {
-                const info = await env.fileInfo(join(target, rel), context);
-                if (info.ok || info.error.code !== "not_found")
-                    throw new Error(
-                        `The merge cannot safely deliver \`${rel}\`; keep its destination aside before merging.`,
-                    );
+        for (const rel of files.keys()) {
+            const parts = rel.split("/");
+            let path = target;
+            for (const [index, part] of parts.entries()) {
+                path = join(path, part);
+                const stat = await lstat(path).catch((error: unknown) => {
+                    if (
+                        error instanceof Error &&
+                        "code" in error &&
+                        error.code === "ENOENT"
+                    )
+                        return undefined;
+                    throw error;
+                });
+                if (stat && (index === parts.length - 1 || !stat.isDirectory()))
+                    return {
+                        ok: false,
+                        error: {
+                            kind: "destination-blocked",
+                            operation: "merge",
+                            path: rel,
+                            retrySafe: true,
+                        },
+                    };
             }
-        } finally {
-            await env.cleanup(context);
         }
         return {
-            files,
-            clashes,
-            before,
-            after,
-            notes: both ? "joined" : "plain",
+            ok: true,
+            value: {
+                files,
+                clashes,
+                before,
+                after,
+                notes: both ? "joined" : "plain",
+            },
         };
     } finally {
         await rm(stage, { recursive: true, force: true });
@@ -739,10 +923,10 @@ async function broughtBytes(
         const bytes = await readFile(join(source, path)).catch(() => undefined);
         if (bytes && digest(bytes) === f.sha256) return bytes;
     }
-    const renamed = /^skills\/(.+)-from-([^/]+)\//.exec(rel);
-    if (renamed && renamed[2] === entry.agent.name) {
-        const old = renamed[1] ?? "";
-        const name = `${old}-from-${entry.agent.name}`;
+    const name = /^skills\/([^/]+)\//.exec(rel)?.[1];
+    const suffix = `-from-${entry.agent.name}`;
+    if (name?.endsWith(suffix)) {
+        const old = name.slice(0, -suffix.length);
         const path = rel.replace(`skills/${name}/`, `skills/${old}/`);
         const bytes = await readFile(join(source, path)).catch(() => undefined);
         if (bytes) {
@@ -778,6 +962,7 @@ async function archive(
     );
     const inherited: NonNullable<Archived["merge"]>["inherited"] = [];
     await lapseAgent(tx, { hamlet: given.hamlet, number: gone.number }, at);
+    await lapseTrust(tx, { hamlet: given.hamlet, number: gone.number });
     for (const p of ["network", "unconfined"] as const)
         await revoke(
             tx,
@@ -882,6 +1067,7 @@ async function apply(
                 f.sha256,
             ]),
         );
+        const pending: string[] = [];
         for (const f of merge.brought) {
             if (present.get(f.path) === f.sha256) continue;
             if (present.has(f.path))
@@ -889,24 +1075,77 @@ async function apply(
                     `The pending merge cannot replace changed file \`${f.path}\`.`,
                 );
             const bytes = await broughtBytes(source, entry, f);
-            const staged = join(delivery, f.path);
+            const staged = join(delivery, "tree", f.path);
             await mkdir(dirname(staged), { recursive: true });
             await writeFile(staged, bytes);
-            await deliverTree(
-                home,
-                { root: target, into: dirname(f.path) },
-                dirname(staged),
-                [basename(staged)],
-                context,
+            pending.push(f.path);
+        }
+        if (pending.length) {
+            await writeFile(
+                join(delivery, "manifest.json"),
+                JSON.stringify(pending),
             );
+            const policy = closedPolicy(target, [process.execPath]);
+            policy.ro.push(delivery);
+            policy.limits = {
+                maxFileMb: Math.ceil(MERGE_CAPS.bytes / (1024 * 1024)) + 1,
+                wallSecs: 120,
+            };
+            const copier = new SandboxEnv({
+                cwd: target,
+                policy,
+                sandbox: home.sandbox,
+                tmpScope: `merge-${randomUUID()}`,
+            });
+            try {
+                const copied = await copier.exec(
+                    [
+                        process.execPath,
+                        "-e",
+                        String.raw`
+const fs = require("node:fs"), p = require("node:path");
+const [root, stage] = process.argv.slice(1);
+for (const rel of JSON.parse(fs.readFileSync(p.join(stage, "manifest.json"), "utf8"))) {
+    const parts = rel.split("/");
+    if (!rel || rel.includes("\\") || parts.some(s => !s || s === "." || s === "..")) throw Error("relative path required");
+    let parent = root;
+    for (const part of parts.slice(0, -1)) {
+        parent = p.join(parent, part);
+        try { fs.mkdirSync(parent); } catch (e) { if (e.code !== "EEXIST") throw e; }
+        if (!fs.lstatSync(parent).isDirectory()) throw Error("real parent required");
+    }
+    fs.copyFileSync(p.join(stage, "tree", rel), p.join(root, rel), fs.constants.COPYFILE_EXCL);
+}`,
+                        target,
+                        delivery,
+                    ],
+                    undefined,
+                    context,
+                );
+                if (!copied.ok || copied.value.exitCode !== 0)
+                    return {
+                        ok: false,
+                        error: {
+                            kind: "pending-files",
+                            operation: "merge",
+                            hamlet,
+                            archive: entry.id,
+                            retrySafe: true,
+                        },
+                    };
+            } finally {
+                await copier.cleanup(context);
+            }
         }
         const env = envFor(home, { hamlet, number: merge.kept.number }, true);
         try {
-            const current = await notes(
+            const read = await notes(
                 home,
                 { hamlet, number: merge.kept.number },
                 context,
             );
+            if (!read.ok) return read;
+            const current = read.value.text;
             if (current !== merge.notesBefore && current !== merge.notesAfter)
                 return {
                     ok: false,
@@ -988,7 +1227,7 @@ export async function split(
     },
     context: Context,
 ): Promise<string> {
-    return serial(home, context, async () => {
+    return serialHouseWork(home, context, async () => {
         if (given.entry.merge && !given.entry.merge.applied) {
             const outcome = await retryFiles(
                 home,
@@ -1047,7 +1286,7 @@ async function splitOnce(
             throw new Error(
                 `\`${later.agent.name}\` was merged into \`${kept.name}\` after \`${entry.agent.name}\`; split that one first`,
             );
-        checkName(given.name);
+        if (given.name !== entry.agent.name) checkName(given.name);
         for (const h of liveHamlets(await tx.doc(RealmDoc)))
             if (
                 (await tx.doc(RecordDoc, h.id, h.id)).agents.some(
@@ -1134,15 +1373,17 @@ async function part(
     hamlet: string,
     entry: Archived,
     context: Context,
-): Promise<void> {
+): Promise<FileResult> {
     const merge = entry.merge;
-    if (!merge || merge.applied) return;
+    if (!merge || merge.applied) return { ok: true };
     const ref = { hamlet, number: merge.kept.number };
     await stopAgent(home, ref, context);
     const root = houseOf(home.layout, ref);
     const env = envFor(home, ref, true);
     try {
-        const current = await notes(home, ref, context);
+        const read = await notes(home, ref, context, "split");
+        if (!read.ok) return read;
+        const current = read.value.text;
         const clean =
             current === merge.notesAfter || current === merge.notesBefore;
         const said = `\`${entry.agent.name}\` was split off again`;
@@ -1198,6 +1439,7 @@ async function part(
     } finally {
         await env.cleanup(context);
     }
+    return { ok: true };
 }
 
 type PendingFiles = {
@@ -1208,16 +1450,20 @@ type PendingFiles = {
     retrySafe: true;
 };
 
-type FileResult = { ok: true } | { ok: false; error: PendingFiles };
+type FileResult =
+    | { ok: true }
+    | { ok: false; error: PendingFiles | NotesFailure };
 
-function pendingText(error: PendingFiles): string {
+function pendingText(error: PendingFiles | NotesFailure): string {
     switch (error.kind) {
+        case "notes-unreadable":
+            return notesFailureText(error);
         case "changed-notes":
             return `The merge of \`${error.archive}\` is pending because the kept agent's notes changed. Both versions are kept. Save its newer NOTES.md aside and put its merged/${error.archive.replace(/-\d+$/, "")}/NOTES.before.md back as NOTES.md, then use /restore ${error.archive} to retry safely. Do not erase its house.`;
         case "pending-files":
             return `The ${error.operation} of \`${error.archive}\` in \`${error.hamlet}\` is recorded but its files are still pending. Inspect both houses and keep conflicting paths aside, then use /restore ${error.archive} to retry safely. Do not erase its house.`;
     }
-    const unhandled: never = error.kind;
+    const unhandled: never = error;
     throw new Error(`Unclassified pending files: ${unhandled}`);
 }
 
@@ -1226,8 +1472,8 @@ async function retryFiles(
     hamlet: string,
     entry: Archived,
     context: Context,
-): Promise<{ ok: true } | { ok: false; error: PendingFiles }> {
-    let failure: PendingFiles | undefined;
+): Promise<{ ok: true } | { ok: false; error: PendingFiles | NotesFailure }> {
+    let failure: PendingFiles | NotesFailure | undefined;
     try {
         failure = await stoppedHouses(
             home,
@@ -1239,8 +1485,8 @@ async function retryFiles(
                     const outcome = await apply(home, hamlet, entry, context);
                     return outcome.ok ? undefined : outcome.error;
                 }
-                await part(home, hamlet, entry, context);
-                return undefined;
+                const outcome = await part(home, hamlet, entry, context);
+                return outcome.ok ? undefined : outcome.error;
             },
         );
     } catch {
@@ -1253,24 +1499,22 @@ async function retryFiles(
         };
     }
     if (failure) {
-        const text = pendingText(failure);
+        const text = safeWords(home, pendingText(failure));
         console.error(text);
-        const r = await home.harness.snapshot(RecordDoc, hamlet, context);
-        if (r) {
-            const conversation = await chatOf(
-                home,
-                {
-                    agent: { hamlet, number: r.mayor },
-                    chief: home.chief,
-                },
-                context,
-            );
-            await home.harness.commit(
-                (tx) => notify(tx, conversation.id, text, home.now()),
-                context,
-            );
-        }
+        await home.harness.commit(
+            (tx) => notifyChiefs(home, tx, hamlet, text),
+            context,
+        );
         return { ok: false, error: failure };
     }
     return { ok: true };
+}
+
+function notesFailureText(error: NotesFailure): string {
+    switch (error.kind) {
+        case "notes-unreadable":
+            return `The ${error.operation} cannot use the kept agent's NOTES.md (${agentKey(error.agent)}): ${error.reason === "not-utf8" ? "it is not UTF-8 text" : "it could not be read safely"}. NOTES.md was not replaced. Keep its original bytes aside and correct the file, then read /record before retrying /merge or /restore <archive> for pending work.`;
+    }
+    const unhandled: never = error.kind;
+    throw new Error(`Unclassified notes failure: ${unhandled}`);
 }
