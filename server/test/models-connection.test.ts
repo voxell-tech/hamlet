@@ -4,7 +4,7 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { FAUX_MODEL, scriptedModels } from "../src/models.ts";
+import { FAUX_MODEL, isLocal, scriptedModels } from "../src/models.ts";
 import {
     agents,
     changes,
@@ -416,3 +416,21 @@ it.each(badBaseUrls)(
         );
     },
 );
+
+it("knows this machine without confusing a private network for localhost", () => {
+    for (const address of [
+        "localhost:11434/v1",
+        "http://127.3.4.5:8080",
+        "http://[::1]:1234/v1",
+        "0.0.0.0:8080",
+    ])
+        expect(isLocal(address)).toBe(true);
+    for (const address of [
+        "https://openrouter.ai/api/v1",
+        "http://10.0.0.2:11434",
+        "http://172.16.0.2:11434",
+        "192.168.1.20",
+        "",
+    ])
+        expect(isLocal(address)).toBe(false);
+});
