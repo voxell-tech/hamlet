@@ -129,6 +129,12 @@ its whole read each frame, and a dock tab that is not in front still runs
 its signals. A read that has no resource of its own takes its check from
 `rolled`, `moved::<R>()` or `either(..)` in `roll.rs`.
 
+A dock tab that is not in front is `Display::None`, so its view's
+visibility stays true; to tell whether it is on screen, look at its
+node's computed size. A camera whose `RenderTarget` is changed must have
+its `Projection` marked changed too, or Bevy keeps measuring the old
+target.
+
 A command about an agent or a hamlet goes through `chat::decree`, which
 gives it to that hamlet whoever the chat is with. `chat::send` is for what
 the chief typed and for what is about the open chat or the whole realm.

@@ -99,10 +99,12 @@ Paths are under `crates/`.
 | What an agent's commands may touch | `hamlet_sandbox/src/`; [`sandbox.md`](sandbox.md) |
 | The folder a hamlet works on | `hamlet_rules/src/work.rs` keeps it; `Tools::work_on` in `hamlet_core/src/tools.rs` applies it |
 | The workbench and its clockwork on a common | `hamlet_world/src/works.rs` |
-| The library of shared skills | `hamlet_rules/src/library.rs` |
+| The library of shared skills | `hamlet_rules/src/library.rs`; `Library::give` shelves one the chief chose |
 | Spending and limits | `hamlet_rules/src/budget/`, `hamlet_home/src/limits.rs` |
 | Models, their prices and who may run them | `hamlet_model/src/catalogue.rs`, `hamlet_rules/src/models.rs` |
-| The Agent Bazaar | Its wares in `hamlet_model/src/bazaar.rs`, kept fresh by `hamlet_core/src/bazaar.rs`; its panel in `hamlet_ui/src/bazaar.rs`; its tents, stalls and merchant in the world in `hamlet_world/src/bazaar/`; [`home.md`](home.md) |
+| The Agent Bazaar | Its models in `hamlet_model/src/bazaar.rs`, kept fresh by `hamlet_core/src/bazaar.rs`; the mock listings in `hamlet_model/src/market/`; skills.sh in `hamlet_model/src/skills_sh.rs` and `hamlet_core/src/skill_market.rs`; its panel and each stall's page and counter in `hamlet_ui/src/bazaar/`; the stalls and their keepers in `hamlet_world/src/bazaar/stalls.rs`; its tents, keepers and shoppers in the world in `hamlet_world/src/bazaar/`; [`home.md`](home.md) |
+| A hamlet drawn small, apart from the world | `hamlet_world/src/diorama.rs` |
+| Founding a bought hamlet whole | `Realm::found_bought` in `hamlet_rules/src/realm/bought.rs` |
 | The model client | `hamlet_model/src/provider/` |
 | Signing in with ChatGPT to run models on the chief's plan | `hamlet_model/src/chatgpt.rs`; its client, on the Responses API, in `hamlet_model/src/provider/responses.rs` |
 | Removing, merging, restoring an agent | `hamlet_rules/src/lifecycle.rs` |

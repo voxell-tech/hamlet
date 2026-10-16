@@ -8,6 +8,7 @@ it elsewhere.
   config.toml     settings and endpoints (keys are in the keychain, or in api_key.<endpoint>)
   models.toml     the models you added, with what each costs
   bazaar.json     what OpenRouter and the endpoints offer, asked again each day; safe to delete
+  skills_sh.json  the skills skills.sh lists, asked again each day; safe to delete
   library/        the skills every agent shares, one folder each
   library.jsonl   what was shelved there, refused and taken out
   charter.md      your own charter, the words every agent's prompt opens with; absent until you edit it
@@ -42,10 +43,21 @@ The Agent Bazaar (HAMLET menu, or Browse the Bazaar under an agent's
 model) shows every model OpenRouter offers, with its price, context,
 abilities and benchmark scores, and the models of each other endpoint.
 OpenRouter's list needs no key and is kept in `bazaar.json` for a day.
-In the world the bazaar is a market of striped tents beside the first
-town: select it to see the models the home bought, and its merchant
-cheers each one added. Where a chief set it down is kept in
+In the world the bazaar is a market beside the first town: a
+merchant's pavilion and five stalls round it, each with its keeper.
+Select the pavilion to see the models the home bought; select a stall
+and the Inspector becomes its keeper's counter, the same wares as that
+stall's tab in the bazaar's panel. Where a chief set it down is kept in
 `bazaar.place`.
+
+| Stall | Keeper | Sells | Buying |
+|---|---|---|---|
+| Agent Stall | Brannoc, the mind-monger | Models, as below | Adds the model to `models.toml` |
+| Artisans' Stall | Wren Halloway | Agents other chiefs made (mock) | Pretend: kept only while the app runs |
+| Tinker's Stall | Tobias Cogsworth | Plugins that add to Hamlet (mock) | Pretend: kept only while the app runs |
+| Skill Stall | Sister Marjoram | Skills listed on skills.sh | Shelves the skill in `library/`, recorded in `library.jsonl` with `from` its source; no librarian is asked, since the chief chose it |
+| Hamlet Store | Lady Ashgrove | Whole hamlets (mock), each shown as a turning diorama | Founds the hamlet at once: its mayor, its agents and their characters, notes and skills |
+
 Adding a model writes it to `models.toml`, allowed; one from OpenRouter
 first signs the chief in to OpenRouter when the home has no endpoint
 there. Only added models are in `models.toml`: List Models updates
