@@ -15,3 +15,4 @@ pub mod terminal;
 #[cfg(test)]
 mod testing;
 pub mod tools;
+pub mod wardrobe;

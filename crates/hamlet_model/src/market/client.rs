@@ -15,6 +15,7 @@ use super::lot::{
     Paying, PurchaseState, Release, Said, User,
 };
 use super::package::Package;
+use crate::wardrobe::Asset;
 
 /// The wait for any one answer. A package may be ten megabytes.
 const PATIENCE: Duration = Duration::from_secs(120);
@@ -335,6 +336,51 @@ impl Client {
         let path = format!("/v1/listings/{id}/reviews");
         let body = json!({ "stars": stars, "words": words });
         self.json(self.ask(Method::POST, &path).json(&body)).await
+    }
+
+    /// Every official asset on the shelves, `owned` set for the one
+    /// signed in.
+    pub async fn assets(&self) -> Result<Vec<Asset>> {
+        let page = self
+            .json::<Page<Asset>>(self.ask(Method::GET, "/v1/assets"))
+            .await?;
+        Ok(page.items)
+    }
+
+    /// Every official asset the one signed in owns.
+    pub async fn my_assets(&self) -> Result<Vec<Asset>> {
+        let page = self
+            .json::<Page<Asset>>(
+                self.ask(Method::GET, "/v1/me/assets"),
+            )
+            .await?;
+        Ok(page.items)
+    }
+
+    /// Buys the asset `id`: owned at once when it is free, or a page
+    /// on Stripe to pay on.
+    pub async fn buy_asset(&self, id: &str) -> Result<Bought> {
+        let path = format!("/v1/assets/{id}/purchase");
+        self.json(self.ask(Method::POST, &path)).await
+    }
+
+    pub async fn asset_paying(
+        &self,
+        purchase: &str,
+    ) -> Result<Paying> {
+        let path = format!("/v1/asset-purchases/{purchase}");
+        let state = self
+            .json::<PurchaseState>(self.ask(Method::GET, &path))
+            .await?;
+        Ok(state.status)
+    }
+
+    /// The file of the asset `id`, which the one signed in owns. It
+    /// is kept in memory only.
+    pub async fn asset_file(&self, id: &str) -> Result<Vec<u8>> {
+        let path = format!("/v1/assets/{id}/file");
+        let answer = self.send(self.ask(Method::GET, &path)).await?;
+        Ok(answer.bytes().await?.to_vec())
     }
 
     /// The bytes of a picture on the server, by its path.

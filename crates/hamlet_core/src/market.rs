@@ -124,8 +124,24 @@ impl Market {
         }
     }
 
-    fn client(&self) -> Client {
+    pub(crate) fn client(&self) -> Client {
         Client::new(&self.server, self.token.clone())
+    }
+
+    /// True when the chief has a token from signing in.
+    pub(crate) fn signed(&self) -> bool {
+        self.token.is_some()
+    }
+
+    /// Talks to `server` as signed in with `token`.
+    #[cfg(test)]
+    pub(crate) fn sign_for_test(
+        &mut self,
+        server: String,
+        token: &str,
+    ) {
+        self.server = server;
+        self.token = Some(token.to_string());
     }
 
     /// The one signed in, if anyone is.

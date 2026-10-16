@@ -12,11 +12,13 @@ workspace = true
 hamlet_assets.workspace = true
 hamlet_core.workspace = true
 hamlet_home.workspace = true
+hamlet_model.workspace = true
 hamlet_rules.workspace = true
 hamlet_vfx.workspace = true
 bevy.workspace = true
 chrono.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 toml.workspace = true
 
 [dev-dependencies]

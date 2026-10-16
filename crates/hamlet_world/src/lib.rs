@@ -6,6 +6,7 @@ pub mod bubble;
 pub mod chief;
 pub mod debug;
 pub mod diorama;
+pub mod dress;
 pub mod generator;
 pub mod hamlet;
 pub mod hand;
@@ -70,6 +71,7 @@ pub fn base(app: &mut App) {
         play::plugin,
         sound::plugin,
         debug::plugin,
+        dress::plugin,
     ))
     .init_resource::<Clock>()
     .init_resource::<Stage>()

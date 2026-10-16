@@ -3478,10 +3478,12 @@ dependencies = [
  "hamlet_assets",
  "hamlet_core",
  "hamlet_home",
+ "hamlet_model",
  "hamlet_rules",
  "hamlet_testing",
  "hamlet_vfx",
  "serde",
+ "serde_json",
  "toml",
 ]
 

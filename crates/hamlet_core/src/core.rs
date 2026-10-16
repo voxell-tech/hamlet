@@ -106,6 +106,7 @@ impl Plugin for CorePlugin {
             crate::bazaar::plugin,
             crate::skill_market::plugin,
             crate::market::plugin,
+            crate::wardrobe::plugin,
         ));
     }
 }

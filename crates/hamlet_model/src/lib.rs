@@ -10,3 +10,4 @@ pub mod market;
 pub mod provider;
 pub mod signin;
 pub mod skills_sh;
+pub mod wardrobe;

@@ -171,6 +171,8 @@ fn main() -> Result<()> {
             app.add_plugins((tick, TerminalCtrlCHandlerPlugin)).run();
         }
         Mode::Window => {
+            // Before the asset plugin, which reads every source.
+            hamlet_world::dress::register_source(&mut app);
             let exit = app
                 .insert_resource(ShowRequests(show_requests))
                 // A window draws far more often than the records
