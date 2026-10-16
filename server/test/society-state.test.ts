@@ -105,6 +105,7 @@ it("shows all hamlets, office and built roads, departed agents and closed hamlet
             reason: "Done",
         },
     ]);
+    expect(late.state.houses).toBe(home.layout.houses);
     expect(late.state.library?.map((skill) => skill.name)).toEqual([
         "call-api",
         "manage-notes",

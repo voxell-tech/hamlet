@@ -5,6 +5,11 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::system::{SystemParam, SystemState};
 use hamlet_protocol::v0;
 
+/// The server machine's houses folder, excluded from local chat
+/// links.
+#[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
+pub struct Houses(pub Option<String>);
+
 /// The first hamlet's protocol id.
 pub const HOME: &str = "home";
 /// The address of a hamlet's current mayor.
@@ -402,6 +407,7 @@ pub struct Left;
 
 pub(crate) fn state(world: &mut World, state: v0::State) {
     let news = world.contains_resource::<Seen>();
+    world.insert_resource(Houses(state.houses));
     world.insert_resource(Skills(
         state
             .library

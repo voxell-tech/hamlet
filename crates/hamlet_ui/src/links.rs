@@ -19,7 +19,7 @@ use bevy::ecs::world::World;
 use bevy::picking::events::{Click, Out, Over, Pointer, Press};
 use bevy::picking::pointer::PointerButton;
 use hamlet_client::messages::JobFinished;
-use hamlet_client::realm::{LivesIn, Works};
+use hamlet_client::realm::{Houses, LivesIn, Works};
 use hamlet_desktop::open;
 use hamlet_world::sound::{Cue, Sound};
 
@@ -85,7 +85,7 @@ impl Roots {
 /// The file each path written in the chat names under [`Roots`], as
 /// it was last looked for.
 #[derive(Resource, Default)]
-struct Found(HashMap<String, Option<PathBuf>>);
+struct Found(HashMap<String, Option<PathBuf>>, Option<PathBuf>);
 
 /// The local work folder of the selected agent's hamlet.
 fn turn(world: &mut World) {
@@ -120,6 +120,16 @@ pub(crate) fn seek(
     // The chat is drawn for another agent before the system that
     // keeps the folders has seen it turn.
     turn(world);
+    let houses = world
+        .get_resource::<Houses>()
+        .and_then(|houses| houses.0.as_ref())
+        .map(PathBuf::from)
+        .map(|path| path.canonicalize().unwrap_or(path));
+    let mut found = world.get_resource_or_init::<Found>();
+    if found.1 != houses {
+        found.0.clear();
+        found.1 = houses.clone();
+    }
     let known = world
         .get_resource::<Found>()
         .and_then(|found| found.0.get(written));
@@ -134,6 +144,11 @@ pub(crate) fn seek(
             .get_resource::<Roots>()
             .and_then(|roots| open::locate(written, &roots.folders))
     };
+    let file = file.filter(|file| {
+        !houses
+            .as_ref()
+            .is_some_and(|houses| file.starts_with(houses))
+    });
     let mut found = world.get_resource_or_init::<Found>();
     if found.0.len() >= REMEMBERED {
         found.0.clear();
@@ -280,5 +295,54 @@ mod tests {
             chat: Entity::PLACEHOLDER,
         });
         assert_eq!(seek(&mut world, "plan.md"), Some(file));
+    }
+    #[test]
+    fn received_houses_stay_plain_even_through_work_folder_links() {
+        let home = hamlet_testing::Scratch::new("house-links");
+        let houses = home.join("houses");
+        std::fs::create_dir_all(houses.join("home/1")).unwrap();
+        let private = houses.join("home/1/plan.md");
+        let public = home.join("public.md");
+        std::fs::write(&private, "private").unwrap();
+        std::fs::write(&public, "public").unwrap();
+        let mut app = App::new();
+        app.add_plugins(hamlet_client::ClientPlugin { server: None });
+        app.world_mut()
+            .insert_resource(Roots::new([home.to_path_buf()]));
+        assert!(
+            seek(app.world_mut(), private.to_str().unwrap())
+                .is_some()
+        );
+        let mut state =
+            serde_json::to_value(hamlet_testing::realm::state())
+                .unwrap();
+        state["houses"] = serde_json::json!(houses);
+        hamlet_client::receive(
+            app.world_mut(),
+            hamlet_protocol::v0::ServerMessage::State(
+                serde_json::from_value(state).unwrap(),
+            ),
+        );
+        assert_eq!(
+            seek(app.world_mut(), private.to_str().unwrap()),
+            None
+        );
+        assert_eq!(
+            seek(app.world_mut(), "houses/home/1/plan.md"),
+            None
+        );
+        assert!(seek(app.world_mut(), "public.md").is_some());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(
+                &houses,
+                home.join("shortcut"),
+            )
+            .unwrap();
+            assert_eq!(
+                seek(app.world_mut(), "shortcut/home/1/plan.md"),
+                None
+            );
+        }
     }
 }

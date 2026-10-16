@@ -627,6 +627,8 @@ export type ProviderView = Static<typeof ProviderView>;
 
 /** The whole realm's state (S5). */
 export const State = object({
+    /** The server machine's houses folder. Local chat links and pictures must not resolve under it. */
+    houses: Type.Optional(Type.String()),
     library: Type.Optional(Type.Array(LibrarySkill)),
     closed: Type.Optional(Type.Array(ClosedHamlet)),
     type: Type.Literal("state"),

@@ -1063,6 +1063,8 @@ pub struct State {
     pub grants: Vec<Grant>,
     pub hamlets: Vec<Hamlet>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub houses: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library: Option<Vec<LibrarySkill>>,
     pub providers: Vec<ProviderView>,
     pub revision: i64,

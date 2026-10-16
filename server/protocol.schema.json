@@ -2230,6 +2230,9 @@
                 "providers"
             ],
             "properties": {
+                "houses": {
+                    "type": "string"
+                },
                 "library": {
                     "type": "array",
                     "items": {

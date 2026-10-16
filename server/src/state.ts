@@ -316,6 +316,7 @@ export async function stateOf(
     });
     return {
         type: "state",
+        houses: home.layout.houses,
         ...at,
         chief: home.chief,
         sandbox: home.sandbox.name,
