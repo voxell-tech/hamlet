@@ -4,13 +4,13 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import {
-    agentConversation as peerConversation,
-    requireWritable,
-} from "../src/agent-chats.ts";
 import { QuestionEntry, submitLine } from "../src/chats.ts";
 import { conversationViews } from "../src/letters.ts";
 import type { ChatRef } from "../src/protocol.ts";
+import {
+    agentConversation as peerConversation,
+    requireWritable,
+} from "../src/transcript.ts";
 import { request, served } from "./connection-support.ts";
 import {
     addAgent,

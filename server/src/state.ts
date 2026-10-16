@@ -7,7 +7,6 @@ import {
     LiveDoc,
     watchEvents,
 } from "@earendil-works/pi-durable";
-import { Activity } from "./activity.ts";
 import { AgentConversationsDoc, ChatDoc, currentOf } from "./chats.ts";
 import { DEEDS } from "./commands.ts";
 import { modeWords, WorkDoc } from "./environment.ts";
@@ -47,6 +46,7 @@ import {
 } from "./record.ts";
 import { type Settings, SettingsDoc, settingsOf } from "./settings.ts";
 import { booksOf, money, reportOf } from "./spend.ts";
+import { Activity } from "./state/activity.ts";
 import { voteViews } from "./votes.ts";
 
 const starters = starterSkills(STARTERS);

@@ -5,12 +5,9 @@ import { API } from "typescript/unstable/sync";
 
 /** Files whose exported declarations still need documentation. */
 const ALLOWLIST = new Set<string>([
-    "activity.ts",
-    "answers.ts",
     "commands.ts",
     "git/proxy.ts",
     "protocol.ts",
-    "reflection.ts",
     "terminal.ts",
 ]);
 const root = fileURLToPath(new URL("../src/", import.meta.url));

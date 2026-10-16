@@ -24,23 +24,24 @@ import {
 import {
     AgentConversationsDoc,
     ErrandEntry,
+    InstructionsDoc,
+    notify,
     RetryEntry,
+    runErrand,
+    startErrand,
+    TaskDoc,
+    turnOf,
     WithDoc,
 } from "../chats.ts";
-import { runErrand, startErrand } from "../errands.ts";
 import type { Home, Part } from "../home.ts";
 import { houseOf, localDay, untilAborted } from "../home.ts";
-import { InstructionsDoc } from "../instructions.ts";
 import { LimitsDoc, limitsOf } from "../limits.ts";
 import { choose } from "../models.ts";
-import { notify } from "../notice.ts";
 import { liveHamlets, RealmDoc } from "../realm.ts";
 import { type AgentRef, addressOf, agentKey, RecordDoc } from "../record.ts";
 import { closedPolicy, SandboxEnv } from "../sandbox.ts";
 import { modelRef, SettingsDoc, settingsOf } from "../settings.ts";
 import { booksOf, stopped } from "../spend.ts";
-import { TaskDoc } from "../tasks.ts";
-import { turnOf } from "../turn.ts";
 import { AskedDoc } from "./asked.ts";
 import {
     OversightDayDoc,

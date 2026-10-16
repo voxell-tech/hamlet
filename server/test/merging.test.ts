@@ -21,9 +21,8 @@ import {
 } from "@earendil-works/pi-durable";
 import { expect, it, vi } from "vitest";
 import { erase, merge, remove, restore } from "../src/agents.ts";
-import { submitLine, WithDoc } from "../src/chats.ts";
+import { InstructionsDoc, submitLine, WithDoc } from "../src/chats.ts";
 import { houseOf } from "../src/home.ts";
-import { InstructionsDoc } from "../src/instructions.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { CharacterDoc } from "../src/prompt.ts";
 import { resolve, roadsOf } from "../src/realm.ts";

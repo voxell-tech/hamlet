@@ -5,16 +5,16 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it, vi } from "vitest";
-import { ReflectionDoc } from "../src/reflection.ts";
-import { SettingsDoc } from "../src/settings.ts";
 import {
     followHome,
     newChat,
+    ReflectionDoc,
     reflect,
     resumeChat,
     rewind,
     stopAgent,
-} from "../src/talk.ts";
+} from "../src/chats.ts";
+import { SettingsDoc } from "../src/settings.ts";
 import {
     CHIEF,
     context,

@@ -472,7 +472,7 @@ it("charges a moved sender's next question to its new hamlet without replacing t
     };
     await ask(scout);
     const { PeersDoc } = await import("../src/letters.ts");
-    const { PayerDoc } = await import("../src/errands.ts");
+    const { PayerDoc } = await import("../src/chats.ts");
     const peer = (
         await home.harness.snapshot(PeersDoc, `home:${baker.number}`, context)
     )?.questions[`home:${scout.number}`];

@@ -6,12 +6,11 @@ import {
     DEFAULT_COMPACTION_POLICY,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { AgentConversationsDoc, WithDoc } from "../chats.ts";
+import { AgentConversationsDoc, configureRole, WithDoc } from "../chats.ts";
 import type { Home, Part } from "../home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
 import { liveHamlets, RealmDoc } from "../realm.ts";
 import { type AgentRef, agentKey, HOME, MAYOR, RecordDoc } from "../record.ts";
-import { configureRole } from "../roles.ts";
 import {
     modelName,
     modelRef,

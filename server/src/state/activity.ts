@@ -1,5 +1,5 @@
 import type { AgentEvent, SnapshotEvent } from "@earendil-works/pi-durable";
-import type { Agent, Doing } from "./protocol.ts";
+import type { Agent, Doing } from "../protocol.ts";
 
 const WORDS: Record<Doing, string> = {
     rest: "At rest",
@@ -18,24 +18,32 @@ const WORDS: Record<Doing, string> = {
 
 /** The work and words of one conversation, folded only from committed events. */
 export class Activity {
+    /** The current work step and its accumulated tool failures. */
     activity: Agent["activity"] = {
         doing: "rest",
         doingWords: WORDS.rest,
         step: 0,
         failures: 0,
     };
+    /** The current visible text or reasoning fragment. */
     saying: Agent["saying"] = { text: "", thought: false };
+    /** An active generation run in the committed conversation. */
     working = false;
+    /** Queued inputs that can start model work. */
     pending = 0;
+    /** The last observed answer ended in failure or abort. */
     faulted = false;
+    /** An active librarian consultation or skill submission. */
     consulting = false;
     readonly #blocks = new Map<number, string>();
     readonly #calls = new Set<string>();
 
+    /** Seeds the fold from one committed conversation snapshot. */
     constructor(snapshot: SnapshotEvent) {
         this.note(snapshot);
     }
 
+    /** Advances the fold with the next committed conversation event. */
     note(event: AgentEvent): void {
         switch (event.type) {
             case "snapshot":

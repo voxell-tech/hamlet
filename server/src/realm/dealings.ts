@@ -24,17 +24,22 @@ import {
     type ToolExecutionApi,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { AgentConversationsDoc, ChatDoc, chatOf, WithDoc } from "../chats.ts";
-import { PayerDoc } from "../errands.ts";
+import {
+    AgentConversationsDoc,
+    ChatDoc,
+    chatOf,
+    InstructionsDoc,
+    notify,
+    PayerDoc,
+    WithDoc,
+} from "../chats.ts";
 import { GrantsDoc, grantsOf, revoke } from "../gate.ts";
 import type { Home, Part } from "../home.ts";
 import { houseOf } from "../home.ts";
 import { removeHouse } from "../house.ts";
-import { InstructionsDoc } from "../instructions.ts";
 import { askAgent, PeersDoc } from "../letters.ts";
 import { LimitsDoc } from "../limits.ts";
 import { reconfigure } from "../models.ts";
-import { notify } from "../notice.ts";
 import { lapseAgent } from "../oversight.ts";
 import { CharacterDoc } from "../prompt.ts";
 import { type AgentRef, agentKey, HOME, RecordDoc } from "../record.ts";

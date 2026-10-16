@@ -1,10 +1,10 @@
 import type { Context } from "@earendil-works/chord";
 import type { Conversation } from "@earendil-works/pi-durable";
-import type { Home } from "./home.ts";
-import { PeersDoc } from "./letters.ts";
-import type { ChatRef } from "./protocol.ts";
-import { type ChiefResult, chiefAccess, resolve } from "./realm.ts";
-import { agentKey } from "./record.ts";
+import type { Home } from "../home.ts";
+import { PeersDoc } from "../letters.ts";
+import type { ChatRef } from "../protocol.ts";
+import { type ChiefResult, chiefAccess, resolve } from "../realm.ts";
+import { agentKey } from "../record.ts";
 
 /** A chief's read-only conversation between two agents. */
 export async function agentConversation(

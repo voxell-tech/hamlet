@@ -20,8 +20,7 @@ import {
     type TaskId,
     type ToolExecutionApi,
 } from "@earendil-works/pi-durable";
-import { WithDoc } from "../chats.ts";
-import { runErrand, startErrand } from "../errands.ts";
+import { runErrand, startErrand, turnOf, WithDoc } from "../chats.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { houseOf } from "../home.ts";
 import {
@@ -39,7 +38,6 @@ import type { State } from "../protocol.ts";
 import { RecordDoc } from "../record.ts";
 import { closedPolicy, SandboxEnv } from "../sandbox.ts";
 import { booksOf, stopped } from "../spend.ts";
-import { turnOf } from "../turn.ts";
 import { LibraryDoc, libraryPart } from "./shelf.ts";
 
 const ConsultDoc = defineDoc<{

@@ -21,12 +21,14 @@ import {
 } from "@earendil-works/pi-durable";
 import {
     LetterEntry,
+    PayerDoc,
     QuestionEntry,
     ReplyEntry,
     startConversation,
+    TaskDoc,
+    turnOf,
     WithDoc,
 } from "./chats.ts";
-import { PayerDoc } from "./errands.ts";
 import type { Home, Part } from "./home.ts";
 import { untilAborted } from "./home.ts";
 import { PeersDoc } from "./letters/peers.ts";
@@ -50,8 +52,6 @@ import {
     RecordDoc,
 } from "./record.ts";
 import { safeWords } from "./scrub.ts";
-import { TaskDoc } from "./tasks.ts";
-import { turnOf } from "./turn.ts";
 
 type Delivery = {
     id: string;

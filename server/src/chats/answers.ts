@@ -13,20 +13,24 @@ import {
     type TaskId,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { ReflectionEntry, retryInput, WithDoc } from "./chats.ts";
-import type { Home } from "./home.ts";
-import { untilAborted } from "./home.ts";
+import type { Home } from "../home.ts";
+import { untilAborted } from "../home.ts";
+import { raiseFault } from "../oversight.ts";
+import { addressOf, RecordDoc } from "../record.ts";
+import { safeWords } from "../scrub.ts";
+import { ReflectionEntry, retryInput, WithDoc } from "./conversations.ts";
 import { notify } from "./notice.ts";
-import { raiseFault } from "./oversight.ts";
-import { addressOf, RecordDoc } from "./record.ts";
-import { safeWords } from "./scrub.ts";
 import { turnOf } from "./turn.ts";
 
+/** The chief's recovery advice for an answer with no text or tool calls. */
 export const EMPTY = "the model answered with nothing. Send the message again";
+/** The chief's recovery advice for an answer cut off despite compaction. */
 export const NO_ROOM =
     "the model has no room left to answer, even with the conversation summarised. Start a new session, or choose a model that holds more";
+/** The chief's recovery advice when compaction cannot free the model's context. */
 export const NO_SUMMARY =
     "the conversation is longer than the model can hold, and the model could not summarise it. Start a new session, or choose a model that holds more";
+/** The transcript notice emitted after earlier conversation entries are summarized. */
 export const SUMMARY_NOTICE =
     "The conversation grew longer than the model can hold, so the earlier part of it was summarised.";
 
@@ -114,6 +118,7 @@ export function checkAnswer(
     };
 }
 
+/** The failed answer's recorded cause, once recovery has ended unsuccessfully. */
 export async function answerFailure(
     home: Home,
     id: ConversationId,

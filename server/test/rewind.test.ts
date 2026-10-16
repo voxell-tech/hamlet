@@ -3,11 +3,17 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it, vi } from "vitest";
+import {
+    followHome,
+    historyOf,
+    newChat,
+    ReflectionDoc,
+    retry,
+    rewind,
+    usageOf,
+} from "../src/chats.ts";
 import { answer } from "../src/gate.ts";
-import { historyOf, usageOf } from "../src/history.ts";
 import { raiseFault } from "../src/oversight.ts";
-import { ReflectionDoc } from "../src/reflection.ts";
-import { followHome, newChat, retry, rewind } from "../src/talk.ts";
 import {
     CHIEF,
     context,

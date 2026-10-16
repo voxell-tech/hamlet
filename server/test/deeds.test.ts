@@ -4,8 +4,7 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { ChiefEntry, RetryEntry } from "../src/chats.ts";
-import { NoticeEntry } from "../src/notice.ts";
+import { ChiefEntry, NoticeEntry, RetryEntry } from "../src/chats.ts";
 import { RecordDoc } from "../src/record.ts";
 import {
     agents,
@@ -194,7 +193,7 @@ it("stops a held turn by the founder's name, drops its wait and queue, and retri
 });
 
 it("keeps the same conversations, entries and waits for typed and structured conversation deeds (S6)", async () => {
-    const { rewind } = await import("../src/talk.ts");
+    const { rewind } = await import("../src/chats.ts");
     const { ChatDoc } = await import("../src/chats.ts");
     const { mayorChat, transcript, openWaits } = await import("./support.ts");
     const results = [];

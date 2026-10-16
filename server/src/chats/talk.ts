@@ -12,6 +12,19 @@ import {
     type SubmissionId,
     type Tx,
 } from "@earendil-works/pi-durable";
+import { closeGate } from "../gate.ts";
+import type { Home, Part } from "../home.ts";
+import { configureAgent } from "../models.ts";
+import {
+    lapse,
+    OversightDoc,
+    raiseFault,
+    resetTrust,
+    settle,
+} from "../oversight.ts";
+import { chiefAccess, liveHamlets, RealmDoc } from "../realm.ts";
+import { type AgentRef, addressOf, agentKey, RecordDoc } from "../record.ts";
+import { reconcile } from "../spend.ts";
 import {
     answerFailure,
     cancelAnswers,
@@ -32,22 +45,10 @@ import {
     startConversation,
     type With,
     WithDoc,
-} from "./chats.ts";
-import { closeGate } from "./gate.ts";
+} from "./conversations.ts";
 import { entriesOf, LineageDoc } from "./history.ts";
-import type { Home, Part } from "./home.ts";
 import { InstructionsDoc } from "./instructions.ts";
-import { configureAgent } from "./models.ts";
 import { NoticeEntry, notify } from "./notice.ts";
-import {
-    lapse,
-    OversightDoc,
-    raiseFault,
-    resetTrust,
-    settle,
-} from "./oversight.ts";
-import { chiefAccess, liveHamlets, RealmDoc } from "./realm.ts";
-import { type AgentRef, addressOf, agentKey, RecordDoc } from "./record.ts";
 import {
     enterReflection,
     ReflectDoc,
@@ -55,7 +56,6 @@ import {
     reflectEvery,
     requestReflection,
 } from "./reflection.ts";
-import { reconcile } from "./spend.ts";
 import { newTask, turnOf } from "./turn.ts";
 
 const FollowDoc = defineDoc<{

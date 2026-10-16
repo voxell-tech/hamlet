@@ -7,6 +7,7 @@ import {
     LiveDoc,
     type SubmissionId,
 } from "@earendil-works/pi-durable";
+import type { AgentRef } from "../record.ts";
 import {
     ChiefEntry,
     ErrandEntry,
@@ -15,8 +16,7 @@ import {
     ReflectionEntry,
     ReplyEntry,
     RetryEntry,
-} from "./chats.ts";
-import type { AgentRef } from "./record.ts";
+} from "./conversations.ts";
 
 /** A turn: the run one input starts, until its answer. */
 export type Turn = {

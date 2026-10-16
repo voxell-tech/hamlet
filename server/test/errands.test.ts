@@ -1,6 +1,6 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it } from "vitest";
-import { PayerDoc, runErrand, startErrand } from "../src/errands.ts";
+import { PayerDoc, runErrand, startErrand } from "../src/chats.ts";
 import { localDay } from "../src/home.ts";
 import { booksOf, ledgerOf, reportOf } from "../src/spend.ts";
 import {

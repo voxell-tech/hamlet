@@ -5,12 +5,11 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { expect, it, vi } from "vitest";
-import { runErrand, startErrand } from "../src/errands.ts";
+import { runErrand, SOCIETY_TOOLS, startErrand } from "../src/chats.ts";
 import { answer } from "../src/gate.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { reconfigure } from "../src/models.ts";
 import { RecordDoc } from "../src/record.ts";
-import { SOCIETY_TOOLS } from "../src/roles.ts";
 import {
     addAgent,
     chatWith,

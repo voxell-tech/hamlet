@@ -3,12 +3,12 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "vitest";
 import {
     chatOf,
+    notify,
     reflectionInput,
     retryInput,
     submitLine,
     WithDoc,
 } from "../src/chats.ts";
-import { notify } from "../src/notice.ts";
 import {
     CHIEF,
     context,

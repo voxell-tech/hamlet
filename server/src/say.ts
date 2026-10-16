@@ -3,11 +3,20 @@ import type { Submission } from "@earendil-works/pi-durable";
 import * as agents from "./agents.ts";
 import * as leaving from "./agents.ts";
 import * as merging from "./agents.ts";
-import { ChatDoc, submitLine } from "./chats.ts";
+import {
+    ChatDoc,
+    historyOf,
+    newChat,
+    reflect,
+    resumeChat,
+    retry,
+    stopAgent,
+    stopChiefAgents,
+    submitLine,
+} from "./chats.ts";
 import { readCommand } from "./commands.ts";
 import { folder, setMode } from "./environment.ts";
 import { answerWords, GrantsDoc, grantsOf, revoke } from "./gate.ts";
-import { historyOf } from "./history.ts";
 import type { Deed, Home } from "./home.ts";
 import { giftSkill } from "./house.ts";
 import * as library from "./library.ts";
@@ -19,14 +28,6 @@ import { chiefAccess, chiefRefusalText, resolve } from "./realm.ts";
 import { addressed, agentKey } from "./record.ts";
 import { safeWords } from "./scrub.ts";
 import { reportOf, resetBudget } from "./spend.ts";
-import {
-    newChat,
-    reflect,
-    resumeChat,
-    retry,
-    stopAgent,
-    stopChiefAgents,
-} from "./talk.ts";
 import * as voting from "./votes.ts";
 
 /** A chief's typed line, dispatched as a command or admitted as scrubbed words (H24, C32). */

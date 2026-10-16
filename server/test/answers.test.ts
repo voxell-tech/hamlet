@@ -1,10 +1,9 @@
 import { createProvider } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it, vi } from "vitest";
+import { followHome, reflect, TaskDoc } from "../src/chats.ts";
 import type { ServerMessage } from "../src/protocol.ts";
-import { followHome, reflect } from "../src/talk.ts";
-import { TaskDoc } from "../src/tasks.ts";
-import { watchChat } from "../src/turns.ts";
+import { watchChat } from "../src/transcript.ts";
 import {
     CHIEF,
     closeAfter,

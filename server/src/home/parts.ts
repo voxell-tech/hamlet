@@ -1,4 +1,5 @@
 import { Agents, Leaving, Merging } from "../agents.ts";
+import { Talk } from "../chats.ts";
 import { Gate } from "../gate.ts";
 import { Hand } from "../hand.ts";
 import type { Part } from "../home.ts";
@@ -9,7 +10,6 @@ import { Objections } from "../oversight.ts";
 import { HamletBrief, Prompt } from "../prompt.ts";
 import { Dealings, Founding } from "../realm.ts";
 import { Budget } from "../spend.ts";
-import { Talk } from "../talk.ts";
 import { Tools } from "../tools.ts";
 import { Votes } from "../votes.ts";
 

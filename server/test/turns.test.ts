@@ -4,9 +4,8 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { ChatDoc, chiefInput } from "../src/chats.ts";
+import { ChatDoc, chiefInput, notify } from "../src/chats.ts";
 import { scriptedModels } from "../src/models.ts";
-import { notify } from "../src/notice.ts";
 import type { Item, ServerMessage, UsageView } from "../src/protocol.ts";
 import { RecordDoc } from "../src/record.ts";
 import {

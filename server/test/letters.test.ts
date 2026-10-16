@@ -3,11 +3,10 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { submitLine } from "../src/chats.ts";
+import { submitLine, TaskDoc } from "../src/chats.ts";
 import { PeersDoc } from "../src/letters.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RecordDoc } from "../src/record.ts";
-import { TaskDoc } from "../src/tasks.ts";
 import {
     addAgent,
     addHamlet,
@@ -342,7 +341,7 @@ it.each(["tell_agent", "ask_agent"])(
 );
 
 it("drops a late reply instead of waking a departed sender", async () => {
-    const { stopAgent } = await import("../src/talk.ts");
+    const { stopAgent } = await import("../src/chats.ts");
     const { chatWith } = await import("./support.ts");
     const { models, faux } = fauxModels();
     const home = await testHome(scratch(), {

@@ -1,6 +1,6 @@
 import { defineDocFamily } from "@earendil-works/pi-durable";
-import type { Amount } from "./spend.ts";
-import { zero } from "./spend.ts";
+import type { Amount } from "../spend.ts";
+import { zero } from "../spend.ts";
 
 /** Each H12 task's spend, unaffected by periods, resets or rewinds. */
 export const TaskDoc = defineDocFamily<

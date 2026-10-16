@@ -9,7 +9,7 @@ import {
     type Tx,
 } from "@earendil-works/pi-durable";
 import { CHANGE, changeOf } from "./change.ts";
-import { ReflectionEntry, type With, WithDoc } from "./chats.ts";
+import { ReflectionEntry, turnOf, type With, WithDoc } from "./chats.ts";
 import {
     envFor,
     footing,
@@ -48,7 +48,6 @@ import { addressOf, RecordDoc } from "./record.ts";
 import { canon, within } from "./sandbox.ts";
 import { safeValue, safeWords } from "./scrub.ts";
 import { SettingsDoc, settingsOf } from "./settings.ts";
-import { turnOf } from "./turn.ts";
 
 /** The turn and decision of a call, kept until its tool task ends. */
 const CallDoc = defineDoc<{

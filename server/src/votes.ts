@@ -23,12 +23,16 @@ import {
     ChiefEntry,
     chatOf,
     currentOf,
+    ErrandDoc,
     LetterEntry,
+    newTask,
+    notify,
     QuestionEntry,
+    runErrand,
     startConversation,
+    startErrand,
     WithDoc,
 } from "./chats.ts";
-import { ErrandDoc, runErrand, startErrand } from "./errands.ts";
 import {
     type Deed,
     type Home,
@@ -38,7 +42,6 @@ import {
 } from "./home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "./limits.ts";
 import { reconfigure } from "./models.ts";
-import { notify } from "./notice.ts";
 import type { VoteView } from "./protocol.ts";
 import {
     chiefsOf,
@@ -57,7 +60,6 @@ import {
     RecordDoc,
 } from "./record.ts";
 import { closedPolicy, SandboxEnv } from "./sandbox.ts";
-import { newTask } from "./turn.ts";
 
 type Step = { phase: "hear" } | { phase: "poll" } | { phase: "settle" };
 type Motion =

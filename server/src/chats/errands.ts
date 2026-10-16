@@ -8,10 +8,10 @@ import {
     type ToolRegistration,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { ErrandEntry, startConversation, WithDoc } from "./chats.ts";
-import type { Home } from "./home.ts";
-import { configureAgent } from "./models.ts";
-import type { AgentRef } from "./record.ts";
+import type { Home } from "../home.ts";
+import { configureAgent } from "../models.ts";
+import type { AgentRef } from "../record.ts";
+import { ErrandEntry, startConversation, WithDoc } from "./conversations.ts";
 
 /** The purpose of a one-off model call. */
 export type ErrandKind = "ballot" | "answer" | "librarian" | "notes" | "review";

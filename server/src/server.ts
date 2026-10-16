@@ -3,7 +3,14 @@ import type { Context } from "@earendil-works/chord";
 import { withAbortSignal } from "@earendil-works/chord/context";
 import type { AuthPrompt } from "@earendil-works/pi-ai";
 import type { Submission } from "@earendil-works/pi-durable";
-import { requireWritable } from "./agent-chats.ts";
+import {
+    newChat,
+    resumeChat,
+    retry,
+    rewind,
+    stopAgent,
+    stopChiefAgents,
+} from "./chats.ts";
 import { type Client, type Server, serve } from "./connection.ts";
 import { edit } from "./edits.ts";
 import { answerWords } from "./gate.ts";
@@ -28,14 +35,12 @@ import { say } from "./say.ts";
 import { safeValue, safeWords } from "./scrub.ts";
 import { watchState } from "./state.ts";
 import {
-    newChat,
-    resumeChat,
-    retry,
-    rewind,
-    stopAgent,
-    stopChiefAgents,
-} from "./talk.ts";
-import { type ChatWatch, pageChat, turnTools, watchChat } from "./turns.ts";
+    type ChatWatch,
+    pageChat,
+    requireWritable,
+    turnTools,
+    watchChat,
+} from "./transcript.ts";
 
 /** Serves `home` over protocol v0 on 127.0.0.1 at `port`, to clients with its token (S4, S5). */
 export async function serveHome(

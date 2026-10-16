@@ -16,24 +16,22 @@ import {
     ToolTask,
     UserEntry,
 } from "@earendil-works/pi-durable";
-import { agentConversation } from "./agent-chats.ts";
-import { SUMMARY_NOTICE } from "./answers.ts";
 import { CHANGE, changeOf } from "./change.ts";
 import {
     ChatDoc,
     ChiefEntry,
     chatOf,
     LetterEntry,
+    NoticeEntry,
     QuestionEntry,
     ReflectionEntry,
     ReplyEntry,
     RetryEntry,
+    SUMMARY_NOTICE,
+    usageOf,
     WithDoc,
 } from "./chats.ts";
-import { usageOf } from "./history.ts";
 import type { Home } from "./home.ts";
-import { record } from "./models.ts";
-import { NoticeEntry } from "./notice.ts";
 import type {
     ChatRef,
     Item,
@@ -46,6 +44,7 @@ import type {
 import { type ChiefResult, chiefAccess, chiefRefusalText } from "./realm.ts";
 import { addressed, agentKey, RecordDoc } from "./record.ts";
 import { Scrubber } from "./scrub.ts";
+import { agentConversation } from "./transcript/peer.ts";
 
 /** Characters of a tool's arguments a transcript shows (agent/event.rs:10). */
 const SUMMARY = 200;
@@ -610,4 +609,12 @@ export function turnTools() {
             }),
         ],
     });
+}
+
+export { agentConversation, requireWritable } from "./transcript/peer.ts";
+
+function record(value: unknown): Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
 }

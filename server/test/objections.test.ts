@@ -971,7 +971,7 @@ it.each([false, true])(
 );
 
 it("lets a chief-overseen retry ask the chief instead of guessing", async () => {
-    const { retry } = await import("../src/talk.ts");
+    const { retry } = await import("../src/chats.ts");
     const { models, faux } = fauxModels();
     const home = await testHome(scratch(), { models });
     faux.setResponses([

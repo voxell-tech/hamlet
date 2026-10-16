@@ -1,8 +1,7 @@
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import { chatOf } from "./chats.ts";
+import { chatOf, historyOf } from "./chats.ts";
 import { envFor } from "./environment.ts";
-import { historyOf } from "./history.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { houseSkills } from "./house.ts";

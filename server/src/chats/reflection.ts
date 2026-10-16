@@ -6,11 +6,16 @@ import {
     type SubmissionId,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { ChatDoc, ReflectionEntry, reflectionInput, WithDoc } from "./chats.ts";
-import type { Home } from "./home.ts";
+import type { Home } from "../home.ts";
+import { agentKey, RecordDoc } from "../record.ts";
+import { SettingsDoc } from "../settings.ts";
+import {
+    ChatDoc,
+    ReflectionEntry,
+    reflectionInput,
+    WithDoc,
+} from "./conversations.ts";
 import { notify } from "./notice.ts";
-import { agentKey, RecordDoc } from "./record.ts";
-import { SettingsDoc } from "./settings.ts";
 import { newTask, type Turn } from "./turn.ts";
 
 /** Successfully answered chief turns since the last reflection (C5). */
@@ -44,6 +49,7 @@ export const ReflectDoc = defineDoc<{
     initial: () => ({ pending: [], entered: null, retiring: false }),
 });
 
+/** The automatic instruction to save session lessons in notes and skills. */
 export const REFLECT_PROMPT =
     "Reflection time (automatic, not from a user). Look back over this session. Update NOTES.md with anything worth remembering about the users or lessons learned, and save or improve a skill for anything you did that is likely to come up again. If nothing is worth saving, say so in one line.";
 
@@ -59,6 +65,7 @@ export async function reflectEvery(
     );
 }
 
+/** Marks a reflection submission once and resets its answered-turn count. */
 export async function enterReflection(
     tx: Tx,
     conversation: ConversationId,

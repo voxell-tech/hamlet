@@ -10,11 +10,11 @@ import {
     type EntryRecord,
     UsageDoc,
 } from "@earendil-works/pi-durable";
-import { ChatDoc, type ChatId, ChiefEntry } from "./chats.ts";
-import type { Home } from "./home.ts";
-import type { Past, UsageView } from "./protocol.ts";
-import { agentKey } from "./record.ts";
-import { micros, usageSummary } from "./spend.ts";
+import type { Home } from "../home.ts";
+import type { Past, UsageView } from "../protocol.ts";
+import { agentKey } from "../record.ts";
+import { micros, usageSummary } from "../spend.ts";
+import { ChatDoc, type ChatId, ChiefEntry } from "./conversations.ts";
 
 /** The branch put aside by a rewind, including a rewind of the first entry. */
 export const LineageDoc = defineDoc<{ previous: ConversationId | null }>({

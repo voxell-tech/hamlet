@@ -6,8 +6,8 @@ import {
     section,
 } from "@earendil-works/pi-durable";
 import type { With } from "./chats.ts";
+import { agentOf } from "./chats.ts";
 import { WorkDoc } from "./environment.ts";
-import { agentOf } from "./errands.ts";
 import { ManifestsDoc } from "./hand.ts";
 import type { Home, Part } from "./home.ts";
 import { houseOf } from "./home.ts";

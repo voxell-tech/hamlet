@@ -6,7 +6,7 @@ import {
     type ToolExecutionApi,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { WithDoc } from "../chats.ts";
+import { turnOf, WithDoc } from "../chats.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { buildHouse, localDay } from "../home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
@@ -33,7 +33,6 @@ import {
     roadAfford,
     zero,
 } from "../spend.ts";
-import { turnOf } from "../turn.ts";
 import { voteOpen } from "../votes.ts";
 
 /** The agent lifecycle and road tools (H27, H3, H29). */

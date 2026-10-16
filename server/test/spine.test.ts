@@ -14,12 +14,17 @@ import {
 import { expect, it, vi } from "vitest";
 import {
     ErrandEntry,
+    followHome,
+    InstructionsDoc,
     LetterEntry,
+    owed,
     QuestionEntry,
     ReplyEntry,
     startConversation,
+    stopAgent,
+    TaskDoc,
+    turnOf,
 } from "../src/chats.ts";
-import { InstructionsDoc, owed } from "../src/instructions.ts";
 import { defaultLimits } from "../src/limits.ts";
 import { raise } from "../src/oversight.ts";
 import { level, RealmDoc, resolve, roadsOf } from "../src/realm.ts";
@@ -31,9 +36,6 @@ import {
     tidyName,
 } from "../src/record.ts";
 import { booksOf, chargeRoad } from "../src/spend.ts";
-import { followHome, stopAgent } from "../src/talk.ts";
-import { TaskDoc } from "../src/tasks.ts";
-import { turnOf } from "../src/turn.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,

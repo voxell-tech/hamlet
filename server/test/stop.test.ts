@@ -3,11 +3,10 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
+import { followHome, InstructionsDoc, owed, stopAgent } from "../src/chats.ts";
 import { localDay } from "../src/home.ts";
-import { InstructionsDoc, owed } from "../src/instructions.ts";
 import { OversightDayDoc, settle } from "../src/oversight.ts";
 import { agentKey } from "../src/record.ts";
-import { followHome, stopAgent } from "../src/talk.ts";
 import {
     context,
     crashing,

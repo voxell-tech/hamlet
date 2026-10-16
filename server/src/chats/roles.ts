@@ -3,11 +3,11 @@ import {
     configure,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { WithDoc } from "./chats.ts";
+import type { Home } from "../home.ts";
+import { liveHamlets, RealmDoc } from "../realm.ts";
+import { RecordDoc } from "../record.ts";
+import { WithDoc } from "./conversations.ts";
 import { ErrandDoc } from "./errands.ts";
-import type { Home } from "./home.ts";
-import { liveHamlets, RealmDoc } from "./realm.ts";
-import { RecordDoc } from "./record.ts";
 
 const MAYOR = [
     "create_agent",

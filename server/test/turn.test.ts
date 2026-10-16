@@ -13,9 +13,8 @@ import {
     ToolTask,
 } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
-import { ChiefEntry } from "../src/chats.ts";
+import { ChiefEntry, type Turn, turnOf } from "../src/chats.ts";
 import type { Part } from "../src/home.ts";
-import { type Turn, turnOf } from "../src/turn.ts";
 import {
     CHIEF,
     context,

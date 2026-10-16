@@ -1,10 +1,12 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it } from "vitest";
-import { submitLine } from "../src/chats.ts";
-import { InstructionsDoc } from "../src/instructions.ts";
+import {
+    InstructionsDoc,
+    requestReflection,
+    submitLine,
+} from "../src/chats.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RecordDoc } from "../src/record.ts";
-import { requestReflection } from "../src/reflection.ts";
 import {
     addAgent,
     chatWith,
