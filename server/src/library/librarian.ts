@@ -155,7 +155,12 @@ async function consult(
         const turn = await turnOf(home.harness, api, context);
         if (!turn?.task)
             return "The librarian needs a task to pay for its call.";
-        const allowed = await canSpend(home, api, { task: turn.task }, context);
+        const allowed = await canSpend(
+            home,
+            api,
+            { hamlet: place.hamlet, task: turn.task },
+            context,
+        );
         if (!allowed.ok) return spendFailureText(allowed.error);
         const record = await api.snapshot(RecordDoc, place.hamlet, context);
         const by = `${record?.agents.find((a) => a.number === place.number)?.name ?? "agent"}@${place.hamlet}`;

@@ -29,6 +29,7 @@ import {
 } from "../src/agents.ts";
 import { InstructionsDoc, submitLine, WithDoc } from "../src/chats.ts";
 import { houseOf } from "../src/home/layout.ts";
+import { PeersDoc } from "../src/letters.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { CharacterDoc } from "../src/prompt.ts";
 import { resolveAddress } from "../src/realm.ts";
@@ -37,6 +38,7 @@ import { overturn as overturnDeed, vote as voteDeed } from "../src/votes.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,
+    addHamlet,
     context,
     deedWords,
     departedAgents,
@@ -843,3 +845,82 @@ it("records applied once the merge's files have been delivered", async () => {
             ?.merge?.applied,
     ).toBe(true);
 });
+
+it.each(["home", "mill"])(
+    "merge-notes pre-checks its home payer when %s is spent during a foreign-paid question",
+    async (spent) => {
+        const { home, faux, get } = await pair();
+        const mill = await addHamlet(home, "mill", "miller");
+        let errands = 0;
+        fauxAgents(faux, {
+            "mill:0": [
+                fauxAssistantMessage(
+                    fauxToolCall("ask_agent", {
+                        name: "mayor@home",
+                        message: "Merge the overlapping agents.",
+                    }),
+                    { stopReason: "toolUse" },
+                ),
+                fauxAssistantMessage("Done."),
+            ],
+            "home:0": [
+                async () => {
+                    await home.harness.commit(async (tx) => {
+                        (await tx.doc(LimitsDoc, spent, spent)).budget.cost = 0;
+                    }, context);
+                    return fauxAssistantMessage(
+                        fauxToolCall("merge_agents", {
+                            keep: "librarian",
+                            absorb: "scout",
+                            purpose: "Both.",
+                            reason: "Overlap",
+                        }),
+                        { stopReason: "toolUse" },
+                    );
+                },
+                fauxAssistantMessage("Merged."),
+            ],
+            errands: [
+                () => {
+                    errands++;
+                    return fauxAssistantMessage("# Notes\nBoth facts.");
+                },
+            ],
+        });
+        await (
+            await submitLine(
+                home,
+                { agent: mill, chief: home.chief },
+                { id: randomUUID(), text: "Ask home." },
+                context,
+            )
+        ).wait(context);
+        const peer = (await home.harness.snapshot(PeersDoc, "home:0", context))
+            ?.questions["mill:0"];
+        if (peer === undefined) throw new Error("No peer conversation");
+        if (spent === "home") {
+            expect(
+                JSON.stringify(
+                    (await transcript(peer, home.harness)).filter(
+                        (entry) => entry.kind === "pi.tool-result",
+                    ),
+                ),
+            ).toContain(
+                "The hamlet has spent its budget for today ($0.00 of $0.00). It starts again at midnight. Only the chief can raise it in the hamlet's limits.",
+            );
+            expect(errands).toBe(0);
+            expect(await get(1, "NOTES.md")).toContain(
+                "## From scout\nThe wiki is slow.",
+            );
+        } else {
+            expect(errands).toBe(1);
+            expect(
+                (await get(1, "NOTES.md")).startsWith("# Notes\nBoth facts."),
+            ).toBe(true);
+        }
+        expect((await recordLines(home, HOME, context)).join("\n")).toContain(
+            `notes ${spent === "home" ? "joined" : "rewritten"}`,
+        );
+    },
+    60_000,
+);

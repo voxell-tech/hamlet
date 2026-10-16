@@ -339,7 +339,7 @@ export const Merging: Part = (home) => ({
                                     const allowed = await canSpend(
                                         home,
                                         api,
-                                        { task },
+                                        { hamlet: place.hamlet, task },
                                         context,
                                     );
                                     why = allowed.ok

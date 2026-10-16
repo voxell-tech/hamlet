@@ -16,13 +16,16 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
+import { AgentConversationsDoc, ErrandDoc, submitLine } from "../src/chats.ts";
 import { localDay } from "../src/home/clock.ts";
 import { houseOf } from "../src/home/layout.ts";
+import { PeersDoc } from "../src/letters.ts";
 import { LibraryDoc, libraryPart, libraryView } from "../src/library.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { LedgerDoc, reconcile } from "../src/spend.ts";
 import { request as sendRequest, served } from "./connection-support.ts";
 import {
+    addHamlet,
     context,
     crashing,
     fauxAgents,
@@ -639,3 +642,104 @@ it("cleans an interrupted hidden delivery even after the caller is cancelled", a
         watcher.close();
     }
 });
+
+it.each([
+    ["ask_librarian", "home"],
+    ["ask_librarian", "mill"],
+    ["submit_skill", "home"],
+    ["submit_skill", "mill"],
+] as const)(
+    "%s pre-checks its home payer when %s is spent during a foreign-paid question",
+    async (tool, spent) => {
+        const { models, faux } = fauxModels();
+        const home = await testHome(scratch(), { models });
+        const mill = await addHamlet(home, "mill", "miller");
+        const from = skill(houseOf(home.layout, MAYOR));
+        let errands = 0;
+        fauxAgents(faux, {
+            "mill:0": [
+                fauxAssistantMessage(
+                    fauxToolCall("ask_agent", {
+                        name: "mayor@home",
+                        message: "Find a reusable skill.",
+                    }),
+                    { stopReason: "toolUse" },
+                ),
+                fauxAssistantMessage("Done."),
+            ],
+            "home:0": [
+                async () => {
+                    await home.harness.commit(async (tx) => {
+                        (await tx.doc(LimitsDoc, spent, spent)).budget.cost = 0;
+                    }, context);
+                    return fauxAssistantMessage(
+                        fauxToolCall(
+                            tool,
+                            tool === "ask_librarian"
+                                ? {
+                                      question: "Which skill searches the web?",
+                                  }
+                                : { skill: "tides", reason: "For ports." },
+                        ),
+                        { stopReason: "toolUse" },
+                    );
+                },
+                fauxAssistantMessage("Answered."),
+            ],
+            errands: [
+                () => {
+                    errands++;
+                    return fauxAssistantMessage(
+                        tool === "ask_librarian"
+                            ? "Use web-search."
+                            : "ACCEPT. Clear and general.",
+                    );
+                },
+            ],
+        });
+        await (
+            await submitLine(
+                home,
+                { agent: mill, chief: home.chief },
+                { id: randomUUID(), text: "Ask home." },
+                context,
+            )
+        ).wait(context);
+        const peer = (await home.harness.snapshot(PeersDoc, "home:0", context))
+            ?.questions["mill:0"];
+        if (peer === undefined) throw new Error("No peer conversation");
+        const log = JSON.stringify(
+            (await transcript(peer, home.harness)).filter(
+                (entry) => entry.kind === "pi.tool-result",
+            ),
+        );
+        if (spent === "home") {
+            expect(log).toContain(
+                "The hamlet has spent its budget for today ($0.00 of $0.00). It starts again at midnight. Only the chief can raise it in the hamlet's limits.",
+            );
+            expect(errands).toBe(0);
+            expect(existsSync(from)).toBe(true);
+            const index = await home.harness.snapshot(
+                AgentConversationsDoc,
+                "home:0",
+                context,
+            );
+            const kinds = await Promise.all(
+                (index?.ids ?? []).map(
+                    async (id) =>
+                        (await home.harness.snapshot(ErrandDoc, id, context))
+                            ?.kind,
+                ),
+            );
+            expect(kinds).not.toContain("librarian");
+        } else {
+            expect(log).toContain(
+                tool === "ask_librarian"
+                    ? "Use web-search."
+                    : "The librarian took",
+            );
+            expect(errands).toBe(1);
+            expect(existsSync(from)).toBe(tool === "ask_librarian");
+        }
+    },
+);
