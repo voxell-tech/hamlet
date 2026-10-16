@@ -15,7 +15,7 @@ use hamlet_ui::feel::Lit;
 use hamlet_ui::icons::Glyph;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::{
-    Cx, ICON, Me, View, chat, inspector, lit_panel, menu, needs,
+    Cx, ICON, Me, View, chat, inspector, lit_panel, menu, petition,
     panel, settings, status_bar, toolbar, welcome,
 };
 
@@ -60,7 +60,7 @@ pub(super) fn seed_dock(world: &mut World) {
         "needs",
         DockWindowKind::new("NEEDS YOU", || {
             lit_panel(
-                needs::screen(),
+                petition::screen(),
                 Lit {
                     alarm: true,
                     flash: false,

@@ -17,7 +17,11 @@ use crate::dock::show_tab;
 
 /// Opens the chat with the first mayor.
 pub(crate) fn plugin(app: &mut App) {
-    let user = user();
+    // The name of this window's chief: `HAMLET_USER`, then `USER`.
+    let user = std::env::var("HAMLET_USER")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "user".into());
+
     let key = SessionKey {
         channel: "app".into(),
         chat: user.clone(),
@@ -176,13 +180,6 @@ pub(crate) fn reseat(world: &mut World) {
     if gone {
         select(world, None);
     }
-}
-
-/// The name of this window's chief: `HAMLET_USER`, then `USER`.
-pub(crate) fn user() -> String {
-    std::env::var("HAMLET_USER")
-        .or_else(|_| std::env::var("USER"))
-        .unwrap_or_else(|_| "user".into())
 }
 
 #[cfg(test)]

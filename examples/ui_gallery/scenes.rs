@@ -22,7 +22,7 @@ use hamlet_ui::history::History;
 use hamlet_ui::theme::{self, HamletTheme};
 use hamlet_ui::{
     Bar, Roll, chat, chrome, feel, icons, inspector, links, menu,
-    needs, overview, pictures, platform, settings, welcome,
+    overview, petition, pictures, platform, settings, welcome,
 };
 use hamlet_world::sound::{Cue, SoundSettings};
 
@@ -95,7 +95,7 @@ impl Plugin for GalleryPlugin {
                 chat::plugin,
                 links::plugin,
                 pictures::plugin,
-                needs::plugin,
+                petition::plugin,
                 inspector::plugin,
                 overview::plugin,
                 settings::plugin,

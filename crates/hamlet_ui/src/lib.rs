@@ -19,8 +19,8 @@ mod markdown;
 mod me;
 pub mod menu;
 pub mod models;
-pub mod needs;
 pub mod overview;
+pub mod petition;
 pub mod pictures;
 pub mod platform;
 mod remember;
@@ -121,7 +121,7 @@ impl Plugin for UiPlugin {
                 chat::plugin,
                 links::plugin,
                 pictures::plugin,
-                needs::plugin,
+                petition::plugin,
                 history::plugin,
                 settings::plugin,
                 welcome::plugin,
