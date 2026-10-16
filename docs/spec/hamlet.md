@@ -63,7 +63,7 @@ the deeds it advertises.
 **H27.** The mayor is the agent that holds a hamlet's office, and the
 address `mayor` reaches whoever holds it. The mayor creates agents, each with
 a purpose, a reason, the roads to lay at once, a model and a character,
-until the hamlet holds the most the chief allows [12].
+until the hamlet holds the most the chief allows [12], not counting the mayor.
 
 **H18.** A chief, or a vote of the hamlet's agents (H13), can give the
 mayor's office to another agent of the hamlet. The agent who held it stays,
