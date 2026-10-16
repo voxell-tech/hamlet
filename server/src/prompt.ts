@@ -5,8 +5,6 @@ import {
     type PromptInput,
     section,
 } from "@earendil-works/pi-durable";
-import { CharacterDoc } from "./character.ts";
-import { charterOf } from "./charter.ts";
 import type { With } from "./chats.ts";
 import { WorkDoc } from "./environment.ts";
 import { agentOf } from "./errands.ts";
@@ -15,6 +13,8 @@ import type { Home, Part } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { houseSkills } from "./house.ts";
 import { installStarters, libraryPart } from "./library.ts";
+import { CharacterDoc } from "./prompt/character.ts";
+import { charterOf } from "./prompt/charter.ts";
 import { agentKey } from "./record.ts";
 import { modelName, SettingsDoc, settingsOf } from "./settings.ts";
 
@@ -208,3 +208,13 @@ function cut(text: string, most: number, note: string): string {
         ? `${characters.slice(0, most).join("")}${note}`
         : text;
 }
+
+export { HamletBrief } from "./prompt/brief.ts";
+export { CharacterDoc } from "./prompt/character.ts";
+export {
+    CharterDoc,
+    charterOf,
+    DEFAULT_CHARTER,
+    editCharter,
+} from "./prompt/charter.ts";
+export { told } from "./prompt/told.ts";

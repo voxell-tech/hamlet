@@ -8,14 +8,14 @@ import {
     watchEvents,
 } from "@earendil-works/pi-durable";
 import { Activity } from "./activity.ts";
-import { conversationViews } from "./agent-chats.ts";
-import { ChatDoc, currentOf } from "./chats.ts";
+import { AgentConversationsDoc, ChatDoc, currentOf } from "./chats.ts";
 import { DEEDS } from "./commands.ts";
 import { modeWords, WorkDoc } from "./environment.ts";
 import { GrantsDoc, grantsOf } from "./gate.ts";
 import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { refreshSkills, skillNames, starterSkills } from "./house.ts";
+import { conversationViews } from "./letters.ts";
 import { libraryView, STARTERS } from "./library.ts";
 import { LimitsDoc, limitsOf } from "./limits.ts";
 import { choose, providersOf } from "./models.ts";
@@ -46,9 +46,8 @@ import {
     RecordDoc,
 } from "./record.ts";
 import { type Settings, SettingsDoc, settingsOf } from "./settings.ts";
-import { AgentConversationsDoc } from "./society/docs.ts";
-import { voteViews } from "./society/votes.ts";
 import { booksOf, money, reportOf } from "./spend.ts";
+import { voteViews } from "./votes.ts";
 
 const starters = starterSkills(STARTERS);
 

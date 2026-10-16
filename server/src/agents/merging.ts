@@ -55,8 +55,8 @@ import { safeWords } from "../scrub.ts";
 import { booksOf, stopped } from "../spend.ts";
 import { stopAgent } from "../talk.ts";
 import { newTask, turnOf } from "../turn.ts";
+import { decisionText, mayDecide, notifyChiefs, voteOpen } from "../votes.ts";
 import { lapseTrust } from "./leaving.ts";
-import { decisionText, mayDecide, notifyChiefs, voteOpen } from "./votes.ts";
 
 type Planned = {
     files: Map<string, Buffer>;

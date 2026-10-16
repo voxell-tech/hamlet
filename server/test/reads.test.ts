@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getSystemMessageText } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
-import { DEFAULT_CHARTER } from "../src/charter.ts";
+import { DEFAULT_CHARTER } from "../src/prompt.ts";
 import {
     changes,
     chat,

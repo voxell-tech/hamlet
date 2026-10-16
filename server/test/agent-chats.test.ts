@@ -5,11 +5,11 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
 import {
-    conversationViews,
     agentConversation as peerConversation,
     requireWritable,
 } from "../src/agent-chats.ts";
 import { QuestionEntry, submitLine } from "../src/chats.ts";
+import { conversationViews } from "../src/letters.ts";
 import type { ChatRef } from "../src/protocol.ts";
 import { request, served } from "./connection-support.ts";
 import {
@@ -345,7 +345,7 @@ it("does not reread old peer entries on state refresh and updates counts after n
         "@earendil-works/pi-durable/storage/sqlite/node"
     );
     const { startConversation } = await import("../src/chats.ts");
-    const { PeersDoc } = await import("../src/society/docs.ts");
+    const { PeersDoc } = await import("../src/letters.ts");
     const { RealmDoc } = await import("../src/realm.ts");
     const { stateOf } = await import("../src/state.ts");
     let watched:

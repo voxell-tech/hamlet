@@ -10,7 +10,7 @@ import { LimitsDoc } from "../src/limits.ts";
 import { RealmDoc, realmRoads } from "../src/realm.ts";
 import type { AgentRef } from "../src/record.ts";
 import { RecordDoc } from "../src/record.ts";
-import { VotesDoc } from "../src/society/docs.ts";
+import { VotesDoc } from "../src/votes.ts";
 import {
     addAgent,
     addHamlet,
@@ -134,7 +134,7 @@ it("moves the house and conversations to a new number and keeps only roads both 
     const clerk = await addAgent(home, "home", "clerk");
     const { writeFile, readFile, access } = await import("node:fs/promises");
     const { houseOf } = await import("../src/home.ts");
-    const { CharacterDoc } = await import("../src/character.ts");
+    const { CharacterDoc } = await import("../src/prompt.ts");
     const { agentKey } = await import("../src/record.ts");
     const { give, GrantsDoc, grantsOf } = await import("../src/gate.ts");
     const chat = await chatWith(home, scout);
@@ -471,7 +471,7 @@ it("charges a moved sender's next question to its new hamlet without replacing t
         expect(result.status).toBe("done");
     };
     await ask(scout);
-    const { PeersDoc } = await import("../src/society/docs.ts");
+    const { PeersDoc } = await import("../src/letters.ts");
     const { PayerDoc } = await import("../src/errands.ts");
     const peer = (
         await home.harness.snapshot(PeersDoc, `home:${baker.number}`, context)
@@ -521,7 +521,7 @@ it("keeps an unsplit merge in its hamlet until the chief splits or erases it", a
     const mill = await addHamlet(home, "mill", "miller");
     await addAgent(home, "home", "librarian");
     await addAgent(home, "home", "scout");
-    const { merge } = await import("../src/society/merging.ts");
+    const { merge } = await import("../src/agents.ts");
     await merge(
         home,
         {
@@ -542,7 +542,7 @@ it("keeps an unsplit merge in its hamlet until the chief splits or erases it", a
             (a) => a.name,
         ),
     ).toContain("librarian");
-    const { restore } = await import("../src/society/leaving.ts");
+    const { restore } = await import("../src/agents.ts");
     expect(
         await restore(
             home,

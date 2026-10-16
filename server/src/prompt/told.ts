@@ -1,8 +1,8 @@
 import type { Context } from "@earendil-works/chord";
 import { getSystemMessageText, type Message } from "@earendil-works/pi-ai";
 import type { Conversation, PromptInput } from "@earendil-works/pi-durable";
-import { envFor } from "./environment.ts";
-import type { Home } from "./home.ts";
+import { envFor } from "../environment.ts";
+import type { Home } from "../home.ts";
 
 /**
  * The prompt `conversation` sends at its next request, whole, as the model reads it (C14). A section that keeps its

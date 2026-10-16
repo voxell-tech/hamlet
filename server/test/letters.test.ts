@@ -4,9 +4,9 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
 import { submitLine } from "../src/chats.ts";
+import { PeersDoc } from "../src/letters.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RecordDoc } from "../src/record.ts";
-import { PeersDoc } from "../src/society/docs.ts";
 import { TaskDoc } from "../src/tasks.ts";
 import {
     addAgent,

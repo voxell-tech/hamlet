@@ -25,11 +25,12 @@ import {
     ReplyEntry,
     startConversation,
     WithDoc,
-} from "../chats.ts";
-import { PayerDoc } from "../errands.ts";
-import type { Home, Part } from "../home.ts";
-import { untilAborted } from "../home.ts";
-import { LimitsDoc } from "../limits.ts";
+} from "./chats.ts";
+import { PayerDoc } from "./errands.ts";
+import type { Home, Part } from "./home.ts";
+import { untilAborted } from "./home.ts";
+import { PeersDoc } from "./letters/peers.ts";
+import { LimitsDoc } from "./limits.ts";
 import {
     carryRealmRoad,
     carryRoad,
@@ -40,18 +41,17 @@ import {
     realmRoads,
     resolve,
     roadsOf,
-} from "../realm.ts";
+} from "./realm.ts";
 import {
     type AgentRef,
     addressOf,
     agentKey,
     type HamletRecord,
     RecordDoc,
-} from "../record.ts";
-import { safeWords } from "../scrub.ts";
-import { TaskDoc } from "../tasks.ts";
-import { turnOf } from "../turn.ts";
-import { PeersDoc } from "./docs.ts";
+} from "./record.ts";
+import { safeWords } from "./scrub.ts";
+import { TaskDoc } from "./tasks.ts";
+import { turnOf } from "./turn.ts";
 
 type Delivery = {
     id: string;
@@ -797,3 +797,6 @@ async function deliverReply(home: Home, sent: Delivery, context: Context) {
     );
     await forgetLetter(home, sent.id, context);
 }
+
+export { conversationViews, PeersDoc } from "./letters/peers.ts";
+export { PeerStatistics } from "./letters/statistics.ts";

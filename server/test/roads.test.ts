@@ -82,7 +82,7 @@ it("refuses a road that is unaffordable, at the limit, or has a repeated end", a
 });
 
 it("checks simultaneous chief roads against one budget, in their charge transaction", async () => {
-    const { road } = await import("../src/society/agents.ts");
+    const { road } = await import("../src/agents.ts");
     const { models } = fauxModels();
     const home = await testHome(scratch(), { models });
     for (const name of ["scout", "smith", "cook"])

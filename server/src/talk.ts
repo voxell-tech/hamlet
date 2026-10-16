@@ -20,6 +20,7 @@ import {
     reportAnswerFailures,
 } from "./answers.ts";
 import {
+    AgentConversationsDoc,
     ChatDoc,
     type ChatId,
     ChiefEntry,
@@ -54,7 +55,6 @@ import {
     reflectEvery,
     requestReflection,
 } from "./reflection.ts";
-import { AgentConversationsDoc } from "./society/docs.ts";
 import { reconcile } from "./spend.ts";
 import { newTask, turnOf } from "./turn.ts";
 

@@ -1,7 +1,5 @@
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import { CharacterDoc } from "./character.ts";
-import { CharterDoc, charterOf } from "./charter.ts";
 import { chatOf } from "./chats.ts";
 import { envFor } from "./environment.ts";
 import { historyOf } from "./history.ts";
@@ -9,6 +7,7 @@ import type { Home } from "./home.ts";
 import { houseOf } from "./home.ts";
 import { houseSkills } from "./house.ts";
 import { catalogueOf, refreshModels } from "./models.ts";
+import { CharacterDoc, CharterDoc, charterOf, told } from "./prompt.ts";
 import type { Address, Listed, Read, ReadResult, Reply } from "./protocol.ts";
 import {
     type ChiefResult,
@@ -17,7 +16,6 @@ import {
     resolve,
 } from "./realm.ts";
 import { type AgentRef, agentKey } from "./record.ts";
-import { told } from "./told.ts";
 
 /** A chief's view of the prompt, history, catalogue and papers (C14, C24). */
 export async function read(

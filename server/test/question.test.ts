@@ -6,7 +6,7 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { describe, expect, it } from "vitest";
 import type { Home } from "../src/home.ts";
-import { PeersDoc } from "../src/society/docs.ts";
+import { PeersDoc } from "../src/letters.ts";
 import {
     context,
     crashing,

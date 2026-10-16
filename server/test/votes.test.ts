@@ -13,15 +13,15 @@ import { houseOf, localDay } from "../src/home.ts";
 import { LimitsDoc } from "../src/limits.ts";
 import { RealmDoc, roadsOf } from "../src/realm.ts";
 import { HOME, RecordDoc } from "../src/record.ts";
-import { VotesDoc } from "../src/society/docs.ts";
+import { ledgerOf } from "../src/spend.ts";
 import {
     vote as callVote,
     overturn,
     mayor as seatMayor,
+    VotesDoc,
     voteOpen,
     votes,
-} from "../src/society/votes.ts";
-import { ledgerOf } from "../src/spend.ts";
+} from "../src/votes.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,

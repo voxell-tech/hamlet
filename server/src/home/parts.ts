@@ -1,20 +1,17 @@
+import { Agents, Leaving, Merging } from "../agents.ts";
 import { Gate } from "../gate.ts";
 import { Hand } from "../hand.ts";
 import type { Part } from "../home.ts";
+import { Letters } from "../letters.ts";
 import { Librarian } from "../library.ts";
 import { Choice, Providers } from "../models.ts";
 import { Objections } from "../oversight.ts";
-import { Prompt } from "../prompt.ts";
+import { HamletBrief, Prompt } from "../prompt.ts";
 import { Dealings, Founding } from "../realm.ts";
-import { Agents } from "../society/agents.ts";
-import { HamletBrief } from "../society/brief.ts";
-import { Leaving } from "../society/leaving.ts";
-import { Letters } from "../society/letters.ts";
-import { Merging } from "../society/merging.ts";
-import { Votes } from "../society/votes.ts";
 import { Budget } from "../spend.ts";
 import { Talk } from "../talk.ts";
 import { Tools } from "../tools.ts";
+import { Votes } from "../votes.ts";
 
 /**
  * The home's own parts, in the order they install. The tools added by hand come before Hamlet's, so that Hamlet's own

@@ -18,6 +18,7 @@ import {
     type Tx,
 } from "@earendil-works/pi-durable";
 import {
+    AgentConversationsDoc,
     ChatDoc,
     ChiefEntry,
     chatOf,
@@ -26,13 +27,19 @@ import {
     QuestionEntry,
     startConversation,
     WithDoc,
-} from "../chats.ts";
-import { ErrandDoc, runErrand, startErrand } from "../errands.ts";
-import type { Deed, Home, Part } from "../home.ts";
-import { houseOf, untilAborted } from "../home.ts";
-import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
-import { reconfigure } from "../models.ts";
-import { notify } from "../notice.ts";
+} from "./chats.ts";
+import { ErrandDoc, runErrand, startErrand } from "./errands.ts";
+import {
+    type Deed,
+    type Home,
+    houseOf,
+    type Part,
+    untilAborted,
+} from "./home.ts";
+import { type Limits, LimitsDoc, limitsOf } from "./limits.ts";
+import { reconfigure } from "./models.ts";
+import { notify } from "./notice.ts";
+import type { VoteView } from "./protocol.ts";
 import {
     chiefsOf,
     foundHamlet,
@@ -41,22 +48,16 @@ import {
     mayFound,
     RealmDoc,
     removeHamlet,
-} from "../realm.ts";
+} from "./realm.ts";
 import {
     type AgentRef,
     agentKey,
     type HamletRecord,
     named,
     RecordDoc,
-} from "../record.ts";
-import { closedPolicy, SandboxEnv } from "../sandbox.ts";
-import { newTask } from "../turn.ts";
-import {
-    AgentConversationsDoc,
-    type Vote,
-    VotesDoc,
-    type VoteWords,
-} from "./docs.ts";
+} from "./record.ts";
+import { closedPolicy, SandboxEnv } from "./sandbox.ts";
+import { newTask } from "./turn.ts";
 
 type Step = { phase: "hear" } | { phase: "poll" } | { phase: "settle" };
 type Motion =
@@ -1336,3 +1337,43 @@ export async function seat(
         `\`${agentName(r, given.number)}\` became mayor in place of \`${agentName(r, from)}\`. ${given.reason}`,
     );
 }
+
+/** A stored vote, including each missed or grounded ballot (H13). */
+export type Vote = {
+    id: number;
+    motion:
+        | { kind: "replace_mayor"; candidate: number }
+        | {
+              kind: "found_hamlet";
+              hamlet: string;
+              mayor: string;
+              purpose: string;
+          };
+    by: { agent: number } | { chief: string };
+    reason: string;
+    mayor: number;
+    voters: number[];
+    answer: string | null;
+    ballots: {
+        voter: number;
+        choice: "yes" | "no" | "abstain" | null;
+        reason: string;
+        evidence: string;
+        grounded: boolean;
+    }[];
+    standing: "open" | "passed" | "overturned" | { failed: string };
+    called: number;
+    task: string;
+};
+
+/** Each hamlet's votes. */
+export const VotesDoc = defineDocFamily<{ votes: Vote[] }, string>({
+    kind: "hamlet.votes",
+    version: 1,
+    scope: "session",
+    family: true,
+    initial: () => ({ votes: [] }),
+});
+
+/** A vote's public words. */
+export type VoteWords = VoteView;

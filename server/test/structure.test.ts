@@ -5,6 +5,10 @@ import { expect, test } from "vitest";
 
 const root = fileURLToPath(new URL("../src/", import.meta.url));
 const MODULES: readonly { name: string; folder: boolean }[] = [
+    { name: "agents", folder: true },
+    { name: "letters", folder: true },
+    { name: "votes", folder: false },
+    { name: "prompt", folder: true },
     { name: "models", folder: true },
     { name: "spend", folder: true },
     { name: "limits", folder: true },

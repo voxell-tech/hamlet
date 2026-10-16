@@ -20,16 +20,15 @@ import {
     hook,
 } from "@earendil-works/pi-durable";
 import { expect, it, vi } from "vitest";
-import { CharacterDoc } from "../src/character.ts";
+import { erase, merge, remove, restore } from "../src/agents.ts";
 import { submitLine, WithDoc } from "../src/chats.ts";
 import { houseOf } from "../src/home.ts";
 import { InstructionsDoc } from "../src/instructions.ts";
 import { LimitsDoc } from "../src/limits.ts";
+import { CharacterDoc } from "../src/prompt.ts";
 import { resolve, roadsOf } from "../src/realm.ts";
 import { agentKey, HOME, RecordDoc } from "../src/record.ts";
-import { erase, remove, restore } from "../src/society/leaving.ts";
-import { merge } from "../src/society/merging.ts";
-import { overturn, vote } from "../src/society/votes.ts";
+import { overturn, vote } from "../src/votes.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,

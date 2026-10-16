@@ -10,7 +10,7 @@ import {
     ToolTask,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { WithDoc } from "../chats.ts";
+import { AgentConversationsDoc, WithDoc } from "../chats.ts";
 import { revoke } from "../gate.ts";
 import type { Deed, Home, Part } from "../home.ts";
 import { houseOf, localDay, untilAborted } from "../home.ts";
@@ -30,9 +30,8 @@ import {
     RecordDoc,
 } from "../record.ts";
 import { stopAgent } from "../talk.ts";
-import { AgentConversationsDoc } from "./docs.ts";
+import { decisionText, mayDecide, voteOpen } from "../votes.ts";
 import { serialHouseWork, split } from "./merging.ts";
-import { decisionText, mayDecide, voteOpen } from "./votes.ts";
 
 const RemovalDoc = defineDoc<{ number: number | null; text: string }>({
     kind: "hamlet.removal-call",

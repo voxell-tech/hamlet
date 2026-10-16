@@ -5,9 +5,9 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "vitest";
 import { LimitsDoc } from "../src/limits.ts";
+import { told } from "../src/prompt.ts";
 import { HOME } from "../src/record.ts";
 import { reportOf } from "../src/spend.ts";
-import { told } from "../src/told.ts";
 import {
     context,
     fauxModels,

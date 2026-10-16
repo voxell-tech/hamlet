@@ -2,6 +2,7 @@ import { defineExtension, section } from "@earendil-works/pi-durable";
 import { agentOf } from "../errands.ts";
 import type { Part } from "../home.ts";
 import { InstructionsDoc } from "../instructions.ts";
+import { PeersDoc } from "../letters.ts";
 import { LimitsDoc, limitsOf } from "../limits.ts";
 import { liveHamlets, RealmDoc, realmRoads, roadsOf } from "../realm.ts";
 import {
@@ -12,7 +13,6 @@ import {
     type HamletRecord,
     RecordDoc,
 } from "../record.ts";
-import { PeersDoc } from "./docs.ts";
 
 /** The hamlet's prompt section (C11, H17). */
 export const HamletBrief: Part = (home) => ({

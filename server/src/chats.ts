@@ -14,9 +14,7 @@ import type { Home } from "./home.ts";
 import { InstructionsDoc } from "./instructions.ts";
 import { configureAgent } from "./models.ts";
 import { type AgentRef, agentKey, HOME } from "./record.ts";
-import { AgentConversationsDoc } from "./society/docs.ts";
 import { TaskDoc } from "./tasks.ts";
-
 /** The agent a conversation is with, the chief who talks to it, and its number in their chat (C22). */
 export type With = {
     hamlet: string;
@@ -265,3 +263,15 @@ export function conversationsOf(chats: {
         chat.conversations.map((each) => each.conversation),
     );
 }
+
+/** Every conversation belonging to an agent. */
+export const AgentConversationsDoc = defineDocFamily<
+    { ids: ConversationId[] },
+    string
+>({
+    kind: "hamlet.agent-conversations",
+    version: 1,
+    scope: "session",
+    family: true,
+    initial: () => ({ ids: [] }),
+});

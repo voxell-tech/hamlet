@@ -864,7 +864,7 @@ it("holds a letter receiver's work while the instructed agent's own objection is
     );
     const objection = await waiting(home);
     await attempted.promise;
-    const { PeersDoc } = await import("../src/society/docs.ts");
+    const { PeersDoc } = await import("../src/letters.ts");
     const peer = (await home.harness.snapshot(PeersDoc, "home:2", context))
         ?.letters["home:1"];
     if (peer === undefined) throw new Error("No letter");

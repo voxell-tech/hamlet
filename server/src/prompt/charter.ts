@@ -8,7 +8,7 @@ import {
 
 /** The charter built into the server. */
 export const DEFAULT_CHARTER = readFileSync(
-    new URL("../assets/charter.md", import.meta.url),
+    new URL("../../assets/charter.md", import.meta.url),
     "utf8",
 );
 

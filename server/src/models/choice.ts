@@ -6,7 +6,7 @@ import {
     DEFAULT_COMPACTION_POLICY,
     type Tx,
 } from "@earendil-works/pi-durable";
-import { WithDoc } from "../chats.ts";
+import { AgentConversationsDoc, WithDoc } from "../chats.ts";
 import type { Home, Part } from "../home.ts";
 import { type Limits, LimitsDoc, limitsOf } from "../limits.ts";
 import { liveHamlets, RealmDoc } from "../realm.ts";
@@ -19,7 +19,6 @@ import {
     SettingsDoc,
     settingsOf,
 } from "../settings.ts";
-import { AgentConversationsDoc } from "../society/docs.ts";
 
 /** The share of the window of the mayor's model kept free for an answer (C28). */
 const RESERVE = 0.2;

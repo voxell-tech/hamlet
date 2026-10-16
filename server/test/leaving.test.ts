@@ -7,6 +7,7 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
+import { erase, merge, record, remove, restore, undo } from "../src/agents.ts";
 import { chatOf, submitLine, WithDoc } from "../src/chats.ts";
 import { GrantsDoc, give, grantsOf } from "../src/gate.ts";
 import { houseOf } from "../src/home.ts";
@@ -15,16 +16,7 @@ import { LimitsDoc } from "../src/limits.ts";
 import { raise, TrustedDoc, trustKey } from "../src/oversight.ts";
 import { resolve, roadsOf } from "../src/realm.ts";
 import { agentKey, HOME, RecordDoc } from "../src/record.ts";
-import { VotesDoc } from "../src/society/docs.ts";
-import {
-    erase,
-    record,
-    remove,
-    restore,
-    undo,
-} from "../src/society/leaving.ts";
-import { merge } from "../src/society/merging.ts";
-import { mayor as seatMayor } from "../src/society/votes.ts";
+import { mayor as seatMayor, VotesDoc } from "../src/votes.ts";
 import { mayor, request, served } from "./connection-support.ts";
 import {
     addAgent,

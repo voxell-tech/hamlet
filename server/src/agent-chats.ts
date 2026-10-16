@@ -1,37 +1,10 @@
 import type { Context } from "@earendil-works/chord";
 import type { Conversation } from "@earendil-works/pi-durable";
 import type { Home } from "./home.ts";
-import type { Agent, ChatRef } from "./protocol.ts";
+import { PeersDoc } from "./letters.ts";
+import type { ChatRef } from "./protocol.ts";
 import { type ChiefResult, chiefAccess, resolve } from "./realm.ts";
-import { type AgentRef, agentKey } from "./record.ts";
-import { PeersDoc } from "./society/docs.ts";
-
-type PeerView = NonNullable<Agent["conversations"]>[number];
-
-/** The incoming peer conversations of an agent (C22). */
-export async function conversationViews(
-    home: Home,
-    agent: AgentRef,
-    context: Context,
-): Promise<PeerView[]> {
-    const peers = await home.harness.snapshot(
-        PeersDoc,
-        agentKey(agent),
-        context,
-    );
-    const views: PeerView[] = [];
-    for (const kind of ["letters", "questions"] as const)
-        for (const [key, id] of Object.entries(peers?.[kind] ?? {})) {
-            const split = key.lastIndexOf(":");
-            const hamlet = key.slice(0, split),
-                number = Number(key.slice(split + 1));
-            if (split < 1 || !Number.isSafeInteger(number) || number < 0)
-                continue;
-            const stats = await home.peerStatistics.read(id, context);
-            if (stats) views.push({ with: { hamlet, number }, kind, ...stats });
-        }
-    return views.sort((a, b) => (b.last ?? 0) - (a.last ?? 0));
-}
+import { agentKey } from "./record.ts";
 
 /** A chief's read-only conversation between two agents. */
 export async function agentConversation(
