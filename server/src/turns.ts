@@ -123,13 +123,29 @@ export async function watchChat(
     const agent = await addressed(home.harness, chat.with, context);
     if (agent === undefined)
         throw new Error(`no agent named \`${chat.with.agent}\``);
-    const pointer = chat.from
-        ? undefined
-        : await home.harness.watchDoc(ChatDoc, agentKey(agent), context);
-    try {
+    let pointer: Awaited<ReturnType<Home["harness"]["watchDoc"]>> | undefined;
+    let key: string | undefined;
+    const follow = async () => {
+        const agent = await addressed(home.harness, chat.with, context);
+        if (!agent || stopped) return;
+        const next = agentKey(agent);
+        if (!chat.from && next !== key) {
+            await pointer?.stop();
+            pointer = await home.harness.watchDoc(ChatDoc, next, context);
+            key = next;
+            pointer?.start(bind);
+        }
         await bind();
-        pointer?.start(bind);
+    };
+    const office =
+        !chat.from && chat.past === undefined && chat.with.agent === "mayor"
+            ? await home.harness.watchDoc(RecordDoc, chat.with.hamlet, context)
+            : undefined;
+    try {
+        await follow();
+        office?.start(follow);
     } catch (error) {
+        await office?.stop();
         await pointer?.stop();
         await watch?.stop();
         throw error;
@@ -137,6 +153,7 @@ export async function watchChat(
     return {
         stop: async () => {
             stopped = true;
+            await office?.stop();
             await pointer?.stop();
             await watch?.stop();
         },

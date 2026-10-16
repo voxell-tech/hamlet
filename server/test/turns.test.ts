@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import {
+    fauxAssistantMessage,
+    fauxToolCall,
+} from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
 import { ChatDoc, chiefInput } from "../src/chats.ts";
 import { scriptedModels } from "../src/faux.ts";
@@ -12,7 +16,13 @@ import {
     say,
     served,
 } from "./connection-support.ts";
-import { context, mayorChat } from "./support.ts";
+import {
+    addAgent,
+    context,
+    fauxAgents,
+    fauxModels,
+    mayorChat,
+} from "./support.ts";
 
 function held(messages: ServerMessage[]) {
     const items: Item[] = [];
@@ -521,3 +531,78 @@ it("keeps a tool call as last activity when the same response explains the call"
         finish?.();
     }
 });
+
+it("an open office chat follows a vote, the new mayor's new conversation and an overturn", async () => {
+    const { models, faux } = fauxModels();
+    const run = await served({ models, env: { HAMLET_REFLECT_EVERY: "0" } });
+    for (const name of ["scout", "smith", "poet"])
+        await addAgent(run.home, "home", name);
+    await opened(run);
+    const ballot = () =>
+        fauxAssistantMessage(
+            fauxToolCall("cast_ballot", {
+                choice: "yes",
+                reason: "New direction",
+                evidence: "",
+            }),
+            { stopReason: "toolUse" },
+        );
+    fauxAgents(faux, {
+        errands: [
+            fauxAssistantMessage("Let them decide"),
+            ballot(),
+            ballot(),
+            ballot(),
+        ],
+    });
+    const command = (text: string) =>
+        request(run.connection, run.messages, {
+            type: "say",
+            id: randomUUID(),
+            to: mayor,
+            text,
+        });
+    expect(await command("/vote scout New direction")).toMatchObject({
+        text: expect.stringContaining("passed"),
+    });
+    fauxAgents(faux, {
+        "home:1": [fauxAssistantMessage("The new mayor answers")],
+    });
+    await command("Hello new mayor");
+    await vi.waitFor(() =>
+        expect(
+            held(run.messages).items.some(
+                (i) => i.text === "The new mayor answers",
+            ),
+        ).toBe(true),
+    );
+    await command("/new");
+    fauxAgents(faux, {
+        "home:1": [fauxAssistantMessage("A fresh office conversation")],
+    });
+    await command("Hello again");
+    await vi.waitFor(() =>
+        expect(
+            held(run.messages).items.some(
+                (i) => i.text === "A fresh office conversation",
+            ),
+        ).toBe(true),
+    );
+    expect(
+        held(run.messages).items.some(
+            (i) => i.text === "The new mayor answers",
+        ),
+    ).toBe(false);
+    await command("/overturn 1 Back");
+    fauxAgents(faux, {
+        "home:0": [fauxAssistantMessage("The old mayor is back")],
+    });
+    await command("Welcome back");
+    await vi.waitFor(() =>
+        expect(
+            held(run.messages).items.some(
+                (i) => i.text === "The old mayor is back",
+            ),
+        ).toBe(true),
+    );
+}, 30000);
