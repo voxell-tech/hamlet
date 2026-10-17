@@ -15,6 +15,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
 use hamlet_core::agents::{LivesIn, Works};
+use hamlet_rules::review::highlight::Highlighting;
 use hamlet_rules::review::{Comparison, Diff, File, Mark, Review};
 use hamlet_world::pick::{Selected, Thing};
 use tokio::sync::mpsc::{
@@ -120,7 +121,7 @@ pub(crate) fn folder_action(folder: PathBuf) -> impl crate::View {
     })
 }
 
-type Loaded = Result<(Review, Option<Diff>), String>;
+type Loaded = Result<(Review, Option<(Diff, Highlighting)>), String>;
 
 #[derive(Resource)]
 struct State {
@@ -133,7 +134,7 @@ struct State {
     review: Option<Review>,
     scope: String,
     selected: usize,
-    diff: Option<Diff>,
+    diff: Option<(Diff, Highlighting)>,
     problem: String,
     pending: bool,
     generation: u64,
@@ -228,13 +229,22 @@ impl State {
                             .map_err(|e| format!("{e:#}"))?,
                     };
                     let diff = review.files.get(at).map(|f| {
-                        review.diff(f).unwrap_or_else(|error| Diff {
-                            description: format!(
-                                "Unable to preview this file: \
-                                 {error:#}"
-                            ),
-                            ..Diff::default()
-                        })
+                        let diff =
+                            review.diff(f).unwrap_or_else(|error| {
+                                Diff {
+                                    description: format!(
+                                        "Unable to preview this \
+                                         file: {error:#}"
+                                    ),
+                                    ..Diff::default()
+                                }
+                            });
+                        let highlighting = Highlighting::new(
+                            &diff,
+                            f.before.as_deref().unwrap_or(&f.path),
+                            &f.path,
+                        );
+                        (diff, highlighting)
                     });
                     Ok((review, diff))
                 })();
@@ -555,7 +565,8 @@ pub fn screen() -> impl crate::View {
                                 .tone(Tone::Critical),
                         );
                     }
-                    let Some(diff) = &state.diff else {
+                    let Some((diff, highlighting)) = &state.diff
+                    else {
                         return cx.build(note(
                             "No changes in this comparison.",
                         ));
@@ -582,12 +593,25 @@ pub fn screen() -> impl crate::View {
                         ))
                         .size(13.0)
                         .tone(Tone::Body),
-                        note(if state.layout == Layout::Split {
-                            "Old on the left, new on the right"
-                        } else {
-                            "Line numbers: old / new"
-                        }),
-                        diff::view(diff.clone(), state.layout),
+                        note(format!(
+                            "{}{}",
+                            if state.layout == Layout::Split {
+                                "Old on the left, new on the right"
+                            } else {
+                                "Line numbers: old / new"
+                            },
+                            if highlighting.limited {
+                                ". Some highlighting omitted \
+                                 (size/time limit)."
+                            } else {
+                                ""
+                            },
+                        )),
+                        diff::view(
+                            diff.clone(),
+                            highlighting.clone(),
+                            state.layout,
+                        ),
                     ))
                     .gap(6.0)
                     .fills_height()
