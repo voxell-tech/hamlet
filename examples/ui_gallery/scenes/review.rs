@@ -35,10 +35,11 @@ pub(super) fn setup(world: &mut World) {
     git(&["config", "user.name", "Gallery"]);
     git(&["config", "user.email", "gallery@example.invalid"]);
     let prefix = (1..=12)
-        .map(|i| format!("// Route configuration {i}\n"))
+        .map(|i| format!("Route configuration {i}\n"))
         .collect::<String>();
     let base = format!(
-        "{prefix}pub fn route(path: &str) -> bool {{\n    let \
+        "/*\n{prefix}*/\npub fn route(path: &str) -> bool {{\n    \
+         let title = \"café\";\n    let timeout = 30;\n    let \
          allowed = path.starts_with(\"/api\");\n    allowed\n}}\n"
     );
     std::fs::write(root.join("routes.rs"), &base).unwrap();
@@ -65,19 +66,26 @@ pub(super) fn setup(world: &mut World) {
     git(&["add", "."]);
     std::fs::write(
         root.join("routes.rs"),
-        base.replace(
-            "    let allowed = path.starts_with(\"/api\");\n    \
-             allowed",
-            "    if path == \"/ready\" {\n        return true;\n    \
-             }\n    let prefix = \"/api/v2/\";\n    \
-             path.starts_with(prefix)",
-        ),
+        base.replace("\"café\"", "\"茶 and café\"")
+            .replace("timeout = 30", "timeout = 45")
+            .replace(
+                "    let allowed = path.starts_with(\"/api\");\n    \
+                 allowed",
+                "    if path == \"/ready\" {\n        return \
+                 true;\n    }\n    let prefix = \"/api/v2/\";\n    \
+                 path.starts_with(prefix)",
+            ),
     )
     .unwrap();
     std::fs::write(
         root.join("NOTES.md"),
         "# Review checklist\n\n- Health checks bypass routing.\n- \
          Match complete path segments.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("plain.unknown"),
+        "Unknown language stays plain.\nTabs:\tUnicode: café 茶 👩‍💻\n",
     )
     .unwrap();
     let comparison = if scene == Scene::ReviewRevisions {
