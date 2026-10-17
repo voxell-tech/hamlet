@@ -1,5 +1,8 @@
 //! Markdown read into a flat list of blocks.
 
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
+
 use pulldown_cmark::{
     Alignment, CodeBlockKind, Event, LinkType, Options, Parser, Tag,
     TagEnd,
@@ -306,6 +309,78 @@ pub fn parse(text: &str) -> Vec<Block> {
         reader.flush();
     }
     reader.blocks
+}
+
+/// Where the last block that later words cannot change ends in
+/// `text`, or 0 if no block is known to be done.
+fn settled(text: &str) -> usize {
+    let mut fenced = false;
+    let mut blank = false;
+    let mut end = 0;
+    let mut at = 0;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim();
+        // A definition further down can turn words above it into a
+        // link.
+        if trimmed.starts_with('[') && trimmed.contains("]:") {
+            return 0;
+        }
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            fenced = !fenced;
+        }
+        if blank
+            && !fenced
+            && !trimmed.is_empty()
+            && !line.starts_with(char::is_whitespace)
+        {
+            end = at;
+        }
+        blank = trimmed.is_empty() && !fenced;
+        at += line.len();
+    }
+    end
+}
+
+pub(super) fn hashed(text: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The blocks of a document that grows at its end. The blocks
+/// before the last are read once and shared from then on.
+#[derive(Default)]
+pub(crate) struct Reading {
+    end: usize,
+    hash: u64,
+    done: Vec<Arc<Block>>,
+}
+
+impl Reading {
+    pub fn read(&mut self, text: &str) -> Vec<Arc<Block>> {
+        let kept = text
+            .get(..self.end)
+            .is_some_and(|head| hashed(head) == self.hash);
+        if !kept {
+            *self = Self::default();
+        }
+        let more = settled(&text[self.end..]);
+        if more > 0 {
+            let next = self.end + more;
+            self.done.extend(
+                parse(&text[self.end..next])
+                    .into_iter()
+                    .map(Arc::new),
+            );
+            self.end = next;
+            self.hash = hashed(&text[..next]);
+        }
+        let mut all = self.done.clone();
+        all.extend(
+            parse(&text[self.end..]).into_iter().map(Arc::new),
+        );
+        all
+    }
 }
 
 #[cfg(test)]
@@ -636,6 +711,24 @@ pub(super) mod tests {
             let _ = parse(&whole[..end]);
         }
         assert_eq!(parse(whole).len(), 9);
+    }
+
+    #[test]
+    fn a_document_read_as_it_grows_is_read_whole() {
+        let text = "# Plan\n\nFirst *one*.\n\n```\na\n\nb\n```\n\n- \
+                    x\n- y\n\n  more\n\n1. one\n\n2. two\n\nLast \
+                    words";
+        let mut reading = Reading::default();
+        for end in
+            (0..=text.len()).filter(|n| text.is_char_boundary(*n))
+        {
+            let grown = reading.read(&text[..end]);
+            let whole = parse(&text[..end]);
+            assert_eq!(grown.len(), whole.len(), "{end}");
+            for (a, b) in grown.iter().zip(&whole) {
+                assert_eq!(**a, *b, "{end}");
+            }
+        }
     }
 
     #[test]
