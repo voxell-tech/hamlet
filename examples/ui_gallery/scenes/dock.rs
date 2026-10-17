@@ -89,6 +89,16 @@ pub(super) fn seed_dock(world: &mut World) {
     );
     let scene = *world.resource::<Scene>();
     let mut tree = world.resource_mut::<DockTree>();
+    if matches!(
+        scene,
+        Scene::Review | Scene::ReviewSplit | Scene::ReviewRevisions
+    ) {
+        tree.set_root_leaf(
+            DockLeaf::new("review", DockAreaStyle::TabBar)
+                .with_windows(vec!["review".into()]),
+        );
+        return;
+    }
     let centre = tree.set_root_leaf(
         DockLeaf::new("centre", DockAreaStyle::TabBar)
             .with_windows(vec!["world".into()]),
