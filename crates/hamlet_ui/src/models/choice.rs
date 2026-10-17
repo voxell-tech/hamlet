@@ -16,7 +16,7 @@ use hamlet_rules::hamlet::{Hamlet, MAYOR};
 
 use super::Shelf;
 use crate::icons::Glyph;
-use crate::looks::{Fills, bare, note, tick};
+use crate::looks::{Fills, action, bare, note, tick};
 use crate::roll::{agents_moved, either, moved};
 use crate::{AnyView, Cx, View};
 
@@ -205,22 +205,33 @@ fn run_model(
     hamlet_core::agents::sync(world);
 }
 
-/// The model `agent` runs, for its chief to change. Nothing for an
-/// agent that is gone.
+/// Has `agent` run `model` from now on, as its chief chose. Nothing
+/// for an agent that is gone.
+pub(crate) fn assign(world: &mut World, agent: Entity, model: &str) {
+    let lives = world.get::<LivesIn>(agent).map(|l| l.0);
+    let place = lives
+        .and_then(|hamlet| world.get::<Settlement>(hamlet))
+        .cloned();
+    let Some(place) = place else {
+        return;
+    };
+    // The office is the mayor's, whoever holds it.
+    let name = match world.get::<Mayor>(agent) {
+        Some(_) => MAYOR.to_string(),
+        None => hamlet_core::agents::name_of(world, agent),
+    };
+    run_model(world, &place.record(), &name, model);
+}
+
+/// The model `agent` runs, for its chief to change, and the way to
+/// the bazaar for another. Nothing for an agent that is gone.
 pub(crate) fn of_agent(agent: Entity) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let lives = cx.world.get::<LivesIn>(agent).map(|l| l.0);
-        let place = lives
-            .and_then(|hamlet| cx.world.get::<Settlement>(hamlet))
-            .cloned();
-        let Some(place) = place else {
+        if lives.and_then(|h| cx.world.get::<Settlement>(h)).is_none()
+        {
             return cx.build(column(()));
-        };
-        // The office is the mayor's, whoever holds it.
-        let name = match cx.world.get::<Mayor>(agent) {
-            Some(_) => MAYOR.to_string(),
-            None => hamlet_core::agents::name_of(cx.world, agent),
-        };
+        }
         let pick = chooser(
             move |world| {
                 world
@@ -228,12 +239,15 @@ pub(crate) fn of_agent(agent: Entity) -> AnyView {
                     .map(|account| account.0.model.clone())
                     .unwrap_or_default()
             },
-            move |world, model| {
-                run_model(world, &place.record(), &name, model);
-            },
+            move |world, model| assign(world, agent, model),
         );
+        let browse = row((action(
+            Glyph::Coins,
+            "BROWSE THE BAZAAR",
+            move |world| crate::bazaar::open(world, Some(agent)),
+        ),));
         // The name over the control, which takes the whole width.
-        cx.build(column((note("Model"), pick)).gap(4.0))
+        cx.build(column((note("Model"), pick, browse)).gap(4.0))
     })
 }
 
@@ -252,8 +266,8 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> AnyView {
         let rows = keyed(allowed, move |models| {
             if models.is_empty() {
                 return label(
-                    "The home allows no model besides its default \
-                     yet. Allow some under Models in Settings.",
+                    "The home has no model besides its default yet. \
+                     Add some in the Agent Bazaar.",
                 )
                 .size(11.0)
                 .tone(Tone::Dim)

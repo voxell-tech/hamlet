@@ -3,6 +3,7 @@
 //!
 //! Every still: `cargo run --example chief_sheet`
 //! Into a folder: `cargo run --example chief_sheet -- --out <dir>`
+//! The bazaar's alone: `cargo run --example chief_sheet -- --bazaar`
 
 // Bevy systems take many parameters and long query types by nature.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -21,6 +22,9 @@ use hamlet_core::agents::{
 use hamlet_home::limits::Caps;
 use hamlet_rules::budget::{Amount, Report, Standing};
 use hamlet_rules::hamlet::HOME;
+use hamlet_world::bazaar::{
+    Bazaar, Booth, Merchant, Pitched, Stall, Traded,
+};
 use hamlet_world::chief::mascot::Doing;
 use hamlet_world::chief::{
     self, Beside, ChiefSettings, Cloak, Hat, Holds, Light, Look,
@@ -29,7 +33,7 @@ use hamlet_world::chief::{
 use hamlet_world::generator::{Loading, Robot};
 use hamlet_world::hamlet::{HamletPlugin, Housed};
 use hamlet_world::library::{Librarian, Library, Stood};
-use hamlet_world::pick::{Centre, Glide, Orbit};
+use hamlet_world::pick::{Centre, Glide, Orbit, Selected, Thing};
 use hamlet_world::sky::{CameraSettings, SkySettings};
 use hamlet_world::{Clock, Hour, Stage, WorldCamera, WorldSystems};
 
@@ -49,6 +53,10 @@ enum On {
     Agent,
     Library,
     Librarian,
+    Bazaar,
+    Merchant,
+    /// A stall and its keeper.
+    Stall(Stall),
 }
 
 /// One thing the sheet does.
@@ -74,6 +82,13 @@ enum Do {
     MoveLibrary,
     /// Has an agent call on the librarian.
     Consult,
+    /// Sets the bazaar down a little way off.
+    MoveBazaar,
+    /// Has the chief buy a model at the bazaar.
+    Trade,
+    /// Chooses a stall, and sends the chief's mascot to it; or
+    /// chooses nothing, and sends it home.
+    Visit(Option<Stall>),
     Shot(&'static str),
 }
 
@@ -221,6 +236,63 @@ fn script() -> Vec<Do> {
         See(On::Library, 44.0, 0.55, -0.1),
         Wait(90),
         Shot("34-the-library-set-down-elsewhere"),
+    ]);
+    steps.extend(bazaar());
+    steps
+}
+
+/// The bazaar by day and by night, its merchant, each stall and its
+/// keeper, a stall chosen, a sale and a move.
+fn bazaar() -> Vec<Do> {
+    use Do::*;
+    let mut steps = vec![
+        Night(false),
+        See(On::Bazaar, 56.0, 0.5, -0.1),
+        Wait(60),
+        Shot("35-the-bazaar"),
+        See(On::Bazaar, 40.0, -0.35, -0.3),
+        Wait(30),
+        Shot("36-the-bazaar-near"),
+        See(On::Merchant, 7.5, 0.3, -0.45),
+        Wait(40),
+        Shot("37-the-merchant"),
+    ];
+    let names = [
+        "38-the-agent-stall",
+        "39-the-artisans-stall",
+        "40-the-tinkers-stall",
+        "41-the-skill-stall",
+        "42-the-hamlet-store",
+    ];
+    for (stall, name) in Stall::ALL.into_iter().zip(names) {
+        steps.extend([
+            See(On::Stall(stall), 11.5, 0.25, -0.2),
+            Wait(30),
+            Shot(name),
+        ]);
+    }
+    steps.extend([
+        Visit(Some(Stall::Plugins)),
+        See(On::Stall(Stall::Plugins), 11.5, -0.55, -0.2),
+        Wait(80),
+        Shot("43-a-stall-chosen"),
+        Visit(None),
+        See(On::Bazaar, 48.0, 0.5, -0.15),
+        Night(true),
+        Wait(60),
+        Shot("44-the-bazaar-by-night"),
+        See(On::Stall(Stall::Models), 12.0, 0.3, -0.2),
+        Wait(30),
+        Shot("45-a-stall-by-night"),
+        See(On::Merchant, 9.0, 0.35, -0.4),
+        Trade,
+        Wait(25),
+        Shot("46-a-sale-by-night"),
+        Night(false),
+        MoveBazaar,
+        See(On::Bazaar, 64.0, 0.5, -0.1),
+        Wait(90),
+        Shot("47-the-bazaar-set-down-elsewhere"),
         // The last file is given time to be written.
         Wait(40),
     ]);
@@ -258,7 +330,10 @@ fn main() {
     Target::insert(&mut app, SIZE, 1.0);
     app.insert_resource(Sheet {
         out,
-        steps: script(),
+        steps: match std::env::args().any(|a| a == "--bazaar") {
+            true => bazaar(),
+            false => script(),
+        },
         at: 0,
         wait: 0,
         settled: 0,
@@ -357,6 +432,8 @@ fn direct(
     mut hour: ResMut<Hour>,
     mut stage: ResMut<Stage>,
     mut chiefs: Query<(&mut Look, &mut Beside)>,
+    booths: Query<(Entity, &Booth)>,
+    mut selected: ResMut<Selected>,
     mut set: ResMut<ChiefSettings>,
     mut pace: ResMut<TimeUpdateStrategy>,
     mut exit: MessageWriter<AppExit>,
@@ -430,6 +507,30 @@ fn direct(
                 agent: None,
             });
         }
+        Do::Trade => commands.trigger(Traded),
+        Do::Visit(stall) => {
+            selected.0 = stall.map(Thing::Stall);
+            let booth = booths
+                .iter()
+                .find(|(_, booth)| Some(booth.stall) == stall)
+                .map(|(booth, _)| booth);
+            for (_, mut beside) in &mut chiefs {
+                beside.0 = booth;
+            }
+        }
+        Do::MoveBazaar => {
+            commands.queue(|world: &mut World| {
+                let at = world
+                    .query::<&Bazaar>()
+                    .iter(world)
+                    .next()
+                    .map(|bazaar| bazaar.held);
+                if let Some(at) = at {
+                    world.resource_mut::<Pitched>().0 =
+                        Some(at + Vec2::new(-22.0, 10.0));
+                }
+            });
+        }
         Do::MoveLibrary => {
             commands.queue(|world: &mut World| {
                 let at = world
@@ -466,6 +567,9 @@ fn aim(
     mascots: Query<&Transform, With<Mascot>>,
     libraries: Query<&Transform, With<Library>>,
     librarians: Query<&GlobalTransform, With<Librarian>>,
+    bazaars: Query<&Transform, With<Bazaar>>,
+    merchants: Query<&GlobalTransform, With<Merchant>>,
+    booths: Query<(&Booth, &GlobalTransform)>,
     agents: Query<&Housed>,
     robots: Query<(&Robot, &Transform)>,
     mut orbit: ResMut<Orbit>,
@@ -481,9 +585,23 @@ fn aim(
         return;
     };
     let library = libraries.iter().next();
-    let front = match (on, library) {
-        (On::Library | On::Librarian, Some(library)) => {
+    let bazaar = bazaars.iter().next();
+    let booth = match on {
+        On::Stall(stall) => booths
+            .iter()
+            .find(|(booth, _)| booth.stall == stall)
+            .map(|(_, at)| at),
+        _ => None,
+    };
+    let front = match (on, library, bazaar) {
+        (On::Stall(_), ..) => {
+            booth.map_or(Vec3::Z, |at| at.rotation() * Vec3::Z)
+        }
+        (On::Library | On::Librarian, Some(library), _) => {
             library.rotation * Vec3::Z
+        }
+        (On::Bazaar | On::Merchant, _, Some(bazaar)) => {
+            bazaar.rotation * Vec3::Z
         }
         _ => place.rotation * Vec3::Z,
     };
@@ -492,6 +610,12 @@ fn aim(
         On::Librarian => {
             librarians.iter().next().map(|at| at.translation())
         }
+        On::Bazaar => bazaar.map(|at| at.translation),
+        On::Merchant => {
+            merchants.iter().next().map(|at| at.translation())
+        }
+        On::Stall(_) => booth
+            .map(|at| at.transform_point(Vec3::new(0.4, 1.1, 0.9))),
         On::Hearth => Some(place.translation),
         On::Mascot => {
             mascots.get(settled.mascot).ok().map(|at| at.translation)

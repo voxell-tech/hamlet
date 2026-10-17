@@ -16,6 +16,8 @@ pub enum Place {
     Chief,
     /// The library, which is nobody's and everyone's.
     Library,
+    /// The Agent Bazaar, where the home's models are bought.
+    Bazaar,
 }
 
 /// The ground held by a place that is not a town.

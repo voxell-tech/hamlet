@@ -18,6 +18,7 @@ use super::mascot::{Doing, Pose};
 use super::place::{self, Pastime};
 use super::{Beside, ChiefSettings, Look, Place, Settled};
 use crate::Clock;
+use crate::bazaar::{self, Bazaar, Booth};
 use crate::generator::land::Land;
 use crate::generator::{
     Common, Floor, GenView, House, Passage, Robot, homing,
@@ -224,7 +225,10 @@ pub(super) fn step(
         Query<&Housed>,
         Query<&Sited>,
         Query<(&Common, &GlobalTransform), Without<Mascot>>,
-        Query<&GlobalTransform, With<Library>>,
+        Query<
+            (&GlobalTransform, Option<&Booth>, Has<Bazaar>),
+            Or<(With<Library>, With<Bazaar>, With<Booth>)>,
+        >,
     ),
     robots: Query<(&Robot, &GlobalTransform)>,
     houses: Query<(&House, &GlobalTransform)>,
@@ -276,10 +280,18 @@ pub(super) fn step(
                 let spot = middle + Vec2::from_angle(angle) * reach;
                 Some(Vec3::new(spot.x, 0.0, spot.y))
             }
-            // By the library it stands at the foot of its steps.
+            // By the library it stands at the foot of its steps, in
+            // the bazaar's plaza, and before a stall's counter.
             None => libraries
                 .get(agent)
-                .map(|at| at.transform_point(library::VISITOR))
+                .map(|(at, booth, bazaar)| {
+                    let visitor = match (booth, bazaar) {
+                        (Some(booth), _) => booth.visitor,
+                        (None, true) => bazaar::VISITOR,
+                        (None, false) => library::VISITOR,
+                    };
+                    at.transform_point(visitor)
+                })
                 .ok()
                 .or_else(|| {
                     whereabouts(agent, &agents, &robots, &houses)

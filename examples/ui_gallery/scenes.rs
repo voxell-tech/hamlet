@@ -3,6 +3,8 @@
 mod dock;
 mod sample;
 mod sheets;
+mod stalls;
+mod store;
 
 use bevy::app::{App, Plugin, PostStartup, Startup, Update};
 use bevy::asset::Handle;
@@ -84,12 +86,16 @@ impl Plugin for GalleryPlugin {
                     hold_message.run_if(|scene: Res<Scene>| {
                         *scene == Scene::Rewind
                     }),
+                    stalls::press,
                 ),
             )
             .add_plugins((
                 hamlet_ui::widgets::plugin,
                 hamlet_ui::screens::plugin,
             ));
+        if matches!(self.0, Scene::Store | Scene::StoreHamlet) {
+            app.add_plugins(store::plugin);
+        }
     }
 }
 
@@ -152,6 +158,27 @@ pub enum Scene {
     ViewMenu,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
+    /// The Agent Bazaar's shelf, choosing a model for an agent.
+    Bazaar,
+    /// One model of the Agent Bazaar on its own page.
+    Ware,
+    /// The Skill Stall of the Agent Bazaar, in its panel and at its
+    /// counter in the Inspector.
+    SkillStall,
+    /// One skill of the Skill Stall on its own page.
+    Scroll,
+    /// The Hamlet Store's shelves, in the bazaar's panel and at its
+    /// counter in the Inspector.
+    Store,
+    /// One hamlet of the Hamlet Store on its own page, its diorama
+    /// turning.
+    StoreHamlet,
+    /// The Inspector at a stall's counter, with the buttons of these
+    /// words pressed in turn.
+    Counter(hamlet_world::bazaar::Stall, &'static [&'static str]),
+    /// The bazaar at a stall's tab, with the buttons of these words
+    /// pressed in turn.
+    Stall(hamlet_world::bazaar::Stall, &'static [&'static str]),
 }
 
 /// The picture that stands where the world is drawn, and the part of

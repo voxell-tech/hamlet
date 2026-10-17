@@ -21,8 +21,7 @@ use super::choice::{chooser, home_default};
 use super::{Draft, SHOWN, Shelf};
 use crate::icons::Glyph;
 use crate::looks::{
-    CONTROL, Fills, action, bad_action, bare, good_action, note,
-    tick, well,
+    Fills, action, bad_action, bare, good_action, note, well,
 };
 use crate::roll::{either, moved};
 use crate::{AnyView, View};
@@ -231,28 +230,40 @@ fn price(
     .boxed()
 }
 
-/// One model of the catalogue: its allowance and its prices.
+/// One model of the catalogue: its prices, and the way to take it
+/// out.
 fn entry(name: &str) -> AnyView {
     let name = name.to_string();
-    let (allowed, allow) = (name.clone(), name.clone());
+    let gone = name.clone();
     let from = name.clone();
+    let shown = name.clone();
     column((
         row((
-            tick(resource::<ModelCatalogue, _>(move |models| {
+            label(resource::<ModelCatalogue, _>(move |models| {
                 models
                     .catalogue
-                    .get(&allowed)
-                    .is_some_and(|model| model.allowed)
-            }))
-            .on_change(move |world, on| {
-                change(world, &allow, |model| model.allowed = on);
+                    .get(&shown)
+                    .filter(|model| !model.title.is_empty())
+                    .map_or_else(
+                        || shown.clone(),
+                        |model| format!("{} ({shown})", model.title),
+                    )
+            })),
+            row(()).fills_width(),
+            bad_action(Glyph::Gone, "REMOVE", move |world| {
+                let home = world.resource::<HomeDir>().0.root.clone();
+                let mut models =
+                    world.resource_mut::<ModelCatalogue>();
+                models.catalogue.models.retain(|m| m.name() != gone);
+                let saved = models.catalogue.save(&home);
+                models.reread();
+                world.resource_mut::<Shelf>().problem =
+                    saved.err().map(|e| format!("{e:#}"));
             }),
-            row((label(name.clone()),)).fills_width(),
         ))
         .gap(10.0)
         .align(AlignItems::Center),
         row((
-            row(()).width(px(CONTROL)).shrink(0.0),
             small("IN"),
             price(&name, |m| m.input, |m, v| m.input = v),
             small("OUT"),
@@ -316,8 +327,7 @@ pub fn shelf() -> AnyView {
     let models = keyed(shown, |(names, more)| {
         if names.is_empty() {
             return note(
-                "No models yet. Choose List Models to ask the \
-                 endpoints.",
+                "No models added yet. Find some in the Agent Bazaar.",
             )
             .boxed();
         }
@@ -352,11 +362,14 @@ pub fn shelf() -> AnyView {
         ))
         .gap(4.0),
         note(
-            "Tick a model to allow it. Prices are dollars per \
-             million tokens in and out, used when the endpoint does \
-             not bill a call.",
+            "The models you added, which the hamlets may run. \
+             Prices are dollars per million tokens in and out, used \
+             when the endpoint does not bill a call.",
         ),
         row((
+            good_action(Glyph::Coins, "BROWSE THE BAZAAR", |world| {
+                crate::bazaar::open(world, None)
+            }),
             action(Glyph::Restore, "LIST MODELS", |world| {
                 world.trigger(ListModels)
             }),

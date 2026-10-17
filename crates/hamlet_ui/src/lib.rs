@@ -1,6 +1,7 @@
 //! The command center (I4): a Bevy and fynix window added to the
 //! core's app.
 
+pub mod bazaar;
 mod chief;
 pub mod chrome;
 pub mod cursor;
@@ -107,6 +108,7 @@ impl Plugin for UiPlugin {
             ),
             (
                 screens::plugin,
+                bazaar::plugin,
                 chief::plugin,
                 folder::plugin,
                 rules::plugin,

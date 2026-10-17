@@ -50,7 +50,7 @@ table. The binary and the examples are the root package.
 | Crate | What it is |
 |---|---|
 | `hamlet_sandbox` | Per-platform process sandboxes |
-| `hamlet_model` | The model client, its settings, the catalogue of models, the session log |
+| `hamlet_model` | The model client, its settings, the catalogue of models, the bazaar's wares, the session log |
 | `hamlet_home` | A home on disk: its layout, charter and prompt, the chief's limits, the starter skills |
 | `hamlet_rules` | The hamlet's record and the rules over it. Plain files and functions, no Bevy |
 | `hamlet_core` | The runtime as Bevy plugins: agents, sessions, tools and oversight. No rendering |
@@ -99,9 +99,12 @@ Paths are under `crates/`.
 | What an agent's commands may touch | `hamlet_sandbox/src/`; [`sandbox.md`](sandbox.md) |
 | The folder a hamlet works on | `hamlet_rules/src/work.rs` keeps it; `Tools::work_on` in `hamlet_core/src/tools.rs` applies it |
 | The workbench and its clockwork on a common | `hamlet_world/src/works.rs` |
-| The library of shared skills | `hamlet_rules/src/library.rs` |
+| The library of shared skills | `hamlet_rules/src/library.rs`; `Library::give` shelves one the chief chose |
 | Spending and limits | `hamlet_rules/src/budget/`, `hamlet_home/src/limits.rs` |
 | Models, their prices and who may run them | `hamlet_model/src/catalogue.rs`, `hamlet_rules/src/models.rs` |
+| The Agent Bazaar | Its models in `hamlet_model/src/bazaar.rs`, kept fresh by `hamlet_core/src/bazaar.rs`; the mock listings in `hamlet_model/src/market/`; skills.sh in `hamlet_model/src/skills_sh.rs` and `hamlet_core/src/skill_market.rs`; its panel and each stall's page and counter in `hamlet_ui/src/bazaar/`; the stalls and their keepers in `hamlet_world/src/bazaar/stalls.rs`; its tents, keepers and shoppers in the world in `hamlet_world/src/bazaar/`; [`home.md`](home.md) |
+| A hamlet drawn small, apart from the world | `hamlet_world/src/diorama.rs` |
+| Founding a bought hamlet whole | `Realm::found_bought` in `hamlet_rules/src/realm/bought.rs` |
 | The model client | `hamlet_model/src/provider/` |
 | Signing in with ChatGPT to run models on the chief's plan | `hamlet_model/src/chatgpt.rs`; its client, on the Responses API, in `hamlet_model/src/provider/responses.rs` |
 | Removing, merging, restoring an agent | `hamlet_rules/src/lifecycle.rs` |
@@ -147,7 +150,7 @@ These draw to files and open nothing:
 |---|---|
 | `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes |
 | `cargo run --release --example far_lands -- --out <dir>` | The land, many towns, a town being moved; `--bench` times it |
-| `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library |
+| `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library, the bazaar; `--bazaar` for the bazaar's alone |
 | `cargo run --example cursor_sheet` | Every cursor |
 | `cargo run --release --example sound_sheet` | Every sound and the music, as WAV files |
 

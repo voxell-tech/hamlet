@@ -56,6 +56,8 @@ kite = "#7a5470"
 flowers = ["#7b5bb5", "#6f8fd8", "#f4f0e2", "#e8c24a", "#d98ba8"]
 livery = ["#5e7480", "#4e7a45", "#8a3b45", "#c99a2e", "#34486b", "#8b7bb5", "#efe2c0", "#3f7f7a"]
 paints = ["#8a623e", "#6f8a4e", "#6f8aa6", "#86587f", "#4e4a48", "#a9b79a", "#3f4c74"]
+awnings = ["#b8433a", "#e0a23a", "#3b5583", "#3f7f7a"]
+fairy = ["#ff2f4a", "#ff9a1a", "#ffe53a", "#3dff6a", "#2f8cff", "#d84bff"]
 meter = ["#e23a2a", "#f5822a", "#f2cf3a", "#6cc24a"]
 cloaks = ["#3f7fa3", "#c2513a", "#5f8a4e", "#7a4e86", "#d9a63a", "#d98ba8", "#4a5560", "#efe4c8"]
 wicks = ["#ffb45a", "#3fd8e8", "#ff8fb0", "#b8f06a", "#cfe0ff"]
@@ -109,3 +111,30 @@ banner = "#5b8a4c"
 roof = "#8fa3b0"
 drift = "#a9bbc6"
 banner = "#8a3b45"
+
+# The bazaar's stalls: the minds, the artisans, the tinker, the skills and
+# the hamlets.
+[[stalls]]
+cloth = "#3b3f86"
+trim = "#e0a23a"
+glow = "#8fd0ff"
+
+[[stalls]]
+cloth = "#3f7f7a"
+trim = "#e7c27a"
+glow = "#ffc46a"
+
+[[stalls]]
+cloth = "#4a5560"
+trim = "#c9893a"
+glow = "#ff9a3c"
+
+[[stalls]]
+cloth = "#6b4a7a"
+trim = "#efe2c0"
+glow = "#9ff0d8"
+
+[[stalls]]
+cloth = "#8a3b45"
+trim = "#d9b45a"
+glow = "#ffe08a"

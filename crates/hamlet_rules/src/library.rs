@@ -2,7 +2,7 @@
 //! in `<home>/library/`, with `library.jsonl` as the record of what
 //! was shelved, refused and taken out.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use hamlet_home::{Home, Skill, parse_skill, skills_in, starters};
@@ -276,6 +276,98 @@ impl Library {
         }))
     }
 
+    /// Shelves the skill `name` made of `files`, each a path in its
+    /// folder and its text, which the chief `by` brought from `from`.
+    /// A name already shelved is refused and nothing is overwritten.
+    pub fn give(
+        &self,
+        name: &str,
+        files: &[(String, String)],
+        by: &str,
+        from: &str,
+    ) -> Result<()> {
+        if !inside(name)
+            || name.starts_with('.')
+            || Path::new(name).components().count() != 1
+        {
+            bail!("`{name}` cannot be the name of a skill's folder");
+        }
+        if self.root.join(name).exists() {
+            bail!(
+                "the library already has a skill named `{name}`. \
+                 Take that one out first if this one should stand \
+                 in its place"
+            );
+        }
+        if let Some((path, _)) =
+            files.iter().find(|(path, _)| !inside(path))
+        {
+            bail!("`{path}` lies outside the skill's folder");
+        }
+        // Written aside first, so that the shelves never hold half
+        // a skill.
+        let aside = self.root.with_extension("incoming").join(name);
+        let written = (|| {
+            if aside.exists() {
+                std::fs::remove_dir_all(&aside)?;
+            }
+            for (path, text) in files {
+                let to = aside.join(path);
+                if let Some(parent) = to.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&to, text)?;
+            }
+            let Some(skill) = parse_skill(&aside.join("SKILL.md"))
+            else {
+                bail!(
+                    "`{name}` has no SKILL.md that opens with a \
+                     name and a description"
+                );
+            };
+            if let Some(same) = self
+                .index()
+                .into_iter()
+                .find(|s| s.name == skill.name)
+            {
+                bail!(
+                    "the library already has a skill named `{}`, in \
+                     {}",
+                    same.name,
+                    same.path
+                        .parent()
+                        .unwrap_or(&same.path)
+                        .display()
+                );
+            }
+            std::fs::create_dir_all(&self.root)?;
+            let to = self.root.join(name);
+            if to.exists() {
+                bail!(
+                    "the library already has a skill named `{name}`"
+                );
+            }
+            std::fs::rename(&aside, &to)?;
+            Ok(())
+        })();
+        if written.is_err() {
+            let _ = std::fs::remove_dir_all(&aside);
+        }
+        if let Some(incoming) = aside.parent() {
+            let _ = std::fs::remove_dir(incoming);
+        }
+        written?;
+        self.append(json!({
+            "v": 1,
+            "type": "skill_shelved",
+            "ts": log::now_millis(),
+            "skill": name,
+            "by": by,
+            "reason": format!("Brought from {from}"),
+            "from": from,
+        }))
+    }
+
     /// Writes down that the skill `name` of `by` was not taken, and
     /// why.
     pub fn refuse(
@@ -314,6 +406,16 @@ impl Library {
             "reason": reason.trim(),
         }))
     }
+}
+
+/// True when `path` lies under the folder it is joined to: plain
+/// names, none that climbs out or starts again from a root.
+fn inside(path: &str) -> bool {
+    !path.is_empty()
+        && !path.contains(['\\', ':'])
+        && Path::new(path)
+            .components()
+            .all(|part| matches!(part, Component::Normal(_)))
 }
 
 /// True when the librarian's answer `said` takes the skill, with the
@@ -417,5 +519,93 @@ mod tests {
             .map(|e| e["type"].as_str().unwrap().to_string())
             .collect::<Vec<_>>();
         assert_eq!(kinds, ["skill_shelved", "skill_removed"]);
+    }
+
+    #[test]
+    fn a_skill_the_chief_brings_is_shelved_whole_or_not_at_all() {
+        let home = Scratch::new("library-give");
+        let library = Library::open(&home).unwrap();
+        let file = |path: &str, text: &str| {
+            (path.to_string(), text.to_string())
+        };
+        let tdd = [
+            file(
+                "SKILL.md",
+                "---\nname: tdd\ndescription: Test \
+                 first.\n---\nRed, green.\n",
+            ),
+            file("refs/mocking.md", "Mock at the edges.\n"),
+        ];
+        library
+            .give(
+                "tdd",
+                &tdd,
+                "chief:alice",
+                "skills.sh: mattpocock/skills",
+            )
+            .unwrap();
+        assert!(library.has("tdd"));
+        assert!(library.root().join("tdd/refs/mocking.md").is_file());
+        assert!(
+            library
+                .index()
+                .iter()
+                .any(|s| s.description == "Test first.")
+        );
+        let last = library.events().pop().unwrap();
+        assert_eq!(last["type"], "skill_shelved");
+        assert_eq!(last["by"], "chief:alice");
+        assert_eq!(last["from"], "skills.sh: mattpocock/skills");
+
+        // A name shelved is kept as it was.
+        let other = [file(
+            "SKILL.md",
+            "---\nname: tdd\ndescription: Other.\n---\n",
+        )];
+        let refused = library
+            .give("tdd", &other, "chief:alice", "x")
+            .unwrap_err();
+        assert!(
+            refused.to_string().contains("already has"),
+            "{refused}"
+        );
+        assert!(
+            library
+                .give("tdd-2", &other, "chief:alice", "x")
+                .is_err()
+        );
+        assert!(!library.root().join("tdd-2").exists());
+        let text = std::fs::read_to_string(
+            library.root().join("tdd/SKILL.md"),
+        )
+        .unwrap();
+        assert!(text.contains("Test first."));
+
+        // Nothing is written outside its folder, and nothing half.
+        let climbing = [
+            file(
+                "SKILL.md",
+                "---\nname: climb\ndescription: x\n---\n",
+            ),
+            file("../../escaped.md", "x"),
+        ];
+        assert!(
+            library
+                .give("climb", &climbing, "chief:alice", "x")
+                .is_err()
+        );
+        assert!(
+            library
+                .give("../climb", &other, "chief:alice", "x")
+                .is_err()
+        );
+        let bare = [file("README.md", "no skill")];
+        assert!(
+            library.give("bare", &bare, "chief:alice", "x").is_err()
+        );
+        assert!(!library.root().join("climb").exists());
+        assert!(!library.root().join("bare").exists());
+        assert!(!home.join("escaped.md").exists());
+        assert!(!library.root().with_extension("incoming").exists());
     }
 }

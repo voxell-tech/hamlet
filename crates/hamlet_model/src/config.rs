@@ -228,6 +228,31 @@ impl Config {
     pub fn forget_key(home: &Path, endpoint: &str) {
         let _ = save_key(home, endpoint, None);
     }
+
+    /// Puts `endpoint` among the endpoints and returns the name it
+    /// has there. One at the same address, signed in to the same
+    /// way, is given the key and keeps its name, and a name another
+    /// has is numbered.
+    pub fn settle(&mut self, endpoint: Endpoint) -> String {
+        let at = |url: &str| url.trim_end_matches('/').to_string();
+        let same = self.endpoints.iter_mut().find(|known| {
+            at(&known.base_url) == at(&endpoint.base_url)
+                && known.chatgpt == endpoint.chatgpt
+        });
+        if let Some(known) = same {
+            known.api_key = endpoint.api_key;
+            return known.name.clone();
+        }
+        let name = std::iter::once(endpoint.name.clone())
+            .chain((2..).map(|n| format!("{}-{n}", endpoint.name)))
+            .find(|name| self.endpoint(name).is_none())
+            .expect("the numbers do not end");
+        self.endpoints.push(Endpoint {
+            name: name.clone(),
+            ..endpoint
+        });
+        name
+    }
 }
 
 /// Lists the models of the endpoint that serves the model nobody
@@ -294,6 +319,30 @@ mod tests {
                 .unwrap()
                 .endpoints,
             Config::default().endpoints
+        );
+    }
+
+    #[test]
+    fn a_settled_endpoint_keeps_the_name_of_one_at_its_address() {
+        let mut config = Config::default();
+        let ollama = providers::served(&providers::LOCAL[0]);
+        assert_eq!(config.settle(ollama), "local");
+        assert_eq!(config.endpoints.len(), 1);
+
+        // The same name at another address is another endpoint.
+        let far = |key: &str| Endpoint {
+            name: "local".into(),
+            base_url: "https://far.example/v1/".into(),
+            chatgpt: false,
+            api_key: Some(key.into()),
+        };
+        assert_eq!(config.settle(far("first")), "local-2");
+        // Settled again, it is the same one with the new key.
+        assert_eq!(config.settle(far("second")), "local-2");
+        assert_eq!(config.endpoints.len(), 2);
+        assert_eq!(
+            config.endpoints[1].api_key.as_deref(),
+            Some("second")
         );
     }
 }

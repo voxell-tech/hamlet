@@ -1,5 +1,6 @@
-//! The models a home may run, in `<home>/models.toml`: where each is
-//! served, what it costs and whether the chief allows it.
+//! The models a home may run, in `<home>/models.toml`: those the
+//! chief added, where each is served, what it costs and whether the
+//! chief allows it.
 
 use std::path::{Path, PathBuf};
 
@@ -79,6 +80,14 @@ pub struct Model {
     /// Its use, in the chief's words. The mayor is shown it when it
     /// chooses.
     pub note: String,
+    /// The name it is shown by, where the bazaar told it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<bool>,
+    /// What it reads: `text`, `image`, `file`, `audio`, `video`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<String>,
 }
 
 impl Model {
@@ -108,6 +117,12 @@ impl Model {
         }
         if let Some(context) = self.context {
             card.push_str(&format!(", holds {context} tokens"));
+        }
+        if self.inputs.iter().any(|input| input == "image") {
+            card.push_str(", reads images");
+        }
+        if self.tools == Some(false) {
+            card.push_str(", cannot call tools");
         }
         if !self.note.trim().is_empty() {
             card.push_str(&format!(". {}", self.note.trim()));
@@ -260,54 +275,86 @@ impl Catalogue {
         self.models.iter().filter(|model| model.allowed)
     }
 
-    /// Takes in what the endpoint `endpoint` lists. A new model waits
-    /// for the chief to allow it, a price the chief wrote stays, a
-    /// model with no price that runs on this machine (`local`) is
-    /// given `LOCAL_PRICE`, and one the endpoint no longer lists is
-    /// dropped.
+    /// Adds the model `found` of `endpoint`, allowed, or allows it
+    /// again, with the price and size it is listed with. One with no
+    /// price that runs on this machine (`local`) is given
+    /// `LOCAL_PRICE`.
+    pub fn add(
+        &mut self,
+        endpoint: &str,
+        found: &Listed,
+        local: bool,
+    ) -> &mut Model {
+        let name = named(endpoint, &found.id);
+        if self.get(&name).is_none() {
+            self.models.push(Model {
+                endpoint: endpoint.to_string(),
+                id: found.id.clone(),
+                ..Model::default()
+            });
+            self.models.sort_by(|a, b| {
+                (&a.endpoint, &a.id).cmp(&(&b.endpoint, &b.id))
+            });
+        }
+        let model = self.get_mut(&name).expect("it is there now");
+        model.allowed = true;
+        model.refresh(found, local);
+        model
+    }
+
+    /// Takes in what the endpoint `endpoint` lists. Each model of it
+    /// that was added is given the price and size it is listed with,
+    /// and one the endpoint no longer lists is dropped. So is one
+    /// the chief neither allowed, priced nor described.
     pub fn take_in(
         &mut self,
         endpoint: &str,
         listed: &[Listed],
         local: bool,
     ) {
-        for found in listed {
-            let name = named(endpoint, &found.id);
-            if self.get(&name).is_none() {
-                self.models.push(Model {
-                    endpoint: endpoint.to_string(),
-                    id: found.id.clone(),
-                    ..Model::default()
-                });
-            }
-            let model = self.get_mut(&name).expect("it is there now");
-            if found.context.is_some() {
-                model.context = found.context;
-            }
-            if model.priced == Priced::Yours {
+        let found =
+            |id: &str| listed.iter().find(|found| found.id == id);
+        for model in &mut self.models {
+            if model.endpoint != endpoint {
                 continue;
             }
-            match found.price {
-                Some(price) => {
-                    model.input = price.input;
-                    model.output = price.output;
-                    model.priced = Priced::Listed;
-                }
-                None if local && model.priced == Priced::Unknown => {
-                    model.input = LOCAL_PRICE;
-                    model.output = LOCAL_PRICE;
-                    model.priced = Priced::Assigned;
-                }
-                None => {}
+            if let Some(found) = found(&model.id) {
+                model.refresh(found, local);
             }
         }
         self.models.retain(|model| {
+            let kept = model.allowed
+                || model.priced == Priced::Yours
+                || !model.note.trim().is_empty();
             model.endpoint != endpoint
-                || listed.iter().any(|found| found.id == model.id)
+                || (kept && found(&model.id).is_some())
         });
-        self.models.sort_by(|a, b| {
-            (&a.endpoint, &a.id).cmp(&(&b.endpoint, &b.id))
-        });
+    }
+}
+
+impl Model {
+    /// Takes the price and size `found` is listed with. A price the
+    /// chief wrote stays.
+    fn refresh(&mut self, found: &Listed, local: bool) {
+        if found.context.is_some() {
+            self.context = found.context;
+        }
+        if self.priced == Priced::Yours {
+            return;
+        }
+        match found.price {
+            Some(price) => {
+                self.input = price.input;
+                self.output = price.output;
+                self.priced = Priced::Listed;
+            }
+            None if local && self.priced == Priced::Unknown => {
+                self.input = LOCAL_PRICE;
+                self.output = LOCAL_PRICE;
+                self.priced = Priced::Assigned;
+            }
+            None => {}
+        }
     }
 }
 
@@ -394,18 +441,18 @@ mod tests {
                 },
             ]
         };
-        all.take_in("far", &listed(Some(cheap)), false);
-        // New ones wait for the chief, and are named by where they
-        // are served.
+        all.add("far", &listed(Some(cheap))[0], false);
+        all.add("far", &listed(Some(cheap))[1], false);
+        // Added, they are allowed and named by where they are
+        // served.
         let large = all.get("far::large").unwrap();
-        assert!(!large.allowed);
+        assert!(large.allowed);
         assert_eq!(large.price(), Some(cheap));
         assert_eq!(all.get("far::small").unwrap().price(), None);
         assert_eq!(parts("far::large"), Some(("far", "large")));
         assert_eq!(parts("qwen3:8b"), None);
 
         let large = all.get_mut("far::large").unwrap();
-        large.allowed = true;
         large.note = "For hard questions.".into();
         large.input = 9.0;
         large.priced = Priced::Yours;
@@ -414,16 +461,29 @@ mod tests {
         assert!(large.allowed);
         assert_eq!(large.input, 9.0);
         assert!(large.card().contains("For hard questions."));
-        assert_eq!(all.allowed().count(), 1);
+        assert_eq!(all.allowed().count(), 2);
         // One the endpoint no longer serves goes.
         all.take_in("far", &listed(Some(cheap))[..1], false);
         assert!(all.get("far::small").is_none());
+        // Listing never adds one.
+        all.take_in("near", &listed(None), true);
+        assert!(all.get("near::small").is_none());
 
         // One on this machine costs a little, so its work counts.
-        all.take_in("near", &listed(None), true);
+        all.add("near", &listed(None)[1], true);
         let small = all.get("near::small").unwrap();
         assert_eq!(small.priced, Priced::Assigned);
         assert_eq!(small.input, LOCAL_PRICE);
+        // A model a listing once put in, never allowed, priced or
+        // described, goes at the next listing.
+        all.models.push(Model {
+            endpoint: "near".into(),
+            id: "large".into(),
+            ..Model::default()
+        });
+        all.take_in("near", &listed(None), true);
+        assert!(all.get("near::large").is_none());
+        assert!(all.get("near::small").is_some());
         // It comes back from its file as it was.
         let text = toml::to_string_pretty(&all).unwrap();
         assert_eq!(toml::from_str::<Catalogue>(&text).unwrap(), all);

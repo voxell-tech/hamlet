@@ -219,6 +219,9 @@ fn items(menu: Menu) -> Vec<AnyView> {
                 "Found a Hamlet...",
                 crate::world_menu::ask_found,
             ),
+            item(Glyph::Coins, "Agent Bazaar...", |w| {
+                crate::bazaar::open(w, None)
+            }),
             item(
                 Glyph::Lower,
                 "Run in Background",

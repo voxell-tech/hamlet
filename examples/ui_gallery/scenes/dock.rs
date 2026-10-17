@@ -87,12 +87,29 @@ pub(super) fn seed_dock(world: &mut World) {
         DockWindowKind::new("SETTINGS", || panel(settings::screen()))
             .icon(Glyph::Sliders.image(ICON)),
     );
+    registry.register(
+        "bazaar",
+        DockWindowKind::new("AGENT BAZAAR", || {
+            panel(hamlet_ui::bazaar::screen())
+        })
+        .icon(Glyph::Coins.image(ICON)),
+    );
     let scene = *world.resource::<Scene>();
     let mut tree = world.resource_mut::<DockTree>();
     let centre = tree.set_root_leaf(
         DockLeaf::new("centre", DockAreaStyle::TabBar)
             .with_windows(vec!["world".into()]),
     );
+    if matches!(
+        scene,
+        Scene::Bazaar
+            | Scene::Ware
+            | Scene::Stall(..)
+            | Scene::SkillStall
+            | Scene::Scroll
+    ) {
+        tree.add_tab(centre, "bazaar");
+    }
     if let Some((queue, _)) =
         tree.split(centre, Edge::Left, "needs".into())
         && let Some(parent) = tree.parent_of(queue)

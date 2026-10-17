@@ -21,6 +21,7 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use hamlet_ui::pictures::Pictures;
 use hamlet_ui::welcome::Step;
+use hamlet_world::bazaar::Stall;
 
 use self::offscreen::{Target, word};
 use self::scenes::{GalleryPlugin, Scene, Stand, Strike};
@@ -40,7 +41,7 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 29] = [
+const SHOTS: [Shot; 46] = [
     Shot {
         name: "menu",
         scene: Scene::Menu,
@@ -63,6 +64,18 @@ const SHOTS: [Shot; 29] = [
         name: "settings",
         scene: Scene::Settings,
         size: UVec2::new(1440, 1100),
+        scale: 1.0,
+    },
+    Shot {
+        name: "bazaar",
+        scene: Scene::Bazaar,
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "ware",
+        scene: Scene::Ware,
+        size: UVec2::new(1440, 1000),
         scale: 1.0,
     },
     Shot {
@@ -213,6 +226,105 @@ const SHOTS: [Shot; 29] = [
         name: "welcome-models",
         scene: Scene::Welcome(Step::Models),
         size: UVec2::new(1180, 680),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-agents",
+        scene: Scene::Counter(Stall::Models, &[]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-ware",
+        scene: Scene::Counter(Stall::Models, &["Maker: Large"]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-artisans",
+        scene: Scene::Counter(Stall::Community, &[]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-artisan",
+        scene: Scene::Counter(
+            Stall::Community,
+            &["PR Reviewer", "HIRE"],
+        ),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-plugins",
+        scene: Scene::Counter(Stall::Plugins, &[]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-plugin",
+        scene: Scene::Counter(
+            Stall::Plugins,
+            &["Excalidraw Whiteboard"],
+        ),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "counter-skills",
+        scene: Scene::Counter(Stall::Skills, &[]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "artisans",
+        scene: Scene::Stall(Stall::Community, &[]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "artisan",
+        scene: Scene::Stall(Stall::Community, &["Marigold Almanac"]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "plugins",
+        scene: Scene::Stall(Stall::Plugins, &[]),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "plugin",
+        scene: Scene::Stall(
+            Stall::Plugins,
+            &["Ledger of Changes", "INSTALL"],
+        ),
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "skill-stall",
+        scene: Scene::SkillStall,
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "scroll",
+        scene: Scene::Scroll,
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "store",
+        scene: Scene::Store,
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
+        name: "store-hamlet",
+        scene: Scene::StoreHamlet,
+        size: UVec2::new(1440, 1000),
         scale: 1.0,
     },
 ];
