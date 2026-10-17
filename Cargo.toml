@@ -54,6 +54,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+similar = "3.2"
 tokio = { version = "1", features = ["full"] }
 objc2 = "0.5"
 objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
@@ -103,6 +104,7 @@ tokio.workspace = true
 [dev-dependencies]
 hamlet_rules.workspace = true
 hamlet_vfx.workspace = true
+hamlet_testing.workspace = true
 bevy_fynix.workspace = true
 serde_json.workspace = true
 

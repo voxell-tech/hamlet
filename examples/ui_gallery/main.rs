@@ -7,6 +7,7 @@
 //! Sooner, to catch what fades: the same with `--strike 12`
 //! Another size, or another picture of the world, shown whole:
 //! `--size 1600x900 --world <png>`
+//! An interactive native window: `--scene review --window`.
 
 #[path = "../common/offscreen.rs"]
 mod offscreen;
@@ -40,7 +41,25 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 29] = [
+const SHOTS: [Shot; 33] = [
+    Shot {
+        name: "review",
+        scene: Scene::Review,
+        size: UVec2::new(1280, 800),
+        scale: 1.0,
+    },
+    Shot {
+        name: "review-split",
+        scene: Scene::ReviewSplit,
+        size: UVec2::new(1440, 800),
+        scale: 1.0,
+    },
+    Shot {
+        name: "review-revisions",
+        scene: Scene::ReviewRevisions,
+        size: UVec2::new(1280, 800),
+        scale: 1.0,
+    },
     Shot {
         name: "menu",
         scene: Scene::Menu,
@@ -92,6 +111,12 @@ const SHOTS: [Shot; 29] = [
     Shot {
         name: "hamlet",
         scene: Scene::Hamlet,
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "hamlet-git",
+        scene: Scene::HamletGit,
         size: UVec2::new(1440, 860),
         scale: 1.0,
     },
@@ -261,7 +286,21 @@ fn draw(shot: &Shot, path: PathBuf) {
         })
         .unwrap_or(shot.size);
     let mut app = App::new();
-    app.add_plugins(offscreen::plugins(size));
+    let window = std::env::args().any(|arg| arg == "--window");
+    if window {
+        app.add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Hamlet UI Gallery".into(),
+                resolution: bevy::window::WindowResolution::new(
+                    size.x, size.y,
+                ),
+                ..default()
+            }),
+            ..default()
+        }));
+    } else {
+        app.add_plugins(offscreen::plugins(size));
+    }
     let pixels = (size.as_vec2() * shot.scale).as_uvec2();
     Target::insert(&mut app, pixels, shot.scale);
     let own = word("--world");
@@ -299,9 +338,18 @@ fn draw(shot: &Shot, path: PathBuf) {
         .insert_resource(TimeUpdateStrategy::ManualDuration(
             Duration::from_secs_f64(1.0 / 60.0),
         ))
-        .add_plugins(GalleryPlugin(shot.scene))
-        .add_systems(Startup, camera)
-        .add_systems(Update, capture);
+        .add_plugins(GalleryPlugin(shot.scene));
+    if window {
+        app.insert_resource(bevy::picking::PickingSettings::default())
+            .add_systems(Startup, |mut commands: Commands| { commands.spawn((Camera2d, IsDefaultUiCamera)); });
+    } else {
+        app.add_systems(Startup, camera).add_systems(
+            Update,
+            capture.run_if(|world: &World| {
+                !hamlet_ui::screens::review::waiting(world)
+            }),
+        );
+    }
     app.run();
 }
 
