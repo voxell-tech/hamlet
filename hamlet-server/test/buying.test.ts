@@ -108,6 +108,31 @@ describe("paid listings", () => {
     await request(h.app).get(`/v1/purchases/${body.purchaseId}`).set(auth(other)).expect(404);
   });
 
+  it("settle from Stripe when the buyer asks and no webhook came", async () => {
+    const listing = await listedListing(h, seller, { title: "Paid Asked", priceCents: 700 });
+    const buyer = await newBuyer();
+    const paid = await startPaidPurchase(listing.id, buyer);
+    const asked = (id: string) =>
+      request(h.app).get(`/v1/purchases/${id}`).set(auth(buyer)).expect(200);
+    h.payments.outcomes.set(paid.checkout.sessionId, "paid");
+    expect((await asked(paid.body.purchaseId)).body.status).toBe("paid");
+    await download(listing.id, buyer).expect(200);
+    const detail = await request(h.app).get(`/v1/listings/${listing.id}`).expect(200);
+    expect(detail.body.listing.owners).toBe(1);
+
+    const other = await newBuyer();
+    const gone = await request(h.app)
+      .post(`/v1/listings/${listing.id}/purchase`)
+      .set(auth(other))
+      .expect(200);
+    h.payments.outcomes.set(h.payments.checkouts.at(-1)!.sessionId, "failed");
+    const status = await request(h.app)
+      .get(`/v1/purchases/${gone.body.purchaseId}`)
+      .set(auth(other))
+      .expect(200);
+    expect(status.body.status).toBe("expired");
+  });
+
   it("are owned once the webhook says paid, idempotently", async () => {
     const listing = await listedListing(h, seller, { title: "Paid Two", priceCents: 900 });
     const buyer = await newBuyer();

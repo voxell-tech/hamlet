@@ -8,6 +8,7 @@ import { conflict, forbidden, notFound } from "../errors.ts";
 import type { Asset, User } from "../generated/prisma/client.ts";
 import { newId } from "../ids.ts";
 import { param } from "../params.ts";
+import { settleAssetPurchase, settleFromStripe } from "../settle.ts";
 import type { Services } from "../services.ts";
 
 const catalogQuerySchema = z.object({
@@ -72,8 +73,14 @@ export function assetRoutes(services: Services): Router {
   });
 
   router.get("/asset-purchases/:id", requireAuth, async (req, res) => {
-    const purchase = await prisma.assetPurchase.findUnique({ where: { id: param(req, "id") } });
+    const id = param(req, "id");
+    let purchase = await prisma.assetPurchase.findUnique({ where: { id } });
     if (!purchase || purchase.buyerId !== currentUser(res).id) throw notFound("no such purchase");
+    const pending = purchase;
+    const settled = await settleFromStripe(services, pending, (outcome) =>
+      settleAssetPurchase(services, pending, outcome),
+    );
+    if (settled) purchase = (await prisma.assetPurchase.findUnique({ where: { id } })) ?? purchase;
     res.json({ id: purchase.id, assetId: purchase.assetId, status: purchase.status });
   });
 

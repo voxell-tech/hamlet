@@ -8,6 +8,7 @@ import type {
   GitHubUser,
   Payments,
   PlatformCheckoutRequest,
+  CheckoutState,
 } from "../../src/services.ts";
 
 export const WEBHOOK_SECRET = "whsec_test_secret_for_tests_only";
@@ -51,6 +52,13 @@ export class FakePayments implements Payments {
     const sessionId = `cs_test_${++this.counter}`;
     this.platformCheckouts.push({ ...request, sessionId });
     return { id: sessionId, url: `https://checkout.stripe.com/c/pay/${sessionId}` };
+  }
+
+  /** What Stripe says of each checkout session; open unless set. */
+  readonly outcomes = new Map<string, CheckoutState>();
+
+  async checkoutOutcome(sessionId: string): Promise<CheckoutState> {
+    return this.outcomes.get(sessionId) ?? "open";
   }
 
   enable(accountId: string): void {

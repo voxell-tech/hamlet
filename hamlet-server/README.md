@@ -92,6 +92,12 @@ Do all of this in **test mode** first.
    `STRIPE_WEBHOOK_SECRET`. It forwards both your account's and connected
    accounts' events.
 
+   This step is optional locally. While Hamlet waits on a payment it asks
+   the server, which asks Stripe for the checkout when no webhook has
+   settled it, and `GET /v1/me` asks Stripe for a seller's payouts the
+   same way. Webhooks make both immediate, and production should have
+   them (step 4).
+
 4. Production webhooks: Developers > Webhooks > Add destination, URL
    `<PUBLIC_URL>/v1/stripe/webhook`. Make two destinations to the same URL:
    - events from **your account**: `checkout.session.completed`,

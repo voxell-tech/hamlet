@@ -341,6 +341,9 @@ paid. A second purchase call while one is pending makes a new session.
 
 `GET /v1/purchases/:id` **auth**, buyer only ->
 `200 { "id", "listingId", "status": "pending" | "paid" | "expired" }`.
+While it is pending, the server asks Stripe for its Checkout Session and
+settles it as the webhook would, so a missed or late webhook does not
+leave it pending.
 
 ### Reviews
 

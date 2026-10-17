@@ -49,6 +49,9 @@ export type PaymentEvent =
   | { kind: "account_updated"; accountId: string; chargesEnabled: boolean }
   | { kind: "ignored"; type: string };
 
+/** A checkout session paid, given up on, or still open. */
+export type CheckoutState = "paid" | "failed" | "open";
+
 /** The Stripe calls the server makes. */
 export interface Payments {
   createAccount(input: { userId: string; login: string }): Promise<{ id: string }>;
@@ -64,6 +67,8 @@ export interface Payments {
   ): Promise<{ id: string; url: string }>;
   /** Throws when the signature does not match the body. */
   verifyWebhookEvent(rawBody: Uint8Array, signature: string): Promise<PaymentEvent>;
+  /** Where a checkout session stands, asked of Stripe. */
+  checkoutOutcome(sessionId: string): Promise<CheckoutState>;
 }
 
 export interface DeviceStart {
