@@ -14,7 +14,6 @@ type Stored = {
     connection: { token: string };
     /** Model credentials by pi-ai provider id. */
     models: { [provider: string]: Credential };
-    git: { [name: string]: string };
 };
 
 /** The home's credentials file, readable only by its owner and rewritten whole on each change (S7). */
@@ -45,7 +44,16 @@ export class Credentials implements CredentialStore {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
         if (text !== undefined) {
-            return new Credentials(file, JSON.parse(text) as Stored, apiKey);
+            const stored = JSON.parse(text) as Stored;
+            return new Credentials(
+                file,
+                {
+                    installationId: stored.installationId,
+                    connection: stored.connection,
+                    models: stored.models,
+                },
+                apiKey,
+            );
         }
         const credentials = new Credentials(
             file,
@@ -53,7 +61,6 @@ export class Credentials implements CredentialStore {
                 installationId: randomUUID(),
                 connection: { token: randomBytes(32).toString("hex") },
                 models: {},
-                git: {},
             },
             apiKey,
         );
@@ -78,12 +85,9 @@ export class Credentials implements CredentialStore {
                 ? [each.key ?? ""]
                 : [each.access, each.refresh],
         );
-        return [
-            this.token,
-            this.#apiKey ?? "",
-            ...models,
-            ...Object.values(this.#stored.git),
-        ].filter((secret) => secret !== "");
+        return [this.token, this.#apiKey ?? "", ...models].filter(
+            (secret) => secret !== "",
+        );
     }
 
     /** The provider's stored model credential, when present. */

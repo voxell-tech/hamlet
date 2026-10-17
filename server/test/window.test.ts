@@ -180,7 +180,6 @@ describe("the window commands", () => {
                 installationId: "planted",
                 connection: { token: "planted-by-another-user" },
                 models: {},
-                git: {},
             });
             if (kind === "symlink") symlinkSync(target, home);
             else if (kind === "file") writeFileSync(home, "not a home");

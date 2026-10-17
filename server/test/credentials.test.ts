@@ -17,10 +17,43 @@ describe("the credentials file", () => {
             installationId: expect.any(String),
             connection: { token },
             models: {},
-            git: {},
         });
         await home.close(context);
         expect((await testHome(dir, { models })).credentials.token).toBe(token);
+    });
+
+    it("loads a file with an empty git field and drops it on the next write", async () => {
+        const file = join(scratch(), "credentials.json");
+        const stored = {
+            installationId: "chief-installation",
+            connection: { token: "connection-token" },
+            models: { openai: { type: "api_key", key: "sk-existing" } },
+            git: {},
+        };
+        writeFileSync(file, JSON.stringify(stored), { mode: 0o600 });
+
+        const credentials = await Credentials.open(file);
+
+        expect(credentials.installationId).toBe(stored.installationId);
+        expect(credentials.token).toBe(stored.connection.token);
+        expect(await credentials.read("openai")).toEqual(stored.models.openai);
+        expect(credentials.secrets().sort()).toEqual([
+            "connection-token",
+            "sk-existing",
+        ]);
+        expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(stored);
+
+        await credentials.modify("openai", async () => ({
+            type: "api_key",
+            key: "sk-next",
+        }));
+
+        expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
+            installationId: stored.installationId,
+            connection: stored.connection,
+            models: { openai: { type: "api_key", key: "sk-next" } },
+        });
+        expect(statSync(file).mode & 0o777).toBe(0o600);
     });
 
     it("is rewritten whole, so a write cut off leaves the old file as it was", async () => {
