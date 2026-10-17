@@ -156,3 +156,15 @@ The limits are `[chat]` in `assets/ui.toml`.
 The chat is put in order again only when a conversation's shape changes:
 an entry added, a tool ended, the selection or a fold changed. A word
 added to a reply changes no shape. Rows are keyed, so a row is built once.
+
+Only a window of rows is built: a page at first, up to three pages, then it
+slides. Reading to the top builds the page before it and, once the window is
+full, drops the page at its far end. Reading to the bottom turns back. The row
+at the edge is held in place through the turn. Sending jumps to the end.
+
+A reply that grows is read again from its last settled block, and the blocks
+before it are shared, not parsed or compared again.
+
+Bevy marks every text input changed each frame, which would set its size and
+lay out everything above it again. `fields.rs` runs that size system only
+when a font, a scale or a new field asks for it.

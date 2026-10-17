@@ -50,7 +50,7 @@ pub(crate) use self::entry::entry_view;
 pub use self::field::{Placeholder, keep_typed, show_placeholder};
 pub use self::lines::{
     ChatRow, Lines, Reach, Unfolded, Whole, break_long_words,
-    fold_lines, hide_unseen, read_back, transcript,
+    fold_lines, hide_unseen, transcript, turn_pages,
 };
 pub use self::rewind::{Rewinds, asked as rewind_asked};
 use crate::View;
@@ -74,7 +74,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                (stick_to_bottom, read_back, fold_lines).chain(),
+                (stick_to_bottom, turn_pages, fold_lines).chain(),
                 hide_unseen,
                 break_long_words,
                 show_placeholder,
@@ -104,6 +104,10 @@ pub fn send(world: &mut World, text: String) {
     let text = text.trim().to_string();
     if text.is_empty() {
         return;
+    }
+    // What is sent is at the end of the chat.
+    if let Some(mut reach) = world.get_resource_mut::<Reach>() {
+        reach.back = 0;
     }
     // `/hamlet <name>` and `/agent <name>` change who the chat is
     // with.
@@ -317,6 +321,7 @@ impl Default for AtEnd {
 /// Another conversation is shown from its end.
 pub fn stick_to_bottom(
     me: Res<Me>,
+    lines: Res<Lines>,
     mut scrolls: Query<
         (&ComputedNode, &mut ScrollPosition, Option<&mut ScrollGoal>),
         With<ChatScroll>,
@@ -337,7 +342,9 @@ pub fn stick_to_bottom(
         } else if at.y >= most - 1.0 {
             end.held = true;
         }
-        if end.held && (at.y - most).abs() > 0.5 {
+        // The end of a window that is not the chat's own is a place
+        // to turn the page, not to stay.
+        if end.held && lines.later == 0 && (at.y - most).abs() > 0.5 {
             at.y = most;
         }
         end.was = at.y;
@@ -378,6 +385,7 @@ mod tests {
         let world = app.world_mut();
         let nobody = world.spawn_empty().id();
         world.insert_resource(Me::of(nobody, nobody, "wren", None));
+        world.init_resource::<Lines>();
         let tall = |content: f32| ComputedNode {
             size: bevy::math::Vec2::new(300.0, 200.0),
             content_size: bevy::math::Vec2::new(300.0, content),
