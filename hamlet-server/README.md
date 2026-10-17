@@ -82,7 +82,8 @@ Do all of this in **test mode** first.
 
    ```sh
    stripe login
-   stripe listen --forward-to localhost:8787/v1/stripe/webhook
+   stripe listen --forward-to localhost:8787/v1/stripe/webhook \
+     --events checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.expired,checkout.session.async_payment_failed,account.updated
    ```
 
    and copy the `whsec_...` it prints into `.dev.vars` as
@@ -149,7 +150,7 @@ no keychain.
 ### 9. Try it end to end, in test mode
 
 1. Terminal 1: `pnpm db:up && pnpm dev`.
-2. Terminal 2: `stripe listen --forward-to localhost:8787/v1/stripe/webhook`
+2. Terminal 2: the `stripe listen` command of step 5.3
    (its `whsec_...` must be the one in `.dev.vars`; restart `pnpm dev` if
    you change it).
 3. Terminal 3, from the repository root, with a scratch home:

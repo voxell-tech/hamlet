@@ -5,7 +5,7 @@
 STRIPE_SECRET_KEY=sk_test_REPLACE_ME
 
 # Signing secret of the webhook endpoint. Locally, the one printed by
-# `stripe listen --forward-to localhost:8787/v1/stripe/webhook`.
+# `stripe listen` (README, step 5.3).
 # In production there are two endpoints (your account, connected accounts);
 # give both secrets separated by a comma: whsec_one,whsec_two
 STRIPE_WEBHOOK_SECRET=whsec_REPLACE_ME
