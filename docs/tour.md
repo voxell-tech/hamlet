@@ -9,8 +9,8 @@ here, [`AGENTS.md`](../AGENTS.md).
 Agents run on the TypeScript server in `server/`, on pi-durable, with their
 conversations and records in the home's storage and their writable files
 in houses. The Rust window is a client: `hamlet_client` fills Bevy entities
-from protocol v0 over one authenticated WebSocket. The world and panels
-read those entities and send the chief's deeds back to the server. The
+from [protocol v0](protocol.md) over one authenticated WebSocket. The world
+and panels read those entities and send the chief's deeds back to the server. The
 server owns the rules and the truth; the window keeps only its own view
 files, and closing it stops no agent.
 

@@ -89,6 +89,8 @@ at the root:
 cargo run -p hamlet_protocol_gen
 ```
 
+Update `docs/protocol.md` when the protocol changes.
+
 The client tests replay the faux server sessions in `server/test/frames/`.
 To re-record them offline, run in `server/`:
 

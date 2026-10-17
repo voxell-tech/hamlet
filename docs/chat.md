@@ -3,7 +3,8 @@
 An agent's watched conversation, its rows and the links and pictures they
 hold. The drawing is `hamlet_ui/src/chat/` and `markdown/`. The client
 transcript is `hamlet_client/src/chats.rs`; the server keeps the
-conversations through pi-durable.
+conversations through pi-durable. [Protocol v0](protocol.md) describes the
+wire messages, watch rules and page boundaries; this page covers the window.
 
 ## The conversation and its watch
 
