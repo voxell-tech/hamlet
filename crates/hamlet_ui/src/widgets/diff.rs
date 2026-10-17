@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 
 use bevy::prelude::*;
+use bevy::text::{FontSize, FontSource, TextBackgroundColor};
 use bevy_fynix::scroll::{
     OwnScrollbar, ScrollbarStyle, ScrollbarVisibility,
 };
@@ -14,10 +15,11 @@ use bevy_fynix::views::{
     row, scroll,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed};
+use hamlet_rules::review::highlight::{Highlighting, Kind, Span};
 use hamlet_rules::review::{Diff, Line, Mark};
 
 use crate::looks::{Fills, bare, note};
-use crate::platform::MonoText;
+use crate::platform::{Mono, MonoText};
 use crate::{AnyView, Cx};
 
 const HEIGHT: f32 = 22.0;
@@ -44,6 +46,7 @@ enum Row {
 #[derive(Component)]
 struct Document {
     diff: Diff,
+    highlighting: Highlighting,
     layout: Layout,
     expanded: BTreeSet<usize>,
     rows: Vec<Row>,
@@ -161,7 +164,11 @@ fn viewport(
 
 /// A read-only viewer of prepared diff data. Git loading belongs to
 /// its caller.
-pub fn view(diff: Diff, layout: Layout) -> impl crate::View {
+pub fn view(
+    diff: Diff,
+    highlighting: Highlighting,
+    layout: Layout,
+) -> impl crate::View {
     AnyView::new(move |cx: &mut Cx| {
         if diff.lines.is_empty() {
             return cx.build(note(diff.description));
@@ -204,6 +211,7 @@ pub fn view(diff: Diff, layout: Layout) -> impl crate::View {
         );
         cx.world.entity_mut(root).insert(Document {
             diff,
+            highlighting,
             layout,
             expanded: BTreeSet::new(),
             rows,
@@ -312,17 +320,34 @@ fn draw_row(
             let line = |at: Option<usize>| {
                 at.map(|i| document.diff.lines[i].clone())
             };
+            let spans = |at: Option<usize>, new: bool| {
+                let side = if new {
+                    &document.highlighting.new
+                } else {
+                    &document.highlighting.old
+                };
+                at.and_then(|i| side.get(i))
+                    .cloned()
+                    .unwrap_or_default()
+            };
             if document.layout == Layout::Unified {
-                cell(line(old.or(*new)), None, document.width)
+                cell(
+                    line(old.or(*new)),
+                    spans(old.or(*new), new.is_some()),
+                    None,
+                    document.width,
+                )
             } else {
                 row((
                     cell(
                         line(*old),
+                        spans(*old, false),
                         Some(false),
                         document.width / 2.0,
                     ),
                     cell(
                         line(*new),
+                        spans(*new, true),
                         Some(true),
                         document.width / 2.0,
                     ),
@@ -338,6 +363,7 @@ fn draw_row(
 
 fn cell(
     line: Option<Line>,
+    spans: Vec<Span>,
     side: Option<bool>,
     width: f32,
 ) -> AnyView {
@@ -351,28 +377,16 @@ fn cell(
         let number = |n: Option<usize>| {
             n.map(|n| n.to_string()).unwrap_or_default()
         };
-        let (numbers, text) = line
-            .map(|l| {
-                let numbers = match side {
-                    None => format!(
-                        "{:>5} {:>5}",
-                        number(l.old),
-                        number(l.new)
-                    ),
-                    Some(false) => format!("{:>5}", number(l.old)),
-                    Some(true) => format!("{:>5}", number(l.new)),
-                };
-                let mark = match l.mark {
-                    Mark::Context => ' ',
-                    Mark::Delete => '-',
-                    Mark::Add => '+',
-                };
-                let text = format!(
-                    "{mark} {}{}",
-                    l.text.replace('\t', "    ").replace('\r', "\\r"),
-                    if l.no_newline { " [no newline]" } else { "" }
-                );
-                (numbers, text)
+        let numbers = line
+            .as_ref()
+            .map(|l| match side {
+                None => format!(
+                    "{:>5} {:>5}",
+                    number(l.old),
+                    number(l.new)
+                ),
+                Some(false) => format!("{:>5}", number(l.old)),
+                Some(true) => format!("{:>5}", number(l.new)),
             })
             .unwrap_or_default();
         cx.build(
@@ -382,11 +396,7 @@ fn cell(
                     .wrap(false)
                     .tone(Tone::Faint)
                     .tagged(MonoText),
-                label(text)
-                    .size(12.5)
-                    .wrap(false)
-                    .tone(tone)
-                    .tagged(MonoText),
+                code(line, spans, tone),
             ))
             .gap(12.0)
             .align(AlignItems::Center)
@@ -397,6 +407,81 @@ fn cell(
             .shrink(0.0)
             .fill(fill),
         )
+    })
+}
+
+fn code(line: Option<Line>, spans: Vec<Span>, tone: Tone) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let Some(line) = line else {
+            return cx.build(label(""));
+        };
+        let mark = match line.mark {
+            Mark::Context => ' ',
+            Mark::Delete => '-',
+            Mark::Add => '+',
+        };
+        let escape = |text: &str| {
+            text.replace('\t', "    ").replace('\r', "\\r")
+        };
+        let suffix =
+            if line.no_newline { " [no newline]" } else { "" };
+        let text = if spans.is_empty() {
+            format!("{mark} {}{suffix}", escape(&line.text))
+        } else {
+            format!("{mark} ")
+        };
+        let root = cx.build(
+            label(text)
+                .size(12.5)
+                .wrap(false)
+                .tone(tone)
+                .tagged(MonoText),
+        );
+        let theme = cx.theme();
+        let palette = &theme.palette;
+        let mono =
+            cx.world.get_resource::<Mono>().map(|m| m.0.clone());
+        let font = TextFont {
+            font: mono.map(FontSource::from).unwrap_or_default(),
+            font_size: FontSize::Px(12.5),
+            ..default()
+        };
+        let emphasized = !spans.is_empty();
+        for span in spans {
+            let ink = match span.kind {
+                Kind::Plain => palette.brass_1,
+                Kind::Comment => palette.grey_1,
+                Kind::String => palette.moss,
+                Kind::Keyword => palette.lamp,
+                Kind::Constant => palette.flame,
+                Kind::Name => palette.rune,
+            };
+            let mut entity = cx.world.spawn((
+                TextSpan(escape(&line.text[span.range])),
+                font.clone(),
+                TextColor(ink),
+                MonoText,
+                ChildOf(root),
+            ));
+            if span.changed {
+                let background = if line.mark == Mark::Delete {
+                    palette.red_hover
+                } else {
+                    palette.moss.with_alpha(0.18)
+                };
+                entity.insert(TextBackgroundColor(background));
+            }
+        }
+        if emphasized && !suffix.is_empty() {
+            cx.world.spawn((
+                TextSpan(suffix.into()),
+                font,
+                TextColor(palette.grey_1),
+                MonoText,
+                ChildOf(root),
+            ));
+        }
+        root
     })
 }
 
@@ -425,15 +510,17 @@ mod tests {
                     old: None,
                     new: Some(i),
                     mark: Mark::Add,
-                    text: format!("source {i}"),
+                    text: format!("// source {i}"),
                     no_newline: false,
                 })
                 .collect(),
             description: String::new(),
         };
+        let path = std::path::Path::new("large.rs");
+        let highlighting = Highlighting::new(&diff, path, path);
         let root = mount::<HamletTheme>(
             app.world_mut(),
-            view(diff, Layout::Unified),
+            view(diff, highlighting, Layout::Unified),
         );
         app.world_mut().entity_mut(root).insert(ComputedNode {
             size: Vec2::new(800.0, 220.0),
@@ -445,23 +532,30 @@ mod tests {
             app.update();
             app.update();
             let world = app.world_mut();
-            world
+            let mut texts = world
                 .query::<&Text>()
                 .iter(world)
                 .map(|t| t.0.clone())
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            texts.extend(
+                world
+                    .query::<&TextSpan>()
+                    .iter(world)
+                    .map(|t| t.0.clone()),
+            );
+            texts
         };
         let first = texts(&mut app);
-        assert!(first.iter().any(|t| t == "+ source 1"));
+        assert!(first.iter().any(|t| t == "// source 1"));
         assert!(
             first.len() < 100,
-            "offscreen rows should not create text nodes"
+            "offscreen rows should not create text spans"
         );
         app.world_mut().get_mut::<ScrollPosition>(root).unwrap().y =
             1_099_780.0;
         let last = texts(&mut app);
-        assert!(last.iter().any(|t| t == "+ source 50000"));
-        assert!(!last.iter().any(|t| t == "+ source 1"));
+        assert!(last.iter().any(|t| t.ends_with("// source 50000")));
+        assert!(!last.iter().any(|t| t.ends_with("// source 1")));
         assert!(last.len() < 100);
     }
 
