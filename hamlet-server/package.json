@@ -21,6 +21,7 @@
     "db:up": "tsx scripts/db.ts up",
     "db:down": "tsx scripts/db.ts down",
     "db:status": "tsx scripts/db.ts status",
+    "db:seed": "tsx scripts/seed.ts",
     "assets:publish": "tsx scripts/assets.ts",
     "cf-typegen": "wrangler types",
     "bundle": "wrangler deploy --dry-run --outdir dist",

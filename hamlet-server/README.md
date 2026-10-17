@@ -24,6 +24,8 @@ sell agents, hamlets and plugins, and buy them through Stripe.
 | `migrations/`, `migrations-down/`              | Each migration and its undo: `0001_init`, `0002_add_assets`                                            |
 | `scripts/db.ts`                                | The `db:*` commands                                                                                    |
 | `scripts/assets.ts`, `scripts/assetCatalog.ts` | `assets:publish`, and its catalog checks and SQL                                                       |
+| `scripts/seed.ts`, `scripts/mockData.ts`       | `db:seed`, and its listings, packages and SQL                                                          |
+| `seed/mock.json`                               | The mock bazaar `db:seed` puts on a local server                                                       |
 | `test/`                                        | Vitest tests, run in Node against Miniflare's local D1 and R2                                          |
 
 ## Setup guide
@@ -131,6 +133,8 @@ curl localhost:8787/health
 ```
 
 Local D1 and R2 live in `.wrangler/state`; delete that folder to start over.
+For listings to look at, `pnpm db:seed` adds the old mock bazaar (see
+"Mock data for local development").
 
 ### 8. Point Hamlet at the server
 
@@ -205,6 +209,39 @@ public; an asset's file is only ever sent to a signed-in owner.
 
 Paid assets use the same webhook destination (events from **your account**)
 as listings; no Connect account is involved.
+
+## Mock data for local development
+
+`pnpm db:seed` fills a local server with the mock bazaar Hamlet showed
+before it had a server (`seed/mock.json`, taken from the old client): 12
+agents, 13 plugins and 6 hamlets, so the AGENTS, PLUGINS and HAMLETS
+stalls have something on them.
+
+```sh
+pnpm dev                  # in another terminal; the seed goes through its API
+pnpm db:seed              # adds whatever is missing; running it again changes nothing
+pnpm db:seed --reset      # removes all mock data first, then seeds again
+```
+
+- Every seller is a mock user (GitHub id `mock-<login>`) with a session
+  whose token is `hms_mock_<login>`. Sellers of paid listings get a fake
+  Stripe account (`acct_mock_<login>`) with payouts on, so the store shows
+  them as verified.
+- Listings, versions and publishing go through the HTTP API, so packages
+  are checked and their meta derived as for anyone. A plugin's old
+  changelog becomes its versions.
+- Each listing gets up to three purchases and reviews by mock reviewers
+  (`mock-reviewer-<n>`), and its owners, reviews and stars are set to the
+  old numbers, which are far more than those rows. They are recounted from
+  the rows as soon as a real purchase or review happens on that listing.
+- Free mock listings can be got as usual. Buying a paid one cannot
+  complete: the seller's Stripe account is fake.
+- `--reset` removes only mock users and what is theirs: their listings
+  with the listings' package and cover files in R2, their purchases,
+  reviews and sessions. A mock listing a real user got or reviewed is
+  kept, with its seller.
+- It is for local development: it refuses `--remote` unless given
+  `--remote --yes --url <server>`. Mock data does not belong in production.
 
 ## Migrations
 
