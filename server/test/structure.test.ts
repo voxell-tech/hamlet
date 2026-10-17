@@ -270,7 +270,7 @@ function leafFailures(graph: Graph): string[] {
 test("concept internals are reached through entries or explicit dependency leaves", () => {
     expect(
         readdirSync(root, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory() && entry.name !== "git")
+            .filter((entry) => entry.isDirectory())
             .map((entry) => entry.name)
             .sort(),
     ).toEqual(

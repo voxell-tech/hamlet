@@ -10,12 +10,6 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 
-/** A service on this machine a command reaches even without the network: a local port, and the Unix socket that serves the same (S11). */
-export type Service = {
-    port: number;
-    socket: string;
-};
-
 /** The resources one command may use. */
 export type Limits = {
     cpuSecs: number;
@@ -47,7 +41,6 @@ export type Policy = {
     /** Extra roots whose own location is fixed, without granting reads or writes. */
     fixed?: string[];
     net: boolean;
-    services: Service[];
     /** The complete environment; everything else is cleared. */
     env: Record<string, string>;
     /** Those of {@link DEFAULT_LIMITS} this policy changes. */
@@ -90,10 +83,6 @@ export function policyHash(policy: Policy, sandbox: string): string {
     for (const path of policy.locked) field("locked", path);
     for (const path of policy.fixed ?? []) field("fixed", path);
     field("net", policy.net);
-    for (const { port, socket } of policy.services) {
-        field("port", port);
-        field("socket", socket);
-    }
     const env = Object.entries(policy.env).sort(([a], [b]) => (a < b ? -1 : 1));
     for (const [name, value] of env) {
         field("envk", name);
@@ -218,7 +207,6 @@ export function fixedRoots(policy: Policy, tmp: string): string[] {
             ...policy.ro,
             ...policy.locked,
             ...policy.hidden,
-            ...policy.services.map(({ socket }) => socket),
             ...(policy.fixed ?? []),
         ]),
     ];

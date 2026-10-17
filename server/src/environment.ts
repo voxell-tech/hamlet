@@ -160,7 +160,6 @@ export function toolRunner(
                 home.layout.erasing,
             ],
             net: manifest.net && net,
-            services: [],
             env: { ...home.sandbox.baseEnv(), ...manifest.env },
             limits: {
                 ...(manifest.wallSecs !== null && {

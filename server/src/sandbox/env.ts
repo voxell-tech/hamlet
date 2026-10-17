@@ -48,9 +48,9 @@ function rootAt(path: string) {
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    if (info && !info.isDirectory() && !info.isFile() && !info.isSocket())
+    if (info && !info.isDirectory() && !info.isFile())
         throw new Error(
-            `The sandbox root must be a real file, directory or socket: ${path}`,
+            `The sandbox root must be a real file or directory: ${path}`,
         );
     return { path, real: canon(path), dev: info?.dev, ino: info?.ino };
 }
@@ -78,11 +78,6 @@ export class SandboxEnv extends NodeExecutionEnv {
     }) {
         super({ cwd: options.cwd });
         for (const path of options.policy.rw) directoryRoot(path);
-        for (const { socket } of options.policy.services)
-            if (!lstatSync(socket).isSocket())
-                throw new Error(
-                    `The service endpoint must be a real socket: ${socket}`,
-                );
         this.#limits = executionLimits(options.policy);
         this.#sandbox = options.sandbox ?? platformSandbox();
         this.policyHash = policyHash(options.policy, this.#sandbox.name);

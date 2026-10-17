@@ -10,7 +10,6 @@ export function closedPolicy(house: string, shared: string[] = []): Policy {
         hidden: [],
         locked: [],
         net: false,
-        services: [],
         env: { ...platformSandbox().baseEnv(), HOME: house },
     };
 }
@@ -29,7 +28,6 @@ export function openPolicy(options: {
         hidden: [options.home],
         locked: [],
         net: false,
-        services: [],
         // The chief's own, so the project's tools are found.
         env: hostEnv(),
     };

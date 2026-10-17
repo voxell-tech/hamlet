@@ -126,7 +126,6 @@ describe("a policy's hash", () => {
         hidden: [],
         locked: [],
         net: false,
-        services: [],
         env: { PATH: "/usr/bin:/bin", LANG: "C.UTF-8" },
     });
 
@@ -161,10 +160,6 @@ describe("a policy's hash", () => {
         { field: "locked", change: { locked: ["/house/.git"] } },
         { field: "fixed", change: { fixed: ["/house"] } },
         { field: "net", change: { net: true } },
-        {
-            field: "services",
-            change: { services: [{ port: 9418, socket: "/git.sock" }] },
-        },
         { field: "env", change: { env: { PATH: "/bin", LANG: "C.UTF-8" } } },
         { field: "cpuSecs", change: { limits: { cpuSecs: 61 } } },
         { field: "wallSecs", change: { limits: { wallSecs: 121 } } },

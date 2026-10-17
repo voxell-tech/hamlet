@@ -9,7 +9,6 @@ import {
     symlink,
     writeFile,
 } from "node:fs/promises";
-import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import { getOrThrow } from "@earendil-works/pi-durable/env";
 import { expect, it, vi } from "vitest";
@@ -216,37 +215,6 @@ it("keeps the temp container fixed under a broad write grant and refuses a plant
         }
         await env?.cleanup(context);
         vi.unstubAllEnvs();
-    }
-});
-
-it("refuses a service bind source redirected from its socket to an outside file", async () => {
-    const house = scratch(),
-        socket = join(scratch(), "service.sock"),
-        outside = join(scratch(), "secret");
-    await writeFile(outside, "chief-credentials");
-    const listener = createServer();
-    await new Promise<void>((done) => listener.listen(socket, done));
-    const policy = closedPolicy(house);
-    policy.services.push({ socket, port: 32123 });
-    const env = new SandboxEnv({ cwd: house, policy, tmpScope: randomUUID() });
-    await rename(socket, `${socket}-old`);
-    await symlink(outside, socket);
-    try {
-        const result = await env.exec(
-            `cat '${socket}'; echo changed > '${socket}'`,
-            undefined,
-            context,
-        );
-        expect.soft(result.ok).toBe(false);
-        expect
-            .soft((await env.createTempFile(undefined, context)).ok)
-            .toBe(false);
-        expect(await readFile(outside, "utf8")).toBe("chief-credentials");
-    } finally {
-        await rm(socket);
-        await rename(`${socket}-old`, socket);
-        await env.cleanup(context);
-        await new Promise<void>((done) => listener.close(() => done()));
     }
 });
 

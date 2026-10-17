@@ -176,10 +176,6 @@ function profile(policy: Policy, tmp: string): Profile {
     );
     if (policy.net) {
         out.sbpl += NET;
-    } else {
-        for (const { port } of policy.services) {
-            out.sbpl += `(allow network-outbound (remote ip "localhost:${port}"))\n`;
-        }
     }
     return out;
 }

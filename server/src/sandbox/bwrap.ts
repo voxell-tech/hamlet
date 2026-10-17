@@ -4,7 +4,6 @@ import {
     aboveRoots,
     fixedRoots,
     isDir,
-    type Service,
     tempRoot,
     within,
     writeRoots,
@@ -78,33 +77,7 @@ export const Bwrap: Sandbox = {
         for (const path of policy.locked) {
             args.push("--ro-bind-try", path, path);
         }
-        // Without the network the command has a network of its own, so
-        // each service's port in it is bridged to the service's socket.
-        const bridged = policy.net ? [] : policy.services;
-        for (const { socket } of bridged) args.push("--bind", socket, socket);
-        args.push("--chdir", cwd, "--", ...bridge(bridged, argv));
+        args.push("--chdir", cwd, "--", ...argv);
         return { argv: args, env: { ...policy.env, TMPDIR: tmp } };
     },
 };
-
-/** `argv`, run once each service's port is bridged to its socket. */
-function bridge(
-    services: readonly Service[],
-    argv: readonly string[],
-): string[] {
-    if (services.length === 0) return [...argv];
-    const script = [
-        ...services.map(({ port, socket }) => {
-            if (/[,:!"'\\\s]/.test(socket)) {
-                throw new Error(`A service's socket cannot be at ${socket}.`);
-            }
-            return `socat TCP-LISTEN:${port},bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:${socket} >/dev/null 2>&1 &`;
-        }),
-        ...services.map(
-            ({ port }) =>
-                `i=0; until (: </dev/tcp/127.0.0.1/${port}) 2>/dev/null; do i=$((i+1)); [ "$i" -ge 500 ] && break; sleep 0.01; done`,
-        ),
-        'exec "$@"',
-    ].join("\n");
-    return ["bash", "-c", script, "bash", ...argv];
-}

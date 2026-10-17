@@ -4,9 +4,7 @@ import * as ts from "typescript/unstable/ast";
 import { API } from "typescript/unstable/sync";
 
 /** Files whose exported declarations still need documentation. */
-const ALLOWLIST = new Set<string>([
-    "git/proxy.ts",
-]);
+const ALLOWLIST = new Set<string>();
 const root = fileURLToPath(new URL("../src/", import.meta.url));
 
 function files(dir: string): string[] {
