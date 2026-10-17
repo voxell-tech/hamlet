@@ -391,9 +391,14 @@ pub fn message_bar() -> impl View {
     .overflow(Overflow::clip());
     column((
         row((field,)).gap(8.0).align(AlignItems::Center),
-        label(resource::<Draft, _>(|draft| draft.notice.clone()))
-            .size(12.0)
-            .tone(Tone::Dim),
+        // An empty label has no height. Keep one line so a
+        // notice does not lift the field above it.
+        column((label(resource::<Draft, _>(|draft| {
+            draft.notice.clone()
+        }))
+        .size(12.0)
+        .tone(Tone::Dim),))
+        .min_height(px(15.0)),
     ))
     .gap(4.0)
 }

@@ -362,6 +362,7 @@ fn sections() -> impl View {
                         .gap(8.0)
                 })
             })
+            .within(filling())
             .boxed()
         }
         Section::Notes => notes().boxed(),
@@ -389,11 +390,196 @@ pub(super) fn living() -> impl View {
 #[cfg(test)]
 mod tests {
     use bevy::app::App;
+    use bevy::ecs::hierarchy::ChildOf;
+    use bevy::ecs::query::With;
+    use bevy::ui::{ComputedNode, UiGlobalTransform};
     use hamlet_client::outbox::Outbox;
     use hamlet_protocol::v0;
 
     use super::*;
     use crate::me::tests::{panel_app, press, words};
+
+    /// The vendored fynix layout tests use this same headless camera;
+    /// text is measured here too, including an empty notice label.
+    fn conversation_panel(lines: usize) -> (App, Entity) {
+        use bevy::asset::{AssetApp, AssetPlugin, Assets};
+        use bevy::camera::{
+            Camera, Camera2d, ComputedCameraValues, RenderTargetInfo,
+        };
+        use bevy::math::UVec2;
+        use bevy::text::{Font, TextPlugin};
+
+        let mut app = panel_app();
+        app.add_plugins((
+            AssetPlugin::default(),
+            bevy::transform::TransformPlugin,
+            bevy::input::InputPlugin,
+            bevy::picking::PickingPlugin,
+            bevy::picking::InteractionPlugin,
+        ))
+        .init_asset::<bevy::image::Image>()
+        .init_asset::<bevy::image::TextureAtlasLayout>()
+        .add_plugins((TextPlugin, bevy::ui::UiPlugin))
+        .add_plugins((crate::chat::plugin, crate::inspector::plugin));
+        app.world_mut()
+            .resource_mut::<Assets<Font>>()
+            .insert(
+                bevy::asset::AssetId::default(),
+                Font::from_bytes(
+                    include_bytes!(
+                        "../../../../assets/fonts/InterVariable.ttf"
+                    )
+                    .to_vec(),
+                ),
+            )
+            .unwrap();
+        app.world_mut().spawn((
+            Camera2d,
+            Camera {
+                computed: ComputedCameraValues {
+                    target_info: Some(RenderTargetInfo {
+                        physical_size: UVec2::new(640, 480),
+                        scale_factor: 1.0,
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ));
+        app.finish();
+        app.cleanup();
+        app.update();
+        let items = (0..lines)
+            .map(|line| {
+                serde_json::json!({
+                    "id": format!("chief:{line}"),
+                    "at": line,
+                    "kind": "user",
+                    "text": format!("Message {line}."),
+                    "chief": "chief",
+                    "rewindable": false,
+                })
+            })
+            .collect::<Vec<_>>();
+        hamlet_client::receive(
+            app.world_mut(),
+            serde_json::from_value(serde_json::json!({
+                "type": "transcript",
+                "chat": {"with": {"hamlet": "home", "agent": "mayor"}},
+                "items": items,
+                "working": false,
+                "pending": 0,
+                "number": 1,
+                "usage": {
+                    "cached": 0, "calls": 0, "input": 0,
+                    "lastInput": 0, "micros": 0, "ms": 0,
+                    "output": 0, "reasoning": 0,
+                    "summary": "", "unreported": 0,
+                },
+            }))
+            .unwrap(),
+        );
+        app.update();
+        let panel = bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            column((sections(),)).width(px(640.0)).height(px(480.0)),
+        );
+        for _ in 0..5 {
+            app.update();
+        }
+        assert_eq!(
+            app.world().get::<ComputedNode>(panel).unwrap().size().y,
+            480.0
+        );
+        assert_eq!(bottom(&app, panel), 480.0);
+        (app, panel)
+    }
+
+    fn bottom(app: &App, entity: Entity) -> f32 {
+        let world = app.world();
+        let node = world.get::<ComputedNode>(entity).unwrap();
+        let at = world.get::<UiGlobalTransform>(entity).unwrap();
+        at.translation.y + node.size().y * 0.5
+    }
+
+    fn message_field(app: &mut App) -> Entity {
+        let world = app.world_mut();
+        world
+            .query_filtered::<Entity, With<chat::ChatField>>()
+            .single(world)
+            .unwrap()
+    }
+
+    fn message_bar(app: &mut App) -> Entity {
+        let mut bar = message_field(app);
+        for _ in 0..3 {
+            bar = app.world().get::<ChildOf>(bar).unwrap().parent();
+        }
+        bar
+    }
+
+    #[test]
+    fn a_long_conversation_scrolls_with_the_bar_at_the_panel_bottom()
+    {
+        let (mut app, panel) = conversation_panel(40);
+        let bar = message_bar(&mut app);
+        let world = app.world_mut();
+        let scroll = world
+            .query_filtered::<&ComputedNode, With<chat::ChatScroll>>()
+            .single(world)
+            .unwrap();
+        assert!(scroll.size().y > 0.0, "the chat has a viewport");
+        assert!(
+            scroll.content_size().y > scroll.size().y,
+            "the chat must overflow its viewport: {scroll:?}"
+        );
+        assert!(
+            (bottom(&app, bar) - bottom(&app, panel)).abs() < 1.0,
+            "the message bar stays inside the panel at its bottom"
+        );
+    }
+
+    #[test]
+    fn a_short_conversation_keeps_the_bar_at_the_panel_bottom() {
+        let (mut app, panel) = conversation_panel(1);
+        let bar = message_bar(&mut app);
+        assert!(
+            (bottom(&app, bar) - bottom(&app, panel)).abs() < 1.0,
+            "the message bar stays at the bottom, not under the \
+             last line"
+        );
+    }
+
+    #[test]
+    fn a_notice_does_not_move_the_message_field() {
+        let (mut app, panel) = conversation_panel(1);
+        let field = message_field(&mut app);
+        let was = bottom(&app, field);
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Fault(v0::Fault {
+                to: None,
+                text: "The server could not keep that change.".into(),
+            }),
+        );
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(
+            words(&mut app).iter().any(|text| text
+                == "The server could not keep that change.")
+        );
+        assert!(
+            (bottom(&app, field) - was).abs() < 1.0,
+            "a notice must not move the field: before {was}, after \
+             {}",
+            bottom(&app, field)
+        );
+        let bar = message_bar(&mut app);
+        assert!(
+            (bottom(&app, bar) - bottom(&app, panel)).abs() < 1.0
+        );
+    }
 
     #[test]
     fn the_header_shows_received_work_and_stops_only_a_busy_agent() {
