@@ -77,8 +77,18 @@ After `cargo build --bin hamlet-app` at the repository root:
 HAMLET_HOME=/tmp/hamlet-try hamlet dev
 ```
 
+Bare `hamlet` starts the home's server in the background, or reuses its
+running server, and opens a window. The home is `HAMLET_HOME`, else
+`~/.hamlet`; the background server appends output to `<home>/server.log`.
+Closing the window or terminal stops no agent. `hamlet stop` stops the
+server, and `hamlet status` reports it. Opening the app from Finder starts
+no server.
+
 | Command | Does |
 |---|---|
+| `hamlet` | Serves the home in the background or reuses its server, and opens a window |
+| `hamlet stop` | Stops the home's server and waits for it to close in order |
+| `hamlet status` | Reports whether the home's server runs, with its address, process ID, start time and log path |
 | `hamlet server [--port <n>] [--faux <script.json>]` | Starts a server on a home; a faux script answers offline for tests and demos |
 | `hamlet chat [--to <agent\|name@hamlet\|mayor@hamlet>]` | Chats with the mayor or the named agent and answers what waits, in the terminal |
 | `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>]` | Serves a scratch home on a free port unless given one, and opens its window |
@@ -87,7 +97,8 @@ HAMLET_HOME=/tmp/hamlet-try hamlet dev
 | `hamlet login <provider> [--key]` | Gives a key or follows an offered sign-in |
 | `hamlet models [try [model]\|refresh]` | Lists models, tries a one-word hello, or refreshes the list |
 
-The server listens on `127.0.0.1` at port 7313 unless given another port.
+`hamlet server` listens on `127.0.0.1` at port 7313 unless given another
+port. Bare `hamlet` starts a server on a free port.
 Local clients find its URL through `server.json` and its token through
 `credentials.json`; elsewhere they use `HAMLET_SERVER` and `HAMLET_TOKEN`,
 through an SSH tunnel. The server runs for one chief, named by

@@ -76,9 +76,15 @@ macOS.
 with the Node version in `.nvmrc`; `npm run hamlet -- <command>` runs it
 there too. `HAMLET_HOME` names the home; development uses a scratch folder.
 The window's executable is `hamlet-app`; the app is called Hamlet.
+Bare `hamlet` serves the home in the background, or reuses its running
+server, and opens a window. Closing the window or terminal stops no agent.
+`hamlet stop` stops the server; `hamlet status` reports it.
 
 | Command | Does |
 |---|---|
+| `hamlet` | Serves the home in the background or reuses its server, and opens a window |
+| `stop` | Stops the home's server and waits for it to close in order |
+| `status` | Reports whether the home's server runs |
 | `server` | Serves the home; stopping it closes in order, and a second stop signal exits at once |
 | `chat [--to <agent>]` | Chats with the mayor or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
 | `dev [--port <n>] [--faux <script.json>] [--home <dir>]` | Serves a scratch home and opens its window; closing the window leaves the server running, and stopping the command closes both in order |
