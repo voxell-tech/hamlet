@@ -118,6 +118,23 @@ The structure test checks that boundary and forbids value-import cycles.
 | `change.ts` | Bounded edit previews and text excerpts | `changeOf`, `changeBetween`, `linesOf` and Unicode `clip` |
 | `result.ts` | The shared success or failure shape | `Result`, `ok` and `err` |
 
+`cli/service.ts` owns bare start, stop and status through `serviceCommand`.
+It checks the published process and authenticates with the home's token,
+starts a detached server on a free port, and opens a detached window through
+`cli/window.ts`'s `launch`. `cli/process.ts`'s `startProcess` owns child streams
+and detached sessions. `cli/serving.ts`'s `serve` publishes the URL, process
+ID and ISO `started` time in `server.json`, and closes the server on SIGTERM.
+The background server appends output to the home's `server.log`.
+
+`cli/client.ts`'s `readServer` validates `ServerRecord` and returns a
+`DiscoveryFailure` for an unreadable record. `reachHome` supplies its token;
+`connectChief` authenticates, with an optional abort signal that releases
+the socket through `connection.ts`'s `connect`. `home/credentials.ts`'s
+`Credentials.readExisting` reads without creating a file, so failed starts
+can scrub log tails without changing credentials. `server/test/one-command.test.ts`
+checks the lifecycle with scratch homes and fake windows, and tracks every
+detached server for cleanup after each test.
+
 The record's operations live in `record/membership.ts`, `roads.ts` and
 `office.ts`; `document.ts` holds the records and stable identities,
 `names.ts` their words and realm-wide name uniqueness, `refusals.ts` the

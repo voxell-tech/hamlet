@@ -38,10 +38,12 @@ Build the window with `cargo build --bin hamlet-app`. For local work:
 HAMLET_HOME=/tmp/hamlet-try hamlet dev
 ```
 
-Run `hamlet` only with `HAMLET_HOME` set to a scratch folder. Run
-`hamlet-app` only through `hamlet dev`, which sets a scratch `HAMLET_VIEW`,
-or with `HAMLET_VIEW` set to a scratch folder yourself. With a separate
-server, set both when running `hamlet window`. `HAMLET_APP` can name a
+Bare `hamlet` uses `~/.hamlet` by default and leaves a server running in
+the background. Agents run `hamlet` only with `HAMLET_HOME` set to a scratch
+folder, and stop background servers with `HAMLET_HOME=<scratch> hamlet stop`.
+Run `hamlet-app` only through `hamlet dev`, which sets a scratch `HAMLET_VIEW`,
+or with `HAMLET_VIEW` set to a scratch folder yourself. Set both scratch
+paths for bare `hamlet` and for `hamlet window`. `HAMLET_APP` can name a
 window built outside the repository's `target/` folder.
 
 The server keeps the agents' files; the window keeps its size, layout and
