@@ -95,7 +95,7 @@ HAMLET_RECORD_FRAMES=1 npx vitest --run test/frames.test.ts
 ```
 
 On Linux, tools run under bubblewrap rather than Seatbelt. After changing
-`server/src/sandbox/` or `server/src/git/`, run the tests there too with
+`server/src/sandbox/`, run the tests there too with
 `server/scripts/test-linux.sh`, in the OrbStack machine `hamlet-sandbox`
-(Debian with bubblewrap, socat, git, curl, python3 and the Node of
+(Debian with bubblewrap, git, curl, python3 and the Node of
 `.nvmrc`).

@@ -118,9 +118,6 @@ The structure test checks that boundary and forbids value-import cycles.
 | `change.ts` | Bounded edit previews and text excerpts | `changeOf`, `changeBetween`, `linesOf` and Unicode `clip` |
 | `result.ts` | The shared success or failure shape | `Result`, `ok` and `err` |
 
-`git/` holds `proxy.ts` and `pktline.ts`; the proxy is not wired into the
-server.
-
 The record's operations live in `record/membership.ts`, `roads.ts` and
 `office.ts`; `document.ts` holds the records and stable identities,
 `names.ts` their words and realm-wide name uniqueness, `refusals.ts` the
