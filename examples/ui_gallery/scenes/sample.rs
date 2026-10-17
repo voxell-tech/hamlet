@@ -444,7 +444,11 @@ fn second_talk() -> Transcript {
         said(
             4,
             json!({"type": "user", "user": "chief",
-            "content": "Write the grafting date into the almanac."}),
+            "content": "(Replying to Juniper: \"The notes are in order. \
+                        Two things are missing: the date the pears were \
+                        grafted, and who keeps the key to the \
+                        press.\")\n\n> the date the pears were \
+                        grafted\nWrite it into the almanac."}),
         ),
     ];
     log.extend(step(5, "g", "grep -rn grafted notes/orchard"));

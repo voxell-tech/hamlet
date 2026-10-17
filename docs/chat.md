@@ -95,6 +95,70 @@ the chief in manual mode shows the same view in Needs You.
 A change made by a shell command is not shown: only `edit` says what it
 changes.
 
+## Replying
+
+A message can answer another, to say which one it is about.
+
+**In the window.** Every message that has words carries a small mark,
+shown while the pointer is on its row. A click puts "Replying to" and
+the start of the message over the field, with a cross to drop it. The
+next message sent is the reply. A reply begun in one chat is dropped
+when another chat is opened.
+
+**What is sent.** The reply is part of the message's own words: a first
+line that names the message it answers, its words as a JSON string, and
+the words of the reply after a blank line:
+
+```
+(Replying to Mayor: "Paper or ebook?\nBoth ship soon.")
+
+Paper.
+```
+
+So the model reads what is answered, and the log, a rewind and a replay
+need nothing new. At most `reply_chars` characters of the message are
+carried (`[chat]` in `assets/ui.toml`). The chief's own bubble draws the
+first line as one dim line, the speaker and the start of the words, and
+only the words after it as the message. A rewind to a reply puts what
+it answered back over the field.
+
+## Quoting
+
+A line the chief types that opens with `> ` is a quote, as in the chat
+apps: the bubble draws it dim beside a bar. It is no more than words,
+with nothing behind it, and the model reads it as a Markdown quote.
+Shift+Enter starts a new line in the field, and the field grows with its
+lines, so a quote can be followed by the chief's own words.
+
+## Selecting words
+
+Any text of the panels is selected where it is drawn, as on a web page:
+a press and a drag, a double-click for a word, a triple-click for a line.
+`hamlet_ui/src/select.rs` holds it. An `Area` is selected as one across
+all its text: the words of a message, and every Markdown document, so a
+drag runs across the paragraphs, lists and code blocks of a reply or of
+the Notes page. Any other text is selected on its own. What a button, a
+field, a menu row or anything with a pointer of its own holds is left to
+it, and a field selects its own words as Bevy's text box does.
+
+Bevy draws text but does not select it, so the selection is made with
+what Bevy keeps of each text node: the parley layout of its words
+(`ComputedTextBlock::buffer`). Parley's `Selection` finds the words under
+the pointer and the boxes they fill. Bevy also breaks that layout at
+other widths while it measures, so it is broken again at the width the
+node is drawn at before it is read.
+
+What is selected is lit, in `chosen` of the palette, on one layer over
+the panels, under a dragged tab, the menus and the tooltips, and cut to
+what clips the text. Selectable text shows the text cursor. Cmd+C copies
+it, Cmd+A selects the whole area and Esc lets it go. The parts of nodes
+on one line, such as a bullet and its item, are joined with a space, and
+those on different lines with a line. The room a bubble keeps for its
+hour is never selected. In the chat, QUOTE, at the end of what is lit,
+puts the words in the field as `> ` lines with a line after them for the
+chief's own words. A press anywhere else, or another chat, lets the
+selection go. A plain click on a link still follows it.
+
 ## Rewind
 
 A conversation can be taken back to one of the chief's messages. That

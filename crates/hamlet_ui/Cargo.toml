@@ -20,6 +20,7 @@ bevy.workspace = true
 bevy_fynix.workspace = true
 chrono.workspace = true
 image.workspace = true
+parley.workspace = true
 pulldown-cmark.workspace = true
 reqwest.workspace = true
 serde.workspace = true

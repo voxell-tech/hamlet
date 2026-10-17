@@ -41,6 +41,8 @@ pub struct ChatSettings {
     pub picture_bytes: u64,
     /// The most bytes of pictures kept that no row shows.
     pub picture_memory: u64,
+    /// The most characters of a message a reply carries.
+    pub reply_chars: usize,
 }
 
 /// The changes a chief has shut, and those asked for whole, by

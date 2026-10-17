@@ -3,13 +3,16 @@
 //! (`timeline`), kept as rows (`lines`) and drawn as a group chat
 //! (`bubble`) over the `field` a message is typed in. An edit
 //! shows its `change`, and the chief's own messages the way back to
-//! them (`rewind`).
+//! them (`rewind`). A message can `reply` to another, and `quote`
+//! lines as chat apps do.
 
 mod bubble;
 mod change;
 mod entry;
 mod field;
 mod lines;
+mod quote;
+mod reply;
 mod rewind;
 mod timeline;
 
@@ -24,6 +27,8 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
+use bevy::input::ButtonInput;
+use bevy::input::keyboard::Key;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::text::{EditableText, TextEdit};
 use bevy::ui::{
@@ -47,7 +52,9 @@ use hamlet_world::orders::{Decree, Tell};
 pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};
 pub(crate) use self::entry::entry_view;
-pub use self::field::{Placeholder, keep_typed, show_placeholder};
+pub use self::field::{
+    Placeholder, grow, keep_typed, show_placeholder,
+};
 pub use self::lines::{
     ChatRow, Lines, Reach, Unfolded, Whole, break_long_words,
     fold_lines, hide_unseen, read_back, transcript,
@@ -70,7 +77,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(keep_typed)
         .add_observer(decreed)
         .add_observer(told)
-        .add_plugins(rewind::plugin)
+        .add_plugins((rewind::plugin, reply::plugin))
         .add_systems(
             Update,
             (
@@ -78,6 +85,7 @@ pub fn plugin(app: &mut App) {
                 hide_unseen,
                 break_long_words,
                 show_placeholder,
+                grow,
             ),
         )
         .add_systems(PostUpdate, refocus);
@@ -97,6 +105,24 @@ pub struct ChatScroll;
 pub struct Draft {
     pub(crate) text: String,
     pub(crate) step: u8,
+}
+
+/// Puts `words` in the field as quoted lines, after what is typed,
+/// with a line under them for the chief's own words.
+pub(crate) fn quote_in_field(world: &mut World, words: &str) {
+    if words.trim().is_empty() {
+        return;
+    }
+    let mut draft = world.resource_mut::<Draft>();
+    let lead =
+        match draft.text.is_empty() || draft.text.ends_with('\n') {
+            true => "",
+            false => "\n",
+        };
+    draft.text =
+        format!("{}{lead}{}\n", draft.text, quote::quoting(words));
+    // The field is focused one step on, with the caret at its end.
+    draft.step = 1;
 }
 
 /// Sends `text` to the open chat.
@@ -240,6 +266,13 @@ fn commit(world: &mut World, text: String) {
     if !entering {
         return;
     }
+    // Shift+Enter starts a new line, as in the chat apps.
+    if world.resource::<ButtonInput<Key>>().pressed(Key::Shift) {
+        let mut draft = world.resource_mut::<Draft>();
+        draft.text = format!("{text}\n");
+        draft.step = 1;
+        return;
+    }
     // Commands are not typed here: each has a button or a menu.
     if text.trim_start().starts_with('/') {
         let me = world.resource::<Me>();
@@ -254,6 +287,7 @@ fn commit(world: &mut World, text: String) {
             ),
         });
     } else {
+        let text = reply::attach(world, text);
         send(world, text);
     }
     world.resource_mut::<Draft>().step = 3;
@@ -366,6 +400,7 @@ pub fn message_bar() -> impl View {
     .overflow(Overflow::clip());
     column((
         crate::asking::in_chat(),
+        reply::preview(),
         row((field,)).gap(8.0).align(AlignItems::Center),
     ))
     .gap(0.0)

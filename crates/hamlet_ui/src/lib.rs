@@ -20,6 +20,7 @@ mod roll;
 mod root;
 pub mod rules;
 pub mod screens;
+pub mod select;
 mod sounds;
 mod status;
 pub mod theme;
@@ -113,6 +114,7 @@ impl Plugin for UiPlugin {
                 rules::plugin,
                 models::plugin,
                 asking::plugin,
+                select::plugin,
                 history::plugin,
                 welcome::plugin,
             ),

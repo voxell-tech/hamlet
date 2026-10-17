@@ -20,7 +20,7 @@ use hamlet_assets::Tuning;
 use hamlet_core::core::{Link, Sandboxing};
 use hamlet_ui::history::History;
 use hamlet_ui::theme::{self, HamletTheme};
-use hamlet_ui::{Bar, Roll, asking, chrome, menu, welcome};
+use hamlet_ui::{Bar, Roll, asking, chrome, menu, select, welcome};
 use hamlet_world::sound::{Cue, SoundSettings};
 
 use self::dock::{panels, seed_dock};
@@ -90,6 +90,7 @@ impl Plugin for GalleryPlugin {
                 hamlet_ui::widgets::plugin,
                 hamlet_ui::screens::plugin,
                 asking::plugin,
+                select::plugin,
             ));
     }
 }
