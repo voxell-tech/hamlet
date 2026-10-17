@@ -72,9 +72,20 @@ A hamlet's emotes move about all its houses:
 - `banners`: `colours` (the cloth and its stripe), `long`. Every house
   flies a banner of the leader's kind from a mast on its roof, at its
   `banner` spot; the leader's own banner takes these colours too.
+- `petals`: `colours` (half the petals in each), `count` (per house),
+  `size`, `fall` (seconds from the eave to the ground). Petals drift down
+  from along each front eave, swinging as they fall, at most
+  `[attire] petals` to a house.
+- `fireflies`: `colour`, `count` (per house), `glow`. Fireflies wander in
+  loops about each house, out to `[attire] firefly_reach` past its eaves,
+  at most `[attire] fireflies` to a house; they glow `glow` times their
+  colour after dark, as the windows do.
+- `pinwheels`: `colours` (the sails, in turn), `count` (per house),
+  `speed` (turns a second). Pinwheels stand on sticks along each front
+  eave, at most `[attire] pinwheels` to a house, turning clockwise.
 
-Smoke and lanterns move only while they are seen, and keep frames coming
-only then. Their sizes and speeds are `[attire]` in `assets/world.toml`.
+What an emote moves, it moves only while it is seen, and keeps frames
+coming only then. Their sizes and speeds are `[attire]` in `assets/world.toml`.
 
 ## Meshes
 

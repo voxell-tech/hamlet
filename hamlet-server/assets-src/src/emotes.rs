@@ -4,7 +4,8 @@
 use std::collections::BTreeMap;
 
 use hamlet_model::wardrobe::{
-    Banners, Clip, Emote, Key, Lanterns, Move, Smoke,
+    Banners, Clip, Emote, Fireflies, Key, Lanterns, Move, Petals,
+    Pinwheels, Smoke,
 };
 
 /// A pose: parts turned by degrees about X, Y and Z.
@@ -184,6 +185,136 @@ pub fn of(id: &str) -> Option<Emote> {
         "hamlet-emote-banners" => Emote::Banners(Banners {
             colours: ["#2f6db3".into(), "#f2d35b".into()],
             long: 0.7,
+        }),
+        // Both arms flung up, a hop at the top, and down again.
+        "agent-emote-cheer" => Emote::Clip(Clip {
+            seconds: 2.0,
+            every: 45.0,
+            keys: vec![
+                pose(0.0, &[]),
+                lifted(
+                    pose(
+                        0.35,
+                        &[
+                            ("arm_l", [0.0, 0.0, -160.0]),
+                            ("arm_r", [0.0, 0.0, 160.0]),
+                            ("head", [-15.0, 0.0, 0.0]),
+                        ],
+                    ),
+                    "rig",
+                    [0.0, 0.14, 0.0],
+                ),
+                pose(
+                    0.6,
+                    &[
+                        ("arm_l", [0.0, 0.0, -140.0]),
+                        ("arm_r", [0.0, 0.0, 140.0]),
+                        ("head", [-10.0, 0.0, 0.0]),
+                    ],
+                ),
+                lifted(
+                    pose(
+                        0.9,
+                        &[
+                            ("arm_l", [0.0, 0.0, -165.0]),
+                            ("arm_r", [0.0, 0.0, 165.0]),
+                            ("head", [-15.0, 0.0, 0.0]),
+                        ],
+                    ),
+                    "rig",
+                    [0.0, 0.1, 0.0],
+                ),
+                pose(
+                    1.3,
+                    &[
+                        ("arm_l", [0.0, 0.0, -40.0]),
+                        ("arm_r", [0.0, 0.0, 40.0]),
+                    ],
+                ),
+                pose(2.0, &[]),
+            ],
+        }),
+        // Shoulders up, forearms out and palms up, the head tilted.
+        "agent-emote-shrug" => Emote::Clip(Clip {
+            seconds: 2.2,
+            every: 55.0,
+            keys: vec![
+                pose(0.0, &[]),
+                lifted(
+                    pose(
+                        0.4,
+                        &[
+                            ("arm_l", [-50.0, 0.0, -45.0]),
+                            ("arm_r", [-50.0, 0.0, 45.0]),
+                            ("head", [0.0, 0.0, 14.0]),
+                        ],
+                    ),
+                    "body",
+                    [0.0, 0.03, 0.0],
+                ),
+                lifted(
+                    pose(
+                        1.3,
+                        &[
+                            ("arm_l", [-50.0, 0.0, -45.0]),
+                            ("arm_r", [-50.0, 0.0, 45.0]),
+                            ("head", [0.0, 0.0, 14.0]),
+                        ],
+                    ),
+                    "body",
+                    [0.0, 0.03, 0.0],
+                ),
+                pose(2.2, &[]),
+            ],
+        }),
+        // A hand to the chin, the head down and turning slowly from
+        // side to side, then a nod: it has it.
+        "agent-emote-ponder" => Emote::Clip(Clip {
+            seconds: 3.6,
+            every: 70.0,
+            keys: vec![
+                pose(0.0, &[]),
+                pose(
+                    0.6,
+                    &[
+                        ("arm_r", [-100.0, 0.0, -25.0]),
+                        ("head", [12.0, -18.0, 0.0]),
+                    ],
+                ),
+                pose(
+                    1.6,
+                    &[
+                        ("arm_r", [-105.0, 0.0, -25.0]),
+                        ("head", [12.0, 18.0, 0.0]),
+                    ],
+                ),
+                pose(
+                    2.4,
+                    &[
+                        ("arm_r", [-100.0, 0.0, -25.0]),
+                        ("head", [12.0, -10.0, 0.0]),
+                    ],
+                ),
+                pose(2.8, &[("head", [-12.0, 0.0, 0.0])]),
+                pose(3.0, &[("head", [10.0, 0.0, 0.0])]),
+                pose(3.6, &[]),
+            ],
+        }),
+        "hamlet-emote-petals" => Emote::Petals(Petals {
+            colours: ["#f48fb1".into(), "#fbd3e0".into()],
+            count: 14,
+            size: 0.11,
+            fall: 7.0,
+        }),
+        "hamlet-emote-fireflies" => Emote::Fireflies(Fireflies {
+            colour: "#e8ff8a".into(),
+            count: 10,
+            glow: 16.0,
+        }),
+        "hamlet-emote-pinwheels" => Emote::Pinwheels(Pinwheels {
+            colours: ["#e2405a".into(), "#f2d35b".into()],
+            count: 2,
+            speed: 0.7,
         }),
         _ => return None,
     })

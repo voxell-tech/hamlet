@@ -247,6 +247,12 @@ pub enum Emote {
     Lanterns(Lanterns),
     /// Banners fluttering from every roof of a hamlet.
     Banners(Banners),
+    /// Petals drifting down about every house of a hamlet.
+    Petals(Petals),
+    /// Fireflies about every house of a hamlet, glowing after dark.
+    Fireflies(Fireflies),
+    /// Pinwheels turning in the wind along every eave of a hamlet.
+    Pinwheels(Pinwheels),
 }
 
 /// The parts of an agent a clip may move.
@@ -368,6 +374,40 @@ pub struct Banners {
     pub long: f32,
 }
 
+/// Petals drifting down about a hamlet's houses.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Petals {
+    /// A petal's two colours, half the petals in each.
+    pub colours: [Hex; 2],
+    /// Petals falling about each house at once.
+    pub count: u32,
+    /// A petal's size.
+    pub size: f32,
+    /// Seconds a petal takes to fall from the eaves to the ground.
+    pub fall: f32,
+}
+
+/// Fireflies about a hamlet's houses.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Fireflies {
+    pub colour: Hex,
+    /// How many fly about each house.
+    pub count: u32,
+    /// How brightly they glow after dark.
+    pub glow: f32,
+}
+
+/// Pinwheels turning along a hamlet's eaves.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Pinwheels {
+    /// The colours of their sails, in turn.
+    pub colours: [Hex; 2],
+    /// How many turn on each house.
+    pub count: u32,
+    /// Turns a second.
+    pub speed: f32,
+}
+
 /// An emote as it is stored: its format beside it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EmoteFile {
@@ -410,6 +450,19 @@ impl Emote {
             }
             (Emote::Banners(banners), Target::Hamlet) => {
                 for colour in &banners.colours {
+                    rgb(colour)?;
+                }
+            }
+            (Emote::Petals(petals), Target::Hamlet) => {
+                for colour in &petals.colours {
+                    rgb(colour)?;
+                }
+            }
+            (Emote::Fireflies(fireflies), Target::Hamlet) => {
+                rgb(&fireflies.colour)?;
+            }
+            (Emote::Pinwheels(pinwheels), Target::Hamlet) => {
+                for colour in &pinwheels.colours {
                     rgb(colour)?;
                 }
             }

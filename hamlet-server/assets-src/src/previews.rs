@@ -147,6 +147,14 @@ struct Staged;
 #[derive(Component)]
 struct Eye;
 
+/// A light of the stage, and how bright it is by day.
+#[derive(Component)]
+struct Lamp(f32);
+
+/// How much of the day's light is left at dusk, when what glows after
+/// dark is drawn.
+const DUSK: f32 = 0.08;
+
 /// The stage's camera, lights and plinth, and the world's camera put
 /// out.
 fn stage(
@@ -163,6 +171,7 @@ fn stage(
     let day = &looks.day;
     let layer = RenderLayers::layer(LAYER);
     commands.spawn((
+        Lamp(day.sun_lux),
         DirectionalLight {
             color: day.sun,
             illuminance: day.sun_lux,
@@ -182,6 +191,7 @@ fn stage(
         layer.clone(),
     ));
     commands.spawn((
+        Lamp(day.fill_lux),
         DirectionalLight {
             color: day.fill,
             illuminance: day.fill_lux,
@@ -340,6 +350,7 @@ fn direct(world: &mut World) {
             {
                 play(world, subject);
             }
+            light(world, glows(&job.file, entry.target));
             shoot.step = Step::Frame(0);
         }
         Step::Frame(n) if n < shoot.frames => {
@@ -347,7 +358,8 @@ fn direct(world: &mut World) {
                 // An emote is seen as it plays, the view turning a
                 // little the while.
                 Category::Emote => (
-                    0.5 + 0.9 * n as f32 / shoot.frames as f32,
+                    emote_turn(entry.target)
+                        + 0.9 * n as f32 / shoot.frames as f32,
                     emote_step(&job.file, entry.target, shoot.frames),
                 ),
                 _ => (TAU * n as f32 / shoot.frames as f32, BETWEEN),
@@ -390,6 +402,36 @@ fn direct(world: &mut World) {
         }
     }
     world.insert_resource(shoot);
+}
+
+/// Where the view of an emote starts turning from: an agent's from
+/// beside it, a hamlet's from before its front, where its emote
+/// hangs.
+fn emote_turn(target: Target) -> f32 {
+    match target {
+        Target::Agent => 0.5,
+        Target::Hamlet => -0.45,
+    }
+}
+
+/// True for an emote that is seen at its best after dark.
+fn glows(file: &[u8], target: Target) -> bool {
+    matches!(Emote::read(file, target), Ok(Emote::Fireflies(_)))
+}
+
+/// Lights the stage as by day, or dims it to dusk.
+fn light(world: &mut World, dusk: bool) {
+    let share = if dusk { DUSK } else { 1.0 };
+    let mut lamps = world.query::<(&Lamp, &mut DirectionalLight)>();
+    for (lamp, mut light) in lamps.iter_mut(world) {
+        light.illuminance = lamp.0 * share;
+    }
+    let day = world.resource::<Looks>().day.ambient_nits;
+    let mut eyes =
+        world.query_filtered::<&mut AmbientLight, With<Eye>>();
+    for mut ambient in eyes.iter_mut(world) {
+        ambient.brightness = day * share.max(0.25);
+    }
 }
 
 /// The updates between pictures of an emote, so that they span it.

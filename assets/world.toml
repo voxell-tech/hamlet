@@ -300,6 +300,13 @@ lantern_string = 0.14
 lanterns = 8
 sway_speed = 1.7
 lantern_glow = 2.5
+petals = 14
+fireflies = 8
+firefly_reach = 0.7
+pinwheels = 3
+pinwheel_radius = 0.22
+pinwheel_stick = 0.42
+firefly_day = 0.35
 
 [sound]
 muted = false

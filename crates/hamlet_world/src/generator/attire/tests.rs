@@ -8,9 +8,14 @@ use bevy::render::settings::WgpuSettings;
 use bevy::state::app::StatesPlugin;
 use bevy::window::{ExitCondition, RequestRedraw};
 use bevy::winit::WinitPlugin;
-use hamlet_model::wardrobe::{Emote, Lanterns, Skin, Target};
+use hamlet_model::wardrobe::{
+    Emote, Fireflies, Lanterns, Petals, Pinwheels, Skin, Target,
+};
 
-use super::{Attire, Attires, Shell, Swing, skinned};
+use super::{
+    Attire, AttireSettings, Attires, Firefly, Petal, Pinwheel, Shell,
+    Swing, skinned,
+};
 use crate::dress::{self, Closet, Glb, SOURCE};
 use crate::generator::house::{self, Fit, TownStyle};
 use crate::generator::land::Land;
@@ -328,4 +333,99 @@ fn a_worn_mesh_stands_for_the_walls_and_its_spots_are_used() {
     assert!(worn.panes.is_empty());
     assert!(worn.body.tris() * 2 < own.body.tris());
     assert!(!worn.body.is_empty());
+}
+
+/// How many children of `house` carry `C`.
+fn count<C: Component>(app: &App, house: Entity) -> usize {
+    let world = app.world();
+    world
+        .get::<Children>(house)
+        .into_iter()
+        .flatten()
+        .filter(|child| world.get::<C>(**child).is_some())
+        .count()
+}
+
+#[test]
+fn petals_fireflies_and_pinwheels_hang_about_a_house_as_many_as_allowed()
+ {
+    let (mut app, _) = town();
+    let set = app.world().resource::<AttireSettings>().clone();
+    let raise = |app: &mut App, emote: Emote| {
+        let attire = Attire {
+            emote: Some(emote),
+            ..Attire::default()
+        };
+        super::raise(app.world_mut(), &attire, false, default())
+    };
+    let house = raise(
+        &mut app,
+        Emote::Petals(Petals {
+            colours: ["#ffc0cb".into(), "#ffffff".into()],
+            count: 4,
+            size: 0.06,
+            fall: 6.0,
+        }),
+    );
+    assert_eq!(count::<Petal>(&app, house), 4);
+    // Asking for more than the settings allow gets no more.
+    let house = raise(
+        &mut app,
+        Emote::Fireflies(Fireflies {
+            colour: "#eeff88".into(),
+            count: 1000,
+            glow: 4.0,
+        }),
+    );
+    assert_eq!(count::<Firefly>(&app, house), set.fireflies as usize);
+    let house = raise(
+        &mut app,
+        Emote::Pinwheels(Pinwheels {
+            colours: ["#ff0000".into(), "#ffff00".into()],
+            count: 2,
+            speed: 1.0,
+        }),
+    );
+    assert_eq!(count::<Pinwheel>(&app, house), 2);
+}
+
+#[test]
+fn a_petal_falls_from_its_eave_to_the_ground_and_comes_round_again() {
+    let petal = Petal {
+        from: Vec3::new(0.0, 2.0, 1.0),
+        size: 0.1,
+        life: 4.0,
+        phase: 0.0,
+        swirl: 0.3,
+    };
+    let high = |t: f32| petal.at(t).translation.y;
+    assert!((high(0.0) - 2.0).abs() < 1e-4);
+    assert!(high(1.0) > high(2.0) && high(2.0) > high(3.0));
+    assert!(high(3.999) < 0.1 && high(3.999) > 0.0);
+    // Gone at both ends of its fall: it never pops in or out.
+    assert!(petal.at(0.0).scale.x < 1e-4);
+    assert!(petal.at(3.9999).scale.x < 1e-3);
+    assert!((high(4.0) - high(0.0)).abs() < 1e-3);
+}
+
+#[test]
+fn a_firefly_wanders_about_its_house_and_never_into_it() {
+    let fly = Firefly {
+        near: 1.5,
+        reach: 0.6,
+        high: 1.0,
+        speed: 0.3,
+        phase: 0.4,
+    };
+    let mut sides = [false; 4];
+    for step in 0..2000 {
+        let at = fly.at(step as f32 * 0.05).translation;
+        let out = Vec2::new(at.x, at.z).length();
+        assert!((1.5 - 1e-3..=2.1 + 1e-3).contains(&out), "{out}");
+        sides
+            [usize::from(at.x > 0.0) * 2 + usize::from(at.z > 0.0)] =
+            true;
+    }
+    // It goes all the way round.
+    assert_eq!(sides, [true; 4]);
 }

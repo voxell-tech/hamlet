@@ -52,7 +52,7 @@ use Category::{Emote, Mesh, Skin};
 use Target::{Agent, Hamlet};
 
 /// Every official asset, agents' first.
-pub const ALL: [Entry; 24] = [
+pub const ALL: [Entry; 48] = [
     entry(
         "agent-emote-wave",
         (Agent, Emote),
@@ -224,6 +224,171 @@ pub const ALL: [Entry; 24] = [
         ("Desert Adobe", "Rounded earthen walls and flat roofs."),
         0,
     ),
+    entry(
+        "agent-emote-cheer",
+        (Agent, Emote),
+        ("Cheer", "Both arms flung high and a little hop for joy."),
+        EMOTE,
+    ),
+    entry(
+        "agent-emote-shrug",
+        (Agent, Emote),
+        ("Shrug", "Shoulders up, hands out, head tilted: who knows?"),
+        EMOTE,
+    ),
+    entry(
+        "agent-emote-ponder",
+        (Agent, Emote),
+        ("Ponder", "A hand to the chin and a long, slow think."),
+        EMOTE,
+    ),
+    entry(
+        "agent-skin-copper",
+        (Agent, Skin),
+        ("Copper Patina", "Old copper gone green at the seams."),
+        FINISH,
+    ),
+    entry(
+        "agent-skin-porcelain",
+        (Agent, Skin),
+        ("Porcelain", "Glazed white with cobalt-blue trim."),
+        FINISH,
+    ),
+    entry(
+        "agent-skin-obsidian",
+        (Agent, Skin),
+        ("Obsidian", "Glossy volcanic black with a molten glow."),
+        FINISH,
+    ),
+    entry(
+        "agent-skin-lavender",
+        (Agent, Skin),
+        ("Lavender", "Soft lilac paint and silver fittings."),
+        COLOUR,
+    ),
+    entry(
+        "agent-skin-sunflower",
+        (Agent, Skin),
+        ("Sunflower", "Bright summer yellow with a warm brown trim."),
+        COLOUR,
+    ),
+    entry(
+        "agent-skin-mint",
+        (Agent, Skin),
+        ("Mint", "Cool mint green and cream."),
+        COLOUR,
+    ),
+    entry(
+        "agent-mesh-mushroom",
+        (Agent, Mesh),
+        (
+            "Mushroom Cap",
+            "A spotted toadstool cap on a stout little body.",
+        ),
+        MESH,
+    ),
+    entry(
+        "agent-mesh-snowbot",
+        (Agent, Mesh),
+        (
+            "Snow Bot",
+            "Round as a snowman, with a scarf and a carrot nose.",
+        ),
+        MESH,
+    ),
+    entry(
+        "agent-mesh-knight",
+        (Agent, Mesh),
+        (
+            "Little Knight",
+            "Plate armour, a plumed helm and a shield.",
+        ),
+        MESH,
+    ),
+    entry(
+        "hamlet-emote-petals",
+        (Hamlet, Emote),
+        ("Falling Petals", "Blossom drifting down past every eave."),
+        EMOTE,
+    ),
+    entry(
+        "hamlet-emote-fireflies",
+        (Hamlet, Emote),
+        (
+            "Fireflies",
+            "Little lights about every house when night falls.",
+        ),
+        EMOTE,
+    ),
+    entry(
+        "hamlet-emote-pinwheels",
+        (Hamlet, Emote),
+        ("Pinwheels", "Bright pinwheels spinning along the eaves."),
+        EMOTE,
+    ),
+    entry(
+        "hamlet-skin-sandstone",
+        (Hamlet, Skin),
+        ("Sandstone", "Warm desert stone and sun-bleached roofs."),
+        FINISH,
+    ),
+    entry(
+        "hamlet-skin-tudor",
+        (Hamlet, Skin),
+        ("Tudor", "Black timbers on white plaster, dark roofs."),
+        FINISH,
+    ),
+    entry(
+        "hamlet-skin-gingerbread",
+        (Hamlet, Skin),
+        ("Gingerbread", "Baked brown walls and icing-white trim."),
+        FINISH,
+    ),
+    entry(
+        "hamlet-skin-meadow",
+        (Hamlet, Skin),
+        ("Meadow", "Spring greens and buttercup yellow."),
+        COLOUR,
+    ),
+    entry(
+        "hamlet-skin-midnight",
+        (Hamlet, Skin),
+        ("Midnight", "Deep navy roofs and moonlit walls."),
+        COLOUR,
+    ),
+    entry(
+        "hamlet-skin-coral",
+        (Hamlet, Skin),
+        ("Coral", "Coral pinks and sea-foam shutters."),
+        COLOUR,
+    ),
+    entry(
+        "hamlet-mesh-mushroom",
+        (Hamlet, Mesh),
+        (
+            "Mushroom House",
+            "A round stalk of a house under a spotted cap.",
+        ),
+        MESH,
+    ),
+    entry(
+        "hamlet-mesh-yurt",
+        (Hamlet, Mesh),
+        (
+            "Steppe Yurt",
+            "A round felt tent with a painted door and a crown.",
+        ),
+        MESH,
+    ),
+    entry(
+        "hamlet-mesh-lighthouse",
+        (Hamlet, Mesh),
+        (
+            "Lighthouse Cottage",
+            "A keeper's cottage with a striped light tower.",
+        ),
+        MESH,
+    ),
 ];
 
 /// An asset as the catalogue the server publishes lists it.
@@ -299,11 +464,11 @@ mod tests {
                     || (50..=50_000).contains(&entry.price_cents)
             );
         }
-        // Twelve for each wearer: three emotes, six skins, three
+        // Twenty-four for each wearer: six emotes, twelve skins, six
         // meshes, and one of each kind free.
         for target in Target::ALL {
             for (category, count) in
-                [(Emote, 3), (Skin, 6), (Mesh, 3)]
+                [(Emote, 6), (Skin, 12), (Mesh, 6)]
             {
                 let kind = ALL
                     .iter()

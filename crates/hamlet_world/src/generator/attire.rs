@@ -42,6 +42,9 @@ pub(super) fn plugin(app: &mut App) {
             (
                 puff.run_if(any_with_component::<Puff>),
                 sway.run_if(any_with_component::<Swing>),
+                fall.run_if(any_with_component::<Petal>),
+                flit.run_if(any_with_component::<Firefly>),
+                spin.run_if(any_with_component::<Pinwheel>),
                 glow.run_if(resource_changed::<Sky>),
             )
                 .in_set(Step::Scene),
@@ -51,7 +54,10 @@ pub(super) fn plugin(app: &mut App) {
             keep_going
                 .run_if(
                     any_with_component::<Puff>
-                        .or_else(any_with_component::<Swing>),
+                        .or_else(any_with_component::<Swing>)
+                        .or_else(any_with_component::<Petal>)
+                        .or_else(any_with_component::<Firefly>)
+                        .or_else(any_with_component::<Pinwheel>),
                 )
                 .after(
                     VisibilitySystems::MarkNewlyHiddenEntitiesInvisible,
@@ -78,6 +84,20 @@ pub struct AttireSettings {
     pub sway_speed: f32,
     /// How brightly a lantern's light glows after dark.
     pub lantern_glow: f32,
+    /// The most petals falling about one house.
+    pub petals: u32,
+    /// The most fireflies about one house, and how far beyond its
+    /// eaves they wander.
+    pub fireflies: u32,
+    pub firefly_reach: f32,
+    /// The most pinwheels on one house, a pinwheel's radius and the
+    /// stick it stands on above the eave.
+    pub pinwheels: u32,
+    pub pinwheel_radius: f32,
+    pub pinwheel_stick: f32,
+    /// The share of their glow fireflies keep by day, so that they
+    /// are seen at all.
+    pub firefly_day: f32,
 }
 
 /// What the houses of each town wear, by town.
@@ -133,7 +153,7 @@ impl Attires {
 pub struct Attire {
     pub skin: Option<Skin>,
     pub mesh: Option<Shell>,
-    /// Smoke, lanterns or banners.
+    /// Smoke, lanterns, banners, petals, fireflies or pinwheels.
     pub emote: Option<Emote>,
 }
 
@@ -370,9 +390,18 @@ pub(super) struct Emoting {
 pub(super) struct EmoteKit {
     mote: Handle<Mesh>,
     lantern: Handle<Mesh>,
+    /// A petal: a small flat oval.
+    petal: Handle<Mesh>,
     smoke: Vec<(Vec3, Handle<StandardMaterial>)>,
     /// By paper and light.
     paper: Vec<([Vec3; 2], Handle<StandardMaterial>)>,
+    /// By colour and glow, the glow after dark.
+    fireflies: Vec<((Vec3, f32), Handle<StandardMaterial>)>,
+    /// By colours: the vertex colours are the sails'.
+    pinwheels: Vec<([Vec3; 2], Handle<Mesh>)>,
+    stick: Handle<Mesh>,
+    /// Plain colours, for petals.
+    plain: Vec<(Vec3, Handle<StandardMaterial>)>,
 }
 
 /// A puff of smoke over a chimney: where it leaves, how high it
@@ -416,8 +445,13 @@ pub(super) fn setup(
     commands.insert_resource(EmoteKit {
         mote: meshes.add(Sphere::new(1.0).mesh().ico(1).unwrap()),
         lantern: meshes.add(lantern(&set).build()),
+        petal: meshes.add(petal()),
         smoke: Vec::new(),
         paper: Vec::new(),
+        fireflies: Vec::new(),
+        pinwheels: Vec::new(),
+        stick: meshes.add(stick(&set)),
+        plain: Vec::new(),
     });
 }
 
@@ -469,7 +503,135 @@ fn lantern(set: &AttireSettings) -> Mb {
     mb
 }
 
+/// A petal of size 1: a flat oval, white for its material to colour.
+fn petal() -> Mesh {
+    let mut mb = Mb::new();
+    mb.rbox(
+        Vec3::ZERO,
+        Vec3::new(0.5, 0.04, 0.32),
+        0.03,
+        Quat::IDENTITY,
+        Vec3::ONE,
+        0.0,
+    );
+    mb.build()
+}
+
+/// A pinwheel's stick, its foot at the origin.
+fn stick(set: &AttireSettings) -> Mesh {
+    let mut mb = Mb::new();
+    mb.tube(
+        Vec3::ZERO,
+        Vec3::new(0.0, set.pinwheel_stick, -0.02),
+        0.008,
+        0.008,
+        4,
+        Vec3::splat(0.35),
+        false,
+    );
+    mb.build()
+}
+
+/// A pinwheel facing +Z about its hub at the origin: four sails in
+/// `colours` by turns, and the hub.
+fn pinwheel(set: &AttireSettings, colours: [Vec3; 2]) -> Mesh {
+    let r = set.pinwheel_radius;
+    let mut mb = Mb::new();
+    for k in 0..4 {
+        let a = k as f32 * std::f32::consts::FRAC_PI_2;
+        let out = Vec3::new(a.cos(), a.sin(), 0.0);
+        let side = Vec3::new(-a.sin(), a.cos(), 0.0);
+        // A sail from the hub to its tip, its trailing edge tipped
+        // back.
+        mb.rbox(
+            out * r * 0.5 + side * r * 0.18,
+            Vec3::new(r * 0.5, r * 0.2, 0.006),
+            0.003,
+            Quat::from_rotation_z(a) * Quat::from_rotation_x(0.35),
+            colours[k % 2],
+            0.0,
+        );
+    }
+    mb.tube(
+        -Vec3::Z * 0.01,
+        Vec3::Z * 0.03,
+        r * 0.12,
+        r * 0.12,
+        6,
+        Vec3::splat(0.9),
+        true,
+    );
+    mb.build()
+}
+
 impl EmoteKit {
+    /// A matte material of `colour`, shared.
+    fn plain(
+        &mut self,
+        colour: Vec3,
+        materials: &mut Assets<StandardMaterial>,
+    ) -> Handle<StandardMaterial> {
+        if let Some((_, made)) =
+            self.plain.iter().find(|(c, _)| *c == colour)
+        {
+            return made.clone();
+        }
+        let made = materials.add(StandardMaterial {
+            base_color: Color::LinearRgba(LinearRgba::from_vec3(
+                colour,
+            )),
+            perceptual_roughness: 0.9,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        });
+        self.plain.push((colour, made.clone()));
+        made
+    }
+
+    /// A firefly's material of `colour`, lit by `glow` after dark.
+    fn firefly(
+        &mut self,
+        (colour, glow): (Vec3, f32),
+        candle: f32,
+        materials: &mut Assets<StandardMaterial>,
+    ) -> Handle<StandardMaterial> {
+        if let Some((_, made)) = self
+            .fireflies
+            .iter()
+            .find(|((c, g), _)| *c == colour && *g == glow)
+        {
+            return made.clone();
+        }
+        let made = materials.add(StandardMaterial {
+            base_color: Color::LinearRgba(LinearRgba::from_vec3(
+                colour,
+            )),
+            emissive: LinearRgba::from_vec3(colour * glow * candle),
+            unlit: false,
+            ..default()
+        });
+        self.fireflies.push(((colour, glow), made.clone()));
+        made
+    }
+
+    /// The pinwheel of `colours`, shared.
+    fn pinwheel(
+        &mut self,
+        colours: [Vec3; 2],
+        set: &AttireSettings,
+        meshes: &mut Assets<Mesh>,
+    ) -> Handle<Mesh> {
+        if let Some((_, made)) =
+            self.pinwheels.iter().find(|(c, _)| *c == colours)
+        {
+            return made.clone();
+        }
+        let made = meshes.add(pinwheel(set, colours));
+        self.pinwheels.push((colours, made.clone()));
+        made
+    }
+
     fn smoke(
         &mut self,
         colour: Vec3,
@@ -525,6 +687,7 @@ fn deck(
     houses: Query<&Emoting>,
     kit: Option<ResMut<EmoteKit>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
     set: Res<AttireSettings>,
     sky: Option<Res<Sky>>,
     clock: Option<Res<Clock>>,
@@ -588,7 +751,204 @@ fn deck(
                 ));
             }
         }
+        Emote::Petals(petals) => {
+            let [a, b] = emoting.eaves;
+            let n = petals.count.min(set.petals);
+            for i in 0..n {
+                let colour = linear(&petals.colours[i as usize % 2]);
+                let material = kit.plain(colour, &mut materials);
+                let u = hash(i, 1);
+                let along = a.lerp(b, u);
+                let petal = Petal {
+                    from: along
+                        + Vec3::new(
+                            0.0,
+                            0.2,
+                            0.15 + 0.5 * hash(i, 2),
+                        ),
+                    size: petals.size,
+                    life: petals.fall.max(0.5),
+                    phase: hash(i, 3),
+                    swirl: 0.3 + 0.4 * hash(i, 4),
+                };
+                commands.spawn((
+                    petal,
+                    Mesh3d(kit.petal.clone()),
+                    MeshMaterial3d(material),
+                    petal.at(now),
+                    NotShadowCaster,
+                    Visibility::Inherited,
+                    ChildOf(house),
+                ));
+            }
+        }
+        Emote::Fireflies(fireflies) => {
+            let candle = sky.map_or(0.0, |sky| sky.look.candle);
+            let material = kit.firefly(
+                (linear(&fireflies.colour), fireflies.glow),
+                candle.max(set.firefly_day),
+                &mut materials,
+            );
+            let [a, b] = emoting.eaves;
+            // Out past the walls, which reach about as far as the
+            // eave.
+            let walls = a.x.abs().max(b.x.abs()).max(a.z.abs());
+            let n = fireflies.count.min(set.fireflies);
+            for i in 0..n {
+                let fly = Firefly {
+                    near: walls + 0.25,
+                    reach: set.firefly_reach
+                        * (0.4 + 0.6 * hash(i, 5)),
+                    high: 0.3 + a.y * 0.8 * hash(i, 6),
+                    speed: 0.15 + 0.2 * hash(i, 7),
+                    phase: std::f32::consts::TAU * hash(i, 8),
+                };
+                commands.spawn((
+                    fly,
+                    Mesh3d(kit.mote.clone()),
+                    MeshMaterial3d(material.clone()),
+                    fly.at(now),
+                    NotShadowCaster,
+                    Visibility::Inherited,
+                    ChildOf(house),
+                ));
+            }
+        }
+        Emote::Pinwheels(pinwheels) => {
+            let colours =
+                pinwheels.colours.each_ref().map(|c| linear(c));
+            let mesh = kit.pinwheel(colours, &set, &mut meshes);
+            // White: the vertex colours are the colour.
+            let material = kit.plain(Vec3::ONE, &mut materials);
+            let [a, b] = emoting.eaves;
+            let n = pinwheels.count.min(set.pinwheels).max(1);
+            for i in 0..n {
+                let u = (i as f32 + 0.5) / n as f32;
+                let foot = a.lerp(b, u) + Vec3::Z * 0.05;
+                commands.spawn((
+                    Mesh3d(kit.stick.clone()),
+                    MeshMaterial3d(material.clone()),
+                    Transform::from_translation(foot),
+                    NotShadowCaster,
+                    Visibility::Inherited,
+                    ChildOf(house),
+                ));
+                commands.spawn((
+                    Pinwheel {
+                        speed: pinwheels.speed,
+                        phase: i as f32 * 0.9,
+                    },
+                    Mesh3d(mesh.clone()),
+                    MeshMaterial3d(material.clone()),
+                    Transform::from_translation(
+                        foot + Vec3::Y * set.pinwheel_stick,
+                    ),
+                    NotShadowCaster,
+                    Visibility::Inherited,
+                    ChildOf(house),
+                ));
+            }
+        }
         Emote::Banners(_) | Emote::Clip(_) => {}
+    }
+}
+
+/// A number from 0 to 1 that is the same for the same `i` and `salt`.
+fn hash(i: u32, salt: u32) -> f32 {
+    let mut x =
+        i.wrapping_mul(0x9E37_79B9) ^ salt.wrapping_mul(0x85EB_CA6B);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x2C1B_3C6D);
+    x ^= x >> 12;
+    (x & 0xFFFF) as f32 / 65535.0
+}
+
+/// A petal drifting down from under the eave: where it leaves, its
+/// size, the seconds it takes to fall, how far into its fall it was
+/// at naught and how widely it swings.
+#[derive(Component, Clone, Copy)]
+struct Petal {
+    from: Vec3,
+    size: f32,
+    life: f32,
+    phase: f32,
+    swirl: f32,
+}
+
+impl Petal {
+    fn at(&self, t: f32) -> Transform {
+        let u = (t / self.life + self.phase).fract();
+        let swing = (u * 9.0 + self.phase * 6.0).sin();
+        let at = self.from
+            + Vec3::new(
+                swing * self.swirl,
+                -(self.from.y - 0.02) * u,
+                u * 0.6,
+            );
+        Transform::from_translation(at)
+            .with_rotation(
+                Quat::from_rotation_z(swing * 0.8)
+                    * Quat::from_rotation_y(
+                        u * 7.0 + self.phase * 3.0,
+                    ),
+            )
+            // Born and gone small, never a pop.
+            .with_scale(Vec3::splat(
+                self.size
+                    * (u * 12.0).min(1.0)
+                    * ((1.0 - u) * 12.0).min(1.0),
+            ))
+    }
+}
+
+/// A firefly wandering about its house: how far out and how high,
+/// its speed and its own time.
+#[derive(Component, Clone, Copy)]
+struct Firefly {
+    /// The nearest it comes to the house's middle, and how much
+    /// further out it wanders.
+    near: f32,
+    reach: f32,
+    high: f32,
+    speed: f32,
+    phase: f32,
+}
+
+/// A firefly's size.
+const FIREFLY: f32 = 0.07;
+
+impl Firefly {
+    fn at(&self, t: f32) -> Transform {
+        let a = t * self.speed + self.phase;
+        // A loop about the house that wanders in and out and up and
+        // down as it goes.
+        let r =
+            self.near + self.reach * (0.5 + 0.5 * (a * 2.3).sin());
+        let at = Vec3::new(
+            r * a.cos(),
+            self.high + 0.25 * (a * 3.1).sin(),
+            r * a.sin(),
+        );
+        Transform::from_translation(at).with_scale(Vec3::splat(
+            FIREFLY
+                * (0.7 + 0.3 * (t * 5.0 + self.phase).sin().abs()),
+        ))
+    }
+}
+
+/// A pinwheel turning: turns a second and its own start.
+#[derive(Component, Clone, Copy)]
+struct Pinwheel {
+    speed: f32,
+    phase: f32,
+}
+
+impl Pinwheel {
+    /// Its turn at `t`, clockwise as seen from the front.
+    fn turn(&self, t: f32) -> Quat {
+        Quat::from_rotation_z(
+            -(std::f32::consts::TAU * self.speed * t + self.phase),
+        )
     }
 }
 
@@ -627,6 +987,54 @@ fn sway(
     }
 }
 
+/// Lets the petals that are seen fall.
+fn fall(
+    clock: Res<Clock>,
+    mut petals: Query<(&Petal, &mut Transform, &ViewVisibility)>,
+    mut told: Local<Option<f32>>,
+) {
+    if told.replace(clock.t) == Some(clock.t) {
+        return;
+    }
+    for (petal, mut at, seen) in &mut petals {
+        if seen.get() {
+            *at = petal.at(clock.t);
+        }
+    }
+}
+
+/// Lets the fireflies that are seen wander.
+fn flit(
+    clock: Res<Clock>,
+    mut flies: Query<(&Firefly, &mut Transform, &ViewVisibility)>,
+    mut told: Local<Option<f32>>,
+) {
+    if told.replace(clock.t) == Some(clock.t) {
+        return;
+    }
+    for (fly, mut at, seen) in &mut flies {
+        if seen.get() {
+            *at = fly.at(clock.t);
+        }
+    }
+}
+
+/// Turns the pinwheels that are seen about their hubs.
+fn spin(
+    clock: Res<Clock>,
+    mut wheels: Query<(&Pinwheel, &mut Transform, &ViewVisibility)>,
+    mut told: Local<Option<f32>>,
+) {
+    if told.replace(clock.t) == Some(clock.t) {
+        return;
+    }
+    for (wheel, mut at, seen) in &mut wheels {
+        if seen.get() {
+            at.rotation = wheel.turn(clock.t);
+        }
+    }
+}
+
 /// Lights the lanterns' paper after dark, as the windows burn.
 fn glow(
     sky: Res<Sky>,
@@ -647,12 +1055,31 @@ fn glow(
             paper.emissive = glow;
         }
     }
+    let candle = sky.look.candle.max(set.firefly_day);
+    for ((colour, strength), handle) in &kit.fireflies {
+        let glow =
+            LinearRgba::from_vec3(*colour * *strength * candle);
+        if let Some(mut fly) = materials.get_mut(handle)
+            && fly.emissive != glow
+        {
+            fly.emissive = glow;
+        }
+    }
 }
 
 /// Keeps frames coming while smoke or a lantern moves in view.
 fn keep_going(
     clock: Res<Clock>,
-    moving: Query<&ViewVisibility, Or<(With<Puff>, With<Swing>)>>,
+    moving: Query<
+        &ViewVisibility,
+        Or<(
+            With<Puff>,
+            With<Swing>,
+            With<Petal>,
+            With<Firefly>,
+            With<Pinwheel>,
+        )>,
+    >,
     mut told: Local<Option<f32>>,
     mut redraw: MessageWriter<RequestRedraw>,
 ) {

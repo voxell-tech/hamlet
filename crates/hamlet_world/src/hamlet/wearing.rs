@@ -61,6 +61,9 @@ pub(super) fn wear(
                 Emote::Smoke(_)
                     | Emote::Lanterns(_)
                     | Emote::Banners(_)
+                    | Emote::Petals(_)
+                    | Emote::Fireflies(_)
+                    | Emote::Pinwheels(_)
             )
         });
         let attire = Attire {

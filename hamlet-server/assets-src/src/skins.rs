@@ -153,6 +153,132 @@ pub fn of(id: &str) -> Option<Skin> {
             ],
             None,
         ),
+        "agent-skin-copper" => skin(
+            &[
+                ("paint", "#4f9c86"),
+                ("brass", "#b8733a"),
+                ("steel", "#6e4a2e"),
+                ("glass", "#d6f2e6"),
+                ("lamp", "#9fe8c8"),
+            ],
+            finish(0.7, 0.45, 0.0),
+        ),
+        "agent-skin-porcelain" => skin(
+            &[
+                ("paint", "#f4f2ec"),
+                ("brass", "#2f55a3"),
+                ("steel", "#d8dde8"),
+                ("glass", "#eaf1ff"),
+                ("lamp", "#cfe0ff"),
+            ],
+            finish(0.05, 0.15, 0.0),
+        ),
+        "agent-skin-obsidian" => skin(
+            &[
+                ("paint", "#16141a"),
+                ("brass", "#ff6a2a"),
+                ("steel", "#2a2630"),
+                ("glass", "#ffb27a"),
+                ("lamp", "#ff7a3a"),
+            ],
+            finish(0.4, 0.12, 0.12),
+        ),
+        "agent-skin-lavender" => skin(
+            &[
+                ("paint", "#b9a3d9"),
+                ("brass", "#dfe3ea"),
+                ("lamp", "#e6d6ff"),
+            ],
+            None,
+        ),
+        "agent-skin-sunflower" => skin(
+            &[
+                ("paint", "#f2c42a"),
+                ("brass", "#7a4a1f"),
+                ("lamp", "#ffe08a"),
+            ],
+            None,
+        ),
+        "agent-skin-mint" => skin(
+            &[
+                ("paint", "#9fdcc0"),
+                ("brass", "#f3ead2"),
+                ("glass", "#e8fff4"),
+            ],
+            None,
+        ),
+        "hamlet-skin-sandstone" => skin(
+            &[
+                ("limestone", "#d9a66b"),
+                ("limestone_shade", "#a8763f"),
+                ("plaster", "#e8c08a"),
+                ("plaster_worn", "#d2a26a"),
+                ("whitewash", "#f2dcb2"),
+                ("roof", "#e6d2a8"),
+                ("drift", "#f4e6c4"),
+                ("livery", "#2f7f8f"),
+            ],
+            None,
+        ),
+        "hamlet-skin-tudor" => skin(
+            &[
+                ("plaster", "#f2eee2"),
+                ("plaster_worn", "#e2dccb"),
+                ("whitewash", "#f6f2e8"),
+                ("timber", "#2a2420"),
+                ("timber_dark", "#1a1614"),
+                ("roof", "#3f3a3a"),
+                ("drift", "#5a5252"),
+                ("livery", "#2a2420"),
+            ],
+            None,
+        ),
+        "hamlet-skin-gingerbread" => skin(
+            &[
+                ("plaster", "#a0602a"),
+                ("plaster_worn", "#8a4f22"),
+                ("ochre", "#b8723a"),
+                ("whitewash", "#fff6ea"),
+                ("timber", "#fff6ea"),
+                ("timber_dark", "#f0e2d0"),
+                ("roof", "#6b3a1f"),
+                ("drift", "#fffaf2"),
+                ("livery", "#e2405a"),
+                ("banner", "#e2405a"),
+            ],
+            None,
+        ),
+        "hamlet-skin-meadow" => skin(
+            &[
+                ("roof", "#6f9f3f"),
+                ("drift", "#a8d06a"),
+                ("livery", "#f2c42a"),
+                ("banner", "#f2c42a"),
+            ],
+            None,
+        ),
+        "hamlet-skin-midnight" => skin(
+            &[
+                ("plaster", "#c9cfe0"),
+                ("whitewash", "#dde2ef"),
+                ("roof", "#1c2547"),
+                ("drift", "#3a4a7a"),
+                ("livery", "#141c3a"),
+                ("banner", "#e8d38a"),
+            ],
+            None,
+        ),
+        "hamlet-skin-coral" => skin(
+            &[
+                ("plaster", "#f2a28a"),
+                ("whitewash", "#fbe2d6"),
+                ("roof", "#e0604f"),
+                ("drift", "#f29a7a"),
+                ("livery", "#5fbfb0"),
+                ("banner", "#5fbfb0"),
+            ],
+            None,
+        ),
         _ => return None,
     })
 }
