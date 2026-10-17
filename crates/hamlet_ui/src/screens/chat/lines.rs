@@ -264,19 +264,38 @@ impl Line {
     }
 }
 
-/// The part of a chat that is built: only its end, and more of it as
-/// it is read back.
+/// The part of a chat that is built: a window of a few pages, which
+/// starts at the end and slides as the chat is read back and forth.
 #[derive(Resource, Clone, Copy, PartialEq, Debug)]
 pub struct Reach {
-    /// The rows built from the end, and the rows each step back
-    /// adds.
+    /// The rows built, and the rows each turn of the page moves.
     pub rows: usize,
     pub page: usize,
+    /// The rows after the window, which are not built.
+    pub back: usize,
+    /// What was sent is shown: the window goes to the end of the
+    /// chat and the scroll follows it. Cleared once the rows are
+    /// folded.
+    pub jump: bool,
+}
+
+impl Reach {
+    /// The pages the window grows to before it slides.
+    const PAGES: usize = 3;
+
+    fn most(&self) -> usize {
+        self.page * Self::PAGES
+    }
 }
 
 impl Default for Reach {
     fn default() -> Self {
-        Self { rows: 24, page: 24 }
+        Self {
+            rows: 12,
+            page: 12,
+            back: 0,
+            jump: false,
+        }
     }
 }
 
@@ -289,13 +308,20 @@ pub struct Lines {
     places: HashMap<RowKey, usize>,
     /// The rows before these that are not built.
     earlier: usize,
+    /// The rows after these that are not built.
+    pub(super) later: usize,
     more: bool,
     /// Everyone who speaks in the chat, the agent it is with first.
     cast: Vec<Who>,
 }
 
 impl Lines {
-    fn of(rows: Vec<Line>, earlier: usize, cast: Vec<Who>) -> Self {
+    fn of(
+        rows: Vec<Line>,
+        earlier: usize,
+        later: usize,
+        cast: Vec<Who>,
+    ) -> Self {
         let places = rows
             .iter()
             .enumerate()
@@ -305,6 +331,7 @@ impl Lines {
             rows,
             places,
             earlier,
+            later,
             more: earlier > 0,
             cast,
         }
@@ -395,6 +422,9 @@ pub struct Whole {
     from: Option<(Entity, usize, u64)>,
     rows: Vec<Line>,
     cast: Vec<Who>,
+    /// The last row of the window while it is read back, and the
+    /// rows after it then.
+    anchor: Option<(RowKey, usize)>,
 }
 
 /// The visible rows of the received chat.
@@ -407,8 +437,13 @@ pub fn fold_lines(
     mut lines: ResMut<Lines>,
     mut whole: Local<Whole>,
 ) {
-    if me.is_changed() && reach.rows != reach.page {
+    if reach.jump {
+        reach.jump = false;
+    }
+    if me.is_changed() && (reach.rows != reach.page || reach.back > 0)
+    {
         reach.rows = reach.page;
+        reach.back = 0;
     }
     let Ok(transcript) = transcripts.get(me.session) else {
         return;
@@ -428,15 +463,38 @@ pub fn fold_lines(
     if moved {
         let (rows, cast) =
             timeline(&me, &transcript, &unfolded.0, &people);
-        *whole = Whole { from, rows, cast };
+        let anchor = whole.anchor.take();
+        *whole = Whole {
+            from,
+            rows,
+            cast,
+            anchor,
+        };
+        // Rows added after the window, or before it, do not move
+        // what is being read: it stays at the row it ended at.
+        if let Some((key, back)) = whole.anchor.as_ref()
+            && reach.back == *back
+            && let Some(at) =
+                whole.rows.iter().rposition(|line| line.key() == *key)
+        {
+            let back = whole.rows.len() - 1 - at;
+            if reach.back != back {
+                reach.back = back;
+            }
+        }
     }
-    let earlier = whole.rows.len().saturating_sub(reach.rows);
+    let end = whole.rows.len().saturating_sub(reach.back);
+    let earlier = end.saturating_sub(reach.rows);
     let mut now = Lines::of(
-        whole.rows[earlier..].to_vec(),
+        whole.rows[earlier..end].to_vec(),
         earlier,
+        whole.rows.len() - end,
         whole.cast.clone(),
     );
     now.more |= transcript.earlier().is_some();
+    whole.anchor = (reach.back > 0)
+        .then(|| now.rows.last().map(|line| (line.key(), reach.back)))
+        .flatten();
     if *lines != now {
         *lines = now;
     }
@@ -450,8 +508,22 @@ pub struct Reading {
     at_top: bool,
 }
 
-/// The earlier rows built or requested at the top, with the current
-/// rows held in place.
+/// The row held in place while the window slides: where it is below
+/// the top of the chat, and how tall the chat was.
+pub struct Turn {
+    row: RowKey,
+    below: f32,
+    tall: f32,
+    frames: u8,
+}
+
+/// The frames a turn waits for the rows to be laid out.
+const WAIT: u8 = 30;
+
+/// Slides the window of built rows when the chat is read to its top
+/// or its bottom, and asks for the earlier rows of the chat when the
+/// top is the chat's first row built. The row at the edge being read
+/// stays where it was.
 pub fn read_back(
     mut commands: Commands,
     me: Res<Me>,
@@ -459,22 +531,61 @@ pub fn read_back(
     transcripts: Query<&Transcript>,
     mut reach: ResMut<Reach>,
     mut scrolls: Query<
-        (&ComputedNode, &mut ScrollPosition, Option<&mut ScrollGoal>),
+        (
+            &ComputedNode,
+            &UiGlobalTransform,
+            &mut ScrollPosition,
+            Option<&mut ScrollGoal>,
+        ),
         With<ChatScroll>,
     >,
+    rows: Query<(&ChatRow, &ComputedNode, &UiGlobalTransform)>,
     mut reading: ResMut<Reading>,
+    mut turning: Local<Option<Turn>>,
 ) {
     if me.is_changed() {
         *reading = Reading::default();
+        *turning = None;
     }
-    for (node, mut at, goal) in &mut scrolls {
+    // The window is on its way to the end, where nothing is turned.
+    if reach.jump {
+        *turning = None;
+        return;
+    }
+    for (node, place, mut at, goal) in &mut scrolls {
         let tall =
             node.content_size().y * node.inverse_scale_factor();
+        let top = place.translation.y - node.size().y * 0.5;
         let furthest = super::furthest(node).max(0.0);
         if furthest == 0.0 || at.y > 1.0 {
             reading.at_top = false;
         }
         if reading.page.is_some() {
+            continue;
+        }
+        if let Some(turn) = turning.as_mut() {
+            turn.frames += 1;
+            let found =
+                rows.iter().find(|(row, ..)| row.0 == turn.row);
+            if (tall != turn.tall || turn.frames > WAIT)
+                && let Some((_, row, place)) = found
+            {
+                let below =
+                    place.translation.y - row.size().y * 0.5 - top;
+                at.y = (at.y
+                    + (below - turn.below)
+                        * node.inverse_scale_factor())
+                .clamp(0.0, furthest);
+                // The wheel was headed for an edge that is now
+                // further off: left alone it would go there and ask
+                // for more again.
+                if let Some(mut goal) = goal {
+                    *goal = ScrollGoal::default();
+                }
+                *turning = None;
+            } else if turn.frames > WAIT {
+                *turning = None;
+            }
             continue;
         }
         if let Some((was, from, left)) = reading.held {
@@ -494,12 +605,45 @@ pub fn read_back(
             }
             continue;
         }
-        if node.size().y <= 0.0 || furthest > 0.0 && at.y > 1.0 {
+        if node.size().y <= 0.0 {
             continue;
         }
-        if lines.earlier > 0 {
-            reach.rows += reach.page;
-            reading.held = Some((tall, at.y, 2));
+        let at_top = furthest == 0.0 || at.y <= 1.0;
+        let at_bottom = lines.later > 0
+            && furthest > 0.0
+            && at.y >= furthest - 1.0;
+        if !at_top && !at_bottom {
+            continue;
+        }
+        if at_bottom || lines.earlier > 0 {
+            // The row at the edge being read stays through the turn.
+            let edge = rows
+                .iter()
+                .map(|(row, node, place)| {
+                    let y = place.translation.y;
+                    (row.0.clone(), y - node.size().y * 0.5 - top, y)
+                })
+                .reduce(
+                    |a, b| {
+                        if (a.2 < b.2) == at_top { a } else { b }
+                    },
+                );
+            let Some((row, below, _)) = edge else {
+                continue;
+            };
+            *turning = Some(Turn {
+                row,
+                below,
+                tall,
+                frames: 0,
+            });
+            if at_bottom {
+                reach.back = reach.back.saturating_sub(reach.page);
+            } else if reach.rows < reach.most() {
+                reach.rows += reach.page;
+            } else {
+                reach.back += reach.page;
+            }
         } else if !reading.at_top
             && transcripts
                 .get(me.session)
@@ -554,7 +698,11 @@ pub fn transcript() -> impl View {
     let list = each(
         resource::<Lines, _>(|l| l.rows.clone()),
         |line: &Line| line.key(),
-        |line| bubble::line_view(line).tagged(ChatRow).boxed(),
+        |line| {
+            bubble::line_view(line)
+                .tagged(ChatRow(line.key()))
+                .boxed()
+        },
     )
     .within(
         column(())
@@ -574,6 +722,12 @@ pub fn transcript() -> impl View {
             }
         })),
         list,
+        note(resource::<Lines, _>(|l| match l.later {
+            0 => String::new(),
+            n => {
+                format!("{n} later lines. Scroll down to read them.")
+            }
+        })),
     ))
     .fills_height()
     // The chat scrolls up and down and never sideways: what is in
@@ -588,7 +742,7 @@ pub fn transcript() -> impl View {
 
 /// A row of the chat.
 #[derive(Component)]
-pub struct ChatRow;
+pub struct ChatRow(RowKey);
 
 /// Hides the rows of the chat that are scrolled out of sight. A
 /// hidden row keeps its room, and one within a panel's height of the

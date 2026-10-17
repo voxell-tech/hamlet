@@ -248,6 +248,11 @@ pub fn send(world: &mut World, text: String) {
         return;
     }
     let to = me.to.clone();
+    // What is sent is at the end of the chat.
+    if let Some(mut reach) = world.get_resource_mut::<Reach>() {
+        reach.back = 0;
+        reach.jump = true;
+    }
     world.trigger(ChiefMessage { to, text });
 }
 
@@ -382,6 +387,8 @@ impl Default for AtEnd {
 /// Another conversation is shown from its end.
 pub fn stick_to_bottom(
     me: Res<Me>,
+    reach: Res<Reach>,
+    lines: Res<Lines>,
     mut scrolls: Query<
         (&ComputedNode, &mut ScrollPosition, Option<&mut ScrollGoal>),
         With<ChatScroll>,
@@ -390,7 +397,7 @@ pub fn stick_to_bottom(
 ) {
     for (node, mut at, goal) in &mut scrolls {
         let most = furthest(node);
-        if me.is_changed() {
+        if me.is_changed() || reach.jump {
             end.held = true;
             // The wheel's goal in the last chat means nothing in this
             // one.
@@ -402,7 +409,9 @@ pub fn stick_to_bottom(
         } else if at.y >= most - 1.0 {
             end.held = true;
         }
-        if end.held && (at.y - most).abs() > 0.5 {
+        // The end of a window that is not the chat's own is a place
+        // to turn the page, not to stay.
+        if end.held && lines.later == 0 && (at.y - most).abs() > 0.5 {
             at.y = most;
         }
         end.was = at.y;
@@ -801,10 +810,10 @@ mod tests {
             inverse_scale_factor: 1.0,
             ..Default::default()
         });
-        // One update shows more of the received rows. The page is
+        // Each turn shows more of the received rows. The page is
         // asked for once they have had the frames read_back gives
         // them to add height, which here they never do.
-        for _ in 0..5 {
+        for _ in 0..100 {
             app.update();
         }
         let requests = app
@@ -843,6 +852,12 @@ mod tests {
         use crate::testing::{panel_app, words};
         let mut app = panel_app();
         app.add_plugins(plugin);
+        // A window wide enough that one turn reaches the first row.
+        app.insert_resource(Reach {
+            rows: 24,
+            page: 24,
+            ..Reach::default()
+        });
         app.update();
         let pages = paging_pages();
         hamlet_client::receive(
@@ -1151,6 +1166,8 @@ mod tests {
         let world = app.world_mut();
         let nobody = world.spawn_empty().id();
         world.insert_resource(Me::of(nobody, nobody, "wren", None));
+        world.init_resource::<Lines>();
+        world.init_resource::<Reach>();
         let tall = |content: f32| ComputedNode {
             size: bevy::math::Vec2::new(300.0, 200.0),
             content_size: bevy::math::Vec2::new(300.0, content),
