@@ -67,15 +67,17 @@ sign-ins; other providers use keys.
 
 ### The `hamlet` command
 
-The server's package supplies `hamlet` through `server/bin/hamlet`. With
-the Node version in `server/.nvmrc`, run `npm ci` and `npm link` in
-`server/` to put it on PATH. `npm run hamlet -- <command>` runs the same
-executable from that folder. An old Cargo-installed `hamlet` can shadow it.
-After `cargo build --bin hamlet-app` at the repository root:
+The Rust crate `hamlet_cli` supplies `hamlet`. With the Node version in
+`server/.nvmrc`, run `npm ci --prefix server`. From the repository root:
 
 ```sh
-HAMLET_HOME=/tmp/hamlet-try hamlet dev
+HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
 ```
+
+This builds the window and starts the server as a separate Node process.
+`cargo install --path crates/hamlet_cli` puts the command on PATH.
+`HAMLET_SERVER_DIR` selects a server package outside the source checkout;
+`HAMLET_NODE` selects Node. Neither Node nor the server is bundled in the CLI.
 
 Bare `hamlet` starts the home's server in the background, or reuses its
 running server, and opens a window. The home is `HAMLET_HOME`, else
@@ -130,8 +132,10 @@ under the chief's own git. This acceptance is permanent (ADR 0008).
 `hamlet dev` chooses its home from `--home`, then `HAMLET_HOME`, then a
 per-user temporary folder kept between runs. It refuses `~/.hamlet` and
 sets `HAMLET_VIEW=<home>/window`. Closing its window keeps the server
-running; Ctrl-C stops both. `hamlet window` finds the app by `HAMLET_APP`,
-then PATH, then the repository's `target/release` and `target/debug`.
+running; Ctrl-C stops both. `dev` builds the checkout's window and uses
+Cargo's reported executable path, unless `HAMLET_APP` selects an existing
+window. `hamlet window` finds the app by `HAMLET_APP`, then beside the CLI,
+then PATH.
 It passes the server address and token through the environment, never argv.
 Players still open an app called Hamlet; only its executable is named
 `hamlet-app`. Release archives contain the window, not the server.

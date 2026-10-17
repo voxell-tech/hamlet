@@ -52,20 +52,24 @@ Use Rust and the Node version in `server/.nvmrc`. From the repository root:
 
 ```sh
 git submodule update --init vendor/fynix
-cargo build --bin hamlet-app
-(cd server && npm ci && npm link)
-HAMLET_HOME=/tmp/hamlet-try hamlet dev
+npm ci --prefix server
+HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
 ```
 
-`hamlet dev` serves a scratch home on a free port and opens its window.
+The Rust CLI builds the local window, starts a separate TypeScript server
+on a free port, and opens the window. No `npm link` is needed.
 The home is kept between runs; the window's files go in `<home>/window`.
 The welcome offers API keys, Continue with ChatGPT, OpenRouter sign-in or
 a local model endpoint on the server's machine. Credentials stay on the
 server. Tools need Seatbelt on macOS or bubblewrap on Linux; the server
 cannot start on Windows, and there is no `--insecure` mode.
 
-Closing the window leaves `hamlet dev` serving; Ctrl-C stops it. To keep a
-server separate from the window, use two terminals:
+Closing the window leaves `hamlet dev` serving; Ctrl-C stops it. Use
+`cargo run -p hamlet_cli -- <command>` without installing, or install the
+CLI once with `cargo install --path crates/hamlet_cli`. If you previously
+linked the npm command, remove it with `npm unlink -g hamlet-server` so it
+cannot shadow the Rust command. To keep a server separate from the window
+after installing, use two terminals:
 
 ```sh
 HAMLET_HOME=/tmp/hamlet-try hamlet server
@@ -74,9 +78,11 @@ HAMLET_HOME=/tmp/hamlet-try HAMLET_VIEW=/tmp/hamlet-try/window hamlet window
 ```
 
 `hamlet chat` is the terminal client. `hamlet --help` lists the commands.
-An old `hamlet` installed by Cargo can shadow the npm command on PATH.
-`HAMLET_APP` selects a `hamlet-app` built outside the repository's
-`target/` folder. Release archives contain the window, not the server;
+`HAMLET_APP` selects an existing `hamlet-app` and skips `dev`'s build.
+Other window commands prefer an app beside the CLI, then one on PATH.
+The installed CLI still needs Node and the server package; it uses the
+source checkout unless `HAMLET_SERVER_DIR` names another package directory.
+`HAMLET_NODE` selects a Node executable. Release archives contain the window, not the server;
 Hamlet.app still opens as Hamlet while its executable is `hamlet-app`.
 
 The server's default home is `~/.hamlet`; use a scratch `HAMLET_HOME` when

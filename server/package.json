@@ -7,13 +7,10 @@
     "engines": {
         "node": ">=24.1.0"
     },
-    "bin": {
-        "hamlet": "bin/hamlet"
-    },
     "scripts": {
         "check": "tsc --noEmit && node scripts/check-docs.ts && biome check --error-on-warnings .",
         "format": "biome check --write .",
-        "hamlet": "bin/hamlet",
+        "pretest": "cargo build -p hamlet_cli",
         "schema": "node scripts/schema.ts && biome format --write protocol.schema.json",
         "test": "vitest --run",
         "test:live": "vitest --run --mode live"

@@ -3340,6 +3340,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "hamlet_protocol",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "uuid",
+]
+
+[[package]]
 name = "hamlet_client"
 version = "0.1.0"
 dependencies = [

@@ -15,9 +15,10 @@ not built. What is left for later is kept outside this repository.
 3. [`../AGENTS.md`](../AGENTS.md): the checks to run before a commit and
    the rules of working here.
 
-Build `hamlet-app`, install the server command with `npm link` in
-`server/`, then run `HAMLET_HOME=/tmp/hamlet-try hamlet dev`. It starts a
-scratch server and opens the window with its own scratch view folder.
+Install server dependencies with `npm ci --prefix server`, then run
+`HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev`. The Rust CLI
+builds the window, starts a scratch server and opens the window with its
+own scratch view folder.
 Closing the window leaves the server running; Ctrl-C stops it. The full
 setup is in [`../README.md`](../README.md#running).
 

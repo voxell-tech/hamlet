@@ -7,6 +7,7 @@ import {
     fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { expect, it, vi } from "vitest";
+import { COMMANDS } from "../src/commands.ts";
 import { hamlet, server, tty } from "./cli-support.ts";
 import { changes, mayor, request, say, served } from "./connection-support.ts";
 import { fauxModels, scratch, setFolder } from "./support.ts";
@@ -237,12 +238,19 @@ it("shows the chief's available commands on stderr without putting help in the a
     expect(await chat.ended).toBe(0);
     expect(chat.out()).toBe("Hello.\n");
     expect(chat.err()).toContain("Ctrl-D quits");
-    expect(chat.err()).toContain("/new: Start a new session");
-    expect(chat.err()).toContain("/queue: List what waits for you");
-    expect(chat.err()).toContain("/agent <name>");
-    expect(chat.err()).toContain("/hamlet <name>");
-    expect(chat.err()).toContain("/to <agent>");
-    expect(chat.err()).not.toContain("/go");
+    expect(
+        chat
+            .err()
+            .split("\n")
+            .filter((line) => line.startsWith("  /")),
+    ).toEqual(
+        COMMANDS.filter(
+            ({ deed }) => !["go", "withdraw", "reply"].includes(deed),
+        ).map(
+            ({ name, args, description }) =>
+                `  ${`${name} ${args}`.trimEnd()}: ${description}`,
+        ),
+    );
 });
 
 it("prompts at a real terminal and quits after answering on Ctrl-D", async () => {

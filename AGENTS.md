@@ -26,17 +26,20 @@
 
 ## Running safely
 
-The Rust window is `hamlet-app`; the server's command is `hamlet`.
-Use the Node version in `server/.nvmrc`, then `npm ci` and `npm link` in
-`server/` to install the command. An old `hamlet` from `cargo install` can
-shadow the npm command on PATH; check `command -v hamlet` if the wrong one
-runs.
-
-Build the window with `cargo build --bin hamlet-app`. For local work:
+The Rust CLI is `hamlet` in `crates/hamlet_cli`; the Rust window is
+`hamlet-app`. Use the Node version in `server/.nvmrc` and install server
+dependencies with `npm ci --prefix server`. No global npm command is needed.
+For local work:
 
 ```sh
-HAMLET_HOME=/tmp/hamlet-try hamlet dev
+HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
 ```
+
+`dev` builds the checkout's window before starting the server. `HAMLET_APP`
+selects an existing window and skips that build. Use `cargo run -p hamlet_cli
+-- <command>` for other commands, or install with `cargo install --path
+crates/hamlet_cli`. An installed CLI still needs the server package and Node;
+`HAMLET_SERVER_DIR` overrides the package path and `HAMLET_NODE` selects Node.
 
 Bare `hamlet` uses `~/.hamlet` by default and leaves a server running in
 the background. Agents run `hamlet` only with `HAMLET_HOME` set to a scratch
@@ -80,6 +83,10 @@ npm run check   # TypeScript and Biome
 npm test
 ```
 
+`npm test` builds the Rust CLI before running the server and CLI contract
+tests. For direct Vitest runs, build `hamlet_cli` first. `HAMLET_CLI` selects
+a CLI binary outside `target/debug/hamlet`.
+
 Protocol v0's Rust types in `crates/hamlet_protocol/src/v0.rs` are
 generated, never edited by hand. After changing the protocol, export its
 schema with `npm run schema` in `server/`, then regenerate the Rust types
@@ -101,5 +108,5 @@ HAMLET_RECORD_FRAMES=1 npx vitest --run test/frames.test.ts
 On Linux, tools run under bubblewrap rather than Seatbelt. After changing
 `server/src/sandbox/`, run the tests there too with
 `server/scripts/test-linux.sh`, in the OrbStack machine `hamlet-sandbox`
-(Debian with bubblewrap, git, curl, python3 and the Node of
+(Debian with Rust, bubblewrap, git, curl, python3 and the Node of
 `.nvmrc`).

@@ -5,15 +5,16 @@ import {
 } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { PassThrough, Readable } from "node:stream";
+import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { expect, vi } from "vitest";
-import { main } from "../src/cli.ts";
 import type { Script } from "../src/models.ts";
 import { closeAfter, scratch } from "./support.ts";
 
-const executable = fileURLToPath(new URL("../bin/hamlet", import.meta.url));
+const executable =
+    process.env.HAMLET_CLI ||
+    fileURLToPath(new URL("../../target/debug/hamlet", import.meta.url));
 
 /** A run of the `hamlet` command, with what it printed so far. */
 export type Run = {
@@ -37,6 +38,7 @@ export function hamlet(
             ...process.env,
             HAMLET_HOME: home,
             HAMLET_USER: "chief",
+            HAMLET_NODE: process.execPath,
             ...env,
         },
     });
@@ -54,7 +56,11 @@ export function hamlet(
     if (input !== undefined) child.stdin.end(input);
     closeAfter(async () => {
         if (child.exitCode === null && child.signalCode === null) {
-            child.kill("SIGKILL");
+            child.kill("SIGTERM");
+            await Promise.race([ended, setTimeout(1000)]);
+            if (child.exitCode === null && child.signalCode === null) {
+                child.kill(args[0] === "dev" ? "SIGINT" : "SIGKILL");
+            }
             await ended;
         }
     });
@@ -134,6 +140,7 @@ finally:
                 ...process.env,
                 HAMLET_HOME: home,
                 HAMLET_USER: "chief",
+                HAMLET_NODE: process.execPath,
                 ...env,
                 TEST_STEPS: JSON.stringify(steps),
             },
@@ -142,27 +149,12 @@ finally:
     return JSON.parse(result.stdout) as { code: number; output: string };
 }
 
-/** Runs the command's interface without mutating the process environment or streams. */
-export function inProcess(
+/** Runs the command with finite input and isolated environment and streams. */
+export function command(
     args: string[],
     home: string,
     input = "",
     env: NodeJS.ProcessEnv = {},
 ) {
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
-    let out = "",
-        err = "";
-    stdout.on("data", (chunk) => {
-        out += chunk;
-    });
-    stderr.on("data", (chunk) => {
-        err += chunk;
-    });
-    const ended = main(
-        args,
-        { ...process.env, HAMLET_HOME: home, HAMLET_USER: "chief", ...env },
-        { stdin: Readable.from([input]), stdout, stderr },
-    );
-    return { ended, out: () => out, err: () => err };
+    return hamlet(args, home, input, env);
 }

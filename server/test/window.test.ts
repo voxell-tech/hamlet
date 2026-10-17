@@ -10,8 +10,8 @@ import {
     symlinkSync,
     writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { delimiter, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import { connect } from "../src/connection.ts";
@@ -41,7 +41,10 @@ type Capture = {
     argv: string[];
 };
 
-function fakeApp(hold = false): {
+function fakeApp(
+    hold = false,
+    ignoreStop = false,
+): {
     app: string;
     env: NodeJS.ProcessEnv;
     captured(): Capture;
@@ -53,7 +56,12 @@ function fakeApp(hold = false): {
     const terminated = join(dir, "terminated.txt");
     const pid = join(dir, "pid");
     closeAfter(() => {
-        if (!hold || existsSync(terminated) || !existsSync(pid)) return;
+        if (
+            !hold ||
+            (!ignoreStop && existsSync(terminated)) ||
+            !existsSync(pid)
+        )
+            return;
         try {
             process.kill(Number(readFileSync(pid, "utf8")), "SIGKILL");
         } catch (error) {
@@ -75,7 +83,7 @@ ${
     hold
         ? `process.on("SIGTERM", () => {
     writeFileSync(process.env.APP_TERMINATED, "SIGTERM");
-    process.exit(0);
+    ${ignoreStop ? "" : "process.exit(0);"}
 });
 setInterval(() => {}, 1000);`
         : "process.exit(3);"
@@ -110,13 +118,14 @@ async function ready(run: Run, home: string) {
         url: string;
         pid: number;
     };
-    expect(pid).toBe(run.child.pid);
+    expect(pid).not.toBe(run.child.pid);
+    expect(() => process.kill(pid, 0)).not.toThrow();
     const {
         connection: { token },
     } = JSON.parse(readFileSync(join(home, "credentials.json"), "utf8")) as {
         connection: { token: string };
     };
-    return { url, token };
+    return { url, token, pid };
 }
 
 function fauxScript(content: unknown = { responses: [] }): string {
@@ -126,6 +135,79 @@ function fauxScript(content: unknown = { responses: [] }): string {
 }
 
 describe("the window commands", () => {
+    it("stops the server even if the window ignores shutdown, and a second interrupt ends both", async () => {
+        const home = scratch();
+        const fake = fakeApp(true, true);
+        const dev = hamlet(
+            ["dev", "--faux", fauxScript()],
+            home,
+            undefined,
+            fake.env,
+        );
+        await ready(dev, home);
+        await vi.waitFor(() =>
+            expect(fake.captured().view).toBe(join(home, "window")),
+        );
+        dev.child.kill("SIGINT");
+        await vi.waitFor(() => expect(fake.terminated()).toBe("SIGTERM"));
+        await vi.waitFor(() =>
+            expect(existsSync(join(home, "server.json"))).toBe(false),
+        );
+        expect(dev.child.exitCode).toBeNull();
+        dev.child.kill("SIGINT");
+        expect(await dev.ended).toBe(130);
+        const pid = Number(readFileSync(fake.env.APP_PID ?? "", "utf8"));
+        expect(() => process.kill(pid, 0)).toThrow();
+    });
+
+    it("launches Cargo's reported dev executable, including a custom target path", async () => {
+        const home = scratch();
+        const fake = fakeApp();
+        const tools = join(scratch(), "build tools");
+        mkdirSync(tools);
+        writeFileSync(
+            join(tools, "cargo"),
+            `#!${process.execPath}
+process.stdout.write(JSON.stringify({reason: "compiler-artifact", target: {name: "another-binary"}, executable: "/wrong-app"}) + "\\n");
+process.stdout.write(JSON.stringify({reason: "compiler-artifact", target: {name: "hamlet-app"}, executable: ${JSON.stringify(fake.app)}}) + "\\n");
+`,
+            { mode: 0o755 },
+        );
+        writeFileSync(join(tools, "node"), "#!/bin/sh\nexit 91\n", {
+            mode: 0o755,
+        });
+        const dev = hamlet(["dev", "--faux", fauxScript()], home, undefined, {
+            ...fake.env,
+            HAMLET_APP: "",
+            PATH: `${tools}${delimiter}${process.env.PATH}`,
+        });
+        const address = await ready(dev, home);
+        await vi.waitFor(() =>
+            expect(fake.captured().server).toBe(address.url),
+        );
+        dev.child.kill("SIGTERM");
+        expect(await dev.ended, dev.err()).toBe(0);
+        expect(existsSync(join(home, "server.json"))).toBe(false);
+    });
+
+    it("starts no server or window when the dev build fails", async () => {
+        const home = scratch();
+        const tools = scratch();
+        writeFileSync(join(tools, "cargo"), "#!/bin/sh\nexit 1\n", {
+            mode: 0o755,
+        });
+        const dev = hamlet(["dev"], home, undefined, {
+            HAMLET_APP: "",
+            PATH: `${tools}${delimiter}${process.env.PATH}`,
+        });
+        expect(await dev.ended).toBe(1);
+        expect(dev.err()).toContain(
+            "The window build failed; no server was started.",
+        );
+        expect(existsSync(join(home, "server.json"))).toBe(false);
+        expect(existsSync(join(home, "home.sqlite"))).toBe(false);
+    });
+
     it("serves a kept temporary home after the window closes, until SIGINT (S1, S13)", async () => {
         const tmp = scratch();
         const home = join(tmp, `hamlet-dev-${process.getuid?.()}`);
@@ -220,7 +302,7 @@ describe("the window commands", () => {
         },
     );
 
-    it.each(["SIGINT", "SIGTERM"] as const)(
+    it.each(["SIGINT", "SIGTERM", "SIGHUP"] as const)(
         "sends SIGTERM to a live window before stopping at %s",
         async (signal) => {
             const home = scratch();
@@ -231,7 +313,19 @@ describe("the window commands", () => {
                 undefined,
                 fake.env,
             );
-            await ready(dev, home);
+            const { pid } = await ready(dev, home);
+            closeAfter(() => {
+                try {
+                    process.kill(pid, "SIGTERM");
+                } catch (error) {
+                    if (
+                        !(error instanceof Error) ||
+                        !("code" in error) ||
+                        error.code !== "ESRCH"
+                    )
+                        throw error;
+                }
+            });
             await vi.waitFor(() =>
                 expect(fake.captured().view).toBe(join(home, "window")),
             );
@@ -292,40 +386,49 @@ describe("the window commands", () => {
         }
     }, 10_000);
 
-    it("finds HAMLET_APP, PATH, release and debug in order, and names how to build a missing app", async () => {
+    it("prefers HAMLET_APP, the CLI's sibling, then PATH, and explains a missing app", async () => {
         const repo = scratch();
-        const module = join(repo, "server", "src", "cli", "window.ts");
-        mkdirSync(dirname(module), { recursive: true });
-        copyFileSync(new URL("../src/cli/window.ts", import.meta.url), module);
+        const cli = join(repo, "hamlet");
         copyFileSync(
-            new URL("../src/cli/process.ts", import.meta.url),
-            join(dirname(module), "process.ts"),
+            process.env.HAMLET_CLI ||
+                new URL("../../target/debug/hamlet", import.meta.url),
+            cli,
         );
-        writeFileSync(
-            join(repo, "server", "package.json"),
-            '{"type":"module"}',
-        );
-        const { findApp } = (await import(
-            pathToFileURL(module).href
-        )) as typeof import("../src/cli/window.ts");
-        const fake = fakeApp();
-        const release = join(repo, "target", "release", "hamlet-app");
-        const debug = join(repo, "target", "debug", "hamlet-app");
-        for (const file of [release, debug]) {
-            mkdirSync(dirname(file), { recursive: true });
-            copyFileSync(fake.app, file);
-            chmodSync(file, 0o755);
+        const captured = join(repo, "chosen");
+        const sibling = join(repo, "hamlet-app");
+        const onPath = join(scratch(), "hamlet-app");
+        const explicit = join(scratch(), "chosen-app");
+        for (const [file, name] of [
+            [sibling, "sibling"],
+            [onPath, "path"],
+            [explicit, "explicit"],
+        ] as const) {
+            writeFileSync(file, `#!/bin/sh\nprintf '${name}' > "$CAPTURE"\n`, {
+                mode: 0o755,
+            });
         }
-        expect(
-            findApp({ HAMLET_APP: "/chosen/app", PATH: dirname(fake.app) }),
-        ).toBe("/chosen/app");
-        expect(findApp({ PATH: dirname(fake.app) })).toBe(fake.app);
-        const empty = { PATH: scratch() };
-        expect(findApp(empty)).toBe(release);
-        chmodSync(release, 0o644);
-        expect(findApp(empty)).toBe(debug);
-        rmSync(debug);
-        expect(() => findApp(empty)).toThrow(
+        const env = {
+            ...process.env,
+            HAMLET_HOME: scratch(),
+            HAMLET_SERVER: "ws://127.0.0.1:1",
+            HAMLET_TOKEN: "test",
+            HAMLET_APP: "",
+            PATH: dirname(onPath),
+            CAPTURE: captured,
+        };
+        await promisify(execFile)(cli, ["window"], {
+            env: { ...env, HAMLET_APP: explicit },
+        });
+        expect(readFileSync(captured, "utf8")).toBe("explicit");
+        await promisify(execFile)(cli, ["window"], { env });
+        expect(readFileSync(captured, "utf8")).toBe("sibling");
+        chmodSync(sibling, 0o644);
+        await promisify(execFile)(cli, ["window"], { env });
+        expect(readFileSync(captured, "utf8")).toBe("path");
+        rmSync(onPath);
+        await expect(
+            promisify(execFile)(cli, ["window"], { env }),
+        ).rejects.toThrow(
             "No hamlet-app found. Build it with cargo build --bin hamlet-app, or set HAMLET_APP.",
         );
     });
@@ -499,14 +602,14 @@ describe("the window commands", () => {
         expect(Date.now() - started).toBeLessThan(2000);
     }, 15_000);
 
-    it("resolves the package executable through relative symlinks and paths with spaces", async () => {
+    it("resolves the Rust executable through relative symlinks and paths with spaces", async () => {
         const dir = join(scratch(), "installed commands");
         mkdirSync(dir);
-        const { bin } = JSON.parse(
-            readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-        ) as { bin: { hamlet: string } };
         symlinkSync(
-            fileURLToPath(new URL(`../${bin.hamlet}`, import.meta.url)),
+            process.env.HAMLET_CLI ||
+                fileURLToPath(
+                    new URL("../../target/debug/hamlet", import.meta.url),
+                ),
             join(dir, "linked"),
         );
         symlinkSync("linked", join(dir, "hamlet"));
@@ -521,20 +624,10 @@ describe("the window commands", () => {
         usage(result.stdout);
     });
 
-    it("names every command through the executable and npm", async () => {
+    it("names every command through the executable", async () => {
         const home = scratch();
         const help = hamlet(["--help"], home);
         expect(await help.ended).toBe(0);
         usage(help.out());
-
-        const npm = await promisify(execFile)(
-            "npm",
-            ["run", "hamlet", "--", "--help"],
-            {
-                cwd: new URL("..", import.meta.url),
-                env: { ...process.env, HAMLET_HOME: home },
-            },
-        );
-        usage(npm.stdout);
     });
 });

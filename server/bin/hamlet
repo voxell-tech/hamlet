@@ -1,2 +1,0 @@
-#!/usr/bin/env -S node --enable-experimental-regexp-engine --disable-warning=ExperimentalWarning
-import { main } from "../src/cli.ts"; process.exitCode = await main(process.argv.slice(2), process.env, { stdin: process.stdin, stdout: process.stdout, stderr: process.stderr, childStdio: "inherit" });

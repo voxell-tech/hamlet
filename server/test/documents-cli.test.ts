@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { inProcess as hamlet, server, tty } from "./cli-support.ts";
+import { command as hamlet, server, tty } from "./cli-support.ts";
 import { scratch } from "./support.ts";
 
 function editor(code: string) {
@@ -96,13 +96,21 @@ it("edits settings as whole JSON without credentials or the server's view fields
         allowNet: false,
         endpoints: [{ name: "local", baseUrl: "http://localhost:11434/v1" }],
     });
+    for (const change of ["doc.allowNte = false", "doc.model = null"]) {
+        const invalid = editor(
+            `const doc = JSON.parse(text); doc.reflectEvery = 99; ${change}; writeFileSync(path, JSON.stringify(doc));`,
+        );
+        const refused = hamlet(["edit", "settings"], home, "", invalid);
+        expect(await refused.ended).toBe(1);
+        expect(refused.err()).toContain("nothing was saved");
+    }
     const next = editor("");
     expect(await hamlet(["edit", "settings"], home, "", next).ended).toBe(0);
     expect(JSON.parse(readFileSync(next.seen, "utf8"))).toMatchObject({
         reflectEvery: 3,
         allowNet: true,
     });
-});
+}, 10_000);
 
 it("saves nothing when EDITOR fails and removes its private temporary document", async () => {
     const home = scratch();

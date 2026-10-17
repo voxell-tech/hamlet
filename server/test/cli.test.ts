@@ -7,7 +7,7 @@ import { LimitsDoc } from "../src/limits.ts";
 import { FAUX_MODEL } from "../src/models.ts";
 import type { Item } from "../src/protocol.ts";
 import { HOME } from "../src/record.ts";
-import { hamlet, inProcess, server } from "./cli-support.ts";
+import { command, hamlet, server } from "./cli-support.ts";
 import { closeAfter, context, fauxModels, scratch } from "./support.ts";
 
 /** A connection to the server at `url` of `home`, which has said hello and opened the mayor's chat. */
@@ -49,7 +49,7 @@ async function viewer(home: string, url: string) {
 }
 
 describe("the hamlet command", () => {
-    it("starts the two-line command shim", async () => {
+    it("starts the Rust command", async () => {
         const run = hamlet(["--help"], scratch());
         expect(await run.ended).toBe(0);
         expect(run.out()).toMatch(/^usage: hamlet/);
@@ -58,7 +58,7 @@ describe("the hamlet command", () => {
     it("reads its flags and names its mistakes (main.rs:189)", async () => {
         const home = scratch();
 
-        const unknown = inProcess(["server", "--hedless"], home);
+        const unknown = command(["server", "--hedless"], home);
         expect(await unknown.ended).toBe(1);
         expect(unknown.err()).toContain("unknown argument `--hedless`");
         expect(unknown.err()).toContain("usage: hamlet");
@@ -68,7 +68,7 @@ describe("the hamlet command", () => {
             ["--help", "chat"],
             ["chat", "--to", "-h"],
         ]) {
-            const help = inProcess(args, home);
+            const help = command(args, home);
             expect(await help.ended).toBe(0);
             expect(help.out()).toMatch(/^usage: hamlet/);
         }
@@ -84,7 +84,7 @@ describe("the hamlet command", () => {
             [["serve"], "unknown argument `serve`"],
             [["chat", "--port", "1"], "unknown argument `--port`"],
         ]) {
-            const run = inProcess(args as string[], home);
+            const run = command(args as string[], home);
             expect(await run.ended).toBe(1);
             expect(run.err()).toContain(words as string);
         }
@@ -94,7 +94,7 @@ describe("the hamlet command", () => {
         const home = scratch();
         await server(home, { responses: [] });
 
-        const second = inProcess(["server", "--port", "0"], home);
+        const second = command(["server", "--port", "0"], home);
 
         expect(await second.ended).toBe(1);
         expect(second.err()).toContain(`A server already runs for ${home}.`);
@@ -114,7 +114,7 @@ describe("the hamlet command", () => {
             ],
         });
 
-        const chat = inProcess(
+        const chat = command(
             ["chat"],
             home,
             "What does it say?\n\nAnything else?\n",
@@ -144,7 +144,7 @@ describe("the hamlet command", () => {
         async (input) => {
             const home = scratch();
             const served = await server(home, { responses: [] });
-            const chat = inProcess(["chat", "--to", "nobody"], home, input);
+            const chat = command(["chat", "--to", "nobody"], home, input);
             let ended: number | string | undefined;
             void chat.ended.then((value) => {
                 ended = value;
@@ -172,7 +172,7 @@ describe("the hamlet command", () => {
         await opened.close(context);
         await server(home, { responses: ["Never sent."] });
 
-        const chat = inProcess(["chat"], home, "Hello.\n");
+        const chat = command(["chat"], home, "Hello.\n");
 
         expect(await chat.ended).toBe(0);
         expect(chat.out()).toBe("");

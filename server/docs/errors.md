@@ -96,10 +96,6 @@ with unreachable `never` checks; dispatch helpers delegate to them.
 
 Small internal outcomes stay at their operation:
 
-- `cli/service.ts` owns `ServiceFailure`, including `DiscoveryFailure`
-  from `cli/client.ts`, for background start, stop and status. `failureText`
-  renders fixed recovery advice; startup failures include a scrubbed log tail.
-
 - `agents/merge-files.ts` owns `PrepareFailure`, its merge-specific
   `NotesFailure`, and `PendingFiles`. `prepareText` delegates record and
   tree refusals; `pendingText` renders journal recovery advice. Both use

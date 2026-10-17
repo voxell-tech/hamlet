@@ -29,7 +29,7 @@ setInterval(() => {}, 1000);
     writeFileSync(
         tracker,
         `import { appendFileSync } from "node:fs";
-if (process.argv.includes("server")) appendFileSync(process.env.SERVER_PIDS, process.pid + "\\n");
+if (process.argv[1]?.endsWith("/hamlet-server")) appendFileSync(process.env.SERVER_PIDS, process.pid + "\\n");
 `,
     );
     const env = {
@@ -187,9 +187,16 @@ it("scrubs credentials from a failed start's log tail", async () => {
     expect(existsSync(join(f.home, "credentials.json"))).toBe(false);
     const stored = fixture();
     const credential = {
-        installationId: "test",
+        installationId: "public-installation",
         connection: { token: "test-token" },
-        models: { test: { type: "api_key", key } },
+        models: {
+            test: { type: "api_key", key },
+            subscription: {
+                type: "oauth",
+                access: "test-access",
+                refresh: "test-refresh",
+            },
+        },
     };
     writeFileSync(
         join(stored.home, "credentials.json"),
@@ -197,10 +204,12 @@ it("scrubs credentials from a failed start's log tail", async () => {
     );
     const failed = hamlet([], stored.home, undefined, {
         ...stored.env,
-        HAMLET_REFLECT_EVERY: key,
+        HAMLET_REFLECT_EVERY: `public-installation api_key oauth ${key} test-token test-access test-refresh`,
     });
     expect(await failed.ended).toBe(1);
-    expect(failed.err()).not.toContain(key);
+    for (const secret of [key, "test-token", "test-access", "test-refresh"])
+        expect(failed.err()).not.toContain(secret);
+    expect(failed.err()).toContain("public-installation api_key oauth");
     expect(failed.err()).toContain("[REDACTED]");
     expect(
         JSON.parse(readFileSync(join(stored.home, "credentials.json"), "utf8")),
@@ -214,7 +223,7 @@ it("times out a stalled start with the end of its log", async () => {
     writeFileSync(
         preload,
         `import { writeFileSync } from "node:fs";
-if (process.argv.includes("server")) {
+if (process.argv[1]?.endsWith("/hamlet-server")) {
     writeFileSync(process.env.STALLED_PID, String(process.pid));
     console.error("stalled bootstrap marker");
     await new Promise(resolve => setTimeout(resolve, 60_000));

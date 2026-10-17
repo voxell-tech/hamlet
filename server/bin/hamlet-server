@@ -1,0 +1,25 @@
+#!/usr/bin/env -S node --enable-experimental-regexp-engine --disable-warning=ExperimentalWarning
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { serve } from "../src/runtime.ts";
+
+try {
+    const args = process.argv.slice(2);
+    let port = 7313;
+    let faux;
+    for (let i = 0; i < args.length; i += 2) {
+        const flag = args[i];
+        const value = args[i + 1];
+        if (value === undefined) throw new Error(`${flag} needs a value`);
+        if (flag === "--port") {
+            if (!/^[0-9]{1,5}$/.test(value) || Number(value) > 65535)
+                throw new Error("--port needs a port number");
+            port = Number(value);
+        } else if (flag === "--faux") faux = value;
+        else throw new Error(`unknown argument ${flag}`);
+    }
+    await serve(process.env.HAMLET_HOME || join(homedir(), ".hamlet"), { port, faux });
+} catch (error) {
+    process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+}

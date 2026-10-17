@@ -46,7 +46,7 @@ that core may contain only other leaves, the core, and the shared entries
 under those entries' folders. Entry boundaries still apply to direct
 imports. The restriction applies transitively, including shared-entry
 internals. Type-only imports of owning entries are allowed. Only
-`cli/serving.ts` value-imports the composition root `home.ts`; home helpers
+`runtime.ts` value-imports the composition root `home.ts`; home helpers
 are imported from their leaves.
 
 `test/structure.test.ts` checks module folders, entry boundaries and the

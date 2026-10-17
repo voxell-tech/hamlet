@@ -2,9 +2,9 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
-import { connect } from "../connection.ts";
-import { layoutOf } from "../home/layout.ts";
-import { err, ok, type Result } from "../result.ts";
+import { connect } from "../src/connection.ts";
+import { layoutOf } from "../src/home/layout.ts";
+import { err, ok, type Result } from "../src/result.ts";
 
 /** The address and token of a chief's server. */
 export type ServerAddress = { url: string; token: string };

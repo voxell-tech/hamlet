@@ -72,9 +72,12 @@ macOS.
 
 ## Working on Hamlet
 
-**S13.** The `hamlet` command is installed with `npm link` in `server/`,
-with the Node version in `.nvmrc`; `npm run hamlet -- <command>` runs it
-there too. `HAMLET_HOME` names the home; development uses a scratch folder.
+**S13.** The `hamlet` command is a Rust binary in `crates/hamlet_cli`,
+run with `cargo run -p hamlet_cli -- <command>` or installed with
+`cargo install --path crates/hamlet_cli`. It manages the server and window
+as separate processes and uses protocol v0 for terminal operations.
+The server still requires the Node version in `server/.nvmrc` and its npm
+dependencies. `HAMLET_HOME` names the home; development uses a scratch folder.
 The window's executable is `hamlet-app`; the app is called Hamlet.
 Bare `hamlet` serves the home in the background, or reuses its running
 server, and opens a window. Closing the window or terminal stops no agent.
@@ -87,7 +90,7 @@ server, and opens a window. Closing the window or terminal stops no agent.
 | `status` | Reports whether the home's server runs |
 | `server` | Serves the home; stopping it closes in order, and a second stop signal exits at once |
 | `chat [--to <agent>]` | Chats with the mayor or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
-| `dev [--port <n>] [--faux <script.json>] [--home <dir>]` | Serves a scratch home and opens its window; closing the window leaves the server running, and stopping the command closes both in order |
+| `dev [--port <n>] [--faux <script.json>] [--home <dir>]` | Builds the checkout's window unless `HAMLET_APP` selects one, serves a scratch home and opens its window; closing the window leaves the server running, and stopping the command closes both in order |
 | `window` | Opens a window connected to a running server |
 | `edit <charter\|character\|notes\|limits\|settings>` | Opens the chief's document in `$EDITOR` and saves it through the server |
 | `login <provider> [--key]` | Gives a key, or follows an offered sign-in |

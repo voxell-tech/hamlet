@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { connectChief, reachHome } from "../src/cli/client.ts";
 import { hamlet, server } from "./cli-support.ts";
+import { connectChief, reachHome } from "./client-support.ts";
 import { scratch } from "./support.ts";
 
 it("drives the mayor alone through chat, its gate, house, reflection, spend, stop and a crashed server (step 2)", async () => {

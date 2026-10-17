@@ -1,10 +1,10 @@
 import { rename, rm, writeFile } from "node:fs/promises";
 import type { Writable } from "node:stream";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { openHome } from "../home.ts";
-import { FAUX_MODEL, readScript, scriptedModels } from "../models.ts";
-import { probeSandbox } from "../sandbox.ts";
-import { serveHome } from "../server.ts";
+import { openHome } from "./home.ts";
+import { FAUX_MODEL, readScript, scriptedModels } from "./models.ts";
+import { probeSandbox } from "./sandbox.ts";
+import { serveHome } from "./server.ts";
 
 /** A home served until closed in order or stopped by a signal (S1, S3). */
 export async function serve(
@@ -12,7 +12,6 @@ export async function serve(
     options: {
         port: number;
         faux: string | undefined;
-        beforeClose?: () => void | Promise<void>;
         env?: Readonly<NodeJS.ProcessEnv>;
         stderr?: Writable;
     },
@@ -66,7 +65,6 @@ export async function serve(
     let closing: Promise<void> | undefined;
     const close = () => {
         closing ??= (async () => {
-            await options.beforeClose?.();
             await rm(home.layout.server, { force: true });
             await server.close();
             await home.close(context);

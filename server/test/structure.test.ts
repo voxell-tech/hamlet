@@ -66,7 +66,6 @@ const MODULES: readonly { name: string; folder: boolean }[] = [
     { name: "agents", folder: true },
     { name: "change", folder: false },
     { name: "chats", folder: true },
-    { name: "cli", folder: true },
     { name: "commands", folder: false },
     { name: "connection", folder: false },
     { name: "environment", folder: true },
@@ -84,6 +83,7 @@ const MODULES: readonly { name: string; folder: boolean }[] = [
     { name: "realm", folder: true },
     { name: "record", folder: true },
     { name: "result", folder: false },
+    { name: "runtime", folder: false },
     { name: "sandbox", folder: true },
     { name: "say", folder: false },
     { name: "scrub", folder: true },
@@ -313,11 +313,7 @@ test("concept internals are reached through entries or explicit dependency leave
                     )
                         failures.push(`${name} -> ${path}`);
                 }
-                if (
-                    !typeOnly &&
-                    target === "home.ts" &&
-                    name !== "cli/serving.ts"
-                )
+                if (!typeOnly && target === "home.ts" && name !== "runtime.ts")
                     failures.push(
                         `${name}: only server startup value-imports home.ts`,
                     );

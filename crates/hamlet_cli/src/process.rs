@@ -1,0 +1,769 @@
+//! Local server discovery and the lifetimes of the server and window.
+
+#[cfg(unix)]
+use std::io::{Read, Seek, SeekFrom};
+#[cfg(unix)]
+use std::os::unix::{
+    fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
+    process::{CommandExt, ExitStatusExt},
+};
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus, Stdio};
+use std::time::Duration;
+use std::{env, fs};
+
+use anyhow::{Context, Result, bail};
+use serde::Deserialize;
+use tokio::time::timeout;
+#[cfg(unix)]
+use tokio::{
+    process::Child,
+    time::{Instant, sleep},
+};
+
+use crate::client::{self, ServerAddress};
+
+#[derive(Deserialize)]
+struct Record {
+    url: String,
+    pid: i32,
+    #[cfg(unix)]
+    started: Option<String>,
+}
+
+pub fn home() -> Result<PathBuf> {
+    let path = match nonempty("HAMLET_HOME") {
+        Some(home) => PathBuf::from(home),
+        None => PathBuf::from(
+            nonempty("HOME")
+                .or_else(|| nonempty("USERPROFILE"))
+                .context("HOME is not set")?,
+        )
+        .join(".hamlet"),
+    };
+    absolute(&path)
+}
+
+fn absolute(path: &Path) -> Result<PathBuf> {
+    Ok(std::path::absolute(path)?)
+}
+
+fn read_record(home: &Path) -> Result<Option<Record>> {
+    let path = home.join("server.json");
+    let text = match fs::read(&path) {
+        Ok(text) => text,
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound =>
+        {
+            return Ok(None);
+        }
+        Err(_) => bail!(
+            "Cannot read server.json for {}. Inspect the file \
+             before starting or stopping its server.",
+            home.display()
+        ),
+    };
+    let record = serde_json::from_slice::<Record>(&text)
+        .ok()
+        .filter(|r| r.pid > 0);
+    record.map(Some).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Cannot read server.json for {}. Inspect the file \
+             before starting or stopping its server.",
+            home.display()
+        )
+    })
+}
+
+pub fn address(home: &Path) -> Result<ServerAddress> {
+    if let Some(url) = nonempty("HAMLET_SERVER") {
+        return Ok(ServerAddress {
+            url,
+            token: nonempty("HAMLET_TOKEN").context(
+                "HAMLET_SERVER needs HAMLET_TOKEN, its home's token",
+            )?,
+        });
+    }
+    let record = read_record(home)?.with_context(|| {
+        format!(
+            "no server runs for {}; start one with hamlet server, \
+             or use hamlet dev for a scratch server and window.",
+            home.display()
+        )
+    })?;
+    local_address(home, &record)
+}
+
+fn local_address(
+    home: &Path,
+    record: &Record,
+) -> Result<ServerAddress> {
+    #[derive(Deserialize)]
+    struct Credentials {
+        connection: Connection,
+    }
+    #[derive(Deserialize)]
+    struct Connection {
+        token: String,
+    }
+    let credentials = serde_json::from_slice::<Credentials>(
+        &fs::read(home.join("credentials.json"))?,
+    )?;
+    Ok(ServerAddress {
+        url: record.url.clone(),
+        token: credentials.connection.token,
+    })
+}
+
+fn nonempty(name: &str) -> Option<String> {
+    env::var(name).ok().filter(|s| !s.is_empty())
+}
+
+async fn answers(address: &ServerAddress) -> bool {
+    timeout(Duration::from_secs(2), async {
+        let (mut connection, _) = client::connect(address).await?;
+        connection.close().await
+    })
+    .await
+    .is_ok_and(|result| result.is_ok())
+}
+
+#[cfg(unix)]
+fn alive(pid: i32) -> bool {
+    // SAFETY: kill with signal zero checks a positive process ID
+    // without sending a signal.
+    unsafe {
+        libc::kill(pid, 0) == 0
+            || std::io::Error::last_os_error().raw_os_error()
+                != Some(libc::ESRCH)
+    }
+}
+
+#[cfg(unix)]
+fn signal(pid: u32, signal: i32) -> Result<()> {
+    let pid = i32::try_from(pid)?;
+    anyhow::ensure!(pid > 0, "Invalid process ID");
+    // SAFETY: the ID is positive, so this targets one process, never
+    // a process group.
+    if unsafe { libc::kill(pid, signal) } != 0 {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::ESRCH) {
+            return Err(error.into());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+async fn inspect(
+    home: &Path,
+) -> Result<Option<(Record, ServerAddress)>> {
+    let Some(record) = read_record(home)? else {
+        return Ok(None);
+    };
+    if !alive(record.pid) {
+        return Ok(None);
+    }
+    if let Ok(address) = local_address(home, &record)
+        && answers(&address).await
+    {
+        return Ok(Some((record, address)));
+    }
+    if !alive(record.pid) {
+        return Ok(None);
+    }
+    bail!(
+        "Process {} for {} is alive but does not answer with the \
+         home's token; it is not ours to touch. Inspect it on its \
+         machine; no signal was sent.",
+        record.pid,
+        home.display()
+    )
+}
+
+#[cfg(unix)]
+fn repo() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+#[cfg(unix)]
+fn server_command(
+    home: &Path,
+    port: u16,
+    faux: Option<&str>,
+) -> Result<Command> {
+    let dir = nonempty("HAMLET_SERVER_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repo().join("server"));
+    anyhow::ensure!(
+        dir.join("bin/hamlet-server").is_file(),
+        "Cannot find the agent server. Set HAMLET_SERVER_DIR to its \
+         package directory."
+    );
+    anyhow::ensure!(
+        dir.join("node_modules").is_dir(),
+        "Server dependencies are missing. Run npm ci --prefix {} \
+         with the Node version in server/.nvmrc.",
+        dir.display()
+    );
+    let mut command = Command::new(
+        nonempty("HAMLET_NODE").unwrap_or_else(|| "node".into()),
+    );
+    command
+        .args([
+            "--enable-experimental-regexp-engine",
+            "--disable-warning=ExperimentalWarning",
+        ])
+        .arg(absolute(&dir.join("bin/hamlet-server"))?)
+        .arg("--port")
+        .arg(port.to_string())
+        .env("HAMLET_HOME", home);
+    if let Some(faux) = faux {
+        command.arg("--faux").arg(faux);
+    }
+    Ok(command)
+}
+
+#[cfg(unix)]
+pub fn serve(port: u16, faux: Option<&str>) -> Result<i32> {
+    Err(server_command(&home()?, port, faux)?.exec()).context(
+        "Cannot start Node; use the version in server/.nvmrc or set \
+         HAMLET_NODE",
+    )
+}
+
+#[cfg(unix)]
+fn session(command: &mut Command) {
+    // SAFETY: the child calls only async-signal-safe setsid before
+    // exec and touches no shared state.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(windows)]
+fn session(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    command.creation_flags(0x0000_0008 | 0x0000_0200);
+}
+
+fn executable(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        fs::metadata(path)
+            .is_ok_and(|m| m.is_file() && m.mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        path.is_file()
+    }
+}
+
+fn find_app() -> Result<PathBuf> {
+    if let Some(app) = nonempty("HAMLET_APP") {
+        return Ok(app.into());
+    }
+    // Prefer the app built beside this CLI, before an unrelated
+    // installation on PATH.
+    if let Some(dir) = env::current_exe()?.parent() {
+        let path = dir
+            .join(format!("hamlet-app{}", env::consts::EXE_SUFFIX));
+        if executable(&path) {
+            return Ok(path);
+        }
+    }
+    for dir in
+        env::split_paths(&env::var_os("PATH").unwrap_or_default())
+    {
+        let path = dir
+            .join(format!("hamlet-app{}", env::consts::EXE_SUFFIX));
+        if executable(&path) {
+            return Ok(path);
+        }
+    }
+    bail!(
+        "No hamlet-app found. Build it with cargo build --bin \
+         hamlet-app, or set HAMLET_APP."
+    )
+}
+
+fn window_command(app: &Path, address: &ServerAddress) -> Command {
+    let mut command = Command::new(app);
+    command
+        .env("HAMLET_SERVER", &address.url)
+        .env("HAMLET_TOKEN", &address.token);
+    command
+}
+
+fn open_detached(address: &ServerAddress) -> Result<()> {
+    let opened = (|| -> Result<()> {
+        let mut command = window_command(&find_app()?, address);
+        session(&mut command);
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+        Ok(())
+    })();
+    opened.context(
+        "Cannot open a window. Build hamlet-app or set HAMLET_APP \
+         to its executable, then open again. No stop was requested; \
+         hamlet status reports the server.",
+    )
+}
+
+fn exit_code(status: ExitStatus) -> i32 {
+    if let Some(code) = status.code() {
+        return code;
+    }
+    #[cfg(unix)]
+    {
+        128 + status.signal().unwrap_or(1)
+    }
+    #[cfg(not(unix))]
+    {
+        1
+    }
+}
+
+pub async fn window() -> Result<i32> {
+    let app = find_app()?;
+    let command = window_command(&app, &address(&home()?)?);
+    Ok(exit_code(
+        tokio::process::Command::from(command)
+            .status()
+            .await
+            .with_context(|| {
+                format!("Cannot open {}", app.display())
+            })?,
+    ))
+}
+
+#[cfg(unix)]
+fn log_tail(home: &Path) -> String {
+    let read = (|| -> Result<String> {
+        let mut file = fs::File::open(home.join("server.log"))?;
+        let start = file.metadata()?.len().saturating_sub(8192);
+        file.seek(SeekFrom::Start(start))?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        let mut text = String::from_utf8_lossy(&bytes).into_owned();
+        let mut secrets = Vec::new();
+        for name in ["HAMLET_API_KEY", "HAMLET_TOKEN"] {
+            if let Some(secret) = nonempty(name) {
+                secrets.push(secret);
+            }
+        }
+        match fs::read(home.join("credentials.json")) {
+            Ok(bytes) => {
+                let stored = serde_json::from_slice::<
+                    serde_json::Value,
+                >(&bytes)?;
+                let token = stored["connection"]["token"]
+                    .as_str()
+                    .context("Invalid connection token")?;
+                if !token.is_empty() {
+                    secrets.push(token.to_owned());
+                }
+                let models = stored["models"]
+                    .as_object()
+                    .context("Invalid model credentials")?;
+                for credential in models.values() {
+                    let fields = match credential["type"].as_str() {
+                        Some("api_key") => &["key"][..],
+                        Some("oauth") => &["access", "refresh"][..],
+                        _ => bail!("Unknown credential type"),
+                    };
+                    for field in fields {
+                        if let Some(value) = credential.get(field) {
+                            let secret = value.as_str().context(
+                                "Invalid credential value",
+                            )?;
+                            if !secret.is_empty() {
+                                secrets.push(secret.to_owned());
+                            }
+                        }
+                    }
+                }
+            }
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));
+        for secret in secrets {
+            text = text.replace(&secret, "[REDACTED]");
+        }
+        Ok(text.trim_end().into())
+    })();
+    read.unwrap_or_else(|_| {
+        "The end of server.log could not be read safely.".into()
+    })
+}
+
+#[cfg(unix)]
+fn mkdir(home: &Path) -> Result<()> {
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(home)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+async fn ensure(home: &Path) -> Result<(Record, ServerAddress)> {
+    if let Some(found) = inspect(home).await? {
+        return Ok(found);
+    }
+    mkdir(home)?;
+    let log = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(home.join("server.log"))?;
+    let log_start = log.metadata()?.len();
+    let mut command = server_command(home, 0, None)?;
+    session(&mut command);
+    command
+        .stdin(Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log);
+    let mut child = command.spawn().context(
+        "Cannot start the server process; check HAMLET_NODE",
+    )?;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < deadline {
+        if let Ok(Some(found)) = inspect(home).await {
+            return Ok(found);
+        }
+        if child.try_wait()?.is_some() {
+            let recent =
+                fs::read(home.join("server.log")).unwrap_or_default();
+            let recent = String::from_utf8_lossy(
+                recent.get(log_start as usize..).unwrap_or_default(),
+            );
+            if !recent.contains("A server already runs for ")
+                && !recent.contains("EADDRINUSE")
+            {
+                bail!(
+                    "Cannot start the server: it exited before \
+                     becoming ready. Inspect {} and hamlet status \
+                     before trying again.\n{}",
+                    home.join("server.log").display(),
+                    log_tail(home)
+                );
+            }
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
+    bail!(
+        "Cannot start the server: it did not become ready within 15 \
+         seconds. Inspect {} and hamlet status before trying \
+         again.\n{}",
+        home.join("server.log").display(),
+        log_tail(home)
+    )
+}
+
+pub async fn service(action: &str) -> Result<i32> {
+    let home = home()?;
+    if nonempty("HAMLET_SERVER").is_some() {
+        anyhow::ensure!(
+            action != "stop",
+            "Cannot stop HAMLET_SERVER here. A server elsewhere is \
+             stopped on its own machine."
+        );
+        let address = address(&home)?;
+        if action == "status" {
+            let live = answers(&address).await;
+            println!(
+                "hamlet: {} at {}",
+                if live { "running" } else { "not answering" },
+                address.url
+            );
+            return Ok(i32::from(!live));
+        }
+        open_detached(&address)?;
+        return Ok(0);
+    }
+    local_service(action, &home).await
+}
+
+#[cfg(unix)]
+async fn local_service(action: &str, home: &Path) -> Result<i32> {
+    let found = if action == "start" {
+        Some(ensure(home).await?)
+    } else {
+        inspect(home).await?
+    };
+    let Some((record, address)) = found else {
+        let stale = read_record(home)?.is_some();
+        if stale && action == "stop" {
+            fs::remove_file(home.join("server.json"))?;
+        }
+        println!(
+            "hamlet: {}not running",
+            if stale { "stale server.json; " } else { "" }
+        );
+        return Ok(i32::from(action != "stop"));
+    };
+    if action == "stop" {
+        signal(record.pid as u32, libc::SIGTERM)?;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while alive(record.pid) {
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "Process {} is still stopping after 30 seconds. \
+                 Inspect {}; no SIGKILL was sent.",
+                record.pid,
+                home.join("server.log").display()
+            );
+            sleep(Duration::from_millis(100)).await;
+        }
+        println!("hamlet: stopped");
+    } else {
+        println!(
+            "hamlet: running at {}; pid {}; started {}; log {}",
+            record.url,
+            record.pid,
+            record.started.as_deref().unwrap_or("unknown"),
+            home.join("server.log").display()
+        );
+        if action == "start" {
+            open_detached(&address)?;
+        }
+    }
+    Ok(0)
+}
+
+#[cfg(unix)]
+fn canonical(path: &Path) -> Result<PathBuf> {
+    match fs::canonicalize(path) {
+        Ok(path) => Ok(path),
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound =>
+        {
+            let parent =
+                path.parent().context("No parent for home")?;
+            Ok(canonical(parent)?
+                .join(path.file_name().context("No name for home")?))
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(unix)]
+fn dev_home(chosen: Option<&str>) -> Result<PathBuf> {
+    // SAFETY: getuid reads this process's user ID and has no
+    // preconditions.
+    let uid = unsafe { libc::getuid() };
+    let path = chosen
+        .map(PathBuf::from)
+        .or_else(|| nonempty("HAMLET_HOME").map(PathBuf::from))
+        .unwrap_or_else(|| {
+            env::temp_dir().join(format!("hamlet-dev-{uid}"))
+        });
+    let path = absolute(&path)?;
+    let ordinary = PathBuf::from(env::var("HOME")?).join(".hamlet");
+    anyhow::ensure!(
+        chosen != Some("~/.hamlet")
+            && canonical(&path)? != canonical(&ordinary)?,
+        "hamlet dev refuses ~/.hamlet; choose a scratch home with \
+         --home or HAMLET_HOME."
+    );
+    if !path.exists() {
+        mkdir(&path)?;
+    }
+    let stat = fs::symlink_metadata(&path)?;
+    let unsafe_reason = if stat.is_symlink() {
+        Some("a symbolic link")
+    } else if !stat.is_dir() {
+        Some("not a directory")
+    } else if stat.uid() != uid {
+        Some("not owned by the current user")
+    } else if stat.mode() & 0o022 != 0 {
+        Some("writable by group or others")
+    } else {
+        None
+    };
+    if let Some(reason) = unsafe_reason {
+        bail!("unsafe scratch home {}: {reason}.", path.display());
+    }
+    Ok(path)
+}
+
+#[cfg(unix)]
+async fn dev_app() -> Result<PathBuf> {
+    if let Some(app) = nonempty("HAMLET_APP") {
+        return Ok(app.into());
+    }
+    let root = repo();
+    anyhow::ensure!(
+        root.join("Cargo.toml").is_file(),
+        "hamlet dev needs a source checkout or HAMLET_APP."
+    );
+    let mut command = tokio::process::Command::new("cargo");
+    command
+        .current_dir(&root)
+        .args([
+            "build",
+            "--bin",
+            "hamlet-app",
+            "--message-format=json-render-diagnostics",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
+    let output = command
+        .output()
+        .await
+        .context("Cannot build the window; install Rust and Cargo")?;
+    anyhow::ensure!(
+        output.status.success(),
+        "The window build failed; no server was started."
+    );
+    for line in output.stdout.split(|b| *b == b'\n') {
+        if let Ok(value) =
+            serde_json::from_slice::<serde_json::Value>(line)
+            && value["reason"] == "compiler-artifact"
+            && value["target"]["name"] == "hamlet-app"
+            && let Some(path) = value["executable"].as_str()
+        {
+            return Ok(path.into());
+        }
+    }
+    bail!("Cargo did not report the built hamlet-app executable.")
+}
+
+#[cfg(unix)]
+async fn wait_child(child: &mut Child) -> Result<()> {
+    timeout(Duration::from_secs(30), child.wait())
+        .await
+        .context(
+            "Child is still stopping after 30 seconds; no SIGKILL \
+             was sent",
+        )??;
+    Ok(())
+}
+
+#[cfg(unix)]
+pub async fn develop(
+    port: u16,
+    faux: Option<&str>,
+    chosen: Option<&str>,
+) -> Result<i32> {
+    use tokio::signal::unix::{SignalKind, signal as listen};
+    let home = dev_home(chosen)?;
+    let app = dev_app().await?;
+    let mut interrupt = listen(SignalKind::interrupt())?;
+    let mut terminate = listen(SignalKind::terminate())?;
+    let mut hangup = listen(SignalKind::hangup())?;
+    let mut command = server_command(&home, port, faux)?;
+    session(&mut command);
+    command.stdin(Stdio::null());
+    let mut server =
+        tokio::process::Command::from(command).spawn()?;
+    let mut window = None;
+    let result = async {
+        let ready = async {
+            loop {
+                if let Some(status) = server.try_wait()? { bail!("The server exited before becoming ready ({status})."); }
+                if let Ok(Some(record)) = read_record(&home)
+                    && Some(record.pid as u32) == server.id() {
+                        let address = local_address(&home, &record)?;
+                        if answers(&address).await { return Ok::<_, anyhow::Error>(address); }
+                    }
+                sleep(Duration::from_millis(50)).await;
+            }
+        };
+        let address = tokio::select! {
+            ready = timeout(Duration::from_secs(15), ready) => ready.context("The server did not become ready within 15 seconds")??,
+            _ = interrupt.recv() => return Ok(0),
+            _ = terminate.recv() => return Ok(0),
+            _ = hangup.recv() => return Ok(0),
+        };
+        let mut command = window_command(&app, &address);
+        command.env("HAMLET_VIEW", home.join("window"));
+        session(&mut command);
+        let child = tokio::process::Command::from(command).spawn().with_context(|| format!("Cannot open {}", app.display()))?;
+        window = Some(child);
+        loop {
+            tokio::select! {
+                _ = interrupt.recv() => return Ok(0),
+                _ = terminate.recv() => return Ok(0),
+                _ = hangup.recv() => return Ok(0),
+                status = server.wait() => return Ok(exit_code(status?)),
+                _ = sleep(Duration::from_millis(50)) => {
+                    if let Some(child) = &mut window
+                        && child.try_wait()?.is_some() {
+                            window = None;
+                            eprintln!("hamlet: window closed; still serving {} at {}; Ctrl-C stops", home.display(), address.url);
+                        }
+                }
+            }
+        }
+    }.await;
+    for pid in [window.as_ref().and_then(Child::id), server.id()]
+        .into_iter()
+        .flatten()
+    {
+        signal(pid, libc::SIGTERM)?;
+    }
+    let closing = async {
+        let window_closed = async {
+            if let Some(child) = &mut window {
+                wait_child(child).await?;
+            }
+            Ok::<_, anyhow::Error>(())
+        };
+        tokio::try_join!(window_closed, wait_child(&mut server))?;
+        Ok::<_, anyhow::Error>(())
+    };
+    let force = async {
+        tokio::select! {
+            _ = interrupt.recv() => {},
+            _ = terminate.recv() => {},
+            _ = hangup.recv() => {},
+        }
+    };
+    tokio::select! {
+        closed = closing => { closed?; },
+        _ = force => {
+            for pid in [window.as_ref().and_then(Child::id), server.id()].into_iter().flatten() {
+                signal(pid, libc::SIGKILL)?;
+            }
+            if let Some(child) = &mut window { child.wait().await?; }
+            server.wait().await?;
+            return Ok(130);
+        },
+    }
+    result
+}
+
+#[cfg(not(unix))]
+pub fn serve(_: u16, _: Option<&str>) -> Result<i32> {
+    bail!(
+        "The agent server requires macOS or Linux. Use \
+         HAMLET_SERVER and HAMLET_TOKEN to connect to another \
+         machine."
+    )
+}
+
+#[cfg(not(unix))]
+async fn local_service(_: &str, _: &Path) -> Result<i32> {
+    serve(0, None)
+}
+
+#[cfg(not(unix))]
+pub async fn develop(
+    _: u16,
+    _: Option<&str>,
+    _: Option<&str>,
+) -> Result<i32> {
+    serve(0, None)
+}

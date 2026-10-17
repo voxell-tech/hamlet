@@ -45,6 +45,7 @@ root package, `hamlet`. The window's crates are:
 
 | Crate | What it is |
 |---|---|
+| `hamlet_cli` | The `hamlet` command: process management and terminal clients, without Bevy |
 | `hamlet_protocol_gen` | Generates Rust protocol types from `server/protocol.schema.json`; run with `cargo run -p hamlet_protocol_gen` |
 | `hamlet_protocol` | Checked-in protocol v0 types in `src/v0.rs`, with a test that catches schema drift |
 | `hamlet_client` | The client core: the connection, Outbox, received realm, waits and watched chats. Bevy app/ECS, no rendering |
@@ -110,7 +111,7 @@ The structure test checks that boundary and forbids value-import cycles.
 | `hand.ts`, `hand/` | Tools added by hand, manifest parsing and watching | `Hand`, `parseManifest`, `manifestFaultText`, `reservedNames` and `ManifestsDoc` |
 | `say.ts` | Dispatch of the chief's typed line | `say` returns a receipt or typed chief failure, or admits agent work without an immediate outcome |
 | `server.ts`, `server/` | Protocol request routing, reads, edits, envelopes and sign-in sessions | `serveHome`; `server/envelope.ts` correlates, renders and scrubs receipts and failures with `replyFor` and `faultFor` |
-| `cli.ts`, `cli/` | Serving, discovery, terminal clients, editor, sign-in and window launch | `main(argv, env, io)` returns an exit code on caller-owned streams; `server/bin/hamlet` invokes it |
+| `runtime.ts` | Server startup, published address and shutdown | `serve` opens the home and serves until signalled; `server/bin/hamlet-server` invokes it |
 | `protocol.ts` | Protocol v0 schemas, types and parsing | `parseClient`, `parseServer`, `checkEdit`, `protocolSchema` and the shared transcript `applyOp` |
 | `connection.ts` | Authenticated WebSocket transport and the connection defect path | `serve`, `connect` and `Client` |
 | `commands.ts` | The advertised command table and typed command parsing | `COMMANDS`, `readCommand` and `commandFailureText` |
@@ -118,22 +119,19 @@ The structure test checks that boundary and forbids value-import cycles.
 | `change.ts` | Bounded edit previews and text excerpts | `changeOf`, `changeBetween`, `linesOf` and Unicode `clip` |
 | `result.ts` | The shared success or failure shape | `Result`, `ok` and `err` |
 
-`cli/service.ts` owns bare start, stop and status through `serviceCommand`.
-It checks the published process and authenticates with the home's token,
-starts a detached server on a free port, and opens a detached window through
-`cli/window.ts`'s `launch`. `cli/process.ts`'s `startProcess` owns child streams
-and detached sessions. `cli/serving.ts`'s `serve` publishes the URL, process
-ID and ISO `started` time in `server.json`, and closes the server on SIGTERM.
-The background server appends output to the home's `server.log`.
+`crates/hamlet_cli/src/process.rs` owns bare start, stop, status, development
+builds and window launch. It checks the published process and authenticates
+with the home's token before reusing or stopping it. Detached servers append
+output to `<home>/server.log`; startup errors include a scrubbed log tail.
+`runtime.ts` publishes the Node process's URL, PID and ISO `started` time
+in `server.json`, and closes the server on SIGTERM. The home lock and agent
+shutdown remain server-owned.
 
-`cli/client.ts`'s `readServer` validates `ServerRecord` and returns a
-`DiscoveryFailure` for an unreadable record. `reachHome` supplies its token;
-`connectChief` authenticates, with an optional abort signal that releases
-the socket through `connection.ts`'s `connect`. `home/credentials.ts`'s
-`Credentials.readExisting` reads without creating a file, so failed starts
-can scrub log tails without changing credentials. `server/test/one-command.test.ts`
-checks the lifecycle with scratch homes and fake windows, and tracks every
-detached server for cleanup after each test.
+The CLI's `client.rs` owns its authenticated protocol connection; `chat.rs`
+streams conversations, and `terminal.rs` edits documents, signs in and
+queries models. These use `hamlet_protocol` without the window's Bevy core.
+`server/test/cli-support.ts` runs the Rust executable against real scratch
+servers; the CLI contract tests cover lifecycle, chat, editors and login.
 
 The record's operations live in `record/membership.ts`, `roads.ts` and
 `office.ts`; `document.ts` holds the records and stable identities,
@@ -206,7 +204,7 @@ repository root.
 | Membership, names, road or office invariants | `server/src/record.ts`, `record/membership.ts`, `record/names.ts`, `record/roads.ts`, `record/office.ts` |
 | Chief-facing failure wording and reply kinds | `server/src/server/envelope.ts` chooses the owner's renderer and scrubs the envelope |
 | Notes, skill readers or gifts | `server/src/house.ts`, `house/skills.ts`, `house/gifts.ts`, `house/trees.ts`; readers belong to `Home.houses` |
-| The server command or terminal clients | `server/src/cli.ts` (`main`), `cli/`; `server/bin/hamlet` is the executable |
+| The command or terminal clients | `crates/hamlet_cli/src/main.rs`, `process.rs`, `client.rs`, `chat.rs`, `terminal.rs`; Node startup is `server/src/runtime.ts` |
 | What needs the chief's approval | `server/src/gate.ts`, `gate/call.ts`, `gate/rule.ts`, `gate/standing.ts`; waits and queries in `oversight.ts` |
 | What an agent's commands may touch | `server/src/environment.ts` builds confinement; `sandbox.ts`, `sandbox/` run it; [`sandbox.md`](sandbox.md) describes the reach policy |
 | The folder a hamlet works on | `server/src/environment.ts`, `environment/work.ts`; the panel is `hamlet_ui/src/folder.rs` |
@@ -250,7 +248,7 @@ feature they are also watched: save a change and the running app takes it.
 
 ```sh
 cargo build --bin hamlet-app --features hot-reload
-HAMLET_HOME=/tmp/hamlet-try HAMLET_APP="$PWD/target/debug/hamlet-app" hamlet dev
+HAMLET_HOME=/tmp/hamlet-try HAMLET_APP="$PWD/target/debug/hamlet-app" cargo run -p hamlet_cli -- dev
 ```
 
 Three things do not follow a saved change: the `[generator]` section of
@@ -278,11 +276,12 @@ generated world, grown from the keyboard) open a window.
 Run the pair against a scratch home, never your own:
 
 ```sh
-HAMLET_HOME=/tmp/hamlet-try hamlet dev
+HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
 ```
 
-`npm link` in `server/` installs `hamlet`; use its `.nvmrc` Node version.
-An old Cargo-installed `hamlet` can shadow it on PATH. `hamlet dev` sets
+`npm ci --prefix server` installs the server's dependencies; use its
+`.nvmrc` Node version. `cargo install --path crates/hamlet_cli` optionally
+installs `hamlet` on PATH. `hamlet dev` sets
 `HAMLET_VIEW=<home>/window`; when opening a window yourself, set a scratch
 `HAMLET_VIEW` too. A server can outlive any number of windows; Ctrl-C in
 the `hamlet dev` terminal stops the server.
