@@ -1,7 +1,7 @@
 //! The world in the window: the 3D scene drawn into a dock panel, the
 //! sky's hour, and the mayor's state on the stage.
 
-use bevy::app::{App, PreUpdate, Update};
+use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::asset::{Assets, RenderAssetUsages};
 use bevy::camera::{
     Camera, ImageRenderTarget, NormalizedRenderTarget, RenderTarget,
@@ -16,7 +16,8 @@ use bevy::ecs::system::{
     Commands, Local, Query, Res, ResMut, Single,
 };
 use bevy::ecs::world::World;
-use bevy::image::Image;
+use bevy::image::{Image, ToExtents};
+use bevy::math::UVec2;
 use bevy::picking::pointer::PointerLocation;
 use bevy::render::render_resource::{
     TextureDimension, TextureFormat, TextureUsages,
@@ -24,7 +25,7 @@ use bevy::render::render_resource::{
 use bevy::state::condition::in_state;
 use bevy::state::state::{OnEnter, OnExit};
 use bevy::ui::widget::ViewportNode;
-use bevy::ui::{Display, Node, Overflow, px};
+use bevy::ui::{Display, Node, Overflow, UiSystems, px};
 use bevy::window::{PrimaryWindow, Window};
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_fynix::ViewExt;
@@ -86,6 +87,7 @@ pub(crate) fn plugin(app: &mut App) {
             .after(bevy::picking::pointer::PointerInput::receive)
             .before(bevy::picking::backend::ray::RayMap::repopulate),
     )
+    .add_systems(PostUpdate, cap_picture.after(UiSystems::PostLayout))
     .add_systems(OnEnter(WorldShown), draw)
     .add_systems(OnExit(WorldShown), rest);
 }
@@ -204,6 +206,32 @@ pub(crate) fn follow_scale(
             handle,
             scale_factor: scale,
         });
+    }
+}
+
+/// Keeps the world's picture no larger than the window. Bevy sizes it
+/// from the panel's layout, and a minimized window on Windows lays
+/// the panel out at a size far past what the GPU allows, which fails
+/// the bloom texture and every pass after it.
+pub(crate) fn cap_picture(
+    window: Single<&Window, With<PrimaryWindow>>,
+    target: Single<&RenderTarget, With<WorldCamera>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let Some(handle) = target.as_image() else {
+        return;
+    };
+    let Some(image) = images.get(handle) else {
+        return;
+    };
+    let most =
+        UVec2::new(window.physical_width(), window.physical_height())
+            .max(UVec2::ONE);
+    if image.size().cmpgt(most).any() {
+        let size = image.size().min(most);
+        if let Some(mut image) = images.get_mut(handle) {
+            image.resize(size.to_extents());
+        }
     }
 }
 
