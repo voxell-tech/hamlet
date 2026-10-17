@@ -4,7 +4,7 @@ Rebuild Hamlet's agent runtime as a server in TypeScript on pi-durable, with
 the window as its client. The concepts and rules stay, as
 [`docs/spec/`](../spec/README.md) states them; how agents are built changes.
 The decisions are [ADR 0001](../adr/0001-agents-run-on-a-server-built-on-pi.md)
-to [ADR 0007](../adr/0007-agents-push-through-a-git-proxy-in-the-server.md).
+to [ADR 0008](../adr/0008-agents-use-the-chiefs-own-git.md).
 
 The work happens on its own branch, and the window keeps working on `main`
 until the branch replaces the Rust runtime whole.
@@ -17,7 +17,6 @@ Window (Rust, Bevy)                        Server (TypeScript, Node)
   client core: the same components,  <ws>    Hamlet's extensions: prompt, tools, gate,
   filled from what the server sends            budget, society, votes, realm, library
                                              ExecutionEnv --> sandbox (bubblewrap, Seatbelt)
-                                             git proxy --> git host, with the chief's token
                                              credentials file (keys, logins, tokens)
 ```
 
@@ -27,12 +26,11 @@ A `server/` folder at the repository's root, its own package. Its parts:
 
 | Part | What it is |
 |---|---|
-| Home | One pi-durable storage per home (`openNodeSqliteStorage`), plus the files tools use: houses, the library's skills, tools added by hand, each hamlet's clone (ADR 0005) |
+| Home | One pi-durable storage per home (`openNodeSqliteStorage`), plus the files tools use: houses, the library's skills, tools added by hand (ADR 0005) |
 | Harness | `Harness.open` over the home, with pi-ai's models and the registry of Hamlet's extensions. `resume()` at start carries on interrupted work (S3) |
 | Extensions | One per concept, below |
 | Environment | Hamlet's `ExecutionEnv`, built per tool call from the conversation and its hamlet: runs commands and file operations under the ported sandbox policy (ADR 0003) |
-| Git proxy | Smart HTTP for the hamlet's one repository: checks the hamlet's credential, refuses deletions and tags, adds the chief's token (ADR 0007) |
-| Credentials | One file in the home, mode 0600, read into pi-ai's credential store; the git tokens beside them (S7) |
+| Credentials | One file in the home, mode 0600, with model credentials read into pi-ai's credential store (S7) |
 | Connection | One WebSocket, with a token (ADR 0004) |
 | CLI | `hamlet`, below (S13) |
 
@@ -48,7 +46,7 @@ home. One process holds the home's lock under the Rust app's socket name.
 | Path under the home | Holds |
 |---|---|
 | `home.sqlite` | pi-durable's storage: conversations, characters, the hamlet's record, oversight, spend, limits, settings and the catalogue |
-| `credentials.json` | The installation ID, connection token, model credentials and git tokens |
+| `credentials.json` | The installation ID, connection token and model credentials |
 | `models.json` | pi-ai's stored model lists |
 | `server.json` | The running server's URL and process ID, with no token |
 | `houses/<hamlet>/<number>/` | The agent's writable files: `NOTES.md`, `skills/` and `inbox/` |
@@ -60,9 +58,9 @@ with house `houses/home/0/`; `mayor` addresses the office it holds. Character
 and conversations are in storage, not writable files in the house.
 
 `credentials.json` has mode 0600 and is replaced whole through a temporary
-file and a rename. It holds `installationId`, `connection: {token}`,
-`models: {provider: credential}` and `git: {name: token}`. pi-ai receives no
-ambient credentials; `HAMLET_API_KEY` is held in memory only. ChatGPT uses
+file and a rename. It holds `installationId`, `connection: {token}` and
+`models: {provider: credential}`. pi-ai receives no ambient credentials;
+`HAMLET_API_KEY` is held in memory only. ChatGPT uses
 its own `chatgpt` provider and credential, beside an `openai` key, with
 Hamlet's installation ID and name. ChatGPT and OpenRouter are the offered
 sign-ins; other providers use keys.
@@ -106,17 +104,17 @@ replaces its realm view on whole states as well as applying changes.
 `hamlet edit limits --hamlet <id>` edits another hamlet's limits.
 See [`../society.md`](../society.md) for the society and realm's surface.
 
-The folder is a path on the server's machine, with earlier folders kept;
-the clone given by URL comes in step 6. Manual mode holds folder edits and
-commands, not edits of the agent's own house. Tools added by hand reach the
-paths their manifests grant, not the shell's paths. There is no
+The folder is the chief's own path on the machine, with earlier folders
+kept. Agents use the chief's own git and whatever credentials the machine
+has, which their commands can read (ADR 0008). Reaching a git host needs
+the network like any other command (C19, H11). Manual mode holds folder
+edits and commands, not edits of the agent's own house. Tools added by hand
+reach the paths their manifests grant, not the shell's paths. There is no
 `--insecure` mode yet.
 
 Agents may write git's files in the chief's own folder, including nested
 repositories' hooks and config. The chief accepts that these may later run
-under the chief's own git. In step 6 the folder becomes a clone Hamlet
-keeps (S9): the chief never runs git there, and Hamlet runs its own git with
-hooks off, so these files need no guard.
+under the chief's own git. This acceptance is permanent (ADR 0008).
 
 `hamlet dev` chooses its home from `--home`, then `HAMLET_HOME`, then a
 per-user temporary folder kept between runs. It refuses `~/.hamlet` and
@@ -404,9 +402,9 @@ and tool-call arguments unscrubbed in pi's storage; C32 is not yet met.
 
 ## Order of work
 
-1. **The spike. Done.** The eight offline proofs below establish pi-durable's
-   request hooks, durable waits and questions, sandbox interface, git bridge
-   and push checks, and safe record changes with result markers.
+1. **The spike. Done.** The kept offline proofs below establish pi-durable's
+   request hooks, durable waits and questions, sandbox interface, and safe
+   record changes with result markers.
 2. **The mayor alone. Done.** One home with one hamlet and its mayor: chat,
    tools in the sandbox, notes and skills, queued reflection, manual and
    auto with the gate, spend and limits, models and logins. The npm terminal
@@ -425,7 +423,7 @@ and tool-call arguments unscrubbed in pi's storage; C32 is not yet met.
 5. **The realm. Done.** Several hamlets, roads and moves between them,
    founding and closing. The window shows towns and closed hamlets, and
    the terminal reaches every living agent across the realm.
-6. **The clone and the git proxy.**
+6. **The clone and the git proxy. Dropped** (ADR 0008).
 7. **Deleting the Rust runtime crates**, once the server does everything they
    did.
 
@@ -437,8 +435,9 @@ and the views read received state rather than the home.
 
 ## The spike
 
-The eight proofs are tests against pi-durable 1.2.0 with a fake provider,
-offline. They pass in `server/test/`.
+The kept proofs are tests against pi-durable 1.2.0 with a fake provider,
+offline. They pass in `server/test/`. Proofs 6 and 7 and their code are
+dropped (ADR 0008).
 
 | # | To prove | Fails if |
 |---|---|---|
@@ -447,8 +446,8 @@ offline. They pass in `server/test/`.
 | 3 | A `beforeTool` hook can wait minutes for a chief, and a restart while it waits brings the wait back, not an `interrupted` result | The wait cannot survive a restart in any form pi-durable allows |
 | 4 | A question between agents (H30) survives a restart of the server on either side | The asker or the asked loses its place |
 | 5 | Hamlet's `ExecutionEnv` under bubblewrap and Seatbelt passes pi-durable's `registerEnvConformance` | It cannot meet the interface |
-| 6 | A command in the sandbox with no network reaches the server's git proxy: a bridge under bubblewrap, one local port under Seatbelt | No way in without opening the network |
-| 7 | The git proxy reads a push's ref updates before the pack and refuses a deletion and a tag | It has to buffer whole packs, or cannot see the refs |
+| 6 | Dropped with its code: sandbox-to-proxy bridge (ADR 0008) | — |
+| 7 | Dropped with its code: git proxy ref checks (ADR 0008) | — |
 | 8 | A Hamlet document change commits with a marker of the call's result; a call cut off before pi keeps the result returns the marked result when it runs again (ADR 0005) | The change can happen twice, or the call loses its result |
 
 ## Risks
@@ -468,6 +467,7 @@ offline. They pass in `server/test/`.
 ## Left for later
 
 Not part of this proposal: where the server is deployed and where tools run
-then; a GitHub App for tokens; several chiefs on one home; several folders
+then; git on a remote machine, with a proxy or a short-lived GitHub App
+token inside it (ADR 0008); several chiefs on one home; several folders
 per hamlet; syncing a folder from the chief's machine; a window that starts
 its own server. Whether to import Rust homes is decided before step 7.

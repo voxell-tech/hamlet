@@ -43,10 +43,11 @@ reached through a symbolic link.
 
 ## Credentials
 
-**S7.** The server keeps every credential (model keys, subscription logins,
-git tokens) in one file of the home that only its owner can read, written
-whole on each change. No credential is ever in the home's storage, in a
-conversation (C32), or in a sandbox.
+**S7.** The server keeps its credentials (model keys, subscription logins,
+the connection token) in one file of the home that only its owner can read,
+written whole on each change. No credential the server keeps is ever in the
+home's storage, in a conversation (C32), or in a sandbox. The chief's own
+credentials on the machine are covered by S16.
 
 **S8.** A chief can reach any model provider pi-ai supports with an API key.
 A chief can also sign in with a subscription where the provider offers that
@@ -54,21 +55,13 @@ to open-source apps: "Sign in with ChatGPT". Hamlet signs in as itself, under
 its own name and an installation ID of its own, and the server refreshes the
 login on its own.
 
-## The folder and git
+## The clone and proxy
 
-**S9.** The folder a hamlet works on (C20) is a clone of a git repository,
-which a chief gives by its URL and the server keeps in the home.
+**S9. Dropped.** The folder is the chief's own, not a clone Hamlet keeps (ADR 0008).
 
-**S10.** Agents use ordinary git in the clone. Its remote is the server, and
-the sandbox holds only a credential of the hamlet's own, which nothing but
-the server accepts and which reaches only the hamlet's repository. The
-server refuses deleting branches and pushing tags, lets any other branch be
-pushed, and adds the chief's real token on the way to the git host. Force
-pushes and the protection of particular branches are for rules the chief
-sets on the git host. A chief's own push takes the same path.
+**S10. Dropped.** Agents use the chief's own git and credentials, not a proxy (ADR 0008).
 
-**S11.** An agent's commands reach the server's git endpoint even while the
-agent has no network.
+**S11. Dropped.** Reaching a git host needs the network (ADR 0008).
 
 ## Where tools run
 
@@ -96,3 +89,12 @@ The window's executable is `hamlet-app`; the app is called Hamlet.
 
 **S14.** No test contacts a model server or the internet, except those a
 developer asks for by name.
+
+## Git on the chief's machine
+
+**S16.** In the folder (C20), agents use the chief's own git and whatever
+credentials the chief's machine has, which their commands can read.
+Reaching a git host needs the network like any other command (C19, H11).
+Agents may write hooks and config, including in nested repositories; the
+chief accepts that these may run under the chief's own git later (C18,
+ADR 0008).

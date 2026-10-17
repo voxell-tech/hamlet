@@ -98,9 +98,8 @@ but never the rest of the home. The library and the home's tools folder
 are readable and never writable.
 
 In a folder of the chief's own, agents may write git's files, including
-hooks or config that the chief's git later runs. The chief accepts that
-risk until the folder is a clone Hamlet keeps (S9), where the chief never
-runs git and Hamlet runs its own git with hooks off.
+hooks or config that the chief's git later runs, including in nested
+repositories. The chief accepts that risk permanently (ADR 0008).
 
 A tool added by hand has the filesystem reach its manifest grants, rather
 than the shell's reach: its readable and writable paths, with its own

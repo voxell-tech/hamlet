@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR 0008
 ---
 
 # Agents push through a git proxy in the server
