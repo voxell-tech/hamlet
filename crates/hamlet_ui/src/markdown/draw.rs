@@ -1,5 +1,7 @@
 //! Markdown drawn: a view for each block.
 
+use std::sync::{Arc, Mutex};
+
 use bevy::color::Color;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
@@ -18,7 +20,7 @@ use bevy_fynix::views::{FrameProps, column, frame, label, row};
 use bevy_fynix::{EntityCursor, Signal, ViewExt, component, each};
 use hamlet_core::session::{Entry, Transcript, reply_in};
 
-use super::parse::{parse, plain};
+use super::parse::{Reading, hashed, parse, plain};
 use super::picture::picture_view;
 use super::{Align, Block, Kind, Marker, Row, Span, Style, Target};
 use crate::links::{Anchor, seek};
@@ -52,8 +54,11 @@ fn growing(world: &World, session: Entity, id: u64) -> bool {
 
 /// Takes the link off a path that `blocks` end with, which may be
 /// the start of a longer one.
-fn unsettle(blocks: &mut [Block]) {
-    let spans = match blocks.last_mut().map(|block| &mut block.kind) {
+fn unsettle(blocks: &mut [Arc<Block>]) {
+    let spans = match blocks
+        .last_mut()
+        .map(|block| &mut Arc::make_mut(block).kind)
+    {
         Some(Kind::Paragraph(spans) | Kind::Heading(_, spans)) => {
             spans
         }
@@ -74,36 +79,58 @@ fn unsettle(blocks: &mut [Block]) {
 
 /// The blocks of an entry of a transcript, parsed again only when
 /// that entry's own text has changed or has stopped growing.
-pub(crate) fn entry(session: Entity, id: u64) -> Signal<Vec<Block>> {
+pub(crate) fn entry(
+    session: Entity,
+    id: u64,
+) -> Signal<Vec<Arc<Block>>> {
     let mut moved = component::<Transcript, _>(session, |_| ());
-    let mut seen = None::<(String, bool)>;
+    let read = Arc::new(Mutex::new(Read::default()));
+    let shared = read.clone();
     Signal::new(
         move |world: &World| {
-            let mut blocks = words(world, session, id)
-                .map(parse)
-                .unwrap_or_default();
-            if growing(world, session, id) {
-                unsettle(&mut blocks);
-            }
-            blocks
+            let mut read = shared.lock().unwrap();
+            read.update(world, session, id);
+            read.blocks.clone()
         },
         move |world: &World| {
-            if !moved.changed(world) {
-                return false;
-            }
-            let now = words(world, session, id);
-            let grows = growing(world, session, id);
-            if seen
-                .as_ref()
-                .map(|(text, grew)| (text.as_str(), *grew))
-                == now.map(|text| (text, grows))
-            {
-                return false;
-            }
-            seen = now.map(|text| (text.to_string(), grows));
-            true
+            moved.changed(world)
+                && read.lock().unwrap().update(world, session, id)
         },
     )
+}
+
+/// What an entry's blocks were made from, and the blocks.
+#[derive(Default)]
+struct Read {
+    /// The length, the hash and the growth of the words read.
+    seen: Option<Option<(usize, u64, bool)>>,
+    reading: Reading,
+    blocks: Vec<Arc<Block>>,
+}
+
+impl Read {
+    /// True if the blocks are not those of the words as they are now.
+    fn update(
+        &mut self,
+        world: &World,
+        session: Entity,
+        id: u64,
+    ) -> bool {
+        let now = words(world, session, id);
+        let grows = growing(world, session, id);
+        let stamp = now.map(|text| (text.len(), hashed(text), grows));
+        if self.seen == Some(stamp) {
+            return false;
+        }
+        self.seen = Some(stamp);
+        self.blocks = now
+            .map(|text| self.reading.read(text))
+            .unwrap_or_default();
+        if grows {
+            unsettle(&mut self.blocks);
+        }
+        true
+    }
 }
 
 /// The quote bars and list levels drawn, however deep a block sits.
@@ -443,17 +470,30 @@ fn block_view(
     row(cells).gap(0.0).boxed()
 }
 
+/// A block that is equal to the one it is compared with when it is
+/// the same allocation, without looking inside.
+#[derive(Clone)]
+struct Same(Arc<Block>);
+
+impl PartialEq for Same {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0) || self.0 == other.0
+    }
+}
+
 /// A Markdown document, one view per block. A block that has not
 /// changed keeps its nodes while the document grows.
 pub(crate) fn document(
-    blocks: Signal<Vec<Block>>,
+    blocks: Signal<Vec<Arc<Block>>>,
     tone: Tone,
 ) -> impl View {
     each(
         blocks.map(|blocks| {
             blocks.into_iter().enumerate().collect::<Vec<_>>()
         }),
-        |placed: &(usize, Block)| placed.clone(),
+        |(at, block): &(usize, Arc<Block>)| {
+            (*at, Same(block.clone()))
+        },
         move |(at, block)| {
             let (at, block) = (*at, block.clone());
             AnyView::new(move |cx: &mut Cx| {
@@ -735,9 +775,11 @@ mod tests {
         grow(&mut app, session, " words");
         assert!(!old.changed(app.world()));
         assert!(new.changed(app.world()));
+        let blocks = new.get(app.world());
+        assert_eq!(blocks.len(), 1);
         assert_eq!(
-            new.get(app.world()),
-            [top(Kind::Paragraph(vec![plain("new words")]))]
+            *blocks[0],
+            top(Kind::Paragraph(vec![plain("new words")]))
         );
     }
 }
