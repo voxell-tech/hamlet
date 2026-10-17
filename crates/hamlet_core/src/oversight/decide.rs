@@ -3,6 +3,7 @@
 
 use bevy_ecs::prelude::*;
 use hamlet_home::limits::{Limits, Permission};
+use hamlet_rules::chief::asking as questions;
 use hamlet_rules::chief::rulings::{self, Choice, Party};
 use hamlet_rules::hamlet::{Hamlet, MAYOR};
 use serde_json::Value;
@@ -11,7 +12,7 @@ use tokio::sync::oneshot;
 use super::danger::{self, Danger, Refused, Standing, Verdict};
 use super::grants::{self, Grants};
 use super::instruction::{About, Carrying, Instruction, objections};
-use super::queue::{Kind, Waiting, raise};
+use super::queue::{Asks, Kind, Waiting, raise};
 use super::{Rules, limits};
 use crate::agent::Ruling;
 use crate::agents::{self, Citizen};
@@ -209,34 +210,40 @@ pub(super) fn decide(world: &mut World, mut call: ToolStarting) {
     let asking = limits.asking;
 
     if call.name == rulings::ASK_CHIEF {
-        let question = argument(&call, "question");
-        if question.is_empty() {
-            return deny(answer, "say what in `question`".into());
-        }
-        let Some(mut asked) = world.get_mut::<Asked>(call.session)
+        let asked = match questions::read(&call.args) {
+            Ok(asked) => asked,
+            Err(why) => return deny(answer, why),
+        };
+        let Some(mut times) = world.get_mut::<Asked>(call.session)
         else {
             return;
         };
-        if asked.questions >= asking.questions {
+        // A call counts once, however many questions it holds.
+        if times.questions >= asking.questions {
+            let times = match asking.questions {
+                1 => "once".to_string(),
+                n => format!("{n} times"),
+            };
             return deny(
                 answer,
                 format!(
-                    "you have asked the chief {} questions this \
-                     turn; go on with what you know",
-                    asking.questions
+                    "you have asked the chief {times} this turn; go \
+                     on with what you know"
                 ),
             );
         }
-        asked.questions += 1;
+        times.questions += 1;
         let item = raise(
             world,
             Kind::Question,
             &call.who,
-            question,
+            asked.about(),
             Some(call.session),
             vec![Choice::Reply, Choice::Dismiss],
         );
-        world.entity_mut(item).insert(Held(vec![answer]));
+        world
+            .entity_mut(item)
+            .insert((Held(vec![answer]), Asks(asked)));
         return;
     }
 

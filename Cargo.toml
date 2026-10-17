@@ -33,7 +33,9 @@ bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
 # bevy
 bevy_app = { version = "0.19", default-features = false, features = ["std"] }
 bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
-bevy = { version = "0.19", default-features = false, features = ["2d", "3d", "ui", "mesh_picking", "default_platform", "bevy_audio", "bevy_dev_tools", "debug", "serialize"] }
+# `system_clipboard` has copy and paste in a text box use the system's
+# clipboard, not one inside the app.
+bevy = { version = "0.19", default-features = false, features = ["2d", "3d", "ui", "mesh_picking", "default_platform", "system_clipboard", "bevy_audio", "bevy_dev_tools", "debug", "serialize"] }
 bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
 
 # other

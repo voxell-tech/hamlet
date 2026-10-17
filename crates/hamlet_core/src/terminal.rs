@@ -179,6 +179,12 @@ fn render(out: On<SessionOutput>, mut me: ResMut<Me>) {
             | AgentEvent::Tell { .. }
             | AgentEvent::Question { .. },
         ) => {}
+        Reply::Event(AgentEvent::Answered(said)) => {
+            eprintln!(
+                "\n  (you answered)\n  {}",
+                said.replace('\n', "\n  ")
+            )
+        }
         Reply::Event(AgentEvent::AgentCreated { name, purpose }) => {
             eprintln!("\n  (created agent {name}: {purpose})")
         }

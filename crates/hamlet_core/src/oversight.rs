@@ -20,8 +20,8 @@ use hamlet_home::limits::{Limits, Permission, Review};
 use hamlet_rules::chief::rulings::Hearing;
 use hamlet_rules::hamlet::Hamlet;
 
-pub use self::answer::Answer;
-use self::answer::settle;
+pub use self::answer::{Answer, Answered};
+use self::answer::{settle, settle_picks};
 use self::danger::Words;
 use self::decide::{Asked, decide};
 use self::grants::Grants;
@@ -30,7 +30,7 @@ pub use self::lapse::Veto;
 use self::lapse::{departed, forget, lapse, recall, stop};
 use self::ledger::Ledger;
 use self::queue::Raised;
-pub use self::queue::{Kind, Need, Needs, RaisedBy, Waiting};
+pub use self::queue::{Asks, Kind, Need, Needs, RaisedBy, Waiting};
 pub(crate) use self::typed::strip;
 use crate::agent::Event as AgentEvent;
 use crate::agents::{self, Citizen, Left};
@@ -131,6 +131,14 @@ impl Plugin for OversightPlugin {
                     let answer = answer.event().clone();
                     commands.queue(move |world: &mut World| {
                         settle(world, answer)
+                    });
+                },
+            )
+            .add_observer(
+                |answered: On<Answered>, mut commands: Commands| {
+                    let answered = answered.event().clone();
+                    commands.queue(move |world: &mut World| {
+                        settle_picks(world, answered)
                     });
                 },
             )

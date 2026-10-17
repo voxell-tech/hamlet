@@ -54,6 +54,8 @@ pub enum Event {
         from: String,
         to: String,
     },
+    /// The chief answered this agent's questions, in these words.
+    Answered(String),
     /// The mayor laid a road between two agents.
     RoadBuilt {
         a: String,

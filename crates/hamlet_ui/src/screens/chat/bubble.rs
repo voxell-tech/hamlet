@@ -178,6 +178,9 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
             {
                 (Words::Plain, text.as_str())
             }
+            Some(Entry::Answered(said)) => {
+                (Words::Plain, said.as_str())
+            }
             Some(Entry::Error(_)) => (Words::Fault, ""),
             _ => (Words::Markdown, ""),
         };
@@ -185,6 +188,7 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
         // The chief's own words in its own conversation with the
         // agent are what that conversation can be taken back to.
         let back = mine
+            && matches!(entry, Some(Entry::User { .. }))
             && words == Words::Plain
             && session == cx.world.resource::<Me>().session;
         let palette = &cx.theme().palette;
@@ -248,6 +252,9 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
                         move |t| match t.and_then(|t| t.get(id)) {
                             Some(Entry::User { text, .. }) => {
                                 format!("{text}{reserve}")
+                            }
+                            Some(Entry::Answered(said)) => {
+                                format!("{said}{reserve}")
                             }
                             _ => String::new(),
                         },

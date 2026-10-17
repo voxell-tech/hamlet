@@ -1,5 +1,6 @@
 //! The Needs You screen: everything that waits for the chief, oldest
-//! first and in full, with the answers each one takes.
+//! first and in full, with the answers each one takes. Questions are
+//! answered on their `asking` card.
 
 use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
@@ -19,7 +20,9 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_core::oversight::danger::Danger;
-use hamlet_core::oversight::{Answer, Kind, Need, Veto, Waiting};
+use hamlet_core::oversight::{
+    Answer, Asks, Kind, Need, Veto, Waiting,
+};
 use hamlet_core::session::{Entry, Transcript};
 use hamlet_core::tools::Change;
 use hamlet_rules::chief::rulings::Choice;
@@ -33,7 +36,7 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::platform::{DisplayText, MonoText, Wraps};
-use crate::{AnyView, Cx, View, chat};
+use crate::{AnyView, Cx, View, asking, chat};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
                      questions and faults come here, oldest first.";
@@ -85,7 +88,7 @@ impl Queue {
 /// waited.
 pub(crate) fn keep_queue(
     time: Res<Time>,
-    waiting: Query<(Entity, &Waiting)>,
+    waiting: Query<(Entity, &Waiting, Option<&Asks>)>,
     moved: Query<(), Changed<Waiting>>,
     mut answered: RemovedComponents<Waiting>,
     mut queue: ResMut<Queue>,
@@ -99,10 +102,12 @@ pub(crate) fn keep_queue(
     }
     *due = now + TICK;
     let mut rows = waiting.iter().collect::<Vec<_>>();
-    rows.sort_by_key(|(_, w)| w.order);
+    rows.sort_by_key(|(_, w, _)| w.order);
     let needs = rows
         .into_iter()
-        .map(|(entity, waiting)| Need::of(entity, waiting))
+        .map(|(entity, waiting, asks)| {
+            Need::of(entity, waiting, asks)
+        })
         .collect::<Vec<_>>();
     if queue.0 != needs {
         queue.0 = needs;
@@ -233,12 +238,29 @@ fn held(world: &World, need: &Need) -> Option<(Entity, u64, Change)> {
 fn strip(need: &Need) -> AnyView {
     let need = need.clone();
     AnyView::new(move |cx: &mut Cx| {
-        let about = match held(cx.world, &need) {
-            Some((session, id, change)) => {
+        let about = match (&need.questions, held(cx.world, &need)) {
+            (Some(asked), _) => {
+                asking::card(need.entity, asked.clone())
+            }
+            (None, Some((session, id, change))) => {
                 chat::change_view(session, id, change)
             }
             // The exact text, which a tag in the world may cut.
-            None => note(need.about.clone()).tagged(MonoText).boxed(),
+            (None, None) => {
+                note(need.about.clone()).tagged(MonoText).boxed()
+            }
+        };
+        // A form has its own answers.
+        let answers = match need.questions {
+            Some(_) => frame().boxed(),
+            None => row((
+                button(&need, 0),
+                button(&need, 1),
+                button(&need, 2),
+            ))
+            .gap(8.0)
+            .tagged(Wraps)
+            .boxed(),
         };
         let what = match need.kind {
             Kind::Approval(_) => "APPROVAL",
@@ -260,6 +282,11 @@ fn strip(need: &Need) -> AnyView {
             Kind::Fault => Tone::Critical,
             _ => Tone::Accent,
         };
+        // A form says its questions itself.
+        let line = match need.questions {
+            Some(_) => frame().boxed(),
+            None => label(need.line(80)).size(13.0).boxed(),
+        };
         cx.build(
             column((
                 label(head)
@@ -267,15 +294,9 @@ fn strip(need: &Need) -> AnyView {
                     .bold(true)
                     .tone(tone)
                     .tagged(DisplayText),
-                label(need.line(80)).size(13.0),
+                line,
                 about,
-                row((
-                    button(&need, 0),
-                    button(&need, 1),
-                    button(&need, 2),
-                ))
-                .gap(8.0)
-                .tagged(Wraps),
+                answers,
             ))
             .gap(6.0)
             .padding(UiRect::axes(px(14.0), px(10.0)))

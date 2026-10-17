@@ -2,6 +2,7 @@
 //! H20), to one hamlet in `decree`, and to the things that wait in
 //! `rulings`.
 
+pub mod asking;
 mod decree;
 pub mod rulings;
 

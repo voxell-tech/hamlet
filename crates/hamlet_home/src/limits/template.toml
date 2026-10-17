@@ -90,8 +90,8 @@ merged_notes = 6000
 # "remote" only when the model is served from another machine, where
 # the call runs beside the work; "always"; or "never". After
 # `refusals` refusals in one turn an agent's further requests are
-# refused without asking you. One turn may ask you `questions`
-# questions.
+# refused without asking you. One turn may ask you questions
+# `questions` times; each time may hold several questions.
 [asking]
 mayor_review = "remote"
 refusals = 3

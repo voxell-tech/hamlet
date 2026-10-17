@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use bevy_ecs::prelude::*;
 use hamlet_model::log;
+use hamlet_rules::chief::asking::Questions;
 use hamlet_rules::chief::rulings::{Choice, Party};
 use hamlet_rules::words::clip;
 
@@ -100,6 +101,10 @@ impl Waiting {
     }
 }
 
+/// The questions a [`Kind::Question`] asks, as the agent put them.
+#[derive(Component, Clone, Debug, PartialEq)]
+pub struct Asks(pub Questions);
+
 /// The agent that raised something that waits. Absent when no
 /// living agent goes by the name it was raised under.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
@@ -133,11 +138,18 @@ pub struct Need {
     pub waited: String,
     pub asked: u32,
     pub answers: Vec<Choice>,
+    /// The questions it asks, when it is a question.
+    pub questions: Option<Questions>,
 }
 
 impl Need {
-    /// `waiting` as a panel shows it now.
-    pub fn of(entity: Entity, waiting: &Waiting) -> Self {
+    /// `waiting` as a panel shows it now, with the questions it
+    /// `asks`.
+    pub fn of(
+        entity: Entity,
+        waiting: &Waiting,
+        asks: Option<&Asks>,
+    ) -> Self {
         Need {
             entity,
             kind: waiting.kind,
@@ -146,6 +158,7 @@ impl Need {
             waited: waited(waiting.waited()),
             asked: waiting.asked,
             answers: waiting.answers.clone(),
+            questions: asks.map(|asks| asks.0.clone()),
         }
     }
 

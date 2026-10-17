@@ -5,6 +5,7 @@ use std::path::Path;
 
 use bevy_ecs::prelude::*;
 use hamlet_model::log;
+use hamlet_rules::chief::{asking, rulings};
 use serde_json::Value;
 
 use super::Reply;
@@ -30,6 +31,9 @@ pub enum Entry {
     },
     Error(String),
     Notice(String),
+    /// The chief's answer to the questions asked with `ask_chief`,
+    /// each question quoted over its answer.
+    Answered(String),
     /// Words of an agent of the hamlet to the mayor.
     Agent {
         name: String,
@@ -299,6 +303,9 @@ impl Transcript {
                 failure,
                 ..
             }) => self.close_tool(*exit_code, failure.as_deref()),
+            Reply::Event(AgentEvent::Answered(said)) => {
+                self.push(Entry::Answered(said.clone()))
+            }
             Reply::Event(
                 AgentEvent::ModelCall(_) | AgentEvent::Tell { .. },
             ) => {}
@@ -479,11 +486,16 @@ impl Transcript {
                 Some("tool") => {
                     let code =
                         e["exit_code"].as_i64().unwrap_or(-1) as i32;
-                    let why = e["output"]
-                        .as_str()
-                        .filter(|_| code != 0)
-                        .map(failure);
+                    let output = e["output"].as_str();
+                    let why =
+                        output.filter(|_| code != 0).map(failure);
                     t.close_tool(code, why.as_deref());
+                    if e["name"] == rulings::ASK_CHIEF
+                        && let Some(said) =
+                            output.and_then(asking::said)
+                    {
+                        t.push_at(Entry::Answered(said.into()), at);
+                    }
                 }
                 Some("notice") => t.push_at(
                     Entry::Notice(
@@ -632,5 +644,50 @@ mod tests {
             failed.failure.as_deref(),
             Some("`old` is not in src/a.rs. Copy it.")
         );
+    }
+
+    #[test]
+    fn the_chiefs_answer_reads_the_same_live_and_from_the_log() {
+        let said = "> Paper or ebook?\nPaper";
+        let mut live = Transcript::default();
+        for reply in [
+            Reply::Event(AgentEvent::Tool {
+                name: "ask_chief".into(),
+                summary: "{}".into(),
+                change: None,
+            }),
+            Reply::Event(AgentEvent::ToolDone {
+                name: "ask_chief".into(),
+                exit_code: 0,
+                duration_ms: 1,
+                failure: None,
+            }),
+            Reply::Event(AgentEvent::Answered(said.into())),
+        ] {
+            live.apply(&reply);
+        }
+        let ask = json!({"type": "assistant", "message": {"content": "",
+            "tool_calls": [{"id": "q", "function": {
+                "name": "ask_chief", "arguments": "{}"}}]}});
+        let answered = |output: &str| {
+            Transcript::from_log(&[
+                ask.clone(),
+                json!({"type": "tool", "call_id": "q",
+                    "name": "ask_chief", "exit_code": 0,
+                    "output": output}),
+            ])
+        };
+        let read = answered(&format!("The chief answers:\n{said}"));
+        let entries = |t: &Transcript| {
+            t.items()
+                .iter()
+                .map(|i| i.entry.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(entries(&live), entries(&read));
+        assert_eq!(read.get(1), Some(&Entry::Answered(said.into())));
+        // Dismissed, the questions have no answer to show.
+        let dismissed = answered("The chief chose not to answer.");
+        assert_eq!(dismissed.items().len(), 1);
     }
 }

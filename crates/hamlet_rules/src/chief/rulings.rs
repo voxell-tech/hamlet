@@ -8,7 +8,7 @@ use crate::commands::Ruling;
 
 /// The tool an agent argues against its instruction with.
 pub const OBJECT: &str = "object";
-/// The tool an agent asks a chief a question with.
+/// The tool an agent asks a chief questions with.
 pub const ASK_CHIEF: &str = "ask_chief";
 
 /// The tool an agent objects to its instruction with.
@@ -35,16 +35,42 @@ pub fn review_definition() -> Value {
             "required": ["reason"]}}})
 }
 
-/// The tool an agent asks the chief a question with.
+/// The tool an agent asks the chief questions with.
+// TODO(pi): Pi's RPC extension UI offers only one `select` or `input`
+// dialog at a time, with options as bare strings. Under Pi this tool
+// becomes an extension that hands the whole `asking::Questions` to
+// Hamlet's queue, and not a chain of Pi dialogs.
 pub fn ask_chief_definition() -> Value {
+    use super::asking::{MOST_OPTIONS, MOST_QUESTIONS};
     json!({"type": "function", "function": {
         "name": ASK_CHIEF,
-        "description": "Ask the chief a question you cannot go on without. You wait until the \
-                        chief answers, so ask only when no agent and no file can tell you. To \
-                        argue against an instruction, use `object` and not this.",
+        "description": "Ask the chief questions you cannot go on without. You wait until the \
+                        chief answers, so ask only when no agent and no file can tell you, and \
+                        put every question you have in one call. Give a question options when \
+                        its likely answers are few; the chief can still answer in words unless \
+                        `text_input` is false. The chief sees the questions on a card of their \
+                        own, so do not also write them in your reply. The answer is the chief's \
+                        reply, each question quoted over its answer: take it as answered, and do \
+                        not ask it again. To argue against an instruction, use `object` and not \
+                        this.",
         "parameters": {"type": "object", "properties": {
-            "question": {"type": "string"}},
-            "required": ["question"]}}})
+            "message": {"type": "string",
+                        "description": "A short line shown over the questions."},
+            "questions": {"type": "array", "minItems": 1, "maxItems": MOST_QUESTIONS,
+                "items": {"type": "object", "properties": {
+                    "question": {"type": "string"},
+                    "description": {"type": "string",
+                                    "description": "What the chief needs to know to answer."},
+                    "options": {"type": "array", "maxItems": MOST_OPTIONS,
+                        "items": {"type": "object", "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": "string"}},
+                            "required": ["title"]}},
+                    "text_input": {"type": "boolean",
+                                   "description": "The chief may answer in words of their \
+                                                   own. Defaults to true."}},
+                    "required": ["question"]}}},
+            "required": ["questions"]}}})
 }
 
 /// The ones who may argue against an instruction.

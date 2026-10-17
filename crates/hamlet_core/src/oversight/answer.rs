@@ -1,6 +1,7 @@
 //! A chief's answer to something that waits, and what it lets go.
 
 use bevy_ecs::prelude::*;
+use hamlet_rules::chief::asking::{ANSWERS, Pick};
 use hamlet_rules::chief::rulings::Choice;
 
 use super::danger::{Danger, Refused};
@@ -8,7 +9,7 @@ use super::decide::{Asked, Held, Parked, Trusted, standing};
 use super::grants::{self, Grants};
 use super::instruction::{About, Instruction, objections};
 use super::limits;
-use super::queue::{Kind, Waiting, close, raiser};
+use super::queue::{Asks, Kind, Waiting, close, raiser};
 use crate::agent::Ruling;
 use crate::session::{self, Began, Stop};
 use crate::tools::Leave;
@@ -21,6 +22,33 @@ pub struct Answer {
     /// The reason or the reply.
     pub text: String,
     pub chief: String,
+}
+
+/// A chief's answer to each of the questions of something that
+/// waits, in their order.
+#[derive(EntityEvent, Clone, Debug)]
+pub struct Answered {
+    pub entity: Entity,
+    pub picks: Vec<Pick>,
+    pub chief: String,
+}
+
+/// Applies a chief's answers to questions. Answers that do not
+/// answer every question as it allows are ignored.
+pub(super) fn settle_picks(world: &mut World, answered: Answered) {
+    let Answered {
+        entity,
+        picks,
+        chief,
+    } = answered;
+    let Some(text) = world
+        .get::<Asks>(entity)
+        .and_then(|asks| asks.0.answer(&picks).ok())
+    else {
+        return;
+    };
+    release(world, entity, &Ruling::Say(text.clone()));
+    close(world, entity, Choice::Reply.word(), &text, Some(&chief));
 }
 
 /// Sends `ruling` to every call `entity` holds.
@@ -150,7 +178,7 @@ pub(super) fn settle(world: &mut World, answer: Answer) {
         (Kind::Question, Choice::Reply) => release(
             world,
             entity,
-            &Ruling::Say(format!("The chief answers: {text}")),
+            &Ruling::Say(format!("{ANSWERS} {text}")),
         ),
         (Kind::Question, Choice::Dismiss) => release(
             world,
