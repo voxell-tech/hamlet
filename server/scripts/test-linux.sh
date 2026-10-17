@@ -13,6 +13,9 @@ orbctl run -m "$machine" sh -c "
     rsync -a --delete --exclude node_modules '$repo/server/' ~/$copy/server/
     rsync -a '$repo/assets/' ~/$copy/assets/
     cd ~/$copy/server
+    export HAMLET_HOME=\$(mktemp -d)
+    export HAMLET_VIEW=\"\$HAMLET_HOME/window\"
+    trap 'rm -rf \"\$HAMLET_HOME\"' EXIT
     npm ci --silent --no-audit --no-fund
     npx vitest --run $*
 "

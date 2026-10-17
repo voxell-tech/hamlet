@@ -327,9 +327,16 @@ export type Connection = {
     close(): Promise<void>;
 };
 
-/** Opens a connection to the server at `url`, whose first message must be hello. */
-export async function connect(url: string): Promise<Connection> {
+/** Opens a connection whose first message must be hello; aborting releases its socket. */
+export async function connect(
+    url: string,
+    signal?: AbortSignal,
+): Promise<Connection> {
+    signal?.throwIfAborted();
     const socket = new WebSocket(url);
+    const abort = () => socket.terminate();
+    signal?.addEventListener("abort", abort, { once: true });
+    socket.once("close", () => signal?.removeEventListener("abort", abort));
     socket.on("error", () => {});
     await once(socket, "open");
     const arrived: (ServerMessage | Error)[] = [];

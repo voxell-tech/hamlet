@@ -46,7 +46,7 @@ export async function serve(
         // The address lands whole; the token stays in credentials.json.
         await writeFile(
             written,
-            `${JSON.stringify({ url: server.url, pid: process.pid })}\n`,
+            `${JSON.stringify({ url: server.url, pid: process.pid, started: new Date().toISOString() })}\n`,
         );
         await rename(written, home.layout.server);
     } catch (error) {

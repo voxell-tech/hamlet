@@ -34,6 +34,7 @@ export function launch(
         view?: string;
         env?: Readonly<NodeJS.ProcessEnv>;
         io?: CommandIO;
+        detached?: boolean;
     },
 ) {
     return startProcess(
@@ -48,5 +49,6 @@ export function launch(
                 : { HAMLET_VIEW: options.view }),
         },
         options.io,
+        options.detached ? {} : undefined,
     );
 }

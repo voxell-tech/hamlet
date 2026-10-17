@@ -35,8 +35,11 @@ export class Credentials implements CredentialStore {
         this.#apiKey = apiKey;
     }
 
-    /** The credentials in `file`, which is made when missing, beside `apiKey`, which is never written. */
-    static async open(file: string, apiKey?: string): Promise<Credentials> {
+    /** The credentials already in `file`, or null when it is absent; writes nothing. */
+    static async readExisting(
+        file: string,
+        apiKey?: string,
+    ): Promise<Credentials | null> {
         let text: string | undefined;
         try {
             text = await readFile(file, "utf8");
@@ -55,6 +58,13 @@ export class Credentials implements CredentialStore {
                 apiKey,
             );
         }
+        return null;
+    }
+
+    /** The credentials in `file`, which is made when missing, beside `apiKey`, which is never written. */
+    static async open(file: string, apiKey?: string): Promise<Credentials> {
+        const existing = await Credentials.readExisting(file, apiKey);
+        if (existing !== null) return existing;
         const credentials = new Credentials(
             file,
             {

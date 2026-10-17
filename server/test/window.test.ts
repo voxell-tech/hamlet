@@ -437,10 +437,10 @@ describe("the window commands", () => {
         expect(await next.ended).toBe(0);
     }, 15_000);
 
-    it("points to the full usage when no command is given", async () => {
-        const run = hamlet([], scratch());
+    it("points to the full usage for an unknown command", async () => {
+        const run = hamlet(["unknown"], scratch());
         expect(await run.ended).toBe(1);
-        expect(run.err()).toContain("choose a command from the usage below");
+        expect(run.err()).toContain("unknown argument `unknown`");
         usage(run.err());
     });
 

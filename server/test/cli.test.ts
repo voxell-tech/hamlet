@@ -128,6 +128,9 @@ describe("the hamlet command", () => {
         expect(JSON.parse(found)).toEqual({
             url: served.url,
             pid: served.child.pid,
+            started: expect.stringMatching(
+                /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/,
+            ),
         });
         const { token } = JSON.parse(
             readFileSync(join(home, "credentials.json"), "utf8"),

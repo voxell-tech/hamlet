@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { chat } from "./cli/chat.ts";
 import { connectChief, reachHome } from "./cli/client.ts";
 import type { CommandIO } from "./cli/io.ts";
+import { serviceCommand } from "./cli/service.ts";
 import { serve } from "./cli/serving.ts";
 import { DOCUMENTS, type TerminalCommand, terminal } from "./cli/terminal.ts";
 import { findApp, launch } from "./cli/window.ts";
@@ -13,7 +14,10 @@ import { HOME, MAYOR } from "./record.ts";
 /** The port a server listens on unless it is given another. */
 const PORT = 7313;
 
-const USAGE = `usage: hamlet server [--port <n>] [--faux <script.json>]
+const USAGE = `usage: hamlet
+       hamlet stop
+       hamlet status
+       hamlet server [--port <n>] [--faux <script.json>]
        hamlet chat [--to <agent|name@hamlet|mayor@hamlet>]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>]
        hamlet window
@@ -21,6 +25,9 @@ const USAGE = `usage: hamlet server [--port <n>] [--faux <script.json>]
        hamlet login <provider> [--key]
        hamlet models [try [model] | refresh]
 
+  (bare)   start or reuse the home's background server and open a window
+  stop     stop the home's server; wait for its agents to close in order
+  status   report the home's server, start time and server.log
   server   serve the home to its chief's clients; Ctrl-C stops
     --port   the port on 127.0.0.1 (${PORT}; 0 for any free one)
     --faux   answer with the responses of a script instead of a model
@@ -61,6 +68,9 @@ type Command =
     | ({ name: "dev"; home: string | undefined } & ServingCommand)
     | { name: "chat"; to: string }
     | { name: "window" }
+    | { name: "start" }
+    | { name: "stop" }
+    | { name: "status" }
     | TerminalCommand;
 
 /** Runs one command with caller-owned streams; importing this module starts no work. */
@@ -74,6 +84,12 @@ export async function main(
         if (command === undefined) io.stdout.write(`${USAGE}\n`);
         else if (command.name === "server")
             await serve(homeDir(env), { ...command, env, stderr: io.stderr });
+        else if (
+            command.name === "start" ||
+            command.name === "stop" ||
+            command.name === "status"
+        )
+            return await serviceCommand(command.name, homeDir(env), env, io);
         else if (command.name === "dev") await develop(command, env, io);
         else if (command.name === "chat") await talk(command.to, env, io);
         else if (command.name === "window") return await openWindow(env, io);
@@ -97,7 +113,8 @@ export async function main(
 function parse(args: readonly string[]): Command | undefined {
     if (args.some((arg) => arg === "-h" || arg === "--help")) return undefined;
     const [name, ...rest] = args;
-    if (name === "window") {
+    if (name === undefined) return { name: "start" };
+    if (name === "window" || name === "stop" || name === "status") {
         if (rest.length !== 0)
             throw new Error(`unknown argument \`${rest[0]}\`\n\n${USAGE}`);
         return { name };
@@ -143,11 +160,7 @@ function parse(args: readonly string[]): Command | undefined {
         };
     }
     if (name !== "server" && name !== "dev" && name !== "chat") {
-        throw new Error(
-            name === undefined
-                ? `choose a command from the usage below\n\n${USAGE}`
-                : `unknown argument \`${name}\`\n\n${USAGE}`,
-        );
+        throw new Error(`unknown argument \`${name}\`\n\n${USAGE}`);
     }
     const takes: { readonly [flag: string]: string } = FLAGS[name];
     const given = new Map<string, string>();
