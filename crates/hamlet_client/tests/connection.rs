@@ -153,19 +153,23 @@ async fn send(
 }
 
 async fn window_closed(socket: &mut WebSocketStream<TcpStream>) {
-    let frame =
-        tokio::time::timeout(Duration::from_secs(5), socket.next())
-            .await
-            .expect(
-                "Closing the window left its connection running.",
-            );
-    assert!(
-        matches!(
-            frame,
-            None | Some(Err(_)) | Some(Ok(Message::Close(_)))
-        ),
-        "Closing the window sent a request: {frame:?}"
-    );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match socket.next().await {
+                // Heartbeats can already be in flight when the window
+                // closes.
+                Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+                None | Some(Err(_)) | Some(Ok(Message::Close(_))) => {
+                    break;
+                }
+                frame => panic!(
+                    "Closing the window sent a request: {frame:?}"
+                ),
+            }
+        }
+    })
+    .await
+    .expect("Closing the window left its connection running.");
 }
 
 fn say(app: &mut App, text: &str) -> String {
