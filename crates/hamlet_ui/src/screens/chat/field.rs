@@ -1,5 +1,6 @@
 //! The field a message is typed in: its placeholder, and Escape.
 
+use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
@@ -13,6 +14,7 @@ use bevy::text::EditableText;
 use bevy::ui::Node;
 
 use super::{ChatField, Draft};
+use crate::fields::Resized;
 use crate::platform::show;
 
 /// The editable text inside the field.
@@ -56,6 +58,7 @@ const MOST_LINES: usize = 8;
 pub fn grow(
     root: Query<&Children, With<ChatField>>,
     mut texts: Query<&mut EditableText>,
+    mut resized: ResMut<Resized>,
 ) {
     let inputs = root
         .iter()
@@ -73,6 +76,7 @@ pub fn grow(
         let want = (lines > 1).then_some(lines as f32);
         if text.visible_lines != want {
             text.visible_lines = want;
+            resized.set_changed();
         }
     }
 }

@@ -79,6 +79,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Unfolded>()
         .init_resource::<Lines>()
         .init_resource::<Reach>()
+        .init_resource::<crate::fields::Resized>()
         .add_observer(keep_typed)
         .add_observer(decreed)
         .add_observer(told)
