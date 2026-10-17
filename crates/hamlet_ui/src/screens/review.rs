@@ -534,7 +534,10 @@ fn files() -> AnyView {
         })
     })
     .within(
-        bare().width(px(230.0)).min_width(px(100.0)).fills_height(),
+        bare()
+            .width(px(230.0))
+            .min_width(px(100.0))
+            .min_height(px(0.0)),
     )
     .boxed()
 }
@@ -620,7 +623,7 @@ pub fn screen() -> impl crate::View {
                 })
             },
         )
-        .within(bare().fills_width().fills_height());
+        .within(bare().width(px(0.0)).fills_width().fills_height());
         cx.build(
             column((
                 controls(),
@@ -636,9 +639,125 @@ pub fn screen() -> impl crate::View {
 
 #[cfg(test)]
 mod tests {
+    use bevy::asset::AssetPlugin;
+    use bevy::camera::{ComputedCameraValues, RenderTargetInfo};
+    use bevy::input::InputPlugin;
+    use bevy::text::TextPlugin;
+    use bevy::time::TimePlugin;
     use bevy_fynix::dock::{DockAreaStyle, DockLeaf};
+    use bevy_fynix::{FynixPlugin, mount};
+    use hamlet_assets::Tuning;
+    use hamlet_rules::review::Line;
 
     use super::*;
+    use crate::theme::{self, HamletTheme};
+
+    #[test]
+    fn changing_files_keeps_the_review_columns_and_controls_in_place()
+    {
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
+            TimePlugin,
+            AssetPlugin::default(),
+            InputPlugin,
+            bevy::picking::PickingPlugin,
+            bevy::picking::InteractionPlugin,
+            bevy::input_focus::InputDispatchPlugin,
+            bevy::image::ImagePlugin::default(),
+            TextPlugin,
+            bevy::ui::UiPlugin,
+            FynixPlugin::<HamletTheme>::default(),
+            diff::plugin,
+        ));
+        app.init_asset::<TextureAtlasLayout>();
+        theme::insert_theme(app.world_mut(), HamletTheme::designed());
+        app.insert_resource(State {
+            generation: 1,
+            source: 2,
+            ..default()
+        });
+        app.world_mut().spawn((
+            Camera2d,
+            Camera {
+                computed: ComputedCameraValues {
+                    target_info: Some(RenderTargetInfo {
+                        physical_size: UVec2::new(900, 700),
+                        scale_factor: 1.0,
+                    }),
+                    ..default()
+                },
+                ..default()
+            },
+        ));
+        mount::<HamletTheme>(
+            app.world_mut(),
+            column((screen(),)).width(px(900.0)).height(px(700.0)),
+        );
+        let mut positions = Vec::new();
+        for (layout, width, lines) in [
+            (Layout::Unified, 20, 5),
+            (Layout::Unified, 200, 5),
+            (Layout::Unified, 20, 1_000),
+            (Layout::Split, 200, 5),
+            (Layout::Split, 20, 5),
+        ] {
+            let diff = Diff {
+                lines: (1..=lines)
+                    .map(|new| Line {
+                        old: None,
+                        new: Some(new),
+                        mark: Mark::Add,
+                        text: "x".repeat(width),
+                        no_newline: false,
+                    })
+                    .collect(),
+                ..default()
+            };
+            let mut state = app.world_mut().resource_mut::<State>();
+            state.diff = Some((diff, Highlighting::default()));
+            state.layout = layout;
+            state.displayed += 1;
+            for _ in 0..10 {
+                app.update();
+            }
+            let world = app.world_mut();
+            let mut texts = world.query::<(
+                &Text,
+                &ComputedNode,
+                &UiGlobalTransform,
+            )>();
+            let mut position = |text: &str| {
+                let (_, node, transform) = texts
+                    .iter(world)
+                    .find(|(t, _, _)| t.0 == text)
+                    .unwrap();
+                transform.translation - node.size() / 2.0
+            };
+            let content = position(if layout == Layout::Unified {
+                "Line numbers: old / new"
+            } else {
+                "Old on the left, new on the right"
+            });
+            assert_eq!(
+                content.x - position("0 FILES").x,
+                230.0 + 12.0,
+                "only the diff should grow into the available width"
+            );
+            positions.push((
+                position("BASE"),
+                position("TARGET"),
+                content,
+            ));
+        }
+        for position in &positions[1..] {
+            assert_eq!(
+                positions[0], *position,
+                "source must scroll without moving the file list or \
+                 squeezing controls"
+            );
+        }
+    }
 
     #[test]
     fn diff_opens_once_when_world_and_agent_tabs_are_closed() {
