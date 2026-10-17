@@ -173,8 +173,9 @@ type Listed = Result<(Vec<Asset>, Option<Vec<Asset>>), Why>;
 /// An asset's file, read, by its id.
 type Fetched = (String, File);
 
-/// A purchase's progress, by asset id.
-type Dealt = (String, Deal);
+/// A purchase's progress, by asset id. A type of its own: the
+/// market's purchases are told of in a `Rounds` of their own too.
+struct Dealt(String, Deal);
 
 /// Reads what is worn, and asks the stall for its shelves.
 fn open(world: &mut World) {
@@ -453,7 +454,7 @@ fn buy(
     let client = market.client();
     let tell = rounds.begin();
     let task = tokio.0.spawn(async move {
-        tell((id.clone(), pay(&client, &id, &tell).await));
+        tell(Dealt(id.clone(), pay(&client, &id, &tell).await));
     });
     wardrobe.paying_task = Some(task.abort_handle());
 }
@@ -483,7 +484,7 @@ async fn pay(
         );
     };
     let _ = browse(&url);
-    tell((id.to_string(), Deal::Paying(url)));
+    tell(Dealt(id.to_string(), Deal::Paying(url)));
     let until = tokio::time::Instant::now() + PAYMENT_PATIENCE;
     while tokio::time::Instant::now() < until {
         tokio::time::sleep(PAYMENT_POLL).await;
@@ -512,7 +513,7 @@ fn dealt(
     mut wardrobe: ResMut<Wardrobe>,
     mut commands: Commands,
 ) {
-    while let Some((id, deal)) = rounds.next() {
+    while let Some(Dealt(id, deal)) = rounds.next() {
         if matches!(deal, Deal::Done(_)) {
             commands.trigger(AskWardrobe);
         }
@@ -566,7 +567,11 @@ mod tests {
                     .next()
                     .unwrap_or_default()
                     .to_string();
-                let body = if line.starts_with("GET /v1/me/assets") {
+                let body = if line
+                    .starts_with("POST /v1/assets/ember/purchase")
+                {
+                    json!({"owned": true}).to_string()
+                } else if line.starts_with("GET /v1/me/assets") {
                     json!({"items": [asset("sakura", "skin", true)]})
                         .to_string()
                 } else if line
@@ -680,5 +685,16 @@ mod tests {
             })
             .count();
         assert_eq!(on_disk, 0);
+
+        // A free one claimed is told of here, where the market's own
+        // purchases are not.
+        app.world_mut().trigger(BuyAsset("ember".into()));
+        until(&mut app, "the claim to go through", |app| {
+            matches!(
+                &app.world().resource::<Wardrobe>().deal,
+                Some((id, Deal::Done(_))) if id == "ember"
+            )
+        });
+        assert!(app.world().resource::<Market>().deal.is_none());
     }
 }
