@@ -176,8 +176,13 @@ pub(super) fn setup(world: &mut World) {
         world.insert_resource(inspector::Section::History);
         past_sessions(world, scene == Scene::Reading);
     }
-    if matches!(scene, Scene::Overview | Scene::Hamlet | Scene::Rules)
-    {
+    if matches!(
+        scene,
+        Scene::Overview
+            | Scene::Hamlet
+            | Scene::HamletGit
+            | Scene::Rules
+    ) {
         let places = [
             ("home", "Pear Tree Hollow", "founder", 3),
             ("mill", "mill", "miller", 2),
@@ -187,7 +192,9 @@ pub(super) fn setup(world: &mut World) {
         for (id, title, mayor, others) in places {
             // The first hamlet's page shows the folder it works on.
             let home = match (scene, id) {
-                (Scene::Hamlet, "home") => working_home(),
+                (Scene::Hamlet | Scene::HamletGit, "home") => {
+                    working_home(scene == Scene::HamletGit)
+                }
                 _ => std::path::PathBuf::new(),
             };
             let hamlet = world
@@ -229,11 +236,16 @@ pub(super) fn setup(world: &mut World) {
         }
         world.entity_mut(agent).insert(LivesIn(first.unwrap()));
         let selected = match scene {
-            Scene::Hamlet | Scene::Rules => first.map(Thing::Common),
+            Scene::Hamlet | Scene::HamletGit | Scene::Rules => {
+                first.map(Thing::Common)
+            }
             _ => None,
         };
         world.insert_resource(Selected(selected));
-        if scene == Scene::Overview {
+        if matches!(
+            scene,
+            Scene::Overview | Scene::Hamlet | Scene::HamletGit
+        ) {
             // An empty home: no hamlet was closed down.
             let root =
                 std::env::temp_dir().join("hamlet-gallery-overview");
@@ -311,8 +323,12 @@ pub(super) fn setup(world: &mut World) {
 }
 
 /// A home whose first hamlet works on a folder, after two others.
-fn working_home() -> std::path::PathBuf {
-    let root = std::env::temp_dir().join("hamlet-gallery-works");
+fn working_home(git: bool) -> std::path::PathBuf {
+    let root = std::env::temp_dir().join(if git {
+        "hamlet-gallery-git-works"
+    } else {
+        "hamlet-gallery-works"
+    });
     let _ = std::fs::remove_dir_all(&root);
     let home = root.join("home");
     std::fs::create_dir_all(&home).expect("a home");
@@ -320,6 +336,19 @@ fn working_home() -> std::path::PathBuf {
     for name in ["pear-press", "cider-ledger", "orchard-almanac"] {
         let folder = root.join("code").join(name);
         std::fs::create_dir_all(&folder).expect("a folder");
+        if git && name == "orchard-almanac" {
+            let output = hamlet_testing::git(&folder)
+                .args(["init", "-b", "main"])
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            std::fs::write(
+                folder.join("harvest.md"),
+                "# Harvest notes\n\nPick the pears before the first \
+                 frost.\n",
+            )
+            .unwrap();
+        }
         hamlet.work_on(Some(&folder), "chief").expect("a record");
     }
     home

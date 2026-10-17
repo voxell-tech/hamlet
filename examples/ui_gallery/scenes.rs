@@ -1,6 +1,7 @@
 //! Scenes of the panels and their controls held in fixed states.
 
 mod dock;
+mod review;
 mod sample;
 mod sheets;
 
@@ -75,7 +76,7 @@ impl Plugin for GalleryPlugin {
             .add_systems(Startup, (setup, chrome::draw_marks))
             .add_systems(
                 PostStartup,
-                (seed_dock, mount_scene).chain(),
+                (review::setup, seed_dock, mount_scene).chain(),
             )
             .add_systems(
                 Update,
@@ -132,6 +133,8 @@ pub enum Scene {
     Overview,
     /// One hamlet and everyone in it.
     Hamlet,
+    /// A hamlet working on a Git repository.
+    HamletGit,
     /// The running of that hamlet: its budget, models and rules.
     Rules,
     /// The Inspector's History page, with its list of sessions.
@@ -144,6 +147,12 @@ pub enum Scene {
     Settings,
     /// The Settings panel at its Charter page.
     Charter,
+    /// Working-tree changes in the Review panel.
+    Review,
+    /// Working-tree changes with old and new lines side by side.
+    ReviewSplit,
+    /// Review between two commits.
+    ReviewRevisions,
     /// Every icon, at each size it is drawn for.
     Icons,
     /// The panels with the HAMLET menu open.
