@@ -3610,6 +3610,8 @@ dependencies = [
 name = "hamlet_guest"
 version = "0.1.0"
 dependencies = [
+ "postcard",
+ "serde",
  "wit-bindgen 0.63.0",
 ]
 

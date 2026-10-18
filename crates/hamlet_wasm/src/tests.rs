@@ -5,6 +5,7 @@ mod panels;
 mod permissions;
 mod reads;
 mod reload;
+mod state;
 mod stopped;
 mod storage;
 mod tree;

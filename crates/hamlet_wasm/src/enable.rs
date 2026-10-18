@@ -6,6 +6,7 @@ use hamlet_sdk::capability::{Granted, Uninstalled};
 use hamlet_sdk::plugin::{Contributions, Enable, PluginInfo, Status};
 
 use crate::engine::Host;
+use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::start::{self, Setting, Source};
 
@@ -14,7 +15,14 @@ use crate::start::{self, Setting, Source};
 pub fn restart(
     enable: On<Enable>,
     plugins: Query<
-        (Entity, &PluginInfo, &Status, &Source, &Granted),
+        (
+            Entity,
+            &PluginInfo,
+            &Status,
+            &Source,
+            &Granted,
+            Option<&Instance>,
+        ),
         Without<Uninstalled>,
     >,
     host: Option<Res<Host>>,
@@ -30,7 +38,8 @@ pub fn restart(
         limits: &limits,
         agents: &agents,
     };
-    for (plugin, info, status, source, granted) in &plugins {
+    for (plugin, info, status, source, granted, instance) in &plugins
+    {
         if info.id != enable.0
             || !matches!(status, Status::Disabled | Status::Failed)
         {
@@ -46,6 +55,7 @@ pub fn restart(
             source,
             granted,
             &setting,
+            instance.map_or(&[], Instance::state),
             &mut commands,
         );
     }

@@ -40,7 +40,7 @@ pub(super) fn swap(
         panels,
         wants,
         logs,
-    } = start::build(&info, &source, &granted, setting)
+    } = start::build(&info, &source, &granted, setting, case.state)
         .map_err(|fault| fault.to_string())?;
     for declared in &panels {
         instance

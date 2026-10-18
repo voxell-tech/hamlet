@@ -163,7 +163,13 @@ fn spawn(
     let source = Source(file.clone());
     commands.entity(plugin).insert(source.clone());
     start::bring_up(
-        plugin, &info, &source, &granted, setting, commands,
+        plugin,
+        &info,
+        &source,
+        &granted,
+        setting,
+        &[],
+        commands,
     );
 }
 

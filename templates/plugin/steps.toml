@@ -29,5 +29,9 @@ expect = { panel = "main", text = "2 agents live here" }
 [[step]]
 click = { panel = "main", node = "look" }
 
+# The count is kept in the state the host holds for the plugin.
+[[step]]
+expect = { panel = "main", text = "Looked 1 times" }
+
 [[step]]
 render = { panel = "main", file = "allowed.png" }

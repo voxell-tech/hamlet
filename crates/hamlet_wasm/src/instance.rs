@@ -61,6 +61,17 @@ impl Instance {
         self
     }
 
+    /// This, with `state` as the blob the host holds for it.
+    pub fn holding(mut self, state: &[u8]) -> Self {
+        self.store.data_mut().state = state.to_vec();
+        self
+    }
+
+    /// The blob the host holds for the plugin.
+    pub fn state(&self) -> &[u8] {
+        &self.store.data().state
+    }
+
     /// Gives the store what its host functions answer from: the
     /// capabilities the plugin holds, and a copy of the agents when
     /// it may read them. Called before each call into the plugin, so

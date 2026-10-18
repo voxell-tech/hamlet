@@ -19,6 +19,7 @@ storage_bytes = 4194304
 storage_keys = 512
 storage_key_bytes = 64
 storage_value_bytes = 262144
+state_bytes = 65536
 
 [reload]
 poll_ms = 500

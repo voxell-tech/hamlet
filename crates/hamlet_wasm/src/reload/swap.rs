@@ -21,6 +21,7 @@ use hamlet_sdk::reload::Reload;
 use super::{Modified, Waiting, Watch, keep};
 use crate::engine::Host;
 use crate::install::{self, Body, Installed};
+use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::start::{Setting, Source};
 
@@ -44,6 +45,8 @@ struct Case<'a> {
     info: &'a PluginInfo,
     folder: &'a Path,
     status: Status,
+    /// The state the running version holds, which the new one gets.
+    state: &'a [u8],
     /// The choices the new version is built with.
     choices: Choices,
     /// The panels the running version has.
@@ -64,6 +67,7 @@ pub fn reload(
             &Choices,
             Option<&Source>,
             Option<&Contributions>,
+            Option<&Instance>,
         ),
         Without<Uninstalled>,
     >,
@@ -83,11 +87,19 @@ pub fn reload(
         agents: &agents,
     });
     for Modified(plugin) in modified.read() {
-        let Ok((info, watch, status, choices, source, held)) =
-            plugins.get(*plugin)
+        let Ok((
+            info,
+            watch,
+            status,
+            choices,
+            source,
+            held,
+            instance,
+        )) = plugins.get(*plugin)
         else {
             continue;
         };
+        let state = instance.map_or(&[][..], Instance::state);
         commands.entity(*plugin).remove::<Waiting>();
         let folder = watch.folder.as_path();
         let next =
@@ -96,7 +108,7 @@ pub fn reload(
             Ok(Next::Ask { installed, fresh }) => {
                 let case = case(
                     *plugin, info, folder, *status, choices, held,
-                    &panels,
+                    state, &panels,
                 );
                 ask(&case, &installed, fresh, &mut commands);
                 continue;
@@ -110,7 +122,8 @@ pub fn reload(
             }
         };
         let case = case(
-            *plugin, info, folder, *status, &kept, held, &panels,
+            *plugin, info, folder, *status, &kept, held, state,
+            &panels,
         );
         let version = installed.manifest.version.clone();
         let done = match &installed.body {
@@ -147,6 +160,7 @@ fn case<'a>(
     status: Status,
     choices: &Choices,
     held: Option<&Contributions>,
+    state: &'a [u8],
     panels: &'a Query<(Entity, &Panel)>,
 ) -> Case<'a> {
     Case {
@@ -154,6 +168,7 @@ fn case<'a>(
         info,
         folder,
         status,
+        state,
         choices: choices.clone(),
         held: panels
             .iter_many(held.into_iter().flat_map(|held| held.iter()))

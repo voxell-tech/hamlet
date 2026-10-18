@@ -48,6 +48,9 @@ pub struct State {
     pub(crate) agents: Vec<Agent>,
     /// The plugin's storage, once it has a folder.
     pub(crate) storage: Option<Storage>,
+    /// The blob the plugin keeps with the host.
+    pub(crate) state: Vec<u8>,
+    pub(crate) state_room: usize,
 }
 
 impl State {
@@ -64,6 +67,8 @@ impl State {
             wants: Vec::new(),
             agents: Vec::new(),
             storage: None,
+            state: Vec::new(),
+            state_room: limits.state_bytes,
         }
     }
 
@@ -119,6 +124,14 @@ impl Host for State {
 
     fn storage_keys(&mut self, prefix: String) -> Vec<String> {
         self.stored_keys(&prefix)
+    }
+
+    fn state_get(&mut self) -> Vec<u8> {
+        self.state.clone()
+    }
+
+    fn state_set(&mut self, state: Vec<u8>) -> Result<(), String> {
+        self.keep_state(state)
     }
 }
 

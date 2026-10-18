@@ -26,6 +26,10 @@ const COMMON: &str = r#"
     (func $storage_get (param i32 i32 i32)))
   (import "hamlet:plugin/host@0.3.0" "storage-set"
     (func $storage_set (param i32 i32 i32 i32 i32)))
+  (import "hamlet:plugin/host@0.3.0" "state-get"
+    (func $state_get (param i32)))
+  (import "hamlet:plugin/host@0.3.0" "state-set"
+    (func $state_set (param i32 i32 i32)))
   (memory (export "memory") 1)
   (global $heap (mut i32) (i32.const 4096))
   (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32)
@@ -196,6 +200,20 @@ pub fn keeping() -> String {
         (call $storage_set (i32.const 120) (i32.const 4)
           (i32.const 32) (i32.const 11) (i32.const 96))
         (i32.store (i32.const 24) (i32.const 0))))
+    (i32.const 0)))"#
+    )
+}
+
+/// Answers in `step` with a line as long as the state the host holds
+/// for it, then sets the state to the first `keep` bytes of "logged".
+pub fn remembering(keep: u32) -> String {
+    format!(
+        r#"(module {COMMON} {QUIET} {NO_VIEW}
+  (func (export "hamlet:plugin/plugin@0.3.0#step")
+    (param i32 i32) (result i32)
+    (call $state_get (i32.const 96))
+    (i32.store (i32.const 24) (i32.load (i32.const 100)))
+    (call $state_set (i32.const 64) (i32.const {keep}) (i32.const 96))
     (i32.const 0)))"#
     )
 }

@@ -51,6 +51,8 @@ shows and the view built from it are in `hamlet_sdk::tree`.
 - `storage-get(key)`, `storage-set(key, value)`, `storage-delete(key)` and
   `storage-keys(prefix)`, the plugin's own store (see Storage below). They
   need no capability.
+- `state-get()` and `state-set(state)`, a blob the host holds for the plugin
+  in memory (see State below).
 
 The plugin exports:
 
@@ -211,6 +213,8 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **Storage.** At most `storage_keys` keys, `storage_key_bytes` in a key,
   `storage_value_bytes` in a value and `storage_bytes` in all the values.
   A write over one returns an error to the plugin.
+- **State.** At most `state_bytes` in the blob. A `state-set` over it returns
+  an error.
 
 ## Storage
 
@@ -233,6 +237,16 @@ bad, the value is over `storage_value_bytes`, the store would pass
 
 The store lives in the plugin's folder, so it survives a restart, a reload
 and a switch off. It is the only thing in that folder a plugin writes.
+
+## State
+
+The host holds a blob for each plugin in memory, in the store of its running
+instance: `state-get` returns it and `state-set` replaces it, up to
+`state_bytes`. Building a new instance (a reload, or Enable after a switch off
+or a failure) hands it the blob of the one it replaces, before `entry` runs, so
+the state survives both. It is not written to disk and is empty after Hamlet
+restarts. A plugin that never calls `state-set` has an empty blob.
+`hamlet_guest::State<T>` keeps a value of the plugin's own type in it.
 
 A saved change to the file reaches `Limits` while the app runs, and the next
 call takes the new `call_ms`. The engine keeps the tick and the pool it was
@@ -310,8 +324,9 @@ as a dim line under the plugin's name on the Plugins page of Settings
 again at the next look. A plugin that could not start at all, at launch or
 after Enable, shows the reason in the same place.
 
-What the plugin keeps in memory is lost on a reload: a new instance starts from
-its `entry`. Its storage on disk carries across.
+A new instance starts from its `entry`, with the state the host held for the
+running one and the same storage, so what the plugin keeps in either carries
+across.
 
 A plugin folder added while Hamlet runs is found at the next start.
 
@@ -367,8 +382,8 @@ hamlet_guest::export!(Hello);
 ```
 
 `panel_view` has a default that returns an empty column, for a plugin with no
-panel. A plugin holds its state in statics of its own, since each call is a
-call into the same instance.
+panel. A plugin keeps its state with the host, in `State<T>` and in its
+storage ([`authoring.md`](authoring.md)), and holds none in statics.
 
 `guests/roster` is a plugin built with all of it: a panel with a heading, a
 Refresh button, a count of refreshes, a checkbox that shows a line of help,

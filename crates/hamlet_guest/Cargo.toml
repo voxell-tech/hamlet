@@ -10,3 +10,6 @@ workspace = true
 
 [dependencies]
 wit-bindgen = "0.63"
+serde.workspace = true
+# A compact binary format with no schema, small in the component.
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }

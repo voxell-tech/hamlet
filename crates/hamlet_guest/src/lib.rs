@@ -12,6 +12,7 @@ pub mod bindings {
     });
 }
 
+pub mod state;
 pub mod storage;
 pub mod ui;
 
@@ -21,6 +22,7 @@ pub use self::bindings::exports::hamlet::plugin::plugin::{
 pub use self::bindings::hamlet::plugin::host::{
     Agent, Level, RequestResult,
 };
+pub use self::state::State;
 
 /// What the host calls on a plugin.
 pub trait Plugin {

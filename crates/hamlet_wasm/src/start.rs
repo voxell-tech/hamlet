@@ -41,12 +41,14 @@ pub struct Built {
     pub logs: Vec<Logged>,
 }
 
-/// Instantiates the component in `source` and runs its `entry`.
+/// Instantiates the component in `source`, holding `state` for it,
+/// and runs its `entry`.
 pub fn build(
     info: &PluginInfo,
     source: &Source,
     granted: &Granted,
     setting: &Setting,
+    state: &[u8],
 ) -> Result<Built, Fault> {
     let Setting {
         host,
@@ -55,8 +57,10 @@ pub fn build(
     } = setting;
     let instance = Instance::from_file(&host.0, &source.0, limits)?;
     let folder = source.0.parent().unwrap_or(Path::new(""));
-    let mut instance =
-        instance.named(&info.id).stored(folder.join(DATA), limits);
+    let mut instance = instance
+        .named(&info.id)
+        .stored(folder.join(DATA), limits)
+        .holding(state);
     instance.see(granted, agents);
     let output = instance.entry(limits)?;
     Ok(Built {
@@ -67,19 +71,20 @@ pub fn build(
     })
 }
 
-/// Instantiates the component in `source` and runs its `entry`, for
-/// the plugin entity `plugin`. A plugin that does not start is
-/// marked failed.
+/// Instantiates the component in `source`, holding `state` for it,
+/// and runs its `entry`, for the plugin entity `plugin`. A plugin
+/// that does not start is marked failed.
 pub fn bring_up(
     plugin: Entity,
     info: &PluginInfo,
     source: &Source,
     granted: &Granted,
     setting: &Setting,
+    state: &[u8],
     commands: &mut Commands,
 ) {
     let folder = source.0.parent().unwrap_or(Path::new(""));
-    match build(info, source, granted, setting) {
+    match build(info, source, granted, setting, state) {
         Ok(Built {
             instance,
             panels: declared,

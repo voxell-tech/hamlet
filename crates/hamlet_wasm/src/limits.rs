@@ -52,6 +52,8 @@ pub struct Limits {
     pub storage_key_bytes: usize,
     /// The bytes of one storage value.
     pub storage_value_bytes: usize,
+    /// The bytes of the state the host holds for one plugin.
+    pub state_bytes: usize,
 }
 
 impl Limits {

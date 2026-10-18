@@ -3,6 +3,9 @@
 //! `.`, `_` and `-`, not starting with `.`, and the host caps the
 //! number of keys and the bytes of a value and of the whole store.
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+
 use crate::bindings::hamlet::plugin::host;
 
 /// The value of `key`, if it is there.
@@ -24,4 +27,20 @@ pub fn delete(key: &str) {
 /// The keys that start with `prefix`, in order.
 pub fn keys(prefix: &str) -> Vec<String> {
     host::storage_keys(prefix)
+}
+
+/// The value of `key` as a `T` written with [`save`], if it is there
+/// and can be read as one.
+pub fn load<T: DeserializeOwned>(key: &str) -> Option<T> {
+    postcard::from_bytes(&get(key)?).ok()
+}
+
+/// Sets `key` to `value`, written with `postcard`.
+pub fn save<T: Serialize>(
+    key: &str,
+    value: &T,
+) -> Result<(), String> {
+    let bytes =
+        postcard::to_allocvec(value).map_err(|e| e.to_string())?;
+    set(key, &bytes)
 }

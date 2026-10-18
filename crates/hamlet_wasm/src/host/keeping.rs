@@ -1,4 +1,5 @@
-//! What a plugin keeps on disk, in its storage. It needs no grant.
+//! What a plugin keeps: its storage on disk, and the state the host
+//! holds for it in memory. Neither needs a grant.
 
 use super::State;
 
@@ -28,5 +29,20 @@ impl State {
             .as_ref()
             .map(|storage| storage.keys(prefix))
             .unwrap_or_default()
+    }
+
+    pub(super) fn keep_state(
+        &mut self,
+        state: Vec<u8>,
+    ) -> Result<(), String> {
+        if state.len() > self.state_room {
+            return Err(format!(
+                "the state has {} bytes, the most is {}",
+                state.len(),
+                self.state_room
+            ));
+        }
+        self.state = state;
+        Ok(())
     }
 }

@@ -27,10 +27,44 @@ plugin is enough.
 | `examples/plugin_check` | The harness as a command |
 | `crates/hamlet_home/starters/write-a-plugin` | The starter skill that teaches an agent this page's steps |
 
-The template plugin has a panel, a button and one read behind a capability
-(`read.agents`). It asks to use the capability with `request`, shows a line for
-each answer (`granted`, `denied`, or still `pending`), and redraws when the
-chief answers. It keeps no state.
+The template plugin has a panel, a button that counts in its state and one read
+behind a capability (`read.agents`). It asks to use the capability with
+`request`, shows a line for each answer (`granted`, `denied`, or still
+`pending`), and redraws when the chief answers.
+
+## Keeping state and data
+
+A plugin's code has no variables that outlive a call, and needs none: the
+`Plugin` trait has no `self`, and each call into the plugin starts from what the
+host keeps for it. There are two places to keep something.
+
+- **State**, `hamlet_guest::State<T>`: a value of a type of the plugin's own,
+  held by the host in memory. It is kept across a reload and across a switch
+  off and on, and dropped when Hamlet restarts. Use it for what the panel
+  shows and the user chose, such as the selected row or a search text.
+- **Storage**, `hamlet_guest::storage`: keys and values on disk in the plugin's
+  folder, capped. It outlives Hamlet. Use it for what the user made, such as
+  notes. `storage::load::<T>(key)` and `storage::save(key, &value)` keep a
+  value of a type of the plugin's own; `get`, `set`, `delete` and `keys` keep
+  bytes.
+
+```rust
+#[derive(Default, Serialize, Deserialize)]
+struct Model { looks: u32 }
+
+let mut model = State::<Model>::load();
+model.looks += 1;
+State::save(&model)?;
+```
+
+Both are written with `postcard`, a compact format with no field names, so a
+type that changed shape cannot read what an older build wrote: `State::load`
+then gives the default, and `storage::load` gives `None`. Keep a stored value
+readable across versions by only adding fields at its end, or by giving it a
+version. A plugin needs `serde` with its `derive` feature beside `hamlet_guest`.
+Both are capped by `assets/wasm.toml` (see [`wasm.md`](wasm.md)); a save over a
+cap returns an error, so show or log it. Do not hold either in a `static`,
+`Cell`, `RefCell` or atomic.
 
 ## The loop
 
@@ -143,9 +177,9 @@ Settings, with a ROLL BACK button:
 WARN hamlet_wasm::reload::swap: plugin tide_table: reload failed: could not load: failed to parse WebAssembly module: magic header not detected: ...
 ```
 
-The reload, what it keeps and what it loses are in [`wasm.md`](wasm.md). A
-plugin has no storage yet, so it starts again from its `entry` and its state
-is lost.
+The reload, what it keeps and what it loses are in [`wasm.md`](wasm.md). The new
+version starts from its `entry` with the same state and the same storage, so a
+panel keeps what it showed.
 
 The log lines above are from a headless run (`--headless`) against a scratch
 home that already recorded the plugin as installed. The window was not part of
@@ -283,7 +317,9 @@ loads, and one that prints or reads the clock traps: log with
 - Calling a gated function and failing on its error instead of showing a line.
 - A manifest `interface` that is not the one the plugin was built for.
 - Looking at the agents after `set-agents` without a click or redraw.
-- Counting on state across a reload.
+- Counting on state across a restart of Hamlet. Only storage outlives it.
+- Changing the type of a state or a stored value and expecting the old bytes to
+  read.
 - A folder whose manifest `id` is not the folder's name.
 
 ## Building from an agent's sandbox

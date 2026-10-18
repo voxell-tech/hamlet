@@ -55,6 +55,14 @@ interface host {
 
   // The keys that start with `prefix`, in order.
   storage-keys: func(prefix: string) -> list<string>;
+
+  // A blob the host holds for the plugin in memory. It is kept
+  // across a reload and across a disable and enable, and is empty
+  // after the host restarts.
+  state-get: func() -> list<u8>;
+
+  // Replaces the blob. A blob over the cap is an error.
+  state-set: func(state: list<u8>) -> result<_, string>;
 }
 
 interface plugin {
