@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Context } from "@earendil-works/chord/context";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { Message } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import {
     createModels,
     type MutableModels,
@@ -13,31 +13,45 @@ import {
 import {
     type Conversation,
     type ConversationId,
-    type Cursor,
     configure,
     createRegistry,
     defineDoc,
     defineExtension,
     defineTool,
+    type EntryId,
     type EntryRecord,
+    GenerationTask,
     Harness,
+    type HarnessSettings,
     hook,
+    InboxDoc,
+    type InboxState,
     LiveDoc,
+    type LiveState,
     ProviderDoc,
     type Registry,
     section,
+    type TaskId,
     ToolTask,
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { Type } from "typebox";
-import type { Channel, ServerReply, ServerRequest } from "./channel.ts";
+import type {
+    Channel,
+    Outgoing,
+    ServerReply,
+    ServerRequest,
+} from "./channel.ts";
 import { fault } from "./faults.ts";
 import { FAUX, readScript, scriptedProvider } from "./faux.ts";
 import {
+    type Block,
     type Capability,
     type Item,
     LINK_VERSION,
+    type Mark,
     type ModelRef,
+    type Partial,
     type ToolSpec,
     type Usage,
 } from "./link.ts";
@@ -61,6 +75,13 @@ const CAPABILITIES: Capability[] = [
 
 /** How long a held wait sleeps before asking again when no answer is announced. */
 const ASK_AGAIN_MS = 2_000;
+
+/** How every conversation runs: tools one at a time, the server's retry waits, and no retry inside a stream. */
+const SETTINGS: HarnessSettings = {
+    toolExecution: "sequential",
+    retry: { maxRetries: 3, baseDelayMs: 1000, maxAgentDelayMs: 30_000 },
+    stream: { maxRetries: 0 },
+};
 
 /** The runtime id the server gave this store when it made it. */
 const RuntimeDoc = defineDoc<{ id: string }>({
@@ -114,6 +135,7 @@ export async function run(
         {
             models,
             registry,
+            settings: SETTINGS,
             onReport: (error) => {
                 process.stderr.write(`pi: ${String(error)}\n`);
             },
@@ -168,6 +190,13 @@ function refusedExit(reply: ServerReply): void {
 /** A bound conversation as this process knows it. */
 type Known = Bound & { key: string; sessionId: string };
 
+/** What a conversation was last told to be doing. */
+type Doing = {
+    live?: LiveState | undefined;
+    inbox?: InboxState | undefined;
+    told?: string;
+};
+
 /** The open harness serving the server's requests. */
 class Runtime {
     readonly #harness: Harness;
@@ -177,14 +206,14 @@ class Runtime {
     /** By the conversation's id as the link spells it. */
     readonly #known = new Map<string, Known>();
     readonly #bySession = new Map<string, Known>();
-    /** The last state of each conversation's run, as told to the server. */
-    readonly #running = new Map<string, boolean>();
+    /** What each conversation does, as last told to the server. */
+    readonly #doing = new Map<string, Doing>();
+    /** The generation task of each conversation's model call in flight, which a stopped call ends. */
+    readonly #generations = new Map<string, TaskId>();
     /** Each conversation's requests, handled in their order. */
     readonly #lines = new Map<string, Promise<void>>();
     /** Held waits by operation key, woken when the server says it was answered. */
     readonly #waits = new Map<string, () => void>();
-    /** Cursors of history pages this process handed out. */
-    readonly #cursors = new Map<string, Cursor>();
     readonly #gate: Gate;
     #providerFaux: Provider | undefined;
 
@@ -210,18 +239,13 @@ class Runtime {
                         words: "This model call belongs to no conversation the server bound.",
                     };
                 const key = randomUUID();
-                const live = await harness.snapshot(
-                    LiveDoc,
-                    known.conversation,
-                    BACKGROUND_CONTEXT,
-                );
-                const input = live?.run?.inputs[0];
+                const input = await this.#input(known.conversation);
                 const answer = await channel.request({
                     type: "attempt",
                     conversation: String(known.conversation),
                     key,
                     model,
-                    ...(input === undefined ? {} : { task: String(input) }),
+                    ...(input === undefined ? {} : { task: input }),
                 });
                 switch (answer.type) {
                     case "allowance":
@@ -236,7 +260,20 @@ class Runtime {
                                 : { apiKey: answer.credential.key }),
                         };
                     case "stopped":
-                        return { ok: false, words: answer.words };
+                        return {
+                            ok: false,
+                            words: answer.words,
+                            ...(answer.notice === undefined
+                                ? {}
+                                : {
+                                      stop: (signal) =>
+                                          this.#stopCall(
+                                              known,
+                                              answer.notice as Mark,
+                                              signal,
+                                          ),
+                                  }),
+                        };
                     default:
                         return { ok: false, words: unexpected(answer) };
                 }
@@ -293,6 +330,9 @@ class Runtime {
                     change.value.entry !== undefined
                 )
                     requests.set(change.value.entry, change.value.requestId);
+            const changed = new Set<string>();
+            // Told after what the conversation does, so the server reads a settled input against its live state.
+            const settled: Outgoing[] = [];
             for (const change of changes) {
                 if (change.type === "entry") {
                     const conversation = String(change.value.conversationId);
@@ -305,24 +345,53 @@ class Runtime {
                             requests.get(change.value.id),
                         ),
                     });
+                } else if (change.type === "submission") {
+                    const { value } = change;
+                    const conversation = String(value.conversationId);
+                    if (
+                        !this.#known.has(conversation) ||
+                        value.requestId === undefined ||
+                        (value.status !== "done" &&
+                            value.status !== "unanswered")
+                    )
+                        continue;
+                    settled.push({
+                        type: "settled",
+                        conversation,
+                        request: value.requestId,
+                        status: value.status,
+                        ...(value.status === "unanswered"
+                            ? {
+                                  reason: value.reason,
+                                  ...(value.detail === undefined
+                                      ? {}
+                                      : { detail: value.detail }),
+                              }
+                            : {}),
+                    });
                 } else if (
                     change.type === "document" &&
-                    change.record.kind === LiveDoc.definition.kind &&
+                    (change.record.kind === LiveDoc.definition.kind ||
+                        change.record.kind === InboxDoc.definition.kind) &&
                     change.conversationId !== undefined
                 ) {
                     const conversation = String(change.conversationId);
                     if (!this.#known.has(conversation)) continue;
-                    const running =
-                        change.value !== null && change.value.run !== undefined;
-                    if (this.#running.get(conversation) === running) continue;
-                    this.#running.set(conversation, running);
-                    this.#channel.send({
-                        type: "running",
-                        conversation,
-                        running,
-                    });
+                    const doing = this.#doing.get(conversation) ?? {};
+                    if (change.record.kind === LiveDoc.definition.kind)
+                        doing.live = (change.value ?? undefined) as
+                            | LiveState
+                            | undefined;
+                    else
+                        doing.inbox = (change.value ?? undefined) as
+                            | InboxState
+                            | undefined;
+                    this.#doing.set(conversation, doing);
+                    changed.add(conversation);
                 }
             }
+            for (const conversation of changed) this.#tell(conversation);
+            for (const message of settled) this.#channel.send(message);
         });
         this.#channel.serve(
             (request) => this.#serve(request),
@@ -330,6 +399,70 @@ class Runtime {
             () => process.exit(0),
         );
         this.#harness.resume();
+    }
+
+    /** Tells the server what `conversation` does, when that changed. */
+    #tell(conversation: string): void {
+        const doing = this.#doing.get(conversation);
+        if (doing === undefined) return;
+        const message = doing.live?.generation?.message as
+            | AssistantMessage
+            | undefined;
+        const partial: Partial | undefined =
+            message === undefined
+                ? undefined
+                : { at: message.timestamp, blocks: blocksOf(message) };
+        const live = {
+            type: "live" as const,
+            conversation,
+            running: doing.live?.run !== undefined,
+            pending:
+                doing.inbox?.items.filter((item) => item.mode !== "write")
+                    .length ?? 0,
+            ...(partial === undefined ? {} : { partial }),
+        };
+        const told = JSON.stringify(live);
+        if (doing.told === told) return;
+        doing.told = told;
+        this.#channel.send(live);
+    }
+
+    /** The runtime's submission id of the input whose turn `conversation` runs now. */
+    async #input(conversation: ConversationId): Promise<string | undefined> {
+        const live = await this.#harness.snapshot(
+            LiveDoc,
+            conversation,
+            BACKGROUND_CONTEXT,
+        );
+        const input = live?.run?.inputs[0];
+        return input === undefined ? undefined : String(input);
+    }
+
+    /**
+     * Ends the turn of a model call the server stopped: keeps `notice`, ends the call's generation as stopped, and
+     * resolves once the call's signal says so.
+     */
+    async #stopCall(
+        known: Known,
+        notice: Mark,
+        signal: AbortSignal | undefined,
+    ): Promise<void> {
+        const conversation = String(known.conversation);
+        await this.#harness.commit(async (tx) => {
+            await tx.appendEntry(known.conversation, {
+                kind: notice.kind,
+                data: notice.data as never,
+            });
+        }, BACKGROUND_CONTEXT);
+        const task = this.#generations.get(conversation);
+        if (task !== undefined)
+            void this.#harness
+                .abortTask(task, BACKGROUND_CONTEXT)
+                .catch(() => {});
+        if (signal === undefined || signal.aborted) return;
+        await new Promise<void>((resolve) =>
+            signal.addEventListener("abort", () => resolve(), { once: true }),
+        );
     }
 
     async #remember(
@@ -370,17 +503,26 @@ class Runtime {
                         spec.parameters,
                     ),
                     replay: spec.replay,
+                    // The server bounds a command's output to its end; pi keeps it as given.
+                    ...(spec.name === "bash"
+                        ? { outputLimits: { retain: "tail" as const } }
+                        : {}),
                     execute: async (args, api, context) => {
                         const key = String(api.taskId);
                         await fault("before_operation");
+                        const input = await this.#input(api.conversationId);
                         for (;;) {
-                            const answer = await channel.request({
-                                type: "operation",
-                                conversation: String(api.conversationId),
-                                key,
-                                tool: spec.name,
-                                arguments: args,
-                            });
+                            const answer = await abortable(
+                                channel.request({
+                                    type: "operation",
+                                    conversation: String(api.conversationId),
+                                    key,
+                                    ...(input === undefined ? {} : { input }),
+                                    tool: spec.name,
+                                    arguments: args,
+                                }),
+                                context,
+                            );
                             switch (answer.type) {
                                 case "result":
                                     return {
@@ -388,6 +530,18 @@ class Runtime {
                                             { type: "text", text: answer.text },
                                         ],
                                         isError: answer.error,
+                                        ...(answer.details === undefined
+                                            ? {}
+                                            : {
+                                                  details:
+                                                      answer.details as never,
+                                              }),
+                                        ...(answer.diagnostics === undefined
+                                            ? {}
+                                            : {
+                                                  diagnostics:
+                                                      answer.diagnostics,
+                                              }),
                                     };
                                 case "refusal":
                                     return {
@@ -433,14 +587,19 @@ class Runtime {
                     beforeTool: async (call, api, context) => {
                         if (!names.has(call.name)) return undefined;
                         const key = String(api.taskId);
+                        const input = await this.#input(api.conversationId);
                         for (;;) {
-                            const answer = await channel.request({
-                                type: "allow",
-                                conversation: String(api.conversationId),
-                                key,
-                                tool: call.name,
-                                arguments: call.arguments,
-                            });
+                            const answer = await abortable(
+                                channel.request({
+                                    type: "allow",
+                                    conversation: String(api.conversationId),
+                                    key,
+                                    ...(input === undefined ? {} : { input }),
+                                    tool: call.name,
+                                    arguments: call.arguments,
+                                }),
+                                context,
+                            );
                             switch (answer.type) {
                                 case "allowed":
                                     return undefined;
@@ -459,12 +618,65 @@ class Runtime {
                         return undefined;
                     },
                 }),
+                hook(GenerationTask, {
+                    beforeRequest: async (_request, api) => {
+                        this.#generations.set(
+                            String(api.conversationId),
+                            api.taskId,
+                        );
+                        return undefined;
+                    },
+                    // The server says whether a final answer stands; one that fails is kept with its words, and its
+                    // turn ends as aborted, as Hamlet's own empty-answer check ends it.
+                    onYield: async (message, api, context) => {
+                        const conversation = String(api.conversationId);
+                        if (!this.#known.has(conversation)) return undefined;
+                        const input = await this.#input(api.conversationId);
+                        const answer = await abortable(
+                            channel.request({
+                                type: "yield",
+                                conversation,
+                                ...(input === undefined ? {} : { input }),
+                                answer: assistantItem("yield", message),
+                            }),
+                            context,
+                        );
+                        if (answer.type !== "verdict")
+                            throw new Error(unexpected(answer));
+                        const { words, notice } = answer;
+                        if (words === undefined) return undefined;
+                        await this.#harness.commit(async (tx) => {
+                            const live = await tx.doc(
+                                LiveDoc,
+                                api.conversationId,
+                            );
+                            // Kept whole when the abort converts it, with its metered usage.
+                            if (live.generation !== undefined)
+                                live.generation.message = JSON.parse(
+                                    JSON.stringify({
+                                        ...message,
+                                        errorMessage: words,
+                                    }),
+                                ) as never;
+                            if (notice !== undefined)
+                                await tx.appendEntry(api.conversationId, {
+                                    kind: notice.kind,
+                                    data: notice.data as never,
+                                });
+                        }, context);
+                        void this.#harness
+                            .abortTask(api.taskId, BACKGROUND_CONTEXT)
+                            .catch(() => {});
+                        return untilAborted(context);
+                    },
+                }),
             ],
         });
     }
 
     /** Waits until the server says the wait `key` was answered, or a while has passed. */
     async #held(key: string, context: Context): Promise<void> {
+        context.abortSignal?.throwIfAborted();
         const woken = new Promise<void>((resolve) => {
             this.#waits.set(key, resolve);
         });
@@ -479,6 +691,7 @@ class Runtime {
             ).catch(() => {}),
         ]);
         this.#waits.delete(key);
+        context.abortSignal?.throwIfAborted();
     }
 
     /** Handles `request` after the earlier requests of its conversation. */
@@ -486,7 +699,7 @@ class Runtime {
         const line =
             request.type === "provider_request"
                 ? request.id
-                : request.type === "create"
+                : request.type === "create" || request.type === "fork"
                   ? `create:${request.key}`
                   : "conversation" in request
                     ? request.conversation
@@ -527,7 +740,18 @@ class Runtime {
                 });
                 return;
             }
-            case "submit": {
+            case "fork": {
+                const known = await this.#fork(request, re, context);
+                if (known === undefined) return;
+                this.#channel.send({
+                    type: "created",
+                    re,
+                    conversation: String(known.conversation),
+                });
+                return;
+            }
+            case "submit":
+            case "write": {
                 const conversation = await this.#conversation(
                     request.conversation,
                     re,
@@ -536,12 +760,33 @@ class Runtime {
                 if (conversation === undefined) return;
                 await fault("before_admit");
                 const submission = await conversation.submit(
-                    {
-                        type: "input",
-                        content: request.content,
-                        requestId: request.request,
-                        whenBusy: request.steer ? "steer" : "followUp",
-                    },
+                    request.type === "submit"
+                        ? {
+                              type: "input",
+                              content: request.content,
+                              requestId: request.request,
+                              whenBusy: request.steer ? "steer" : "followUp",
+                              ...(request.mark === undefined
+                                  ? {}
+                                  : {
+                                        entry: {
+                                            kind: request.mark.kind,
+                                            data: request.mark.data as never,
+                                        },
+                                    }),
+                          }
+                        : {
+                              type: "write",
+                              requestId: request.request,
+                              entry: {
+                                  kind: request.mark.kind,
+                                  data: request.mark.data as never,
+                                  // A write that changes the context runs a boundary, which places queued inputs.
+                                  ...(request.boundary === true
+                                      ? { edits: [] }
+                                      : {}),
+                              },
+                          },
                     context,
                 );
                 const record = await submission.status(context);
@@ -551,6 +796,14 @@ class Runtime {
                     re,
                     submission: String(submission.id),
                     status: record.status,
+                    ...(record.status === "unanswered"
+                        ? {
+                              reason: record.reason,
+                              ...(record.detail === undefined
+                                  ? {}
+                                  : { detail: record.detail }),
+                          }
+                        : {}),
                 });
                 return;
             }
@@ -572,35 +825,44 @@ class Runtime {
                     context,
                 );
                 if (conversation === undefined) return;
-                const cursor =
+                const before =
                     request.before === undefined
                         ? undefined
-                        : this.#cursors.get(request.before);
-                if (request.before !== undefined && cursor === undefined) {
+                        : Number(request.before);
+                if (before !== undefined && !Number.isSafeInteger(before)) {
                     this.#channel.send({
                         type: "error",
                         re,
                         code: "malformed",
-                        message: `No page starts before ${request.before} in this runtime.`,
+                        message: `${request.before} is not an entry of this runtime.`,
                     });
                     return;
                 }
+                // By entry ids, which every runtime of this store reads alike.
                 const page = await conversation.entries(
-                    { order: "descending" },
+                    {
+                        order: "descending",
+                        ...(before === undefined
+                            ? {}
+                            : { maxEntryId: (before - 1) as EntryId }),
+                    },
                     request.limit,
-                    cursor,
+                    undefined,
                     context,
                 );
                 const items = page.items.map((entry) => itemOf(entry));
-                const first = items.at(-1);
-                if (page.next !== undefined && first !== undefined)
-                    this.#cursors.set(first.entry, page.next);
                 this.#channel.send({
                     type: "page",
                     re,
                     items: items.reverse(),
                     earlier: page.next !== undefined,
                 });
+                return;
+            }
+            case "close": {
+                // Running work is signalled and waited on; what it did not finish carries on in the next runtime.
+                await this.#harness.close(context).catch(() => {});
+                process.exit(0);
                 return;
             }
             case "status": {
@@ -671,6 +933,56 @@ class Runtime {
         return this.#remember(key, bound, context);
     }
 
+    /** A copy of a bound conversation up to one of its entries, made once per key; it has a provider session of its own. */
+    async #fork(
+        request: Extract<ServerRequest, { type: "fork" }>,
+        re: string,
+        context: Context,
+    ): Promise<Known | undefined> {
+        const { key } = request;
+        const already = [...this.#known.values()].find(
+            (known) => known.key === key,
+        );
+        if (already !== undefined) return already;
+        const parent = this.#known.get(request.conversation);
+        const at = Number(request.at);
+        if (parent === undefined || !Number.isSafeInteger(at)) {
+            this.#channel.send({
+                type: "error",
+                re,
+                code: "unknown_conversation",
+                message: `No entry ${request.at} of a conversation ${request.conversation} in this runtime.`,
+            });
+            return undefined;
+        }
+        const bound = await this.#harness.commit(async (tx) => {
+            const bindings = await tx.doc(BindingsDoc);
+            const kept = bindings.byKey[key];
+            if (kept !== undefined) return { ...kept };
+            const record = await tx.forkConversation(
+                parent.conversation,
+                at as EntryId,
+                { ownership: { kind: "ownerless" } },
+            );
+            await configure(tx, record.id, {
+                model: {
+                    provider: parent.model.provider,
+                    modelId: parent.model.id,
+                },
+            });
+            await tx.doc(ProviderDoc, record.id);
+            const made: Bound = {
+                conversation: record.id,
+                agent: parent.agent,
+                errand: parent.errand,
+                model: parent.model,
+            };
+            bindings.byKey[key] = made;
+            return made;
+        }, context);
+        return this.#remember(key, bound, context);
+    }
+
     async #conversation(
         id: string,
         re: string,
@@ -698,19 +1010,119 @@ function unexpected(answer: ServerReply): string {
         : `The server answered with ${answer.type}.`;
 }
 
+/** Rejects with the abort's reason once `context` is aborted. */
+function untilAborted(context: Context): Promise<never> {
+    return new Promise((_resolve, reject) => {
+        const signal = context.abortSignal;
+        if (signal === undefined)
+            reject(new Error("The work cannot be stopped without its signal."));
+        else if (signal.aborted) reject(signal.reason);
+        else
+            signal.addEventListener("abort", () => reject(signal.reason), {
+                once: true,
+            });
+    });
+}
+
+/** `promise`, or the abort of `context` if that comes first. */
+function abortable<T>(promise: Promise<T>, context: Context): Promise<T> {
+    if (context.abortSignal === undefined) return promise;
+    const aborted = untilAborted(context);
+    aborted.catch(() => {});
+    return Promise.race([promise, aborted]);
+}
+
+/** Hamlet's kind and data of an entry, for one that is not pi's own. */
+function markOf(entry: EntryRecord): Mark | undefined {
+    if (entry.kind.startsWith("pi.")) return undefined;
+    const data = entry.data;
+    return {
+        kind: entry.kind,
+        data:
+            typeof data === "object" && data !== null && !Array.isArray(data)
+                ? { ...data }
+                : {},
+    };
+}
+
+/** The blocks of an answer, in its order. */
+function blocksOf(message: AssistantMessage): Block[] {
+    return message.content.flatMap((part): Block[] => {
+        switch (part.type) {
+            case "text":
+                return [{ type: "text", text: part.text }];
+            case "thinking":
+                return [{ type: "thinking", thinking: part.thinking }];
+            case "toolCall":
+                return [
+                    {
+                        type: "call",
+                        id: part.id,
+                        name: part.name,
+                        arguments: { ...part.arguments },
+                    },
+                ];
+            default:
+                return [];
+        }
+    });
+}
+
+/** An answer as the link shows it, under the entry id `entry`. */
+function assistantItem(entry: string, message: AssistantMessage): Item {
+    const { usage } = message;
+    return {
+        entry,
+        kind: "assistant",
+        at: message.timestamp,
+        text: message.content
+            .map((part) => (part.type === "text" ? part.text : ""))
+            .join(""),
+        blocks: blocksOf(message),
+        stop: message.stopReason,
+        ...(message.errorMessage === undefined
+            ? {}
+            : { failure: message.errorMessage }),
+        usage: {
+            input: usage.input,
+            output: usage.output,
+            cacheRead: usage.cacheRead,
+            cacheWrite: usage.cacheWrite,
+            cost: usage.cost.total,
+        },
+    };
+}
+
 /** A kept entry as the link shows it. */
 function itemOf(entry: EntryRecord, request?: string): Item {
     const id = String(entry.id);
+    const mark = markOf(entry);
+    const data = mark?.data;
+    const marked = {
+        ...(request === undefined ? {} : { request }),
+        ...(mark === undefined ? {} : { mark }),
+    };
     const messages: readonly Message[] = entry.model ?? [];
     const [message] = messages;
+    const at =
+        typeof data?.at === "number" && Number.isSafeInteger(data.at)
+            ? Math.max(0, data.at)
+            : (message?.timestamp ?? 0);
     if (message === undefined || messages.length > 1)
-        return { entry: id, kind: "other", text: "" };
+        return {
+            entry: id,
+            kind: entry.kind === "pi.compaction" ? "summary" : "other",
+            at,
+            ...marked,
+            text: "",
+        };
     switch (message.role) {
         case "user":
             return {
                 entry: id,
                 kind: "user",
-                ...(request === undefined ? {} : { request }),
+                at,
+                ...marked,
                 text:
                     typeof message.content === "string"
                         ? message.content
@@ -718,56 +1130,41 @@ function itemOf(entry: EntryRecord, request?: string): Item {
                               .map((part) =>
                                   part.type === "text" ? part.text : "",
                               )
-                              .join(""),
+                              .join("\n"),
             };
-        case "assistant": {
-            const text = message.content
-                .map((part) => (part.type === "text" ? part.text : ""))
-                .join("");
-            const thinking = message.content
-                .map((part) => (part.type === "thinking" ? part.thinking : ""))
-                .join("");
-            const calls = message.content.flatMap((part) =>
-                part.type === "toolCall"
-                    ? [
-                          {
-                              id: part.id,
-                              name: part.name,
-                              arguments: { ...part.arguments },
-                          },
-                      ]
-                    : [],
-            );
-            const { usage } = message;
-            return {
-                entry: id,
-                kind: "assistant",
-                text,
-                ...(thinking === "" ? {} : { thinking }),
-                ...(calls.length === 0 ? {} : { calls }),
-                stop: message.stopReason,
-                ...(message.errorMessage === undefined ? {} : { error: true }),
-                usage: {
-                    input: usage.input,
-                    output: usage.output,
-                    cacheRead: usage.cacheRead,
-                    cacheWrite: usage.cacheWrite,
-                    cost: usage.cost.total,
-                },
-            };
-        }
-        case "toolResult":
+        case "assistant":
+            return { ...assistantItem(id, message), ...marked };
+        case "toolResult": {
+            const details = message.details;
             return {
                 entry: id,
                 kind: "tool_result",
+                at,
+                ...marked,
                 text: message.content
                     .map((part) => (part.type === "text" ? part.text : ""))
-                    .join(""),
+                    .join("\n"),
                 call: message.toolCallId,
+                tool: message.toolName,
                 error: message.isError,
+                ...(message.durationMs === undefined
+                    ? {}
+                    : { ms: Math.max(0, Math.round(message.durationMs)) }),
+                ...(typeof details === "object" &&
+                details !== null &&
+                !Array.isArray(details)
+                    ? { details: { ...details } }
+                    : {}),
             };
+        }
         case "system":
-            return { entry: id, kind: "other", text: "" };
+            return {
+                entry: id,
+                kind: entry.kind === "pi.compaction" ? "summary" : "other",
+                at,
+                ...marked,
+                text: "",
+            };
         default: {
             const unhandled: never = message;
             throw new Error(`Unhandled message ${String(unhandled)}`);

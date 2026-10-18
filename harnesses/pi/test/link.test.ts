@@ -90,6 +90,9 @@ test("a runtime speaks only the link's messages from hello to an answer, and exi
             case "prompt":
                 send({ type: "sections", re, sections: [] });
                 break;
+            case "yield":
+                send({ type: "verdict", re });
+                break;
         }
         const item = field(message, "item");
         if (field(item, "kind") === "assistant" && field(item, "text") === "hi")

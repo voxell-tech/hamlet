@@ -18,8 +18,11 @@ type RequestType =
     | "provider_request"
     | "create"
     | "submit"
+    | "write"
+    | "fork"
     | "cancel"
     | "history"
+    | "close"
     | "status"
     | "answered";
 
@@ -111,8 +114,11 @@ function sort(
         case "provider_request":
         case "create":
         case "submit":
+        case "write":
+        case "fork":
         case "cancel":
         case "history":
+        case "close":
         case "status":
         case "answered":
             return { request: message };
@@ -126,6 +132,7 @@ function sort(
         case "stopped":
         case "charged":
         case "sections":
+        case "verdict":
         case "error":
             return { reply: message };
         default: {

@@ -121,6 +121,8 @@ impl Config {
 }
 
 /// Something that happened that the host may show or act on.
+// Each is moved to the host once, never kept in bulk.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Notice {
     Provider(link::ProviderResult),
@@ -827,6 +829,7 @@ impl Harnesses {
                             id,
                             re,
                             words,
+                            notice: None,
                         })
                     })
                     .await;
@@ -925,19 +928,32 @@ impl Harnesses {
                     },
                 )
             }
-            RuntimeMessage::Running(running) => {
+            RuntimeMessage::Live(live) => {
                 let runtime = &self.runtimes[index].id;
                 Ok(
-                    match store
-                        .bound(runtime, &running.conversation)?
-                    {
+                    match store.bound(runtime, &live.conversation)? {
                         Some(binding) => vec![Notice::Running {
                             binding: binding.id,
-                            running: running.running,
+                            running: live.running,
                         }],
                         None => Vec::new(),
                     },
                 )
+            }
+            RuntimeMessage::Settled(_) => Ok(Vec::new()),
+            RuntimeMessage::Yield(answer) => {
+                let re = answer.id;
+                self.send(index, |v, id| {
+                    ServerMessage::Verdict(link::Verdict {
+                        id,
+                        notice: None,
+                        re,
+                        v,
+                        words: None,
+                    })
+                })
+                .await;
+                Ok(Vec::new())
             }
             RuntimeMessage::Error(error) => {
                 if let Some(re) = &error.re
@@ -1087,6 +1103,7 @@ impl Harnesses {
                         ServerMessage::Submit(link::Submit {
                             content: owed.content,
                             conversation,
+                            mark: None,
                             id,
                             request: owed.request,
                             steer: owed.steer,
@@ -1156,6 +1173,8 @@ impl Harnesses {
             }
             answers::Answer::Result { text, error } => {
                 ServerMessage::Result(link::Result {
+                    details: None,
+                    diagnostics: None,
                     error,
                     id,
                     re,
@@ -1387,7 +1406,9 @@ fn id_of(message: &RuntimeMessage) -> String {
         RuntimeMessage::Usage(m) => m.id.clone(),
         RuntimeMessage::Prompt(m) => m.id.clone(),
         RuntimeMessage::Kept(m) => m.id.clone(),
-        RuntimeMessage::Running(m) => m.id.clone(),
+        RuntimeMessage::Live(m) => m.id.clone(),
+        RuntimeMessage::Settled(m) => m.id.clone(),
+        RuntimeMessage::Yield(m) => m.id.clone(),
         RuntimeMessage::Error(m) => m.id.clone(),
     }
 }

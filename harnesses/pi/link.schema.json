@@ -235,17 +235,15 @@
             },
             "additionalProperties": false
         },
-        "Call": {
+        "Mark": {
             "type": "object",
-            "required": ["id", "name", "arguments"],
+            "required": ["kind", "data"],
             "properties": {
-                "id": {
-                    "type": "string"
+                "kind": {
+                    "type": "string",
+                    "minLength": 1
                 },
-                "name": {
-                    "type": "string"
-                },
-                "arguments": {
+                "data": {
                     "type": "object",
                     "patternProperties": {
                         "^.*$": {}
@@ -254,43 +252,157 @@
             },
             "additionalProperties": false
         },
+        "Block": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "required": ["type", "text"],
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "text"
+                        },
+                        "text": {
+                            "type": "string"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "required": ["type", "thinking"],
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "thinking"
+                        },
+                        "thinking": {
+                            "type": "string"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "required": ["type", "id", "name", "arguments"],
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "call"
+                        },
+                        "id": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "arguments": {
+                            "type": "object",
+                            "patternProperties": {
+                                "^.*$": {}
+                            }
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            ]
+        },
         "Item": {
             "type": "object",
-            "required": ["entry", "kind", "text"],
+            "required": ["entry", "kind", "at", "text"],
             "properties": {
                 "entry": {
                     "type": "string",
                     "minLength": 1
                 },
                 "kind": {
-                    "enum": ["user", "assistant", "tool_result", "other"]
+                    "enum": [
+                        "user",
+                        "assistant",
+                        "tool_result",
+                        "summary",
+                        "other"
+                    ]
+                },
+                "at": {
+                    "type": "integer",
+                    "minimum": 0
                 },
                 "request": {
                     "type": "string"
                 },
+                "mark": {
+                    "$ref": "#/$defs/Mark"
+                },
                 "text": {
                     "type": "string"
                 },
-                "thinking": {
-                    "type": "string"
-                },
-                "calls": {
+                "blocks": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/$defs/Call"
+                        "$ref": "#/$defs/Block"
                     }
                 },
+                "stop": {
+                    "type": "string"
+                },
+                "failure": {
+                    "type": "string"
+                },
+                "usage": {
+                    "$ref": "#/$defs/Usage"
+                },
                 "call": {
+                    "type": "string"
+                },
+                "tool": {
                     "type": "string"
                 },
                 "error": {
                     "type": "boolean"
                 },
-                "stop": {
+                "ms": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "details": {
+                    "type": "object",
+                    "patternProperties": {
+                        "^.*$": {}
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "Partial": {
+            "type": "object",
+            "required": ["at", "blocks"],
+            "properties": {
+                "at": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "blocks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Block"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "Diagnostic": {
+            "type": "object",
+            "required": ["severity", "code", "message"],
+            "properties": {
+                "severity": {
+                    "enum": ["error", "warn", "info"]
+                },
+                "code": {
                     "type": "string"
                 },
-                "usage": {
-                    "$ref": "#/$defs/Usage"
+                "message": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -569,6 +681,75 @@
                 },
                 "steer": {
                     "type": "boolean"
+                },
+                "mark": {
+                    "$ref": "#/$defs/Mark"
+                }
+            },
+            "additionalProperties": false
+        },
+        "Write": {
+            "type": "object",
+            "required": ["type", "v", "id", "conversation", "request", "mark"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "write"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "conversation": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "request": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "mark": {
+                    "$ref": "#/$defs/Mark"
+                },
+                "boundary": {
+                    "type": "boolean"
+                }
+            },
+            "additionalProperties": false
+        },
+        "Fork": {
+            "type": "object",
+            "required": ["type", "v", "id", "key", "conversation", "at"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "fork"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "key": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "conversation": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "at": {
+                    "type": "string",
+                    "minLength": 1
                 }
             },
             "additionalProperties": false
@@ -599,7 +780,11 @@
                 },
                 "status": {
                     "enum": ["queued", "placed", "done", "unanswered"]
-                }
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "detail": {}
             },
             "additionalProperties": false
         },
@@ -712,6 +897,26 @@
                 },
                 "earlier": {
                     "type": "boolean"
+                }
+            },
+            "additionalProperties": false
+        },
+        "Close": {
+            "type": "object",
+            "required": ["type", "v", "id"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "close"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
                 }
             },
             "additionalProperties": false
@@ -834,6 +1039,9 @@
                     "type": "string",
                     "minLength": 1
                 },
+                "input": {
+                    "type": "string"
+                },
                 "tool": {
                     "type": "string",
                     "minLength": 1
@@ -879,6 +1087,9 @@
                 "key": {
                     "type": "string",
                     "minLength": 1
+                },
+                "input": {
+                    "type": "string"
                 },
                 "tool": {
                     "type": "string",
@@ -997,6 +1208,18 @@
                 },
                 "error": {
                     "type": "boolean"
+                },
+                "details": {
+                    "type": "object",
+                    "patternProperties": {
+                        "^.*$": {}
+                    }
+                },
+                "diagnostics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Diagnostic"
+                    }
                 }
             },
             "additionalProperties": false
@@ -1091,6 +1314,9 @@
                 },
                 "words": {
                     "type": "string"
+                },
+                "notice": {
+                    "$ref": "#/$defs/Mark"
                 }
             },
             "additionalProperties": false
@@ -1227,13 +1453,20 @@
             },
             "additionalProperties": false
         },
-        "Running": {
+        "Live": {
             "type": "object",
-            "required": ["type", "v", "id", "conversation", "running"],
+            "required": [
+                "type",
+                "v",
+                "id",
+                "conversation",
+                "running",
+                "pending"
+            ],
             "properties": {
                 "type": {
                     "type": "string",
-                    "const": "running"
+                    "const": "live"
                 },
                 "v": {
                     "type": "integer",
@@ -1250,6 +1483,115 @@
                 },
                 "running": {
                     "type": "boolean"
+                },
+                "pending": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "partial": {
+                    "$ref": "#/$defs/Partial"
+                }
+            },
+            "additionalProperties": false
+        },
+        "Settled": {
+            "type": "object",
+            "required": [
+                "type",
+                "v",
+                "id",
+                "conversation",
+                "request",
+                "status"
+            ],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "settled"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "conversation": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "request": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "status": {
+                    "enum": ["done", "unanswered"]
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "detail": {}
+            },
+            "additionalProperties": false
+        },
+        "Yield": {
+            "type": "object",
+            "required": ["type", "v", "id", "conversation", "answer"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "yield"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "conversation": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "input": {
+                    "type": "string"
+                },
+                "answer": {
+                    "$ref": "#/$defs/Item"
+                }
+            },
+            "additionalProperties": false
+        },
+        "Verdict": {
+            "type": "object",
+            "required": ["type", "v", "id", "re"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "verdict"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "re": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "words": {
+                    "type": "string"
+                },
+                "notice": {
+                    "$ref": "#/$defs/Mark"
                 }
             },
             "additionalProperties": false
@@ -1272,10 +1614,19 @@
                     "$ref": "#/$defs/Submit"
                 },
                 {
+                    "$ref": "#/$defs/Write"
+                },
+                {
+                    "$ref": "#/$defs/Fork"
+                },
+                {
                     "$ref": "#/$defs/Cancel"
                 },
                 {
                     "$ref": "#/$defs/History"
+                },
+                {
+                    "$ref": "#/$defs/Close"
                 },
                 {
                     "$ref": "#/$defs/Status"
@@ -1306,6 +1657,9 @@
                 },
                 {
                     "$ref": "#/$defs/Sections"
+                },
+                {
+                    "$ref": "#/$defs/Verdict"
                 },
                 {
                     "$ref": "#/$defs/LinkError"
@@ -1354,7 +1708,13 @@
                     "$ref": "#/$defs/Kept"
                 },
                 {
-                    "$ref": "#/$defs/Running"
+                    "$ref": "#/$defs/Live"
+                },
+                {
+                    "$ref": "#/$defs/Settled"
+                },
+                {
+                    "$ref": "#/$defs/Yield"
                 },
                 {
                     "$ref": "#/$defs/LinkError"

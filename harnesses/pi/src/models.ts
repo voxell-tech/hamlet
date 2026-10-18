@@ -23,7 +23,12 @@ export type Permit =
           readonly apiKey?: string;
           readonly model?: Record<string, unknown>;
       }
-    | { readonly ok: false; readonly words: string };
+    | {
+          readonly ok: false;
+          readonly words: string;
+          /** Ends the call's turn as stopped, resolving once `signal` says the call is aborted. */
+          readonly stop?: (signal: AbortSignal | undefined) => Promise<void>;
+      };
 
 /** The server's say over model calls: each is allowed first, and its usage charged before its answer is kept. */
 export interface Gate {
@@ -57,6 +62,7 @@ function allowed<O extends StreamOptions>(
                 id: model.id,
             });
             if (!permit.ok) {
+                await permit.stop?.(options?.signal);
                 fail(out, model, permit.words);
                 return;
             }

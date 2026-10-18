@@ -119,31 +119,69 @@ export const ToolSpec = object({
 });
 export type ToolSpec = Static<typeof ToolSpec>;
 
-/** A tool call in an assistant's answer. */
-export const Call = object({
-    id: Type.String(),
-    name: Type.String(),
-    arguments: Type.Record(Type.String(), Type.Unknown()),
+/** Hamlet's own kind and data of an entry, such as a chief's line or a notice, kept as the server gave them. */
+export const Mark = object({
+    kind: Type.String({ minLength: 1 }),
+    data: Type.Record(Type.String(), Type.Unknown()),
 });
-export type Call = Static<typeof Call>;
+export type Mark = Static<typeof Mark>;
+
+/** One block of an assistant's answer, in the order the answer gave them. */
+export const Block = Type.Union([
+    object({ type: Type.Literal("text"), text: Type.String() }),
+    object({ type: Type.Literal("thinking"), thinking: Type.String() }),
+    object({
+        type: Type.Literal("call"),
+        id: Type.String(),
+        name: Type.String(),
+        arguments: Type.Record(Type.String(), Type.Unknown()),
+    }),
+]);
+export type Block = Static<typeof Block>;
 
 /** One kept entry of a conversation, as the server shows it. */
 export const Item = object({
     entry: Type.String({ minLength: 1 }),
-    kind: Type.Enum(["user", "assistant", "tool_result", "other"]),
-    /** The request id of the input that placed a user entry. */
+    kind: Type.Enum(["user", "assistant", "tool_result", "summary", "other"]),
+    /** When the entry's message was made, in milliseconds since the epoch; 0 for an entry with no message. */
+    at: Type.Integer({ minimum: 0 }),
+    /** The request id of the input or write that placed the entry. */
     request: Type.Optional(Type.String()),
+    mark: Type.Optional(Mark),
+    /** A user's or a tool result's words. */
     text: Type.String(),
-    thinking: Type.Optional(Type.String()),
-    calls: Type.Optional(Type.Array(Call)),
-    /** The call a tool result answers. */
-    call: Type.Optional(Type.String()),
-    error: Type.Optional(Type.Boolean()),
+    /** An assistant's answer. */
+    blocks: Type.Optional(Type.Array(Block)),
     /** Why an assistant's answer ended. */
     stop: Type.Optional(Type.String()),
+    /** The words an assistant's answer failed with. */
+    failure: Type.Optional(Type.String()),
     usage: Type.Optional(Usage),
+    /** The call a tool result answers, and the tool. */
+    call: Type.Optional(Type.String()),
+    tool: Type.Optional(Type.String()),
+    error: Type.Optional(Type.Boolean()),
+    /** How long the tool ran. */
+    ms: Type.Optional(Type.Integer({ minimum: 0 })),
+    /** What the server said of the tool's run, such as its exit code. */
+    details: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 });
 export type Item = Static<typeof Item>;
+
+/** The answer being written, before it is kept. */
+export const Partial = object({
+    at: Type.Integer({ minimum: 0 }),
+    blocks: Type.Array(Block),
+});
+export type Partial = Static<typeof Partial>;
+
+/** What the server says of a tool's run, shown to the model after its output. */
+export const Diagnostic = object({
+    severity: Type.Enum(["error", "warn", "info"]),
+    code: Type.String(),
+    message: Type.String(),
+});
+export type Diagnostic = Static<typeof Diagnostic>;
 
 /** A prompt section by name, rendered in order before each model call. */
 export const Section = object({
@@ -211,13 +249,36 @@ export const Submit = message("submit", {
     request: Type.String({ minLength: 1 }),
     content: Type.String(),
     steer: Type.Boolean(),
+    /** Hamlet's kind and data for the entry that places it. */
+    mark: Type.Optional(Mark),
 });
 export type Submit = Static<typeof Submit>;
+
+/** An entry only people see, written at once even while a turn runs; admitted once by its request id. */
+export const Write = message("write", {
+    conversation: ConversationId,
+    request: Type.String({ minLength: 1 }),
+    mark: Mark,
+    /** Written at a boundary, so the inputs queued behind a run that ended without them are placed after it and run. */
+    boundary: Type.Optional(Type.Boolean()),
+});
+export type Write = Static<typeof Write>;
+
+/** Copies a conversation up to the entry `at`, once per `key`; answered with the copy as `created`. */
+export const Fork = message("fork", {
+    key: Type.String({ minLength: 1 }),
+    conversation: ConversationId,
+    at: Type.String({ minLength: 1 }),
+});
+export type Fork = Static<typeof Fork>;
 
 /** The input is kept in the runtime's store; a repeated request answers as the first did. */
 export const Admitted = reply("admitted", {
     submission: Type.String(),
     status: Type.Enum(["queued", "placed", "done", "unanswered"]),
+    /** Why an unanswered input ended, and what the harness said of it. */
+    reason: Type.Optional(Type.String()),
+    detail: Type.Optional(Type.Unknown()),
 });
 export type Admitted = Static<typeof Admitted>;
 
@@ -228,7 +289,7 @@ export type Cancel = Static<typeof Cancel>;
 export const Cancelled = reply("cancelled", {});
 export type Cancelled = Static<typeof Cancelled>;
 
-/** A page of a conversation's kept entries, newest last, before the entry `before`. */
+/** A page of a conversation's kept entries, newest last, before the entry `before`, which any runtime reads alike. */
 export const History = message("history", {
     conversation: ConversationId,
     before: Type.Optional(Type.String()),
@@ -241,6 +302,10 @@ export const Page = reply("page", {
     earlier: Type.Boolean(),
 });
 export type Page = Static<typeof Page>;
+
+/** Stops the runtime in order: its running work is signalled and waited on, then it exits. */
+export const Close = message("close", {});
+export type Close = Static<typeof Close>;
 
 /** What each of the runtime's conversations is doing. */
 export const Status = message("status", {});
@@ -263,6 +328,8 @@ export type Answered = Static<typeof Answered>;
 export const Allow = message("allow", {
     conversation: ConversationId,
     key: Type.String({ minLength: 1 }),
+    /** The runtime's submission id of the input whose turn makes the call. */
+    input: Type.Optional(Type.String()),
     tool: Type.String({ minLength: 1 }),
     arguments: Type.Record(Type.String(), Type.Unknown()),
 });
@@ -272,6 +339,7 @@ export type Allow = Static<typeof Allow>;
 export const Operation = message("operation", {
     conversation: ConversationId,
     key: Type.String({ minLength: 1 }),
+    input: Type.Optional(Type.String()),
     tool: Type.String({ minLength: 1 }),
     arguments: Type.Record(Type.String(), Type.Unknown()),
 });
@@ -293,6 +361,8 @@ export type Refusal = Static<typeof Refusal>;
 export const Result = reply("result", {
     text: Type.String(),
     error: Type.Boolean(),
+    details: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    diagnostics: Type.Optional(Type.Array(Diagnostic)),
 });
 export type Result = Static<typeof Result>;
 
@@ -312,8 +382,11 @@ export const Allowance = reply("allowance", {
 });
 export type Allowance = Static<typeof Allowance>;
 
-/** The call may not be made, in words of what ran out. */
-export const Stopped = reply("stopped", { words: Type.String() });
+/** The call may not be made, in words of what ran out. With `notice`, the runtime keeps it and ends the turn as stopped rather than failed. */
+export const Stopped = reply("stopped", {
+    words: Type.String(),
+    notice: Type.Optional(Mark),
+});
 export type Stopped = Static<typeof Stopped>;
 
 /** The usage of an allowed attempt, before its answer is kept. */
@@ -341,12 +414,39 @@ export const Kept = message("kept", {
 });
 export type Kept = Static<typeof Kept>;
 
-/** A conversation started or ended a run. */
-export const Running = message("running", {
+/** What a conversation is doing, sent as it changes: whether it runs, its queued inputs and the answer being written. */
+export const Live = message("live", {
     conversation: ConversationId,
     running: Type.Boolean(),
+    pending: Type.Integer({ minimum: 0 }),
+    partial: Type.Optional(Partial),
 });
-export type Running = Static<typeof Running>;
+export type Live = Static<typeof Live>;
+
+/** An input or write that ended, by its request id. */
+export const Settled = message("settled", {
+    conversation: ConversationId,
+    request: Type.String({ minLength: 1 }),
+    status: Type.Enum(["done", "unanswered"]),
+    reason: Type.Optional(Type.String()),
+    detail: Type.Optional(Type.Unknown()),
+});
+export type Settled = Static<typeof Settled>;
+
+/** Asks whether a final answer stands, before the run ends with it. */
+export const Yield = message("yield", {
+    conversation: ConversationId,
+    input: Type.Optional(Type.String()),
+    answer: Item,
+});
+export type Yield = Static<typeof Yield>;
+
+/** The answer stands, or fails with `words`, after which the run ends; `notice` is kept with the failure. */
+export const Verdict = reply("verdict", {
+    words: Type.Optional(Type.String()),
+    notice: Type.Optional(Mark),
+});
+export type Verdict = Static<typeof Verdict>;
 
 /** Every message the server sends a runtime. */
 export const ServerMessage = Type.Union([
@@ -355,8 +455,11 @@ export const ServerMessage = Type.Union([
     Refused,
     Create,
     Submit,
+    Write,
+    Fork,
     Cancel,
     History,
+    Close,
     Status,
     Answered,
     Allowed,
@@ -367,6 +470,7 @@ export const ServerMessage = Type.Union([
     Stopped,
     Charged,
     Sections,
+    Verdict,
     LinkError,
 ]);
 export type ServerMessage = Static<typeof ServerMessage>;
@@ -386,7 +490,9 @@ export const RuntimeMessage = Type.Union([
     UsageReport,
     Prompt,
     Kept,
-    Running,
+    Live,
+    Settled,
+    Yield,
     LinkError,
 ]);
 export type RuntimeMessage = Static<typeof RuntimeMessage>;
@@ -400,8 +506,11 @@ const DEFINITIONS: Record<string, TSchema> = {
     Credential,
     Usage,
     ToolSpec,
-    Call,
+    Mark,
+    Block,
     Item,
+    Partial,
+    Diagnostic,
     Section,
     ErrorCode,
     LinkError,
@@ -411,11 +520,14 @@ const DEFINITIONS: Record<string, TSchema> = {
     Create,
     Created,
     Submit,
+    Write,
+    Fork,
     Admitted,
     Cancel,
     Cancelled,
     History,
     Page,
+    Close,
     Status,
     Statuses,
     Answered,
@@ -433,7 +545,10 @@ const DEFINITIONS: Record<string, TSchema> = {
     Prompt,
     Sections,
     Kept,
-    Running,
+    Live,
+    Settled,
+    Yield,
+    Verdict,
     ServerMessage,
     RuntimeMessage,
 };
