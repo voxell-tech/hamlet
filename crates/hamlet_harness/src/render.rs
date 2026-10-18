@@ -1,5 +1,6 @@
 //! Drawing a panel with the panels' looks in a dock, into a picture.
 
+use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -37,6 +38,23 @@ struct Output(PathBuf);
 /// Draws `panel` showing `drawn` as the only panel of a dock, and
 /// writes the picture to `path` as a PNG.
 pub fn draw(
+    panel: Panel,
+    drawn: Drawn,
+    size: UVec2,
+    path: &Path,
+) -> Result<(), String> {
+    // Bevy panics where there is no GPU, as in a sandbox.
+    std::panic::catch_unwind(AssertUnwindSafe(|| {
+        paint(panel, drawn, size, path)
+    }))
+    .unwrap_or_else(|_| {
+        Err("the picture could not be drawn: there is no GPU here, \
+             or the sandbox keeps it out of reach"
+            .into())
+    })
+}
+
+fn paint(
     panel: Panel,
     drawn: Drawn,
     size: UVec2,

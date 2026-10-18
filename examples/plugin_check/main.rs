@@ -2,16 +2,17 @@
 //! panels showed (docs/authoring.md).
 //!
 //! `cargo run --example plugin_check --features wasm -- <plugin dir>
-//! [--script steps.toml] [--out dir]`
+//! [--script steps.toml] [--out dir] [--no-pictures]`
 //!
 //! Without a script the plugin runs two frames and a picture of each
 //! panel is drawn. The pictures go to `--out`, `plugin-check-out` by
-//! default. The exit code is 1 when a step failed.
+//! default, and `--no-pictures` leaves them out. The exit code is 1
+//! when a step failed.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use hamlet_harness::script::Script;
+use hamlet_harness::script::{Script, Step};
 use hamlet_harness::{Harness, run};
 use hamlet_offscreen::word;
 
@@ -41,7 +42,7 @@ fn check() -> Result<bool, String> {
         PathBuf::from,
     );
     let mut harness = Harness::open(&folder)?;
-    let script = match word("--script") {
+    let mut script = match word("--script") {
         Some(file) => {
             let text = std::fs::read_to_string(&file)
                 .map_err(|e| format!("{file}: {e}"))?;
@@ -50,6 +51,9 @@ fn check() -> Result<bool, String> {
         }
         None => run::plain(&mut harness),
     };
+    if std::env::args().any(|arg| arg == "--no-pictures") {
+        script.steps.retain(|step| !matches!(step, Step::Render(_)));
+    }
     let report = run::run(&mut harness, &script, &out);
     report.lines.iter().for_each(|line| println!("{line}"));
     Ok(report.failed.is_none())
