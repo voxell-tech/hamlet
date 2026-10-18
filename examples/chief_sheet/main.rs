@@ -7,9 +7,6 @@
 // Bevy systems take many parameters and long query types by nature.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
-#[path = "../common/offscreen.rs"]
-mod offscreen;
-
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -19,6 +16,7 @@ use hamlet_core::agents::{
     Citizen, Lived, LivesIn, Mayor, Settlement, Treasury,
 };
 use hamlet_home::limits::Caps;
+use hamlet_offscreen::{self as offscreen, Target};
 use hamlet_realm::chief::mascot::Doing;
 use hamlet_realm::chief::{
     self, Beside, ChiefSettings, Cloak, Hat, Holds, Light, Look,
@@ -34,8 +32,6 @@ use hamlet_realm::{
 };
 use hamlet_rules::budget::{Amount, Report, Standing};
 use hamlet_rules::hamlet::HOME;
-
-use self::offscreen::Target;
 
 const SIZE: UVec2 = UVec2::new(1280, 800);
 

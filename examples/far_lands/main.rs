@@ -8,15 +8,13 @@
 // Bevy systems take many parameters and long query types by nature.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
-#[path = "../common/offscreen.rs"]
-mod offscreen;
-
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use bevy::audio::AudioPlugin;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use hamlet_offscreen::{self as offscreen, Target};
 use hamlet_realm::generator::land::Land;
 use hamlet_realm::generator::society::{Place, Society, TownId};
 use hamlet_realm::generator::{GenView, Loading, Tally};
@@ -25,8 +23,6 @@ use hamlet_realm::pick::Reach;
 use hamlet_realm::sky::SkySettings;
 use hamlet_realm::sound::SoundSettings;
 use hamlet_realm::{Clock, Hour, RealmPlugin, Stage, WorldCamera};
-
-use self::offscreen::Target;
 
 /// The frame, in pixels.
 const SIZE: UVec2 = UVec2::new(1360, 860);

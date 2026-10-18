@@ -10,8 +10,6 @@
 //! Another size, or another picture of the world, shown whole:
 //! `--size 1600x900 --world <png>`
 
-#[path = "../common/offscreen.rs"]
-mod offscreen;
 mod scenes;
 
 use std::path::{Path, PathBuf};
@@ -21,10 +19,10 @@ use std::time::Duration;
 use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use hamlet_offscreen::{self as offscreen, Target, word};
 use hamlet_ui::pictures::Pictures;
 use hamlet_ui::welcome::Step;
 
-use self::offscreen::{Target, word};
 use self::scenes::{GalleryPlugin, Scene, Stand, Strike};
 
 /// A still of the world, shown where the world is drawn.

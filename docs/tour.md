@@ -56,6 +56,7 @@ table. The binary and the examples are the root package.
 | `hamlet_core` | The runtime as Bevy plugins: agents, sessions, tools and oversight. No rendering |
 | `hamlet_desktop` | The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder dialog and the app's icon |
 | `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
+| `hamlet_offscreen` | An app that draws into an image with no window and saves a still. The examples and the plugin harness draw with it |
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
 | `hamlet_realm` | The 3D world, drawn from the core's entities |
 | `hamlet_sdk` | What a plugin is built with: the plugin types, the theme, looks and icons, the dock's panels |

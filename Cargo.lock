@@ -3548,6 +3548,7 @@ dependencies = [
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_model",
+ "hamlet_offscreen",
  "hamlet_openui",
  "hamlet_plugins",
  "hamlet_realm",
@@ -3640,6 +3641,13 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "toml",
+]
+
+[[package]]
+name = "hamlet_offscreen"
+version = "0.1.0"
+dependencies = [
+ "bevy",
 ]
 
 [[package]]

@@ -1,0 +1,12 @@
+[package]
+name = "hamlet_offscreen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "An app that draws into an image with no window, and the stills saved from it"
+
+[lints]
+workspace = true
+
+[dependencies]
+bevy.workspace = true
