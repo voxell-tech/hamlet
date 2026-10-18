@@ -1,7 +1,6 @@
 //! The command center (I4): a Bevy and fynix window added to the
 //! core's app.
 
-pub mod asking;
 mod chief;
 pub mod chrome;
 pub mod cursor;
@@ -83,7 +82,7 @@ impl Plugin for UiPlugin {
                 folder::plugin,
                 rules::plugin,
                 models::plugin,
-                asking::plugin,
+                hamlet_sdk::asking::plugin,
                 select::plugin,
                 history::plugin,
                 welcome::plugin,

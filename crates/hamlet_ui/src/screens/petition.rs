@@ -26,6 +26,7 @@ use hamlet_core::session::{Entry, Transcript};
 use hamlet_core::tools::Change;
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_rules::chief::rulings::Choice;
+use hamlet_sdk::asking;
 
 use crate::dock::{Panel, PanelAppExt, lit_panel, show_tab};
 use crate::feel::{Lit, Mood};
@@ -35,7 +36,7 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::platform::{DisplayText, MonoText, Wraps};
-use crate::{AnyView, Cx, View, asking, chat};
+use crate::{AnyView, Cx, View, chat};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
                      questions and faults come here, oldest first.";

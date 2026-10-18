@@ -3,6 +3,7 @@
 //! `hamlet_ui`.
 
 pub mod agents;
+pub mod asking;
 pub mod capability;
 pub mod cards;
 pub mod command;

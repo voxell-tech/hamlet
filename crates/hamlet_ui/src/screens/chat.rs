@@ -399,7 +399,7 @@ pub fn message_bar() -> impl View {
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
     column((
-        crate::asking::in_chat(),
+        hamlet_sdk::asking::in_chat(),
         reply::preview(),
         row((field,)).gap(8.0).align(AlignItems::Center),
     ))

@@ -26,12 +26,12 @@ use hamlet_core::oversight::{
 use hamlet_rules::chief::asking::{Offer, Pick, Questions, letter};
 use hamlet_rules::chief::rulings::Choice;
 
+use crate::convo::Me;
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
     Fills, bare, brass, lamp, marked, note, retrace, well,
 };
-use crate::me::Me;
 use crate::theme::HamletTheme;
 use crate::{AnyView, Cx, View};
 
