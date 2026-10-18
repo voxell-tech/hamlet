@@ -63,6 +63,9 @@ pub enum Step {
     Page(Hosted),
     /// Fails unless a node of the panel shows the text.
     Expect(Expected),
+    /// Fails unless a notice the chief was given in the chat holds
+    /// the text, as an act done as the chief is noted.
+    ExpectTold(String),
 }
 
 impl Step {

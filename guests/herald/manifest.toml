@@ -1,0 +1,28 @@
+id = "herald"
+name = "Herald"
+version = "0.1.0"
+interface = "0.7.0"
+
+# Each ask is a thing done as the chief or outside the plugin. The
+# chief is asked at the first use of the first two.
+[[asks]]
+capability = "chat.send"
+reason = "To say hello to the agent you name in its panel."
+
+[[asks]]
+capability = "commands.run"
+reason = "To open a new note in Notes for you."
+scope = ["notes/new"]
+
+[[asks]]
+capability = "files.write"
+reason = "To keep a draft in its own folder."
+
+[[asks]]
+capability = "files.read"
+reason = "To show the draft it kept."
+
+[[asks]]
+capability = "net"
+reason = "To fetch its greeting page."
+scope = ["api.example.com"]

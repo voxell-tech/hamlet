@@ -1,0 +1,90 @@
+# Run from the Hamlet checkout, after building Herald into a folder:
+#   guests/herald/build.sh <dir>/herald
+#   cargo run --example plugin_check --features wasm -- \
+#     <dir>/herald --script guests/herald/steps.toml --out <pictures>
+#
+# The plugin is installed with none of its asks answered, as a chief
+# would who let it in. The harness has no chat and no network, so an
+# act is checked up to the point where it would leave the host.
+
+[[step]]
+tick = 2
+
+# A message as the chief waits for the chief, and is dropped until then.
+[[step]]
+type = { panel = "herald", node = "agent", text = "scout" }
+
+[[step]]
+click = { panel = "herald", node = "hello" }
+
+[[step]]
+grant = "chat.send"
+
+[[step]]
+click = { panel = "herald", node = "hello" }
+
+[[step]]
+expect-told = "Herald (herald) sent nothing"
+
+# A command run as the chief is noted in the chat with the plugin.
+[[step]]
+grant = "commands.run"
+
+[[step]]
+click = { panel = "herald", node = "run" }
+
+[[step]]
+expect-told = "Herald (herald) ran notes/new"
+
+# Files need their grants, and stay in the plugin's own folder.
+[[step]]
+click = { panel = "herald", node = "save" }
+
+[[step]]
+expect = { panel = "herald", text = "files.write not granted" }
+
+[[step]]
+grant = "files.write"
+
+[[step]]
+grant = "files.read"
+
+[[step]]
+click = { panel = "herald", node = "save" }
+
+[[step]]
+click = { panel = "herald", node = "read" }
+
+[[step]]
+expect = { panel = "herald", text = "Draft: hello draft" }
+
+[[step]]
+click = { panel = "herald", node = "escape" }
+
+[[step]]
+expect = { panel = "herald", text = "is not a path" }
+
+# A fetch goes only to the host the ask lists.
+[[step]]
+click = { panel = "herald", node = "fetch" }
+
+[[step]]
+expect = { panel = "herald", text = "net is yet to be decided" }
+
+[[step]]
+grant = "net"
+
+[[step]]
+click = { panel = "herald", node = "elsewhere" }
+
+[[step]]
+expect = { panel = "herald", text = "not a host the ask lists" }
+
+[[step]]
+click = { panel = "herald", node = "fetch" }
+
+[[step]]
+expect = { panel = "herald", text = "there is no network" }
+
+[[step]]
+render = { panel = "herald", file = "herald.png" }

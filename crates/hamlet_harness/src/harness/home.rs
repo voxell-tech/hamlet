@@ -11,6 +11,7 @@ use bevy::time::{TimePlugin, TimeUpdateStrategy};
 use hamlet_core::core::HomeDir;
 use hamlet_home::Home;
 use hamlet_sdk::capability::{Choice, Choices, Record, Store};
+use hamlet_sdk::command::Notice;
 use hamlet_wasm::install::{self, FILES};
 use hamlet_wasm::limits::Limits;
 use hamlet_wasm::manifest::Manifest;
@@ -112,7 +113,17 @@ pub fn app(home: &Scratch) -> App {
         hamlet_sdk::tree::plugin,
         hamlet_wasm::plugin,
     ))
-    .init_resource::<ButtonInput<KeyCode>>();
+    .init_resource::<ButtonInput<KeyCode>>()
+    .init_resource::<Told>()
+    .add_observer(
+        |notice: On<Notice>, mut told: ResMut<Told>| {
+            told.0.push(notice.0.clone());
+        },
+    );
     app.insert_resource(Limits::default().patient());
     app
 }
+
+/// The notices the chief was given in the chat.
+#[derive(Resource, Default)]
+pub struct Told(pub Vec<String>);

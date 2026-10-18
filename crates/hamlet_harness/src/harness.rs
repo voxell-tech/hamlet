@@ -27,7 +27,7 @@ use hamlet_wasm::interface::hamlet::plugin::host::Level;
 use hamlet_wasm::run::Said;
 use hamlet_wasm::stop::Failure;
 
-use self::home::Scratch;
+use self::home::{Scratch, Told};
 use crate::render::Host;
 use crate::{outline, render};
 
@@ -332,6 +332,13 @@ impl Harness {
     /// What the plugin logged, as `level: line`, since it was opened.
     pub fn logs(&self) -> &[String] {
         &self.logs
+    }
+
+    /// The notices the chief was given in the chat since the
+    /// plugins were opened, such as those that tell of an act done
+    /// as the chief.
+    pub fn told(&self) -> &[String] {
+        &self.app.world().resource::<Told>().0
     }
 
     /// Draws `panel` as the app draws it, in a dock, and saves it as

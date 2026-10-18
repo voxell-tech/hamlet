@@ -110,6 +110,7 @@ fn describe(step: &Step) -> String {
         Step::Expect(e) => {
             format!("expect {} shows {:?}", e.panel, e.text)
         }
+        Step::ExpectTold(text) => format!("expect-told {text:?}"),
     }
 }
 
@@ -193,6 +194,20 @@ fn apply(
                 false => Err(format!(
                     "panel `{}` does not show {:?}",
                     e.panel, e.text
+                )),
+            }
+        }
+        Step::ExpectTold(text) => {
+            match harness
+                .told()
+                .iter()
+                .any(|told| told.contains(text))
+            {
+                true => Ok(()),
+                false => Err(format!(
+                    "the chief was not told {text:?}; the notices \
+                     are {:?}",
+                    harness.told()
                 )),
             }
         }
