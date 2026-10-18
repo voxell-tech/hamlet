@@ -2,6 +2,7 @@
 
 mod dock;
 mod greeter;
+mod petitions;
 mod roster;
 mod sample;
 mod sheets;
@@ -169,6 +170,9 @@ pub enum Scene {
     PluginRoster,
     /// The panel of the greeter data plugin, drawn from its program.
     PluginOpenui,
+    /// The panels while plugins wait to be installed or to be let
+    /// use more.
+    PluginPetition,
     /// Every icon, at each size it is drawn for.
     Icons,
     /// The panels with the HAMLET menu open.

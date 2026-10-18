@@ -1,5 +1,6 @@
 mod events;
 mod panels;
+mod permissions;
 mod reads;
 mod stopped;
 mod tree;

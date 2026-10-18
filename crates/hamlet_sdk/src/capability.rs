@@ -6,9 +6,12 @@ mod ask;
 mod choice;
 mod decide;
 mod granted;
+mod install;
 mod name;
+mod petition;
 mod record;
 mod store;
+mod subject;
 
 use bevy::app::App;
 
@@ -16,15 +19,22 @@ pub use self::ask::{Asked, Asks, Scope};
 pub use self::choice::Choice;
 pub use self::decide::Decide;
 pub use self::granted::{Choices, Granted, Verdict};
+pub use self::install::{AskToInstall, Installed, Uninstalled};
 pub use self::name::{Capability, NEVER, Refusal};
+pub use self::petition::AskForMore;
 pub use self::record::{Installation, Record, Standing, standing};
 pub use self::store::Store;
+pub use self::subject::Subject;
 
 /// Keeps each plugin's [`Granted`] in step with its [`Asks`] and
-/// [`Choices`], and applies the chief's [`Decide`].
+/// [`Choices`], applies the chief's [`Decide`] and carries out the
+/// chief's answers to a plugin's petitions.
 pub fn plugin(app: &mut App) {
     app.add_observer(granted::rebuild)
-        .add_observer(decide::decide);
+        .add_observer(decide::decide)
+        .add_observer(install::ask)
+        .add_observer(petition::more)
+        .add_observer(petition::answered);
 }
 
 #[cfg(test)]

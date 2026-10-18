@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use bevy::prelude::*;
+use hamlet_sdk::capability::Uninstalled;
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::plugin::{
@@ -60,7 +61,10 @@ pub fn bring_up(
 /// from its file.
 pub(crate) fn restart(
     enable: On<Enable>,
-    plugins: Query<(Entity, &PluginInfo, &Status, &DataPanel)>,
+    plugins: Query<
+        (Entity, &PluginInfo, &Status, &DataPanel),
+        Without<Uninstalled>,
+    >,
     mut commands: Commands,
 ) {
     for (plugin, info, status, data) in &plugins {

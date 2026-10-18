@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
-use hamlet_sdk::capability::Granted;
+use hamlet_sdk::capability::{Granted, Uninstalled};
 use hamlet_sdk::plugin::{Contributions, Enable, PluginInfo, Status};
 
 use crate::engine::Host;
@@ -13,7 +13,10 @@ use crate::start::{self, Setting, Source};
 /// its file, with a store of its own.
 pub fn restart(
     enable: On<Enable>,
-    plugins: Query<(Entity, &PluginInfo, &Status, &Source, &Granted)>,
+    plugins: Query<
+        (Entity, &PluginInfo, &Status, &Source, &Granted),
+        Without<Uninstalled>,
+    >,
     host: Option<Res<Host>>,
     limits: Res<Limits>,
     agents: Res<AgentList>,

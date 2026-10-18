@@ -25,6 +25,32 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 checked by a host function so far; the others can be asked for, shown and
 chosen.
 
+## Installing
+
+The scan reads every folder of `<home>/plugins/` (see
+[`wasm.md`](wasm.md)). A plugin that `grants.toml` records as installed is
+brought up. For any other, the host spawns an entity marked `Uninstalled`
+that holds the place of its files and nothing else: its component is not
+compiled and its panel is not read until the chief says yes.
+
+- A plugin the chief was never asked about, or that changed since it was
+  declined, raises one petition: "Install Roster 0.1.0?", with what it asks
+  for, each capability with its reason. **Allow** installs it with every ask
+  allowed and brings it up at once. **Don't allow** records it as declined, so
+  it is not asked about again until its version or its asks change.
+- A declined plugin is listed in Settings, and the chief can have the
+  question put again (`AskToInstall`).
+- An installed plugin whose new version asks for more is brought up with what
+  it had; the new asks are unanswered, and one petition ("asks for more")
+  lists them. Allow allows them, Don't allow denies them.
+
+The petition is the one queue of Needs You: a `Waiting` of kind `Plugin`
+(`hamlet_core::oversight`), raised with `oversight::petition`, which adds no
+second queue. The chief's answer reaches `hamlet_sdk::capability` as the
+`Settled` event, and a `Subject` on the petition says what it was about. A
+petition that is not answered when the app quits is raised again at the next
+start, from the same state.
+
 ## Where the choices are kept
 
 One file for every plugin, `<home>/plugins/grants.toml`, written by

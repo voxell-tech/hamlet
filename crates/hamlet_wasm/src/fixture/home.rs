@@ -29,6 +29,13 @@ impl Scratch {
     }
 }
 
+impl Scratch {
+    /// The install folder of the home.
+    pub fn plugins(&self) -> PathBuf {
+        self.0.join("plugins")
+    }
+}
+
 impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
@@ -43,6 +50,8 @@ pub struct Plugin {
     program: Option<&'static str>,
     asks: &'static [&'static str],
     grants: &'static [&'static str],
+    /// Whether the chief installed it, as far as the store says.
+    installed: bool,
 }
 
 impl Plugin {
@@ -53,7 +62,15 @@ impl Plugin {
             program: None,
             asks: &[],
             grants: &[],
+            installed: true,
         }
+    }
+
+    /// This, in the install folder and not in the store: the chief is
+    /// yet to be asked.
+    pub fn uninstalled(mut self) -> Self {
+        self.installed = false;
+        self
     }
 
     /// A plugin that is the panel `program` and no code.
@@ -114,6 +131,13 @@ impl Plugin {
 /// An app with `home` holding `plugins`, all installed as if the
 /// chief had allowed what each is granted.
 pub fn app(home: &Scratch, plugins: &[Plugin]) -> App {
+    put(home, plugins);
+    open(home)
+}
+
+/// Puts `plugins` in the home, and in its store those that are
+/// installed.
+pub fn put(home: &Scratch, plugins: &[Plugin]) {
     let folder = home.0.join("plugins");
     for plugin in plugins {
         let dir = folder.join(plugin.id);
@@ -132,12 +156,16 @@ pub fn app(home: &Scratch, plugins: &[Plugin]) -> App {
             .expect("a manifest");
     }
     let mut store = Store::open(&folder);
-    for plugin in plugins {
+    for plugin in plugins.iter().filter(|plugin| plugin.installed) {
         store.set(
             plugin.id,
             Record::installed("0.1.0", &plugin.choices()),
         );
     }
+}
+
+/// An app that loads the home as it is.
+pub fn open(home: &Scratch) -> App {
     let mut app = App::new();
     app.insert_resource(HomeDir(Home {
         root: home.0.clone(),

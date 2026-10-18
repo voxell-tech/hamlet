@@ -29,6 +29,13 @@ pub struct Choices {
 }
 
 impl Choices {
+    /// The choices of a chief who allowed all of `capabilities`.
+    pub fn allowing(capabilities: &[Capability]) -> Self {
+        capabilities.iter().fold(Self::default(), |choices, c| {
+            choices.decided(*c, Choice::Allow, false)
+        })
+    }
+
     /// The chief's choice for `capability`, if it was answered.
     pub fn choice(&self, capability: Capability) -> Option<Choice> {
         self.set

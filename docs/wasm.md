@@ -259,20 +259,12 @@ call into the same instance.
 Refresh button, a count of refreshes, a checkbox that shows a line of help,
 and the agents from `agents()`, or a line that the read was not granted.
 
-To build and install it into a home, with the grant:
+To build it into a home and run the app, which asks the chief to install it
+(Allow gives it `read.agents`):
 
 ```sh
 rustup target add wasm32-wasip2
 HAMLET_HOME=/tmp/hamlet-try guests/roster/build.sh
-cat > /tmp/hamlet-try/plugins/grants.toml <<'EOF'
-[plugin.roster]
-state = "installed"
-version = "0.1.0"
-asks = ["read.agents"]
-
-[plugin.roster.choices]
-"read.agents" = "allow"
-EOF
 HAMLET_HOME=/tmp/hamlet-try cargo run --features wasm
 ```
 

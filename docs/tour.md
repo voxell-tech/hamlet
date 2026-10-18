@@ -113,6 +113,7 @@ Paths are under `crates/`.
 | Selecting and copying text in the panels | `hamlet_ui/src/select.rs`; [`chat.md`](chat.md) |
 | A chief's slash command | The table `ALL` in `hamlet_rules/src/commands.rs`, which names who carries it out |
 | What needs the chief's approval | `hamlet_core/src/oversight/danger.rs` |
+| A plugin's petition: installing it, letting it use more | `hamlet_core/src/oversight/plugin.rs`, `hamlet_sdk/src/capability/petition.rs`, `install.rs`; [`permissions.md`](permissions.md) |
 | What an agent's commands may touch | `hamlet_sandbox/src/`; [`sandbox.md`](sandbox.md) |
 | The folder a hamlet works on | `hamlet_rules/src/work.rs` keeps it; `Tools::work_on` in `hamlet_core/src/tools.rs` applies it |
 | The workbench and its clockwork on a common | `hamlet_realm/src/works.rs` |
@@ -174,7 +175,7 @@ These draw to files and open nothing:
 
 | Command | Shows |
 |---|---|
-| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes. `plugin-roster` is an installed plugin's panel drawn from a tree |
+| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes. `plugin-roster` is an installed plugin's panel drawn from a tree, `plugin-petition` the petitions of plugins |
 | `cargo run --release --example far_lands -- --out <dir>` | The land, many towns, a town being moved; `--bench` times it |
 | `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library |
 | `cargo run --example cursor_sheet` | Every cursor |

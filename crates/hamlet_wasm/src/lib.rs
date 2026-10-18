@@ -9,6 +9,7 @@ use hamlet_sdk::agents::Kept;
 use self::engine::Host;
 use self::limits::{Limits, WasmTuning};
 
+pub mod admit;
 pub mod call;
 pub mod draw;
 pub mod enable;
@@ -43,6 +44,7 @@ pub fn plugin(app: &mut App) {
     ))
     .init_resource::<Limits>()
     .add_message::<run::Done>()
+    .add_observer(admit::admit)
     .add_observer(enable::restart)
     .add_observer(event::deliver)
     .add_observer(stop::stopped)

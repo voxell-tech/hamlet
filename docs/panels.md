@@ -137,18 +137,10 @@ plugin later returns a tree, the panel goes back to the tree.
 ```sh
 mkdir -p /tmp/hamlet-try/plugins/greeter_ui
 cp guests/greeter_ui/* /tmp/hamlet-try/plugins/greeter_ui/
-cat > /tmp/hamlet-try/plugins/grants.toml <<'EOF'
-[plugin.greeter_ui]
-state = "installed"
-version = "0.1.0"
-asks = ["read.agents"]
-
-[plugin.greeter_ui.choices]
-"read.agents" = "allow"
-EOF
 HAMLET_HOME=/tmp/hamlet-try cargo run --features wasm
 ```
 
+The app asks the chief to install it; Allow gives it `read.agents`.
 `greeter_ui` shows a heading, a text field bound to `$name`, a checkbox, a
 greeting computed from both, a button that resets them and the agents from a
 `Query`. Without a window:

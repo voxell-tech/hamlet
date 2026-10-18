@@ -1,11 +1,14 @@
-//! Loading the installed plugins of the install folder at startup.
+//! Scanning the install folder at startup: the plugins `grants.toml`
+//! records as installed are brought up, and the others wait for the
+//! chief.
 
 use bevy::prelude::*;
 use hamlet_core::core::HomeDir;
 use hamlet_openui::data::{self, DataPanel};
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{
-    Choices, Granted, Record, Standing, Store, standing,
+    AskForMore, AskToInstall, Choices, Granted, Record, Standing,
+    Store, Uninstalled, standing,
 };
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::plugin::{self as sdk, PluginInfo, Status};
@@ -19,10 +22,11 @@ use crate::start::{self, Setting, Source};
 /// The icon of a data plugin's panel when its manifest names none.
 const DATA_ICON: Glyph = Glyph::Book;
 
-/// Scans the install folder and loads the plugins that `grants.toml`
-/// records as installed, each as an entity. A plugin that is not
-/// recorded is never compiled. A plugin of code needs the engine; one
-/// of a panel does not.
+/// Scans the install folder. A plugin that `grants.toml` records as
+/// installed is brought up as an entity. Any other is held as an
+/// entity with nothing of it compiled or read, and the chief is asked
+/// to install it unless it was declined as it is. A plugin of code
+/// needs the engine; one of a panel does not.
 pub fn installed(
     home: Res<HomeDir>,
     host: Option<Res<Host>>,
@@ -45,24 +49,40 @@ pub fn installed(
                 continue;
             }
         };
-        let id = &installed.manifest.id;
+        let id = installed.manifest.id.clone();
         let version = &installed.manifest.version;
-        let Standing::Installed { choices, .. } =
-            standing(store.get(id), version, &installed.asks)
-        else {
-            info!("plugin {id}: not installed, not loaded");
-            continue;
-        };
-        store.set(id, Record::installed(version, &choices));
-        match (&installed.body, &setting) {
-            (Body::Wasm(_), Some(setting)) => {
-                spawn(setting, installed, choices, &mut commands)
+        match standing(store.get(&id), version, &installed.asks) {
+            Standing::Installed { choices, fresh } => {
+                store.set(&id, Record::installed(version, &choices));
+                match (&installed.body, &setting) {
+                    (Body::Wasm(_), Some(setting)) => spawn(
+                        setting,
+                        installed,
+                        choices,
+                        &mut commands,
+                    ),
+                    (Body::Wasm(_), None) => {
+                        warn!("plugin {id}: no engine, not loaded")
+                    }
+                    (Body::Data(_), _) => {
+                        spawn_data(installed, choices, &mut commands)
+                    }
+                }
+                if !fresh.is_empty() {
+                    commands.trigger(AskForMore {
+                        plugin: id,
+                        capabilities: fresh,
+                    });
+                }
             }
-            (Body::Wasm(_), None) => {
-                warn!("plugin {id}: no engine, not loaded")
+            Standing::Declined => {
+                info!("plugin {id}: declined, not loaded");
+                hold(installed, &mut commands);
             }
-            (Body::Data(_), _) => {
-                spawn_data(installed, choices, &mut commands)
+            Standing::Unknown => {
+                info!("plugin {id}: not installed, not loaded");
+                hold(installed, &mut commands);
+                commands.trigger(AskToInstall { plugin: id });
             }
         }
     }
@@ -88,6 +108,43 @@ fn plugin(
         ))
         .id();
     (plugin, info, granted)
+}
+
+/// Spawns the entity of a plugin that is not installed, with the
+/// place of its files and nothing else of it.
+fn hold(installed: Installed, commands: &mut Commands) {
+    let (plugin, ..) =
+        plugin(&installed, Choices::default(), commands);
+    commands
+        .entity(plugin)
+        .insert((Status::Disabled, Uninstalled));
+    match installed.body {
+        Body::Wasm(file) => {
+            commands.entity(plugin).insert(Source(file));
+        }
+        Body::Data(file) => {
+            commands
+                .entity(plugin)
+                .insert(panel(&installed.manifest, file));
+        }
+    }
+}
+
+/// The panel of a data plugin.
+fn panel(
+    manifest: &crate::manifest::Manifest,
+    file: std::path::PathBuf,
+) -> DataPanel {
+    let icon = manifest
+        .icon
+        .as_deref()
+        .and_then(glyph::named)
+        .unwrap_or(DATA_ICON);
+    DataPanel {
+        file,
+        title: manifest.name.to_uppercase(),
+        icon,
+    }
 }
 
 fn spawn(
@@ -117,17 +174,7 @@ fn spawn_data(
         return;
     };
     let (plugin, info, _) = plugin(&installed, choices, commands);
-    let icon = installed
-        .manifest
-        .icon
-        .as_deref()
-        .and_then(glyph::named)
-        .unwrap_or(DATA_ICON);
-    let panel = DataPanel {
-        file: file.clone(),
-        title: installed.manifest.name.to_uppercase(),
-        icon,
-    };
+    let panel = panel(&installed.manifest, file.clone());
     data::bring_up(plugin, &info.id, &panel, commands);
     commands.entity(plugin).insert(panel);
 }
