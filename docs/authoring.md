@@ -27,6 +27,7 @@ plugin is enough.
 | `examples/plugin_check` | The harness as a command |
 | `crates/hamlet_home/starters/write-a-plugin` | The starter skill that teaches an agent this page's steps |
 | `guests/notes/` | A plugin to read after the template: `model.rs` (what it keeps), `storage.rs` (the notes on disk), `update.rs` (what an event does, and the commands it answers), its menu line, shortcut, settings page and inspector tab in `lib.rs`, `view.rs` (the panels), and its `steps.toml` |
+| `guests/pantry/` | A plugin to read for the database: `lib.rs` keeps records in a table (`hamlet_guest::db::Table`), finds them by a field and draws what the table holds; its `steps.toml` restarts the app to see they are kept |
 | `guests/herald/` | A plugin to read for what a plugin may do outside its panel: `lib.rs` sends a message and runs a command as the chief (`hamlet_guest::send_chat`, `run_as_chief`), keeps a draft in its folder of files (`hamlet_guest::files`) and fetches a page (`hamlet_guest::net`); its `manifest.toml` lists the hosts and commands in the `scope` of its asks, and its `steps.toml` answers each ask |
 | `guests/clipper/` | A plugin that uses Notes: its `manifest.toml` (what it needs, imports and asks), `update.rs` (the call, the reply, the events and the command a context menu item runs) and `steps.toml`, a script for the two plugins together |
 
@@ -84,7 +85,7 @@ scripts/new-plugin.sh wasm tide_table /tmp/tide_table
 ```
 
 ```
-/tmp/tide_table is ready: wasm plugin tide_table, interface 0.7.0
+/tmp/tide_table is ready: wasm plugin tide_table, interface 0.8.0
 build:  /tmp/tide_table/build.sh /tmp/tide_table/build/tide_table
 check:  cd <the source folder> && cargo run --example plugin_check \
           --features wasm -- /tmp/tide_table/build/tide_table --script /tmp/tide_table/steps.toml
@@ -218,7 +219,7 @@ shows them.
 id = "tide_table"
 name = "Tide Table"
 version = "0.1.0"
-interface = "0.7.0"
+interface = "0.8.0"
 
 [[asks]]
 capability = "read.agents"
@@ -286,6 +287,7 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 | `page = { title = "NOTES", file = "page.png" }` | Draws the plugin's page of that title in the Settings. It fails while the plugin does not hold `ui.settings` |
 | `expect = { panel = "main", text = "2 agents" }` | Fails unless a node of the panel shows the text |
 | `expect-told = "ran notes/new"` | Fails unless a notice the chief was given in the chat holds the text, such as the one that tells of an act done as the chief. The harness has no chat and no network, so a message ends in "sent nothing" and a fetch to a listed host in "there is no network" |
+| `restart = true` | Quits the app and starts it again on the same home. What the plugins kept on disk (storage, files, database) and what the chief decided is there; what they held in memory, including the state the host keeps for them, is not |
 
 `panel` is the id the plugin gave the panel (`main`), and `node` the id it gave
 the node. A click on a node that is not there fails and lists the ids that are.
@@ -537,6 +539,38 @@ link is an error. A fetch to a host that is not in the `scope`, or over http, is
 answered with an error. The limits are in `assets/wasm.toml`; the rules are in
 [`permissions.md`](permissions.md) and [`wasm.md`](wasm.md). In a script, `grant`
 answers an ask and `expect-told` checks the notice that tells of an act.
+
+## Keeping records in a database
+
+Where keys and values are too few, a plugin keeps tables of records in a database
+of its own, behind the capability `db`, which the chief allows when the plugin is
+let in (`guests/pantry` is the example):
+
+```toml
+[[asks]]
+capability = "db"
+reason = "To keep what is in the pantry."
+```
+
+```rust
+const STOCK: Table<Item> = Table::new("stock");   // hamlet_guest::db::Table
+
+// A record: an id, a value written with postcard, and fields to find it by.
+STOCK.put("tea", &Item { name: "Tea".into(), count: 2 }, &[("kind", "drink")])?;
+let tea: Option<Item> = STOCK.get("tea")?;
+let page = STOCK.find("kind", "drink", None, 20)?;   // page.rows, page.next
+STOCK.list(page.next.as_deref(), 20)?;               // by id, in pages
+STOCK.delete("tea")?;
+```
+
+A table is of `a-z`, `0-9`, `_` and `-`, and is there once it holds a record. A
+record has at most a few fields, each a short name and value, and a find looks
+at them without decoding the value. The records are on disk, so they are there
+after a reload, a restart and a switch off, and the chief decides at removal
+whether they stay. They are the plugin's own: another plugin gets them only
+through a collection. The caps are the `db_` values of `assets/wasm.toml`, and
+`hamlet_guest::db` has the bare calls for a plugin that writes its own bytes. In a
+script, `restart = true` starts the app again to see the records are still there.
 
 ## Two plugins working together
 

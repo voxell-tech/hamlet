@@ -146,6 +146,7 @@ Paths are under `crates/`.
 | A plugin that is a panel and no code | `hamlet_openui/src/data.rs`, `hamlet_wasm/src/install.rs`, `load.rs`; `guests/greeter_ui/`; [`panels.md`](panels.md) |
 | Writing a WASM plugin | `hamlet_guest/src/lib.rs` and `ui.rs`, `guests/hello/`, `guests/roster/`, `guests/notes/`, `guests/herald/`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
 | What a plugin does as the chief, in its folder of files and over the web | `hamlet_wasm/src/acts.rs`, `files.rs`, `host/folder.rs`, `net.rs`, `rate.rs`, `assets/wasm.toml`; `hamlet_sdk/src/convo/send.rs`; for a guest `hamlet_guest/src/files.rs` and `net.rs`; `guests/herald/`; [`permissions.md`](permissions.md), [`wasm.md`](wasm.md) |
+| A plugin's own database: tables of records found by a field | `hamlet_wasm/src/db.rs`, `host/database.rs`, `assets/wasm.toml`; for a guest `hamlet_guest/src/db.rs`; `guests/pantry/`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
 | A plugin's own storage, its caps and the state the host holds for it | `hamlet_wasm/src/storage.rs`, `host/keeping.rs`, `instance.rs`, `assets/wasm.toml`; for a guest `hamlet_guest/src/storage.rs` and `state.rs`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
 | A text area or markdown in a plugin's panel | `hamlet_sdk/src/tree/view/area.rs`, `markdown.rs` and `markdown/parse.rs`; [`wasm.md`](wasm.md) |
 | The Notes plugin | `guests/notes/`; its panel in the gallery, `examples/ui_gallery/scenes/notes.rs` |

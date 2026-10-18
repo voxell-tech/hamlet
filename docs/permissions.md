@@ -23,9 +23,9 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 `read.activity`, `read.papers`, `chat.send`, `commands.run`, `ui.menu`, `ui.keys`,
 `ui.context`, `ui.inspector`, `ui.settings`, `net`, `fs.pick`, `fs.folder`,
 `model.call`, `plugin.use`, `collections.read`, `collections.write`,
-`files.read` and `files.write`.
+`files.read`, `files.write` and `db`.
 `read.agents`, `read.papers`, `ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`,
-`ui.settings`, `chat.send`, `commands.run`, `net`, `files.read`, `files.write` and
+`ui.settings`, `chat.send`, `commands.run`, `net`, `files.read`, `files.write`, `db` and
 the three below are checked so far; the others can be asked for, shown and
 chosen.
 
@@ -105,6 +105,16 @@ spaces joined by `/`, none starting with `.`. A path with `..`, an absolute
 path, an empty name or any other character is refused, and so is a path that goes
 through a symbolic link, so nothing outside the folder is reachable. The host
 caps the files, their bytes and the length of a path.
+
+`db` lets a plugin keep tables of records in its own database, `plugins/<id>/db/`
+(see [`wasm.md`](wasm.md)). It is one capability for reading and writing, since
+the data is the plugin's own and nothing but its own. Like the files, it is allowed
+when the chief lets the plugin in and is not asked at first use, and the manifest
+must give a reason. A call without it returns `db not granted`, and where the
+choice is yet to be made the chief is asked, as for `read.agents`. A table name is
+of `a-z`, `0-9`, `_` and `-` only, so no name reaches another plugin's records or a
+place outside the folder; the host caps the tables, the records, the bytes and the
+fields. Records reach another plugin only through a collection.
 
 There is no `files.pick`: no file dialog exists in the app yet (the one dialog
 chooses a folder for a hamlet), so a plugin cannot ask the chief for a file. The
@@ -188,17 +198,18 @@ The petition names the plugins that need the plugin and go off with it. A
 petition to install lists the plugins it needs that are not installed.
 
 - **Remove, keep data** removes the plugin and leaves its `data/` folder, the
-  storage it kept, and its `files/` folder (see [`wasm.md`](wasm.md)).
+  storage it kept, its `files/` folder and its `db/` folder (see
+  [`wasm.md`](wasm.md)).
 - **Remove with data** removes the plugin's folder whole.
 - **Cancel** does nothing.
 
 A removal sends `Removed`. `hamlet_wasm::uninstall` despawns the plugin, so its
 panels go, deletes its files, and forgets its record in `grants.toml` so that it
-is not asked about again. A folder that holds nothing but `data/` is not read as
+is not asked about again. A folder that holds nothing but `data/`, `files/` and `db/` is not read as
 a plugin at the next start, and says nothing. Putting the plugin back in
 `plugins/<id>/` is an install like any other, with its petition and its asks to
-answer again, and it finds the data it kept, since a plugin's storage is only
-that folder.
+answer again, and it finds the data it kept, since a plugin's storage, files and database are only
+those folders.
 
 ## First use
 

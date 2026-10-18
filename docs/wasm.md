@@ -15,13 +15,14 @@ The host is behind the `wasm` feature of the binary:
 |---|---|
 | `crates/hamlet_wasm` | The host. The engine is wasmtime, pinned in the root `Cargo.toml`, and no other crate names a wasmtime type |
 | `crates/hamlet_wasm/wit/hamlet-plugin.wit` | The interface, the one description of what a plugin imports and exports |
-| `crates/hamlet_guest` | What a plugin is written with: the bindings, the `Plugin` trait, the `ui` tree builder, `State<T>` and `storage` (kept with `postcard`) and the `export!` macro |
+| `crates/hamlet_guest` | What a plugin is written with: the bindings, the `Plugin` trait, the `ui` tree builder, `State<T>`, `storage` and `db::Table<T>` (kept with `postcard`) and the `export!` macro |
 | `crates/hamlet_harness` | Runs a plugin headlessly against made-up state, reads its panels as text and draws them to pictures. See [`authoring.md`](authoring.md) |
 | `templates/` | The plugin to start from, of code and of a panel |
 | `guests/hello` | A plugin that logs on every tick. A workspace of its own, since it is built for `wasm32-wasip2` |
 | `guests/roster` | A plugin with a panel that lists the agents, behind the grant `read.agents` |
 | `guests/notes` | Notes: a search, a list of notes and a text area or markdown view of the open one, kept in the plugin's storage; a button copies the selected agent's notes, behind the grant `read.papers`. It exports the commands `add` and `new`, the event `note-saved` and the collection `notes`, and has a HAMLET menu line and the shortcut Cmd+Shift+N for `new`, a page NOTES in the Settings with the checkbox "Open notes in preview", and a NOTES tab of the inspector's page of an agent that lists the notes that mention it |
 | `guests/herald` | Herald: a panel with buttons that send a message to an agent (`chat.send`), run `notes/new` (`commands.run`), keep, read and try to escape a draft in its folder (`files.write`, `files.read`) and fetch a page (`net`, limited to one host). Its `steps.toml` checks each, with the harness's `expect-told` step |
+| `guests/pantry` | Pantry: a panel with buttons that add things to a table of its database, find the drinks by a field and remove one (`db`). Its `steps.toml` restarts the app, with the harness's `restart` step, to see the records are still there |
 | `guests/clipper` | Clipper: sends the selected agent's name to Notes with its command, lists the titles of the notes it reads from Notes' collection and counts the `note-saved` events. Its command `clip` sends the name of the agent whose menu item "Clip name to Notes" was chosen. It needs Notes. The pair is the example of [`authoring.md`](authoring.md#two-plugins-working-together) |
 | `assets/wasm.toml` | The limits, and how often the plugins' files are looked at |
 
@@ -30,7 +31,7 @@ In `hamlet_wasm/src/`, a file for each part:
 | Part | Files |
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
-| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `host/folder.rs` and `files.rs` (the folder of files), `acts.rs` (a message or a command as the chief), `net.rs` (fetches), `rate.rs` (a count a minute), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
+| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `host/folder.rs` and `files.rs` (the folder of files), `host/database.rs` and `db.rs` (the database), `acts.rs` (a message or a command as the chief), `net.rs` (fetches), `rate.rs` (a count a minute), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
 | The install folder | `manifest.rs`, `install.rs` (which also turns down plugins whose needs go in a circle), `cache.rs` (the compiled components kept beside a plugin) |
 | Plugins working together | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `chief.rs` (a command the chief runs), `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `mail.rs`. Also `command.rs` (a plugin's commands, menu lines, context items, inspector tabs, settings pages and keys as entities), `reach.rs` and `host/collections.rs` (the shared collections) |
 | Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
@@ -87,6 +88,10 @@ shows and the view built from it are in `hamlet_sdk::tree`.
 - `files-list()`, `files-read(path)`, `files-write(path, data)` and
   `files-delete(path)`, the plugin's own folder of files (see Files below).
   They need `files.read` (the first two) or `files.write`.
+- `db-put(table, id, bytes, fields)`, `db-get(table, id)`,
+  `db-delete(table, id)`, `db-list(table, after, limit)` and
+  `db-find(table, field, value, after, limit)`, the plugin's own database (see
+  Database below). They need `db`.
 - `collection-list(plugin, name, after, limit)`, `collection-get(plugin,
   name, key)`, `collection-put(plugin, name, key, value)` and
   `collection-delete(plugin, name, key)`, the collections other plugins share
@@ -117,7 +122,7 @@ The plugin exports:
   `tree`, or `lang`, a program in Hamlet's panel language that the host
   draws (see [`panels.md`](panels.md)).
 
-`interface::VERSION` is the package version, now `0.7.0`; it changes
+`interface::VERSION` is the package version, now `0.8.0`; it changes
 whenever the WIT file does. A manifest that names another one is turned
 down by the scan, and a component whose imports or exports are of another
 version of the package fails to load, both with "built for interface X,
@@ -227,6 +232,48 @@ path through a symbolic link are refused, so no path leaves the folder. The caps
 `files_bytes`, `files_count`, `file_bytes` and `file_path_bytes` of
 `assets/wasm.toml` bound it. A file is written beside its place and renamed over
 it. `hamlet_guest::files` has the four calls.
+
+## Database
+
+A plugin has a database of its own, `plugins/<id>/db/`, beside `data/` and
+`files/`, for what is too much to keep as keys and values: named tables of
+records that can be listed in pages and found by a field. No other plugin can
+reach it; records are shared through a collection.
+
+```
+<home>/plugins/<id>/db/
+  <table>.tbl      the records of <table>, in the order of their ids
+```
+
+A record is an id, bytes the host does not read (the guest's `Table<T>` writes a
+`T` with `postcard`) and up to `db_fields` fields, each a name and a value, that
+`db-find` looks records up by. `db-put` sets a record, replacing the one of that
+id, and makes the table if it is not there; `db-get` and `db-delete` take an id;
+`db-list` gives a page from the first id after `after`; `db-find` gives a page of
+the records whose field has a value, without reading their bytes. A page is at
+most `limit` records, `db_page_records` and `db_page_bytes` bytes (one record at
+least); where `next` is an id, ask again `after` it. A table is 1 to
+`db_name_bytes` bytes of `a-z`, `0-9`, `_` and `-`, so it is its own file name and
+names no place outside `db/`. A table is there while it holds a record: deleting
+the last one removes its file.
+
+A table is read whole for each call and written whole, to a file beside it that is
+renamed over it, so it is whole or as it was. It is a file of `postcard`, which the
+host already links; a find looks at each record of the table, so it suits the
+`db_records` records a table may hold and no more. The caps of `assets/wasm.toml`
+are `db_tables`, `db_records` (in a table), `db_record_bytes` (the id, the bytes
+and the fields), `db_fields`, `db_name_bytes` (a table, a field name),
+`db_text_bytes` (an id, a field value), `db_bytes` (the files of all the tables),
+`db_page_records` and `db_page_bytes`. A call over one returns an error, and a
+table whose file cannot be read as records is an error for that table only.
+
+`db-put` and `db-get` carry a record in one call, so a record is held in memory
+whole, at most `db_record_bytes`. The hand-written test plugins of the host
+(`fixture.rs`) assume small payloads and do not use the database; the real
+plugin `guests/pantry` does, and its `steps.toml` restarts the app between steps.
+The database survives a reload, a restart and a switch off, and the chief decides
+whether `db/` goes with a removed plugin ([`permissions.md`](permissions.md)).
+`hamlet_guest::db` has the five calls and `Table<T>`.
 
 ## Acts as the chief
 
@@ -496,6 +543,9 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **Storage.** At most `storage_keys` keys, `storage_key_bytes` in a key,
   `storage_value_bytes` in a value and `storage_bytes` in all the values.
   A write over one returns an error to the plugin.
+- **Database.** The tables, records, bytes and fields it may hold, and the
+  size of a page, are the `db_` values (see Database above). A write over one
+  returns an error to the plugin.
 - **State.** At most `state_bytes` in the blob. A `state-set` over it returns
   an error.
 - **Commands.** At most `commands` declared in `entry`; the rest are dropped.
