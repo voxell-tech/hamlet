@@ -102,11 +102,18 @@ interface plugin {
     nodes: list<node>,
   }
 
+  // What `panel-view` returns: a tree built in code, or a program in
+  // Hamlet's panel language, which the host evaluates into the tree.
+  variant view {
+    tree(tree),
+    lang(string),
+  }
+
   entry: func();
 
   step: func(inbox: list<incoming>) -> outgoing;
 
-  panel-view: func(panel: string) -> tree;
+  panel-view: func(panel: string) -> view;
 }
 
 world hamlet {

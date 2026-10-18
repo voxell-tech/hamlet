@@ -33,7 +33,7 @@ const COMMON: &str = r#"
   (data (i32.const 16) "\00\00\00\00\20\00\00\00\0b\00\00\00")
   (data (i32.const 32) "hello world")
   (data (i32.const 64) "logged")
-  (data (i32.const 48) "\00\00\00\00\00\00\00\00")
+  (data (i32.const 48) "\00\00\00\00\00\00\00\00\00\00\00\00")
 "#;
 
 /// A `panel-view` that returns a tree of no nodes.
@@ -58,6 +58,27 @@ pub fn drawing(before: &[Item], after: &[Item]) -> String {
 /// its `step` traps it.
 pub fn failing(tree: &[Item]) -> String {
     panelled("unreachable", tree, tree)
+}
+
+/// Declares the panel "main" and draws the program `text`.
+pub fn speaking(text: &str) -> String {
+    let view = tree::lang(256, text);
+    format!(
+        r#"(module {COMMON}
+  {view}
+  (data (i32.const 176) "main")
+  (data (i32.const 184) "MAIN")
+  (data (i32.const 192) "book")
+  (func (export "hamlet:plugin/plugin@0.1.0#entry")
+    (call $panel (i32.const 176) (i32.const 4) (i32.const 184)
+      (i32.const 4) (i32.const 192) (i32.const 4)))
+  (func (export "hamlet:plugin/plugin@0.1.0#step")
+    (param i32 i32) (result i32)
+    (i32.const 0))
+  (func (export "hamlet:plugin/plugin@0.1.0#panel-view")
+    (param i32 i32) (result i32)
+    (i32.const 256)))"#
+    )
 }
 
 fn panelled(

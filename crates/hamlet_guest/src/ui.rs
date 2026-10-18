@@ -2,8 +2,36 @@
 //! button("Go").id("go")])`.
 
 use crate::bindings::exports::hamlet::plugin::plugin::{
-    Checkbox, Node as Wire, Tree, Widget,
+    Checkbox, Node as Wire, Tree, View as Wired, Widget,
 };
+
+/// What a panel is drawn from: a tree built in code, or a program in
+/// Hamlet's panel language that the host draws.
+pub enum View {
+    Tree(Node),
+    Lang(String),
+}
+
+impl View {
+    /// The view the host is given.
+    pub fn into_wire(self) -> Wired {
+        match self {
+            View::Tree(node) => Wired::Tree(node.into_tree()),
+            View::Lang(text) => Wired::Lang(text),
+        }
+    }
+}
+
+impl From<Node> for View {
+    fn from(node: Node) -> Self {
+        View::Tree(node)
+    }
+}
+
+/// A program in the panel language, as a panel's view.
+pub fn lang(text: &str) -> View {
+    View::Lang(text.into())
+}
 
 /// One node of a panel, with the nodes in it.
 pub struct Node {

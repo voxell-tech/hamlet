@@ -2,7 +2,10 @@
 //! they return.
 
 use bevy::prelude::*;
+use hamlet_openui::Source;
+use hamlet_openui::source::Program;
 use hamlet_sdk::agents::AgentList;
+use hamlet_sdk::dock::Panel;
 use hamlet_sdk::grant::Granted;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 use hamlet_sdk::tree::id::local_id;
@@ -10,6 +13,7 @@ use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 
 use crate::instance::Instance;
 use crate::limits::Limits;
+use crate::wire::Shown;
 use crate::{run, stop};
 
 /// On the entity of an installed plugin: the panels, by their id in
@@ -43,7 +47,8 @@ pub fn due(plugins: Query<&Dirty>) -> bool {
 }
 
 /// Calls `panel-view` for each panel that is due, once, and keeps
-/// the tree it returns. A plugin whose call fails is marked failed.
+/// the tree it returns, or hands the panel the program it returns. A
+/// plugin whose call fails is marked failed.
 pub fn draw(
     limits: Res<Limits>,
     agents: Res<AgentList>,
@@ -55,6 +60,7 @@ pub fn draw(
         &mut Dirty,
         &mut Instance,
     )>,
+    panels: Query<(Entity, &Panel, Option<&Source>)>,
     mut trees: ResMut<PluginTrees>,
     mut commands: Commands,
 ) {
@@ -75,9 +81,31 @@ pub fn draw(
                         .logs
                         .iter()
                         .for_each(|line| run::say(&info.id, line));
-                    let drawn = Drawn::Tree(drawing.root);
-                    if !trees.shows(&dock, &drawn) {
-                        trees.set(&dock, drawn);
+                    let panel =
+                        panels.iter().find(|(_, p, _)| p.id == dock);
+                    match drawing.shown {
+                        Shown::Tree(root) => {
+                            let drawn = Drawn::Tree(root);
+                            if !trees.shows(&dock, &drawn) {
+                                trees.set(&dock, drawn);
+                            }
+                            // The panel is no longer drawn from a
+                            // program.
+                            if let Some((entity, _, Some(_))) = panel
+                            {
+                                commands
+                                    .entity(entity)
+                                    .remove::<Program>();
+                            }
+                        }
+                        Shown::Lang(text) => {
+                            let text = Source(text);
+                            if let Some((entity, _, was)) = panel
+                                && was != Some(&text)
+                            {
+                                commands.entity(entity).insert(text);
+                            }
+                        }
                     }
                 }
                 Err(fault) => {

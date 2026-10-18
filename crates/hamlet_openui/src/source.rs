@@ -19,6 +19,10 @@ pub struct Source(pub String);
 #[derive(Component, Clone, Debug)]
 pub struct Compiled(pub Document);
 
+/// What a panel drawn from a program carries, to take off it when it
+/// is drawn some other way.
+pub type Program = (Source, Compiled, Stale);
+
 /// Parses the program of a panel that was given one, and has it
 /// drawn.
 pub(crate) fn compile(

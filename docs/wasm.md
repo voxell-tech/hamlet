@@ -50,7 +50,9 @@ The plugin exports:
   `Inbox` holds something. An `incoming` is a `tick`, a `click`, a `toggled`
   or a `text-changed`. The intents it returns are carried out by the host: a
   `log-line`, and a `redraw` of a panel.
-- `panel-view(panel) -> tree`, which returns the panel as it is now.
+- `panel-view(panel) -> view`, which returns the panel as it is now: a
+  `tree`, or `lang`, a program in Hamlet's panel language that the host
+  draws (see [`panels.md`](panels.md)).
 
 `interface::VERSION` is the package version. A manifest that names another
 one is turned down.

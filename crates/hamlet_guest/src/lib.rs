@@ -15,7 +15,7 @@ pub mod bindings {
 pub mod ui;
 
 pub use self::bindings::exports::hamlet::plugin::plugin::{
-    Incoming, Intent, Outgoing, Tree,
+    Incoming, Intent, Outgoing, Tree, View as Wired,
 };
 pub use self::bindings::hamlet::plugin::host::{Agent, Level};
 
@@ -31,8 +31,8 @@ pub trait Plugin {
     /// The panel `panel`, as it is now. The host asks again only
     /// after an event reached the panel or the plugin asked for a
     /// redraw.
-    fn panel_view(_panel: &str) -> ui::Node {
-        ui::column([])
+    fn panel_view(_panel: &str) -> ui::View {
+        ui::column([]).into()
     }
 }
 
@@ -73,9 +73,9 @@ macro_rules! export {
                     }
                 }
 
-                fn panel_view(panel: String) -> $crate::Tree {
+                fn panel_view(panel: String) -> $crate::Wired {
                     <$plugin as $crate::Plugin>::panel_view(&panel)
-                        .into_tree()
+                        .into_wire()
                 }
             }
 

@@ -44,20 +44,39 @@ fn escaped(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("\\{b:02x}")).collect()
 }
 
+/// The size of a `view`: a tag and the larger of its payloads, both
+/// aligned to 4.
+const VIEW: usize = 12;
+
+/// The data segment of a `view` that is the program `text`, at `at`.
+pub fn lang(at: u32, text: &str) -> String {
+    let mut bytes = vec![0u8; VIEW];
+    bytes[0] = 1;
+    word(&mut bytes, 4, at + VIEW as u32);
+    word(&mut bytes, 8, text.len() as u32);
+    format!(
+        "(data (i32.const {at}) \"{}\")\n(data (i32.const {}) \
+         \"{}\")\n",
+        escaped(&bytes),
+        at + VIEW as u32,
+        escaped(text.as_bytes())
+    )
+}
+
 /// The data segments that hold `nodes` from address `at`: the
-/// `tree` record is at `at`, so a function that returns `at` returns
-/// the tree.
+/// `view` is at `at`, so a function that returns `at` returns the
+/// tree.
 pub fn data(at: u32, nodes: &[Item]) -> String {
-    let array = at + 8;
+    let array = at + VIEW as u32;
     let mut pool = Pool {
         next: array + (NODE * nodes.len()) as u32,
         texts: Vec::new(),
     };
-    let mut bytes = vec![0u8; 8 + NODE * nodes.len()];
-    word(&mut bytes, 0, array);
-    word(&mut bytes, 4, nodes.len() as u32);
+    let mut bytes = vec![0u8; VIEW + NODE * nodes.len()];
+    word(&mut bytes, 4, array);
+    word(&mut bytes, 8, nodes.len() as u32);
     for (n, Item(id, widget, children)) in nodes.iter().enumerate() {
-        let node = 8 + n * NODE;
+        let node = VIEW + n * NODE;
         if let Some(id) = id {
             let (ptr, len) = pool.put(id);
             bytes[node] = 1;

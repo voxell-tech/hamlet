@@ -1,3 +1,4 @@
+use hamlet_openui::evaluate::CONTENT;
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::tree::node::{Kind, Node};
 use hamlet_sdk::tree::store::{Drawn, PluginTrees};
@@ -45,6 +46,35 @@ pub(super) fn tree(count: &str, hint: bool) -> Node {
         children.push(Node::new(Kind::Note("A hint.".into())));
     }
     Node::new(Kind::Column).of(children)
+}
+
+#[test]
+fn a_returned_program_is_drawn_through_the_language() {
+    let scratch = Scratch::new("lang");
+    let mut app = home::app(
+        &scratch,
+        &[Plugin::new(
+            "probe",
+            fixture::component(&fixture::speaking(
+                "root = Column([Label(\"Hi\")])",
+            )),
+        )],
+    );
+
+    app.update();
+    app.update();
+
+    let content = Node::new(Kind::Column)
+        .of(vec![Node::new(Kind::Label("Hi".into()))])
+        .id(CONTENT);
+    assert!(
+        app.world().resource::<PluginTrees>().shows(
+            PANEL,
+            &Drawn::Tree(Node::new(Kind::Column).of(vec![content]))
+        ),
+        "{:?}",
+        app.world().resource::<PluginTrees>()
+    );
 }
 
 #[test]

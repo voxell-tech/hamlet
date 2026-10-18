@@ -1,7 +1,6 @@
 //! Calling a plugin: `entry` once, `step` for each inbox and
 //! `panel-view` for each panel to draw, each under the time limit.
 
-use hamlet_sdk::tree::node::Node;
 use wasmtime::Store;
 
 use crate::fault::Fault;
@@ -12,7 +11,7 @@ use crate::interface::exports::hamlet::plugin::plugin::{
     Incoming, Intent,
 };
 use crate::limits::Limits;
-use crate::wire;
+use crate::wire::{self, Shown};
 
 /// What a finished call left.
 #[derive(Default, Debug, PartialEq)]
@@ -26,7 +25,7 @@ pub struct Output {
 /// What a call to `panel-view` returned.
 #[derive(Debug, PartialEq)]
 pub struct Drawing {
-    pub root: Node,
+    pub shown: Shown,
     pub logs: Vec<Logged>,
 }
 
@@ -63,18 +62,18 @@ impl Instance {
         limits: &Limits,
         panel: &str,
     ) -> Result<Drawing, Fault> {
-        let (tree, output) = self.run(limits, |exports, store| {
+        let (view, output) = self.run(limits, |exports, store| {
             exports
                 .hamlet_plugin_plugin()
                 .call_panel_view(store, panel)
         })?;
-        let root = wire::node(tree, limits).map_err(|why| {
+        let shown = wire::shown(view, limits).map_err(|why| {
             Fault::Trap(format!(
                 "panel-view returned a bad tree: {why}"
             ))
         })?;
         Ok(Drawing {
-            root,
+            shown,
             logs: output.logs,
         })
     }

@@ -6,9 +6,25 @@ use hamlet_sdk::tree::glyph;
 use hamlet_sdk::tree::node::{Kind, Node};
 
 use crate::interface::exports::hamlet::plugin::plugin::{
-    Node as Wire, Tree, Widget,
+    Node as Wire, Tree, View, Widget,
 };
 use crate::limits::Limits;
+
+/// What a plugin returned for a panel.
+#[derive(Debug, PartialEq)]
+pub enum Shown {
+    Tree(Node),
+    /// A program in the panel language.
+    Lang(String),
+}
+
+/// What `view` shows, or what is wrong with it.
+pub fn shown(view: View, limits: &Limits) -> Result<Shown, String> {
+    match view {
+        View::Tree(tree) => node(tree, limits).map(Shown::Tree),
+        View::Lang(text) => Ok(Shown::Lang(text)),
+    }
+}
 
 /// The root of `tree`, or what is wrong with it.
 pub fn node(tree: Tree, limits: &Limits) -> Result<Node, String> {

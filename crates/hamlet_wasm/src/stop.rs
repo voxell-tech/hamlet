@@ -1,6 +1,7 @@
 //! A plugin that stopped, and what its panels show then.
 
 use bevy::prelude::*;
+use hamlet_openui::source::Program;
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::plugin::{Contributions, Status};
 use hamlet_sdk::tree::store::{Drawn, PluginTrees};
@@ -29,17 +30,20 @@ pub fn fail(
 pub fn stopped(
     insert: On<Insert, Failure>,
     failed: Query<(&Failure, &Contributions)>,
-    panels: Query<&Panel>,
+    panels: Query<(Entity, &Panel)>,
     mut trees: ResMut<PluginTrees>,
+    mut commands: Commands,
 ) {
     let Ok((Failure(why), contributions)) = failed.get(insert.entity)
     else {
         return;
     };
-    for panel in panels.iter_many(contributions.iter()) {
+    for (entity, panel) in panels.iter_many(contributions.iter()) {
         let drawn = Drawn::Stopped(why.clone());
         if !trees.shows(&panel.id, &drawn) {
             trees.set(&panel.id, drawn);
         }
+        // A program would draw over the placeholder.
+        commands.entity(entity).remove::<Program>();
     }
 }

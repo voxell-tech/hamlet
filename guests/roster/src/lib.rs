@@ -4,8 +4,8 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use hamlet_guest::ui::{
-    Node, button, checkbox, column, divider, heading, icon, label,
-    note, row, scroll,
+    Node, View, button, checkbox, column, divider, heading, icon,
+    label, note, row, scroll,
 };
 use hamlet_guest::{Incoming, Intent, Plugin};
 
@@ -36,7 +36,7 @@ impl Plugin for Roster {
         Vec::new()
     }
 
-    fn panel_view(_panel: &str) -> Node {
+    fn panel_view(_panel: &str) -> View {
         let refreshed = REFRESHES.load(Ordering::Relaxed);
         let mut rows = vec![
             row([icon("robot"), heading("EVERYONE IN THE REALM")]),
@@ -52,7 +52,7 @@ impl Plugin for Roster {
         }
         rows.push(divider());
         rows.push(agents());
-        column(rows)
+        column(rows).into()
     }
 }
 
