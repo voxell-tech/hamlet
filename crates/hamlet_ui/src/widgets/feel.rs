@@ -31,7 +31,6 @@ pub fn plugin(app: &mut App) {
         UiMaterialPlugin::<control::Lamp>::default(),
     ))
     .init_resource::<FeelSettings>()
-    .add_message::<ThemeChanged>()
     .add_observer(control::answer)
     .add_systems(
         Update,
