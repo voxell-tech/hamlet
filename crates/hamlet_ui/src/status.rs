@@ -1,14 +1,10 @@
 //! The line at the foot of the window, and the words it is made
 //! of.
 
-use std::time::Instant;
-
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Local, Query, Res, ResMut};
-use bevy::state::condition::in_state;
+use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ui::{AlignItems, Overflow, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -25,7 +21,6 @@ use crate::links::Aimed;
 use crate::looks::{hairline, note};
 use crate::me::Me;
 use crate::petition::Queue;
-use crate::window::Layout;
 use crate::{AnyView, Cx, View};
 
 /// The side of an icon in the bar.
@@ -33,17 +28,10 @@ const MARK: f32 = 12.0;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Bar>()
-        .init_resource::<Lately>()
-        .add_systems(
-            Update,
-            (
-                update_status,
-                update_lately.run_if(in_state(Layout::Minimal)),
-            ),
-        );
+        .add_systems(Update, update_status);
 }
 
-/// The words of the status bar and the minimal window.
+/// The words of the status bar.
 #[derive(Resource, Default, PartialEq)]
 pub struct Bar {
     /// The open chat's agent has a turn running.
@@ -100,36 +88,6 @@ pub(crate) fn update_status(
     }
 }
 
-/// The last thing the open chat's agent did and how long ago, as the
-/// minimal window says it.
-#[derive(Resource, Default, PartialEq)]
-pub(crate) struct Lately(pub String);
-
-pub(crate) fn update_lately(
-    me: Res<Me>,
-    sessions: Query<&Status>,
-    mut lately: ResMut<Lately>,
-    mut seen: Local<Option<(Instant, u64)>>,
-) {
-    let last = sessions
-        .get(me.session)
-        .ok()
-        .and_then(|status| status.last_activity.as_ref());
-    // The words change with the second at the soonest.
-    let now = last.map(|(at, _)| (*at, at.elapsed().as_secs()));
-    if *seen == now && !lately.0.is_empty() {
-        return;
-    }
-    *seen = now;
-    let next = match last {
-        Some((at, what)) => format!("{what}, {}", ago(*at)),
-        None => "None yet".into(),
-    };
-    if lately.0 != next {
-        lately.0 = next;
-    }
-}
-
 /// The state of the connection in a few words.
 pub(crate) fn link_text(link: &Link) -> String {
     match link {
@@ -148,16 +106,6 @@ pub(crate) fn link_tone(link: &Link) -> Tone {
     match link {
         Link::Failed(_) => Tone::Critical,
         _ => Tone::Dim,
-    }
-}
-
-pub(crate) fn ago(since: Instant) -> String {
-    let s = since.elapsed().as_secs();
-    match s {
-        0..=4 => "just now".into(),
-        5..=59 => format!("{s}s ago"),
-        60..=3599 => format!("{} min ago", s / 60),
-        _ => format!("{} h ago", s / 3600),
     }
 }
 

@@ -91,8 +91,6 @@ pub enum Glyph {
     Robot,
     /// Two sliders: the settings.
     Sliders,
-    /// A small window inside the window.
-    Minimal,
     /// An arrow down into a tray: out of sight, still running.
     Lower,
     Power,
@@ -105,8 +103,6 @@ pub enum Glyph {
     Sun,
     /// A magnifying glass: the Inspector.
     Lens,
-    /// Arrows to two corners.
-    Expand,
     /// A triangle: go on.
     Play,
     Globe,
@@ -147,7 +143,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 46] = [
+    pub const ALL: [Glyph; 44] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -177,7 +173,6 @@ impl Glyph {
         Glyph::Signpost,
         Glyph::Robot,
         Glyph::Sliders,
-        Glyph::Minimal,
         Glyph::Lower,
         Glyph::Power,
         Glyph::Restore,
@@ -186,7 +181,6 @@ impl Glyph {
         Glyph::Clock,
         Glyph::Sun,
         Glyph::Lens,
-        Glyph::Expand,
         Glyph::Play,
         Glyph::Globe,
         Glyph::Chevron,
@@ -419,15 +413,6 @@ impl Glyph {
                 Dot(5.5, 5.0, 2.0),
                 Dot(10.5, 11.0, 2.0),
             ],
-            Glyph::Minimal => &[
-                Round(2.0, 3.0, 14.0, 13.0, 1.5),
-                Fill(&[
-                    [8.5, 8.5],
-                    [12.0, 8.5],
-                    [12.0, 11.0],
-                    [8.5, 11.0],
-                ]),
-            ],
             Glyph::Lower => &[
                 Line(8.0, 2.5, 8.0, 9.5),
                 Path(&[[5.0, 6.5], [8.0, 9.5], [11.0, 6.5]]),
@@ -491,12 +476,6 @@ impl Glyph {
             Glyph::Lens => {
                 &[Ring(7.0, 7.0, 4.5), Line(10.4, 10.4, 13.75, 13.75)]
             }
-            Glyph::Expand => &[
-                Path(&[[9.5, 2.5], [13.5, 2.5], [13.5, 6.5]]),
-                Line(13.5, 2.5, 9.0, 7.0),
-                Path(&[[2.5, 9.5], [2.5, 13.5], [6.5, 13.5]]),
-                Line(2.5, 13.5, 7.0, 9.0),
-            ],
             Glyph::Play => {
                 &[Loop(&[[5.0, 3.0], [13.0, 8.0], [5.0, 13.0]])]
             }

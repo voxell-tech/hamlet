@@ -28,9 +28,8 @@ use crate::icons::{Glyph, glyph};
 use crate::looks::ICON;
 use crate::platform::DisplayText;
 use crate::theme::HamletTheme;
-use crate::window::{self, Layout};
 use crate::world_view::TimeOfDay;
-use crate::{AnyView, Cx, View};
+use crate::{AnyView, Cx, View, window};
 
 /// The height of the menu bar.
 const BAR: f32 = 34.0;
@@ -211,9 +210,6 @@ fn item(
 fn items(menu: Menu) -> Vec<AnyView> {
     match menu {
         Menu::App => vec![
-            item(Glyph::Minimal, "Minimal View", |w| {
-                window::set_layout(w, Layout::Minimal)
-            }),
             item(
                 Glyph::Plus,
                 "Found a Hamlet...",
