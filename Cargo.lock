@@ -3625,6 +3625,7 @@ dependencies = [
  "hamlet_core",
  "hamlet_home",
  "hamlet_offscreen",
+ "hamlet_realm",
  "hamlet_sdk",
  "hamlet_ui",
  "hamlet_wasm",

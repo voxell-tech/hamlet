@@ -98,6 +98,15 @@ fn describe(step: &Step) -> String {
         Step::Render(p) => {
             format!("render {} to {}", p.panel, p.file)
         }
+        Step::Context(c) => {
+            format!("context {} {:?}", c.subject, c.item)
+        }
+        Step::Section(h) => {
+            format!("section {:?} to {}", h.title, h.file)
+        }
+        Step::Page(h) => {
+            format!("page {:?} to {}", h.title, h.file)
+        }
         Step::Expect(e) => {
             format!("expect {} shows {:?}", e.panel, e.text)
         }
@@ -152,6 +161,26 @@ fn apply(
         Step::Render(p) => {
             let path = out.join(&p.file);
             harness.render(&p.panel, &path)?;
+            lines.push(format!("wrote {}", path.display()));
+            Ok(())
+        }
+        Step::Context(c) => {
+            if let Some(file) = &c.file {
+                let path = out.join(file);
+                harness.render_context(&c.subject, &path)?;
+                lines.push(format!("wrote {}", path.display()));
+            }
+            harness.run_context(&c.subject, &c.item)
+        }
+        Step::Section(h) => {
+            let path = out.join(&h.file);
+            harness.render_section(&h.title, &path)?;
+            lines.push(format!("wrote {}", path.display()));
+            Ok(())
+        }
+        Step::Page(h) => {
+            let path = out.join(&h.file);
+            harness.render_page(&h.title, &path)?;
             lines.push(format!("wrote {}", path.display()));
             Ok(())
         }

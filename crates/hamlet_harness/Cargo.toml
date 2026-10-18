@@ -19,6 +19,7 @@ hamlet_assets = { workspace = true, optional = true }
 hamlet_core = { workspace = true, optional = true }
 hamlet_home = { workspace = true, optional = true }
 hamlet_offscreen = { workspace = true, optional = true }
+hamlet_realm = { workspace = true, optional = true }
 hamlet_ui = { workspace = true, optional = true }
 hamlet_wasm = { workspace = true, optional = true }
 
@@ -31,6 +32,7 @@ wasm = [
     "dep:hamlet_core",
     "dep:hamlet_home",
     "dep:hamlet_offscreen",
+    "dep:hamlet_realm",
     "dep:hamlet_ui",
     "dep:hamlet_wasm",
 ]

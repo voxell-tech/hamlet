@@ -1,6 +1,7 @@
 //! A plugin run headlessly against made-up state.
 
 mod home;
+mod surfaces;
 
 use std::path::Path;
 
@@ -27,6 +28,7 @@ use hamlet_wasm::run::Said;
 use hamlet_wasm::stop::Failure;
 
 use self::home::Scratch;
+use crate::render::Host;
 use crate::{outline, render};
 
 /// The frames an action runs, so that the plugin sees it, answers it
@@ -359,7 +361,7 @@ impl Harness {
                 .ok_or("no tree")?,
             Shape::Stopped(why) => Drawn::Stopped(why),
         };
-        render::draw(found, drawn, self.size, path)
+        render::draw(Host::Panel(found), drawn, self.size, path)
     }
 
     fn answer(

@@ -132,12 +132,18 @@ fn a_menu_line_and_a_chord_run_a_command_once_the_chief_allows_them()
             "id = \"far\"\nname = \"Far\"\nversion = \
              \"0.1.0\"\ninterface = \
              \"{VERSION}\"\n[exports]\ncommands = [\"go\"]\n{}",
-            ["ui.menu", "ui.keys"]
-                .map(|ask| format!(
-                    "[[asks]]\ncapability = \"{ask}\"\nreason = \"a \
-                     test\"\n"
-                ))
-                .concat()
+            [
+                "ui.menu",
+                "ui.keys",
+                "ui.context",
+                "ui.inspector",
+                "ui.settings"
+            ]
+            .map(|ask| format!(
+                "[[asks]]\ncapability = \"{ask}\"\nreason = \"a \
+                 test\"\n"
+            ))
+            .concat()
         ),
     )
     .unwrap();
@@ -162,5 +168,20 @@ fn a_menu_line_and_a_chord_run_a_command_once_the_chief_allows_them()
     assert_eq!(ran(&harness), 2);
     assert!(harness.run_menu("Nope").is_err());
     assert!(harness.run_command("far/nope").is_err());
+
+    // A context item, a tab and a page show once they are allowed.
+    assert!(harness.run_context("agent:Juniper", "Go").is_err());
+    assert!(
+        harness.sections().is_empty() && harness.pages().is_empty()
+    );
+    for ask in ["ui.context", "ui.inspector", "ui.settings"] {
+        harness.grant(ask).unwrap();
+    }
+    harness.run_context("agent:Juniper", "Go").unwrap();
+    assert_eq!(ran(&harness), 3);
+    assert!(harness.run_context("house:Juniper", "Go").is_err());
+    assert!(harness.run_context("juniper", "Go").is_err());
+    assert_eq!(harness.sections(), ["Go"]);
+    assert_eq!(harness.pages(), ["Go"]);
     let _ = std::fs::remove_dir_all(&folder);
 }

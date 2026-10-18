@@ -54,8 +54,46 @@ pub enum Step {
     Deny(String),
     /// Draws a panel to a picture.
     Render(Picture),
+    /// Chooses an item of the menu of a thing of the world.
+    Context(Choosing),
+    /// Draws the Inspector's page of the selected agent, turned to a
+    /// tab the plugin added.
+    Section(Hosted),
+    /// Draws a page the plugin added to the Settings.
+    Page(Hosted),
     /// Fails unless a node of the panel shows the text.
     Expect(Expected),
+}
+
+impl Step {
+    /// Whether the step draws a picture and does nothing else.
+    pub fn is_picture(&self) -> bool {
+        matches!(
+            self,
+            Step::Render(_) | Step::Section(_) | Step::Page(_)
+        )
+    }
+}
+
+/// An item of the menu of a thing of the world.
+#[derive(Deserialize, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Choosing {
+    /// The thing, as `kind:name`, such as `agent:Juniper`.
+    pub subject: String,
+    /// The label of the item, or what it says of the thing.
+    pub item: String,
+    /// A picture of the menu, drawn before the item is chosen.
+    pub file: Option<String>,
+}
+
+/// A page of the Inspector or of the Settings, by its title.
+#[derive(Deserialize, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Hosted {
+    pub title: String,
+    /// The picture's file, under the output folder.
+    pub file: String,
 }
 
 /// A node of a panel, by the ids the plugin gave them.

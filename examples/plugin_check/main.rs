@@ -70,7 +70,12 @@ fn check() -> Result<bool, String> {
         None => run::plain(&mut harness),
     };
     if std::env::args().any(|arg| arg == "--no-pictures") {
-        script.steps.retain(|step| !matches!(step, Step::Render(_)));
+        script.steps.retain(|step| !step.is_picture());
+        for step in &mut script.steps {
+            if let Step::Context(choosing) = step {
+                choosing.file = None;
+            }
+        }
     }
     let report = run::run(&mut harness, &script, &out);
     report.lines.iter().for_each(|line| println!("{line}"));
