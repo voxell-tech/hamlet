@@ -24,6 +24,21 @@ pub enum Mood {
     Field,
 }
 
+/// A title or a tab that is lit from below under the pointer, at a
+/// press, and for as long as it is `held`.
+#[derive(Component, Default)]
+pub struct FootLight {
+    pub held: bool,
+    pub level: f32,
+}
+
+impl FootLight {
+    /// A foot light at rest, or held lit.
+    pub fn new(held: bool) -> Self {
+        Self { held, level: 0.0 }
+    }
+}
+
 /// A panel that light falls into.
 #[derive(Component, Clone, Copy, Default)]
 pub struct Lit {

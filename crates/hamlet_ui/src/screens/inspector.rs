@@ -22,8 +22,8 @@ pub(crate) use hamlet_sdk::convo::of_agent;
 use hamlet_sdk::inspector::InspectorSections;
 use hamlet_sdk::papers::{Papers, keep_papers};
 
+pub(crate) use self::agent::show_prompt;
 pub use self::agent::{Briefing, Section};
-pub(crate) use self::agent::{now, show_prompt};
 pub(crate) use self::house::house;
 use crate::dock::{Panel, PanelAppExt, lit_panel, show_tab};
 use crate::feel::Lit;

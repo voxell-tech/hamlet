@@ -17,10 +17,10 @@ use hamlet_core::agents::{
 use hamlet_core::oversight::Waiting;
 use hamlet_realm::pick::Thing;
 use hamlet_rules::hamlet::HOME;
+use hamlet_sdk::words::{PURPOSE_SHOWN, now, short, standing};
 
 use super::{Naming, Search};
 use crate::icons::Glyph;
-use crate::inspector::now;
 use crate::looks::{note, plate, stated};
 use crate::platform::DisplayText;
 use crate::roll::Roll;
@@ -59,34 +59,6 @@ pub(super) struct HamletRow {
     pub waiting: usize,
     pub gone: usize,
     pub account: String,
-}
-
-/// The state of a hamlet in a word: the agents `living` in it, and
-/// those of them `working` or `waiting` for the chief.
-pub(crate) fn standing(
-    living: usize,
-    working: usize,
-    waiting: usize,
-) -> (Glyph, String, Tone) {
-    let count = match living {
-        1 => "1 agent".to_string(),
-        n => format!("{n} agents"),
-    };
-    match (waiting, working) {
-        (0, 0) => {
-            (Glyph::Moon, format!("{count}, all at rest"), Tone::Dim)
-        }
-        (0, n) => (
-            Glyph::Bolt,
-            format!("{count}, {n} at work"),
-            Tone::Accent,
-        ),
-        (w, _) => (
-            Glyph::Bell,
-            format!("{count}, {w} waiting for you"),
-            Tone::Critical,
-        ),
-    }
 }
 
 impl HamletRow {
@@ -179,12 +151,7 @@ pub(super) fn agent_rows(
                     name,
                     mayor,
                     purpose: purpose
-                        .map(|p| {
-                            crate::hover::short(
-                                &p.0,
-                                crate::hover::PURPOSE_SHOWN,
-                            )
-                        })
+                        .map(|p| short(&p.0, PURPOSE_SHOWN))
                         .unwrap_or_default(),
                     state,
                     busy,

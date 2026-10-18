@@ -1,7 +1,6 @@
 //! The light under a title or a tab.
 
 use bevy::color::Alpha;
-use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::Has;
 use bevy::ecs::system::{Commands, Query, Res};
@@ -14,22 +13,8 @@ use bevy::ui::{
 
 use super::control::Feel;
 use super::{FeelSettings, MagicColors, ease};
+use crate::feel::FootLight;
 use crate::theme::Themed;
-
-/// A title or a tab that is lit from below under the pointer, at a
-/// press, and for as long as it is `held`.
-#[derive(Component, Default)]
-pub struct FootLight {
-    pub held: bool,
-    level: f32,
-}
-
-impl FootLight {
-    /// A foot light at rest, or held lit.
-    pub fn new(held: bool) -> Self {
-        Self { held, level: 0.0 }
-    }
-}
 
 type FootLit<'a> = (
     Entity,

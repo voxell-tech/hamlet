@@ -15,9 +15,8 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::on_message;
 use bevy::math::Vec3;
 use bevy::ui_render::prelude::UiMaterialPlugin;
-pub use hamlet_sdk::feel::{Lit, Mood};
+pub use hamlet_sdk::feel::{FootLight, Lit, Mood};
 
-pub use self::foot::FootLight;
 use crate::theme::{HamletTheme, ThemeChanged};
 
 /// The feel of the controls, the dock's hint and the panels'

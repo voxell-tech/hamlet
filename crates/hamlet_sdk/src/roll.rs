@@ -42,7 +42,7 @@ type AgentLost<'w, 's> = (
     RemovedComponents<'w, 's, Mayor>,
 );
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Roll>().add_systems(Update, turn_roll);
 }
 
@@ -60,13 +60,13 @@ pub struct Roll {
 
 impl Roll {
     /// The count of changes to the hamlets and their files.
-    pub(crate) fn hamlets(&self) -> u64 {
+    pub fn hamlets(&self) -> u64 {
         self.hamlets
     }
 }
 
 /// A check that fires when an agent changed.
-pub(crate) fn agents_moved()
+pub fn agents_moved()
 -> impl FnMut(&World) -> bool + Send + Sync + 'static {
     let mut seen = None;
     move |world: &World| {
@@ -80,7 +80,7 @@ pub(crate) fn agents_moved()
 
 /// A check that fires when the record, the ledger or the limits of a
 /// hamlet moved, or a hamlet came or went.
-pub(crate) fn hamlets_moved()
+pub fn hamlets_moved()
 -> impl FnMut(&World) -> bool + Send + Sync + 'static {
     let mut seen = None;
     move |world: &World| {
@@ -93,7 +93,7 @@ pub(crate) fn hamlets_moved()
 }
 
 /// A signal over the agents, read again when they changed.
-pub(crate) fn rolled<T>(
+pub fn rolled<T>(
     read: impl Fn(&World) -> T + Send + Sync + 'static,
 ) -> Signal<T> {
     derived(read).when(agents_moved())

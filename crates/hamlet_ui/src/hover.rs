@@ -37,10 +37,9 @@ use hamlet_realm::chief::{Beside, Look};
 use hamlet_realm::hand::Proud;
 use hamlet_realm::pick::{Following, Hovered, Thing};
 use hamlet_rules::work::Mode;
+use hamlet_sdk::words::{PURPOSE_SHOWN, now, short, standing};
 
 use crate::feel::FeelSettings;
-use crate::inspector::now;
-use crate::overview::standing;
 use crate::platform::{DisplayText, show};
 use crate::roll::Roll;
 use crate::theme::Themed;
@@ -50,9 +49,6 @@ use crate::{AnyView, Cx, View};
 /// The layer of the card in the window's stack: over the panels,
 /// under the menus.
 const CARD_Z: i32 = 950;
-
-/// The most of an agent's purpose the card shows, in letters.
-pub(crate) const PURPOSE_SHOWN: usize = 96;
 
 /// The state of an agent, for its card.
 type Doing<'a> = (
@@ -96,20 +92,6 @@ impl Card {
 /// The card's node.
 #[derive(Component)]
 pub(crate) struct CardBox;
-
-/// Words cut to `most` letters at a word's end.
-pub(crate) fn short(text: &str, most: usize) -> String {
-    if text.chars().count() <= most {
-        return text.to_string();
-    }
-    let cut = text
-        .char_indices()
-        .nth(most)
-        .map_or(text.len(), |(at, _)| at);
-    let kept = &text[..cut];
-    let kept = kept.rsplit_once(' ').map_or(kept, |(kept, _)| kept);
-    format!("{kept}...")
-}
 
 /// The queries a card is made from.
 #[derive(SystemParam)]
@@ -622,18 +604,4 @@ pub fn view() -> AnyView {
         .with((OverrideClip, CardBox, shadow));
         cx.build(overlay((card,)))
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_long_purpose_is_cut_at_a_word() {
-        assert_eq!(short("Keeps the list.", 40), "Keeps the list.");
-        assert_eq!(
-            short("Reads every paper it is given", 12),
-            "Reads every..."
-        );
-    }
 }

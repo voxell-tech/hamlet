@@ -14,7 +14,6 @@ mod me;
 pub mod menu;
 pub mod models;
 mod remember;
-mod roll;
 mod root;
 pub mod rules;
 pub mod screens;
@@ -38,12 +37,12 @@ pub use hamlet_sdk::dock::{lit_panel, panel};
 pub use hamlet_sdk::looks::{
     ICON, brass, grim, lamp, marked, retrace, well,
 };
+pub use hamlet_sdk::roll::{self, Roll};
 pub use hamlet_sdk::{
     AnyView, Cx, SdkPlugin, View, looks, theme, with_cx,
 };
 
 pub use self::me::Me;
-pub use self::roll::Roll;
 pub use self::root::toolbar;
 pub use self::screens::{
     chat, inspector, links, overview, pictures, settings,
@@ -67,7 +66,6 @@ impl Plugin for UiPlugin {
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
             (
-                roll::plugin,
                 root::plugin,
                 dock::plugin,
                 window::plugin,

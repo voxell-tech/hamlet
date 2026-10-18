@@ -28,8 +28,8 @@ use hamlet_rules::realm::Realm;
 pub(crate) use hamlet_sdk::cards::heading;
 
 pub use self::hamlet::{Naming, Page, hamlet};
+pub(crate) use self::rows::stale;
 use self::rows::{hamlet_rows, pressable};
-pub(crate) use self::rows::{stale, standing};
 use crate::icons::Glyph;
 use crate::looks::{
     Fills, action, bad_action, bare, good_action, note, title, well,

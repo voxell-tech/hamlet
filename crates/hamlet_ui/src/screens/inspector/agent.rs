@@ -14,8 +14,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_core::agents::{
-    self, Account, Activity, Busy, Doing, LivesIn, Paper, Purpose,
-    Treasury,
+    self, Account, Activity, Busy, LivesIn, Purpose, Treasury,
 };
 use hamlet_core::core::RefreshLists;
 use hamlet_core::session::{self, Seat};
@@ -26,6 +25,7 @@ use hamlet_sdk::inspector::{
 };
 use hamlet_sdk::page;
 use hamlet_sdk::papers::Papers;
+use hamlet_sdk::words::{PURPOSE_SHOWN, now, short};
 
 use crate::feel::Mood;
 use crate::icons::Glyph;
@@ -74,8 +74,7 @@ pub struct Briefing {
 
 /// An agent's purpose cut short, whole under the pointer.
 pub(super) fn said(purpose: String) -> AnyView {
-    let shown =
-        crate::hover::short(&purpose, crate::hover::PURPOSE_SHOWN);
+    let shown = short(&purpose, PURPOSE_SHOWN);
     if shown == purpose {
         return dim(purpose).boxed();
     }
@@ -90,28 +89,6 @@ pub(super) fn said(purpose: String) -> AnyView {
 
 pub(super) fn dim(text: impl Into<String>) -> impl View {
     label(text.into()).tone(Tone::Dim)
-}
-
-/// The step an agent is on, in words.
-pub(crate) fn now(busy: bool, activity: Activity) -> String {
-    if !busy {
-        return "At rest".into();
-    }
-    let paper = |p: Paper| match p {
-        Paper::File => "a file",
-        Paper::Notes => "its notes",
-        Paper::Skill => "a skill",
-    };
-    match activity.doing {
-        Doing::Unknown => "Working".into(),
-        Doing::Think => "Thinking".into(),
-        Doing::Read(p) => format!("Reading {}", paper(p)),
-        Doing::Write(p) => format!("Writing {}", paper(p)),
-        Doing::Run => "Running a command".into(),
-        Doing::Fetch => "Fetching from the network".into(),
-        Doing::CustomTool => "Using a tool added by hand".into(),
-        Doing::Await => "Waiting for an agent's answer".into(),
-    }
 }
 
 /// The spending of `agent` from its hamlet's budget in the period, as

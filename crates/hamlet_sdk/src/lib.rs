@@ -4,6 +4,7 @@
 
 pub mod agents;
 pub mod asking;
+pub mod bar;
 pub mod capability;
 pub mod cards;
 pub mod change;
@@ -24,10 +25,13 @@ pub mod papers;
 pub mod platform;
 pub mod plugin;
 pub mod reload;
+pub mod roll;
 pub mod settings;
+pub mod tabs;
 pub mod theme;
 pub mod tree;
 pub mod waits;
+pub mod words;
 
 use bevy::app::{App, Plugin};
 use bevy_fynix::Bevy;
@@ -54,6 +58,7 @@ impl Plugin for SdkPlugin {
             settings::plugin,
             tree::plugin,
             waits::plugin,
+            (bar::plugin, roll::plugin, tabs::plugin),
         ));
     }
 }

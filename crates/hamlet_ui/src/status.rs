@@ -3,7 +3,6 @@
 
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
-use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ui::{AlignItems, Overflow, UiRect, px};
 use bevy_fynix::tokens::Tone;
@@ -15,6 +14,7 @@ use hamlet_core::agents::{Settlement, Treasury};
 use hamlet_core::core::{Link, Sandboxing, Settings};
 use hamlet_core::session::{Status, Usage};
 use hamlet_rules::hamlet::HOME;
+pub use hamlet_sdk::bar::Bar;
 use hamlet_sdk::waits::Waits;
 
 use crate::icons::{Glyph, glyph};
@@ -27,23 +27,7 @@ use crate::{AnyView, Cx, View};
 const MARK: f32 = 12.0;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Bar>()
-        .add_systems(Update, update_status);
-}
-
-/// The words of the status bar.
-#[derive(Resource, Default, PartialEq)]
-pub struct Bar {
-    /// The open chat's agent has a turn running.
-    pub busy: bool,
-    pub running: String,
-    pub running_tone: Tone,
-    pub model: String,
-    pub link: String,
-    /// Tokens and cost (or model time) of the current session.
-    pub usage: String,
-    /// The hamlet's spend against its budget.
-    pub budget: String,
+    app.add_systems(Update, update_status);
 }
 
 pub(crate) fn update_status(
