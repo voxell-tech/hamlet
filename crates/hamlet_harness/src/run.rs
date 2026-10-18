@@ -95,6 +95,7 @@ fn describe(step: &Step) -> String {
         Step::SetSelected(name) => format!("set-selected {name:?}"),
         Step::Grant(capability) => format!("grant {capability}"),
         Step::Deny(capability) => format!("deny {capability}"),
+        Step::Restart(_) => "restart".into(),
         Step::Render(p) => {
             format!("render {} to {}", p.panel, p.file)
         }
@@ -159,6 +160,13 @@ fn apply(
         }
         Step::Grant(capability) => harness.grant(capability),
         Step::Deny(capability) => harness.deny(capability),
+        Step::Restart(true) => {
+            harness.restart();
+            Ok(())
+        }
+        Step::Restart(false) => {
+            Err("`restart` is written `restart = true`".into())
+        }
         Step::Render(p) => {
             let path = out.join(&p.file);
             harness.render(&p.panel, &path)?;

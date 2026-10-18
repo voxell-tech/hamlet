@@ -52,6 +52,10 @@ pub enum Step {
     Grant(String),
     /// The chief refuses one.
     Deny(String),
+    /// Quits the app and starts it again on the same home, as
+    /// `restart = true`. What the plugins kept on disk is there; what
+    /// they held in memory is not.
+    Restart(bool),
     /// Draws a panel to a picture.
     Render(Picture),
     /// Chooses an item of the menu of a thing of the world.

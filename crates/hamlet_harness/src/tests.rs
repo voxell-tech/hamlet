@@ -69,6 +69,26 @@ fn a_click_changes_the_tree_and_a_render_writes_a_picture() {
 }
 
 #[test]
+fn a_restart_brings_the_plugin_up_again_on_the_same_home() {
+    let plugin = folder("restart");
+    let mut harness = Harness::open(&plugin).unwrap();
+    harness.click("main", "go").unwrap();
+    let shown = |harness: &Harness, text: &str| {
+        harness
+            .outline("main")
+            .iter()
+            .any(|line| line.contains(text))
+    };
+    assert!(shown(&harness, "after"));
+
+    harness.restart();
+
+    assert!(shown(&harness, "before"));
+    assert_eq!(harness.panels(), ["main"]);
+    let _ = std::fs::remove_dir_all(&plugin);
+}
+
+#[test]
 fn a_script_reports_the_step_that_failed_and_stops() {
     let plugin = folder("script");
     let mut harness = Harness::open(&plugin).unwrap();

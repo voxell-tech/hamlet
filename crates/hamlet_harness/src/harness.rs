@@ -102,6 +102,19 @@ impl Harness {
         Ok(())
     }
 
+    /// Quits the app and starts it again on the same home: the
+    /// plugins are brought up as at a launch, with what the chief
+    /// decided and what they kept on disk, and nothing they held in
+    /// memory. The notices the chief was given are forgotten.
+    pub fn restart(&mut self) {
+        let mut app = home::app(&self._home);
+        app.update();
+        self.said =
+            app.world().resource::<Messages<Said>>().get_cursor();
+        self.app = app;
+        self.frames(SETTLE);
+    }
+
     /// This, drawing pictures of `size` pixels.
     pub fn sized(mut self, size: UVec2) -> Self {
         self.size = size;
