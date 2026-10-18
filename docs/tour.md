@@ -17,7 +17,7 @@ files are.
 ```mermaid
 flowchart TD
     typed([You type a line])
-    chat["hamlet_ui: chat"]
+    chat["hamlet_chat: chat"]
     session["hamlet_core: session"]
     rules["hamlet_rules: commands, chief"]
     agent["hamlet_core: agent, the loop"]
@@ -60,7 +60,8 @@ table. The binary and the examples are the root package.
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
 | `hamlet_realm` | The 3D world, drawn from the core's entities |
 | `hamlet_sdk` | What a plugin is built with: the plugin types, commands, menu lines, context menu items, inspector tabs, settings pages and keys, the theme, looks and icons, the dock's panels |
-| `hamlet_ui` | The window: panels, menus, chat and pointer around the world |
+| `hamlet_chat` | The chat with an agent: who it is with, how it is read and typed, the markdown and pictures in it, selecting its words, links, and the deeds that ask the chief first |
+| `hamlet_ui` | The window: panels, menus and pointer around the world |
 | `hamlet_wasm` | The host of the installed WASM plugins, behind the binary's `wasm` feature. See [`wasm.md`](wasm.md) |
 | `hamlet_openui` | Panels written in Hamlet's panel language: the components, the evaluation into a panel tree, state, actions and the data plugin. See [`panels.md`](panels.md) |
 | `hamlet_guest` | What a WASM plugin is written with: the interface bindings, the `Plugin` trait, the tree builder and the helpers that keep its state and its storage |
@@ -112,7 +113,7 @@ Paths are under `crates/`.
 | What an agent is told every turn | [`prompt.md`](prompt.md); the charter is `assets/charter.md` |
 | The tools an agent has | `hamlet_core/src/tools/`; the hamlet's own in `hamlet_core/src/agent/hamlet_tools.rs` |
 | The questions an agent asks the chief | `hamlet_rules/src/chief/asking.rs`; their card, in Needs You and the chat, in `hamlet_sdk/src/asking.rs` |
-| Selecting and copying text in the panels | `hamlet_ui/src/select.rs`; [`chat.md`](chat.md) |
+| Selecting and copying text in the panels | `hamlet_chat/src/select.rs`; [`chat.md`](chat.md) |
 | A chief's slash command | The table `ALL` in `hamlet_rules/src/commands.rs`, which names who carries it out. It is not a `Command` entity: see [`sdk.md`](sdk.md) |
 | What needs the chief's approval | `hamlet_core/src/oversight/danger.rs` |
 | A plugin's petition: installing it, letting it use more, removing it | `hamlet_core/src/oversight/plugin.rs`, `hamlet_sdk/src/capability/petition.rs`, `install.rs`; removing it, `hamlet_wasm/src/uninstall.rs`; [`permissions.md`](permissions.md) |
@@ -167,7 +168,7 @@ Paths are under `crates/`.
 | Building a plugin from an agent's sandbox | `scripts/vendor-plugin-deps.sh`; [`authoring.md`](authoring.md) |
 | The Plugins page of Settings, and the permissions views | `hamlet_ui/src/screens/settings/plugins.rs` and `plugins/` (`list.rs`, `permissions.rs`, `capabilities.rs`, `control.rs`, `links.rs`, `adds.rs`, which lists what each plugin adds); the page is added by the `window` plugin with `settings::contribute`; [`permissions.md`](permissions.md) |
 | A colour in the world | `assets/palette.toml` |
-| A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`, `wasm.toml`, `panel_lang.toml`. What each value means is beside its field in the code |
+| A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`, `chat.toml`, `wasm.toml`, `panel_lang.toml`. What each value means is beside its field in the code |
 | The height something stands at | `LandData::surface`: the ground as it is drawn, never the smooth `height` |
 | How a house looks | `hamlet_realm/src/generator/house.rs` |
 | How a robot moves | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |

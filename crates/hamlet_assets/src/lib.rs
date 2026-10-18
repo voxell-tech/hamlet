@@ -48,6 +48,8 @@ pub const WASM: File = file!("wasm.toml");
 pub const PANEL_LANG: File = file!("panel_lang.toml");
 /// The panels' answers to the hand.
 pub const UI: File = file!("ui.toml");
+/// How the chat is drawn.
+pub const CHAT: File = file!("chat.toml");
 /// The panels' theme.
 pub const THEME: File = file!("theme.toml");
 

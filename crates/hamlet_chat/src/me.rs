@@ -1,23 +1,24 @@
 //! The agent the chat is with, and the ways to point it at another.
 
-use bevy::app::App;
+use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::name::Name;
 use bevy::ecs::query::{Added, Changed, Or, With};
+use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
 use bevy::ecs::system::Query;
 use bevy::ecs::world::World;
 use hamlet_core::agents::{self, Citizen, Mayor};
 use hamlet_core::session::{self, SessionKey};
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_sdk::convo::ChiefName;
-pub use hamlet_sdk::convo::Me;
-pub(crate) use hamlet_sdk::convo::address;
+pub use hamlet_sdk::convo::{Me, address};
 
 use crate::dock::show_tab;
 
-/// Opens the chat with the first mayor.
-pub(crate) fn plugin(app: &mut App) {
+/// Opens the chat with the first mayor, and keeps it true to the
+/// roster.
+pub fn plugin(app: &mut App) {
     let user = app.world().resource::<ChiefName>().0.clone();
 
     let key = SessionKey {
@@ -36,11 +37,19 @@ pub(crate) fn plugin(app: &mut App) {
         mayor: session,
         agent: mayor,
         with: None,
-    });
+    })
+    .add_systems(
+        Update,
+        reseat.run_if(roster_moved).in_set(Reseated),
+    );
 }
 
+/// The system that keeps [`Me`] true to the roster.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Reseated;
+
 /// Makes `agent` who the chat is with. False when it is not there.
-pub(crate) fn seat(world: &mut World, agent: Entity) -> bool {
+pub fn seat(world: &mut World, agent: Entity) -> bool {
     let Some((key, with)) = address(world, agent) else {
         return false;
     };
@@ -57,7 +66,7 @@ pub(crate) fn seat(world: &mut World, agent: Entity) -> bool {
 
 /// Points the chat at one of the hamlet's agents, and selects it in
 /// the world.
-pub(crate) fn talk_to(world: &mut World, agent: Entity) {
+pub fn talk_to(world: &mut World, agent: Entity) {
     if !seat(world, agent) {
         return;
     }
@@ -85,21 +94,21 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
 }
 
 /// Points the chat back at the mayor.
-pub(crate) fn talk_to_mayor(world: &mut World) {
+pub fn talk_to_mayor(world: &mut World) {
     if let Some(mayor) = agents::mayor(world) {
         talk_to(world, mayor);
     }
 }
 
 /// Points the chat at whoever is mayor of `hamlet`.
-pub(crate) fn talk_to_mayor_of(world: &mut World, hamlet: &str) {
+pub fn talk_to_mayor_of(world: &mut World, hamlet: &str) {
     if let Some(mayor) = agents::mayor_of(world, hamlet) {
         talk_to(world, mayor);
     }
 }
 
 /// An agent went, an office changed hands or a name changed.
-pub(crate) fn roster_moved(
+fn roster_moved(
     named: Query<
         (),
         (With<Citizen>, Or<(Added<Mayor>, Changed<Name>)>),
@@ -113,7 +122,7 @@ pub(crate) fn roster_moved(
 
 /// Keeps [`Me`] true to the agent the chat is with, and to the first
 /// mayor once that agent is gone.
-pub(crate) fn reseat(world: &mut World) {
+fn reseat(world: &mut World) {
     let me = world.resource::<Me>();
     let agent = me.agent;
     match address(world, agent) {
@@ -139,46 +148,6 @@ pub(crate) fn reseat(world: &mut World) {
     };
     if gone {
         select(world, None);
-    }
-}
-
-/// A chat to build in a test.
-#[cfg(test)]
-pub(crate) trait MeOf {
-    /// The chat of `user` with `agent`, kept in `session`: with the
-    /// mayor unless `with` names the agent.
-    fn of(
-        session: Entity,
-        agent: Entity,
-        user: &str,
-        with: Option<&str>,
-    ) -> Me;
-}
-
-#[cfg(test)]
-impl MeOf for Me {
-    fn of(
-        session: Entity,
-        agent: Entity,
-        user: &str,
-        with: Option<&str>,
-    ) -> Me {
-        let key = match with {
-            Some(name) => SessionKey::with_agent("app", user, name),
-            None => SessionKey::with_mayor(
-                "app",
-                user,
-                hamlet_rules::hamlet::HOME,
-            ),
-        };
-        Me {
-            session,
-            key,
-            user: user.into(),
-            mayor: session,
-            agent,
-            with: with.map(str::to_string),
-        }
     }
 }
 
@@ -246,7 +215,7 @@ mod tests {
     fn a_deed_goes_to_the_hamlet_of_the_agent_it_is_about() {
         use hamlet_rules::realm::{Origin, Realm};
 
-        use crate::world_menu::Deed;
+        use crate::deed::Deed;
 
         let (dir, mut app, _) = app("deed");
         let user = "alice".to_string();

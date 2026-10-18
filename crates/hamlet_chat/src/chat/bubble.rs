@@ -24,12 +24,12 @@ use super::quote;
 use super::reply::{self, Replies};
 use super::rewind::{self, Rewinds};
 use super::timeline::{Kind, Line, Who};
+use crate::deed::{self, Deed};
 use crate::looks::{Fills, bare, hairline};
 use crate::me::Me;
 use crate::platform::DisplayText;
 use crate::select::{self, Area, Quotable};
 use crate::theme::{Palette, contrast};
-use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx, View, markdown, with_cx};
 
 /// The room at the left of the chat that a speaker's picture stands
@@ -485,7 +485,7 @@ fn fresh() -> impl View {
     })
     .rules(crate::looks::retrace)
     .tagged(crate::feel::Mood::Ink)
-    .on_activate(|world| world_menu::ask(world, Deed::NewSession))
+    .on_activate(|world| deed::ask(world, Deed::NewSession))
 }
 
 /// The head of the chat: the house it is and everyone who speaks in

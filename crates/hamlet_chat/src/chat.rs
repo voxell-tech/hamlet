@@ -51,7 +51,7 @@ use hamlet_rules::hamlet::HOME;
 
 pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};
-pub(crate) use self::entry::entry_view;
+pub use self::entry::entry_view;
 pub use self::field::{
     Placeholder, grow, keep_typed, show_placeholder,
 };
@@ -59,7 +59,7 @@ pub use self::lines::{
     ChatRow, Lines, Reach, Unfolded, Whole, break_long_words,
     fold_lines, hide_unseen, read_back, transcript,
 };
-pub use self::rewind::{Rewinds, asked as rewind_asked};
+pub use self::rewind::Rewinds;
 use crate::View;
 use crate::looks::well;
 use crate::me::{self, Me, talk_to, talk_to_mayor_of};
@@ -189,7 +189,7 @@ fn entries(world: &World, session: Option<Entity>) -> usize {
 /// Gives a chief's command to the hamlet `hamlet`: in the open chat
 /// when it is with that hamlet, and with that hamlet's mayor
 /// otherwise. The answer is shown in the open chat either way.
-pub(crate) fn decree(world: &mut World, hamlet: &str, text: String) {
+pub fn decree(world: &mut World, hamlet: &str, text: String) {
     let me = world.resource::<Me>();
     let here = agents::hamlet_of(world, me.agent).unwrap_or(HOME);
     let (open, user) = (me.session, me.user.clone());
@@ -410,7 +410,6 @@ pub fn message_bar() -> impl View {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::me::MeOf;
 
     #[test]
     fn the_chat_stays_at_its_end_until_it_is_read_back() {

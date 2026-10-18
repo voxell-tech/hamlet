@@ -141,6 +141,9 @@ impl Plugin for GalleryPlugin {
                 hamlet_plugins::Builtin,
                 asking::plugin,
                 select::plugin,
+                hamlet_ui::chat::plugin,
+                hamlet_ui::links::plugin,
+                hamlet_ui::pictures::plugin,
             ));
     }
 }

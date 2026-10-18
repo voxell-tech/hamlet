@@ -1,7 +1,7 @@
 # The chat
 
 What an agent's chat holds, in what order, and how it is drawn as a group
-chat. The drawing is `hamlet_ui/src/screens/chat/` and `markdown/`. The
+chat. The drawing is `hamlet_chat/src/chat/` and `markdown/`. The
 conversations themselves are `hamlet_core/src/session.rs`.
 
 ## What is recorded
@@ -88,7 +88,7 @@ in red and green.
 session read back shows its changes too.
 
 A change is open when it arrives and shows its first `change_lines` lines
-(`[chat]` in `assets/ui.toml`), with a button for the rest. An edit that
+(`[chat]` in `assets/chat.toml`), with a button for the rest. An edit that
 changed nothing says "Not applied" with the reason. An edit that waits for
 the chief in manual mode shows the same view in Needs You.
 
@@ -117,7 +117,7 @@ Paper.
 
 So the model reads what is answered, and the log, a rewind and a replay
 need nothing new. At most `reply_chars` characters of the message are
-carried (`[chat]` in `assets/ui.toml`). The chief's own bubble draws the
+carried (`[chat]` in `assets/chat.toml`). The chief's own bubble draws the
 first line as one dim line, the speaker and the start of the words, and
 only the words after it as the message. A rewind to a reply puts what
 it answered back over the field.
@@ -134,7 +134,7 @@ lines, so a quote can be followed by the chief's own words.
 
 Any text of the panels is selected where it is drawn, as on a web page:
 a press and a drag, a double-click for a word, a triple-click for a line.
-`hamlet_ui/src/select.rs` holds it. An `Area` is selected as one across
+`hamlet_chat/src/select.rs` holds it. An `Area` is selected as one across
 all its text: the words of a message, and every Markdown document, so a
 drag runs across the paragraphs, lists and code blocks of a reply or of
 the Notes page. Any other text is selected on its own. What a button, a
@@ -213,7 +213,7 @@ is shown at. A picture too large to decode safely is refused.
 row that names it shares it. One that is shown is never dropped. Those no
 row shows are kept up to `picture_memory` bytes, the oldest dropped first.
 
-The limits are `[chat]` in `assets/ui.toml`.
+The limits are `[chat]` in `assets/chat.toml`.
 
 ## Questions to the chief
 

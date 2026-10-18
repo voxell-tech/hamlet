@@ -22,12 +22,11 @@ use hamlet_core::core::HomeDir;
 use hamlet_core::session::{self, JobFinished, Seat};
 use hamlet_desktop::open;
 use hamlet_home::Home;
-use hamlet_realm::sound::{Cue, Sound};
+use hamlet_realm::sound::{Cue, Sound, write};
 use hamlet_rules::hamlet::Hamlet;
 
 use crate::me::Me;
 use crate::roll::Roll;
-use crate::sounds;
 
 /// The most paths whose files are remembered.
 const REMEMBERED: usize = 4096;
@@ -54,7 +53,7 @@ pub fn plugin(app: &mut App) {
 
 /// The place a span of text leads when it is clicked.
 #[derive(Component, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub(crate) enum Anchor {
+pub enum Anchor {
     Web(String),
     /// A file or a folder, with every link on the way to it followed.
     File(PathBuf),
@@ -129,10 +128,7 @@ fn turn(world: &mut World) {
 
 /// The file `written` names, looked for on the disk once and
 /// remembered.
-pub(crate) fn seek(
-    world: &mut World,
-    written: &str,
-) -> Option<PathBuf> {
+pub fn seek(world: &mut World, written: &str) -> Option<PathBuf> {
     // The chat is drawn for another agent before the system that
     // keeps the folders has seen it turn.
     turn(world);
@@ -219,7 +215,7 @@ fn tap(
     if press.button == PointerButton::Primary
         && anchors.contains(press.entity)
     {
-        sounds::write(&mut cues, &mut turn, Sound::Tap);
+        write(&mut cues, &mut turn, Sound::Tap);
     }
 }
 
@@ -243,13 +239,13 @@ fn follow(
         Anchor::File(path) => open::show(path, &roots.folders),
     };
     if !went {
-        sounds::write(&mut cues, &mut turn, Sound::Deny);
+        write(&mut cues, &mut turn, Sound::Deny);
     }
 }
 
 /// Opens the file `path` by the system's program for it. False when
 /// nothing could.
-pub(crate) fn open_file(path: &Path) -> bool {
+pub fn open_file(path: &Path) -> bool {
     let folder =
         path.parent().and_then(|folder| folder.canonicalize().ok());
     folder.is_some_and(|folder| open::show(path, &[folder]))

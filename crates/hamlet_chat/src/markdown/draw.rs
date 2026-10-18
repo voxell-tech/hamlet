@@ -77,7 +77,7 @@ fn unsettle(blocks: &mut [Block]) {
 
 /// The blocks of an entry of a transcript, parsed again only when
 /// that entry's own text has changed or has stopped growing.
-pub(crate) fn entry(session: Entity, id: u64) -> Signal<Vec<Block>> {
+pub fn entry(session: Entity, id: u64) -> Signal<Vec<Block>> {
     let mut moved = component::<Transcript, _>(session, |_| ());
     let mut seen = None::<(String, bool)>;
     Signal::new(
@@ -449,10 +449,7 @@ fn block_view(
 /// A Markdown document, one view per block. A block that has not
 /// changed keeps its nodes while the document grows. Its words are
 /// selected as one.
-pub(crate) fn document(
-    blocks: Signal<Vec<Block>>,
-    tone: Tone,
-) -> impl View {
+pub fn document(blocks: Signal<Vec<Block>>, tone: Tone) -> impl View {
     let blocks = each(
         blocks.map(|blocks| {
             blocks.into_iter().enumerate().collect::<Vec<_>>()
@@ -476,7 +473,7 @@ pub(crate) fn document(
 
 /// Words set as they were typed, with `tail` after them, if there
 /// may be a link in them.
-pub(crate) fn typed(text: &str, tail: &str) -> Option<AnyView> {
+pub fn typed(text: &str, tail: &str) -> Option<AnyView> {
     let mut spans = plain(text);
     if spans.iter().all(|span| span.link.is_none()) {
         return None;
@@ -526,7 +523,7 @@ mod tests {
     use super::*;
     use crate::chat;
     use crate::links::Roots;
-    use crate::me::{Me, MeOf};
+    use crate::me::Me;
     use crate::theme::{self, HamletTheme};
 
     fn app() -> App {

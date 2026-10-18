@@ -12,6 +12,7 @@ use bevy::math::Vec3;
 use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
 use hamlet_core::session::{Reply, SessionOutput, UserMessage};
+pub(crate) use hamlet_realm::sound::write;
 use hamlet_realm::sound::{Cue, Sound};
 
 use crate::chat::Unfolded;
@@ -37,20 +38,6 @@ fn cue(sound: Sound) -> Cue {
 /// One of the window's own buttons was pressed.
 pub(crate) fn window_button(world: &mut World) {
     world.write_message(cue(Sound::Sash));
-}
-
-/// Writes a cue with a number of its own, so that it is not played
-/// twice alike.
-pub(crate) fn write(
-    cues: &mut MessageWriter<Cue>,
-    turn: &mut u32,
-    sound: Sound,
-) {
-    *turn = turn.wrapping_add(1);
-    cues.write(Cue {
-        turn: *turn,
-        ..cue(sound)
-    });
 }
 
 /// A menu of the top bar or a question over the world, as it opens

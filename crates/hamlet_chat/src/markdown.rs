@@ -7,7 +7,7 @@ mod links;
 mod parse;
 mod picture;
 
-pub(crate) use self::draw::{document, entry, fixed, typed};
+pub use self::draw::{document, entry, fixed, typed};
 
 /// The style of a run of text.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -29,7 +29,7 @@ pub enum Target {
 
 /// A run of text in one style.
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) struct Span {
+pub struct Span {
     pub text: String,
     pub style: Style,
     pub link: Option<Target>,
@@ -37,7 +37,7 @@ pub(crate) struct Span {
 
 /// The mark a list item opens with.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Marker {
+pub enum Marker {
     Bullet,
     Number(u64),
     Task(bool),
@@ -45,7 +45,7 @@ pub(crate) enum Marker {
 
 /// The side a table's column sets its cells to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Align {
+pub enum Align {
     Start,
     Center,
     End,
@@ -80,7 +80,7 @@ pub enum Kind {
 /// One block of a document. Lists and quotes are not blocks of their
 /// own: each block says how deep it sits in them.
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) struct Block {
+pub struct Block {
     /// The block quotes around it.
     pub quote: u8,
     /// The lists around it.

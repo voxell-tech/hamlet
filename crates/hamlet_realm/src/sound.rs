@@ -221,6 +221,21 @@ pub struct Cue {
     pub turn: u32,
 }
 
+/// Writes a cue of `sound` at the listener with a number of its own,
+/// so that it is not played twice alike.
+pub fn write(
+    cues: &mut MessageWriter<Cue>,
+    turn: &mut u32,
+    sound: Sound,
+) {
+    *turn = turn.wrapping_add(1);
+    cues.write(Cue {
+        sound,
+        at: Vec3::ZERO,
+        turn: *turn,
+    });
+}
+
 /// The systems that write [`Cue`]s for what is seen. They run only
 /// while the world can be heard, after the robots have taken their
 /// poses.

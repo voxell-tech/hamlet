@@ -569,7 +569,6 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::me::MeOf;
     use crate::theme::HamletTheme;
 
     #[test]

@@ -23,6 +23,7 @@ use bevy::ui::px;
 use bevy::window::Window;
 use bevy_fynix::views::{FrameProps, frame, overlay, popup};
 use bevy_fynix::{ViewExt, derived, keyed};
+use hamlet_chat::deed::Ask;
 use hamlet_core::agents::{self};
 use hamlet_core::oversight::Veto;
 use hamlet_realm::orders;
@@ -31,7 +32,7 @@ use hamlet_sdk::confirm::Confirm;
 use hamlet_sdk::context::ContextItems;
 
 pub(crate) use self::contribute::contribute;
-pub(crate) use self::deed::{Deed, question};
+pub use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
 use crate::roll::{either, moved};
 use crate::{AnyView, Cx, View};
@@ -41,7 +42,21 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Founding>()
         .add_observer(ask_of_row)
         .add_observer(ask_confirm)
+        .add_observer(ask_deed)
         .add_systems(Update, answer_ask);
+}
+
+/// Asks the question a panel gave, at the pointer.
+fn ask_deed(
+    asked: On<Ask>,
+    window: Query<&Window>,
+    mut open: ResMut<Open>,
+) {
+    let at = window
+        .iter()
+        .find_map(Window::cursor_position)
+        .unwrap_or_default();
+    *open = Open::Question(asked.event().0.clone(), at);
 }
 
 /// Asks the question a plugin gave, at the pointer.

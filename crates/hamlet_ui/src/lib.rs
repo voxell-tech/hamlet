@@ -9,15 +9,12 @@ mod folder;
 pub mod history;
 mod hover;
 pub mod lists;
-mod markdown;
-mod me;
 pub mod menu;
 pub mod models;
 mod remember;
 mod root;
 pub mod rules;
 pub mod screens;
-pub mod select;
 mod sounds;
 mod status;
 pub mod welcome;
@@ -32,6 +29,8 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::state::state::OnEnter;
 use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
+pub use hamlet_chat::me::{self, Me};
+pub use hamlet_chat::{chat, links, markdown, pictures, select};
 use hamlet_realm::pick::Selected;
 pub use hamlet_sdk::dock::{lit_panel, panel};
 pub use hamlet_sdk::looks::{
@@ -42,11 +41,8 @@ pub use hamlet_sdk::{
     AnyView, Cx, SdkPlugin, View, looks, theme, with_cx,
 };
 
-pub use self::me::Me;
 pub use self::root::toolbar;
-pub use self::screens::{
-    chat, inspector, links, overview, pictures, settings,
-};
+pub use self::screens::{inspector, overview, settings};
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
 pub use self::widgets::{feel, icons, platform, tabs, tuning};
@@ -62,7 +58,7 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             SdkPlugin,
-            me::plugin,
+            hamlet_chat::plugin,
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
             (
@@ -81,7 +77,6 @@ impl Plugin for UiPlugin {
                 rules::plugin,
                 models::plugin,
                 hamlet_sdk::asking::plugin,
-                select::plugin,
                 history::plugin,
                 welcome::plugin,
             ),
@@ -102,12 +97,12 @@ impl Plugin for UiPlugin {
         .add_systems(
             Update,
             (
-                me::reseat.run_if(me::roster_moved),
                 inspector::follow_selection
                     .run_if(resource_changed::<Selected>),
                 chief::accompany,
             )
-                .chain(),
+                .chain()
+                .after(me::Reseated),
         );
     }
 }

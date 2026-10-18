@@ -14,6 +14,7 @@ use hamlet_core::session::{Entry, Transcript};
 use hamlet_ui::feel::Lit;
 use hamlet_ui::icons::Glyph;
 use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::world_menu::{Deed, question};
 use hamlet_ui::{
     Cx, ICON, Me, View, chat, inspector, lit_panel, menu, panel,
     settings, status_bar, toolbar, welcome,
@@ -159,7 +160,8 @@ fn rewind_question() -> Ui {
             return cx.build(frame());
         };
         let at = Vec2::new(1060.0, 526.0);
-        cx.build(overlay((chat::rewind_asked(session, entry, at),)))
+        let deed = Deed::Rewind { session, entry };
+        cx.build(overlay((question(deed, at),)))
     })
 }
 

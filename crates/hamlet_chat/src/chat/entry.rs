@@ -68,7 +68,7 @@ pub(super) fn state(session: Entity, id: u64) -> impl View {
     }))
 }
 
-pub(crate) fn entry_view(session: Entity, id: u64) -> AnyView {
+pub fn entry_view(session: Entity, id: u64) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let kind = cx
             .world

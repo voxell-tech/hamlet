@@ -7,10 +7,11 @@ use std::path::Path;
 
 use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
+use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
-use bevy::ecs::system::{Res, ResMut};
+use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
@@ -19,6 +20,7 @@ use bevy_fynix::views::{
     number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use hamlet_chat::deed::CharterReset;
 use hamlet_core::core::{HomeDir, SaveSettings, Settings};
 use hamlet_core::oversight::Revoke;
 use hamlet_core::oversight::grants::Grants;
@@ -54,6 +56,7 @@ pub fn plugin(app: &mut App) {
     .add_plugins(plugins::plugin)
     .init_resource::<Pane>()
     .init_resource::<Charter>()
+    .add_observer(charter_reset)
     .add_systems(
         Update,
         (
@@ -380,14 +383,9 @@ fn edit_charter(world: &mut World) {
     let _ = world.run_system_cached(read_charter);
 }
 
-/// Removes the home's own charter.
-pub(crate) fn default_charter(world: &mut World) {
-    let Some(home) = world.get_resource::<HomeDir>() else {
-        return;
-    };
-    if charter::reset(&home.0.root).is_ok() {
-        let _ = world.run_system_cached(read_charter);
-    }
+/// Reads the charter again after the home's own was removed.
+fn charter_reset(_: On<CharterReset>, mut commands: Commands) {
+    commands.run_system_cached(read_charter);
 }
 
 /// The words every agent's prompt opens with, and the ways to change

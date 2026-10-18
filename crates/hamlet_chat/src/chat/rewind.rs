@@ -11,7 +11,6 @@ use bevy::ecs::lifecycle::Insert;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::system::{Query, Res, ResMut};
-use bevy::math::Vec2;
 use bevy::picking::hover::Hovered;
 use bevy::ui::{JustifyContent, UiRect, px};
 use bevy_fynix::ScopedExt;
@@ -22,11 +21,11 @@ use hamlet_core::session::{Rewound, Status};
 
 use super::Draft;
 use super::reply::{Replying, unreplied};
+use crate::deed::{self, Deed};
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{ICON, retrace};
 use crate::me::Me;
-use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx};
 
 /// The room of a mark about its picture, and the room it takes
@@ -62,7 +61,7 @@ pub(super) fn mark(session: Entity, entry: u64) -> AnyView {
             .tagged(Mood::Ink)
             .on_activate(move |world| {
                 let deed = Deed::Rewind { session, entry };
-                world_menu::ask(world, deed);
+                deed::ask(world, deed);
             });
         let node = cx.build(
             column((back,))
@@ -74,12 +73,6 @@ pub(super) fn mark(session: Entity, entry: u64) -> AnyView {
         cx.world.entity_mut(node).insert(Visibility::Hidden);
         node
     })
-}
-
-/// The question asked before the conversation `session` is taken
-/// back to its message `entry`, at `at` in the window.
-pub fn asked(session: Entity, entry: u64, at: Vec2) -> AnyView {
-    world_menu::question(Deed::Rewind { session, entry }, at)
 }
 
 /// Shows the mark of a row while the pointer is on the row and no
