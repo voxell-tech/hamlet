@@ -4,8 +4,11 @@
 use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{Granted, Wanted};
+use hamlet_sdk::dock::{self, Panel};
 use hamlet_sdk::papers::Papers;
-use hamlet_sdk::plugin::{Manifest, PluginInfo, Status};
+use hamlet_sdk::plugin::{
+    ContributedBy, Manifest, PluginInfo, Status,
+};
 use hamlet_sdk::tree::id::dock_id;
 
 use crate::draw::Dirty;
@@ -92,7 +95,9 @@ pub fn step(
 pub fn apply(
     mut done: MessageReader<Done>,
     mut plugins: Query<(&PluginInfo, Option<&mut Dirty>)>,
+    panels: Query<(&Panel, &ContributedBy)>,
     mut said: MessageWriter<Said>,
+    mut commands: Commands,
 ) {
     for Done {
         plugin, intents, ..
@@ -115,6 +120,22 @@ pub fn apply(
                     dirty.mark(&dock_id(&info.id, panel))
                 }
                 (Intent::Redraw(_), None) => {}
+                (Intent::OpenPanel(panel), _) => {
+                    let id = dock_id(&info.id, panel);
+                    let own = panels.iter().any(|(held, by)| {
+                        by.0 == *plugin && held.id == id
+                    });
+                    if own {
+                        commands.queue(move |world: &mut World| {
+                            dock::open(world, &id)
+                        });
+                    } else {
+                        warn!(
+                            "plugin {}: no panel `{panel}` to open",
+                            info.id
+                        );
+                    }
+                }
                 // Between plugins: `interop` carries these out.
                 (
                     Intent::RunCommand(_)

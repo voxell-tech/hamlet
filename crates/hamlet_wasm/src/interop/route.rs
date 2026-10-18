@@ -65,7 +65,9 @@ pub(super) fn route(
                     &limits,
                     &mut commands,
                 ),
-                Intent::LogLine(_) | Intent::Redraw(_) => {}
+                Intent::LogLine(_)
+                | Intent::Redraw(_)
+                | Intent::OpenPanel(_) => {}
             }
         }
     }

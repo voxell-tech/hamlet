@@ -87,6 +87,13 @@ pub fn key(chord: &str, command: &str) {
     bindings::hamlet::plugin::host::key(chord, command);
 }
 
+/// The intent that brings the plugin's own panel `panel` to the front
+/// of the dock, opening it if it is closed. It needs no capability.
+/// To be returned from `step`.
+pub fn open_panel(panel: &str) -> Intent {
+    Intent::OpenPanel(panel.into())
+}
+
 /// The living agents, each with its hamlet. It needs the capability
 /// `read.agents`, and is an error without it.
 pub fn agents() -> Result<Vec<Agent>, String> {

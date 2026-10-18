@@ -236,6 +236,10 @@ interface plugin {
     // Publishes an event the manifest lists under `exports.events`, to
     // every plugin that imports it and holds `plugin.use` for this one.
     publish(publication),
+    // Brings one of the plugin's own panels, by the id it gave it, to
+    // the front of the dock, opening it if it is closed. It needs no
+    // capability. A panel the plugin did not declare is dropped.
+    open-panel(string),
   }
 
   record publication {

@@ -11,7 +11,9 @@ pub struct TabShown(pub String);
 /// Brings a panel's tab to the front. A panel that is closed is
 /// added to the first area that is not the world's.
 pub fn open(world: &mut World, id: &str) {
-    let mut tree = world.resource_mut::<DockTree>();
+    let Some(mut tree) = world.get_resource_mut::<DockTree>() else {
+        return;
+    };
     if tree.find_leaf_with_window(id).is_none() {
         let area = tree
             .leaves()
@@ -27,7 +29,9 @@ pub fn open(world: &mut World, id: &str) {
 
 /// Brings a panel's tab to the front.
 pub fn show_tab(world: &mut World, id: &str) {
-    let mut tree = world.resource_mut::<DockTree>();
+    let Some(mut tree) = world.get_resource_mut::<DockTree>() else {
+        return;
+    };
     let Some(leaf) = tree.find_leaf_with_window(id) else {
         return;
     };

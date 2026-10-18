@@ -6,7 +6,7 @@ use hamlet_guest::{
 };
 
 use crate::model::{Index, MAX_NOTE, Session, cut};
-use crate::storage;
+use crate::{PANEL, storage};
 
 /// The capability the copy of an agent's notes needs.
 const PAPERS: &str = "read.papers";
@@ -56,13 +56,16 @@ pub fn handle(
                 .into();
         }
         Incoming::Command(call) => {
-            let added = match call.command.as_str() {
-                ADD => calls::args::<String>(&call)
-                    .and_then(|words| add(index, &words))
-                    .inspect(|id| saved(*id, out)),
-                NEW => open_new(session, index, "", out),
-                other => Err(format!("no command `{other}`")),
-            };
+            let added =
+                match call.command.as_str() {
+                    ADD => calls::args::<String>(&call)
+                        .and_then(|words| add(index, &words))
+                        .inspect(|id| saved(*id, out)),
+                    NEW => open_new(session, index, "", out).inspect(
+                        |_| out.push(hamlet_guest::open_panel(PANEL)),
+                    ),
+                    other => Err(format!("no command `{other}`")),
+                };
             out.push(calls::reply(
                 &call,
                 added.as_ref().map_err(String::clone),
@@ -143,10 +146,9 @@ fn add(index: &mut Index, body: &str) -> Result<u64, String> {
     let id = index.add(body);
     storage::save_body(id, body)
         .and_then(|()| storage::save_index(index))
-        .map_err(|why| {
+        .inspect_err(|_| {
             index.remove(id);
             storage::delete(id);
-            why
         })?;
     Ok(id)
 }

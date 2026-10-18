@@ -158,6 +158,35 @@ pub fn declaring() -> String {
     )
 }
 
+/// Declares the panel "main", and in its first `step` asks for the
+/// panel `panel` to be opened.
+pub fn opening(panel: &str) -> String {
+    let len = panel.len();
+    format!(
+        r#"(module {COMMON} {NO_VIEW}
+  (data (i32.const 176) "main")
+  (data (i32.const 184) "MAIN")
+  (data (i32.const 192) "book")
+  (data (i32.const 600) "{panel}")
+  (global $sent (mut i32) (i32.const 0))
+  (func (export "hamlet:plugin/plugin@0.5.0#entry")
+    (call $panel (i32.const 176) (i32.const 4) (i32.const 184)
+      (i32.const 4) (i32.const 192) (i32.const 4)))
+  (func (export "hamlet:plugin/plugin@0.5.0#step")
+    (param i32 i32) (result i32)
+    (if (result i32) (global.get $sent)
+      (then {NOTHING})
+      (else
+        (global.set $sent (i32.const 1))
+        (i32.store (i32.const 512) (i32.const 528))
+        (i32.store (i32.const 516) (i32.const 1))
+        (i32.store8 (i32.const 528) (i32.const 5))
+        (i32.store (i32.const 536) (i32.const 600))
+        (i32.store (i32.const 540) (i32.const {len}))
+        (i32.const 512)))))"#
+    )
+}
+
 /// Reads the agents in `step`. It answers with a line as long as the
 /// list is, or logs the error it got as an error.
 pub fn reading() -> String {

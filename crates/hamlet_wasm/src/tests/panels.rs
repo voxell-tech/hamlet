@@ -1,5 +1,7 @@
 use bevy::prelude::*;
-use bevy_fynix::dock::DockRegistry;
+use bevy_fynix::dock::{
+    DockAreaStyle, DockLeaf, DockRegistry, DockTree, Edge,
+};
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::plugin::{Disable, Enable};
 use hamlet_sdk::theme::HamletTheme;
@@ -40,6 +42,37 @@ fn a_declared_panel_lives_as_long_as_its_plugin_is_enabled() {
     app.world_mut().trigger(Enable("probe".into()));
     app.world_mut().flush();
     assert!(listed(&app, "probe/notes"));
+}
+
+/// Whether the dock holds the panel `probe/main` after a plugin
+/// asked to open the panel `asked`.
+fn opened(name: &str, asked: &str) -> bool {
+    let scratch = Scratch::new(name);
+    let mut app = home::app(
+        &scratch,
+        &[Plugin::new(
+            "probe",
+            fixture::component(&fixture::opening(asked)),
+        )],
+    );
+    let mut tree = DockTree::default();
+    let centre = tree.set_root_leaf(
+        DockLeaf::new("centre", DockAreaStyle::TabBar)
+            .with_windows(vec!["world".into()]),
+    );
+    tree.split(centre, Edge::Right, "agent".into());
+    app.insert_resource(tree);
+    for _ in 0..4 {
+        app.update();
+    }
+    let tree = app.world().resource::<DockTree>();
+    tree.find_leaf_with_window("probe/main").is_some()
+}
+
+#[test]
+fn a_plugin_opens_its_own_panel_and_no_other() {
+    assert!(opened("opens_own", "main"));
+    assert!(!opened("opens_other", "agent"));
 }
 
 #[test]
