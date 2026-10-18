@@ -223,6 +223,9 @@ export type Hello = Static<typeof Hello>;
 export const Welcome = reply("welcome", {
     version: Type.Integer({ minimum: 1 }),
     tools: Type.Array(ToolSpec),
+    windows: Type.Optional(
+        Type.Record(Type.String(), Type.Integer({ minimum: 1 })),
+    ),
 });
 export type Welcome = Static<typeof Welcome>;
 
@@ -253,6 +256,7 @@ export const Submit = message("submit", {
     request: Type.String({ minLength: 1 }),
     content: Type.String(),
     steer: Type.Boolean(),
+    window: Type.Optional(Type.Integer({ minimum: 1 })),
     /** Hamlet's kind and data for the entry that places it. */
     mark: Type.Optional(Mark),
 });
@@ -446,6 +450,9 @@ export const Yield = message("yield", {
     conversation: ConversationId,
     input: Type.Optional(Type.String()),
     answer: Item,
+    history: Type.Optional(Type.Boolean()),
+    retried: Type.Optional(Type.Boolean()),
+    summaryFailure: Type.Optional(Type.String()),
 });
 export type Yield = Static<typeof Yield>;
 
@@ -453,6 +460,7 @@ export type Yield = Static<typeof Yield>;
 export const Verdict = reply("verdict", {
     words: Type.Optional(Type.String()),
     notice: Type.Optional(Mark),
+    compact: Type.Optional(Type.Boolean()),
 });
 export type Verdict = Static<typeof Verdict>;
 

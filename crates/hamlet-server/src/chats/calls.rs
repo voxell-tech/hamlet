@@ -35,6 +35,10 @@ const NO_ROOM: &str = "the model has no room left to answer, even \
                        with the conversation summarised. Start a \
                        new session, or choose a model that holds \
                        more";
+const NO_SUMMARY: &str = "the conversation is longer than the model \
+                          can hold, and the model could not \
+                          summarise it. Start a new session, or \
+                          choose a model that holds more";
 /// The tools whose call may change the world, run once.
 const UNSAFE: &[&str] = &["bash", "write", "edit"];
 
@@ -137,9 +141,21 @@ pub(super) async fn call(
             binding,
             input.as_deref(),
         )?),
-        Call::Yield { answer, .. } => {
-            verdict(service, binding, input.as_deref(), &answer)?
-        }
+        Call::Yield {
+            answer,
+            history,
+            retried,
+            summary_failure,
+            ..
+        } => verdict(
+            service,
+            binding,
+            input.as_deref(),
+            &answer,
+            history,
+            retried,
+            summary_failure.as_deref(),
+        )?,
     };
     harnesses.answer(re, answer).await;
     Ok(())
@@ -966,6 +982,9 @@ fn verdict(
     binding: BindingId,
     input: Option<&str>,
     answer: &Item,
+    history: bool,
+    retried: bool,
+    summary_failure: Option<&str>,
 ) -> Result<Answer> {
     let stands =
         answer.blocks.iter().flatten().any(|block| match block {
@@ -977,6 +996,7 @@ fn verdict(
         return Ok(Answer::Verdict {
             words: None,
             notice: None,
+            compact: false,
         });
     }
     let request = request_of(service, binding, input)?;
@@ -997,15 +1017,36 @@ fn verdict(
             .is_some_and(|usage| usage.output < 1024)
         && !reflection
         && task.is_some_and(|task| !task.is_null());
-    // Without compaction on the link, an answer cut off for room
-    // fails at once.
-    let words = if cutoff { NO_ROOM } else { EMPTY };
+    if cutoff && history && !retried && summary_failure.is_none() {
+        return Ok(Answer::Verdict {
+            words: None,
+            notice: None,
+            compact: true,
+        });
+    }
+    let words = if let Some(error) = summary_failure {
+        if error.starts_with("Summarization failed:") {
+            format!(
+                "provider error: {}",
+                error.trim_start_matches("Summarization failed: ")
+            )
+        } else {
+            NO_SUMMARY.into()
+        }
+    } else if cutoff && !history && !retried {
+        "the message is longer than the model can hold".into()
+    } else if cutoff {
+        NO_ROOM.into()
+    } else {
+        EMPTY.into()
+    };
     if let Some(input) = input {
-        follow::fail_answer(db, binding, input, words)?;
+        follow::fail_answer(db, binding, input, &words)?;
     }
     Ok(Answer::Verdict {
-        words: Some(words.into()),
-        notice: Some(super::notice(words)),
+        notice: Some(super::notice(&words)),
+        words: Some(words),
+        compact: false,
     })
 }
 

@@ -6,6 +6,8 @@ export type FaultPoint =
     | "before_admit"
     | "after_admit"
     | "before_cancelled"
+    | "before_recovery_stop"
+    | "after_summary"
     | "before_operation"
     | "after_receive";
 

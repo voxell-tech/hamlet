@@ -135,9 +135,19 @@ async fn answer(
             Call::Prompt { .. } => {
                 Answer::Sections(answers::prompt(store, &bound)?)
             }
-            Call::Yield { .. } => Answer::Verdict {
+            Call::Yield {
+                answer,
+                history,
+                retried,
+                summary_failure,
+                ..
+            } => Answer::Verdict {
                 words: None,
                 notice: None,
+                compact: answer.stop.as_deref() == Some("length")
+                    && history
+                    && !retried
+                    && summary_failure.is_none(),
             },
         };
         harnesses.answer(re, answer).await;

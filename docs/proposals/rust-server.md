@@ -318,10 +318,43 @@ the question of reset ordering. The pi runtime identifies the running
 input, not a newer queued input, on an attempt; Rust namespaces it by
 runtime. Shared task identities and a separate payer for errands across
 agents or hamlets still need the society owner. A refused attempt's words
-show as the budget notice in the chief's conversation. Compaction
-recovery is still to come.
+show as the budget notice in the chief's conversation.
 An allowed call whose answer is lost remains the open charging question
 above.
+
+#### Compaction and model changes (step 4c)
+
+A conversation keeps its identity and transcript when a model choice or
+pin changes. Its next allowed attempt uses the current choice, with the
+chief's pin first. A request already allowed keeps its selected model,
+credential and price through its response; a restart makes a new attempt
+under the current choice. The binding's initial model is a runtime seed,
+not a permanent selection. This closes the question of model binding.
+
+The link gives pi the selected context windows before admitting inputs
+and before resuming a store. Pi keeps 20% for an answer and begins
+background compaction another 10% earlier, as TypeScript configures it.
+Each allowed attempt refreshes its model metadata. Unreported usage
+estimates include history and the tool definitions embedded in pi's
+system entries; reported token categories remain unchanged (C28, C31).
+
+For a final cut-off with no visible answer, Rust decides whether recovery
+is allowed. Reflection and a first line with no history do not recover.
+Pi durably hands the original run and inputs to a recovery task, aborts
+the cut-off generation, and creates a blocking summary task. The summary
+and the one successor generation retain the original input's charge
+identity even while newer lines queue. A restarted old generation cannot
+request the provider once it has handed off its run. The exact user entry
+remains in context; recovery never trims or reconstructs its words.
+
+An empty or cut-off summary, a provider failure, and a second cut-off end
+with the corresponding TypeScript fault words. Every summary still asks
+Rust for allowance, so lowering the budget can prevent it. Stopping the
+recovery settles the original input as unanswered. Real-process tests
+kill the server before the old generation is aborted and after the
+summary is committed, then check one summary, one retry, unchanged input
+and original-task charges. Provider answers lost before being charged
+remain subject to the open charging question above.
 
 ### Cancelling
 
@@ -421,9 +454,6 @@ writable. Hand tools keep the same unsafe begun marker as shell commands.
 
 Deliberate differences from TypeScript:
 - A tool call's summary lists its arguments in key order.
-- The model of each conversation is the configured one. Choosing a model
-  per agent at the attempt is step 4b's, and binding one per
-  conversation is open.
 - A faux script's step is taken back when the server refuses the call
   that took it, as TypeScript refuses before the model is reached.
 
@@ -632,12 +662,10 @@ endpoint beside them.
 ## Open questions
 
 - When the server gives up on a runtime that keeps failing.
-- Cancelling in the states of recovery not yet tested, and whether inputs
-  pi withdrew are marked dropped.
+- Cancelling in the states of recovery not yet tested. Inputs pi answers
+  as unanswered are marked dropped.
 - What an attempt whose provider answer was lost is charged.
 - Whether markers are ever cleared, and when.
-- Which model a conversation is bound to, when an agent's choice or a
-  chief's pin changes after it began.
 - How letters, questions and votes recover when the two agents are in
   different runtimes.
 - The format and order of moving a home: whether the pi runtime's store is

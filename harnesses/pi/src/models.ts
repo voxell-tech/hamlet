@@ -36,6 +36,8 @@ export interface Gate {
     attempt(sessionId: string | undefined, model: ModelRef): Promise<Permit>;
     /** Resolves once the server has charged `usage` to the attempt `key`. */
     charge(key: string, usage: Usage): Promise<void>;
+    /** Refreshes the context policy from the server's selected model. */
+    selected?(model: Model<Api>): void;
 }
 
 /** `streams` with every call allowed by `gate` first, made with the credential it hands over and charged after. */
@@ -68,6 +70,9 @@ function allowed<O extends StreamOptions>(
             }
             secret = permit.apiKey;
             const selected = { ...model, ...permit.model } as Model<Api>;
+            model.contextWindow = selected.contextWindow;
+            model.maxTokens = selected.maxTokens;
+            gate.selected?.(selected);
             const started = Date.now();
             let firstTokenMs: number | undefined;
             // What the endpoint says it billed, which stands over pi-ai's own price.

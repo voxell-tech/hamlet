@@ -230,7 +230,13 @@ pub enum Call {
     /// The prompt sections for the next model call.
     Prompt { input: Option<String> },
     /// Whether a final answer stands.
-    Yield { input: Option<String>, answer: Item },
+    Yield {
+        input: Option<String>,
+        answer: Item,
+        history: bool,
+        retried: bool,
+        summary_failure: Option<String>,
+    },
 }
 
 /// The message a [`Call`] came in, to answer it by.
@@ -261,6 +267,7 @@ pub enum Answer {
     Verdict {
         words: Option<String>,
         notice: Option<Mark>,
+        compact: bool,
     },
 }
 
@@ -624,15 +631,18 @@ impl Harnesses {
                         v,
                     })
                 }
-                Answer::Verdict { words, notice } => {
-                    ServerMessage::Verdict(link::Verdict {
-                        id,
-                        notice,
-                        re,
-                        v,
-                        words,
-                    })
-                }
+                Answer::Verdict {
+                    words,
+                    notice,
+                    compact,
+                } => ServerMessage::Verdict(link::Verdict {
+                    id,
+                    notice,
+                    compact: compact.then_some(true),
+                    re,
+                    v,
+                    words,
+                }),
             }
         })
         .await;
@@ -1127,6 +1137,9 @@ impl Harnesses {
                 let call = Call::Yield {
                     input: answer.input,
                     answer: answer.answer,
+                    history: answer.history.unwrap_or(false),
+                    retried: answer.retried.unwrap_or(false),
+                    summary_failure: answer.summary_failure,
                 };
                 self.call(
                     store,
@@ -1349,11 +1362,18 @@ impl Harnesses {
             .chain(&self.hand_tools)
             .cloned()
             .collect();
+        let mut windows = BTreeMap::new();
+        for binding in store.bindings_of(&id)? {
+            if let Some(window) = self.window(store, &binding)? {
+                windows.insert(binding.id.0.to_string(), window);
+            }
+        }
         self.send(index, |v, id| {
             ServerMessage::Welcome(link::Welcome {
                 id,
                 re,
                 tools,
+                windows: Some(windows),
                 v,
                 version: LINK_VERSION,
             })
@@ -1427,6 +1447,7 @@ impl Harnesses {
                 {
                     continue;
                 }
+                let window = self.window(store, &binding)?;
                 let conversation = conversation.clone();
                 let id = self
                     .send(index, |v, id| {
@@ -1448,6 +1469,7 @@ impl Harnesses {
                             ServerMessage::Submit(link::Submit {
                                 content: owed.content,
                                 conversation,
+                                window,
                                 id,
                                 mark: owed.mark,
                                 request: owed.request,
@@ -1464,6 +1486,21 @@ impl Harnesses {
             }
         }
         Ok(())
+    }
+
+    fn window(
+        &self,
+        store: &Store,
+        binding: &Binding,
+    ) -> Result<Option<i64>> {
+        Ok(crate::models::choice(
+            store,
+            self.layout.root(),
+            binding,
+            self.config.faux.is_some(),
+        )?["contextWindow"]
+            .as_i64()
+            .filter(|window| *window > 0))
     }
 
     /// Asks the runtime to make the conversation of `binding`: a new

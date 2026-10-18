@@ -550,6 +550,15 @@
                     "items": {
                         "$ref": "#/$defs/ToolSpec"
                     }
+                },
+                "windows": {
+                    "type": "object",
+                    "patternProperties": {
+                        "^.*$": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
                 }
             },
             "additionalProperties": false
@@ -707,6 +716,10 @@
                 },
                 "steer": {
                     "type": "boolean"
+                },
+                "window": {
+                    "type": "integer",
+                    "minimum": 1
                 },
                 "mark": {
                     "$ref": "#/$defs/Mark"
@@ -1591,6 +1604,15 @@
                 },
                 "answer": {
                     "$ref": "#/$defs/Item"
+                },
+                "history": {
+                    "type": "boolean"
+                },
+                "retried": {
+                    "type": "boolean"
+                },
+                "summaryFailure": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -1621,6 +1643,9 @@
                 },
                 "notice": {
                     "$ref": "#/$defs/Mark"
+                },
+                "compact": {
+                    "type": "boolean"
                 }
             },
             "additionalProperties": false

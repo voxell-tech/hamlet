@@ -614,6 +614,8 @@ pub struct Submit {
     pub request: String,
     pub steer: bool,
     pub v: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -674,6 +676,8 @@ pub struct UsageReport {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Verdict {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact: Option<bool>,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<Mark>,
@@ -698,6 +702,8 @@ pub struct Welcome {
     pub tools: Vec<ToolSpec>,
     pub v: i64,
     pub version: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows: Option<std::collections::BTreeMap<String, i64>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -715,9 +721,16 @@ pub struct Write {
 pub struct Yield {
     pub answer: Item,
     pub conversation: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history: Option<bool>,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retried: Option<bool>,
+    #[serde(rename = "summaryFailure")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_failure: Option<String>,
     pub v: i64,
 }
 

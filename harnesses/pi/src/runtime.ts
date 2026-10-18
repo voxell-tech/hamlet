@@ -57,6 +57,7 @@ import {
 } from "./link.ts";
 import { allowedStreams, type Gate, modelProvider } from "./models.ts";
 import { providerWork } from "./providers.ts";
+import { RecoveryDoc, recoveryTask } from "./recovery.ts";
 
 /** The adapter's name and version, which the server keeps in each binding. */
 export const ADAPTER = "hamlet-pi 0.1.0";
@@ -77,11 +78,15 @@ const CAPABILITIES: Capability[] = [
 const ASK_AGAIN_MS = 2_000;
 
 /** How every conversation runs: tools one at a time, the server's retry waits, and no retry inside a stream. */
-const SETTINGS: HarnessSettings = {
+const SETTINGS = {
     toolExecution: "sequential",
     retry: { maxRetries: 3, baseDelayMs: 1000, maxAgentDelayMs: 30_000 },
     stream: { maxRetries: 0 },
-};
+    compaction: {
+        reserveTokens: Math.round(32768 * 0.2),
+        backgroundTokens: Math.round(32768 * 0.1),
+    },
+} satisfies HarnessSettings;
 
 /** The runtime id the server gave this store when it made it. */
 const RuntimeDoc = defineDoc<{ id: string }>({
@@ -159,7 +164,12 @@ export async function run(
         return;
     }
     const runtime = new Runtime(harness, registry, models, channel);
-    await runtime.start(reply.tools, options.faux, context);
+    await runtime.start(
+        reply.tools,
+        options.faux,
+        reply.windows ?? {},
+        context,
+    );
 }
 
 async function hello(
@@ -215,6 +225,7 @@ class Runtime {
     /** Held waits by operation key, woken when the server says it was answered. */
     readonly #waits = new Map<string, () => void>();
     readonly #gate: Gate;
+    readonly #recovery: ReturnType<typeof recoveryTask>;
     #providerFaux: Provider | undefined;
 
     constructor(
@@ -227,7 +238,14 @@ class Runtime {
         this.#registry = registry;
         this.#models = models;
         this.#channel = channel;
+        this.#recovery = recoveryTask(harness, channel);
         this.#gate = {
+            selected: (model) => {
+                SETTINGS.compaction = {
+                    reserveTokens: Math.round(model.contextWindow * 0.2),
+                    backgroundTokens: Math.round(model.contextWindow * 0.1),
+                };
+            },
             attempt: async (sessionId, model) => {
                 const known =
                     sessionId === undefined
@@ -259,7 +277,23 @@ class Runtime {
                                 ? {}
                                 : { apiKey: answer.credential.key }),
                         };
-                    case "stopped":
+                    case "stopped": {
+                        const live = await harness.snapshot(
+                            LiveDoc,
+                            known.conversation,
+                            BACKGROUND_CONTEXT,
+                        );
+                        if (live?.compactions?.some((item) => item.blocking)) {
+                            await harness.commit(async (tx) => {
+                                (
+                                    await tx.doc(
+                                        RecoveryDoc,
+                                        known.conversation,
+                                    )
+                                ).stopped = true;
+                            }, BACKGROUND_CONTEXT);
+                            return { ok: false, words: answer.words };
+                        }
                         return {
                             ok: false,
                             words: answer.words,
@@ -274,6 +308,7 @@ class Runtime {
                                           ),
                                   }),
                         };
+                    }
                     default:
                         return { ok: false, words: unexpected(answer) };
                 }
@@ -293,6 +328,7 @@ class Runtime {
     async start(
         tools: readonly ToolSpec[],
         faux: string | undefined,
+        windows: Record<string, number>,
         context: Context,
     ): Promise<void> {
         if (faux !== undefined) {
@@ -318,8 +354,10 @@ class Runtime {
             );
         }
         const bindings = await this.#harness.snapshot(BindingsDoc, context);
-        for (const [key, bound] of Object.entries(bindings?.byKey ?? {}))
-            await this.#remember(key, bound, context);
+        for (const [key, bound] of Object.entries(bindings?.byKey ?? {})) {
+            const known = await this.#remember(key, bound, context);
+            this.#window(known, windows[key]);
+        }
         this.#registry.install(this.#extension(tools));
         this.#harness.subscribeCommits(({ changes }) => {
             const requests = new Map<number, string>();
@@ -490,11 +528,23 @@ class Runtime {
         return known;
     }
 
+    #window(known: Known, window: number | undefined): void {
+        if (window === undefined) return;
+        const model = this.#models.getModel(
+            known.model.provider,
+            known.model.id,
+        );
+        if (model === undefined) return;
+        model.contextWindow = window;
+        this.#gate.selected?.(model);
+    }
+
     #extension(tools: readonly ToolSpec[]) {
         const channel = this.#channel;
         const names = new Set(tools.map((tool) => tool.name));
         return defineExtension({
             name: "hamlet",
+            tasks: [this.#recovery],
             tools: tools.map((spec) =>
                 defineTool({
                     name: spec.name,
@@ -621,7 +671,14 @@ class Runtime {
                     },
                 }),
                 hook(GenerationTask, {
-                    beforeRequest: async (_request, api) => {
+                    beforeRequest: async (_request, api, context) => {
+                        const live = await this.#harness.snapshot(
+                            LiveDoc,
+                            api.conversationId,
+                            context,
+                        );
+                        if (live?.run?.taskId !== api.taskId)
+                            return untilAborted(context);
                         this.#generations.set(
                             String(api.conversationId),
                             api.taskId,
@@ -634,17 +691,66 @@ class Runtime {
                         const conversation = String(api.conversationId);
                         if (!this.#known.has(conversation)) return undefined;
                         const input = await this.#input(api.conversationId);
+                        const view = await this.#harness.conversation(
+                            api.conversationId,
+                            context,
+                        );
+                        const active = await view?.context(context);
+                        const recovery = await this.#harness.snapshot(
+                            RecoveryDoc,
+                            api.conversationId,
+                            context,
+                        );
                         const answer = await abortable(
                             channel.request({
                                 type: "yield",
                                 conversation,
                                 ...(input === undefined ? {} : { input }),
                                 answer: assistantItem("yield", message),
+                                history:
+                                    (active?.messages.filter(
+                                        (m) => m.role !== "system",
+                                    ).length ?? 0) > 1,
+                                retried:
+                                    input !== undefined &&
+                                    recovery?.retried[input] === true,
                             }),
                             context,
                         );
                         if (answer.type !== "verdict")
                             throw new Error(unexpected(answer));
+                        if (answer.compact === true && input !== undefined) {
+                            await this.#harness.commit(async (tx) => {
+                                const live = await tx.doc(
+                                    LiveDoc,
+                                    api.conversationId,
+                                );
+                                if (live.run?.taskId !== api.taskId) return;
+                                const recovery = await tx.doc(
+                                    RecoveryDoc,
+                                    api.conversationId,
+                                );
+                                recovery.retried[input] = true;
+                                recovery.stopped = false;
+                                if (live.generation !== undefined)
+                                    live.generation.message = JSON.parse(
+                                        JSON.stringify(message),
+                                    ) as never;
+                                live.run.taskId = await tx.createTask(
+                                    this.#recovery,
+                                    {
+                                        generation: api.taskId,
+                                        input,
+                                        answer: assistantItem("yield", message),
+                                    },
+                                    {
+                                        ownership: { kind: "conversation" },
+                                        conversationId: api.conversationId,
+                                    },
+                                );
+                            }, context);
+                            return untilAborted(context);
+                        }
                         const { words, notice } = answer;
                         if (words === undefined) return undefined;
                         await this.#harness.commit(async (tx) => {
@@ -763,6 +869,9 @@ class Runtime {
                     context,
                 );
                 if (conversation === undefined) return;
+                const known = this.#known.get(request.conversation);
+                if (request.type === "submit" && known !== undefined)
+                    this.#window(known, request.window);
                 await fault("before_admit");
                 const submission = await conversation.submit(
                     request.type === "submit"

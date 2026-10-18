@@ -868,3 +868,93 @@ fn a_real_endpoint_gets_the_credential_the_server_hands_over_and_nothing_keeps_i
         assert!(!bytes.windows(7).any(|window| window == b"sk-held"));
     }
 }
+
+#[test]
+fn cutoff_recovery_survives_crashes_before_abort_and_after_summary() {
+    use hamlet_acceptance::openai::{Endpoint, Response};
+
+    let tokio = tokio::runtime::Runtime::new().unwrap();
+    for point in ["before_recovery_stop", "after_summary"] {
+        let mut endpoint = tokio.block_on(Endpoint::start());
+        endpoint.enqueue([
+            Response {
+                text: "x".repeat(100_000),
+                ..Default::default()
+            },
+            Response {
+                text: "Earlier.".into(),
+                ..Default::default()
+            },
+            Response {
+                text: String::new(),
+                finish: "length".into(),
+                ..Default::default()
+            },
+            Response {
+                text: "Summary.".into(),
+                ..Default::default()
+            },
+            Response {
+                text: "Recovered.".into(),
+                ..Default::default()
+            },
+        ]);
+        let realm = Realm::new(point);
+        let env = [
+            ("HAMLET_MODEL", "endpoint::org/large"),
+            ("HAMLET_BASE_URL", endpoint.url.as_str()),
+            ("HAMLET_HARNESS_FAULT", point),
+        ];
+        let mut driver = Driver::start_on(&realm, None, &env);
+        let (binding, _) = driver.bind(0);
+        driver.submit(binding, "chief:long", "Long.");
+        driver.answer(binding, &"x".repeat(100_000));
+        driver.submit(binding, "chief:earlier", "Earlier.");
+        driver.answer(binding, "Earlier.");
+        driver.submit(binding, "chief:cut", "Keep this\n  exactly.");
+        assert_eq!(realm.wait_paused("runtime"), point);
+        driver.kill();
+        let mut driver = Driver::start_on(&realm, None, &env);
+        driver.answer(binding, "Recovered.");
+        driver.stop();
+        let calls = endpoint
+            .requests()
+            .iter()
+            .filter(|request| {
+                request.path.ends_with("/chat/completions")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 5, "{point}");
+        let summary = &calls[3].body.as_ref().unwrap()["messages"];
+        assert!(
+            summary.to_string().contains("summarization assistant")
+        );
+        let retry = &calls[4].body.as_ref().unwrap()["messages"];
+        assert!(
+            retry
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|message| message["role"] == "user"
+                    && message["content"] == "Keep this\n  exactly.")
+        );
+        let db = rusqlite::Connection::open(
+            realm.home.join("realm.sqlite"),
+        )
+        .unwrap();
+        let tasks = db
+            .prepare(
+                "SELECT task FROM harness_attempt JOIN \
+                 harness_usage USING(runtime,key) ORDER BY ordinal",
+            )
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_ne!(tasks[1], tasks[2]);
+        assert_eq!(tasks.len(), 5);
+        assert!(tasks[2..].iter().all(|task| task == &tasks[2]));
+        assert_eq!(realm.look().usage, 5);
+    }
+}
