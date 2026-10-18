@@ -3,12 +3,14 @@
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::system::Commands;
+use bevy_fynix::shortcut::Chord;
 
 use super::{ContributedBy, Status};
 use crate::AnyView;
 use crate::command::{Command, Handler, Opens};
 use crate::dock::Panel;
 use crate::icons::Glyph;
+use crate::keys::Key;
 use crate::menu::{Menu, MenuEntry};
 
 /// The declarations of one plugin. It reaches neither the app nor the
@@ -24,6 +26,7 @@ enum Declared {
     Panel(Panel),
     Command(Command, Does),
     Menu(MenuEntry),
+    Key(Key),
 }
 
 /// What a command does when it is run.
@@ -106,6 +109,14 @@ impl Entry {
         }));
     }
 
+    /// Adds a shortcut that runs the plugin's command `command`.
+    pub fn key(&mut self, chord: Chord, command: &str) {
+        self.declared.push(Declared::Key(Key {
+            chord,
+            command: command.into(),
+        }));
+    }
+
     fn declare(
         &mut self,
         id: &str,
@@ -126,6 +137,9 @@ impl Entry {
                 }
                 Declared::Menu(entry) => {
                     commands.spawn((entry, ContributedBy(plugin)));
+                }
+                Declared::Key(key) => {
+                    commands.spawn((key, ContributedBy(plugin)));
                 }
                 Declared::Command(command, does) => {
                     let mut command = commands

@@ -4,7 +4,8 @@
 use std::fmt;
 
 /// The capabilities that can never be granted. A manifest that asks
-/// for one is turned down at the scan, with no petition.
+/// for one is turned down at the scan, with no petition. `keys` is
+/// credentials; keyboard shortcuts are [`Capability::UiKeys`].
 pub const NEVER: [&str; 6] = [
     "keys",
     "petitions.answer",
@@ -26,6 +27,7 @@ pub enum Capability {
     ChatSend,
     CommandsRun,
     UiMenu,
+    UiKeys,
     Net,
     FsPick,
     FsFolder,
@@ -36,7 +38,7 @@ pub enum Capability {
 }
 
 impl Capability {
-    pub const ALL: [Capability; 14] = [
+    pub const ALL: [Capability; 15] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -44,6 +46,7 @@ impl Capability {
         Capability::ChatSend,
         Capability::CommandsRun,
         Capability::UiMenu,
+        Capability::UiKeys,
         Capability::Net,
         Capability::FsPick,
         Capability::FsFolder,
@@ -63,6 +66,7 @@ impl Capability {
             Capability::ChatSend => "chat.send",
             Capability::CommandsRun => "commands.run",
             Capability::UiMenu => "ui.menu",
+            Capability::UiKeys => "ui.keys",
             Capability::Net => "net",
             Capability::FsPick => "fs.pick",
             Capability::FsFolder => "fs.folder",
@@ -100,6 +104,7 @@ impl Capability {
             Capability::ChatSend => "Send messages as the chief",
             Capability::CommandsRun => "Run commands as the chief",
             Capability::UiMenu => "Add entries to the menus",
+            Capability::UiKeys => "Add keyboard shortcuts",
             Capability::Net => "Reach the network",
             Capability::FsPick => {
                 "Ask for a file with the file dialog"
