@@ -1,0 +1,33 @@
+# Run from the Hamlet checkout, after `./build.sh build/{{name}}`:
+#   cargo run --example plugin_check --features wasm -- \
+#     <this folder>/build/{{name}} --script <this folder>/steps.toml \
+#     --out <this folder>/pictures
+
+# The first draw asks the chief, who has not answered.
+[[step]]
+tick = 1
+
+[[step]]
+expect = { panel = "main", text = "Waiting for the chief" }
+
+[[step]]
+render = { panel = "main", file = "asked.png" }
+
+# The chief allows it, and the plugin counts the agents.
+[[step]]
+set-agents = [
+  { name = "Juniper", hamlet = "Pear Tree Hollow" },
+  { name = "harbourmaster", hamlet = "The Quay" },
+]
+
+[[step]]
+grant = "read.agents"
+
+[[step]]
+expect = { panel = "main", text = "2 agents live here" }
+
+[[step]]
+click = { panel = "main", node = "look" }
+
+[[step]]
+render = { panel = "main", file = "allowed.png" }

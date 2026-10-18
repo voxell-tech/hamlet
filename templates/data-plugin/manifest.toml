@@ -1,0 +1,11 @@
+id = "{{name}}"
+name = "{{title}}"
+version = "0.1.0"
+kind = "data"
+icon = "book"
+
+# Everything the panel may read is named here, each with a reason the
+# chief reads. A read the manifest does not name comes back empty.
+[[asks]]
+capability = "read.agents"
+reason = "To list the agents the panel is about."

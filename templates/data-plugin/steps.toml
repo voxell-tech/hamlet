@@ -1,0 +1,27 @@
+# Run from the Hamlet checkout:
+#   cargo run --example plugin_check --features wasm -- \
+#     <this folder> --script <this folder>/steps.toml \
+#     --out <this folder>/pictures
+
+[[step]]
+tick = 1
+
+[[step]]
+render = { panel = "main", file = "asked.png" }
+
+[[step]]
+set-agents = [
+  { name = "Juniper", hamlet = "Pear Tree Hollow" },
+]
+
+[[step]]
+grant = "read.agents"
+
+[[step]]
+type = { panel = "main", node = "n.1", text = "Juniper" }
+
+[[step]]
+expect = { panel = "main", text = "Hello, Juniper." }
+
+[[step]]
+render = { panel = "main", file = "allowed.png" }

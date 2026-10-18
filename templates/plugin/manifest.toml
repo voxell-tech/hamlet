@@ -1,0 +1,10 @@
+id = "{{name}}"
+name = "{{title}}"
+version = "0.1.0"
+interface = "{{interface}}"
+
+# Everything the plugin may ask the chief for is named here, each with a
+# reason the chief reads. A capability that is not named cannot be used.
+[[asks]]
+capability = "read.agents"
+reason = "To count the agents the panel is about."

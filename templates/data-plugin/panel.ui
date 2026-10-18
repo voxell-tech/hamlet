@@ -1,0 +1,8 @@
+root = Column([head, name, hello, again, Divider(), people])
+head = Row([Icon("book"), Heading("{{TITLE}}")])
+name = TextField($name)
+hello = Label("Hello, " + $name + ".")
+again = Row([Button("Start again", Action([@Reset($name)]))])
+people = agents.error ? Note(agents.error) : (@Count(agents.rows) == 0 ? Note("Nobody lives here yet.") : Scroll(@Each(agents.rows, "a", Row([Label(a.name), Note(a.hamlet)]))))
+agents = Query("agents", {}, {rows: [], error: null})
+$name = "Ada"
