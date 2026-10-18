@@ -12,6 +12,7 @@ mod limits;
 mod models;
 mod operation;
 mod papers;
+mod prompt;
 pub mod protocol;
 pub mod record;
 pub mod runtime;
