@@ -15,14 +15,13 @@ use bevy::ecs::system::{Query, ResMut};
 use hamlet_core::agents::{Charter, Settlement};
 use hamlet_home::limits::Limits;
 
-pub(crate) use self::choice::{of_agent, of_hamlet};
-pub(crate) use self::home::narrowed;
-pub use self::home::{endpoints, shelf};
+pub use self::choice::{of_agent, of_hamlet};
+pub use self::home::{endpoints, narrowed, shelf};
 
 /// The most models the catalogue shows at once.
 const SHOWN: usize = 40;
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Shelf>()
         .init_resource::<Draft>()
         .add_systems(Update, follow);

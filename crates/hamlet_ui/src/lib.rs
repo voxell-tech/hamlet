@@ -10,10 +10,8 @@ pub mod history;
 mod hover;
 pub mod lists;
 pub mod menu;
-pub mod models;
 mod remember;
 mod root;
-pub mod rules;
 pub mod screens;
 mod sounds;
 mod status;
@@ -31,6 +29,7 @@ use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
 pub use hamlet_chat::me::{self, Me};
 pub use hamlet_chat::{chat, links, markdown, pictures, select};
+pub use hamlet_limits::{models, rules};
 use hamlet_realm::pick::Selected;
 pub use hamlet_sdk::dock::{lit_panel, panel};
 pub use hamlet_sdk::looks::{
@@ -74,8 +73,7 @@ impl Plugin for UiPlugin {
                 screens::plugin,
                 chief::plugin,
                 folder::plugin,
-                rules::plugin,
-                models::plugin,
+                hamlet_limits::plugin,
                 hamlet_sdk::asking::plugin,
                 history::plugin,
                 welcome::plugin,

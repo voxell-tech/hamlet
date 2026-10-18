@@ -10,8 +10,9 @@ use hamlet_core::core::Settings;
 use hamlet_rules::realm::Realm;
 use hamlet_rules::vote::{self, Standing};
 
-use super::{heading, tell};
+use super::heading;
 use crate::View;
+use crate::chat::decree_for;
 use crate::icons::Glyph;
 use crate::looks::{bad_action, bare, note};
 use crate::me::Me;
@@ -92,7 +93,11 @@ pub(super) fn record_of(hamlet: Entity) -> impl View {
                     Glyph::Restore,
                     "OVERTURN",
                     move |world| {
-                        tell(world, hamlet, format!("/overturn {id}"))
+                        decree_for(
+                            world,
+                            hamlet,
+                            format!("/overturn {id}"),
+                        )
                     },
                 ));
             }

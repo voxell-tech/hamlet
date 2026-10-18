@@ -31,7 +31,9 @@ use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 use hamlet_sdk::page;
 use hamlet_sdk::plugin::Entry;
-use hamlet_sdk::settings::{Line, SettingsPage, SettingsPages};
+use hamlet_sdk::settings::{
+    Line, SetUpAgain, SettingsPage, SettingsPages, ShowModels,
+};
 
 pub use self::plugins::{Open, Tab};
 use crate::dock::{Panel, PanelAppExt, panel};
@@ -57,6 +59,7 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Pane>()
     .init_resource::<Charter>()
     .add_observer(charter_reset)
+    .add_observer(show_models)
     .add_systems(
         Update,
         (
@@ -383,6 +386,11 @@ fn edit_charter(world: &mut World) {
     let _ = world.run_system_cached(read_charter);
 }
 
+/// Turns to the page of the models.
+fn show_models(_: On<ShowModels>, mut pane: ResMut<Pane>) {
+    *pane = Pane::Models;
+}
+
 /// Reads the charter again after the home's own was removed.
 fn charter_reset(_: On<CharterReset>, mut commands: Commands) {
     commands.run_system_cached(read_charter);
@@ -492,7 +500,10 @@ fn door(pane: Pane) -> AnyView {
 fn again() -> impl View {
     column((
         note("Choose again where your model comes from."),
-        action(Glyph::Restore, "SET UP AGAIN", crate::welcome::again),
+        action(Glyph::Restore, "SET UP AGAIN", |world| {
+            world.trigger(SetUpAgain);
+            world.flush();
+        }),
     ))
     .gap(6.0)
     .padding(UiRect::top(px(8.0)))

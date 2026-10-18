@@ -16,6 +16,7 @@ use hamlet_core::core::{
 use hamlet_model::catalogue::{Model, Priced};
 use hamlet_model::chatgpt;
 use hamlet_model::config::Config;
+use hamlet_sdk::settings::AddEndpoint;
 
 use super::choice::{chooser, home_default};
 use super::{Draft, SHOWN, Shelf};
@@ -144,7 +145,10 @@ pub fn endpoints() -> impl View {
         row((good_action(
             Glyph::Plus,
             "ADD A PLACE FOR MODELS",
-            crate::welcome::add,
+            |world| {
+                world.trigger(AddEndpoint);
+                world.flush();
+            },
         ),))
         .boxed(),
     ))
@@ -282,7 +286,7 @@ fn entry(name: &str) -> AnyView {
 
 /// The `names` that `narrow` leaves, and the count of those past what
 /// is shown.
-pub(crate) fn narrowed<N: AsRef<str>>(
+pub fn narrowed<N: AsRef<str>>(
     names: impl Iterator<Item = N>,
     narrow: &str,
 ) -> (Vec<String>, usize) {

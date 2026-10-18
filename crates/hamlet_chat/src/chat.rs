@@ -186,6 +186,18 @@ fn entries(world: &World, session: Option<Entity>) -> usize {
         .map_or(0, |said| said.items().len())
 }
 
+/// Gives a chief's command to the hamlet that is the entity
+/// `hamlet`, as [`decree`] does.
+pub fn decree_for(world: &mut World, hamlet: Entity, text: String) {
+    let Some(name) = world
+        .get::<agents::Settlement>(hamlet)
+        .map(|settlement| settlement.name.clone())
+    else {
+        return;
+    };
+    decree(world, &name, text);
+}
+
 /// Gives a chief's command to the hamlet `hamlet`: in the open chat
 /// when it is with that hamlet, and with that hamlet's mayor
 /// otherwise. The answer is shown in the open chat either way.

@@ -7,7 +7,6 @@ mod rows;
 
 use bevy::app::{App, Startup, Update};
 use bevy::ecs::component::Component;
-use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
@@ -232,15 +231,4 @@ pub fn overview() -> AnyView {
     .fills_height()
     .gap(8.0)
     .boxed()
-}
-
-/// Gives a chief's command to `hamlet`, whoever the chat is with.
-pub(crate) fn tell(world: &mut World, hamlet: Entity, text: String) {
-    let Some(name) = world
-        .get::<Settlement>(hamlet)
-        .map(|settlement| settlement.name.clone())
-    else {
-        return;
-    };
-    chat::decree(world, &name, text);
 }

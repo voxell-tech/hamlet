@@ -14,6 +14,7 @@ hamlet_chat.workspace = true
 hamlet_core.workspace = true
 hamlet_desktop.workspace = true
 hamlet_home.workspace = true
+hamlet_limits.workspace = true
 hamlet_model.workspace = true
 hamlet_rules.workspace = true
 hamlet_realm.workspace = true

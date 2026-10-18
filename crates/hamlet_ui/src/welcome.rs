@@ -9,6 +9,7 @@ mod pages;
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::hierarchy::Children;
+use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -26,9 +27,9 @@ use hamlet_model::config::providers::{
     LOCAL, OPENROUTER, OTHER, PROVIDERS, served,
 };
 use hamlet_model::config::{Config, Endpoint};
+use hamlet_sdk::settings::{AddEndpoint, SetUpAgain, ShowModels};
 
 pub use self::pages::view;
-use crate::settings::Pane;
 
 const NOTHING_LOCAL: &str = "No model server answered here. Install \
                              Ollama from ollama.com, download a \
@@ -41,6 +42,12 @@ pub(crate) fn plugin(app: &mut App) {
     let welcome = Welcome::at_launch(home, replay);
     app.insert_resource(welcome)
         .init_resource::<Committing>()
+        .add_observer(|_: On<SetUpAgain>, mut commands: Commands| {
+            commands.queue(again);
+        })
+        .add_observer(|_: On<AddEndpoint>, mut commands: Commands| {
+            commands.queue(add);
+        })
         .add_systems(
             Update,
             (
@@ -199,7 +206,7 @@ fn added(world: &mut World) {
         return;
     }
     world.trigger(ListModels);
-    *world.resource_mut::<Pane>() = Pane::Models;
+    world.trigger(ShowModels);
     close(world);
 }
 

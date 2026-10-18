@@ -20,20 +20,20 @@ use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_core::agents::{Charter, Settlement};
 use hamlet_core::core::HomeDir;
 use hamlet_home::limits::{self, Limits, Period};
+use hamlet_sdk::cards::heading;
 
 use crate::icons::Glyph;
 use crate::looks::{
     Fills, action, bare, doors, list_door, note, page_head, tick,
     well,
 };
-use crate::overview::heading;
 use crate::{AnyView, View, with_cx};
 
 /// The width of the room of a control, so that the controls stand in
 /// a line at the panel's right.
 const CONTROLS: f32 = 150.0;
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Book>()
         .init_resource::<Part>()
         .add_systems(Update, follow);
@@ -270,7 +270,7 @@ fn budget(hamlet: Entity) -> impl View {
                 Glyph::Restore,
                 "START IT AGAIN NOW",
                 move |world| {
-                    crate::overview::tell(
+                    crate::chat::decree_for(
                         world,
                         hamlet,
                         "/reset-budget".into(),

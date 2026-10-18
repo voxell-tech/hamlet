@@ -61,6 +61,7 @@ table. The binary and the examples are the root package.
 | `hamlet_realm` | The 3D world, drawn from the core's entities |
 | `hamlet_sdk` | What a plugin is built with: the plugin types, commands, menu lines, context menu items, inspector tabs, settings pages and keys, the theme, looks and icons, the dock's panels |
 | `hamlet_chat` | The chat with an agent: who it is with, how it is read and typed, the markdown and pictures in it, selecting its words, links, and the deeds that ask the chief first |
+| `hamlet_limits` | The panes where the chief changes the home's models and each hamlet's budget, votes, models and the mayor's leave |
 | `hamlet_ui` | The window: panels, menus and pointer around the world |
 | `hamlet_wasm` | The host of the installed WASM plugins, behind the binary's `wasm` feature. See [`wasm.md`](wasm.md) |
 | `hamlet_openui` | Panels written in Hamlet's panel language: the components, the evaluation into a panel tree, state, actions and the data plugin. See [`panels.md`](panels.md) |

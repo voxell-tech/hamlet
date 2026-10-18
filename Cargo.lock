@@ -3672,6 +3672,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_limits"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "hamlet_chat",
+ "hamlet_core",
+ "hamlet_desktop",
+ "hamlet_home",
+ "hamlet_model",
+ "hamlet_rules",
+ "hamlet_sdk",
+ "hamlet_testing",
+]
+
+[[package]]
 name = "hamlet_model"
 version = "0.1.0"
 dependencies = [
@@ -3790,6 +3806,7 @@ dependencies = [
  "hamlet_core",
  "hamlet_desktop",
  "hamlet_home",
+ "hamlet_limits",
  "hamlet_model",
  "hamlet_realm",
  "hamlet_rules",

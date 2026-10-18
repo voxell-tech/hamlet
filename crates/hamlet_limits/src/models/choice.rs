@@ -207,7 +207,7 @@ fn run_model(
 
 /// The model `agent` runs, for its chief to change. Nothing for an
 /// agent that is gone.
-pub(crate) fn of_agent(agent: Entity) -> AnyView {
+pub fn of_agent(agent: Entity) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let lives = cx.world.get::<LivesIn>(agent).map(|l| l.0);
         let place = lives
@@ -239,7 +239,7 @@ pub(crate) fn of_agent(agent: Entity) -> AnyView {
 
 /// The models the hamlet `hamlet` may run, picked from those the
 /// home allows.
-pub(crate) fn of_hamlet(hamlet: Entity) -> AnyView {
+pub fn of_hamlet(hamlet: Entity) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let Some(place) = cx.world.get::<Settlement>(hamlet).cloned()
         else {
@@ -289,7 +289,7 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> AnyView {
         .within(bare());
         cx.build(
             column((
-                crate::overview::heading(
+                hamlet_sdk::cards::heading(
                     Glyph::Chip,
                     "MODELS THIS HAMLET MAY RUN",
                 ),

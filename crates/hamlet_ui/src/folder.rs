@@ -19,12 +19,13 @@ use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
 use hamlet_rules::work::{Mode, Work};
+use hamlet_sdk::cards::heading;
 
 use crate::View;
+use crate::chat::decree_for;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{action, bad_action, bare, brass, buttons, note};
-use crate::overview::{heading, tell};
 use crate::roll::hamlets_moved;
 
 /// The most earlier folders offered again.
@@ -51,7 +52,7 @@ fn switched(switched: On<Switched>, mut commands: Commands) {
             Mode::Manual => Mode::Auto,
             Mode::Auto => Mode::Manual,
         };
-        tell(world, hamlet, format!("/mode {}", to.name()));
+        decree_for(world, hamlet, format!("/mode {}", to.name()));
     });
 }
 
@@ -64,7 +65,11 @@ fn chosen(chosen: On<FolderChosen>, mut commands: Commands) {
 }
 
 fn work_on(world: &mut World, hamlet: Entity, folder: &Path) {
-    tell(world, hamlet, format!("/folder {}", folder.display()));
+    decree_for(
+        world,
+        hamlet,
+        format!("/folder {}", folder.display()),
+    );
 }
 
 /// The last part of `folder`, as a button names it.
@@ -120,7 +125,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                             Glyph::Cross,
                             "STOP",
                             move |world| {
-                                tell(
+                                decree_for(
                                     world,
                                     hamlet,
                                     "/folder none".to_string(),
@@ -144,7 +149,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                                 _ => Mode::Auto,
                             };
                             if to != mode {
-                                tell(
+                                decree_for(
                                     world,
                                     hamlet,
                                     format!("/mode {}", to.name()),
