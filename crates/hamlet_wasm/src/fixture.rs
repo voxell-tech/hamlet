@@ -1,6 +1,7 @@
 //! Test plugins: core modules in text, made into components against
 //! the WIT file.
 
+#[cfg(test)]
 pub mod home;
 pub mod tree;
 

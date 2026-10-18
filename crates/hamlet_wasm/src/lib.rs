@@ -33,8 +33,8 @@ pub mod start;
 pub mod stop;
 pub mod wire;
 
-#[cfg(test)]
-mod fixture;
+#[cfg(any(test, feature = "fixture"))]
+pub mod fixture;
 #[cfg(test)]
 mod tests;
 
@@ -48,6 +48,7 @@ pub fn plugin(app: &mut App) {
     ))
     .init_resource::<Limits>()
     .add_message::<run::Done>()
+    .add_message::<run::Said>()
     .add_observer(admit::admit)
     .add_observer(enable::restart)
     .add_observer(event::deliver)

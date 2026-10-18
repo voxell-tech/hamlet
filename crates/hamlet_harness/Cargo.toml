@@ -1,0 +1,40 @@
+[package]
+name = "hamlet_harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Runs a plugin headlessly against made-up state, reads its panels as text and draws them to pictures"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_sdk.workspace = true
+serde.workspace = true
+toml.workspace = true
+# What drives a plugin through the host, behind `wasm` as in the binary.
+bevy = { workspace = true, optional = true }
+bevy_fynix = { workspace = true, optional = true }
+hamlet_assets = { workspace = true, optional = true }
+hamlet_core = { workspace = true, optional = true }
+hamlet_home = { workspace = true, optional = true }
+hamlet_offscreen = { workspace = true, optional = true }
+hamlet_ui = { workspace = true, optional = true }
+hamlet_wasm = { workspace = true, optional = true }
+
+[features]
+# Runs a plugin: `cargo test --features wasm`.
+wasm = [
+    "dep:bevy",
+    "dep:bevy_fynix",
+    "dep:hamlet_assets",
+    "dep:hamlet_core",
+    "dep:hamlet_home",
+    "dep:hamlet_offscreen",
+    "dep:hamlet_ui",
+    "dep:hamlet_wasm",
+]
+
+[dev-dependencies]
+# The test plugins are core modules in text.
+hamlet_wasm = { workspace = true, features = ["fixture"] }

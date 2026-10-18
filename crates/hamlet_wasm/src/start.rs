@@ -11,7 +11,7 @@ use hamlet_sdk::plugin::{PluginInfo, Status};
 use crate::draw::Dirty;
 use crate::engine::Host;
 use crate::fault::Fault;
-use crate::host::{Declared, Want};
+use crate::host::{Declared, Logged, Want};
 use crate::inbox::Inbox;
 use crate::instance::Instance;
 use crate::limits::Limits;
@@ -36,6 +36,8 @@ pub struct Built {
     pub instance: Instance,
     pub panels: Vec<Declared>,
     pub wants: Vec<Want>,
+    /// What `entry` logged.
+    pub logs: Vec<Logged>,
 }
 
 /// Instantiates the component in `source` and runs its `entry`.
@@ -54,11 +56,11 @@ pub fn build(
     let mut instance = instance.named(&info.id);
     instance.see(granted, agents);
     let output = instance.entry(limits)?;
-    output.logs.iter().for_each(|line| run::say(&info.id, line));
     Ok(Built {
         instance,
         panels: output.panels,
         wants: output.wants,
+        logs: output.logs,
     })
 }
 
@@ -79,7 +81,10 @@ pub fn bring_up(
             instance,
             panels: declared,
             wants,
+            logs,
         }) => {
+            logs.iter()
+                .for_each(|line| run::say(commands, &info.id, line));
             run::want(commands, plugin, &wants);
             let shown =
                 panel::spawn(plugin, &info.id, &declared, commands);

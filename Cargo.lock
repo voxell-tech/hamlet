@@ -3546,6 +3546,7 @@ dependencies = [
  "hamlet_assets",
  "hamlet_core",
  "hamlet_desktop",
+ "hamlet_harness",
  "hamlet_home",
  "hamlet_model",
  "hamlet_offscreen",
@@ -3610,6 +3611,23 @@ name = "hamlet_guest"
 version = "0.1.0"
 dependencies = [
  "wit-bindgen 0.63.0",
+]
+
+[[package]]
+name = "hamlet_harness"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "hamlet_assets",
+ "hamlet_core",
+ "hamlet_home",
+ "hamlet_offscreen",
+ "hamlet_sdk",
+ "hamlet_ui",
+ "hamlet_wasm",
+ "serde",
+ "toml",
 ]
 
 [[package]]

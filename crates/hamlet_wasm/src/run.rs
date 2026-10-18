@@ -57,10 +57,9 @@ pub fn step(
         let mail = inbox.take();
         match instance.step(&limits, &mail) {
             Ok(output) => {
-                output
-                    .logs
-                    .iter()
-                    .for_each(|line| say(&info.id, line));
+                output.logs.iter().for_each(|line| {
+                    say(&mut commands, &info.id, line)
+                });
                 want(&mut commands, plugin, &output.wants);
                 // A panel that was written to may look different now.
                 for local in mail.iter().filter_map(event::panel_of) {
@@ -82,6 +81,7 @@ pub fn step(
 pub fn apply(
     mut done: MessageReader<Done>,
     mut plugins: Query<(&PluginInfo, Option<&mut Dirty>)>,
+    mut said: MessageWriter<Said>,
 ) {
     for Done { plugin, intents } in done.read() {
         let Ok((info, mut dirty)) = plugins.get_mut(*plugin) else {
@@ -90,7 +90,12 @@ pub fn apply(
         for intent in intents {
             match (intent, dirty.as_mut()) {
                 (Intent::LogLine(text), _) => {
-                    info!("plugin {}: {text}", info.id)
+                    info!("plugin {}: {text}", info.id);
+                    said.write(Said {
+                        plugin: info.id.clone(),
+                        level: Level::Info,
+                        text: text.clone(),
+                    });
                 }
                 (Intent::Redraw(panel), Some(dirty)) => {
                     dirty.mark(&dock_id(&info.id, panel))
@@ -113,13 +118,26 @@ pub fn want(commands: &mut Commands, plugin: Entity, wants: &[Want]) {
     }
 }
 
+/// A line a plugin logged, as it was written to the app's log.
+#[derive(Message, Clone, PartialEq, Debug)]
+pub struct Said {
+    pub plugin: String,
+    pub level: Level,
+    pub text: String,
+}
+
 /// Writes a line a plugin logged to the app's log, labelled with the
-/// plugin.
-pub fn say(id: &str, line: &Logged) {
+/// plugin, and tells of it with [`Said`].
+pub fn say(commands: &mut Commands, id: &str, line: &Logged) {
     let text = &line.message;
     match line.level {
         Level::Info => info!("plugin {id}: {text}"),
         Level::Warn => warn!("plugin {id}: {text}"),
         Level::Error => error!("plugin {id}: {text}"),
     }
+    commands.write_message(Said {
+        plugin: id.into(),
+        level: line.level,
+        text: text.clone(),
+    });
 }

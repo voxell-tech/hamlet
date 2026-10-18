@@ -19,6 +19,15 @@ serde.workspace = true
 sha2.workspace = true
 toml.workspace = true
 wasmtime.workspace = true
+# The test plugins of the `fixture` feature.
+wat = { version = "1.262", optional = true }
+wit-component = { version = "0.262", optional = true }
+wit-parser = { version = "0.262", optional = true }
+
+[features]
+# Makes the test plugins of `fixture` public, for a crate that tests
+# its own code against the host.
+fixture = ["dep:wat", "dep:wit-component", "dep:wit-parser"]
 
 [[example]]
 name = "bench"

@@ -32,6 +32,7 @@ hamlet_wasm = { version = "0.1.0", path = "crates/hamlet_wasm" }
 hamlet_openui = { version = "0.1.0", path = "crates/hamlet_openui" }
 hamlet_guest = { version = "0.1.0", path = "crates/hamlet_guest" }
 hamlet_offscreen = { version = "0.1.0", path = "crates/hamlet_offscreen" }
+hamlet_harness = { version = "0.1.0", path = "crates/hamlet_harness" }
 hamlet_plugins = { version = "0.1.0", path = "plugins/all" }
 plugin_skills = { version = "0.1.0", path = "plugins/skills" }
 
@@ -126,6 +127,7 @@ hamlet_rules.workspace = true
 hamlet_vfx.workspace = true
 hamlet_openui.workspace = true
 hamlet_offscreen.workspace = true
+hamlet_harness.workspace = true
 bevy_fynix.workspace = true
 serde_json.workspace = true
 
@@ -137,7 +139,7 @@ live-tests = ["hamlet_core/live-tests"]
 # `cargo run --features hot-reload`.
 hot-reload = ["hamlet_assets/hot-reload"]
 # Runs the installed WASM plugins: `cargo run --features wasm`.
-wasm = ["dep:hamlet_wasm"]
+wasm = ["dep:hamlet_wasm", "hamlet_harness/wasm"]
 
 [[example]]
 name = "style_test"
@@ -159,3 +161,7 @@ name = "sound_sheet"
 
 [[example]]
 name = "chief_sheet"
+
+[[example]]
+name = "plugin_check"
+required-features = ["wasm"]

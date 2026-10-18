@@ -77,10 +77,9 @@ pub fn draw(
             };
             match instance.panel_view(&limits, local) {
                 Ok(drawing) => {
-                    drawing
-                        .logs
-                        .iter()
-                        .for_each(|line| run::say(&info.id, line));
+                    drawing.logs.iter().for_each(|line| {
+                        run::say(&mut commands, &info.id, line)
+                    });
                     run::want(&mut commands, plugin, &drawing.wants);
                     let panel =
                         panels.iter().find(|(_, p, _)| p.id == dock);

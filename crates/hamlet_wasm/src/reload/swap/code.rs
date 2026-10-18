@@ -39,6 +39,7 @@ pub(super) fn swap(
         mut instance,
         panels,
         wants,
+        logs,
     } = start::build(&info, &source, &granted, setting)
         .map_err(|fault| fault.to_string())?;
     for declared in &panels {
@@ -46,6 +47,8 @@ pub(super) fn swap(
             .panel_view(setting.limits, &declared.id)
             .map_err(|fault| fault.to_string())?;
     }
+    logs.iter()
+        .for_each(|line| run::say(commands, &info.id, line));
     run::want(commands, case.plugin, &wants);
     let shown = panel::replace(
         case.plugin,
