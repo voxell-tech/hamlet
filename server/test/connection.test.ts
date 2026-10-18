@@ -257,7 +257,7 @@ describe("the server's end of a connection", () => {
         expect(await two.next()).toEqual(changes);
     });
 
-    it("sends a broadcast made while the state is made after the state", async () => {
+    it("sends only broadcasts newer than the hello state after it", async () => {
         const changes: Changes = {
             type: "change",
             epoch: 1,
@@ -266,6 +266,8 @@ describe("the server's end of a connection", () => {
         };
         const server: Server = await start({
             hello: () => {
+                server.broadcast(state(6));
+                server.broadcast({ ...changes, revision: 7 });
                 server.broadcast(changes);
                 return state(7);
             },

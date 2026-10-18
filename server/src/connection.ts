@@ -280,7 +280,16 @@ function accept(
         if (!closed.signal.aborted) members.set(socket, held);
         const state = await handlers.hello(hello, client);
         if (state !== undefined) send(socket, state);
-        for (const message of held) send(socket, message);
+        for (const message of held) {
+            if (
+                state !== undefined &&
+                (message.type === "state" || message.type === "change") &&
+                message.epoch === state.epoch &&
+                message.revision <= state.revision
+            )
+                continue;
+            send(socket, message);
+        }
         welcomed = true;
         if (members.has(socket)) members.set(socket, undefined);
     }
