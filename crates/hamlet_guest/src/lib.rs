@@ -14,6 +14,7 @@ pub mod bindings {
 
 pub mod calls;
 pub mod collection;
+pub mod db;
 pub mod events;
 pub mod files;
 pub mod net;
