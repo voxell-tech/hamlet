@@ -253,9 +253,10 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 |---|---|
 | `tick = 2` | Runs two frames; the plugin gets a tick in each |
 | `click = { panel = "main", node = "look" }` | Presses a button |
-| `type = { panel = "main", node = "name", text = "Ada" }` | Commits a text in a text field |
+| `type = { panel = "main", node = "name", text = "Ada" }` | Commits a text in a text field or a text area |
 | `toggle = { panel = "main", node = "hint" }` | Flips a checkbox |
 | `set-agents = [{ name = "Juniper", hamlet = "Pear Tree Hollow" }]` | Replaces the agents a plugin that may read them sees |
+| `set-papers = { notes = "..", character = "..", skills = ["a"] }` | Replaces the notes, character and skill names of the selected agent that a plugin that may read them sees |
 | `grant = "read.agents"` | The chief allows a capability the manifest asks for |
 | `deny = "read.agents"` | The chief refuses it |
 | `render = { panel = "main", file = "after.png" }` | Draws the panel in a dock, as the window does, to a PNG under `--out` |
@@ -287,6 +288,7 @@ on:
 | `tick()` | Runs one frame |
 | `click(panel, node)`, `type_text(panel, node, text)`, `toggle(panel, node)` | Do what a person does to a node; an error says what is not there |
 | `set_agents(&[(hamlet, name)])` | Makes up the agents |
+| `set_papers(notes, character, &skills)` | Makes up the papers of the selected agent |
 | `grant(capability)`, `deny(capability)` | Answer as the chief |
 | `tree(panel)`, `outline(panel)` | The tree a panel shows, as nodes and as lines |
 | `panels()`, `logs()`, `stopped()` | The panels the plugin declared, what it logged, why it stopped |

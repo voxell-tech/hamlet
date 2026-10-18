@@ -1,11 +1,11 @@
 //! Plugins that wait for the chief, raised the way the app raises
-//! them: one to install, one that asks for more and one that tried
-//! to use what the chief is yet to decide.
+//! them: one to install, one that asks for more, one that tried to
+//! use what the chief is yet to decide and one to remove.
 
 use bevy::ecs::world::World;
 use hamlet_sdk::capability::{
-    AskForMore, AskToInstall, Asked, Asks, Capability, Choice,
-    Choices, Uninstalled, Wanted,
+    AskForMore, AskToInstall, AskToRemove, Asked, Asks, Capability,
+    Choice, Choices, Uninstalled, Wanted,
 };
 use hamlet_sdk::plugin::PluginInfo;
 
@@ -83,6 +83,19 @@ pub(super) fn put(world: &mut World) {
         plugin: tides,
         capability: Capability::Net,
         reason: "The harbour's table is on another machine.".into(),
+    });
+    // An installed plugin the chief is removing.
+    world.spawn((
+        info("notes", "Notes", "0.1.0"),
+        asks(&[(
+            "read.papers",
+            "To copy the selected agent's notes into a note.",
+        )]),
+        Choices::allowing(&[Capability::ReadPapers]),
+    ));
+    world.flush();
+    world.trigger(AskToRemove {
+        plugin: "notes".into(),
     });
     world.flush();
 }

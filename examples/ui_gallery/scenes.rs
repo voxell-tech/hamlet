@@ -2,6 +2,7 @@
 
 mod dock;
 mod greeter;
+mod notes;
 mod permissions;
 mod petitions;
 mod reload;
@@ -172,6 +173,10 @@ pub enum Scene {
     PluginRoster,
     /// The panel of the greeter data plugin, drawn from its program.
     PluginOpenui,
+    /// The panel of the Notes plugin, with its open note to edit.
+    PluginNotes,
+    /// The panel of the Notes plugin, with its open note as markdown.
+    PluginNotesPreview,
     /// The panels while plugins wait to be installed or to be let
     /// use more.
     PluginPetition,

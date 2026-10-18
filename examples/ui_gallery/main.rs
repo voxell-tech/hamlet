@@ -40,7 +40,7 @@ struct Shot {
     scale: f32,
 }
 
-static SHOTS: [Shot; 38] = [
+static SHOTS: [Shot; 40] = [
     Shot {
         name: "menu",
         scene: Scene::Menu,
@@ -246,9 +246,21 @@ static SHOTS: [Shot; 38] = [
         scale: 1.0,
     },
     Shot {
+        name: "plugin-notes",
+        scene: Scene::PluginNotes,
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "plugin-notes-preview",
+        scene: Scene::PluginNotesPreview,
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
         name: "plugin-petition",
         scene: Scene::PluginPetition,
-        size: UVec2::new(1440, 860),
+        size: UVec2::new(1440, 1100),
         scale: 1.0,
     },
     Shot {

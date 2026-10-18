@@ -1,0 +1,80 @@
+# Run from the Hamlet checkout, after `guests/notes/build.sh <folder>`:
+#   cargo run --example plugin_check --features wasm -- <folder> \
+#     --script guests/notes/steps.toml --out <pictures>
+
+[[step]]
+tick = 1
+
+[[step]]
+expect = { panel = "main", text = "No notes yet" }
+
+[[step]]
+render = { panel = "main", file = "empty.png" }
+
+# A note is made, and written in.
+[[step]]
+click = { panel = "main", node = "new" }
+
+[[step]]
+type = { panel = "main", node = "body", text = "Plan for the harbour\n\nMend the nets *today*, **not** later.\n\n- the quay\n- the nets\n\n```\nlet tide = 3;\n```" }
+
+[[step]]
+expect = { panel = "main", text = "Plan for the harbour" }
+
+[[step]]
+render = { panel = "main", file = "writing.png" }
+
+# The same note, read as markdown.
+[[step]]
+toggle = { panel = "main", node = "preview" }
+
+[[step]]
+render = { panel = "main", file = "preview.png" }
+
+# A second note, which is the newest and comes first.
+[[step]]
+click = { panel = "main", node = "new" }
+
+[[step]]
+type = { panel = "main", node = "body", text = "Shopping\nrope, tar" }
+
+[[step]]
+type = { panel = "main", node = "search", text = "harbour" }
+
+[[step]]
+render = { panel = "main", file = "search.png" }
+
+[[step]]
+type = { panel = "main", node = "search", text = "" }
+
+# The agent's notes are asked for, and the chief allows it.
+[[step]]
+click = { panel = "main", node = "from-agent" }
+
+[[step]]
+expect = { panel = "main", text = "Waiting for you" }
+
+[[step]]
+set-papers = { notes = "Pears are grafted in March.\nThe press key is in the loft.", character = "A careful keeper.", skills = ["tidy"] }
+
+[[step]]
+grant = "read.papers"
+
+[[step]]
+expect = { panel = "main", text = "Pears are grafted in March." }
+
+[[step]]
+render = { panel = "main", file = "copied.png" }
+
+# Delete asks twice.
+[[step]]
+click = { panel = "main", node = "delete" }
+
+[[step]]
+expect = { panel = "main", text = "Sure?" }
+
+[[step]]
+click = { panel = "main", node = "delete" }
+
+[[step]]
+expect = { panel = "main", text = "Select a note" }

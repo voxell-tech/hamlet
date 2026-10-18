@@ -27,6 +27,7 @@ pub fn handle(
         }
         Incoming::Granted(name) if name == PAPERS => {
             if std::mem::take(&mut session.waiting) {
+                session.hint.clear();
                 copy(session, index);
             }
         }

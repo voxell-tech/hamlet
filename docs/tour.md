@@ -182,7 +182,7 @@ These draw to files and open nothing:
 
 | Command | Shows |
 |---|---|
-| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes. `plugin-roster` is an installed plugin's panel drawn from a tree, `plugin-petition` the petitions of plugins, `plugin-permissions` and `plugin-capabilities` their Settings views, `plugin-reload` the Plugins page after reloads |
+| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes. `plugin-roster` is an installed plugin's panel drawn from a tree, `plugin-notes` and `plugin-notes-preview` the Notes panel editing a note and showing it as markdown, `plugin-petition` the petitions of plugins, `plugin-permissions` and `plugin-capabilities` their Settings views, `plugin-reload` the Plugins page after reloads |
 | `cargo run --example plugin_check --features wasm -- <plugin dir> [--script steps.toml] [--out <dir>]` | A plugin's panels as text after each step of a script, and a picture of each: see [`authoring.md`](authoring.md) |
 | `cargo run --release --example far_lands -- --out <dir>` | The land, many towns, a town being moved; `--bench` times it |
 | `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library |

@@ -143,6 +143,10 @@ pub(super) fn setup(world: &mut World) {
     if scene == Scene::PluginOpenui {
         super::greeter::put(world);
     }
+    if matches!(scene, Scene::PluginNotes | Scene::PluginNotesPreview)
+    {
+        super::notes::put(world, scene == Scene::PluginNotesPreview);
+    }
     if scene == Scene::PluginPetition {
         super::petitions::put(world);
     }

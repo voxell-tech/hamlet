@@ -72,6 +72,12 @@ fn describe(step: &Step) -> String {
         Step::SetAgents(agents) => {
             format!("set-agents ({} agents)", agents.len())
         }
+        Step::SetPapers(papers) => {
+            format!(
+                "set-papers ({} bytes of notes)",
+                papers.notes.len()
+            )
+        }
         Step::Grant(capability) => format!("grant {capability}"),
         Step::Deny(capability) => format!("deny {capability}"),
         Step::Render(p) => {
@@ -105,6 +111,14 @@ fn apply(
                 .map(|a| (a.hamlet.as_str(), a.name.as_str()))
                 .collect::<Vec<_>>();
             harness.set_agents(&agents);
+            Ok(())
+        }
+        Step::SetPapers(papers) => {
+            harness.set_papers(
+                &papers.notes,
+                &papers.character,
+                &papers.skills,
+            );
             Ok(())
         }
         Step::Grant(capability) => harness.grant(capability),

@@ -126,6 +126,12 @@ pub(super) fn seed_dock(world: &mut World) {
         if scene == Scene::PluginOpenui {
             tree.add_tab(side, super::greeter::id());
         }
+        if matches!(
+            scene,
+            Scene::PluginNotes | Scene::PluginNotesPreview
+        ) {
+            tree.add_tab(side, super::notes::id());
+        }
     }
 }
 

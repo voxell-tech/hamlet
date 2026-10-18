@@ -11,6 +11,7 @@ use hamlet_sdk::capability::{
     Asks, Capability, Choice, Decide, Replied,
 };
 use hamlet_sdk::dock::Panel;
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::tree::event::{Act, Interaction};
 use hamlet_sdk::tree::id::{dock_id, local_id};
 use hamlet_sdk::tree::node::{Kind, Node};
@@ -128,6 +129,26 @@ impl Harness {
                 hamlet: hamlet.to_string(),
             })
             .collect();
+        self.frames(SETTLE);
+    }
+
+    /// Makes these the papers of the selected agent that the plugin
+    /// may read: its notes, its character and the names of its
+    /// skills.
+    pub fn set_papers(
+        &mut self,
+        notes: &str,
+        character: &str,
+        skills: &[String],
+    ) {
+        *self.app.world_mut().resource_mut::<Papers>() = Papers {
+            notes: notes.into(),
+            character: character.into(),
+            skills: skills
+                .iter()
+                .map(|name| (name.clone(), String::new()))
+                .collect(),
+        };
         self.frames(SETTLE);
     }
 

@@ -32,6 +32,9 @@ pub enum Step {
     Toggle(Target),
     /// Replaces the agents the plugin may read.
     SetAgents(Vec<Agent>),
+    /// Replaces the papers of the selected agent, which a plugin that
+    /// may read them sees.
+    SetPapers(Papering),
     /// The chief allows a capability the plugin asked for.
     Grant(String),
     /// The chief refuses one.
@@ -64,6 +67,19 @@ pub struct Typing {
 pub struct Agent {
     pub name: String,
     pub hamlet: String,
+}
+
+/// The notes, the character and the skills of an agent.
+#[derive(Deserialize, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Papering {
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
+    pub character: String,
+    /// The names of the skills.
+    #[serde(default)]
+    pub skills: Vec<String>,
 }
 
 #[derive(Deserialize, PartialEq, Debug)]
