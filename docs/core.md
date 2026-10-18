@@ -125,10 +125,8 @@ the `town_gen` example drives it with no core at all.
 
 ## The window's states
 
-`Layout` (full, minimal) and `Showing` (shown, hidden) are two Bevy states.
-With two, a hidden window keeps its layout and nothing has to remember
-where to return to. A second launch sets `Showing::Shown` again, which
-takes the focus.
+`Showing` (shown, hidden) is a Bevy state. A second launch sets
+`Showing::Shown` again, which takes the focus.
 
 ## Shared ownership
 

@@ -292,8 +292,7 @@ pub fn view() -> AnyView {
 }
 
 /// Hangs every label placed in the camera's viewport off the panel
-/// that shows it. The panel is rebuilt when the layout changes, and
-/// is not there in the minimal view.
+/// that shows it.
 #[allow(clippy::type_complexity)]
 pub(crate) fn adopt_tags(
     mut commands: Commands,
@@ -310,8 +309,8 @@ pub(crate) fn adopt_tags(
     >,
     mut away: Local<Option<Entity>>,
 ) {
-    // With no panel to hang off, as in the minimal view, they are
-    // put away where nothing is drawn.
+    // With no panel to hang off, they are put away where nothing is
+    // drawn.
     let panel = panel.iter().next().unwrap_or_else(|| {
         *away.get_or_insert_with(|| {
             commands

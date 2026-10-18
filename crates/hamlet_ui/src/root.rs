@@ -9,20 +9,17 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::on_message;
 use bevy::ecs::world::World;
 use bevy::input_focus::tab_navigation::TabGroup;
-use bevy::state::state::State;
 use bevy::ui::{AlignItems, IsDefaultUiCamera, UiRect, percent, px};
 use bevy_fynix::dock::dock;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, row,
 };
-use bevy_fynix::{keyed, resource};
 use hamlet_core::core::{Settings, TestConnection};
 
-use crate::looks::{Fills, filling, hairline};
+use crate::looks::{Fills, hairline};
 use crate::platform::Glow;
 use crate::status::status_bar;
 use crate::theme::{HamletTheme, ThemeChanged};
-use crate::window::{self, Layout};
 use crate::{
     AnyView, Cx, View, chrome, hover, menu, welcome, world_menu,
 };
@@ -63,19 +60,7 @@ fn root() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         cx.build(
             column((
-                keyed(
-                    resource::<State<Layout>, _>(|s| *s.get()),
-                    |layout| match layout {
-                        Layout::Full => {
-                            AnyView::new(|cx: &mut Cx| {
-                                let full = full(cx);
-                                cx.build(full)
-                            })
-                        }
-                        Layout::Minimal => window::minimal(),
-                    },
-                )
-                .within(filling()),
+                full(cx),
                 menu::open_menu(),
                 world_menu::view(),
                 hover::view(),
