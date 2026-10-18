@@ -241,7 +241,7 @@ export function voteTask(home: Home) {
                                 failed =
                                     "it passed but could not be done: this hamlet has been removed";
                             if (
-                                home.overrides.workspace !== undefined &&
+                                home.workspace !== null &&
                                 vote.motion.kind === "found_hamlet"
                             )
                                 failed =

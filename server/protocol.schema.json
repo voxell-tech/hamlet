@@ -1153,6 +1153,26 @@
                                     "items": {
                                         "$ref": "#/$defs/Endpoint"
                                     }
+                                },
+                                "workspace": {
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "required": ["url", "token"],
+                                            "properties": {
+                                                "url": {
+                                                    "type": "string"
+                                                },
+                                                "token": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "additionalProperties": false
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
                                 }
                             },
                             "additionalProperties": false
@@ -2185,6 +2205,33 @@
                 },
                 "link": {
                     "$ref": "#/$defs/Link"
+                },
+                "workspace": {
+                    "type": "object",
+                    "required": ["url", "running"],
+                    "properties": {
+                        "url": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "running": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "additionalProperties": false
                 }
             },
             "additionalProperties": false

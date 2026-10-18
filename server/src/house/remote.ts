@@ -37,11 +37,11 @@ const NUMBER = /^(0|[1-9][0-9]{0,9})$/;
  * above the houses folder or directly inside it, or that name an invalid hamlet or number, are `unmappable`.
  */
 export function remoteHouse(
-    home: Pick<HomeBase, "layout" | "overrides">,
+    home: Pick<HomeBase, "layout" | "workspace">,
     path: string,
 ): HousePlace {
-    const connection = home.overrides.workspace;
-    if (connection === undefined) return { kind: "host" };
+    const connection = home.workspace;
+    if (connection === null) return { kind: "host" };
     if (!isAbsolute(path) || path.includes("\0")) return { kind: "unmappable" };
     const normal = resolve(path);
     // Only an already normal path is decoded; a trailing separator is the one other spelling allowed.

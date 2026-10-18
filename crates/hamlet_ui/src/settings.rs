@@ -1,6 +1,8 @@
 //! The settings screen: a front page of its parts, each on a page
 //! of its own.
 
+mod workspace;
+
 use bevy::app::{App, Update};
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
@@ -34,7 +36,8 @@ use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx, View, markdown, with_cx};
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Pane>()
+    app.add_plugins(workspace::plugin)
+        .init_resource::<Pane>()
         .init_resource::<Charter>()
         .init_resource::<CharterRequests>()
         .add_observer(charter_received)
@@ -97,6 +100,8 @@ pub enum Pane {
     Endpoints,
     Models,
     Agents,
+    /// Where agents' commands run: this computer or a remote server.
+    Workspace,
     /// The words every agent's prompt opens with.
     Charter,
     /// The rules that hold for every hamlet.
@@ -105,10 +110,11 @@ pub enum Pane {
 }
 
 impl Pane {
-    const PAGES: [Pane; 6] = [
+    const PAGES: [Pane; 7] = [
         Pane::Endpoints,
         Pane::Models,
         Pane::Agents,
+        Pane::Workspace,
         Pane::Charter,
         Pane::Realm,
         Pane::Senses,
@@ -120,6 +126,7 @@ impl Pane {
             Pane::Endpoints => "ENDPOINTS",
             Pane::Models => "MODELS",
             Pane::Agents => "AGENTS",
+            Pane::Workspace => "WORKSPACE",
             Pane::Charter => "CHARTER",
             Pane::Realm => "REALM",
             Pane::Senses => "SOUND AND SIGHT",
@@ -132,6 +139,7 @@ impl Pane {
             Pane::Endpoints => Glyph::Globe,
             Pane::Models => Glyph::Chip,
             Pane::Agents => Glyph::Robot,
+            Pane::Workspace => Glyph::Shield,
             Pane::Charter => Glyph::Notes,
             Pane::Realm => Glyph::Signpost,
             Pane::Senses => Glyph::Sun,
@@ -150,6 +158,10 @@ impl Pane {
             }
             Pane::Agents => {
                 "Reflection, network access and keeping awake."
+            }
+            Pane::Workspace => {
+                "Where agents' commands run and their houses are \
+                 kept."
             }
             Pane::Charter => "What every agent is told.",
             Pane::Realm => "Rules that apply to every hamlet.",
@@ -478,6 +490,7 @@ fn save(
         endpoints: None,
         reflect_every: None,
         allow_net: None,
+        workspace: None,
     };
     change(&mut set);
     world.resource_mut::<Outbox>().send(|id| {
@@ -567,6 +580,7 @@ pub fn screen() -> AnyView {
             Pane::Endpoints => crate::models::endpoints().boxed(),
             Pane::Models => crate::models::shelf().boxed(),
             Pane::Agents => agents().boxed(),
+            Pane::Workspace => workspace::page().boxed(),
             Pane::Charter => with_cx(charter_page),
             Pane::Realm => crate::rules::realm().boxed(),
             Pane::Front | Pane::Senses => senses().boxed(),
@@ -602,7 +616,7 @@ mod tests {
     use super::*;
     use crate::me::tests::panel_app;
 
-    fn words(app: &mut App) -> Vec<String> {
+    pub(super) fn words(app: &mut App) -> Vec<String> {
         let mut shown = crate::me::tests::words(app);
         shown.extend(
             app.world_mut()
@@ -613,9 +627,9 @@ mod tests {
         shown
     }
 
-    fn page(pane: Pane) -> App {
+    pub(super) fn page(pane: Pane) -> App {
         let mut app = panel_app();
-        app.add_plugins(plugin)
+        app.add_plugins((plugin, crate::secret::plugin))
             .init_resource::<KeepAwake>()
             .insert_resource(pane);
         bevy_fynix::mount::<crate::theme::HamletTheme>(
@@ -626,13 +640,13 @@ mod tests {
         app
     }
 
-    fn settle(app: &mut App) {
+    pub(super) fn settle(app: &mut App) {
         for _ in 0..3 {
             app.update();
         }
     }
 
-    fn control<T: bevy::ecs::component::Component>(
+    pub(super) fn control<T: bevy::ecs::component::Component>(
         app: &mut App,
         name: &str,
     ) -> Entity {
@@ -656,7 +670,7 @@ mod tests {
         panic!("no control under {name}");
     }
 
-    fn requests(app: &mut App) -> Vec<serde_json::Value> {
+    pub(super) fn requests(app: &mut App) -> Vec<serde_json::Value> {
         app.world_mut()
             .resource_mut::<Outbox>()
             .drain()

@@ -11,7 +11,8 @@ import type { Edit } from "../protocol.ts";
 import type { ChiefRefusal } from "../realm/access.ts";
 import type { AddressFailure } from "../realm/roads.ts";
 import { agentKey } from "../record.ts";
-import { err, type Result } from "../result.ts";
+import { err, ok, type Result } from "../result.ts";
+import { type WorkspaceConnection, workspaceConnection } from "../settings.ts";
 import { readableAgent } from "./reads.ts";
 
 /** A chief's validated document edit, applied before its reply (S6). */
@@ -30,6 +31,10 @@ export async function edit(
         | AddressFailure
     >
 > {
+    // Scrubbing would replace a token the home already keeps, so the workspace is taken first.
+    const workspace = chosenWorkspace(
+        message.doc === "settings" ? message.set.workspace : undefined,
+    );
     message = home.secrets.value(message);
     switch (message.doc) {
         case "charter":
@@ -94,11 +99,15 @@ export async function edit(
             break;
         }
         case "settings": {
-            const outcome = await home.modelHome.editSettings(
-                message.set,
-                context,
-            );
-            if (!outcome.ok) return outcome;
+            if (!workspace.ok) return workspace;
+            const { workspace: _, ...set } = message.set;
+            // An edit of the workspace alone leaves the model settings unsaved.
+            if (workspace.value === undefined || Object.keys(set).length > 0) {
+                const outcome = await home.modelHome.editSettings(set, context);
+                if (!outcome.ok) return outcome;
+            }
+            if (workspace.value !== undefined)
+                await home.credentials.chooseWorkspace(workspace.value);
             break;
         }
         case "catalogue": {
@@ -112,4 +121,19 @@ export async function edit(
         }
     }
     return { ok: true, value: "Saved." };
+}
+
+/** The workspace a settings edit chooses: `undefined` leaves it, null is the local one. */
+function chosenWorkspace(
+    given: { url: string; token: string } | null | undefined,
+): Result<WorkspaceConnection | null | undefined, SettingsFailure> {
+    if (given === undefined || given === null) return ok(given);
+    const connection = workspaceConnection(given.url, given.token);
+    if (!connection.ok)
+        return err({
+            ...connection.error,
+            operation: "edit-settings",
+            retrySafe: true,
+        });
+    return connection;
 }

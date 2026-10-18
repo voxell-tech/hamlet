@@ -324,6 +324,13 @@ export const Edit = Type.Union([
             allowNet: Type.Optional(Type.Boolean()),
             /** An endpoint left out is removed, with its credential. */
             endpoints: Type.Optional(Type.Array(Endpoint)),
+            /**
+             * The remote workspace agents' tools run in, or null for the local one. The server keeps the token with
+             * its credentials and works in the new workspace from its next start; houses stay where they are.
+             */
+            workspace: Type.Optional(
+                nullable(object({ url: Type.String(), token: Type.String() })),
+            ),
         }),
     }),
     request("edit", {
@@ -623,6 +630,15 @@ export const SettingsView = object({
     /** Nothing is set up yet. */
     unset: Type.Boolean(),
     link: Link,
+    /** Where agents' tools run, without the workspace token. */
+    workspace: Type.Optional(
+        object({
+            /** The remote workspace chosen in Settings, or null for the local one. */
+            url: nullable(Type.String()),
+            /** The remote workspace the server works in until it restarts, or null for the local one. */
+            running: nullable(Type.String()),
+        }),
+    ),
 });
 export type SettingsView = Static<typeof SettingsView>;
 

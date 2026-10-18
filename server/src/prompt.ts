@@ -80,7 +80,7 @@ export const Prompt: Part = (home) => {
                 part("library", () =>
                     libraryPart(
                         home.layout.library,
-                        home.overrides.workspace === undefined
+                        home.workspace === null
                             ? home.layout.library
                             : "/library",
                     ),
@@ -106,7 +106,7 @@ async function machine(
     home: Home,
     { house, input, context }: PartInput,
 ): Promise<string> {
-    if (home.overrides.workspace !== undefined)
+    if (home.workspace !== null)
         return "# Environment\nSandbox: remote workspace. System: Linux. Network is denied unless granted. Granted commands use HTTP_PROXY and HTTPS_PROXY for public HTTP(S) on ports 80 and 443; direct sockets, private destinations and UDP remain blocked. Commands write only this agent's /house and the enabled shared /project. Output is buffered until the process tree exits, at most 1 MiB; file transfers are limited to 4 MiB.";
     const settings = settingsOf(
         await input.read.snapshot(SettingsDoc, context),

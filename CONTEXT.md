@@ -45,6 +45,11 @@ Every hamlet of one home, and the dealings between them.
 Where one realm and everything it keeps live.
 _Avoid_: house
 
+**Workspace**:
+Where agents' tools run and their houses are kept: local, on the
+server's own computer, or remote, as the chief chooses in Settings.
+_Avoid_: sandbox, house
+
 ### Between agents
 
 **Road**:

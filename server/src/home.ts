@@ -39,7 +39,7 @@ import {
     type Overrides,
     readOverrides,
     SettingsDoc,
-    type WorkspaceSettings,
+    type WorkspaceConnection,
 } from "./settings.ts";
 import { WorkspaceEnv } from "./workspace.ts";
 
@@ -72,6 +72,8 @@ export type HomeBase = {
     readonly chief: string;
     readonly overrides: Overrides;
     readonly credentials: Credentials;
+    /** The remote workspace agents' tools run in, or null for the local one; fixed while the home is open. */
+    readonly workspace: WorkspaceConnection | null;
     /** Scrubs with current credentials before storage or display. */
     readonly secrets: Secrets;
     now(): number;
@@ -116,12 +118,13 @@ export async function openHome(
         );
         const sandbox = platformSandbox();
         const confinement = new Confinement();
+        const workspace = overrides.workspace ?? credentials.workspace;
         const houses =
-            overrides.workspace === undefined
+            workspace === null
                 ? new Houses(layout, (agent, context) =>
                       houseReader({ layout, sandbox }, agent, context),
                   )
-                : remoteHouses(layout, overrides.workspace);
+                : remoteHouses(layout, workspace);
         const base: HomeBase = {
             dir: root,
             layout,
@@ -131,6 +134,7 @@ export async function openHome(
             chief: options.chief || env.HAMLET_USER || env.USER || "user",
             overrides,
             credentials,
+            workspace,
             secrets: secretsFrom(
                 credentials,
                 overrides.workspace === undefined
@@ -202,8 +206,7 @@ export async function openHome(
             },
         };
         await found(home, context);
-        const parts =
-            home.overrides.workspace === undefined ? PARTS : REMOTE_PARTS;
+        const parts = home.workspace === null ? PARTS : REMOTE_PARTS;
         running.push(
             ...[...parts, modelHome.part, ...(options.parts ?? [])].map(
                 (part) => part(home),
@@ -308,7 +311,7 @@ async function found(home: Home, context: Context): Promise<void> {
 }
 
 /** Houses read and initialized only through the workspace service, at `/house`. */
-function remoteHouses(layout: Layout, connection: WorkspaceSettings): Houses {
+function remoteHouses(layout: Layout, connection: WorkspaceConnection): Houses {
     const house = (agent: AgentRef) => ({
         workspace: agent.hamlet,
         agent: agent.number,

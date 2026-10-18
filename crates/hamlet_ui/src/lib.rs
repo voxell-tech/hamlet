@@ -27,6 +27,7 @@ mod remember;
 mod roll;
 mod root;
 mod saving;
+pub mod secret;
 
 pub mod rules;
 pub mod settings;
@@ -108,6 +109,7 @@ impl Plugin for UiPlugin {
                 dock::plugin,
                 window::plugin,
                 saving::plugin,
+                secret::plugin,
                 chrome::plugin,
                 menu::plugin,
                 status::plugin,

@@ -5,7 +5,7 @@ mod providers;
 
 use std::collections::BTreeMap;
 
-use bevy::app::{App, PostUpdate, Update};
+use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::hierarchy::Children;
 use bevy::ecs::observer::On;
@@ -40,7 +40,6 @@ pub(crate) fn plugin(app: &mut App) {
         .add_observer(|_: On<Reconnected>, mut commands: Commands| {
             commands.queue(providers::reconnected);
         })
-        .add_systems(PostUpdate, providers::mask)
         .add_systems(Update, (follow, run_committed, read_narrow));
 }
 
@@ -182,6 +181,7 @@ fn pick(world: &mut World, model: &str) {
                 allow_net: None,
                 reflect_every: None,
                 endpoints: None,
+                workspace: None,
             },
         })
     });
@@ -386,6 +386,7 @@ pub(crate) mod server_tests {
             ClientPlugin { server: None },
             FynixPlugin::<HamletTheme>::default(),
             plugin,
+            crate::secret::plugin,
         ));
         theme::insert_theme(app.world_mut(), HamletTheme::designed());
         app.insert_resource(Browser(|_, url| {

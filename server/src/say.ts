@@ -50,7 +50,7 @@ export async function say(
     const command = readCommand(text);
     if (command !== undefined && "kind" in command) return err(command);
     // Refused before any record changes: a workspace home has no local folders and moves no house between workspaces.
-    if (home.overrides.workspace !== undefined) {
+    if (home.workspace !== null) {
         const refused =
             command?.command === "deed"
                 ? REMOTE_REFUSED[command.deed]

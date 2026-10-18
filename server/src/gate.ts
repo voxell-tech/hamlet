@@ -351,7 +351,7 @@ export const Gate: Part = (home) => {
                                 // workspace's own path resolution, which must not be consulted inside this commit.
                                 if (
                                     path !== undefined &&
-                                    home.overrides.workspace === undefined
+                                    home.workspace === null
                                 ) {
                                     const house = houseOf(home.layout, place);
                                     const work = await tx.doc(

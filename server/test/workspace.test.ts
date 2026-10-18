@@ -27,7 +27,9 @@ import { RecordDoc, VotesDoc } from "../src/record.ts";
 import { say as chiefSay } from "../src/say.ts";
 import { edit as editForChief } from "../src/server/edits.ts";
 import { read as readForChief } from "../src/server/reads.ts";
+import { SettingsDoc } from "../src/settings.ts";
 import { WorkspaceEnv } from "../src/workspace.ts";
+import { changes, request, served } from "./connection-support.ts";
 import {
     closeAfter,
     context,
@@ -39,6 +41,69 @@ import {
     testHome,
     transcript,
 } from "./support.ts";
+
+it("keeps the workspace chosen in Settings with the credentials and opens the home in it next", async () => {
+    const token = "workspace-token-0123456789";
+    const run = await served({ env: { HAMLET_REFLECT_EVERY: "0" } });
+    const choose = (workspace: { url: string; token: string } | null) =>
+        request(run.connection, run.messages, {
+            type: "edit",
+            id: randomUUID(),
+            doc: "settings",
+            set: { workspace },
+        });
+    const shown = () =>
+        changes(run.messages)
+            .filter((change) => change.type === "settings")
+            .at(-1);
+    expect(run.state.settings.workspace).toEqual({ url: null, running: null });
+    expect(
+        await choose({ url: "http://workspace.example", token }),
+    ).toMatchObject({
+        kind: "error",
+        text: expect.stringContaining(
+            "The workspace address must start with https://",
+        ),
+    });
+    expect(
+        await choose({ url: "https://workspace.example", token: "short" }),
+    ).toMatchObject({
+        kind: "error",
+        text: "The workspace token needs at least 16 characters.",
+    });
+    expect(run.home.credentials.workspace).toBeNull();
+    expect(
+        await choose({ url: "https://workspace.example", token }),
+    ).toMatchObject({ kind: "notice" });
+    expect(shown()).toMatchObject({
+        settings: {
+            workspace: { url: "https://workspace.example", running: null },
+        },
+    });
+    expect(await choose(null)).toMatchObject({ kind: "notice" });
+    expect(run.home.credentials.workspace).toBeNull();
+    await choose({ url: "https://workspace.example", token });
+    // A token the home already keeps arrives scrubbed unless it is taken first.
+    await choose({ url: "http://127.0.0.1:9", token });
+    expect(run.home.credentials.workspace).toEqual({
+        url: "http://127.0.0.1:9",
+        token,
+    });
+    expect(JSON.stringify(run.messages)).not.toContain(token);
+    // The workspace alone is not a chief's own model settings.
+    expect((await run.home.harness.snapshot(SettingsDoc, context))?.saved).toBe(
+        false,
+    );
+    expect(run.home.workspace).toBeNull();
+    await run.home.close(context);
+    // Nothing listens on the discard port, so the reopened home only reports its houses unprepared.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const reopened = await testHome(run.home.dir, {
+        env: { HAMLET_REFLECT_EVERY: "0" },
+    });
+    expect(reopened.workspace).toEqual({ url: "http://127.0.0.1:9", token });
+    expect(reopened.secrets.words(`Bearer ${token}`)).not.toContain(token);
+});
 
 const binary = process.env.HAMLET_WORKSPACE_BIN;
 
@@ -298,10 +363,8 @@ it.skipIf(binary === undefined)(
         const home = await testHome(local, {
             models,
             env: {
-                HAMLET_WORKSPACE: JSON.stringify({
-                    url: manager,
-                    token: "offline-test-token",
-                }),
+                HAMLET_WORKSPACE_URL: manager,
+                HAMLET_WORKSPACE_TOKEN: "offline-test-token",
                 // Automatic reflections would take the scripted model replies.
                 HAMLET_REFLECT_EVERY: "0",
             },

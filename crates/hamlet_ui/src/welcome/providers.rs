@@ -2,18 +2,11 @@
 
 use std::collections::BTreeSet;
 
-use bevy::color::Color;
-use bevy::ecs::component::Component;
-use bevy::ecs::hierarchy::Children;
-use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
-use bevy::picking::Pickable;
-use bevy::text::{EditableText, TextColor};
 use bevy::ui::AlignItems;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, overlay, row, text_field,
+    BehaviorExt, FrameProps, column, label, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
@@ -23,12 +16,13 @@ use hamlet_protocol::v0;
 
 use super::pages::{head, news, said};
 use super::{Step, Welcome, commit, go, read_models};
+use crate::AnyView;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    bare, buttons, good_action, lettered, note, pad, well,
+    bare, buttons, good_action, lettered, note, well,
 };
-use crate::{AnyView, Cx};
+use crate::secret::secret_field;
 
 /// The browser used for the server's login URLs.
 #[derive(Resource)]
@@ -55,7 +49,6 @@ pub(super) struct Login {
     prompt: Option<(String, bool)>,
     progress: String,
     answer: String,
-    masked: String,
 }
 
 pub(super) fn start(world: &mut World, provider: &str, key: bool) {
@@ -139,7 +132,6 @@ pub(super) fn reply(world: &mut World) {
     };
     let answer = std::mem::take(&mut login.answer);
     login.prompt = None;
-    login.masked.clear();
     let request = world.resource_mut::<Outbox>().send(|request| {
         v0::ClientMessage::Login(v0::Login::Reply {
             id: request,
@@ -228,7 +220,6 @@ pub(super) fn receive(
             let mut login = world.resource_mut::<Login>();
             login.prompt = Some((prompt, secret));
             login.answer.clear();
-            login.masked.clear();
             world.resource_mut::<Welcome>().asking = false;
         }
         v0::LoginStep::Progress { progress } => {
@@ -279,30 +270,6 @@ fn browsable(text: &str) -> bool {
     }
 }
 
-#[derive(Component)]
-pub(super) struct Secret;
-
-pub(super) fn mask(
-    fields: Query<&Children, With<Secret>>,
-    mut inputs: Query<(&EditableText, &mut TextColor)>,
-    mut login: ResMut<Login>,
-) {
-    for children in &fields {
-        for child in children {
-            if let Ok((text, mut color)) = inputs.get_mut(*child) {
-                // The editor retains the answer; only the overlaid
-                // mask is drawn.
-                color.0 = Color::NONE;
-                let masked = "*"
-                    .repeat(text.value().to_string().chars().count());
-                if login.masked != masked {
-                    login.masked = masked;
-                }
-            }
-        }
-    }
-}
-
 fn prompt() -> AnyView {
     keyed(
         resource::<Login, _>(|login| login.prompt.clone()),
@@ -310,46 +277,15 @@ fn prompt() -> AnyView {
             let Some((words, secret)) = prompt else {
                 return bevy_fynix::views::frame().boxed();
             };
-            let field = text_field(
-                resource::<Login, _>(|login| login.answer.clone()),
-                |world, answer| {
-                    world.resource_mut::<Login>().answer = answer
-                },
-            )
-            .rules(well);
-            let field = if *secret {
-                AnyView::new(move |cx: &mut Cx| {
-                    let root = cx.build(field.tagged(Secret));
-                    let children = cx
-                        .world
-                        .get::<Children>(root)
-                        .map(|children| children.to_vec())
-                        .unwrap_or_default();
-                    for child in children {
-                        if let Some(mut color) =
-                            cx.world.get_mut::<TextColor>(child)
-                        {
-                            color.0 = Color::NONE;
-                        }
-                    }
-                    root
-                })
-            } else {
-                field.boxed()
+            let answer =
+                resource::<Login, _>(|login| login.answer.clone());
+            let answered = |world: &mut World, answer| {
+                world.resource_mut::<Login>().answer = answer
             };
             let field = if *secret {
-                overlay((
-                    field,
-                    row((label(resource::<Login, _>(|login| {
-                        login.masked.clone()
-                    }))
-                    .tagged(Pickable::IGNORE),))
-                    .padding(pad())
-                    .tagged(Pickable::IGNORE),
-                ))
-                .boxed()
+                secret_field(answer, answered).boxed()
             } else {
-                field
+                text_field(answer, answered).rules(well).boxed()
             };
             column((
                 said(words.clone()),

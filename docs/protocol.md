@@ -128,7 +128,7 @@ Each row is an `Edit` form with `type: "edit"` and `id`.
 | `notes` | `agent: Address`, `text: string` | Replace the agent's notes. |
 | `limits` | `hamlet: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
 | `limits` | `hamlet: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
-| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, endpoints?: Endpoint[]}` | Change only the supplied settings. |
+| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
 | `catalogue` | `model: string`, `set: {allowed?: boolean, price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. |
 
 ### Read documents
@@ -180,7 +180,10 @@ removal, send a whole `state` instead.
 fault flags, activity, short saying and spend. Optional fields include
 skills, departure, consultation and peer conversation summaries. It contains
 no transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
-are the complete views defined in `protocol.ts`.
+are the complete views defined in `protocol.ts`. `SettingsView`'s optional
+`workspace` is `{url, running}`: the remote workspace chosen and the one the
+server works in until it restarts, each `null` for the local one. It never
+holds the token.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
 `chief`, `author`, `rewindable` and `tool`. Its kind is `user`, `assistant`,

@@ -44,7 +44,7 @@ reached through a symbolic link.
 ## Credentials
 
 **S7.** The server keeps its credentials (model keys, subscription logins,
-the connection token) in one file of the home that only its owner can read,
+the connection token, the remote workspace's token) in one file of the home that only its owner can read,
 written whole on each change. No credential the server keeps is ever in the
 home's storage, in a conversation (C32), or in a sandbox. The chief's own
 credentials on the machine are covered by S16.

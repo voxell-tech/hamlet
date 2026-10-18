@@ -253,7 +253,7 @@ export const Votes: Part = (home: VoteHome) => {
                     replay: "safe",
                     execute: async (args, api, context) => {
                         if (
-                            home.overrides.workspace !== undefined &&
+                            home.workspace !== null &&
                             args.kind === "found_hamlet"
                         )
                             return refusedTool(

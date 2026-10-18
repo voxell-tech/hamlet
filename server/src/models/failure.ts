@@ -1,3 +1,4 @@
+import { type WorkspaceRefusal, workspaceRefusalText } from "../settings.ts";
 import { plainly } from "./plainly.ts";
 
 /** A settings edit refused before providers or saved settings change. */
@@ -15,6 +16,7 @@ export type SettingsFailure = {
       }
     | { kind: "address-scheme"; reason: "invalid-url" | "scheme" }
     | { kind: "address-has-credentials" }
+    | WorkspaceRefusal
 );
 /** Chief-facing settings constraints, without endpoint credentials. */
 export function settingsFailureText(error: SettingsFailure): string {
@@ -31,6 +33,9 @@ export function settingsFailureText(error: SettingsFailure): string {
                 : "The address should start with https:// or http://.";
         case "address-has-credentials":
             return "Keep credentials out of an endpoint's address.";
+        case "workspace-address":
+        case "workspace-token":
+            return workspaceRefusalText(error);
     }
     const unhandled: never = error;
     throw new Error(`Unclassified settings failure: ${unhandled}`);

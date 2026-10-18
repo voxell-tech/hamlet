@@ -18,7 +18,7 @@ export type Place = {
 
 /** The place of the agent `conversation` is with, `undefined` for a conversation with no agent. */
 export async function placeOf(
-    home: Pick<HomeBase, "layout" | "overrides">,
+    home: Pick<HomeBase, "layout" | "workspace">,
     read: DocumentReader,
     conversation: ConversationId,
     context: Context,
@@ -26,7 +26,7 @@ export async function placeOf(
     const agent = await read.snapshot(WithDoc, conversation, context);
     if (agent === undefined) return undefined;
     const work = await read.snapshot(WorkDoc, agent.hamlet, context);
-    if (home.overrides.workspace !== undefined)
+    if (home.workspace !== null)
         return {
             house: "/house",
             folder: work?.folder == null ? null : "/project",

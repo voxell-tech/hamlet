@@ -5,6 +5,7 @@ import type {
     CredentialInfo,
     CredentialStore,
 } from "@earendil-works/pi-ai";
+import type { WorkspaceConnection } from "../settings.ts";
 
 /** The contents of the credentials file. */
 type Stored = {
@@ -14,6 +15,8 @@ type Stored = {
     connection: { token: string };
     /** Model credentials by pi-ai provider id. */
     models: { [provider: string]: Credential };
+    /** The remote workspace chosen for agents' tools; absent for the local one. */
+    workspace?: WorkspaceConnection;
 };
 
 /** The home's credentials file, readable only by its owner and rewritten whole on each change (S7). */
@@ -54,6 +57,9 @@ export class Credentials implements CredentialStore {
                     installationId: stored.installationId,
                     connection: stored.connection,
                     models: stored.models,
+                    ...(stored.workspace === undefined
+                        ? {}
+                        : { workspace: stored.workspace }),
                 },
                 apiKey,
             );
@@ -88,6 +94,20 @@ export class Credentials implements CredentialStore {
         return this.#stored.connection.token;
     }
 
+    /** The remote workspace chosen for agents' tools, or null for the local one. */
+    get workspace(): WorkspaceConnection | null {
+        return this.#stored.workspace ?? null;
+    }
+
+    /** Keeps `connection` as the workspace the home opens with next, or the local one for null. */
+    chooseWorkspace(connection: WorkspaceConnection | null): Promise<void> {
+        return this.#queue(async () => {
+            if (connection === null) delete this.#stored.workspace;
+            else this.#stored.workspace = connection;
+            await this.#write();
+        });
+    }
+
     /** Every credential value, to keep out of what is kept or shown (C32). */
     secrets(): string[] {
         const models = Object.values(this.#stored.models).flatMap((each) =>
@@ -95,9 +115,12 @@ export class Credentials implements CredentialStore {
                 ? [each.key ?? ""]
                 : [each.access, each.refresh],
         );
-        return [this.token, this.#apiKey ?? "", ...models].filter(
-            (secret) => secret !== "",
-        );
+        return [
+            this.token,
+            this.#apiKey ?? "",
+            this.#stored.workspace?.token ?? "",
+            ...models,
+        ].filter((secret) => secret !== "");
     }
 
     /** The provider's stored model credential, when present. */

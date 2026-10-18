@@ -333,6 +333,15 @@ pub struct EditSettingsSet {
     #[serde(rename = "reflectEvery")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reflect_every: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
+    pub workspace: Option<Option<EditSettingsSetWorkspace>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EditSettingsSetWorkspace {
+    pub token: String,
+    pub url: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1041,6 +1050,8 @@ pub struct SettingsView {
     #[serde(rename = "reflectEvery")]
     pub reflect_every: i64,
     pub unset: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<SettingsViewWorkspace>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1049,6 +1060,12 @@ pub struct SettingsViewEndpoints {
     pub base_url: String,
     pub key: bool,
     pub name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SettingsViewWorkspace {
+    pub running: Option<String>,
+    pub url: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

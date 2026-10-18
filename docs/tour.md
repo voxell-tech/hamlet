@@ -55,6 +55,7 @@ root package, `hamlet`. The window's crates are:
 | `hamlet_world` | The 3D world, drawn from the client's entities |
 | `hamlet_ui` | The window: panels, menus, chat and pointer around the world |
 | `hamlet_testing` | Scratch folders and protocol-value builders for offline tests |
+| `hamlet_workspace` | The remote workspace's manager and the worker in each actor, one Linux binary |
 
 The Rust runtime crates remain compiled and tested until step 7. No window
 crate depends on them; `tests/window_is_a_client.rs` guards that boundary.
@@ -115,7 +116,7 @@ The structure test checks that boundary and forbids value-import cycles.
 | `protocol.ts` | Protocol v0 schemas, types and parsing | `parseClient`, `parseServer`, `checkEdit`, `protocolSchema` and the shared transcript `applyOp` |
 | `connection.ts` | Authenticated WebSocket transport and the connection defect path | `serve`, `connect` and `Client` |
 | `commands.ts` | The advertised command table and typed command parsing | `COMMANDS`, `readCommand` and `commandFailureText` |
-| `settings.ts` | Settings, environment overrides and pure model choice | `SettingsDoc`, `settingsOf`, `readOverrides`, `modelRef` and `choose` |
+| `settings.ts` | Settings, environment overrides, pure model choice and the workspace connection | `SettingsDoc`, `settingsOf`, `readOverrides`, `modelRef`, `choose` and `workspaceConnection` |
 | `change.ts` | Bounded edit previews and text excerpts | `changeOf`, `changeBetween`, `linesOf` and Unicode `clip` |
 | `result.ts` | The shared success or failure shape | `Result`, `ok` and `err` |
 
@@ -240,6 +241,7 @@ repository root.
 | The window's saved layout, size and look | `hamlet_ui/src/remember.rs`, `window.rs`, `hamlet_world/src/chief/look.rs`; files under `HAMLET_VIEW` |
 | Final editor saves and closing the window | `hamlet_desktop/src/editor.rs`, `hamlet_ui/src/saving.rs`, `window.rs` |
 | The server's settings or chief documents | `server/src/settings.ts`, `server/src/server/reads.ts`, `server/src/server/edits.ts`; the panels send protocol requests |
+| The local or remote workspace agents' tools run in | `server/src/workspace.ts`, `house/remote.ts`; the choice in `settings.ts` and `home/credentials.ts`; its page in `hamlet_ui/src/settings/workspace.rs`; the manager in `hamlet_workspace/`; [`sandbox.md`](sandbox.md) |
 
 ## Tuning while the app runs
 

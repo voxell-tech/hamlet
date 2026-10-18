@@ -167,6 +167,7 @@ async fn edit(
                     reflect_every: Some(settings.reflect_every),
                     model: Some(settings.model.clone()),
                     endpoints: Some(endpoints),
+                    workspace: None,
                 })?
             )
         }

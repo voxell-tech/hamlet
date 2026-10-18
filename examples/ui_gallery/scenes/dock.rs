@@ -106,7 +106,10 @@ pub(super) fn seed_dock(world: &mut World) {
         if let Some(parent) = tree.parent_of(side) {
             tree.set_fraction(parent, 0.62);
         }
-        if matches!(scene, Scene::Settings | Scene::Charter) {
+        if matches!(
+            scene,
+            Scene::Settings | Scene::Charter | Scene::Workspace
+        ) {
             tree.add_tab(side, "settings");
         }
     }

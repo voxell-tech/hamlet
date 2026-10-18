@@ -61,7 +61,7 @@ export async function folder(
         );
     }
     let next: string | null = null;
-    if (home.overrides.workspace !== undefined) {
+    if (home.workspace !== null) {
         if (typed !== "none" && typed !== "/project")
             return err({
                 kind: "folder-not-remote",

@@ -217,6 +217,8 @@ function rendered(
         case "endpoint-duplicate":
         case "address-scheme":
         case "address-has-credentials":
+        case "workspace-address":
+        case "workspace-token":
             return { text: settingsFailureText(failure), kind: "error" };
         case "model-unknown":
         case "price-negative":

@@ -28,6 +28,10 @@ export const modelView: View<
                 ),
                 unset: !settings.saved && home.overrides.model === undefined,
                 link: settings.link,
+                workspace: {
+                    url: home.credentials.workspace?.url ?? null,
+                    running: home.workspace?.url ?? null,
+                },
             },
             providers: await home.modelHome.providers(),
             saved: settings,

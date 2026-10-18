@@ -46,6 +46,7 @@ fn remove(world: &mut World, name: &str) {
             model: None,
             reflect_every: None,
             allow_net: None,
+            workspace: None,
         },
     });
 }
@@ -272,6 +273,7 @@ fn save_default(world: &mut World, model: &str) {
                 endpoints: None,
                 reflect_every: None,
                 allow_net: None,
+                workspace: None,
             },
         })
     });

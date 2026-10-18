@@ -19,22 +19,27 @@ import {
 } from "./support.ts";
 
 // Live mode and explicit opt-in, dedicated disposable manager home/state only. Creates remote files and actors.
-const connection = process.env.HAMLET_WORKSPACE_GKE;
+const url = process.env.HAMLET_WORKSPACE_GKE_URL;
+const token = process.env.HAMLET_WORKSPACE_GKE_TOKEN;
 
-it.skipIf(connection === undefined)(
+it.skipIf(url === undefined || token === undefined)(
     "ordinary Harness tools on an approved real workspace deployment",
     async () => {
-        if (connection === undefined)
+        if (url === undefined || token === undefined)
             throw new Error(
-                "Set HAMLET_WORKSPACE_GKE for a disposable manager",
+                "Set HAMLET_WORKSPACE_GKE_URL and HAMLET_WORKSPACE_GKE_TOKEN for a disposable manager",
             );
         const { models, faux } = fauxModels();
         const home = await testHome(scratch(), {
             models,
-            env: { HAMLET_WORKSPACE: connection, HAMLET_REFLECT_EVERY: "0" },
+            env: {
+                HAMLET_WORKSPACE_URL: url,
+                HAMLET_WORKSPACE_TOKEN: token,
+                HAMLET_REFLECT_EVERY: "0",
+            },
         });
-        const configured = home.overrides.workspace;
-        if (configured === undefined)
+        const configured = home.workspace;
+        if (configured === null)
             throw new Error("Workspace connection was not configured");
         const prefix = `acceptance-${randomUUID()}`;
         const ordinary = async (name: string, args: JsonObject) => {

@@ -56,7 +56,7 @@ export class Confinement {
  * the rest of the home. It reaches the network only with `leave`.
  */
 export async function agentEnv(
-    home: Pick<HomeBase, "layout" | "sandbox" | "confinement" | "overrides">,
+    home: Pick<HomeBase, "layout" | "sandbox" | "confinement" | "workspace">,
     target: {
         readonly conversationId: ConversationId;
         readonly read: DocumentReader;
@@ -71,8 +71,8 @@ export async function agentEnv(
         context,
     );
     if (place === undefined) return undefined;
-    const connection = home.overrides.workspace;
-    if (connection !== undefined) {
+    const connection = home.workspace;
+    if (connection !== null) {
         const agent = await target.read.snapshot(
             WithDoc,
             target.conversationId,

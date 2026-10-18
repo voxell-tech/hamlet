@@ -117,8 +117,8 @@ The manager holds every credential and all durable state. See
 Secrets. `token` and `control_token` sit in the configuration file, so
 mount the whole file from a secret store, read-only. Mount
 `signing_key` as a separate secret file. None of these go into an
-actor, an image, or Hamlet beyond Hamlet's own `HAMLET_WORKSPACE` URL
-and token.
+actor, an image, or Hamlet beyond the manager's address and token,
+which Hamlet keeps with its credentials.
 
 Durable state. `state` holds a lock, actor bindings (name, immutable
 UID, last lifecycle intent and any deletion tombstone per workspace)
@@ -195,7 +195,8 @@ service CA. Supply its immutable image and `hamlet-workspace` Secret separately.
 The secret holds `manager.json` and `signing-key`. Configure the manager to
 listen on `127.0.0.1:7420`; no Service or public endpoint is needed. Connect with
 `kubectl -n ate-system port-forward deployment/hamlet-workspace 7420:7420`, then
-give Hamlet the loopback URL and its manager bearer token. The laptop needs
+choose the loopback URL and the manager's bearer token under Workspace in
+Hamlet's Settings. The laptop needs
 Kubernetes authentication for the tunnel; Hamlet itself has no cloud credentials.
 Stop the old manager before transferring its state and starting this one.
 

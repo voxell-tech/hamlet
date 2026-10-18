@@ -21,7 +21,7 @@ import {
 } from "@earendil-works/pi-durable/env";
 import { type Static, type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
-import type { WorkspaceSettings } from "./settings.ts";
+import type { WorkspaceConnection } from "./settings.ts";
 
 /** A house-domain operation whose remote implementation is unavailable. */
 export type WorkspaceUnavailable = {
@@ -111,7 +111,7 @@ export class WorkspaceEnv implements ExecutionEnv {
     cwd: string;
     /** Stable receipt label for this supported reach. */
     readonly policyHash: string;
-    readonly #connection: WorkspaceSettings;
+    readonly #connection: WorkspaceConnection;
     readonly #identity: {
         workspace: string;
         agent: number;
@@ -126,7 +126,7 @@ export class WorkspaceEnv implements ExecutionEnv {
 
     /** The manager connection belongs to the home; identity comes from its conversation records. */
     constructor(
-        connection: WorkspaceSettings,
+        connection: WorkspaceConnection,
         identity: {
             workspace: string;
             agent: number;

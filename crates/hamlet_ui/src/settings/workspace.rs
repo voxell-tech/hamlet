@@ -1,0 +1,342 @@
+//! The Workspace page: where agents' commands run and their houses
+//! are kept.
+
+use bevy::app::{App, Update};
+use bevy::ecs::observer::On;
+use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
+use bevy::ecs::system::{Res, ResMut};
+use bevy::ecs::world::World;
+use bevy::ui::AlignItems;
+use bevy_fynix::tokens::Tone;
+use bevy_fynix::views::{
+    FrameProps, column, frame, label, row, segmented, text_field,
+};
+use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use hamlet_client::messages::Response;
+use hamlet_client::outbox::Outbox;
+use hamlet_client::realm::Settings;
+use hamlet_protocol::v0;
+
+use super::{Pane, field, told};
+use crate::icons::Glyph;
+use crate::looks::{action, bare, note, well};
+use crate::secret::secret_field;
+use crate::{AnyView, View};
+
+pub(super) fn plugin(app: &mut App) {
+    app.init_resource::<Draft>()
+        .add_observer(answered)
+        .add_systems(Update, begin.run_if(resource_changed::<Pane>));
+}
+
+const CHOICES: [&str; 2] = ["THIS COMPUTER", "REMOTE SERVER"];
+
+/// The workspace as the page has it until it is saved.
+#[derive(Resource, Default)]
+struct Draft {
+    remote: bool,
+    url: String,
+    /// Never received: the server keeps it and shows only the
+    /// address.
+    token: String,
+    saving: Option<String>,
+    saved: bool,
+    refusal: String,
+}
+
+/// Starts the draft from the chosen workspace each time the page
+/// opens.
+fn begin(
+    pane: Res<Pane>,
+    settings: Res<Settings>,
+    mut draft: ResMut<Draft>,
+) {
+    if *pane != Pane::Workspace {
+        return;
+    }
+    let url = settings
+        .0
+        .workspace
+        .as_ref()
+        .and_then(|workspace| workspace.url.clone());
+    *draft = Draft {
+        remote: url.is_some(),
+        url: url.unwrap_or_default(),
+        ..Draft::default()
+    };
+}
+
+fn save(world: &mut World) {
+    let draft = world.resource::<Draft>();
+    let workspace =
+        draft.remote.then(|| v0::EditSettingsSetWorkspace {
+            url: draft.url.trim().into(),
+            token: draft.token.clone(),
+        });
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        v0::ClientMessage::Edit(v0::Edit::Settings {
+            id,
+            set: v0::EditSettingsSet {
+                workspace: Some(workspace),
+                model: None,
+                endpoints: None,
+                reflect_every: None,
+                allow_net: None,
+            },
+        })
+    });
+    let mut draft = world.resource_mut::<Draft>();
+    draft.saving = Some(id);
+    draft.saved = false;
+    draft.refusal.clear();
+}
+
+fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
+    if draft.saving.as_ref() != Some(&response.to) {
+        return;
+    }
+    match &response.message {
+        v0::ServerMessage::Reply(reply)
+            if reply.kind == v0::ReplyKind::Error =>
+        {
+            draft.refusal.clone_from(&reply.text);
+        }
+        v0::ServerMessage::Fault(fault) => {
+            draft.refusal.clone_from(&fault.text);
+        }
+        v0::ServerMessage::Reply(_) => {
+            draft.token.clear();
+            draft.saved = true;
+        }
+        _ => return,
+    }
+    draft.saving = None;
+}
+
+/// Whether the saved choice waits for a restart.
+fn pending(settings: &Settings) -> String {
+    match &settings.0.workspace {
+        Some(workspace) if workspace.url != workspace.running => {
+            "Takes effect when Hamlet restarts.".into()
+        }
+        _ => String::new(),
+    }
+}
+
+/// The address and token of a remote workspace, while one is chosen.
+fn remote() -> AnyView {
+    keyed(resource::<Draft, _>(|draft| draft.remote), |remote| {
+        if !*remote {
+            return frame().boxed();
+        }
+        column((
+            field(
+                "Server address",
+                text_field(
+                    resource::<Draft, _>(|draft| draft.url.clone()),
+                    |world, url| {
+                        world.resource_mut::<Draft>().url = url
+                    },
+                )
+                .rules(well),
+            ),
+            field(
+                "Access token",
+                secret_field(
+                    resource::<Draft, _>(|draft| draft.token.clone()),
+                    |world, token| {
+                        world.resource_mut::<Draft>().token = token
+                    },
+                ),
+            ),
+        ))
+        .gap(12.0)
+        .boxed()
+    })
+    .within(bare())
+    .boxed()
+}
+
+pub(super) fn page() -> impl View {
+    column((
+        field(
+            "Where agents' commands run",
+            told(
+                segmented(
+                    CHOICES,
+                    resource::<Draft, _>(|draft| {
+                        usize::from(draft.remote)
+                    }),
+                    |world, at| {
+                        world.resource_mut::<Draft>().remote = at == 1
+                    },
+                ),
+                note(resource::<Draft, _>(|draft| {
+                    if draft.remote {
+                        "Agents' commands run on a remote server, \
+                         and their houses are kept there."
+                    } else {
+                        "Agents' commands run on this computer, and \
+                         their houses are kept here."
+                    }
+                    .to_string()
+                })),
+            ),
+        ),
+        remote(),
+        row((
+            action(Glyph::Check, "SAVE", save),
+            note(resource::<Draft, _>(|draft| {
+                if draft.saved { "Saved." } else { "" }.to_string()
+            })),
+        ))
+        .gap(12.0)
+        .align(AlignItems::Center),
+        label(resource::<Draft, _>(|draft| draft.refusal.clone()))
+            .size(12.0)
+            .tone(Tone::Critical),
+        note(resource::<Settings, _>(pending)),
+    ))
+    .gap(12.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::app::App;
+    use bevy::text::EditableText;
+    use hamlet_client::outbox::Outbox;
+    use hamlet_protocol::v0;
+
+    use super::super::Pane;
+    use super::super::tests::{
+        control, page, requests, settle, words,
+    };
+    use crate::me::tests::press;
+
+    fn received(
+        app: &mut App,
+        revision: i64,
+        url: Option<&str>,
+        running: Option<&str>,
+    ) {
+        let mut settings = hamlet_testing::realm::state().settings;
+        settings.workspace = Some(v0::SettingsViewWorkspace {
+            url: url.map(Into::into),
+            running: running.map(Into::into),
+        });
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Change(v0::Changes {
+                epoch: 1,
+                revision,
+                changes: vec![v0::Update::Settings { settings }],
+            }),
+        );
+        settle(app);
+    }
+
+    fn type_into(app: &mut App, name: &str, text: &str) {
+        let field = control::<EditableText>(app, name);
+        app.world_mut().trigger(bevy::input_focus::FocusGained {
+            entity: field,
+            cause: bevy::input_focus::FocusCause::Pressed,
+        });
+        app.world_mut()
+            .get_mut::<EditableText>(field)
+            .unwrap()
+            .editor_mut()
+            .set_text(text);
+        app.world_mut()
+            .trigger(bevy::input_focus::FocusLost { entity: field });
+        settle(app);
+    }
+
+    #[test]
+    fn a_remote_workspace_is_saved_with_its_token_out_of_sight_and_applies_after_a_restart()
+     {
+        let token = "token-0123456789abcdef";
+        let mut app = page(Pane::Front);
+        received(&mut app, 2, None, None);
+        *app.world_mut().resource_mut::<Pane>() = Pane::Workspace;
+        settle(&mut app);
+        let said = |app: &mut App, text: &str| {
+            words(app).iter().any(|shown| shown == text)
+        };
+        assert!(!said(
+            &mut app,
+            "Takes effect when Hamlet restarts."
+        ));
+        assert!(!said(&mut app, "Server address"));
+        press(&mut app, "REMOTE SERVER");
+        settle(&mut app);
+        type_into(
+            &mut app,
+            "Server address",
+            " https://workspace.example ",
+        );
+        type_into(&mut app, "Access token", token);
+        assert!(said(&mut app, &"*".repeat(token.len())));
+        assert!(
+            !words(&mut app)
+                .iter()
+                .any(|shown| shown.contains(token))
+        );
+        requests(&mut app);
+        press(&mut app, "SAVE");
+        let Some(v0::ClientMessage::Edit(v0::Edit::Settings {
+            id,
+            ..
+        })) = app.world().resource::<Outbox>().iter().next().cloned()
+        else {
+            panic!("no settings edit was sent");
+        };
+        assert_eq!(
+            requests(&mut app),
+            [serde_json::json!({
+                "type": "edit", "doc": "settings", "set": {"workspace": {
+                    "url": "https://workspace.example", "token": token,
+                }}
+            })]
+        );
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Reply(v0::Reply {
+                to: id,
+                kind: v0::ReplyKind::Notice,
+                text: "Saved.".into(),
+                upload: None,
+            }),
+        );
+        received(
+            &mut app,
+            3,
+            Some("https://workspace.example"),
+            None,
+        );
+        assert!(said(&mut app, "Saved."));
+        assert!(!said(&mut app, &"*".repeat(token.len())));
+        assert!(said(&mut app, "Takes effect when Hamlet restarts."));
+
+        *app.world_mut().resource_mut::<Pane>() = Pane::Front;
+        settle(&mut app);
+        *app.world_mut().resource_mut::<Pane>() = Pane::Workspace;
+        settle(&mut app);
+        let address =
+            control::<EditableText>(&mut app, "Server address");
+        assert_eq!(
+            app.world().get::<EditableText>(address).unwrap().value(),
+            "https://workspace.example"
+        );
+        press(&mut app, "THIS COMPUTER");
+        settle(&mut app);
+        press(&mut app, "SAVE");
+        assert_eq!(
+            requests(&mut app),
+            [serde_json::json!({
+                "type": "edit", "doc": "settings", "set": {"workspace": null}
+            })]
+        );
+    }
+}

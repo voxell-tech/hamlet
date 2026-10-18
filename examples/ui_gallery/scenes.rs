@@ -93,6 +93,7 @@ impl Plugin for GalleryPlugin {
                 inspector::plugin,
                 overview::plugin,
                 settings::plugin,
+                hamlet_ui::secret::plugin,
                 feel::plugin,
                 hamlet_ui::tuning::plugin,
                 hamlet_ui::tabs::plugin,
@@ -151,6 +152,9 @@ pub enum Scene {
     Settings,
     /// The Settings panel at its Charter page.
     Charter,
+    /// The Settings panel at its Workspace page, a remote workspace
+    /// chosen and not yet in use.
+    Workspace,
     /// Every icon, at each size it is drawn for.
     Icons,
     /// The panels with the HAMLET menu open.

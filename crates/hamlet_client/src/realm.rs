@@ -193,6 +193,7 @@ impl Default for Settings {
                 models: None,
                 words: None,
             },
+            workspace: None,
         })
     }
 }

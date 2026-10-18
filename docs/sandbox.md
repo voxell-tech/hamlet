@@ -51,19 +51,23 @@ tool: agents see the same tools, with paths `/house` for their own house,
 They never see Substrate,
 actors or lifecycle verbs.
 
-The chief opts in by setting `HAMLET_WORKSPACE` to the URL and token of a
-separate workspace manager, read once at startup:
+The chief chooses a local or a remote workspace under Workspace in
+Settings. A remote one is the address and token of a separate workspace
+manager. The server keeps both with its credentials (S7) and reads
+them when it starts, so a change applies from its next start. Houses do not
+move between workspaces: agents find the houses already in the one chosen.
+
+The address must be HTTPS, or plain HTTP on `127.0.0.1`, `[::1]` or
+`localhost`, with no credentials or query in it, and the token at least 16
+characters. `HAMLET_WORKSPACE_URL` and `HAMLET_WORKSPACE_TOKEN`, set
+together, choose a workspace for one run of the server in place of the one
+in Settings:
 
 ```sh
-export HAMLET_WORKSPACE='{"url": "https://MANAGER_HOST", "token": "AT_LEAST_16_CHARACTERS"}'
+HAMLET_WORKSPACE_URL=https://MANAGER_HOST \
+HAMLET_WORKSPACE_TOKEN=AT_LEAST_16_CHARACTERS \
 HAMLET_HOME=/tmp/hamlet-remote hamlet server
 ```
-
-The URL must be HTTPS, or plain HTTP on `127.0.0.1`, `[::1]` or
-`localhost`, with no credentials or query in it. Without the variable
-everything stays local. `HAMLET_SUBSTRATE`, the earlier agent-facing
-`sandbox` tool prototype, is gone; setting it stops the server with an
-error.
 
 The manager and the worker inside each actor are one binary,
 `hamlet-workspace`. How to build, configure and run it, its keys and the

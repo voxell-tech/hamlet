@@ -1,8 +1,7 @@
 import { defineDoc, type ModelRef } from "@earendil-works/pi-durable";
-import { type Static, Type } from "typebox";
-import { Value } from "typebox/value";
 import type { Limits } from "./limits/rules.ts";
 import { MAYOR } from "./record/document.ts";
+import { err, ok, type Result } from "./result.ts";
 
 /** A place models are served, named for the models it serves. */
 export type Endpoint = {
@@ -49,15 +48,58 @@ export const SettingsDoc = defineDoc<Settings>({
     }),
 });
 
-/** Private connection to the workspace manager; no infrastructure credentials belong in Hamlet. */
-export const WorkspaceSettings = Type.Object(
-    {
-        url: Type.String({ minLength: 1 }),
-        token: Type.String({ minLength: 16 }),
-    },
-    { additionalProperties: false },
-);
-export type WorkspaceSettings = Static<typeof WorkspaceSettings>;
+/** The address and token of a remote workspace's manager. */
+export type WorkspaceConnection = {
+    /** HTTPS, or HTTP on loopback. */
+    readonly url: string;
+    /** The bearer token the manager accepts, kept with the credentials (S7). */
+    readonly token: string;
+};
+
+/** Why a workspace connection was refused. */
+export type WorkspaceRefusal =
+    | { kind: "workspace-address" }
+    | { kind: "workspace-token" };
+
+/** The connection `url` and `token` name, once both meet the manager's rules. */
+export function workspaceConnection(
+    url: string,
+    token: string,
+): Result<WorkspaceConnection, WorkspaceRefusal> {
+    let address: URL;
+    try {
+        address = new URL(url);
+    } catch {
+        return err({ kind: "workspace-address" });
+    }
+    const loopback = ["127.0.0.1", "[::1]", "localhost"].includes(
+        address.hostname,
+    );
+    if (
+        (address.protocol !== "https:" &&
+            !(address.protocol === "http:" && loopback)) ||
+        address.username ||
+        address.password ||
+        address.search ||
+        address.hash ||
+        address.port === "0"
+    )
+        return err({ kind: "workspace-address" });
+    if (token.length < 16) return err({ kind: "workspace-token" });
+    return ok({ url, token });
+}
+
+/** A chief's words for a refused workspace connection. */
+export function workspaceRefusalText(refusal: WorkspaceRefusal): string {
+    switch (refusal.kind) {
+        case "workspace-address":
+            return "The workspace address must start with https://, or http:// for localhost, and have no password or query.";
+        case "workspace-token":
+            return "The workspace token needs at least 16 characters.";
+    }
+    const unhandled: never = refusal;
+    throw new Error(`Unclassified workspace refusal: ${unhandled}`);
+}
 
 /** Settings that `HAMLET_*` environment variables give this process alone, never written down. */
 export type Overrides = {
@@ -68,8 +110,8 @@ export type Overrides = {
     readonly baseUrl?: string;
     /** The key of the endpoint that serves the default model. */
     readonly apiKey?: string;
-    /** Explicitly routes ordinary tools to the workspace manager. */
-    readonly workspace?: WorkspaceSettings;
+    /** The remote workspace for this process, in place of the one chosen in Settings. */
+    readonly workspace?: WorkspaceConnection;
 };
 
 /** The overrides `env` sets; an empty variable sets nothing. */
@@ -88,47 +130,10 @@ export function readOverrides(
     const model = set("HAMLET_MODEL");
     const baseUrl = set("HAMLET_BASE_URL");
     const apiKey = set("HAMLET_API_KEY");
-    if (set("HAMLET_SUBSTRATE") !== undefined)
-        throw new Error(
-            "HAMLET_SUBSTRATE is unsupported. Configure HAMLET_WORKSPACE with the separate manager's URL and token.",
-        );
-    const rawWorkspace = set("HAMLET_WORKSPACE");
-    let workspace: WorkspaceSettings | undefined;
-    if (rawWorkspace !== undefined) {
-        let value: unknown;
-        try {
-            value = JSON.parse(rawWorkspace);
-        } catch {
-            throw new Error(
-                "HAMLET_WORKSPACE must be a JSON connection configuration.",
-            );
-        }
-        if (!Value.Check(WorkspaceSettings, value))
-            throw new Error(
-                "HAMLET_WORKSPACE needs a manager URL and token of at least 16 characters.",
-            );
-        try {
-            const url = new URL(value.url);
-            const loopback = ["127.0.0.1", "[::1]", "localhost"].includes(
-                url.hostname,
-            );
-            if (
-                (url.protocol !== "https:" &&
-                    !(url.protocol === "http:" && loopback)) ||
-                url.username ||
-                url.password ||
-                url.search ||
-                url.hash ||
-                url.port === "0"
-            )
-                throw new Error("Invalid manager URL");
-        } catch {
-            throw new Error(
-                "HAMLET_WORKSPACE needs HTTPS or loopback HTTP without URL credentials or query parameters.",
-            );
-        }
-        workspace = value;
-    }
+    const workspace = readWorkspace(
+        set("HAMLET_WORKSPACE_URL"),
+        set("HAMLET_WORKSPACE_TOKEN"),
+    );
     return {
         ...(model === undefined ? {} : { model }),
         ...(every === undefined ? {} : { reflectEvery: Number(every) }),
@@ -137,6 +142,23 @@ export function readOverrides(
         ...(apiKey === undefined ? {} : { apiKey }),
         ...(workspace === undefined ? {} : { workspace }),
     };
+}
+
+function readWorkspace(
+    url: string | undefined,
+    token: string | undefined,
+): WorkspaceConnection | undefined {
+    if (url === undefined && token === undefined) return undefined;
+    if (url === undefined || token === undefined)
+        throw new Error(
+            "HAMLET_WORKSPACE_URL and HAMLET_WORKSPACE_TOKEN are set together, or neither is.",
+        );
+    const connection = workspaceConnection(url, token);
+    if (!connection.ok)
+        throw new Error(
+            `HAMLET_WORKSPACE_URL and HAMLET_WORKSPACE_TOKEN were refused. ${workspaceRefusalText(connection.error)}`,
+        );
+    return connection.value;
 }
 
 /** The settings in effect: those stored, the defaults where there are none, under the overrides. */
