@@ -226,7 +226,8 @@ capability = "read.agents"
 reason = "To count the agents the panel is about."
 ```
 
-- `id` is the folder's name. `name` and `version` are what Settings shows.
+- `id` is the folder's name, written as a name (`a-z`, `0-9`, `.`, `_`, `-`, 64
+  bytes at most) and not `host`, `chief`, `window`, `needs` or `skills`. `name` and `version` are what Settings shows.
 - `interface` is the version of the host interface the plugin was built for,
   `interface::VERSION`, and a wasm plugin needs it. A data plugin has `kind =
   "data"` and an optional `icon` (the name of an icon) instead.

@@ -5,6 +5,23 @@
 /// may take.
 pub const HOST: &str = "host";
 
+/// The ids no installed plugin may take: the host, the chief and the
+/// plugins compiled into the app.
+pub const RESERVED: [&str; 5] =
+    [HOST, "chief", "window", "needs", "skills"];
+
+/// `text` as one plain line: control characters become spaces and
+/// brackets go, so that it cannot pass for a label or a line of
+/// its own.
+pub fn plain(text: &str) -> String {
+    text.chars()
+        .filter(|c| !matches!(c, '[' | ']'))
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
 /// A collection a plugin offers: the keys of its storage that start
 /// with `prefix`.
 #[derive(Clone, PartialEq, Eq, Debug, serde::Deserialize)]

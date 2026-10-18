@@ -629,7 +629,10 @@ be chosen for, and of `collections.read` and `collections.write` the
 missing, the manifest cannot be read, its `id` is not the folder's name, a
 WASM plugin's `interface` is not `interface::VERSION` or an ask cannot be
 granted (a name that is not a capability, one that is never granted, or no
-reason); the reason is logged.
+reason); the reason is logged. The id is a name (as below), is not one of the
+reserved `host`, `chief`, `window`, `needs` and `skills` (the built-in plugins
+and the host), the name has at most 64 characters and a reason at most 300.
+A name and a reason are shown as one line without brackets.
 
 `grants.toml` records the plugins that may load. A plugin that is in the
 folder and not recorded as installed is never compiled, and a missing file

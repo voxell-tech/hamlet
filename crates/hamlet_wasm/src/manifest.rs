@@ -1,7 +1,15 @@
 //! `manifest.toml`: what an installed plugin says about itself.
 
 use hamlet_sdk::capability::{Asked, Asks, Refusal};
-use hamlet_sdk::plugin::{Exports, HOST, Imports, Need, Range};
+use hamlet_sdk::plugin::{
+    Exports, Imports, Need, RESERVED, Range, plain, valid,
+};
+
+/// The most characters of a plugin's name.
+const NAME_MAX: usize = 64;
+
+/// The most characters of the reason of an ask.
+const REASON_MAX: usize = 300;
 
 /// A capability a plugin asks for, and why.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
@@ -71,12 +79,40 @@ impl Manifest {
                 })
             });
         ranges
+            .or_else(|| self.identity())
             .or_else(|| self.exports.problem())
             .or_else(|| self.imports.problem())
-            .or_else(|| {
-                (self.id == HOST).then(|| {
-                    format!("`{HOST}` is the name of the host")
-                })
+    }
+
+    /// Why the id, the name or a reason cannot be, if they cannot.
+    fn identity(&self) -> Option<String> {
+        if !valid(&self.id) {
+            return Some(format!(
+                "the id `{}` is not a name",
+                plain(
+                    &self
+                        .id
+                        .chars()
+                        .take(NAME_MAX)
+                        .collect::<String>()
+                )
+            ));
+        }
+        if RESERVED.contains(&self.id.as_str()) {
+            return Some(format!("`{}` is a reserved id", self.id));
+        }
+        if self.name.chars().count() > NAME_MAX {
+            return Some(format!(
+                "the name has more than {NAME_MAX} characters"
+            ));
+        }
+        self.asks
+            .iter()
+            .any(|ask| ask.reason.chars().count() > REASON_MAX)
+            .then(|| {
+                format!(
+                    "a reason has more than {REASON_MAX} characters"
+                )
             })
     }
 
@@ -109,7 +145,7 @@ impl From<&Manifest> for hamlet_sdk::plugin::Manifest {
     fn from(manifest: &Manifest) -> Self {
         Self {
             id: manifest.id.clone(),
-            name: manifest.name.clone(),
+            name: plain(&manifest.name),
             version: manifest.version.clone(),
             needs: manifest.needs.clone(),
             wants: manifest.wants.clone(),

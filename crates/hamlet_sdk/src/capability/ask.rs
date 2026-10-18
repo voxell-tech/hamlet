@@ -3,6 +3,7 @@
 use bevy::ecs::component::Component;
 
 use super::name::{Capability, Refusal};
+use crate::plugin::plain;
 
 /// The hosts, agents, commands or plugins a capability is limited to.
 /// Empty is no limit.
@@ -26,12 +27,13 @@ impl Asked {
         scope: &[String],
     ) -> Result<Self, Refusal> {
         let named = Capability::parse(capability)?;
-        if reason.trim().is_empty() {
+        let reason = plain(reason);
+        if reason.is_empty() {
             return Err(Refusal::NoReason(capability.into()));
         }
         Ok(Self {
             capability: named,
-            reason: reason.trim().into(),
+            reason,
             scope: Scope(scope.to_vec()),
         })
     }

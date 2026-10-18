@@ -9,6 +9,7 @@ use hamlet_core::session::{self, SessionKey, UserMessage};
 use hamlet_rules::hamlet::HOME;
 
 use super::Me;
+use crate::plugin::plain;
 
 /// The session a chat with `agent` is kept under, and the agent's
 /// name. `None` for the name of a mayor, and nothing at all for an
@@ -59,7 +60,7 @@ pub fn send_as_chief(
     world.trigger(UserMessage {
         key,
         user,
-        text: format!("[sent by plugin {by}] {text}"),
+        text: format!("[sent by plugin {}] {text}", plain(by)),
     });
     Ok(())
 }
