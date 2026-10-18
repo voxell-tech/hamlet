@@ -87,6 +87,54 @@ mod tests {
     }
 
     #[test]
+    fn an_update_that_changes_a_scope_is_asked_again() {
+        let net = |hosts: &[&str]| {
+            let hosts = hosts.iter().map(|h| h.to_string());
+            Asks(vec![
+                Asked::parse(
+                    "net",
+                    "a test",
+                    &hosts.collect::<Vec<_>>(),
+                )
+                .unwrap(),
+            ])
+        };
+        let choices = Choices::allowing(&[Capability::Net]);
+        let record = Record::installed("1.0.0", &choices)
+            .scoped(&net(&["a.com"]));
+        let fresh = |version, hosts: &[&str]| match standing(
+            Some(&record),
+            version,
+            &net(hosts),
+        ) {
+            Standing::Installed { choices, fresh } => {
+                (fresh, choices.choice(Capability::Net))
+            }
+            other => panic!("{other:?}"),
+        };
+
+        let (fresh_same, kept) = fresh("2.0.0", &["a.com"]);
+        assert!(fresh_same.is_empty());
+        assert_eq!(kept, Some(Choice::Allow));
+        let (fresh_other, kept) = fresh("2.0.0", &["b.com"]);
+        assert_eq!(fresh_other, [Capability::Net]);
+        assert_eq!(kept, None);
+
+        let mut old = record.clone();
+        old.scopes.clear();
+        let unknown = |version| {
+            let Standing::Installed { fresh, .. } =
+                standing(Some(&old), version, &net(&["a.com"]))
+            else {
+                panic!("installed");
+            };
+            fresh
+        };
+        assert!(unknown("1.0.0").is_empty());
+        assert_eq!(unknown("2.0.0"), [Capability::Net]);
+    }
+
+    #[test]
     fn an_update_that_asks_for_more_leaves_the_new_ask_unanswered() {
         use Capability::{ChatSend, Net, ReadAgents};
 

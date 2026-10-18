@@ -68,7 +68,11 @@ pub fn installed(
         let version = &installed.manifest.version;
         match standing {
             Standing::Installed { choices, fresh } => {
-                store.set(&id, Record::installed(version, &choices));
+                store.set(
+                    &id,
+                    Record::installed(version, &choices)
+                        .scoped(&installed.asks),
+                );
                 let because =
                     held.iter().find(|(held, _)| *held == id);
                 match (&installed.body, &setting, because) {

@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use super::ask::Asks;
+use super::ask::{Asked, Asks};
 use super::choice::Choice;
 use super::granted::Choices;
 use super::name::Capability;
@@ -40,6 +40,11 @@ pub struct Record {
     /// plugin has none.
     #[serde(default)]
     pub choices: BTreeMap<String, Choice>,
+    /// The scope each of `asks` had when the chief was asked. A file
+    /// written before scopes were kept has none, which is not the
+    /// same as an empty scope.
+    #[serde(default)]
+    pub scopes: BTreeMap<String, Vec<String>>,
 }
 
 /// What a record says about a plugin whose manifest is now `asked`.
@@ -85,7 +90,26 @@ impl Record {
                     },
                 ))
                 .collect(),
+            scopes: BTreeMap::new(),
         }
+    }
+
+    /// This record, with the scope in `asked` for each capability it
+    /// holds an answer for.
+    pub fn scoped(mut self, asked: &Asks) -> Self {
+        self.scopes = asked
+            .0
+            .iter()
+            .filter(|ask| {
+                self.asks
+                    .iter()
+                    .any(|name| name == ask.capability.name())
+            })
+            .map(|ask| {
+                (ask.capability.name().into(), ask.scope.0.clone())
+            })
+            .collect();
+        self
     }
 
     /// A plugin the chief said no to, with what it asked.
@@ -99,6 +123,27 @@ impl Record {
                 .map(|capability| capability.name().into())
                 .collect(),
             choices: BTreeMap::new(),
+            scopes: BTreeMap::new(),
+        }
+    }
+
+    /// Whether `ask` has a scope other than the one the chief was
+    /// asked about. A scope that was never kept counts as changed
+    /// only when the version moved on and the ask names one.
+    fn changed(&self, ask: &Asked, version: &str) -> bool {
+        match self.scopes.get(ask.capability.name()) {
+            Some(known) => {
+                let sorted = |scope: &[String]| {
+                    let mut scope = scope.to_vec();
+                    scope.sort();
+                    scope.dedup();
+                    scope
+                };
+                sorted(known) != sorted(&ask.scope.0)
+            }
+            None => {
+                self.version != version && !ask.scope.0.is_empty()
+            }
         }
     }
 
@@ -151,11 +196,21 @@ pub fn standing(
             },
         )
         .within(&wanted);
+    let fresh = asked
+        .0
+        .iter()
+        .filter(|ask| {
+            !answered.contains(&ask.capability)
+                || record.changed(ask, version)
+        })
+        .map(|ask| ask.capability)
+        .collect::<Vec<_>>();
+    let kept = wanted
+        .into_iter()
+        .filter(|capability| !fresh.contains(capability))
+        .collect::<Vec<_>>();
     Standing::Installed {
-        choices,
-        fresh: wanted
-            .into_iter()
-            .filter(|capability| !answered.contains(capability))
-            .collect(),
+        choices: choices.within(&kept),
+        fresh,
     }
 }

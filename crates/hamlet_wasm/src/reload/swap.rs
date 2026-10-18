@@ -150,7 +150,8 @@ pub fn reload(
             Ok(()) => {
                 store.set(
                     &info.id,
-                    Record::installed(&version, &case.choices),
+                    Record::installed(&version, &case.choices)
+                        .scoped(&installed.asks),
                 );
                 info!("plugin {}: reloaded {version}", info.id);
             }
@@ -243,7 +244,18 @@ fn ask(
     commands: &mut Commands,
 ) {
     info!("plugin {}: the new version asks for more", case.info.id);
-    renew(commands, case.plugin, installed, case.choices.clone());
+    let kept = installed
+        .asks
+        .capabilities()
+        .into_iter()
+        .filter(|capability| !fresh.contains(capability))
+        .collect::<Vec<_>>();
+    renew(
+        commands,
+        case.plugin,
+        installed,
+        case.choices.clone().within(&kept),
+    );
     commands.entity(case.plugin).insert((
         Waiting(fresh.clone()),
         Reload {

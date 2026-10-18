@@ -54,6 +54,7 @@ fn apply(world: &mut World, plugin: Entity, decide: Decide) {
     let Some(choices) = world.get::<Choices>(plugin) else {
         return;
     };
+    let asks = world.get::<Asks>(plugin).cloned().unwrap_or_default();
     let choices = match &decide.target {
         Some(target) => choices.clone().decided_for(
             decide.capability,
@@ -75,7 +76,7 @@ fn apply(world: &mut World, plugin: Entity, decide: Decide) {
         if let Some(version) = installed {
             store.set(
                 &decide.plugin,
-                Record::installed(&version, &choices),
+                Record::installed(&version, &choices).scoped(&asks),
             );
         }
     }

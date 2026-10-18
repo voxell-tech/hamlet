@@ -176,7 +176,9 @@ compiled and its panel is not read until the chief says yes.
   question put again (`AskToInstall`).
 - An installed plugin whose new version asks for more is brought up with what
   it had; the new asks are unanswered, and one petition ("asks for more")
-  lists them. Allow allows them, Don't allow denies them.
+  lists them. Allow allows them, Don't allow denies them. A capability whose
+  scope changed (other hosts, other agents, other commands) is asked about
+  again in the same way, and its earlier choice does not apply until then.
 - A version that asks for more and arrives while the app runs (a reload, see
   [`wasm.md`](wasm.md)) is not built until the petition is answered, so none of
   it runs before.
@@ -287,6 +289,8 @@ asks = ["read.agents"]       # the capabilities the chief was asked about
 [plugin.roster.choices]
 "read.agents" = "allow"      # allow, ask-next-time or deny
 "plugin.use:notes" = "allow" # the choice for one target of a scoped capability
+[plugin.roster.scopes]
+"read.agents" = []           # the scope each ask had when the chief was asked
 ```
 
 - The file is read when the app starts. A plugin in the folder that is not
@@ -294,6 +298,9 @@ asks = ["read.agents"]       # the capabilities the chief was asked about
 - A manifest that asks for a capability not in `asks` (an update) leaves it
   unanswered. A capability the manifest no longer asks for is dropped from
   the record, and the version is brought up to date.
+- A scope that differs from the recorded one makes the capability unanswered
+  again. A file without `scopes` still loads: a version that is the same is
+  trusted, and a newer one that names a scope is asked about.
 - A `declined` plugin stays declined while its version and asks are the same
   as the ones that were declined.
 - A file that cannot be read installs nothing and is not written over.

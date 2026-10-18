@@ -94,7 +94,7 @@ pub(super) fn admit(world: &mut World, plugin: Entity) {
     if let Some(mut store) = world.get_resource_mut::<Store>() {
         store.set(
             &info.id,
-            Record::installed(&info.version, &choices),
+            Record::installed(&info.version, &choices).scoped(&asks),
         );
     }
     world
