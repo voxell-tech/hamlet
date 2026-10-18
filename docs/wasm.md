@@ -32,7 +32,7 @@ In `hamlet_wasm/src/`, a file for each part:
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
 | What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `host/folder.rs` and `files.rs` (the folder of files), `host/database.rs` and `db.rs` (the database), `acts.rs` (a message or a command as the chief), `net.rs` (fetches), `rate.rs` (a count a minute), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
-| The install folder | `manifest.rs`, `install.rs` (which also turns down plugins whose needs go in a circle), `cache.rs` (the compiled components kept beside a plugin) |
+| The install folder | `manifest.rs`, `install.rs` (which also turns down plugins whose needs go in a circle), `cache.rs` (the compiled components kept in the home) |
 | Plugins working together | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `chief.rs` (a command the chief runs), `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `mail.rs`. Also `command.rs` (a plugin's commands, menu lines, context items, inspector tabs, settings pages and keys as entities), `reach.rs` and `host/collections.rs` (the shared collections) |
 | Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
 | Bringing up and the frame | `load.rs`, `admit.rs` (a plugin the chief just let in), `start.rs`, `enable.rs`, `inbox.rs`, `reply.rs` (an answer to a request), `run.rs`, `stop.rs` |
@@ -666,7 +666,8 @@ when it is there and works without.
 - Data plugins have no code to call with, and their needs are not acted on.
 
 A plugin's folder also holds the folders the host writes, which are not part
-of the plugin: `.cache/`, `.last-good/` and the plugin's `data/`.
+of the plugin: `.last-good/` and the plugin's `data/`. A `.cache/` is not
+one of them and is deleted.
 
 ## Reload
 
@@ -722,15 +723,19 @@ next look reloads them. The files that were there are overwritten.
 
 ### The compiled cache
 
-A component is compiled once and kept in `.cache/<hash>-<engine>.cwasm` in the
-plugin's folder. `<hash>` is the SHA-256 of `plugin.wasm` and `<engine>` a
-hash of the engine's version and configuration, so a restart or a reload of
-an unchanged file does not compile again. An entry that cannot be read, or that
-the engine refuses, is ignored, removed and made again. Making a new entry
-removes the others in the folder. The cache can be deleted at any time. The
-engine trusts an entry it finds under the right name, so the home must not be
-writable by anything the chief does not trust; a plugin itself cannot write
-there.
+A component is compiled once and kept in
+`plugins-cache/<id>/<hash>-<engine>.cwasm` in the home, beside `plugins/`.
+`<hash>` is the SHA-256 of `plugin.wasm` and `<engine>` a hash of the engine's
+version and configuration, so a restart or a reload of an unchanged file does
+not compile again. An entry that cannot be read, or that the engine refuses, is
+ignored, removed and made again. Making a new entry removes the others of that
+plugin. The cache can be deleted at any time.
+
+The engine trusts an entry it finds under the right name, because loading one
+runs native code. So the cache is never in a plugin's folder, which ships with
+the plugin: a `.cache/` found in a plugin's folder is deleted when the folder
+is read and nothing is loaded from it. The home must not be writable by
+anything the chief does not trust; a plugin itself cannot write there.
 
 ## Building a plugin
 

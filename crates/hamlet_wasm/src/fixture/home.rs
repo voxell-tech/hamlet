@@ -33,6 +33,11 @@ impl Scratch {
 }
 
 impl Scratch {
+    /// The home.
+    pub fn home(&self) -> PathBuf {
+        self.0.clone()
+    }
+
     /// The install folder of the home.
     pub fn plugins(&self) -> PathBuf {
         self.0.join("plugins")

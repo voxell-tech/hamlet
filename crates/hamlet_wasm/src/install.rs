@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use hamlet_sdk::capability::{Asks, Refusal};
 use hamlet_sdk::plugin::needs;
 
+use crate::cache;
 use crate::db::DB;
 use crate::files::FILES as KEPT;
 use crate::interface::VERSION;
@@ -117,6 +118,7 @@ pub fn read(folder: &Path) -> Result<Installed, Rejected> {
         folder: name.clone(),
         why,
     };
+    cache::drop_shipped(folder);
     let text = std::fs::read_to_string(folder.join(MANIFEST))
         .map_err(|_| rejected(Why::Missing(MANIFEST)))?;
     let manifest = Manifest::parse(&text).map_err(|e| {
