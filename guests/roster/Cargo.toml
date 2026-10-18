@@ -13,6 +13,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 hamlet_guest = { path = "../../crates/hamlet_guest" }
+serde = { version = "1", features = ["derive"] }
 
 [profile.release]
 opt-level = "s"
