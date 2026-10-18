@@ -1,0 +1,11 @@
+root = Column([head, name, loud, hello, again, Divider(), who, people])
+head = Row([Icon("talk"), Heading("GREETER")])
+name = TextField($name)
+loud = Checkbox("Say it loud", $loud)
+hello = Label(($loud ? "HELLO, " : "Hello, ") + $name + ($loud ? "!" : "."))
+again = Row([Button("Start again", Action([@Reset($name, $loud)]))])
+who = Heading("WHO LIVES HERE")
+people = agents.error ? Note(agents.error) : (@Count(agents.rows) == 0 ? Note("Nobody lives here yet.") : Scroll(@Each(agents.rows, "a", Row([Label(a.name), Note(a.hamlet)]))))
+agents = Query("agents", {}, {rows: [], error: null})
+$name = "Ada"
+$loud = false

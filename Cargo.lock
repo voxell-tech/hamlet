@@ -3548,6 +3548,7 @@ dependencies = [
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_model",
+ "hamlet_openui",
  "hamlet_plugins",
  "hamlet_realm",
  "hamlet_rules",

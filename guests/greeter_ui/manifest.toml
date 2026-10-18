@@ -1,0 +1,9 @@
+id = "greeter_ui"
+name = "Greeter"
+version = "0.1.0"
+kind = "data"
+icon = "talk"
+
+[[asks]]
+capability = "read.agents"
+reason = "to list who lives in the realm"

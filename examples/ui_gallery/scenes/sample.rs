@@ -125,6 +125,9 @@ pub(super) fn setup(world: &mut World) {
     if scene == Scene::PluginRoster {
         super::roster::put(world);
     }
+    if scene == Scene::PluginOpenui {
+        super::greeter::put(world);
+    }
     if matches!(
         scene,
         Scene::Settings | Scene::Charter | Scene::Plugins

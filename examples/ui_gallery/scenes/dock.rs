@@ -118,6 +118,9 @@ pub(super) fn seed_dock(world: &mut World) {
         if scene == Scene::PluginRoster {
             tree.add_tab(side, super::roster::id());
         }
+        if scene == Scene::PluginOpenui {
+            tree.add_tab(side, super::greeter::id());
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 //! Scenes of the panels and their controls held in fixed states.
 
 mod dock;
+mod greeter;
 mod roster;
 mod sample;
 mod sheets;
@@ -88,10 +89,16 @@ impl Plugin for GalleryPlugin {
                     hold_message.run_if(|scene: Res<Scene>| {
                         *scene == Scene::Rewind
                     }),
+                    greeter::made_up
+                        .after(hamlet_sdk::agents::Kept)
+                        .run_if(|scene: Res<Scene>| {
+                            *scene == Scene::PluginOpenui
+                        }),
                 ),
             )
             .add_plugins((
                 hamlet_sdk::SdkPlugin,
+                hamlet_openui::plugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_ui::screens::plugin,
                 hamlet_plugins::Builtin,
@@ -160,6 +167,8 @@ pub enum Scene {
     Plugins,
     /// The panel of the roster plugin, drawn from its tree.
     PluginRoster,
+    /// The panel of the greeter data plugin, drawn from its program.
+    PluginOpenui,
     /// Every icon, at each size it is drawn for.
     Icons,
     /// The panels with the HAMLET menu open.
