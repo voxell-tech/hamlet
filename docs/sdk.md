@@ -30,10 +30,12 @@ A plugin crate depends on `hamlet_sdk` and the engine crates, never on
 
 ### A panel
 
-A `Panel` is an entity with an id, a title, an icon and a `fn() -> AnyView`.
-An observer on `Add` puts its window in the `DockRegistry`, and one on
-`Remove` takes it out of the registry and out of the dock. A panel that no
-plugin owns is added with `app.add_panel(Panel::new(..))`.
+A `Panel` is an entity with an id, a title, an icon and a `Body`: a
+`fn() -> AnyView`, or a `fn(&str) -> AnyView` that is given the panel's id
+(`Panel::by_id`), for panels that share one function. An observer on `Add`
+puts its window in the `DockRegistry`, and one on `Remove` takes it out of
+the registry and out of the dock. A panel that no plugin owns is added with
+`app.add_panel(Panel::new(..))`.
 
 ### The plugin types
 
@@ -49,9 +51,10 @@ pub trait HamletPlugin {
 - `Manifest`: id, name, version, the plugins it needs (an id and a version
   range) and whether it is built in. `Manifest::built_in("id")` starts one.
 - `Entry` is what `entry` declares into. It reaches neither the app nor the
-  world. For now it declares a panel. A new kind of contribution is a
-  variant of `Declared`, a method of `Entry` and an arm of `Entry::spawn`,
-  all in `plugin/entry.rs`.
+  world. For now it declares a panel, with `panel` or with `panel_by_id`.
+  A new kind of contribution is a variant of `Declared`, a method of
+  `Entry` and an arm of `Entry::spawn`, all in `plugin/entry.rs`. The WASM
+  host makes an `Entry` of what an installed plugin declared and spawns it.
 - `app.add_hamlet_plugin::<P>()` spawns the plugin's entity with its
   `PluginInfo` (id, name, version, built in), its `Manifest`, its
   `EntryPoint` and its `Status`, then runs `entry`.

@@ -1,10 +1,10 @@
 # The WASM host
 
 An installed plugin is a WASM component. `hamlet_wasm` loads the ones the
-chief approved, runs each in a store of its own under limits, and calls it
-once a frame with what happened. A plugin never sees Bevy or the world.
-The built-in plugins of [`sdk.md`](sdk.md) are Rust in the binary and do
-not pass through it.
+chief approved, runs each in a store of its own under limits, calls it
+once a frame with what happened and draws the panels it declares. A plugin
+never sees Bevy or the world. The built-in plugins of [`sdk.md`](sdk.md)
+are Rust in the binary and do not pass through it.
 
 The host is behind the `wasm` feature of the binary:
 `cargo run --features wasm`. Without it the engine is not compiled.
@@ -15,59 +15,164 @@ The host is behind the `wasm` feature of the binary:
 |---|---|
 | `crates/hamlet_wasm` | The host. The engine is wasmtime, pinned in the root `Cargo.toml`, and no other crate names a wasmtime type |
 | `crates/hamlet_wasm/wit/hamlet-plugin.wit` | The interface, the one description of what a plugin imports and exports |
-| `crates/hamlet_guest` | What a plugin is written with: the bindings, the `Plugin` trait and the `export!` macro |
+| `crates/hamlet_guest` | What a plugin is written with: the bindings, the `Plugin` trait, the `ui` tree builder and the `export!` macro |
 | `guests/hello` | A plugin that logs on every tick. A workspace of its own, since it is built for `wasm32-wasip2` |
+| `guests/roster` | A plugin with a panel that lists the agents, behind the grant `read.agents` |
 | `assets/wasm.toml` | The limits |
 
-In `hamlet_wasm/src/`, a file for each part: `engine.rs` (the engine and
-its ticker), `limits.rs`, `manifest.rs`, `install.rs`, `approved.rs`,
-`interface.rs` (the generated host side of the WIT), `host.rs` (the linker
-and what a plugin may call), `instance.rs`, `call.rs`, `fault.rs`, and the
-Bevy side: `load.rs`, `inbox.rs`, `run.rs`. `lib.rs` has the plugin.
+In `hamlet_wasm/src/`, a file for each part:
+
+| Part | Files |
+|---|---|
+| The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
+| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels), `host/read.rs` (the reads), `grant.rs`, `agents.rs` |
+| The install folder | `manifest.rs`, `install.rs`, `approved.rs` |
+| Bringing up and the frame | `load.rs`, `start.rs`, `enable.rs`, `inbox.rs`, `run.rs`, `stop.rs` |
+| The panels | `panel.rs`, `tree.rs` and `tree/wire.rs`, `trees.rs`, `draw.rs`, `event.rs`, `view.rs` and `view/` |
+
+`lib.rs` has the plugin.
 
 ## The interface
 
-```wit
-package hamlet:plugin@0.1.0;
+`wit/hamlet-plugin.wit` is the interface. The host imports are:
 
-interface host {
-  enum level { info, warn, error }
-  log: func(level: level, message: string);
-}
+- `log(level, message)`.
+- `panel(id, title, icon)`, which declares a panel. Only `entry` declares.
+  `icon` is the name of a `Glyph` of `hamlet_sdk::icons`, in any case.
+- `agents() -> result<list<agent>, string>`, which needs the grant
+  `read.agents`.
 
-interface plugin {
-  variant incoming { tick(u64) }
-  variant intent { log-line(string) }
-  record outgoing { intents: list<intent> }
-  entry: func();
-  step: func(inbox: list<incoming>) -> outgoing;
-}
-```
+The plugin exports:
+
+- `entry()`, which runs once when the plugin is brought up.
+- `step(inbox) -> outgoing`, which runs for each frame in which the plugin's
+  `Inbox` holds something. An `incoming` is a `tick`, a `click`, a `toggled`
+  or a `text-changed`. The intents it returns are carried out by the host: a
+  `log-line`, and a `redraw` of a panel.
+- `panel-view(panel) -> tree`, which returns the panel as it is now.
 
 `interface::VERSION` is the package version. A manifest that names another
-one is turned down. `entry` runs once when the plugin loads. `step` runs for
-each frame in which the plugin's `Inbox` holds something, and the intents it
-returns are carried out by the host.
+one is turned down.
+
+## The tree of a panel
+
+A `tree` is a list of `node`s, each followed by its children and theirs, the
+root first. A node is an optional `id`, a `widget` and the number of its
+children. The interface cannot hold a node in a node, so the list is flat.
+
+| Widget | What it is drawn as |
+|---|---|
+| `column`, `row`, `scroll` | A stack of its children. A row wraps; a scroll fills the height left |
+| `label(text)` | Body text |
+| `heading(text)` | A heading over a part of the panel, in the display face |
+| `note(text)` | Small dim words |
+| `icon(name)` | An icon of the family, by name. An unknown name gets `Menu` |
+| `button(label)` | A brass button |
+| `checkbox(label, checked)` | A tick and its label |
+| `text-field(text)` | A well sunk into the panel |
+| `divider` | A hairline |
+
+A `button`, `checkbox` and `text-field` need an id, which names them in
+events. Two siblings may not share an id. A tree with a node over the limit
+of `tree_nodes`, nested deeper than `tree_depth`, or against these rules
+fails the call, and the plugin is failed.
+
+The ids make the redraw cheap. A node is matched with the node of the last
+tree that has its id among the same parent's children, or its place if it
+has none. A matched node keeps its view and only the props that differ are
+written, so a field being typed in keeps its text and focus, and an animation
+under way goes on.
+
+## How a panel is drawn
+
+1. `entry` calls `panel`. The host spawns a `Panel` for each declaration,
+   with `Entry` and `ContributedBy` of `hamlet_sdk::plugin`, so the panels
+   go with the plugin. The panel's id in the dock is `<plugin id>/<id>`, so
+   that a plugin cannot take the id of another panel.
+2. `Dirty` on the plugin holds the panels that are due: all of them after
+   `entry`, a panel an event was sent to after the `step` that handled it,
+   and a panel named by a `redraw` intent. The `Draw` set calls `panel-view`
+   once for each and keeps the tree in `PluginTrees`, a resource keyed by
+   the panel's id in the dock, only when it differs.
+3. The panel's view is `view::panel`, built from its id (`Body::ById` in
+   `hamlet_sdk::dock`). It reads `PluginTrees` through signals: the shape of
+   the panel (nothing yet, a tree, stopped), and for each node its text, its
+   state and its children, found by the ids from the root. Each container
+   keeps its children with `each`, keyed by the ids, so the views are made
+   from `hamlet_sdk::looks`, `icons` and `theme` as the native panels are.
+
+## Events
+
+A press on a button, a press on a checkbox and a text committed with Enter
+or by leaving the field send an `Interaction` event with the panel's id in the dock, the
+node's id and what was done. An observer puts it in the `Inbox` of the
+running plugin that owns the panel, as a `click`, `toggled` or
+`text-changed` that names the panel and node by the ids the plugin gave them.
+The next `step` gets it, and the panel is drawn again after it.
+
+A checkbox does not toggle itself: it shows `checked` of the tree, so a
+plugin that ignores a `toggled` leaves the box as it was.
 
 ## The frame
 
 A plugin is an entity with `PluginInfo` (`builtin: false`), the SDK's
-`Manifest`, `Status`, `Instance` and `Inbox`. `Instance` holds the store:
-a wasmtime `Store` is `Send` and `Sync` when its data is, so it is a
-component and needs no resource of its own.
+`Manifest`, `Status`, `Source` (the file of its component), `Granted`,
+`Instance` and `Inbox`, and `Dirty`. `Instance` holds the store: a wasmtime
+`Store` is `Send` and `Sync` when its data is, so it is a component and
+needs no resource of its own.
 
-The `Update` sets `PluginSet::{Collect, Step, Apply}` run in that order.
+The `Update` sets `PluginSet::{Collect, Step, Apply, Draw}` run in that
+order.
 
 1. `Collect` puts a `tick` in the inbox of every running plugin.
 2. `Step` runs only while some inbox holds something. It calls `step` once
-   for each running plugin that has mail. A call that fails leaves the plugin
-   `Status::Failed` and the host running.
+   for each running plugin that has mail. A call that fails fails the plugin.
 3. `Apply` runs when a plugin was stepped and carries out its intents: a
-   `log-line` is written to the app's log, labelled with the plugin's id.
+   `log-line` is written to the app's log, labelled with the plugin's id, and
+   a `redraw` marks the panel due.
+4. `Draw` runs when a panel is due and calls `panel-view`.
 
 What a plugin passes to `log` is written to the log the same way, labelled
 with the id. A headless run (`--headless`) installs the log only with the
 `wasm` feature on.
+
+## A plugin that stopped
+
+A call that traps, runs out of time or memory, or returns a bad tree marks
+the plugin `Status::Failed` and puts `Failure`, the reason, on it. Its
+panels stay in the dock, and each shows "This plugin stopped", the reason
+and a RESTART button, in place of the last tree. RESTART sends `Enable`.
+
+`Enable` of an installed plugin that is disabled or failed brings it up
+again from its file with a new store, runs `entry` again and spawns its
+panels again. `Disable` despawns the panels, as for a built-in plugin.
+
+## Grants
+
+A grant is a capability name in the plugin's `Granted` component. A host
+function that needs one checks it on each call. A call without it returns
+the error `read.agents not granted` and is logged with the plugin's id.
+`Granted` is replaced by inserting it again, and the next call sees it.
+
+The host puts what a function answers from into the plugin's store before a
+call: the grants, and a copy of the agents only when `read.agents` is held.
+The agents are `AgentList`, a resource that a system writes when the core's
+agents change, so a host function never touches the world. `agents()` returns
+a copy: the name of each living agent and the name of its hamlet.
+
+The only capability so far is `read.agents`. A grant is dropped, with a
+warning, when the plugin's manifest does not ask for it.
+
+### The approved list
+
+`plugins/approved.toml` stands in for the chief's answer to a petition, and
+the petition replaces it. A plugin is a bare id, or a table with grants:
+
+```toml
+plugins = ["hello", { id = "roster", grants = ["read.agents"] }]
+```
+
+The list is read when the app starts.
 
 ## Limits
 
@@ -81,6 +186,8 @@ each means. They apply to every plugin alike, whatever it is granted.
   `memory_mib` or `table_elements`, which traps the call as
   `Fault::OutOfMemory`. The pooling allocator is sized to the same memory.
 - **Log lines.** A call keeps at most `log_lines` lines of `log_bytes` each.
+- **Panels and trees.** A plugin declares at most `panels` panels, and a
+  tree holds at most `tree_nodes` nodes nested `tree_depth` deep.
 
 A saved change to the file reaches `Limits` while the app runs, and the next
 call takes the new `call_ms`. The engine keeps the tick and the pool it was
@@ -100,8 +207,8 @@ the load with the name of the import.
 
 ```
 <home>/plugins/
-  approved.toml        plugins = ["hello"]
-  hello/
+  approved.toml        plugins = ["hello", { id = "roster", grants = [..] }]
+  roster/
     manifest.toml
     plugin.wasm
 ```
@@ -112,48 +219,68 @@ the load with the name of the import.
 is missing, the manifest cannot be read, its `id` is not the folder's name or
 its `interface` is not `interface::VERSION`; the reason is logged.
 
-`approved.toml` lists the ids that may load. A plugin that is installed and
-not listed is never compiled, and a missing or unreadable list approves
-nothing. The file is how the chief's answer is kept until the petition
-exists.
+`approved.toml` lists the plugins that may load. A plugin that is installed
+and not listed is never compiled, and a missing or unreadable list approves
+nothing.
 
 ## Building a plugin
 
 A plugin is a `cdylib` for `wasm32-wasip2` that depends on `hamlet_guest`:
 
 ```rust
-use hamlet_guest::{Incoming, Intent, Level, Plugin};
+use hamlet_guest::ui::{Node, button, column, label};
+use hamlet_guest::{Incoming, Intent, Plugin};
 
 struct Hello;
 
 impl Plugin for Hello {
     fn entry() {
-        hamlet_guest::log(Level::Info, "hello");
+        hamlet_guest::panel("main", "HELLO", "book");
     }
 
     fn step(inbox: Vec<Incoming>) -> Vec<Intent> {
         Vec::new()
+    }
+
+    fn panel_view(_panel: &str) -> Node {
+        column([label("Hello"), button("Go").id("go")])
     }
 }
 
 hamlet_guest::export!(Hello);
 ```
 
-To build and install the example into a home:
+`panel_view` has a default that returns an empty column, for a plugin with no
+panel. A plugin holds its state in statics of its own, since each call is a
+call into the same instance.
+
+`guests/roster` is a plugin built with all of it: a panel with a heading, a
+Refresh button, a count of refreshes, a checkbox that shows a line of help,
+and the agents from `agents()`, or a line that the read was not granted.
+
+To build and install it into a home, with the grant:
 
 ```sh
 rustup target add wasm32-wasip2
-HAMLET_HOME=/tmp/hamlet-try guests/hello/build.sh
-echo 'plugins = ["hello"]' > /tmp/hamlet-try/plugins/approved.toml
-HAMLET_HOME=/tmp/hamlet-try cargo run --features wasm -- --headless
+HAMLET_HOME=/tmp/hamlet-try guests/roster/build.sh
+echo 'plugins = [{ id = "roster", grants = ["read.agents"] }]' \
+  > /tmp/hamlet-try/plugins/approved.toml
+HAMLET_HOME=/tmp/hamlet-try cargo run --features wasm
 ```
 
 The default `cargo build`, `clippy` and `test` need neither the target nor
 the network.
 
-## Tests and the bench
+## Tests, the gallery and the bench
 
 The tests make their plugins from core modules in text and the WIT file, so
-they need no target. `cargo run --release -p hamlet_wasm --example bench --
-<plugin.wasm>` times the compile, the `.cwasm`, an instantiation and a
-`step` of a built plugin.
+they need no target. `fixture.rs` makes the modules, `fixture/tree.rs` lays a
+tree out in a module's memory, and `fixture/home.rs` makes a scratch home and
+an app that loads it.
+
+`cargo run --example ui_gallery --features wasm -- --scene plugin-roster
+--out <dir>` draws the roster's panel in the dock, from the tree the roster
+returns and a list of agents made up for the scene.
+
+`cargo run --release -p hamlet_wasm --example bench -- <plugin.wasm>` times
+the compile, the `.cwasm`, an instantiation and a `step` of a built plugin.

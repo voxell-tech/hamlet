@@ -61,7 +61,7 @@ table. The binary and the examples are the root package.
 | `hamlet_sdk` | What a plugin is built with: the plugin types, the theme, looks and icons, the dock's panels |
 | `hamlet_ui` | The window: panels, menus, chat and pointer around the world |
 | `hamlet_wasm` | The host of the installed WASM plugins, behind the binary's `wasm` feature. See [`wasm.md`](wasm.md) |
-| `hamlet_guest` | What a WASM plugin is written with: the interface bindings and the `Plugin` trait |
+| `hamlet_guest` | What a WASM plugin is written with: the interface bindings, the `Plugin` trait and the tree builder |
 
 The plugins are under `plugins/`: `plugins/all` is `hamlet_plugins`, which
 lists them, and each other folder is one plugin crate. See
@@ -131,9 +131,12 @@ Paths are under `crates/`.
 | A plugin, or what a plugin may add | `plugins/<name>/`, `hamlet_sdk/src/plugin/`; [`sdk.md`](sdk.md) |
 | Which plugins are built in | `plugins/all/Cargo.toml` and `src/lib.rs` |
 | The Skills panel | `plugins/skills/src/` |
-| What an installed plugin may call, and its limits | `hamlet_wasm/wit/hamlet-plugin.wit`, `hamlet_wasm/src/host.rs`, `assets/wasm.toml`; [`wasm.md`](wasm.md) |
-| Which installed plugins load | `hamlet_wasm/src/install.rs`, `approved.rs`, `load.rs`; [`wasm.md`](wasm.md) |
-| Writing a WASM plugin | `hamlet_guest/src/lib.rs`, `guests/hello/`; [`wasm.md`](wasm.md) |
+| What an installed plugin may call, and its limits | `hamlet_wasm/wit/hamlet-plugin.wit`, `hamlet_wasm/src/host.rs` and `host/`, `assets/wasm.toml`; [`wasm.md`](wasm.md) |
+| Which installed plugins load, and what each is granted | `hamlet_wasm/src/install.rs`, `approved.rs`, `grant.rs`, `load.rs`; [`wasm.md`](wasm.md) |
+| What a plugin's panel is drawn as | `hamlet_wasm/src/view/node.rs` (a node as a view), `tree.rs`, `trees.rs`, `draw.rs`; [`wasm.md`](wasm.md) |
+| What a plugin's panel shows when it stopped | `hamlet_wasm/src/view/stopped.rs`, `stop.rs`; [`wasm.md`](wasm.md) |
+| How a click or typing reaches a plugin | `hamlet_wasm/src/event.rs`; [`wasm.md`](wasm.md) |
+| Writing a WASM plugin | `hamlet_guest/src/lib.rs` and `ui.rs`, `guests/hello/`, `guests/roster/`; [`wasm.md`](wasm.md) |
 | The Plugins page of Settings | `hamlet_ui/src/screens/settings/plugins.rs` |
 | A colour in the world | `assets/palette.toml` |
 | A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`, `wasm.toml`. What each value means is beside its field in the code |
@@ -168,7 +171,7 @@ These draw to files and open nothing:
 
 | Command | Shows |
 |---|---|
-| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes |
+| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes. `plugin-roster`, an installed plugin's panel, needs `--features wasm` |
 | `cargo run --release --example far_lands -- --out <dir>` | The land, many towns, a town being moved; `--bench` times it |
 | `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library |
 | `cargo run --example cursor_sheet` | Every cursor |
