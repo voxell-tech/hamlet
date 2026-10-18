@@ -7,7 +7,7 @@ use super::{Agent, Archived, DecisionKind, End, Hamlet, Reason};
 
 /// JavaScript's boundary whitespace, as used by the TypeScript
 /// record.
-pub(super) fn trim(text: &str) -> &str {
+pub(crate) fn trim(text: &str) -> &str {
     text.trim_matches(|c: char| {
         (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
     })

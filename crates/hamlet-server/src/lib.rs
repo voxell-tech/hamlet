@@ -3,9 +3,18 @@
 //! once.
 
 mod claim;
+mod credentials;
+mod documents;
 mod home;
+mod limits;
 mod operation;
+mod papers;
+pub mod protocol;
 pub mod record;
+pub mod runtime;
+pub mod service;
+mod settings;
+mod state;
 mod store;
 
 pub use claim::Held;

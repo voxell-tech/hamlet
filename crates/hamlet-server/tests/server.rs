@@ -4,9 +4,13 @@
 
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
+use futures::{SinkExt, StreamExt};
 use hamlet_server::{Held, Home};
 use hamlet_testing::Scratch;
+use serde_json::{Value, json};
+use tokio_tungstenite::tungstenite::Message;
 
 #[test]
 fn the_server_holds_its_home_until_terminated() {
@@ -14,6 +18,7 @@ fn the_server_holds_its_home_until_terminated() {
     let mut server =
         Command::new(env!("CARGO_BIN_EXE_hamlet-server"))
             .args(["--home".as_ref(), dir.as_os_str()])
+            .args(["--port", "0"])
             .env_remove("HAMLET_HOME")
             .stderr(Stdio::piped())
             .spawn()
@@ -32,12 +37,244 @@ fn the_server_holds_its_home_until_terminated() {
     assert_eq!(sent, 0);
     assert!(server.wait().unwrap().success());
     let mut home = Home::open(&dir).unwrap();
-    let markers = home
-        .store()
-        .connection()
-        .query_row("SELECT count(*) FROM marker", [], |row| {
-            row.get::<_, i64>(0)
-        })
+    assert!(!dir.join("server.json").exists());
+    assert_eq!(
+        home.store().record("home").unwrap().unwrap().agents[0].name,
+        "founder"
+    );
+}
+
+struct Server {
+    child: std::process::Child,
+    url: String,
+    token: String,
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Server {
+    fn start(home: &Scratch, env: &[(&str, &str)]) -> Self {
+        let mut command =
+            Command::new(env!("CARGO_BIN_EXE_hamlet-server"));
+        for key in [
+            "HAMLET_MODEL",
+            "HAMLET_BASE_URL",
+            "HAMLET_API_KEY",
+            "HAMLET_REFLECT_EVERY",
+            "HAMLET_NET",
+        ] {
+            command.env_remove(key);
+        }
+        let mut child = command
+            .args(["--port", "0"])
+            .env("HAMLET_HOME", home.as_os_str())
+            .env("HAMLET_USER", "chief")
+            .envs(env.iter().copied())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let until = Instant::now() + Duration::from_secs(10);
+        let published = loop {
+            assert!(
+                child.try_wait().unwrap().is_none(),
+                "server exited during startup"
+            );
+            if let Ok(bytes) = std::fs::read(home.join("server.json"))
+                && let Ok(value) =
+                    serde_json::from_slice::<Value>(&bytes)
+                && value["pid"] == child.id()
+            {
+                break value;
+            }
+            assert!(Instant::now() < until, "server did not publish");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let credentials = serde_json::from_slice::<Value>(
+            &std::fs::read(home.join("credentials.json")).unwrap(),
+        )
         .unwrap();
-    assert_eq!(markers, 0);
+        Self {
+            child,
+            url: published["url"].as_str().unwrap().into(),
+            token: credentials["connection"]["token"]
+                .as_str()
+                .unwrap()
+                .into(),
+        }
+    }
+
+    fn signal(&self, signal: i32) {
+        // SAFETY: kill sends a signal to this child's PID.
+        assert_eq!(
+            unsafe { libc::kill(self.child.id() as i32, signal) },
+            0
+        );
+    }
+
+    async fn exit(&mut self) -> i32 {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if let Some(status) = self.child.try_wait().unwrap() {
+                    break status.code().unwrap();
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("server failed to stop")
+    }
+
+    async fn connect(
+        &self,
+    ) -> (
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        Value,
+    ) {
+        let (mut socket, _) =
+            tokio_tungstenite::connect_async(&self.url)
+                .await
+                .unwrap();
+        socket
+            .send(Message::Text(
+                json!({"type":"hello","v":0,"token":self.token})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        let state = tokio::time::timeout(
+            Duration::from_secs(3),
+            socket.next(),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+        let state =
+            serde_json::from_str::<Value>(state.to_text().unwrap())
+                .unwrap();
+        assert_eq!(state["type"], "state");
+        (socket, state)
+    }
+}
+
+#[tokio::test]
+async fn requests_sent_before_close_are_kept_in_order() {
+    let home = Scratch::new("protocol-disconnected-edit");
+    let mut server = Server::start(&home, &[]);
+    let (mut socket, _) = server.connect().await;
+    for text in ["first", "second", "last"] {
+        socket.send(Message::Text(json!({"type":"edit","doc":"charter","id":uuid::Uuid::new_v4().to_string(),"text":text}).to_string().into())).await.unwrap();
+    }
+    socket.close(None).await.unwrap();
+    drop(socket);
+    let (mut reader, _) = server.connect().await;
+    tokio::time::timeout(Duration::from_secs(3),async {
+        loop {
+            reader.send(Message::Text(json!({"type":"read","what":"charter","id":uuid::Uuid::new_v4().to_string()}).to_string().into())).await.unwrap();
+            let result = reader.next().await.unwrap().unwrap();
+            let result = serde_json::from_str::<Value>(result.to_text().unwrap()).unwrap();
+            if result["charter"]["text"] == "last" { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    drop(reader);
+    server.signal(libc::SIGTERM);
+    assert_eq!(server.exit().await, 0);
+}
+
+#[tokio::test]
+async fn overrides_and_secrets_stay_in_memory_but_the_chief_is_retained()
+ {
+    let home = Scratch::new("protocol-overrides");
+    let key = "process-only-key-123456789";
+    let mut server = Server::start(
+        &home,
+        &[
+            ("HAMLET_MODEL", "local::other"),
+            ("HAMLET_BASE_URL", "http://localhost:9999/v1"),
+            ("HAMLET_REFLECT_EVERY", "+2"),
+            ("HAMLET_NET", "1"),
+            ("HAMLET_API_KEY", key),
+        ],
+    );
+    let (mut socket, state) = server.connect().await;
+    assert_eq!(state["settings"]["model"], "local::other");
+    assert_eq!(
+        state["settings"]["endpoints"][0]["baseUrl"],
+        "http://localhost:9999/v1"
+    );
+    assert_eq!(state["settings"]["reflectEvery"], 2);
+    assert_eq!(state["settings"]["allowNet"], true);
+    socket
+        .send(Message::Text(json!({"type":key}).to_string().into()))
+        .await
+        .unwrap();
+    let answer = socket.next().await.unwrap().unwrap();
+    assert!(answer.to_text().unwrap().contains("[REDACTED]"));
+    assert!(!answer.to_text().unwrap().contains(key));
+    drop(socket);
+    server.signal(libc::SIGTERM);
+    assert_eq!(server.exit().await, 0);
+    let token = server.token.clone();
+    drop(server);
+    let mut server =
+        Server::start(&home, &[("HAMLET_USER", "someone-else")]);
+    assert_eq!(server.token, token);
+    let (socket, state) = server.connect().await;
+    assert_eq!(state["chief"], "chief");
+    assert_eq!(state["settings"]["model"], "local::qwen3.6:35b-a3b");
+    assert_eq!(
+        state["settings"]["endpoints"][0]["baseUrl"],
+        "http://localhost:11434/v1"
+    );
+    assert_eq!(state["settings"]["reflectEvery"], 10);
+    assert_eq!(state["settings"]["allowNet"], false);
+    drop(socket);
+    server.signal(libc::SIGTERM);
+    assert_eq!(server.exit().await, 0);
+    for file in ["realm.sqlite", "credentials.json"] {
+        let bytes = std::fs::read(home.join(file)).unwrap();
+        assert!(
+            !bytes.windows(key.len()).any(|w| w == key.as_bytes())
+        );
+    }
+}
+
+#[tokio::test]
+async fn ctrl_c_stops_even_with_unresponsive_clients_and_a_second_interrupt_forces_exit()
+ {
+    for twice in [false, true] {
+        let home = Scratch::new("protocol-interrupt");
+        let mut server = Server::start(&home, &[]);
+        let (mut reader, _) = server.connect().await;
+        let (_unresponsive, _) = server.connect().await;
+        server.signal(libc::SIGINT);
+        let closed = tokio::time::timeout(
+            Duration::from_secs(2),
+            reader.next(),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+        assert!(
+            matches!(closed,Message::Close(Some(frame)) if u16::from(frame.code)==1001)
+        );
+        if twice {
+            server.signal(libc::SIGINT);
+        }
+        assert_eq!(server.exit().await, if twice { 130 } else { 0 });
+        if !twice {
+            assert!(!home.join("server.json").exists());
+        }
+    }
 }

@@ -15,6 +15,7 @@ pub use document::{
     MergeFiles, MergeNotes, OpenVote, Protection, Road, RoadBudget,
     RoadCharge,
 };
+pub(crate) use names::trim;
 pub use names::{NameFallback, check_name, tidy_name};
 pub use refusals::{Action, Audience, Reason, Refusal};
 pub use roads::level;
@@ -122,6 +123,10 @@ pub enum Change {
     FinishMerge {
         archive: String,
     },
+    SetCharacter {
+        number: u64,
+        text: String,
+    },
     SetLimits(Limits),
     /// Integration with votes and instructions; these are not agent
     /// tools.
@@ -150,6 +155,7 @@ impl Change {
             Self::CarryRoad { .. } => Action::CarryRoad,
             Self::Seat { .. } => Action::Seat,
             Self::FinishMerge { .. } => Action::FinishMerge,
+            Self::SetCharacter { .. } => Action::Character,
             Self::SetLimits(_) => Action::Limits,
             Self::SetGuards { .. } => Action::Guards,
         }
@@ -379,6 +385,7 @@ impl Operation for RecordOperation {
                 | Change::Seat { .. }
                 | Change::TakeUpRoad { .. }
                 | Change::FinishMerge { .. }
+                | Change::SetCharacter { .. }
                 | Change::SetLimits(_)
                 | Change::SetGuards { .. }
         );
@@ -516,6 +523,22 @@ impl Operation for RecordOperation {
                     archive: archive.clone(),
                 })),
             },
+            Change::SetCharacter { number, text } => {
+                match record
+                    .agents
+                    .iter_mut()
+                    .find(|a| a.number == *number)
+                {
+                    Some(agent) => {
+                        agent.character = text.clone();
+                        Ok(RecordResult::Changed)
+                    }
+                    None => Err(self.refuse(Reason::AgentMissing {
+                        name: format!("#{number}"),
+                        local: true,
+                    })),
+                }
+            }
             Change::SetLimits(limits) => {
                 if let Some(budget) = &limits.road_budget {
                     ensure!(

@@ -26,6 +26,13 @@ const MIGRATIONS: &[&str] = &[
         home TEXT NOT NULL
     ) STRICT;
     PRAGMA application_id = 1212239180;",
+    // 4. Chief documents, keyed by home or hamlet.
+    "CREATE TABLE chief_document (
+        kind TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        PRIMARY KEY (kind, key)
+    ) STRICT, WITHOUT ROWID;",
 ];
 
 /// A home's realm database, open in this process alone.

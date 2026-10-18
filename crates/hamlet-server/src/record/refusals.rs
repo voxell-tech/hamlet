@@ -27,6 +27,7 @@ pub enum Action {
     Seat,
     Mayor,
     FinishMerge,
+    Character,
     Limits,
     Guards,
 }

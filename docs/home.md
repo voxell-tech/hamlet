@@ -49,6 +49,28 @@ OpenRouter are the offered sign-ins; other providers use keys.
 Tool results, protocol messages and the oversight record are scrubbed of
 known credentials.
 
+## The Rust server's record and documents
+
+`hamlet-server --home <folder> --port 0` serves protocol v0 on a free
+loopback port and publishes `server.json`. It uses the same claim,
+credentials shape and stable connection token. `HAMLET_HOME` selects the
+home when `--home` is absent. SIGTERM or the first SIGINT closes clients
+with code 1001 and removes the publication; a second SIGINT exits 130.
+
+Its `realm.sqlite` holds the record and chief documents. Characters
+belong to recorded agents; `chief_document` holds the charter, limits,
+settings and work-folder choices. A limits edit commits its document and
+the record's constraints together. Notes stay in house files, opened
+relative to the claimed home without following links. `HAMLET_MODEL`,
+`HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and `HAMLET_NET` override this
+process's settings without changing their stored values.
+
+`crates/hamlet-server/src/service.rs` composes requests and record-backed
+state; `runtime.rs` owns authentication, ordered connections and
+shutdown. The Node harness script's path is retained in `runtime::Options`
+as `faux`. The CLI's default server selection remains in
+`hamlet_cli/src/process.rs`.
+
 ## Starter skills
 
 `server/assets/starters/` holds the starter skills. The library starts

@@ -39,6 +39,14 @@ loopback endpoint in `src/openai.rs`.
 | `HAMLET_ACCEPTANCE_SERVER` | The command that starts a server, split on whitespace. Unset or empty: the `hamlet` command's `server`. |
 | `HAMLET_CLI` | The `hamlet` command, for the default server and the CLI scenarios. Unset: `target/debug/hamlet`. |
 
+A relative executable path is resolved against the workspace root. To
+judge the Rust server with the same scenarios:
+
+```sh
+cargo build -p hamlet-server -p hamlet_cli
+HAMLET_ACCEPTANCE_SERVER=target/debug/hamlet-server cargo test -p hamlet_acceptance --features acceptance --no-fail-fast
+```
+
 A server that cannot be started fails its scenario, with the end of what
 it printed. Nothing is skipped.
 

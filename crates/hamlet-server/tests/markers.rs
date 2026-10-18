@@ -391,7 +391,7 @@ fn migrations_keep_old_markers_and_roll_back_failed_steps() {
     db.execute_batch("DROP TABLE record_name").unwrap();
     drop(db);
     let mut home = Home::open(&dir).unwrap();
-    assert_eq!(count(&mut home, "PRAGMA user_version"), 3);
+    assert_eq!(count(&mut home, "PRAGMA user_version"), 4);
     assert_eq!(count(&mut home, "SELECT count(*) FROM marker"), 1);
     assert_eq!(
         home.store()

@@ -315,10 +315,19 @@ fn server_command() -> Vec<String> {
         .ok()
         .filter(|v| !v.trim().is_empty())
     {
-        return command
+        let mut words = command
             .split_whitespace()
             .map(String::from)
-            .collect();
+            .collect::<Vec<_>>();
+        let program = Path::new(&words[0]);
+        if program.is_relative() && program.components().count() > 1 {
+            words[0] = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(program)
+                .display()
+                .to_string();
+        }
+        return words;
     }
     let cli = cli();
     assert!(

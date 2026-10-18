@@ -18,14 +18,24 @@ workspace = true
 
 [dependencies]
 hamlet_home.workspace = true
+hamlet_protocol.workspace = true
 anyhow.workspace = true
+chrono.workspace = true
+futures.workspace = true
 interprocess.workspace = true
+jsonschema = { version = "0.33", default-features = false }
+ring.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
+tokio-tungstenite.workspace = true
+url = "2"
 uuid.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
 hamlet_testing.workspace = true
