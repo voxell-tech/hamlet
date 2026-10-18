@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use hamlet_sdk::capability::{Asks, Refusal};
 use hamlet_sdk::plugin::needs;
 
+use crate::files::FILES as KEPT;
 use crate::interface::VERSION;
 use crate::manifest::{Kind, Manifest};
 use crate::storage::DATA;
@@ -155,14 +156,15 @@ pub fn read(folder: &Path) -> Result<Installed, Rejected> {
     })
 }
 
-/// Whether `folder` holds nothing but the data of a plugin that was
-/// removed with its data kept.
+/// Whether `folder` holds nothing but the data and files of a plugin
+/// that was removed with its data kept.
 fn only_data(folder: &Path) -> bool {
     std::fs::read_dir(folder).is_ok_and(|entries| {
-        let mut names =
-            entries.filter_map(|entry| Some(entry.ok()?.file_name()));
-        names.next().is_some_and(|name| name == DATA)
-            && names.next().is_none()
+        let mut names = entries
+            .filter_map(|entry| Some(entry.ok()?.file_name()))
+            .peekable();
+        names.peek().is_some()
+            && names.all(|name| name == DATA || name == KEPT)
     })
 }
 

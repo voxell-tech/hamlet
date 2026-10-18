@@ -2,6 +2,7 @@ mod cache;
 mod collections;
 mod contributions;
 mod events;
+mod files;
 mod interop;
 mod limits;
 mod needs;
@@ -104,7 +105,7 @@ fn a_build_for_another_interface_says_which() {
     };
     assert_eq!(
         why,
-        "built for interface 0.1.0, this Hamlet speaks 0.6.0"
+        "built for interface 0.1.0, this Hamlet speaks 0.7.0"
     );
 }
 

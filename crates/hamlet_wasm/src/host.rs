@@ -3,6 +3,7 @@
 
 mod collections;
 mod declare;
+mod folder;
 mod keeping;
 mod read;
 mod request;
@@ -19,6 +20,7 @@ pub use self::declare::{
 };
 pub use self::request::Want;
 use crate::fault::Fault;
+use crate::files::Files;
 use crate::interface::hamlet::plugin::host::{
     self, Host, Level, RequestResult,
 };
@@ -63,6 +65,8 @@ pub struct State {
     pub(crate) papers: Papers,
     /// The plugin's storage, once it has a folder.
     pub(crate) storage: Option<Storage>,
+    /// The plugin's folder of files, once it has a folder.
+    pub(crate) files: Option<Files>,
     /// The blob the plugin keeps with the host.
     pub(crate) state: Vec<u8>,
     pub(crate) state_room: usize,
@@ -98,6 +102,7 @@ impl State {
             agents: Vec::new(),
             papers: Papers::default(),
             storage: None,
+            files: None,
             state: Vec::new(),
             state_room: limits.state_bytes,
             reach: Reach::default(),
@@ -214,6 +219,29 @@ impl Host for State {
 
     fn storage_keys(&mut self, prefix: String) -> Vec<String> {
         self.stored_keys(&prefix)
+    }
+
+    fn files_list(&mut self) -> Result<Vec<String>, String> {
+        self.list_files()
+    }
+
+    fn files_read(
+        &mut self,
+        path: String,
+    ) -> Result<Vec<u8>, String> {
+        self.read_file(&path)
+    }
+
+    fn files_write(
+        &mut self,
+        path: String,
+        data: Vec<u8>,
+    ) -> Result<(), String> {
+        self.write_file(&path, &data)
+    }
+
+    fn files_delete(&mut self, path: String) -> Result<(), String> {
+        self.delete_file(&path)
     }
 
     fn collection_list(

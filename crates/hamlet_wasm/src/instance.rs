@@ -12,6 +12,7 @@ use wasmtime::{Engine, Store};
 
 use crate::cache;
 use crate::fault::Fault;
+use crate::files::{self, Files};
 use crate::host::{self, Reach, State};
 use crate::interface::Hamlet;
 use crate::limits::Limits;
@@ -59,6 +60,13 @@ impl Instance {
     ) -> Self {
         self.store.data_mut().storage =
             Some(Storage::new(folder, Caps::of(limits)));
+        self
+    }
+
+    /// This, with its files in `folder`.
+    pub fn filed(mut self, folder: PathBuf, limits: &Limits) -> Self {
+        self.store.data_mut().files =
+            Some(Files::new(folder, files::Caps::of(limits)));
         self
     }
 

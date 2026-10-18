@@ -52,6 +52,15 @@ pub struct Limits {
     pub storage_key_bytes: usize,
     /// The bytes of one storage value.
     pub storage_value_bytes: usize,
+    /// The bytes of all the files one plugin keeps in its folder of
+    /// files.
+    pub files_bytes: u64,
+    /// The files one plugin may keep in its folder of files.
+    pub files_count: usize,
+    /// The bytes of one file.
+    pub file_bytes: usize,
+    /// The bytes of the path of one file.
+    pub file_path_bytes: usize,
     /// The bytes of the state the host holds for one plugin.
     pub state_bytes: usize,
     /// The commands one plugin may declare. The rest are dropped.

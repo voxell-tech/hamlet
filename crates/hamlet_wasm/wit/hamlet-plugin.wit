@@ -1,4 +1,4 @@
-package hamlet:plugin@0.6.0;
+package hamlet:plugin@0.7.0;
 
 interface host {
   enum level { info, warn, error }
@@ -120,6 +120,29 @@ interface host {
 
   // The keys that start with `prefix`, in order.
   storage-keys: func(prefix: string) -> list<string>;
+
+  // The plugin's own folder of files, which the host keeps for it and
+  // no other plugin or path outside it can reach. A path is relative,
+  // of names of letters, digits, `.`, `_`, `-` and spaces joined by
+  // `/`, none starting with `.`; a link is never followed. The host
+  // caps the files, the bytes and the length of a path. The calls need
+  // the capabilities `files.read` and `files.write`, are gated as
+  // `agents` is, and fail with `<name> not granted` or why the path or
+  // the cap does not allow it.
+
+  // The paths of the files, in order. It needs `files.read`.
+  files-list: func() -> result<list<string>, string>;
+
+  // The bytes of the file at `path`. It needs `files.read`.
+  files-read: func(path: string) -> result<list<u8>, string>;
+
+  // Sets the file at `path`, creating the folders on the way. It
+  // needs `files.write`.
+  files-write: func(path: string, data: list<u8>) -> result<_, string>;
+
+  // Removes the file at `path`, if it is there. It needs
+  // `files.write`.
+  files-delete: func(path: string) -> result<_, string>;
 
   // A collection another plugin shares: the keys of its storage that
   // start with a prefix its manifest names under `exports.collections`.

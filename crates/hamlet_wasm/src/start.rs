@@ -12,6 +12,7 @@ use hamlet_sdk::plugin::{Exports, PluginInfo, Status};
 use crate::draw::Dirty;
 use crate::engine::Host;
 use crate::fault::Fault;
+use crate::files::FILES;
 use crate::host::{Declared, Logged, Offers, Want};
 use crate::inbox::Inbox;
 use crate::instance::Instance;
@@ -64,6 +65,7 @@ pub fn build(
     let mut instance = instance
         .named(&info.id)
         .stored(folder.join(DATA), limits)
+        .filed(folder.join(FILES), limits)
         .holding(state);
     instance.see(granted, agents, papers);
     let output = instance.entry(limits)?;

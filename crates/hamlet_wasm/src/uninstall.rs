@@ -7,12 +7,13 @@ use bevy::prelude::*;
 use hamlet_sdk::capability::{Removed, Store};
 use hamlet_sdk::plugin::PluginInfo;
 
+use crate::files::FILES;
 use crate::reload::Watch;
 use crate::storage::DATA;
 
 /// Despawns the plugin the chief removed, deletes its files, and the
-/// folder of its data unless the chief kept it, and drops its record
-/// of choices.
+/// folders of its data and files unless the chief kept it, and drops
+/// its record of choices.
 pub fn removed(
     removed: On<Removed>,
     plugins: Query<(Entity, &PluginInfo, &Watch)>,
@@ -50,15 +51,18 @@ pub fn removed(
     info!("plugin {}: removed{kept}", info.id);
 }
 
-/// Deletes the folder, or all that is in it but its data when
-/// `keep_data`.
+/// Deletes the folder, or all that is in it but its data and files
+/// when `keep_data`.
 fn clear(folder: &Path, keep_data: bool) -> std::io::Result<()> {
     if !keep_data {
         return std::fs::remove_dir_all(folder);
     }
     for entry in std::fs::read_dir(folder)? {
         let path = entry?.path();
-        if path.file_name().is_some_and(|name| name == DATA) {
+        if path
+            .file_name()
+            .is_some_and(|name| name == DATA || name == FILES)
+        {
             continue;
         }
         match path.is_dir() {

@@ -19,6 +19,7 @@ pub mod enable;
 pub mod engine;
 pub mod event;
 pub mod fault;
+pub mod files;
 pub mod host;
 pub mod inbox;
 pub mod install;
