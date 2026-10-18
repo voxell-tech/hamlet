@@ -78,3 +78,31 @@ click = { panel = "main", node = "delete" }
 
 [[step]]
 expect = { panel = "main", text = "Select a note" }
+
+# The chief allows the menu line and the shortcut, and uses both.
+[[step]]
+grant = "ui.menu"
+
+[[step]]
+grant = "ui.keys"
+
+[[step]]
+run-menu = "New note"
+
+[[step]]
+type = { panel = "main", node = "body", text = "From the menu" }
+
+[[step]]
+render = { panel = "main", file = "menu-note.png" }
+
+[[step]]
+press = "Cmd+Shift+N"
+
+[[step]]
+type = { panel = "main", node = "body", text = "From the keyboard" }
+
+[[step]]
+expect = { panel = "main", text = "From the menu" }
+
+[[step]]
+render = { panel = "main", file = "key-note.png" }

@@ -17,6 +17,10 @@ const REASON: &str =
 /// The command that adds a note with the words it is given.
 pub const ADD: &str = "add";
 
+/// The command that adds an empty note and opens it. The chief runs
+/// it from the menu and the keyboard.
+pub const NEW: &str = "new";
+
 /// The event of a note that was saved. Its payload is the note's
 /// number.
 pub const SAVED: &str = "note-saved";
@@ -54,12 +58,11 @@ pub fn handle(
         Incoming::Command(call) => {
             let added = match call.command.as_str() {
                 ADD => calls::args::<String>(&call)
-                    .and_then(|words| add(index, &words)),
+                    .and_then(|words| add(index, &words))
+                    .inspect(|id| saved(*id, out)),
+                NEW => open_new(session, index, "", out),
                 other => Err(format!("no command `{other}`")),
             };
-            if let Ok(id) = &added {
-                saved(*id, out);
-            }
             out.push(calls::reply(
                 &call,
                 added.as_ref().map_err(String::clone),
@@ -148,21 +151,30 @@ fn add(index: &mut Index, body: &str) -> Result<u64, String> {
     Ok(id)
 }
 
-/// Adds a note with these words and selects it.
+/// Adds a note with these words and selects it, or says why not.
 fn create(
     session: &mut Session,
     index: &mut Index,
     body: &str,
     out: &mut Vec<Intent>,
 ) {
-    match add(index, body) {
-        Ok(id) => {
-            session.selected = Some(id);
-            session.preview = false;
-            saved(id, out);
-        }
-        Err(why) => session.hint = why,
+    if let Err(why) = open_new(session, index, body, out) {
+        session.hint = why;
     }
+}
+
+/// Adds a note with these words, selects it and returns its number.
+fn open_new(
+    session: &mut Session,
+    index: &mut Index,
+    body: &str,
+    out: &mut Vec<Intent>,
+) -> Result<u64, String> {
+    let id = add(index, body)?;
+    session.selected = Some(id);
+    session.preview = false;
+    saved(id, out);
+    Ok(id)
 }
 
 /// Tells the plugins that hear of it that the note `id` was saved.

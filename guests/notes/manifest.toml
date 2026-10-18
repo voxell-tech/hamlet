@@ -6,12 +6,20 @@ interface = "0.5.0"
 # What other plugins may run, hear of and read. The notes are the
 # keys of its storage that start with `note.`.
 [exports]
-commands = ["add"]
+commands = ["add", "new"]
 events = ["note-saved"]
 
 [[exports.collections]]
 name = "notes"
 prefix = "note."
+
+[[asks]]
+capability = "ui.menu"
+reason = "To put New note in the HAMLET menu."
+
+[[asks]]
+capability = "ui.keys"
+reason = "To start a new note with Cmd+Shift+N."
 
 [[asks]]
 capability = "read.papers"

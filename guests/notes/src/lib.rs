@@ -19,6 +19,9 @@ impl Plugin for Notes {
     fn entry() {
         hamlet_guest::panel(PANEL, "NOTES", "notes");
         hamlet_guest::command(update::ADD, "Add a note", None);
+        hamlet_guest::command(update::NEW, "New note", Some("plus"));
+        hamlet_guest::menu_item("hamlet", 1, "New note", update::NEW);
+        hamlet_guest::key("Cmd+Shift+N", update::NEW);
     }
 
     fn step(inbox: Vec<Incoming>) -> Vec<Intent> {
