@@ -87,11 +87,13 @@ debug, sky, stage, keeper, stock), then the generator, then what the chief does 
 `hamlet.rs`. An app that wants only the scene adds the first group itself,
 as the style test does; the town generator adds it with `generator::plugin`
 and an `Origin` for its seed.
-`hamlet_ui` has `screens/` for the panels that draw from the core's state
-alone, one file or folder each, and `widgets/` for what every panel is built
-from: `feel/`, `tabs.rs` and `tuning.rs`. The other panels are files beside
-them. How things look (`theme.rs`, `looks.rs`, `icons.rs`, `platform.rs`)
-is in `hamlet_sdk`.
+`hamlet_ui` is the window around the world: the dock, the menus, the status
+bar, the welcome screen, the world's own panel and camera, the hover card,
+the right-click menu and its question, the cursor and the sounds of the
+panels. `widgets/` holds what the panels are drawn with: `feel/` and
+`tuning.rs`. The panels of the Inspector, the Settings, Needs You and Skills
+are plugins. How things look (`theme.rs`, `looks.rs`, `icons.rs`,
+`platform.rs`) and `tabs.rs`, `roll.rs`, `words.rs` are in `hamlet_sdk`.
 
 Names to keep apart:
 
@@ -129,7 +131,7 @@ Paths are under `crates/`.
 | Removing, merging, restoring an agent | `hamlet_rules/src/lifecycle.rs` |
 | Founding, naming, moving, closing a hamlet | `hamlet_rules/src/realm.rs` |
 | A starter skill | `hamlet_home/starters/<name>/SKILL.md` |
-| A panel | Its folder in `plugins/` where it is a plugin (Needs You, Settings, Skills), or its file in `hamlet_ui/src/screens/` or `hamlet_ui/src/` |
+| A panel | Its folder in `plugins/` where it is a plugin (Inspector, Needs You, Settings, Skills), or its file in `hamlet_ui/src/` |
 | The right-click menu | The items are contributions: `hamlet_ui/src/world_menu/contribute.rs` and `acts.rs`, and `items.rs` for the lines that depend on two agents that are chosen |
 | A colour in the panels | `assets/theme.toml`, its fields in `hamlet_sdk/src/theme.rs` |
 | How a control looks or feels | `hamlet_sdk/src/looks.rs`, `hamlet_ui/src/widgets/feel/`; [`ui-warmth.md`](ui-warmth.md) |
@@ -137,6 +139,9 @@ Paths are under `crates/`.
 | A plugin, or what a plugin may add | `plugins/<name>/`, `hamlet_sdk/src/plugin/`; [`sdk.md`](sdk.md) |
 | Which plugins are built in | `plugins/all/Cargo.toml` and `src/lib.rs` |
 | The Skills panel | `plugins/skills/src/` |
+| The Inspector: an agent's page, a hamlet's overview and rules, a chief's page, the Archive | `plugins/inspector/src/` (`agent.rs`, `overview.rs`, `history.rs`, `folder.rs`, `chief.rs`, `gone.rs`); the rules and models it shows, `hamlet_limits/src/`; its chat, `hamlet_chat/src/chat/` |
+| The Settings panel and its pages | `plugins/settings/src/lib.rs`; the models and the rules of the realm it shows, `hamlet_limits/src/` |
+| The question asked before a deed, and the deeds | The words and what each does, `hamlet_chat/src/deed.rs`; how it is drawn over the world, `hamlet_ui/src/world_menu/deed.rs` |
 | The Needs You panel (the queue of what waits for the chief) | `plugins/needs/src/lib.rs`; the count in the status bar is `hamlet_sdk/src/waits.rs`; how it draws an edit, `hamlet_sdk/src/change.rs` |
 | What an installed plugin may call, and its limits | `hamlet_wasm/wit/hamlet-plugin.wit`, `hamlet_wasm/src/host.rs` and `host/`, `assets/wasm.toml`; [`wasm.md`](wasm.md) |
 | Which installed plugins load, and what each is granted | `hamlet_wasm/src/install.rs`, `load.rs`, `hamlet_sdk/src/capability/`; [`permissions.md`](permissions.md), [`wasm.md`](wasm.md) |
@@ -157,7 +162,7 @@ Paths are under `crates/`.
 | The host's events a plugin may hear (selection, agents) | `hamlet_sdk/src/events.rs`, `agents.rs`, `hamlet_wasm/src/interop/hosted.rs`; [`wasm.md`](wasm.md) |
 | A command, running one by its id, and what a plugin's commands are as entities | `hamlet_sdk/src/command.rs` and `command/` (`spec.rs`, `run.rs`, `handler.rs`, `list.rs`, `notice.rs`, `subject.rs`), `plugin/entry.rs`, `hamlet_wasm/src/command.rs`; the chief running an installed plugin's command, `hamlet_wasm/src/interop/chief.rs`; [`sdk.md`](sdk.md) |
 | An item of the menu of a thing in the world (the right click) | Its `ContextItem` in the plugin's `entry` (`Entry::context_item`); the window's own items and the commands they run in `hamlet_ui/src/world_menu/contribute.rs` and `acts.rs`; how a thing is a `Subject`, `world_menu/subject.rs`; how the menu is built from the items, `world_menu/items.rs`; what the SDK keeps of them, `hamlet_sdk/src/context/`; [`sdk.md`](sdk.md) |
-| A tab of the inspector's page of an agent | Its `InspectorSection` in the plugin's `entry` (`Entry::inspector_section`); the tabs the page has itself, and how it lists the others, in `hamlet_ui/src/screens/inspector/agent.rs`; the Skills tab, `plugins/skills/src/lib.rs`; what the SDK keeps of them, `hamlet_sdk/src/inspector/`, `page.rs`; [`sdk.md`](sdk.md) |
+| A tab of the inspector's page of an agent | Its `InspectorSection` in the plugin's `entry` (`Entry::inspector_section`); the tabs the page has itself, and how it lists the others, in `plugins/inspector/src/agent.rs`; the Skills tab, `plugins/skills/src/lib.rs`; what the SDK keeps of them, `hamlet_sdk/src/inspector/`, `page.rs`; [`sdk.md`](sdk.md) |
 | A page of the Settings panel | Its `SettingsPage` in the plugin's `entry` (`Entry::settings_page`); the pages the panel has itself, and how it lists the others, in `plugins/settings/src/lib.rs`, which adds the Plugins page as any plugin adds one; what the SDK keeps of them, `hamlet_sdk/src/settings/`; [`sdk.md`](sdk.md) |
 | A plugin opening its own panel | The `open-panel` intent: `hamlet_wasm/src/run.rs`; for a guest `hamlet_guest::open_panel`; [`wasm.md`](wasm.md) |
 | A line in the HAMLET or VIEW menu | Its `MenuEntry` in the plugin's `entry` (`Entry::menu_item`); the window's own lines in `hamlet_ui/src/menu/window.rs`; how a menu lists them, `hamlet_sdk/src/menu/`; how the bar draws them, `hamlet_ui/src/menu.rs`; [`sdk.md`](sdk.md) |

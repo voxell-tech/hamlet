@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 bevy_app.workspace = true
 plugin_needs = { workspace = true, optional = true }
+plugin_inspector = { workspace = true, optional = true }
 plugin_settings = { workspace = true, optional = true }
 plugin_skills = { workspace = true, optional = true }
 
@@ -20,7 +21,8 @@ hamlet_sdk.workspace = true
 
 [features]
 # A plugin is built in when the feature of its name is on.
-default = ["needs", "settings", "skills"]
+default = ["inspector", "needs", "settings", "skills"]
+inspector = ["dep:plugin_inspector"]
 needs = ["dep:plugin_needs"]
 settings = ["dep:plugin_settings"]
 skills = ["dep:plugin_skills"]

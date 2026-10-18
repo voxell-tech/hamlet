@@ -36,7 +36,7 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, View, chat, inspector};
+use crate::{AnyView, Cx, Section, View, chat, house, of_agent};
 
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
@@ -50,8 +50,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_observer(stale_on_job)
         .add_systems(
             Update,
-            refresh
-                .run_if(resource_equals(inspector::Section::History)),
+            refresh.run_if(resource_equals(Section::History)),
         );
 }
 
@@ -229,8 +228,7 @@ fn resume(world: &mut World) {
     close(world);
     chat::send(world, format!("{RESUME} {number}"));
     // The talk it goes back to is what is shown.
-    *world.resource_mut::<inspector::Section>() =
-        inspector::Section::Conversation;
+    *world.resource_mut::<Section>() = Section::Conversation;
     show_tab(world, "agent");
 }
 
@@ -261,7 +259,7 @@ pub(crate) fn refresh(world: &mut World) {
     if moved {
         close(world);
     }
-    let dir = inspector::house(world).sessions();
+    let dir = house(world).sessions();
     let key = world.resource::<Me>().key.clone();
     let live = session::log_of(world, &key);
     let pasts = pasts(&dir, live.as_deref());
@@ -557,7 +555,7 @@ fn reader() -> AnyView {
 
 /// The Archive page.
 pub fn screen() -> AnyView {
-    inspector::of_agent("ARCHIVE", || {
+    of_agent("ARCHIVE", || {
         keyed(
             resource::<History, _>(|h| {
                 h.reading.as_ref().map(|r| r.path.clone())

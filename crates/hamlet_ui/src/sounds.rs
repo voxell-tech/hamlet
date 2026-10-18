@@ -17,7 +17,6 @@ use hamlet_realm::sound::{Cue, Sound};
 
 use crate::chat::Unfolded;
 use crate::hover::Card;
-use crate::inspector::Section;
 use crate::menu::OpenMenu;
 use crate::world_menu::Open;
 
@@ -71,16 +70,13 @@ struct Docked {
     let_go: f32,
     /// A tab has been in front.
     tabs: bool,
-    section: Option<Section>,
 }
 
-/// A tab brought to the front, in the dock or in the selection, and
-/// a panel taken hold of and let go.
-#[allow(clippy::too_many_arguments)]
+/// A tab brought to the front in the dock, and a panel taken hold of
+/// and let go.
 fn tabs(
     time: Res<Time>,
     drag: Res<DockDrag>,
-    section: Res<Section>,
     fronted: Query<(), (Added<ActiveTab>, With<DockTab>)>,
     fronts: Query<(), With<ActiveTab>>,
     mut docked: Local<Docked>,
@@ -98,9 +94,7 @@ fn tabs(
     // The tabs a docked panel brings with it, and the first tabs of
     // all, were not brought to the front by hand.
     let by_hand = docked.tabs && now - docked.let_go > 0.4;
-    let chosen = docked.section.replace(*section);
-    let turned = chosen.is_some_and(|was| was != *section);
-    if !fronted.is_empty() && by_hand || turned {
+    if !fronted.is_empty() && by_hand {
         write(&mut cues, &mut turn, Sound::Tab);
     }
     docked.tabs = !fronts.is_empty();
@@ -153,7 +147,6 @@ mod tests {
             .init_resource::<OpenMenu>()
             .init_resource::<Open>()
             .init_resource::<DockDrag>()
-            .init_resource::<Section>()
             .init_resource::<Unfolded>()
             .init_resource::<Card>();
         app.add_plugins(plugin);

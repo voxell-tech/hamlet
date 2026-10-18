@@ -18,8 +18,8 @@ use hamlet_sdk::looks::{ICON, note, page_head, title};
 use hamlet_sdk::theme::HamletTheme;
 use hamlet_sdk::tree::view;
 use hamlet_sdk::{AnyView, Cx};
-use hamlet_ui::inspector::Section;
 use hamlet_ui::{tabs, world_menu};
+use plugin_inspector::Section;
 
 /// The id of the one window of the dock a hosted picture draws.
 const HOST: &str = "host";

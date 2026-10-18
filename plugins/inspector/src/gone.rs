@@ -8,15 +8,16 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, scroll,
 };
 use hamlet_core::agents::{LivesIn, MergedInto, Purpose};
+use hamlet_realm::orders;
 use hamlet_realm::pick::{Selected, Thing, select};
 
 use super::agent::dim;
+use crate::deed::{self, Deed};
 use crate::icons::Glyph;
 use crate::looks::{
     Fills, action, bad_action, good_action, stated, title,
 };
 use crate::platform::Wraps;
-use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx, View, lists};
 
 /// The page of an agent that is gone, with the way back.
@@ -51,15 +52,13 @@ pub(super) fn ruin(agent: Entity) -> AnyView {
                     good_action(
                         Glyph::Restore,
                         "RESTORE",
-                        move |world| {
-                            world_menu::restore(world, agent)
-                        },
+                        move |world| orders::restore(world, agent),
                     ),
                     bad_action(
                         Glyph::Delete,
                         "DELETE FOR GOOD",
                         move |world| {
-                            world_menu::ask(world, Deed::Erase(agent))
+                            deed::ask(world, Deed::Erase(agent))
                         },
                     ),
                     action(

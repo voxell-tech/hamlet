@@ -24,8 +24,7 @@ use hamlet_ui::icons::{Glyph, glyph};
 use hamlet_ui::platform::DisplayText;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::{
-    Cx, brass, chat, grim, lamp, lists, marked, menu, platform, tabs,
-    well,
+    Cx, brass, chat, grim, lamp, marked, menu, platform, tabs, well,
 };
 
 use super::{Scene, Strike, Ui};
@@ -215,7 +214,7 @@ fn popups() -> Ui {
         wide("HOVER CARD", card.boxed()),
         wide(
             "A CARD IN A LIST",
-            lists::item(
+            hamlet_sdk::cards::item(
                 "ORCHARD".into(),
                 "Prune, graft and keep the press.".into(),
                 Tone::Body,

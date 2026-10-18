@@ -5,14 +5,10 @@ mod chief;
 pub mod chrome;
 pub mod cursor;
 mod dock;
-mod folder;
-pub mod history;
 mod hover;
-pub mod lists;
 pub mod menu;
 mod remember;
 mod root;
-pub mod screens;
 mod sounds;
 mod status;
 pub mod welcome;
@@ -23,14 +19,12 @@ mod world_view;
 
 use bevy::app::{App, Plugin, Update};
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::state::state::OnEnter;
 use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
 pub use hamlet_chat::me::{self, Me};
 pub use hamlet_chat::{chat, links, markdown, pictures, select};
 pub use hamlet_limits::{models, rules};
-use hamlet_realm::pick::Selected;
 pub use hamlet_sdk::dock::{lit_panel, panel};
 pub use hamlet_sdk::looks::{
     ICON, brass, grim, lamp, marked, retrace, well,
@@ -41,7 +35,6 @@ pub use hamlet_sdk::{
 };
 
 pub use self::root::toolbar;
-pub use self::screens::{inspector, overview};
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
 pub use self::widgets::{feel, icons, platform, tabs, tuning};
@@ -70,12 +63,9 @@ impl Plugin for UiPlugin {
                 remember::plugin,
             ),
             (
-                screens::plugin,
                 chief::plugin,
-                folder::plugin,
                 hamlet_limits::plugin,
                 hamlet_sdk::asking::plugin,
-                history::plugin,
                 welcome::plugin,
             ),
             (world_view::plugin, world_menu::plugin, hover::plugin),
@@ -92,15 +82,6 @@ impl Plugin for UiPlugin {
             OnEnter(Look::Ready),
             (world_view::attach, dock::seed, root::mount).chain(),
         )
-        .add_systems(
-            Update,
-            (
-                inspector::follow_selection
-                    .run_if(resource_changed::<Selected>),
-                chief::accompany,
-            )
-                .chain()
-                .after(me::Reseated),
-        );
+        .add_systems(Update, chief::accompany.after(me::Followed));
     }
 }

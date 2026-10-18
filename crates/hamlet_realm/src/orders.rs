@@ -58,6 +58,12 @@ pub fn decree(world: &mut World, agent: Entity, text: String) {
     world.flush();
 }
 
+/// Brings back `agent`, which was removed or merged away.
+pub fn restore(world: &mut World, agent: Entity) {
+    let text = format!("/restore {}", agents::name_of(world, agent));
+    decree(world, agent, text);
+}
+
 /// Builds a road between two agents at the chief's word.
 fn road(world: &mut World, a: Entity, b: Entity) {
     if let (Some(a_name), Some(b_name)) =

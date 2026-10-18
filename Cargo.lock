@@ -3559,6 +3559,7 @@ dependencies = [
  "hamlet_ui",
  "hamlet_vfx",
  "hamlet_wasm",
+ "plugin_inspector",
  "plugin_needs",
  "plugin_settings",
  "serde_json",
@@ -3655,6 +3656,7 @@ dependencies = [
  "hamlet_sdk",
  "hamlet_ui",
  "hamlet_wasm",
+ "plugin_inspector",
  "serde",
  "toml",
 ]
@@ -3731,6 +3733,7 @@ dependencies = [
  "bevy",
  "bevy_app",
  "hamlet_sdk",
+ "plugin_inspector",
  "plugin_needs",
  "plugin_settings",
  "plugin_skills",
@@ -3815,7 +3818,6 @@ dependencies = [
  "hamlet_sdk",
  "hamlet_testing",
  "serde",
- "serde_json",
  "tokio",
  "toml",
 ]
@@ -5630,6 +5632,24 @@ name = "plain"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
+
+[[package]]
+name = "plugin_inspector"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "hamlet_chat",
+ "hamlet_core",
+ "hamlet_desktop",
+ "hamlet_home",
+ "hamlet_limits",
+ "hamlet_realm",
+ "hamlet_rules",
+ "hamlet_sdk",
+ "hamlet_testing",
+ "serde_json",
+]
 
 [[package]]
 name = "plugin_needs"

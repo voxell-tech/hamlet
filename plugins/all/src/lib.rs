@@ -10,6 +10,8 @@ pub struct Builtin;
 impl PluginGroup for Builtin {
     fn build(self) -> PluginGroupBuilder {
         let group = PluginGroupBuilder::start::<Self>();
+        #[cfg(feature = "inspector")]
+        let group = group.add(plugin_inspector::plugin);
         #[cfg(feature = "needs")]
         let group = group.add(plugin_needs::plugin);
         #[cfg(feature = "settings")]

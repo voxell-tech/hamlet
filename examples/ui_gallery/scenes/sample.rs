@@ -29,11 +29,10 @@ use hamlet_rules::budget::{AgentBudget, Amount};
 use hamlet_rules::chief::asking::Pick;
 use hamlet_rules::chief::rulings::Choice;
 use hamlet_sdk::asking;
-use hamlet_ui::history::{History, Reading};
 use hamlet_ui::links::{Aimed, Roots};
-use hamlet_ui::{
-    Me, chat, history, inspector, menu, overview, welcome,
-};
+use hamlet_ui::{Me, chat, menu, welcome};
+use plugin_inspector::history::{History, Reading};
+use plugin_inspector::{self as inspector, history, overview};
 use serde_json::{Value, json};
 
 use super::Scene;
@@ -976,9 +975,12 @@ fn past_sessions(world: &mut World, reading: bool) {
             reach: history::PAGE,
         }
     });
+    // The page is as the disk would have it, so it is not read again.
+    let of = world.get_resource::<Me>().map(|me| me.session);
     world.insert_resource(History {
         pasts,
         reading,
+        of,
         fresh: true,
         ..Default::default()
     });

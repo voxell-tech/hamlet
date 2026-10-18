@@ -127,7 +127,7 @@ where a signal reads from. The pattern that fits:
 `inspector::Papers` are built this way. A signal on `every_frame()` does
 its whole read each frame, and a dock tab that is not in front still runs
 its signals. A read that has no resource of its own takes its check from
-`rolled`, `moved::<R>()` or `either(..)` in `roll.rs`.
+`rolled`, `moved::<R>()` or `either(..)` in `hamlet_sdk/src/roll.rs`.
 
 A command about an agent or a hamlet goes through `chat::decree`, which
 gives it to that hamlet whoever the chat is with. `chat::send` is for what

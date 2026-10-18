@@ -18,7 +18,8 @@ use hamlet_core::agents::{
 };
 use hamlet_core::core::RefreshLists;
 use hamlet_core::session::{self, Seat};
-use hamlet_realm::pick::{Thing, select};
+use hamlet_realm::pick::{Thing, ask_about, select};
+use hamlet_sdk::bar::Bar;
 use hamlet_sdk::command::kind;
 use hamlet_sdk::inspector::{
     InspectorSection, InspectorSections, Line,
@@ -36,9 +37,7 @@ use crate::looks::{
 use crate::me::Me;
 use crate::platform::{DisplayText, Wraps};
 use crate::roll::{either, moved, rolled};
-use crate::status::Bar;
-use crate::world_menu::{self};
-use crate::{AnyView, Cx, View, chat, markdown, tabs, with_cx};
+use crate::{AnyView, Cx, View, chat, deed, markdown, tabs, with_cx};
 
 /// The part of the selected agent the panel shows.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
@@ -166,7 +165,7 @@ fn header(agent: Entity, with: Option<String>) -> AnyView {
         // There only while there is work to stop.
         let stop =
             row((bad_action(Glyph::Stop, "STOP", move |world| {
-                world_menu::stop(world, agent)
+                deed::stop(world, agent)
             }),))
             .display(rolled(move |world| {
                 match world.get::<Busy>(agent) {
@@ -192,7 +191,7 @@ fn header(agent: Entity, with: Option<String>) -> AnyView {
             } else {
                 Thing::Resident(agent)
             };
-            world_menu::open_for(world, thing);
+            ask_about(world, thing);
         });
         cx.build(
             column((

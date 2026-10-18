@@ -25,18 +25,19 @@ use hamlet_core::oversight::Waiting;
 use hamlet_realm::pick::{Thing, focus_on, select};
 use hamlet_rules::realm::Realm;
 pub(crate) use hamlet_sdk::cards::heading;
+use hamlet_sdk::command::{self, RunCommand};
 
 pub use self::hamlet::{Naming, Page, hamlet};
 pub(crate) use self::rows::stale;
 use self::rows::{hamlet_rows, pressable};
+use crate::deed::{self, Deed};
 use crate::icons::Glyph;
 use crate::looks::{
     Fills, action, bad_action, bare, good_action, note, title, well,
 };
 use crate::platform::DisplayText;
 use crate::roll::hamlets_moved;
-use crate::world_menu::Deed;
-use crate::{AnyView, chat, tabs, world_menu};
+use crate::{AnyView, chat, tabs};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Search>()
@@ -125,10 +126,7 @@ fn closed() -> AnyView {
                     move |world| chat::send(world, back.clone()),
                 ),
                 bad_action(Glyph::Delete, "DELETE", move |world| {
-                    world_menu::ask(
-                        world,
-                        Deed::EraseHamlet(gone.clone()),
-                    )
+                    deed::ask(world, Deed::EraseHamlet(gone.clone()))
                 }),
             ))
             .gap(12.0)
@@ -205,11 +203,12 @@ pub fn overview() -> AnyView {
                 .grow(1.0)
                 .rules(well)
                 .tagged(SearchField),
-            action(
-                Glyph::Plus,
-                "FOUND A HAMLET",
-                world_menu::ask_found,
-            ),
+            action(Glyph::Plus, "FOUND A HAMLET", |world| {
+                world.trigger(RunCommand::of(command::full(
+                    "window", "found",
+                )));
+                world.flush();
+            }),
         ))
         .gap(8.0)
         .align(AlignItems::Center),

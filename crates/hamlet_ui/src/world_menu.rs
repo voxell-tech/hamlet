@@ -10,7 +10,6 @@ mod items;
 mod subject;
 
 use bevy::app::{App, Update};
-use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
@@ -24,10 +23,7 @@ use bevy::window::Window;
 use bevy_fynix::views::{FrameProps, frame, overlay, popup};
 use bevy_fynix::{ViewExt, derived, keyed};
 use hamlet_chat::deed::Ask;
-use hamlet_core::agents::{self};
-use hamlet_core::oversight::Veto;
-use hamlet_realm::orders;
-use hamlet_realm::pick::{Asked, AskedGround, Thing};
+use hamlet_realm::pick::{Asked, AskedGround, Asks, Thing};
 use hamlet_sdk::confirm::Confirm;
 use hamlet_sdk::context::ContextItems;
 
@@ -87,11 +83,6 @@ pub(crate) enum Open {
     Skills(Entity, Vec2),
 }
 
-/// On a row of a panel: the thing it stands for, whose menu the
-/// right button opens there as it does in the world.
-#[derive(Component)]
-pub struct Asks(pub Thing);
-
 pub(crate) fn ask_of_row(
     press: On<Pointer<Press>>,
     rows: Query<&Asks>,
@@ -144,14 +135,6 @@ fn close(world: &mut World) {
     *world.resource_mut::<Open>() = Open::Nothing;
 }
 
-/// Stops what `agent` is doing now.
-pub(super) fn stop(world: &mut World, agent: Entity) {
-    let agent = Some(agents::name_of(world, agent));
-    let chief = world.resource::<crate::me::Me>().user.clone();
-    world.trigger(Veto { agent, chief });
-    world.flush();
-}
-
 /// The place of the pointer in the window.
 fn pointer(world: &mut World) -> Vec2 {
     world
@@ -159,13 +142,6 @@ fn pointer(world: &mut World) -> Vec2 {
         .iter(world)
         .find_map(bevy::window::Window::cursor_position)
         .unwrap_or_default()
-}
-
-/// Opens the menu of `thing` at the pointer, as a right click on
-/// it does.
-pub(super) fn open_for(world: &mut World, thing: Thing) {
-    let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::Menu(thing, at);
 }
 
 /// Shows the menu of `thing` open at `at`, for a scene that draws it.
@@ -183,18 +159,6 @@ pub fn show_ground(world: &mut World, at: Vec2) {
 pub(super) fn ask_found(world: &mut World) {
     let at = pointer(world);
     *world.resource_mut::<Open>() = Open::Founding(at);
-}
-
-/// Asks before `deed` is done, at the pointer.
-pub(crate) fn ask(world: &mut World, deed: Deed) {
-    let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::Question(deed, at);
-}
-
-/// Brings back `agent`, which was removed or merged away.
-pub(super) fn restore(world: &mut World, agent: Entity) {
-    let text = format!("/restore {}", agents::name_of(world, agent));
-    orders::decree(world, agent, text);
 }
 
 /// A menu of `items` at `at`.

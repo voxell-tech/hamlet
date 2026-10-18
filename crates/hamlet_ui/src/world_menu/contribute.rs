@@ -55,9 +55,8 @@ const fn item_if(
 }
 
 /// The items, a menu's in the order it lists them.
-const ITEMS: [Item; 24] = [
+const ITEMS: [Item; 22] = [
     item(RESIDENT, 10, "Talk to {name}", "talk"),
-    item(RESIDENT, 20, "Prompt", "prompt"),
     item(RESIDENT, 30, "Focus", "focus"),
     item(RESIDENT, 40, "Follow", "follow"),
     item_if(RESIDENT, 50, "Stop {name}", "stop", acts::busy),
@@ -84,7 +83,6 @@ const ITEMS: [Item; 24] = [
     ),
     item_if(RESIDENT, 120, "Remove {name}...", "remove", acts::plain),
     item(&[kind::MAYOR], 10, "Talk to the Mayor", "talk"),
-    item(&[kind::MAYOR], 20, "Prompt", "prompt"),
     item(&[kind::MAYOR], 50, "Stop the Mayor", "stop"),
     item(&[kind::MAYOR], 100, "Undo the Last Change", "undo"),
     item(&[kind::RUIN], 10, "Restore {name}", "restore"),
@@ -110,9 +108,6 @@ const ITEMS: [Item; 24] = [
 pub(crate) fn contribute(entry: &mut Entry) {
     entry.command_with("talk", "Talk to", |c, s| {
         queue(c, s, acts::talk)
-    });
-    entry.command_with("prompt", "Show the Prompt", |c, s| {
-        queue(c, s, acts::prompt)
     });
     entry.command_with("focus", "Focus", |c, s| {
         queue(c, s, acts::focus)

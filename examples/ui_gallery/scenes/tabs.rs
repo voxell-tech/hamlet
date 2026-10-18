@@ -2,7 +2,7 @@
 
 use bevy::ecs::system::{Res, ResMut};
 use hamlet_sdk::inspector::InspectorSections;
-use hamlet_ui::inspector::Section;
+use plugin_inspector::Section;
 
 use super::Scene;
 

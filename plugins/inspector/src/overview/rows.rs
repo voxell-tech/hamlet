@@ -15,16 +15,16 @@ use hamlet_core::agents::{
     MergedInto, Purpose, Settlement, Treasury,
 };
 use hamlet_core::oversight::Waiting;
-use hamlet_realm::pick::Thing;
+use hamlet_realm::pick::{Asks, Thing};
 use hamlet_rules::hamlet::HOME;
 use hamlet_sdk::words::{PURPOSE_SHOWN, now, short, standing};
 
 use super::{Naming, Search};
+use crate::View;
 use crate::icons::Glyph;
 use crate::looks::{note, plate, stated};
 use crate::platform::DisplayText;
 use crate::roll::Roll;
-use crate::{View, world_menu};
 
 /// A check that fires when the agents or the hamlets changed,
 /// something began or ended its wait, or the words typed did.
@@ -248,6 +248,6 @@ pub(super) fn pressable(
         .align(AlignItems::FlexStart),
     )
     .rules(plate)
-    .tagged(world_menu::Asks(thing))
+    .tagged(Asks(thing))
     .on_activate(act)
 }

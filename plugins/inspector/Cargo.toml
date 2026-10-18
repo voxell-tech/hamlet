@@ -1,0 +1,25 @@
+[package]
+name = "plugin_inspector"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Inspector: the page of whoever is selected in the world, an agent's chat, notes, character and past sessions, a hamlet's overview and a chief's look"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_chat.workspace = true
+hamlet_core.workspace = true
+hamlet_desktop.workspace = true
+hamlet_home.workspace = true
+hamlet_limits.workspace = true
+hamlet_realm.workspace = true
+hamlet_rules.workspace = true
+hamlet_sdk.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true
+
+[dev-dependencies]
+hamlet_testing.workspace = true
+serde_json.workspace = true

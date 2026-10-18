@@ -19,7 +19,9 @@ use bevy::app::{App, Plugin, PostStartup, Startup, Update};
 use bevy::asset::Handle;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::schedule::common_conditions::resource_changed;
+use bevy::ecs::schedule::common_conditions::{
+    resource_changed, resource_exists_and_changed,
+};
 use bevy::ecs::system::Res;
 use bevy::ecs::world::World;
 use bevy::image::Image;
@@ -30,13 +32,14 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
 use hamlet_assets::Tuning;
 use hamlet_core::core::{Link, Sandboxing};
+use hamlet_realm::pick::Selected;
 use hamlet_realm::sound::{Cue, SoundSettings};
 use hamlet_sdk::asking;
 use hamlet_sdk::inspector::InspectorSections;
 use hamlet_sdk::settings::SettingsPages;
-use hamlet_ui::history::History;
 use hamlet_ui::theme::{self, HamletTheme};
 use hamlet_ui::{Bar, Roll, chrome, menu, select, welcome};
+use plugin_inspector::history::History;
 
 use self::dock::{panels, seed_dock};
 use self::sample::{first_run, setup};
@@ -91,6 +94,11 @@ impl Plugin for GalleryPlugin {
             // `theme::plugin` owns it; the gallery sets its theme by
             // hand instead.
             .add_message::<theme::ThemeChanged>()
+            .add_systems(
+                Update,
+                dock::front_scene_tab
+                    .after(plugin_inspector::come_forward),
+            )
             .add_systems(Startup, (setup, chrome::draw_marks))
             .add_systems(
                 PostStartup,
@@ -99,6 +107,9 @@ impl Plugin for GalleryPlugin {
             .add_systems(
                 Update,
                 (
+                    hamlet_ui::me::mark_selected.run_if(
+                        resource_exists_and_changed::<Selected>,
+                    ),
                     hold,
                     hold_message.run_if(|scene: Res<Scene>| {
                         *scene == Scene::Rewind
@@ -137,7 +148,6 @@ impl Plugin for GalleryPlugin {
                 menu::window::plugin,
                 hamlet_openui::plugin,
                 hamlet_ui::widgets::plugin,
-                hamlet_ui::screens::plugin,
                 hamlet_plugins::Builtin,
                 asking::plugin,
                 select::plugin,

@@ -1,5 +1,6 @@
 //! The dock of the gallery: the panels around a picture of the world.
 
+use bevy::ecs::system::Local;
 use bevy::ecs::world::World;
 use bevy::math::Vec2;
 use bevy::ui::widget::{ImageNode, NodeImageMode};
@@ -11,13 +12,14 @@ use bevy_fynix::dock::{
 };
 use bevy_fynix::views::{FrameProps, column, frame, overlay};
 use hamlet_core::session::{Entry, Transcript};
+use hamlet_sdk::dock::show_tab;
 use hamlet_ui::feel::Lit;
 use hamlet_ui::icons::Glyph;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::world_menu::{Deed, question};
 use hamlet_ui::{
-    Cx, ICON, Me, View, chat, inspector, lit_panel, menu, panel,
-    status_bar, toolbar, welcome,
+    Cx, ICON, Me, View, chat, lit_panel, menu, panel, status_bar,
+    toolbar, welcome,
 };
 
 use super::{Scene, Stand, Ui};
@@ -74,7 +76,7 @@ pub(super) fn seed_dock(world: &mut World) {
         "agent",
         DockWindowKind::new("INSPECTOR", || {
             lit_panel(
-                inspector::screen(),
+                plugin_inspector::screen(),
                 Lit {
                     alarm: false,
                     flash: true,
@@ -109,37 +111,46 @@ pub(super) fn seed_dock(world: &mut World) {
         if let Some(parent) = tree.parent_of(side) {
             tree.set_fraction(parent, 0.62);
         }
-        if matches!(
-            scene,
-            Scene::Settings
-                | Scene::Charter
-                | Scene::Plugins
-                | Scene::PluginPermissions
-                | Scene::PluginCapabilities
-                | Scene::PluginAdds
-                | Scene::PluginReload
-                | Scene::PluginSettingsPage
-        ) {
-            tree.add_tab(side, "settings");
+        if let Some(tab) = scene_tab(scene) {
+            tree.add_tab(side, &tab);
         }
-        if matches!(scene, Scene::Skills | Scene::SkillsAlone) {
-            tree.add_tab(side, "skills");
+    }
+}
+
+/// The tab the scene shows beside the Inspector, if it has one.
+fn scene_tab(scene: Scene) -> Option<String> {
+    match scene {
+        Scene::Settings
+        | Scene::Charter
+        | Scene::Plugins
+        | Scene::PluginPermissions
+        | Scene::PluginCapabilities
+        | Scene::PluginAdds
+        | Scene::PluginReload
+        | Scene::PluginSettingsPage => Some("settings".into()),
+        Scene::Skills | Scene::SkillsAlone => Some("skills".into()),
+        Scene::PluginRoster => Some(super::roster::id()),
+        Scene::PluginOpenui => Some(super::greeter::id()),
+        Scene::PluginNotes | Scene::PluginNotesPreview => {
+            Some(super::notes::id())
         }
-        if scene == Scene::PluginRoster {
-            tree.add_tab(side, super::roster::id());
-        }
-        if scene == Scene::PluginOpenui {
-            tree.add_tab(side, super::greeter::id());
-        }
-        if matches!(
-            scene,
-            Scene::PluginNotes | Scene::PluginNotesPreview
-        ) {
-            tree.add_tab(side, super::notes::id());
-        }
-        if scene == Scene::PluginClipper {
-            tree.add_tab(side, super::clipper::id());
-        }
+        Scene::PluginClipper => Some(super::clipper::id()),
+        _ => None,
+    }
+}
+
+/// Brings the scene's tab forward again once, after the Inspector
+/// has come to the front for the selection.
+pub(super) fn front_scene_tab(
+    world: &mut World,
+    mut done: Local<bool>,
+) {
+    if *done {
+        return;
+    }
+    *done = true;
+    if let Some(tab) = scene_tab(*world.resource::<Scene>()) {
+        show_tab(world, &tab);
     }
 }
 

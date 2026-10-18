@@ -6,6 +6,7 @@ use bevy::ecs::name::Name;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use bevy::math::Vec2;
+use hamlet_chat::deed;
 use hamlet_core::agents::{self, Busy, Left, Mayor, Settlement};
 use hamlet_realm::generator::society::Place as Ground;
 use hamlet_realm::pick::{Thing, focus_on, select};
@@ -15,8 +16,7 @@ use hamlet_sdk::command::{Subject, kind};
 
 use super::deed::Deed;
 use super::subject::{entity, thing};
-use super::{Open, pointer, restore, stop};
-use crate::inspector::show_prompt;
+use super::{Open, pointer};
 use crate::me::{talk_to, talk_to_mayor};
 use crate::{chat, chief};
 
@@ -54,11 +54,6 @@ pub(super) fn talk(world: &mut World, subject: &Subject) {
     }
 }
 
-pub(super) fn prompt(world: &mut World, subject: &Subject) {
-    talk(world, subject);
-    show_prompt(world);
-}
-
 pub(super) fn focus(world: &mut World, subject: &Subject) {
     if let Some(thing) = thing(subject) {
         focus_on(world, thing, false);
@@ -77,7 +72,7 @@ pub(super) fn halt(world: &mut World, subject: &Subject) {
         false => entity(subject),
     };
     if let Some(agent) = agent {
-        stop(world, agent);
+        deed::stop(world, agent);
     }
 }
 
@@ -111,7 +106,7 @@ pub(super) fn give_skill(world: &mut World, subject: &Subject) {
 
 pub(super) fn bring_back(world: &mut World, subject: &Subject) {
     if let Some(agent) = entity(subject) {
-        restore(world, agent);
+        orders::restore(world, agent);
     }
 }
 

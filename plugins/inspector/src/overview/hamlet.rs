@@ -23,6 +23,7 @@ use super::record::record_of;
 use super::rows::{
     AgentRow, agent_rows, hamlet_rows, pressable, stale,
 };
+use crate::deed::{self, Deed};
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
@@ -30,8 +31,7 @@ use crate::looks::{
     lettered, note, stated, title, well,
 };
 use crate::me::talk_to;
-use crate::world_menu::Deed;
-use crate::{AnyView, View, chat, tabs, world_menu};
+use crate::{AnyView, View, chat, tabs};
 
 /// The field a hamlet's new name is typed in.
 #[derive(Component)]
@@ -219,7 +219,7 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
                 Glyph::Gone,
                 "CLOSE DOWN",
                 move |world| {
-                    world_menu::ask(world, Deed::Close(id.clone()))
+                    deed::ask(world, Deed::Close(id.clone()))
                 },
             ));
         }

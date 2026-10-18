@@ -6,7 +6,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, frame, label};
 use bevy_fynix::{ViewExt, each, keyed, resource};
 use hamlet_core::core::Skills;
-pub use hamlet_sdk::cards::{card, item};
+use hamlet_sdk::cards::card;
 use hamlet_sdk::confirm::Confirm;
 
 use crate::View;

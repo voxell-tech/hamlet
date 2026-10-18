@@ -1,17 +1,21 @@
 //! The agent the chat is with, and the ways to point it at another.
 
 use bevy::app::{App, Update};
+use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::name::Name;
 use bevy::ecs::query::{Added, Changed, Or, With};
+use bevy::ecs::schedule::common_conditions::{
+    resource_changed, resource_exists_and_changed,
+};
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
-use bevy::ecs::system::Query;
+use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use hamlet_core::agents::{self, Citizen, Mayor};
 use hamlet_core::session::{self, SessionKey};
 use hamlet_realm::pick::{Selected, Thing, select};
-use hamlet_sdk::convo::ChiefName;
+use hamlet_sdk::convo::{AgentSelected, ChiefName};
 pub use hamlet_sdk::convo::{Me, address};
 
 use crate::dock::show_tab;
@@ -40,13 +44,61 @@ pub fn plugin(app: &mut App) {
     })
     .add_systems(
         Update,
-        reseat.run_if(roster_moved).in_set(Reseated),
+        (
+            reseat.run_if(roster_moved).in_set(Reseated),
+            follow_selection
+                .run_if(resource_changed::<Selected>)
+                .in_set(Followed)
+                .after(Reseated),
+            mark_selected
+                .run_if(resource_exists_and_changed::<Selected>),
+        ),
     );
 }
 
 /// The system that keeps [`Me`] true to the roster.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Reseated;
+
+/// The system that points the chat at the agent the world selects.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Followed;
+
+/// A click on a robot or a house points the chat at its agent.
+fn follow_selection(world: &mut World) {
+    let agent = match world.resource::<Selected>().0 {
+        Some(Thing::Keeper | Thing::Cottage) => {
+            match agents::mayor(world) {
+                Some(mayor) => mayor,
+                None => return,
+            }
+        }
+        Some(
+            Thing::Resident(agent) | Thing::ResidentHouse(agent),
+        ) => agent,
+        // A hamlet, one that is gone, or nothing at all.
+        _ => return,
+    };
+    if world.resource::<Me>().agent != agent {
+        talk_to(world, agent);
+    }
+}
+
+/// Keeps [`AgentSelected`] true to the world's selection.
+pub fn mark_selected(
+    selected: Res<Selected>,
+    mut marked: ResMut<AgentSelected>,
+) {
+    marked.set_if_neq(AgentSelected(matches!(
+        selected.0,
+        Some(
+            Thing::Keeper
+                | Thing::Cottage
+                | Thing::Resident(_)
+                | Thing::ResidentHouse(_)
+        )
+    )));
+}
 
 /// Makes `agent` who the chat is with. False when it is not there.
 pub fn seat(world: &mut World, agent: Entity) -> bool {

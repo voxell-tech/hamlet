@@ -243,6 +243,21 @@ pub fn select(world: &mut World, thing: Option<Thing>) {
 #[derive(Resource, Default, PartialEq)]
 pub struct Asked(pub Option<(Thing, Vec2)>);
 
+/// Asks about `thing` at the pointer, as a right click on it does.
+pub fn ask_about(world: &mut World, thing: Thing) {
+    let at = world
+        .query::<&Window>()
+        .iter(world)
+        .find_map(Window::cursor_position)
+        .unwrap_or_default();
+    world.resource_mut::<Asked>().0 = Some((thing, at));
+}
+
+/// On a row of a panel: the thing it stands for, whose menu the
+/// right button opens there as it does in the world.
+#[derive(Component)]
+pub struct Asks(pub Thing);
+
 /// The point of the window at which the bare ground was asked about
 /// with the right button.
 #[derive(Resource, Default, PartialEq)]
