@@ -1,0 +1,8 @@
+id = "roster"
+name = "Roster"
+version = "0.1.0"
+interface = "0.1.0"
+
+[[asks]]
+capability = "read.agents"
+reason = "To list the agents and their hamlets in its panel."
