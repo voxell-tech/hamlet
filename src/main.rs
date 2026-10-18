@@ -20,7 +20,6 @@ use hamlet_home::{Home, limits};
 use hamlet_model::config::Config;
 use hamlet_model::log;
 use hamlet_plugins::Builtin;
-use hamlet_realm::RealmPlugin;
 use hamlet_sandbox as sandbox;
 use hamlet_ui::{ShowRequests, UiPlugin, window_plugin};
 
@@ -200,7 +199,6 @@ fn main() -> Result<()> {
                 )))
                 .add_plugins((
                     DefaultPlugins.set(window_plugin(&root)),
-                    RealmPlugin,
                     UiPlugin,
                     Builtin,
                 ))

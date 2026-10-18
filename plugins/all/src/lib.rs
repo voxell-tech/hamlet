@@ -3,11 +3,35 @@
 
 use bevy_app::{PluginGroup, PluginGroupBuilder};
 
-/// Every plugin whose feature is on. Add it to the app after
-/// `hamlet_sdk::SdkPlugin`.
+/// Every plugin whose feature is on: the layers, then the panels.
+/// Add it to the app after the SDK.
 pub struct Builtin;
 
 impl PluginGroup for Builtin {
+    fn build(self) -> PluginGroupBuilder {
+        PluginGroupBuilder::start::<Self>()
+            .add_group(Layers)
+            .add_group(Panels)
+    }
+}
+
+/// The layers a window is drawn from. The realm draws into a window,
+/// so it is left out of an app with none.
+pub struct Layers;
+
+impl PluginGroup for Layers {
+    fn build(self) -> PluginGroupBuilder {
+        let group = PluginGroupBuilder::start::<Self>();
+        #[cfg(feature = "realm")]
+        let group = group.add(plugin_realm::plugin);
+        group
+    }
+}
+
+/// The plugins that add a panel.
+pub struct Panels;
+
+impl PluginGroup for Panels {
     fn build(self) -> PluginGroupBuilder {
         let group = PluginGroupBuilder::start::<Self>();
         #[cfg(feature = "inspector")]
@@ -28,12 +52,12 @@ mod tests {
     use bevy_app::App;
     use hamlet_sdk::SdkPlugin;
 
-    use super::Builtin;
+    use super::Panels;
 
     #[test]
-    fn the_plugins_run_with_no_window() {
+    fn the_panels_run_with_no_window() {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, SdkPlugin, Builtin));
+        app.add_plugins((MinimalPlugins, SdkPlugin, Panels));
         app.update();
         app.update();
     }

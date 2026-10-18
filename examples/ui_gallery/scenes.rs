@@ -148,7 +148,7 @@ impl Plugin for GalleryPlugin {
                 menu::window::plugin,
                 hamlet_openui::plugin,
                 hamlet_ui::widgets::plugin,
-                hamlet_plugins::Builtin,
+                hamlet_plugins::Panels,
                 asking::plugin,
                 select::plugin,
                 hamlet_ui::chat::plugin,

@@ -36,6 +36,7 @@ hamlet_guest = { version = "0.1.0", path = "crates/hamlet_guest" }
 hamlet_offscreen = { version = "0.1.0", path = "crates/hamlet_offscreen" }
 hamlet_harness = { version = "0.1.0", path = "crates/hamlet_harness" }
 hamlet_plugins = { version = "0.1.0", path = "plugins/all" }
+plugin_realm = { version = "0.1.0", path = "plugins/realm" }
 plugin_skills = { version = "0.1.0", path = "plugins/skills" }
 plugin_inspector = { version = "0.1.0", path = "plugins/inspector" }
 plugin_needs = { version = "0.1.0", path = "plugins/needs" }
@@ -120,7 +121,6 @@ hamlet_home.workspace = true
 hamlet_core.workspace = true
 hamlet_desktop.workspace = true
 hamlet_ui.workspace = true
-hamlet_realm.workspace = true
 hamlet_sdk.workspace = true
 hamlet_plugins.workspace = true
 hamlet_wasm = { workspace = true, optional = true }
@@ -131,6 +131,7 @@ tokio.workspace = true
 
 [dev-dependencies]
 hamlet_rules.workspace = true
+hamlet_realm.workspace = true
 hamlet_vfx.workspace = true
 hamlet_openui.workspace = true
 hamlet_offscreen.workspace = true

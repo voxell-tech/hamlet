@@ -3735,6 +3735,7 @@ dependencies = [
  "hamlet_sdk",
  "plugin_inspector",
  "plugin_needs",
+ "plugin_realm",
  "plugin_settings",
  "plugin_skills",
 ]
@@ -5659,6 +5660,15 @@ dependencies = [
  "bevy_fynix",
  "hamlet_core",
  "hamlet_rules",
+ "hamlet_sdk",
+]
+
+[[package]]
+name = "plugin_realm"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_realm",
  "hamlet_sdk",
 ]
 
