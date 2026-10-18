@@ -58,6 +58,9 @@ pub struct Limits {
     pub commands: usize,
     /// The menu lines one plugin may declare. The rest are dropped.
     pub menu_items: usize,
+    /// The context menu items one plugin may declare. The rest are
+    /// dropped.
+    pub context_items: usize,
     /// The shortcuts one plugin may declare. The rest are dropped.
     pub keys: usize,
     /// The plugins a call may cross, one running a command whose

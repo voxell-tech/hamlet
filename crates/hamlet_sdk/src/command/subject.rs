@@ -21,6 +21,11 @@ pub mod kind {
     pub const LIBRARY: &str = "library";
     /// The bare ground.
     pub const GROUND: &str = "ground";
+
+    pub const ALL: [&str; 9] = [
+        AGENT, HOUSE, MAYOR, RUIN, HAMLET, CHIEF, HEARTH, LIBRARY,
+        GROUND,
+    ];
 }
 
 /// A thing of the world that a command is run on, such as the one a

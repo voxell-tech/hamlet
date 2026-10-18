@@ -7,6 +7,7 @@ pub mod capability;
 pub mod cards;
 pub mod command;
 pub mod confirm;
+pub mod context;
 pub mod convo;
 pub mod dock;
 pub mod events;
@@ -36,6 +37,7 @@ impl Plugin for SdkPlugin {
             agents::plugin,
             capability::plugin,
             command::plugin,
+            context::plugin,
             dock::plugin,
             keys::plugin,
             menu::plugin,

@@ -31,6 +31,7 @@ impl HamletPlugin for Window {
     }
 
     fn entry(entry: &mut Entry) {
+        world_menu::contribute(entry);
         entry.command("found", "Found a Hamlet...", |commands| {
             commands.queue(world_menu::ask_found);
         });

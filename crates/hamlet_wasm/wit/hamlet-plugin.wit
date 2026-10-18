@@ -59,6 +59,17 @@ interface host {
   // `entry` declares.
   key: func(chord: string, command: string);
 
+  // Adds an item to the menu a right click opens on a thing of the
+  // world of kind `target`: `agent`, `house`, `mayor`, `ruin`,
+  // `hamlet`, `chief`, `hearth`, `library` or `ground`. It runs
+  // `command`, one of the commands this plugin declared, which is
+  // given the thing as its arguments: a `subject` of
+  // `hamlet_guest`, written with postcard, from the sender `chief`.
+  // Items are ordered by `section`, then by label. `label` may hold
+  // `{name}`, the thing's name. It needs the capability `ui.context`,
+  // and is gated as `menu-item` is. Only `entry` declares.
+  context-item: func(target: string, section: u32, label: string, command: string);
+
   // The standing answer to a `request`.
   enum request-result {
     // The plugin may use the capability.
@@ -176,7 +187,8 @@ interface plugin {
     // The host's number for the call, which the reply gives back.
     call-id: u64,
     // The id of the plugin that runs the command, or `chief` where the
-    // chief ran it, with no arguments.
+    // chief ran it: with no arguments from a menu or a key, and with
+    // the thing a context item was chosen on from one.
     sender: string,
     command: string,
     // A copy of the arguments, in a format the two plugins agree on.

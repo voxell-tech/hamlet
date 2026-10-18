@@ -2,6 +2,7 @@
 
 use bevy_fynix::shortcut::Chord;
 use hamlet_sdk::capability::{Capability, Verdict};
+use hamlet_sdk::command::kind;
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::keys::chord;
 use hamlet_sdk::menu::Menu;
@@ -37,6 +38,17 @@ pub struct Placed {
     pub command: String,
 }
 
+/// An item of the menu of a kind of thing that a plugin declared.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Targeted {
+    /// The kind of thing whose menu it is in.
+    pub target: String,
+    pub section: u32,
+    pub label: String,
+    /// The plugin's own name for the command it runs.
+    pub command: String,
+}
+
 /// A shortcut a plugin declared.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Chorded {
@@ -50,6 +62,7 @@ pub struct Chorded {
 pub struct Offers {
     pub commands: Vec<Offered>,
     pub menus: Vec<Placed>,
+    pub contexts: Vec<Targeted>,
     pub keys: Vec<Chorded>,
 }
 
@@ -101,6 +114,33 @@ impl State {
         let label = self.cut(label);
         self.offered.menus.push(Placed {
             menu,
+            section,
+            label,
+            command,
+        });
+    }
+
+    pub(super) fn contextualise(
+        &mut self,
+        target: String,
+        section: u32,
+        label: String,
+        command: String,
+    ) {
+        if !kind::ALL.contains(&target.as_str()) {
+            self.write(
+                Level::Warn,
+                format!("no kind of thing named `{target}`"),
+            );
+            return;
+        }
+        if self.offered.contexts.len() >= self.context_room {
+            return;
+        }
+        self.want_to_contribute(Capability::UiContext);
+        let label = self.cut(label);
+        self.offered.contexts.push(Targeted {
+            target,
             section,
             label,
             command,

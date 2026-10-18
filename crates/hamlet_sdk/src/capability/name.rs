@@ -28,6 +28,7 @@ pub enum Capability {
     CommandsRun,
     UiMenu,
     UiKeys,
+    UiContext,
     Net,
     FsPick,
     FsFolder,
@@ -38,7 +39,7 @@ pub enum Capability {
 }
 
 impl Capability {
-    pub const ALL: [Capability; 15] = [
+    pub const ALL: [Capability; 16] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -47,6 +48,7 @@ impl Capability {
         Capability::CommandsRun,
         Capability::UiMenu,
         Capability::UiKeys,
+        Capability::UiContext,
         Capability::Net,
         Capability::FsPick,
         Capability::FsFolder,
@@ -67,6 +69,7 @@ impl Capability {
             Capability::CommandsRun => "commands.run",
             Capability::UiMenu => "ui.menu",
             Capability::UiKeys => "ui.keys",
+            Capability::UiContext => "ui.context",
             Capability::Net => "net",
             Capability::FsPick => "fs.pick",
             Capability::FsFolder => "fs.folder",
@@ -105,6 +108,9 @@ impl Capability {
             Capability::CommandsRun => "Run commands as the chief",
             Capability::UiMenu => "Add entries to the menus",
             Capability::UiKeys => "Add keyboard shortcuts",
+            Capability::UiContext => {
+                "Add items to the menus of things in the world"
+            }
             Capability::Net => "Reach the network",
             Capability::FsPick => {
                 "Ask for a file with the file dialog"

@@ -1,8 +1,9 @@
-//! The commands, menu lines and shortcuts of an installed plugin, as
-//! entities linked to it.
+//! The commands, menu lines, context menu items and shortcuts of an
+//! installed plugin, as entities linked to it.
 
 use bevy::prelude::*;
 use hamlet_sdk::command::Command;
+use hamlet_sdk::context::ContextItem;
 use hamlet_sdk::keys::Key;
 use hamlet_sdk::menu::MenuEntry;
 use hamlet_sdk::plugin::{Entry, Exports};
@@ -10,13 +11,18 @@ use hamlet_sdk::plugin::{Entry, Exports};
 use crate::host::Offers;
 
 /// What a plugin adds that this module spawns.
-pub type Contributed =
-    Or<(With<Command>, With<MenuEntry>, With<Key>)>;
+pub type Contributed = Or<(
+    With<Command>,
+    With<MenuEntry>,
+    With<ContextItem>,
+    With<Key>,
+)>;
 
 /// Spawns the commands `offers` declares that the plugin `id` lists
-/// in its `exports`, and the menu lines and shortcuts that run them,
-/// as contributions of `plugin`. The others are dropped with a
-/// warning, since nothing outside the lists is reachable.
+/// in its `exports`, and the menu lines, context menu items and
+/// shortcuts that run them, as contributions of `plugin`. The others
+/// are dropped with a warning, since nothing outside the lists is
+/// reachable.
 pub fn spawn(
     plugin: Entity,
     id: &str,
@@ -59,6 +65,17 @@ pub fn spawn(
                 placed.section,
                 &placed.label,
                 &placed.command,
+                None,
+            );
+        }
+    }
+    for targeted in &offers.contexts {
+        if known(&targeted.command, "context item") {
+            entry.context_item(
+                &targeted.target,
+                targeted.section,
+                &targeted.label,
+                &targeted.command,
                 None,
             );
         }

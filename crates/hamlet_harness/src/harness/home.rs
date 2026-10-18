@@ -102,6 +102,7 @@ pub fn app(home: &Scratch) -> App {
         hamlet_sdk::agents::plugin,
         hamlet_sdk::capability::plugin,
         hamlet_sdk::command::plugin,
+        hamlet_sdk::context::plugin,
         hamlet_sdk::dock::plugin,
         hamlet_sdk::keys::plugin,
         hamlet_sdk::menu::plugin,

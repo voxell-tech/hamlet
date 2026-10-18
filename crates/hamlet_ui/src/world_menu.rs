@@ -2,9 +2,12 @@
 //! and the question before anything that ends an agent or closes a
 //! hamlet.
 
+mod acts;
+mod contribute;
 mod deed;
 mod founding;
 mod items;
+mod subject;
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
@@ -18,18 +21,19 @@ use bevy::picking::events::{Pointer, Press};
 use bevy::picking::pointer::PointerButton;
 use bevy::ui::px;
 use bevy::window::Window;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, frame, label, menu_item, overlay, popup,
-};
-use bevy_fynix::{ViewExt, keyed, resource};
+use bevy_fynix::views::{FrameProps, frame, overlay, popup};
+use bevy_fynix::{ViewExt, derived, keyed};
 use hamlet_core::agents::{self};
 use hamlet_core::oversight::Veto;
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Asked, AskedGround, Thing};
 use hamlet_sdk::confirm::Confirm;
+use hamlet_sdk::context::ContextItems;
 
+pub(crate) use self::contribute::contribute;
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
+use crate::roll::{either, moved};
 use crate::{AnyView, Cx, View};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -187,36 +191,41 @@ fn menu(at: Vec2, items: Vec<AnyView>) -> impl View {
 
 /// The menu or the question that is open, over everything.
 pub fn view() -> AnyView {
-    keyed(resource::<Open, _>(Clone::clone), |open| {
-        match open.clone() {
-            Open::Nothing => frame().boxed(),
-            Open::Menu(thing, at) => {
-                AnyView::new(move |cx: &mut Cx| {
-                    let items = items::items(cx.world, thing, at);
-                    if items.is_empty() {
-                        return cx.build(frame());
-                    }
-                    cx.build(menu(at, items))
-                })
+    // A menu is built again when the items it lists change.
+    let shown = derived(|world: &World| {
+        let open = world.resource::<Open>().clone();
+        let items = match open {
+            Open::Menu(..) | Open::Ground(_) => {
+                world.resource::<ContextItems>().clone()
             }
-            Open::Question(deed, at) => question(deed, at),
-            Open::Ground(at) => {
-                let found =
-                    menu_item(label("Found a Hamlet...").wrap(false))
-                        .on_activate(move |world| {
-                            *world.resource_mut::<Open>() =
-                                Open::Founding(at);
-                        })
-                        .boxed();
-                menu(at, vec![found]).boxed()
+            _ => ContextItems::default(),
+        };
+        (open, items)
+    })
+    .when(either(moved::<Open>(), moved::<ContextItems>()));
+    keyed(shown, |(open, _)| match open.clone() {
+        Open::Nothing => frame().boxed(),
+        Open::Menu(thing, at) => AnyView::new(move |cx: &mut Cx| {
+            let items = items::items(cx.world, thing, at);
+            if items.is_empty() {
+                return cx.build(frame());
             }
-            Open::Founding(at) => founding::founding(at),
-            Open::Skills(agent, at) => {
-                AnyView::new(move |cx: &mut Cx| {
-                    let items = items::skills(cx.world, agent);
-                    cx.build(menu(at, items))
-                })
+            cx.build(menu(at, items))
+        }),
+        Open::Question(deed, at) => question(deed, at),
+        Open::Ground(at) => AnyView::new(move |cx: &mut Cx| {
+            let items = items::ground(cx.world);
+            if items.is_empty() {
+                return cx.build(frame());
             }
+            cx.build(menu(at, items))
+        }),
+        Open::Founding(at) => founding::founding(at),
+        Open::Skills(agent, at) => {
+            AnyView::new(move |cx: &mut Cx| {
+                let items = items::skills(cx.world, agent);
+                cx.build(menu(at, items))
+            })
         }
     })
     .within(overlay(()))

@@ -13,7 +13,9 @@ use hamlet_sdk::papers::Papers;
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 
 pub use self::collections::{Reach, Shared};
-pub use self::declare::{Chorded, Declared, Offered, Offers, Placed};
+pub use self::declare::{
+    Chorded, Declared, Offered, Offers, Placed, Targeted,
+};
 pub use self::request::Want;
 use crate::fault::Fault;
 use crate::interface::hamlet::plugin::host::{
@@ -44,6 +46,7 @@ pub struct State {
     pub(crate) offered: Offers,
     pub(crate) command_room: usize,
     pub(crate) menu_room: usize,
+    pub(crate) context_room: usize,
     pub(crate) key_room: usize,
     /// The id of the plugin this store belongs to.
     pub(crate) plugin: String,
@@ -82,6 +85,7 @@ impl State {
             offered: Offers::default(),
             command_room: limits.commands,
             menu_room: limits.menu_items,
+            context_room: limits.context_items,
             key_room: limits.keys,
             plugin: String::new(),
             granted: Granted::default(),
@@ -141,6 +145,16 @@ impl Host for State {
 
     fn key(&mut self, chord: String, command: String) {
         self.bind(chord, command);
+    }
+
+    fn context_item(
+        &mut self,
+        target: String,
+        section: u32,
+        label: String,
+        command: String,
+    ) {
+        self.contextualise(target, section, label, command);
     }
 
     fn agents(&mut self) -> Result<Vec<host::Agent>, String> {

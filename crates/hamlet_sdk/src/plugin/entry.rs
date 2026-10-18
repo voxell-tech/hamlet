@@ -3,11 +3,13 @@
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::system::Commands;
+use bevy::ecs::world::World;
 use bevy_fynix::shortcut::Chord;
 
 use super::{ContributedBy, Status};
 use crate::AnyView;
 use crate::command::{Command, Handler, HandlerWith, Opens, Subject};
+use crate::context::{ContextItem, ContextWhen};
 use crate::dock::Panel;
 use crate::icons::Glyph;
 use crate::keys::Key;
@@ -27,6 +29,7 @@ enum Declared {
     Command(Command, Does),
     Menu(MenuEntry),
     Key(Key),
+    Context(ContextItem, Option<fn(&World, &Subject) -> bool>),
 }
 
 /// What a command does when it is run.
@@ -129,6 +132,63 @@ impl Entry {
         }));
     }
 
+    /// Adds an item to the menu of the things of kind `target` that
+    /// runs the plugin's command `command` on the thing. `label`
+    /// may hold `{name}`, the thing's name.
+    pub fn context_item(
+        &mut self,
+        target: &str,
+        section: u32,
+        label: &str,
+        command: &str,
+        icon: Option<Glyph>,
+    ) {
+        self.declare_context(
+            target, section, label, command, icon, None,
+        );
+    }
+
+    /// Adds an item as `context_item` does, shown only for the things
+    /// `when` holds for.
+    pub fn context_item_if(
+        &mut self,
+        target: &str,
+        section: u32,
+        label: &str,
+        command: &str,
+        when: fn(&World, &Subject) -> bool,
+    ) {
+        self.declare_context(
+            target,
+            section,
+            label,
+            command,
+            None,
+            Some(when),
+        );
+    }
+
+    fn declare_context(
+        &mut self,
+        target: &str,
+        section: u32,
+        label: &str,
+        command: &str,
+        icon: Option<Glyph>,
+        when: Option<fn(&World, &Subject) -> bool>,
+    ) {
+        self.declared.push(Declared::Context(
+            ContextItem {
+                target: target.into(),
+                section,
+                label: label.into(),
+                command: command.into(),
+                icon,
+            },
+            when,
+        ));
+    }
+
     fn declare(
         &mut self,
         id: &str,
@@ -152,6 +212,13 @@ impl Entry {
                 }
                 Declared::Key(key) => {
                     commands.spawn((key, ContributedBy(plugin)));
+                }
+                Declared::Context(item, when) => {
+                    let mut item =
+                        commands.spawn((item, ContributedBy(plugin)));
+                    if let Some(when) = when {
+                        item.insert(ContextWhen(when));
+                    }
                 }
                 Declared::Command(command, does) => {
                     let mut command = commands
