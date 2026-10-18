@@ -12,6 +12,7 @@ mod petition;
 mod record;
 mod store;
 mod subject;
+mod wanted;
 
 use bevy::app::App;
 
@@ -21,10 +22,11 @@ pub use self::decide::Decide;
 pub use self::granted::{Choices, Granted, Verdict};
 pub use self::install::{AskToInstall, Installed, Uninstalled};
 pub use self::name::{Capability, NEVER, Refusal};
-pub use self::petition::AskForMore;
+pub use self::petition::{AskForMore, Replied};
 pub use self::record::{Installation, Record, Standing, standing};
 pub use self::store::Store;
 pub use self::subject::Subject;
+pub use self::wanted::Wanted;
 
 /// Keeps each plugin's [`Granted`] in step with its [`Asks`] and
 /// [`Choices`], applies the chief's [`Decide`] and carries out the
@@ -34,7 +36,8 @@ pub fn plugin(app: &mut App) {
         .add_observer(decide::decide)
         .add_observer(install::ask)
         .add_observer(petition::more)
-        .add_observer(petition::answered);
+        .add_observer(petition::answered)
+        .add_observer(wanted::wanted);
 }
 
 #[cfg(test)]
@@ -42,6 +45,7 @@ mod tests {
     use bevy::app::App;
 
     use super::*;
+    use crate::plugin::PluginInfo;
 
     #[test]
     fn a_capability_that_can_never_be_granted_is_refused() {
@@ -116,6 +120,57 @@ mod tests {
             Standing::Unknown
         );
         let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn a_choice_made_in_settings_replaces_granted_at_once() {
+        use Capability::{Net, ReadChat};
+
+        let mut app = App::new();
+        app.add_plugins(plugin);
+        let info = PluginInfo {
+            id: "p".into(),
+            name: "P".into(),
+            version: "1".into(),
+            builtin: false,
+        };
+        let plugin = app
+            .world_mut()
+            .spawn((info, asking(&[Net]), Choices::default()))
+            .id();
+        let mut choose = |capability, choice, this_run| {
+            app.world_mut().trigger(Decide {
+                plugin: "p".into(),
+                capability,
+                choice,
+                this_run,
+            });
+            app.world_mut().flush();
+            app.world().get::<Granted>(plugin).unwrap().verdict(Net)
+        };
+
+        assert_eq!(
+            choose(Net, Choice::Allow, false),
+            Some(Verdict::Allowed)
+        );
+        assert_eq!(
+            choose(Net, Choice::Deny, false),
+            Some(Verdict::Denied)
+        );
+        assert_eq!(
+            choose(Net, Choice::AskNextTime, true),
+            Some(Verdict::Allowed)
+        );
+        // Chosen again in Settings, it asks at the next use.
+        assert_eq!(
+            choose(Net, Choice::AskNextTime, false),
+            Some(Verdict::Ask)
+        );
+        // A capability the manifest does not name cannot be chosen.
+        assert_eq!(
+            choose(ReadChat, Choice::Allow, false),
+            Some(Verdict::Ask)
+        );
     }
 
     #[test]

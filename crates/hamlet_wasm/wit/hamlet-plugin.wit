@@ -16,9 +16,27 @@ interface host {
 
   // The living agents, each with its hamlet: a copy. It needs the
   // capability `read.agents`; without it the error is
-  // "read.agents not granted". A grant taken back applies to the next
-  // call.
+  // "read.agents not granted", and if the manifest names it and the
+  // chief has not decided, the chief is asked. A grant taken back
+  // applies to the next call.
   agents: func() -> result<list<agent>, string>;
+
+  // The standing answer to a `request`.
+  enum request-result {
+    // The plugin may use the capability.
+    granted,
+    // The plugin may not: the chief said no, or the manifest does not
+    // name the capability.
+    denied,
+    // The chief has been asked. The answer comes later, in the inbox,
+    // as `granted` or `denied`.
+    pending,
+  }
+
+  // Asks to use a capability the manifest names, giving a reason. A
+  // capability the manifest does not name is `denied` and nobody is
+  // asked.
+  request: func(capability: string, reason: string) -> request-result;
 }
 
 interface plugin {
@@ -29,6 +47,11 @@ interface plugin {
     click(press),
     toggled(toggle),
     text-changed(typed),
+    // The chief let the plugin use the capability it was refused, which
+    // is named. It may be for this run only.
+    granted(string),
+    // The chief did not.
+    denied(string),
   }
 
   // A button was pressed.

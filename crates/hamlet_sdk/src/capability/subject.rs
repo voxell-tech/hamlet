@@ -16,14 +16,10 @@ pub enum Subject {
         plugin: String,
         capabilities: Vec<Capability>,
     },
-}
-
-impl Subject {
-    /// The id of the plugin it is about.
-    pub fn plugin(&self) -> &str {
-        match self {
-            Subject::Install { plugin }
-            | Subject::Update { plugin, .. } => plugin,
-        }
-    }
+    /// Whether to let the plugin of this id use a capability it tried
+    /// to use.
+    Use {
+        plugin: String,
+        capability: Capability,
+    },
 }

@@ -53,10 +53,11 @@ pub fn bring_up(
                 .logs
                 .iter()
                 .for_each(|line| run::say(&info.id, line));
-            Ok((instance, output.panels))
+            Ok((instance, output.panels, output.wants))
         });
     match started {
-        Ok((instance, declared)) => {
+        Ok((instance, declared, wants)) => {
+            run::want(commands, plugin, &wants);
             let shown =
                 panel::spawn(plugin, &info.id, &declared, commands);
             commands

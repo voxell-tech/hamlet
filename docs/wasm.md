@@ -25,9 +25,9 @@ In `hamlet_wasm/src/`, a file for each part:
 | Part | Files |
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
-| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels), `host/read.rs` (the reads). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
+| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
 | The install folder | `manifest.rs`, `install.rs` |
-| Bringing up and the frame | `load.rs`, `start.rs`, `enable.rs`, `inbox.rs`, `run.rs`, `stop.rs` |
+| Bringing up and the frame | `load.rs`, `admit.rs` (a plugin the chief just let in), `start.rs`, `enable.rs`, `inbox.rs`, `reply.rs` (an answer to a request), `run.rs`, `stop.rs` |
 | The panels | `panel.rs`, `wire.rs` (a returned tree made into nodes), `draw.rs`, `event.rs` |
 
 `lib.rs` has the plugin. The node model, the read-model of what each panel
@@ -42,14 +42,18 @@ shows and the view built from it are in `hamlet_sdk::tree`.
   `icon` is the name of a `Glyph` of `hamlet_sdk::icons`, in any case.
 - `agents() -> result<list<agent>, string>`, which needs the grant
   `read.agents`.
+- `request(capability, reason) -> request-result`, which asks to use a
+  capability the manifest names: `granted`, `denied` or `pending` (see
+  [`permissions.md`](permissions.md)).
 
 The plugin exports:
 
 - `entry()`, which runs once when the plugin is brought up.
 - `step(inbox) -> outgoing`, which runs for each frame in which the plugin's
-  `Inbox` holds something. An `incoming` is a `tick`, a `click`, a `toggled`
-  or a `text-changed`. The intents it returns are carried out by the host: a
-  `log-line`, and a `redraw` of a panel.
+  `Inbox` holds something. An `incoming` is a `tick`, a `click`, a `toggled`,
+  a `text-changed`, or the answer to a `request` that was `pending`:
+  `granted(capability)` or `denied(capability)`. The intents it returns are
+  carried out by the host: a `log-line`, and a `redraw` of a panel.
 - `panel-view(panel) -> view`, which returns the panel as it is now: a
   `tree`, or `lang`, a program in Hamlet's panel language that the host
   draws (see [`panels.md`](panels.md)).
@@ -156,7 +160,10 @@ The capabilities, the chief's choices and the verdicts are in
 [`permissions.md`](permissions.md). A host function that needs a capability
 checks the plugin's `Granted` component on each call. A call without it
 returns the error `read.agents not granted` and is logged with the plugin's
-id. `Granted` is replaced by inserting it again, and the next call sees it.
+id. If the manifest names the capability and the chief has not decided, the
+call also notes the capability as wanted, and the host raises the petition
+after the call (`run::want`). `Granted` is replaced by inserting it again,
+and the next call sees it.
 
 The host puts what a function answers from into the plugin's store before a
 call: the grant, and a copy of the agents only when `read.agents` is held.

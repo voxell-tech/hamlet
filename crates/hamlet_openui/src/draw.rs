@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
-use hamlet_sdk::capability::Granted;
+use hamlet_sdk::capability::{Granted, Wanted};
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::plugin::{ContributedBy, PluginInfo};
 use hamlet_sdk::tree::store::{Drawn, PluginTrees};
@@ -53,6 +53,15 @@ pub(crate) fn draw(
             owner.map_or(panel.id.as_str(), |(info, _)| &info.id);
         for problem in &drawn.problems {
             warn!("plugin {id}: panel {}: {problem}", panel.id);
+        }
+        for capability in &drawn.wants {
+            if let Some(by) = by {
+                commands.trigger(Wanted {
+                    plugin: by.0,
+                    capability: *capability,
+                    reason: String::new(),
+                });
+            }
         }
         let tree = Drawn::Tree(drawn.root);
         if !trees.shows(&panel.id, &tree) {

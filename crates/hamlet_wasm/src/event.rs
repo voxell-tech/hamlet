@@ -51,7 +51,9 @@ pub fn deliver(
 /// The panel an event was done in, by the id its plugin knows it by.
 pub fn panel_of(incoming: &Incoming) -> Option<&str> {
     match incoming {
-        Incoming::Tick(_) => None,
+        Incoming::Tick(_)
+        | Incoming::Granted(_)
+        | Incoming::Denied(_) => None,
         Incoming::Click(press) => Some(&press.panel),
         Incoming::Toggled(toggle) => Some(&toggle.panel),
         Incoming::TextChanged(typed) => Some(&typed.panel),

@@ -2,27 +2,48 @@
 //! the grant of its read.
 
 use hamlet_sdk::agents::AgentList;
-use hamlet_sdk::capability::{Capability, Granted};
+use hamlet_sdk::capability::{Capability, Granted, Verdict};
 use openui_lang::{ToolRequest, Value};
 
-/// The result of `request`, and what is wrong with it. A result
-/// always has `rows` and `error`, so a program reads both the same
-/// way.
+/// What a query came to.
+pub(crate) struct Answered {
+    /// A result always has `rows` and `error`, so a program reads
+    /// both the same way.
+    pub result: Value,
+    /// What is wrong with the query.
+    pub problem: Option<String>,
+    /// The capability the query needed and the chief is yet to
+    /// decide.
+    pub wants: Option<Capability>,
+}
+
+/// The answer to `request`.
 pub(crate) fn answer(
     request: &ToolRequest,
     agents: &AgentList,
     granted: &Granted,
-) -> (Value, Option<String>) {
-    let failed = match request.tool() {
+) -> Answered {
+    let (failed, wants) = match request.tool() {
         "agents" if granted.holds(Capability::ReadAgents) => {
-            return (rows(agents_rows(agents), Value::Null), None);
+            return Answered {
+                result: rows(agents_rows(agents), Value::Null),
+                problem: None,
+                wants: None,
+            };
         }
-        "agents" => {
-            format!("{} not granted", Capability::ReadAgents.name())
-        }
-        other => format!("no query named `{other}`"),
+        "agents" => (
+            format!("{} not granted", Capability::ReadAgents.name()),
+            (granted.verdict(Capability::ReadAgents)
+                == Some(Verdict::Ask))
+            .then_some(Capability::ReadAgents),
+        ),
+        other => (format!("no query named `{other}`"), None),
     };
-    (rows(Vec::new(), Value::from(failed.as_str())), Some(failed))
+    Answered {
+        result: rows(Vec::new(), Value::from(failed.as_str())),
+        problem: Some(failed),
+        wants,
+    }
 }
 
 fn rows(rows: Vec<Value>, error: Value) -> Value {

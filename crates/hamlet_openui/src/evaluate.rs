@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use hamlet_sdk::agents::AgentList;
-use hamlet_sdk::capability::Granted;
+use hamlet_sdk::capability::{Capability, Granted};
 use hamlet_sdk::tree::node::{Kind, Node};
 use openui_lang::{Document, Inputs};
 
@@ -25,6 +25,9 @@ pub struct Evaluated {
     pub wires: HashMap<String, Wire>,
     /// Every problem, the parser's first.
     pub problems: Vec<String>,
+    /// The capabilities its queries needed and the chief is yet to
+    /// decide.
+    pub wants: Vec<Capability>,
 }
 
 /// The program `document` with `state`, answering its queries from
@@ -43,14 +46,22 @@ pub fn evaluate(
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>();
+    let mut wants = Vec::new();
     let mut evaluation = document.evaluate(state);
     if !evaluation.queries().is_empty() {
         let mut inputs = state.clone();
         for request in evaluation.queries() {
-            let (result, problem) =
-                read::answer(request, agents, granted);
-            inputs.set_query_result(request.statement(), result);
-            problems.extend(problem);
+            let answered = read::answer(request, agents, granted);
+            inputs.set_query_result(
+                request.statement(),
+                answered.result,
+            );
+            problems.extend(answered.problem);
+            if let Some(capability) = answered.wants
+                && !wants.contains(&capability)
+            {
+                wants.push(capability);
+            }
         }
         evaluation = document.evaluate(&inputs);
     }
@@ -76,5 +87,6 @@ pub fn evaluate(
         root: Node::new(Kind::Column).of(children),
         wires,
         problems,
+        wants,
     }
 }

@@ -81,6 +81,7 @@ pub fn draw(
                         .logs
                         .iter()
                         .for_each(|line| run::say(&info.id, line));
+                    run::want(&mut commands, plugin, &drawing.wants);
                     let panel =
                         panels.iter().find(|(_, p, _)| p.id == dock);
                     match drawing.shown {

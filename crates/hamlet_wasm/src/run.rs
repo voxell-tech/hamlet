@@ -3,12 +3,12 @@
 
 use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
-use hamlet_sdk::capability::Granted;
+use hamlet_sdk::capability::{Granted, Wanted};
 use hamlet_sdk::plugin::{PluginInfo, Status};
 use hamlet_sdk::tree::id::dock_id;
 
 use crate::draw::Dirty;
-use crate::host::Logged;
+use crate::host::{Logged, Want};
 use crate::inbox::Inbox;
 use crate::instance::Instance;
 use crate::interface::exports::hamlet::plugin::plugin::Intent;
@@ -61,6 +61,7 @@ pub fn step(
                     .logs
                     .iter()
                     .for_each(|line| say(&info.id, line));
+                want(&mut commands, plugin, &output.wants);
                 // A panel that was written to may look different now.
                 for local in mail.iter().filter_map(event::panel_of) {
                     dirty.mark(&dock_id(&info.id, local));
@@ -97,6 +98,18 @@ pub fn apply(
                 (Intent::Redraw(_), None) => {}
             }
         }
+    }
+}
+
+/// Tells the SDK what the plugin `plugin` tried to use that the chief
+/// is yet to decide, so that the chief is asked.
+pub fn want(commands: &mut Commands, plugin: Entity, wants: &[Want]) {
+    for Want { capability, reason } in wants {
+        commands.trigger(Wanted {
+            plugin,
+            capability: *capability,
+            reason: reason.clone(),
+        });
     }
 }
 

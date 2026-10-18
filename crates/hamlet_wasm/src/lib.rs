@@ -25,6 +25,7 @@ pub mod limits;
 pub mod load;
 pub mod manifest;
 pub mod panel;
+pub mod reply;
 pub mod run;
 pub mod start;
 pub mod stop;
@@ -47,6 +48,7 @@ pub fn plugin(app: &mut App) {
     .add_observer(admit::admit)
     .add_observer(enable::restart)
     .add_observer(event::deliver)
+    .add_observer(reply::reply)
     .add_observer(stop::stopped)
     .configure_sets(
         Update,

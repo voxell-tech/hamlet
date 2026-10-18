@@ -17,7 +17,9 @@ pub mod ui;
 pub use self::bindings::exports::hamlet::plugin::plugin::{
     Incoming, Intent, Outgoing, Tree, View as Wired,
 };
-pub use self::bindings::hamlet::plugin::host::{Agent, Level};
+pub use self::bindings::hamlet::plugin::host::{
+    Agent, Level, RequestResult,
+};
 
 /// What the host calls on a plugin.
 pub trait Plugin {
@@ -51,6 +53,14 @@ pub fn panel(id: &str, title: &str, icon: &str) {
 /// `read.agents`, and is an error without it.
 pub fn agents() -> Result<Vec<Agent>, String> {
     bindings::hamlet::plugin::host::agents()
+}
+
+/// Asks to use a capability the manifest names, with a reason. On
+/// [`RequestResult::Pending`] the chief has been asked, and the
+/// answer reaches a later `step` as `Incoming::Granted` or
+/// `Incoming::Denied`.
+pub fn request(capability: &str, reason: &str) -> RequestResult {
+    bindings::hamlet::plugin::host::request(capability, reason)
 }
 
 /// Exports a [`Plugin`] as the component's `plugin` interface.

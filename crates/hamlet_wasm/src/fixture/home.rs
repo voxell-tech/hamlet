@@ -15,6 +15,8 @@ use hamlet_sdk::capability::{
 };
 use hamlet_sdk::theme::{HamletTheme, insert_theme};
 
+use crate::limits::Limits;
+
 /// A folder that is removed when it goes.
 pub struct Scratch(PathBuf);
 
@@ -50,6 +52,7 @@ pub struct Plugin {
     program: Option<&'static str>,
     asks: &'static [&'static str],
     grants: &'static [&'static str],
+    later: &'static [&'static str],
     /// Whether the chief installed it, as far as the store says.
     installed: bool,
 }
@@ -62,6 +65,7 @@ impl Plugin {
             program: None,
             asks: &[],
             grants: &[],
+            later: &[],
             installed: true,
         }
     }
@@ -96,6 +100,15 @@ impl Plugin {
         self
     }
 
+    /// This, with the chief's choice for these set to ask next time.
+    pub fn asking_next_time(
+        mut self,
+        later: &'static [&'static str],
+    ) -> Self {
+        self.later = later;
+        self
+    }
+
     fn manifest(&self) -> String {
         let kind = match self.program {
             Some(_) => "kind = \"data\"",
@@ -115,16 +128,24 @@ impl Plugin {
         text
     }
 
-    /// The choices of a chief who allowed `grants`, which the plugin
-    /// asks for.
+    /// The choices of a chief who allowed `grants` and set `later` to
+    /// ask next time, among what the plugin asks for.
     fn choices(&self) -> Choices {
-        self.grants
-            .iter()
-            .filter(|grant| self.asks.contains(grant))
-            .filter_map(|grant| Capability::parse(grant).ok())
-            .fold(Choices::default(), |choices, capability| {
-                choices.decided(capability, Choice::Allow, false)
-            })
+        let of = |names: &'static [&'static str], choice| {
+            names
+                .iter()
+                .filter(|name| self.asks.contains(name))
+                .filter_map(|name| Capability::parse(name).ok())
+                .map(move |capability| (capability, choice))
+        };
+        of(self.grants, Choice::Allow)
+            .chain(of(self.later, Choice::AskNextTime))
+            .fold(
+                Choices::default(),
+                |choices, (capability, choice)| {
+                    choices.decided(capability, choice, false)
+                },
+            )
     }
 }
 
@@ -179,6 +200,9 @@ pub fn open(home: &Scratch) -> App {
         hamlet_sdk::tree::plugin,
         crate::plugin,
     ));
+    // Tests run side by side, and a plugin must not fail for being
+    // slow on a busy machine.
+    app.world_mut().resource_mut::<Limits>().call_ms = 10_000;
     app
 }
 

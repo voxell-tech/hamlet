@@ -3,14 +3,18 @@
 
 mod declare;
 mod read;
+mod request;
 
 use hamlet_sdk::agents::Agent;
 use hamlet_sdk::capability::Granted;
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 
 pub use self::declare::Declared;
+pub use self::request::Want;
 use crate::fault::Fault;
-use crate::interface::hamlet::plugin::host::{self, Host, Level};
+use crate::interface::hamlet::plugin::host::{
+    self, Host, Level, RequestResult,
+};
 use crate::limits::{Limiter, Limits};
 
 /// The name of the imported interface the linker defines.
@@ -34,6 +38,9 @@ pub struct State {
     /// The id of the plugin this store belongs to.
     pub(crate) plugin: String,
     pub(crate) granted: Granted,
+    /// What the call tried to use, or asked for, that the chief is
+    /// yet to decide.
+    pub(crate) wants: Vec<Want>,
     /// The agents, when the plugin may read them.
     pub(crate) agents: Vec<Agent>,
 }
@@ -49,6 +56,7 @@ impl State {
             panel_room: limits.panels,
             plugin: String::new(),
             granted: Granted::default(),
+            wants: Vec::new(),
             agents: Vec::new(),
         }
     }
@@ -77,6 +85,14 @@ impl Host for State {
 
     fn agents(&mut self) -> Result<Vec<host::Agent>, String> {
         self.read_agents()
+    }
+
+    fn request(
+        &mut self,
+        capability: String,
+        reason: String,
+    ) -> RequestResult {
+        self.ask_for(&capability, &reason)
     }
 }
 

@@ -1,10 +1,11 @@
 //! Plugins that wait for the chief, raised the way the app raises
-//! them.
+//! them: one to install, one that asks for more and one that tried
+//! to use what the chief is yet to decide.
 
 use bevy::ecs::world::World;
 use hamlet_sdk::capability::{
-    AskForMore, AskToInstall, Asked, Asks, Capability, Choices,
-    Uninstalled,
+    AskForMore, AskToInstall, Asked, Asks, Capability, Choice,
+    Choices, Uninstalled, Wanted,
 };
 use hamlet_sdk::plugin::PluginInfo;
 
@@ -60,6 +61,28 @@ pub(super) fn put(world: &mut World) {
     world.trigger(AskForMore {
         plugin: "almanac".into(),
         capabilities: vec![Capability::ChatSend],
+    });
+    // An installed plugin that tried to use what the chief is yet to
+    // decide.
+    let tides = world
+        .spawn((
+            info("tides", "Tides", "1.2.0"),
+            asks(&[(
+                "net",
+                "To fetch the tide table from the harbour.",
+            )]),
+            Choices::default().decided(
+                Capability::Net,
+                Choice::AskNextTime,
+                false,
+            ),
+        ))
+        .id();
+    world.flush();
+    world.trigger(Wanted {
+        plugin: tides,
+        capability: Capability::Net,
+        reason: "The harbour's table is on another machine.".into(),
     });
     world.flush();
 }

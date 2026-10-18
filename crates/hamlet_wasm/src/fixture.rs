@@ -19,6 +19,8 @@ const COMMON: &str = r#"
   (import "hamlet:plugin/host@0.1.0" "panel"
     (func $panel (param i32 i32 i32 i32 i32 i32)))
   (import "hamlet:plugin/host@0.1.0" "agents" (func $agents (param i32)))
+  (import "hamlet:plugin/host@0.1.0" "request"
+    (func $request (param i32 i32 i32 i32) (result i32)))
   (memory (export "memory") 1)
   (global $heap (mut i32) (i32.const 4096))
   (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32)
@@ -151,6 +153,24 @@ pub fn reading() -> String {
         (call $log (i32.const 2) (i32.load (i32.const 100))
           (i32.load (i32.const 104)))
         (i32.store (i32.const 24) (i32.const 0))))
+    (i32.const 0)))"#
+    )
+}
+
+/// Asks for `capability` in `step`, with the reason "why", and
+/// answers with a line as long as the answer is: 0 granted, 1 denied,
+/// 2 pending.
+pub fn requesting(capability: &str) -> String {
+    let len = capability.len();
+    format!(
+        r#"(module {COMMON} {QUIET} {NO_VIEW}
+  (data (i32.const 80) "{capability}")
+  (data (i32.const 112) "why")
+  (func (export "hamlet:plugin/plugin@0.1.0#step")
+    (param i32 i32) (result i32)
+    (i32.store (i32.const 24)
+      (call $request (i32.const 80) (i32.const {len})
+        (i32.const 112) (i32.const 3)))
     (i32.const 0)))"#
     )
 }

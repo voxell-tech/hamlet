@@ -51,6 +51,40 @@ second queue. The chief's answer reaches `hamlet_sdk::capability` as the
 petition that is not answered when the app quits is raised again at the next
 start, from the same state.
 
+## First use
+
+Only a capability the manifest names can be used or asked for. A host
+function that needs one, and `request`, look at the plugin's verdict:
+
+| Verdict | A gated call | `request` |
+|---|---|---|
+| Allowed | works | `granted` |
+| Denied | returns its error | `denied` |
+| Ask (unanswered or Ask next time) | returns its error, and the chief is asked | `pending`, and the chief is asked |
+| Not named in the manifest | returns its error | `denied`, and nobody is asked |
+
+The petition is raised after the call, by the SDK's `Wanted` event. It reads
+"Roster asks to use read.agents. Allow it?", with what the capability lets a
+plugin do, the manifest's reason and, from `request`, the plugin's own reason
+(cut to 200 characters). There is at most one open petition for each plugin
+and capability, however often the plugin calls. A data plugin's `Query` goes
+through the same gate.
+
+The chief answers:
+
+- **Allow** sets the choice to Allow.
+- **Ask next time** allows the capability for the rest of this run and keeps
+  the choice at Ask next time, so the first use after the next launch asks
+  again. The allowance is not written to `grants.toml`.
+- **Don't allow** sets the choice to Don't allow.
+
+An answer to a petition that came from `request` reaches the plugin's inbox
+as `granted(capability)` (Allow, or Ask next time) or `denied(capability)`.
+A gated call that raised the petition gets no message: the plugin tries again.
+
+In Settings, setting Ask next time on a capability takes back what was
+allowed, for this run too: the next use asks.
+
 ## Where the choices are kept
 
 One file for every plugin, `<home>/plugins/grants.toml`, written by
