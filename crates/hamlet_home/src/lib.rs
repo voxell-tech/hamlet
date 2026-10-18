@@ -59,6 +59,11 @@ impl Home {
         self.workspace.join("skills")
     }
 
+    /// The installed plugins, one folder each.
+    pub fn plugins(&self) -> PathBuf {
+        self.root.join("plugins")
+    }
+
     pub fn tools(&self) -> PathBuf {
         self.root.join("tools")
     }

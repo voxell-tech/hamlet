@@ -2,9 +2,11 @@
 //! limits, one store each.
 
 pub mod engine;
+pub mod install;
 pub mod instance;
 pub mod interface;
 pub mod limits;
+pub mod manifest;
 
 use bevy::prelude::*;
 use hamlet_assets::TuningPlugin;

@@ -3742,6 +3742,7 @@ dependencies = [
  "hamlet_assets",
  "hamlet_sdk",
  "serde",
+ "toml",
  "wasmtime",
 ]
 

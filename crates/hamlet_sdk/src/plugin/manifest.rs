@@ -3,7 +3,7 @@
 use bevy::ecs::component::Component;
 
 /// A plugin that must be present, and the versions of it that do.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, serde::Deserialize)]
 pub struct Need {
     pub id: String,
     /// A version range such as `>=0.2` or `0.3`.
