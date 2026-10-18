@@ -93,7 +93,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
         let choose = action(
             Glyph::Folder,
             match work.folder {
-                Some(_) => "CHOOSE ANOTHER",
+                Some(_) => "CHANGE FOLDER",
                 None => "CHOOSE A FOLDER",
             },
             move |world| {
@@ -115,6 +115,10 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                 );
                 parts.push(
                     buttons(vec![
+                        crate::screens::review::folder_action(
+                            folder.clone(),
+                        )
+                        .boxed(),
                         choose,
                         bad_action(
                             Glyph::Cross,

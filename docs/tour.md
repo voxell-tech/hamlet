@@ -116,6 +116,7 @@ Paths are under `crates/`.
 | Founding, naming, moving, closing a hamlet | `hamlet_rules/src/realm.rs` |
 | A starter skill | `hamlet_home/starters/<name>/SKILL.md` |
 | A panel | Its file in `hamlet_ui/src/screens/`, or in `hamlet_ui/src/` |
+| Git review and revision loading | `hamlet_rules/src/review.rs`; the panel is `hamlet_ui/src/screens/review.rs`, the virtualized line viewer is `hamlet_ui/src/widgets/diff.rs` |
 | The right-click menu | `hamlet_ui/src/world_menu/items.rs` |
 | A colour in the panels | `assets/theme.toml`, its fields in `hamlet_ui/src/theme.rs` |
 | How a control looks or feels | `hamlet_ui/src/looks.rs`, `widgets/feel/`; [`ui-warmth.md`](ui-warmth.md) |
@@ -161,6 +162,32 @@ These draw to files and open nothing:
 
 `style_test` (one fixed scene and the robots' motions) and `town_gen` (the
 generated world, grown from the keyboard) open a window.
+
+The Diff panel opens from **DIFF** beside a Git-backed folder under a
+hamlet's **WORKS ON** section, or from **DIFF** in a dock's plus menu.
+The contextual action loads that folder's unstaged changes. The dock entry
+starts at the selected hamlet's folder when available. Enter another
+repository path and press Refresh to change it. Unstaged includes untracked
+files; Staged compares the index to HEAD. Revisions accepts a base and a
+target branch, tag or commit, compared directly or from their common
+ancestor. Refresh applies edited fields and reloads changes on disk.
+The loaded repository and comparison remain visible while fields are edited.
+Changes cover the whole repository, not an individual agent or task.
+Git supplies file changes and contents; `similar` computes the line diffs.
+Working-tree CRLF conversion follows Git's text attributes and `core.autocrlf`.
+Files with `filter`, `ident` or `working-tree-encoding` attributes show a
+working-tree preview notice; their staged and committed blobs remain reviewable.
+The panel is read-only. Binary, non-UTF-8, submodule, nested-repository and
+unmerged changes show a notice. A file preview error leaves the file list
+available so other files can still be reviewed.
+
+The `review`, `review-split` and `review-revisions` gallery scenes use a
+scratch Git repository. `hamlet-git` shows the contextual action, while
+`hamlet` shows a non-Git work folder. Add `--window` to exercise the native controls:
+
+```sh
+cargo run --example ui_gallery -- --scene review --window
+```
 
 Run the app itself against a scratch home, never your own:
 

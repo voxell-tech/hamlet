@@ -13,6 +13,7 @@ pub mod lifecycle;
 mod models;
 pub mod realm;
 mod record;
+pub mod review;
 pub mod standing;
 pub mod vote;
 pub mod words;
