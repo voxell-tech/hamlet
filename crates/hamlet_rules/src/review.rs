@@ -9,6 +9,8 @@ use std::process::{Command, Output};
 use anyhow::{Context, Result, bail};
 use similar::{ChangeTag, TextDiff};
 
+pub mod highlight;
+
 /// The two sides of a review.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Comparison {
