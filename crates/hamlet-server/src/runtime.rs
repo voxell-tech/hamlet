@@ -20,6 +20,7 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 
 use crate::Home;
 use crate::credentials::write_whole;
+use crate::harness::{self, Harnesses, Notice};
 use crate::protocol::{Protocol, fault};
 use crate::service::Service;
 
@@ -106,6 +107,15 @@ pub async fn serve(options: Options) -> Result<()> {
     let mut signals = Signals::new()?;
     let home = Home::open(&options.home)?;
     let mut service = Service::new(home, options.faux.is_some())?;
+    // Runtimes with bound conversations carry on their work; protocol
+    // v0 serves no conversation yet, so none is bound here.
+    let layout = service.home.layout().clone();
+    let (mut harnesses, notices) = Harnesses::start(
+        &layout,
+        service.home.store(),
+        harness::Config::from_env(options.faux.clone())?,
+    )?;
+    report(&notices);
     let protocol = Protocol::new()?;
     let listener = TcpListener::bind((
         std::net::Ipv4Addr::LOCALHOST,
@@ -189,6 +199,9 @@ pub async fn serve(options: Options) -> Result<()> {
                     }
                 }
                 _ = tick.tick() => refresh(&mut service, &mut state, &mut clients)?,
+                event = harnesses.next() => {
+                    report(&harnesses.handle(service.home.store(), event).await?);
+                }
                 Some(_) = tasks.join_next() => {},
             }
         }
@@ -204,9 +217,27 @@ pub async fn serve(options: Options) -> Result<()> {
     }
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
+    harnesses.close().await;
     drop(published);
     service.home.close()?;
     result
+}
+
+/// Logs what a chief must hear of the runtimes until protocol v0
+/// shows it.
+fn report(notices: &[Notice]) {
+    for notice in notices {
+        match notice {
+            Notice::Refused { runtime, words }
+            | Notice::Fault { runtime, words } => {
+                eprintln!(
+                    "hamlet-server: {}: {words}",
+                    runtime.as_str()
+                );
+            }
+            _ => {}
+        }
+    }
 }
 
 fn refresh(

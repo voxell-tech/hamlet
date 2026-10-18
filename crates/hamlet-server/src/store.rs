@@ -33,6 +33,8 @@ const MIGRATIONS: &[&str] = &[
         value TEXT NOT NULL,
         PRIMARY KEY (kind, key)
     ) STRICT, WITHOUT ROWID;",
+    // 5. Harness runtimes, bindings, inputs, waits and model usage.
+    include_str!("harness/schema.sql"),
 ];
 
 /// A home's realm database, open in this process alone.

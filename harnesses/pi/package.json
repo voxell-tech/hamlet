@@ -1,0 +1,28 @@
+{
+    "name": "hamlet-pi-harness",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Hamlet's pi harness: a runtime of pi-durable conversations for the Rust server",
+    "type": "module",
+    "engines": {
+        "node": ">=24.1.0"
+    },
+    "scripts": {
+        "check": "tsc --noEmit && biome check --error-on-warnings .",
+        "format": "biome check --write .",
+        "schema": "node scripts/schema.ts && biome format --write link.schema.json",
+        "test": "vitest --run"
+    },
+    "dependencies": {
+        "@earendil-works/chord": "1.2.0",
+        "@earendil-works/pi-ai": "1.2.0",
+        "@earendil-works/pi-durable": "1.2.0",
+        "typebox": "1.3.27"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "2.5.15",
+        "@types/node": "24.19.2",
+        "typescript": "7.0.2",
+        "vitest": "5.0.4"
+    }
+}

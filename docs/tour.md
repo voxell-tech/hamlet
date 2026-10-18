@@ -48,8 +48,8 @@ root package, `hamlet`. The window's crates are:
 | Crate | What it is |
 |---|---|
 | `hamlet_cli` | The `hamlet` command: process management and terminal clients, without Bevy |
-| `hamlet-server` | The Rust server: claims a home as the TypeScript server does, keeps its realm database `realm.sqlite`, and runs operations once each with the marker of their outcome |
-| `hamlet_protocol_gen` | Generates Rust protocol types from `server/protocol.schema.json`; run with `cargo run -p hamlet_protocol_gen` |
+| `hamlet-server` | The Rust server: claims a home as the TypeScript server does, keeps its realm database `realm.sqlite`, and runs operations once each with the marker of their outcome. `src/harness.rs` and `harness/` start and watch harness runtimes and answer them over the harness link |
+| `hamlet_protocol_gen` | Generates Rust types from `server/protocol.schema.json` and `harnesses/pi/link.schema.json`; run with `cargo run -p hamlet_protocol_gen` |
 | `hamlet_protocol` | Checked-in protocol v0 types in `src/v0.rs`, with a test that catches schema drift, and the recorded sessions in `frames/` |
 | `hamlet_acceptance` | The acceptance suite: scenarios against a server process, through protocol v0 and the `hamlet` command |
 | `hamlet_client` | The client core: the connection, Outbox, received realm, waits and watched chats. Bevy app/ECS, no rendering |
@@ -74,6 +74,26 @@ They are porting references, described in [`core.md`](core.md):
 | `hamlet_home` | The Rust home's layout, charter, prompt, limits and starter skills |
 | `hamlet_rules` | Records and rules over them, without Bevy |
 | `hamlet_core` | Runtime plugins: agents, sessions, tools and oversight |
+
+## The pi harness
+
+`harnesses/pi/` is the Node package that runs conversations on pi-durable
+for the Rust server, one runtime process per store under
+`<home>/harnesses/<instance>/`. The server starts it with `--runtime`,
+`--store` and `--link stdio`, and the two speak the harness link, one JSON
+message per line on its standard input and output.
+
+| Where | What |
+|---|---|
+| `src/link.ts` | The link's messages in TypeBox; `npm run schema` writes `link.schema.json`, from which `hamlet_protocol_gen` makes `crates/hamlet-server/src/harness/link.rs` |
+| `src/runtime.ts` | The handshake, the `hamlet` extension (tools as operations, the prompt seam, early asks), conversations by key, admitting inputs by request ID, cancel, history and committed updates |
+| `src/models.ts` | Every model call allowed by the server first and charged before pi keeps its answer; endpoints through pi-ai |
+| `src/faux.ts` | The acceptance suite's faux script, answered per agent |
+| `src/faults.ts` | Points where a crash test stops the runtime |
+
+The server's side of the crash tests is `crates/hamlet-server/tests/harness/`,
+built with the `harness` feature and driven by the
+`hamlet-harness-driver` binary.
 
 ## The server
 

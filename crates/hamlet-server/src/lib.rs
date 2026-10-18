@@ -5,6 +5,8 @@
 mod claim;
 mod credentials;
 mod documents;
+mod fault;
+pub mod harness;
 mod home;
 mod limits;
 mod operation;

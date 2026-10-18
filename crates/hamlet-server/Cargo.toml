@@ -13,8 +13,20 @@ path = "src/lib.rs"
 name = "hamlet-server"
 path = "src/main.rs"
 
+[[bin]]
+name = "hamlet-harness-driver"
+path = "src/bin/hamlet-harness-driver.rs"
+required-features = ["harness"]
+
 [lints]
 workspace = true
+
+[features]
+# Points where a test stops the server, to kill it there.
+faults = []
+# Compiles the tests that start the pi harness, which need Node and
+# `npm ci --prefix harnesses/pi`.
+harness = ["faults"]
 
 [dependencies]
 hamlet_home.workspace = true
@@ -38,6 +50,13 @@ uuid.workspace = true
 rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
+hamlet_acceptance = { path = "../hamlet_acceptance" }
+hamlet_protocol_gen.workspace = true
 hamlet_testing.workspace = true
 libc.workspace = true
 rusqlite.workspace = true
+
+[[test]]
+name = "harness"
+path = "tests/harness/main.rs"
+required-features = ["harness"]

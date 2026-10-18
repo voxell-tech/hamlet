@@ -12,6 +12,9 @@ use sha2::{Digest, Sha256};
 
 use crate::store::Store;
 
+const MARK: &str = "INSERT INTO marker (runtime, key, kind, digest, \
+                    outcome) VALUES (?1, ?2, ?3, ?4, ?5)";
+
 /// The persistent name of a harness runtime instance.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuntimeInstance(String);
@@ -145,19 +148,33 @@ impl Store {
         // A refusal is marked too. The harness may already hold it as
         // the call's result, so a later run of the call must
         // not decide otherwise against a changed realm.
-        tx.execute(
-            "INSERT INTO marker (runtime, key, kind, digest, \
-             outcome)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                id.runtime.as_str(),
-                id.key,
-                O::KIND,
-                digest,
-                serde_json::to_string(&outcome)?
-            ],
-        )?;
+        let kept = serde_json::to_string(&outcome)?;
+        let mark = |db: &Connection| {
+            db.execute(
+                MARK,
+                params![
+                    id.runtime.as_str(),
+                    id.key,
+                    O::KIND,
+                    digest,
+                    kept
+                ],
+            )
+        };
+        #[cfg(feature = "faults")]
+        if crate::fault::split_marker() {
+            // Broken on purpose: the test of this order must catch
+            // the result it loses.
+            crate::fault::point("before_commit");
+            tx.commit()?;
+            crate::fault::point("after_commit");
+            mark(&self.db)?;
+            return Ok(Reply::Outcome(outcome));
+        }
+        mark(&tx)?;
+        crate::fault::point("before_commit");
         tx.commit()?;
+        crate::fault::point("after_commit");
         Ok(Reply::Outcome(outcome))
     }
 }
@@ -176,7 +193,7 @@ fn digest<O: Operation>(operation: &O) -> Result<Vec<u8>> {
 
 /// `value` as JSON with each object's keys sorted, so equal requests
 /// have equal digests in every process.
-fn canonical(value: &Value, out: &mut String) {
+pub(crate) fn canonical(value: &Value, out: &mut String) {
     match value {
         Value::Object(map) => {
             let mut entries = map.iter().collect::<Vec<_>>();

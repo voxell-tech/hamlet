@@ -97,6 +97,24 @@ cargo clippy -p hamlet_acceptance --all-targets --features acceptance
 cargo test -p hamlet_acceptance --features acceptance
 ```
 
+The pi harness in `harnesses/pi/` is a Node package of its own, on the
+same Node, with the same two checks run in that folder. The Rust server's
+tests that start it as a real process, crashes included, are compiled only
+with the `harness` feature, so plain `cargo test` needs no Node. They need
+`npm ci --prefix harnesses/pi`, never contact a model server or the
+internet, and must be clean before a commit too. `make check` runs them;
+by hand, at the root:
+
+```sh
+cargo clippy -p hamlet-server --all-targets --features harness
+cargo test -p hamlet-server --features harness
+```
+
+The link's Rust types in `crates/hamlet-server/src/harness/link.rs` are
+generated as protocol v0's are: after changing `harnesses/pi/src/link.ts`,
+run `npm run schema` in `harnesses/pi/`, then
+`cargo run -p hamlet_protocol_gen` at the root.
+
 `npm test` builds the Rust CLI before running the server and CLI contract
 tests. For direct Vitest runs, build `hamlet_cli` first. `HAMLET_CLI` selects
 a CLI binary outside `target/debug/hamlet`.

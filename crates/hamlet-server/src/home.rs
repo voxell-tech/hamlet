@@ -17,10 +17,13 @@ const STORE: &str = "realm.sqlite";
 const IDENTITY: &str = "realm.id";
 /// The folder of the harness runtimes' own storage.
 const HARNESSES: &str = "harnesses";
+/// The credentials file, which only this server writes.
+const CREDENTIALS: &str = "credentials.json";
 /// The TypeScript server's storage.
 const NODE_STORE: &str = "home.sqlite";
 
 /// The paths of a home's parts.
+#[derive(Clone, Debug)]
 pub struct Layout {
     root: PathBuf,
 }
@@ -38,6 +41,11 @@ impl Layout {
     /// The realm database's path.
     pub fn store(&self) -> PathBuf {
         self.root.join(STORE)
+    }
+
+    /// The model credentials and the connection's token.
+    pub fn credentials(&self) -> PathBuf {
+        self.root.join(CREDENTIALS)
     }
 
     /// The folder only `instance` keeps its storage in.

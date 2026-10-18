@@ -128,19 +128,28 @@ conversation like any other, bound to a runtime.
 
 The server and a runtime talk through one private interface defined by
 Hamlet. It is not a public endpoint, and it exposes no storage and none of
-pi's task APIs. Its transport is local and private to the two; which one
-is open.
+pi's task APIs. Its transport is the runtime's standard input and output,
+which only the server holds: one JSON message per line. The messages are
+defined in TypeBox in `harnesses/pi/src/link.ts`, checked in as
+`harnesses/pi/link.schema.json`, and generated into the server's Rust
+types, so both sides are tested against the one schema. Link version 1 is
+the only one.
 
 ### Starting and versions
 
 1. The server starts the runtime with its ID, its store's path and the
-   link's address.
+   link's address (`--runtime`, `--store`, `--link stdio`), and says when
+   the store may be made, which is only before the runtime first began.
 2. The runtime answers with the link versions it speaks, its adapter and
    harness versions, the runtime ID its store records, and its
    capabilities.
 3. The server refuses a link version it does not speak, a version that
    differs from the binding's, or a store whose runtime ID does not match.
-   A refusal is an error in words for a chief, never a fallback.
+   A refusal is an error in words for a chief, never a fallback, and the
+   refused runtime is not started again. A store that is missing is
+   refused the same way.
+4. Otherwise the server welcomes it with the tools it may offer, then
+   creates the conversations it owes and submits the inputs it owes.
 
 Every message carries a version and an ID. A reply names the ID it answers.
 Errors are messages, not closed connections.
@@ -201,9 +210,14 @@ and reflections all go this way, keeping each conversation's order (C23),
 the sender, and the task's caps across agents (H12), so each is admitted
 once (S23).
 
-The prototype submitted with a request ID but kept that step out of its
-crash cases. Admission is not built until a test with pi-durable's own
-APIs shows it.
+pi-durable admits by request ID inside the commit that admits: submitting
+looks the request ID up in the conversation's submissions in that same
+transaction and answers with the submission it finds. Its table indexes
+the request ID without making it unique, so this holds because one
+runtime process alone writes its store. Shown with pi-durable's own APIs
+by a process killed with SIGKILL after admitting and a new one submitting
+the same ID (`harnesses/pi/test/admission.test.ts`), and through the
+server with the runtime killed before and after pi admitted an input.
 
 ### Operations and markers
 
@@ -248,21 +262,30 @@ operation is carried out (S18):
 Before every model call the runtime asks the server, which applies H8 and
 H12. After it, the runtime reports the attempt's usage under its
 identity, and the server charges it once however often it is reported
-(S20). On reconnecting, a runtime reports usage it recorded but had not
-had acknowledged, and the server charges it before work that depends on
-the budget goes on.
+(S20). The pi harness holds a call's last event until the server has
+charged it, so pi keeps no answer that is not charged and there is nothing
+to reconcile on reconnecting. The cost charged is what the endpoint says
+it billed, when it says, else pi-ai's price.
 
-A provider can answer a request whose answer is then never recorded. What
-such an attempt is charged is open.
+A provider can answer a request whose answer is then never recorded. It
+shows as an allowed attempt with no usage, charged nothing. What it should
+be charged is open.
+
+The server holds the credentials, model lists and sign-ins. It hands the
+one credential a call needs to the runtime, in memory, in its answer
+allowing the attempt; pi-ai stores nothing.
 
 ### Cancelling
 
 Stopping a turn (C25) marks its unadmitted inputs dropped in the server's
-store before the runtime is told, so no restart submits them again. The
-runtime ends the running turn and drops its queue. Operations of the
-stopped turn that arrive later are refused, and its waits lapse (H34).
-The exact behaviour in each state of recovery is open, and none of it is
-proven yet.
+store before the runtime is told, so no restart submits them again, and
+keeps that a cancel is owed. The runtime ends the running turn and drops
+its queue. A cancel owed to a runtime that is down is sent when it is
+ready again, before any input kept since. Operations of the stopped turn
+that arrive later are refused, and its waits lapse (H34). Shown with a
+turn waiting for a chief and an input queued behind it, and with the
+runtime killed while both were in pi. Inputs pi withdrew stay admitted in
+the server's store, and other states of recovery are not tested.
 
 ### Recovering
 
@@ -271,11 +294,18 @@ runtime with bound conversations, checks each as above, asks for their
 status, submits again what was not admitted, and lets each runtime carry on
 its own interrupted work. A runtime that fails stops only its own
 conversations; the rest of the realm goes on, and work waiting on an answer
-from one of them waits (S22). The server starts it again. How often, how
-soon and when it gives up are open.
+from one of them waits (S22). The server starts it again after 250 ms,
+doubling with each failure up to 30 s, and forgets the failures once it
+has run for a minute. It never gives up on its own; when it should is
+open.
 
 A runtime whose link to the server closes stops its work and exits, so no
-agent runs without its server (S21). How it notices is open.
+agent runs without its server (S21). It notices by the end of its
+standard input.
+
+Who acts in an operation is never taken from the runtime or a tool's
+arguments. The server derives the actor from the conversation's binding
+and the record as it is when the operation runs.
 
 A rewind forks in the runtime, then the server moves the chat to the fork
 in a change it can recover. Waits in the part taken out lapse. A rewind
@@ -450,6 +480,11 @@ It did not show:
 - Packaging on any platform, other platforms than Linux, or power loss.
 - Two servers at once.
 
+Its ten cases run again against this server and the pi harness, as real
+processes, in `crates/hamlet-server/tests/harness/`, with admitting
+inputs across a crash, cancelling, the handshake's refusals and a real
+endpoint beside them.
+
 ## Risks
 
 - Two languages and two protocols to keep in step: protocol v0 and the
@@ -475,13 +510,10 @@ It did not show:
 
 ## Open questions
 
-- The link's transport and encoding, and how versions are agreed.
-- How a runtime is started, restarted, given up on, and notices that its
-  server is gone.
-- How pi-durable admits an input once, shown with its own APIs.
-- Cancelling in each state of recovery.
-- What an attempt whose provider answer was lost is charged, and how
-  recorded usage is reconciled.
+- When the server gives up on a runtime that keeps failing.
+- Cancelling in the states of recovery not yet tested, and whether inputs
+  pi withdrew are marked dropped.
+- What an attempt whose provider answer was lost is charged.
 - Whether markers are ever cleared, and when.
 - How letters, questions and votes recover when the two agents are in
   different runtimes.
@@ -493,8 +525,6 @@ It did not show:
 - Whether protocol v0 shows an agent's harness and a harness's
   capabilities, as optional fields.
 - Where the protocol's TypeBox source lives once `server/` is deleted.
-- Whether `cargo test` starts the Node harness, and what checks the harness
-  link beside the acceptance suite.
 - Where the acceptance suite and the recorded frames live, and how the
   suite selects the server it starts.
 - Whether to import homes of the retained Rust runtime

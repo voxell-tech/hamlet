@@ -20,6 +20,7 @@ NPM ?= npm
 FYNIX := vendor/fynix/Cargo.toml
 # npm ci rewrites this file, so it is newer than the lockfile it installed.
 SERVER := server/node_modules/.package-lock.json
+PI := harnesses/pi/node_modules/.package-lock.json
 
 .DEFAULT_GOAL := build
 .PHONY: build install uninstall dev check fmt clean
@@ -29,6 +30,9 @@ $(FYNIX):
 
 $(SERVER): server/package.json server/package-lock.json
 	$(NPM) ci --prefix server
+
+$(PI): harnesses/pi/package.json harnesses/pi/package-lock.json
+	$(NPM) ci --prefix harnesses/pi
 
 build: $(FYNIX) $(SERVER)
 	$(CARGO) build --release --locked -p hamlet_cli -p hamlet --bin hamlet --bin hamlet-app
@@ -44,19 +48,24 @@ uninstall:
 dev: $(FYNIX) $(SERVER)
 	$(CARGO) run -p hamlet_cli -- dev
 
-check: $(FYNIX) $(SERVER)
+check: $(FYNIX) $(SERVER) $(PI)
 	$(CARGO) +nightly fmt --check
 	$(CARGO) build --all-targets
 	$(CARGO) clippy --all-targets -- -D warnings
 	$(CARGO) test
 	$(CARGO) clippy -p hamlet_acceptance --all-targets --features acceptance -- -D warnings
 	$(CARGO) test -p hamlet_acceptance --features acceptance
+	$(CARGO) clippy -p hamlet-server --all-targets --features harness -- -D warnings
+	$(CARGO) test -p hamlet-server --features harness
 	$(NPM) run check --prefix server
 	$(NPM) test --prefix server
+	$(NPM) run check --prefix harnesses/pi
+	$(NPM) test --prefix harnesses/pi
 
-fmt: $(SERVER)
+fmt: $(SERVER) $(PI)
 	$(CARGO) +nightly fmt
 	$(NPM) run format --prefix server
+	$(NPM) run format --prefix harnesses/pi
 
 clean:
 	$(CARGO) clean
