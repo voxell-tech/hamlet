@@ -13,9 +13,9 @@
 
 use std::path::{Path, PathBuf};
 
-use hamlet_world::DayPart;
-use hamlet_world::sound::music::{Composer, Moment, Mood, render};
-use hamlet_world::sound::{Family, RATE, Sound, SoundSettings};
+use hamlet_realm::DayPart;
+use hamlet_realm::sound::music::{Composer, Moment, Mood, render};
+use hamlet_realm::sound::{Family, RATE, Sound, SoundSettings};
 
 fn db(level: f32) -> f32 {
     20.0 * level.max(1e-9).log10()

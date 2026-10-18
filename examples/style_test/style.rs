@@ -17,16 +17,16 @@ use bevy::light::{
 use bevy::pbr::ExtendedMaterial;
 use bevy::post_process::dof::{DepthOfField, DepthOfFieldMode};
 use bevy::prelude::*;
-use hamlet_vfx::inlay::{self, InlayExt, InlayMaterial, InlayState};
-use hamlet_world::keeper::{self, KState, Kit, Who};
-use hamlet_world::lantern::lantern_glass;
-use hamlet_world::needs::TagSettings;
-use hamlet_world::palette::Palette;
-use hamlet_world::pick::{
+use hamlet_realm::keeper::{self, KState, Kit, Who};
+use hamlet_realm::lantern::lantern_glass;
+use hamlet_realm::needs::TagSettings;
+use hamlet_realm::palette::Palette;
+use hamlet_realm::pick::{
     self, Glide, PickSettings, Thing, hit_box, watch,
 };
-use hamlet_world::sky::{self, CameraSettings, Looks, Sun};
-use hamlet_world::{Clock, Sky, Step, Stock, WorldCamera, base};
+use hamlet_realm::sky::{self, CameraSettings, Looks, Sun};
+use hamlet_realm::{Clock, Sky, Step, Stock, WorldCamera, base};
+use hamlet_vfx::inlay::{self, InlayExt, InlayMaterial, InlayState};
 
 use self::demo::{Demo, View};
 use self::scene::{Places, Terrain};

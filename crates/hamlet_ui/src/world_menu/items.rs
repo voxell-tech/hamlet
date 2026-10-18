@@ -9,10 +9,10 @@ use bevy_fynix::views::{BehaviorExt, label, menu_item};
 use hamlet_core::agents::{
     self, Busy, Left, Mayor, Road, Settlement,
 };
+use hamlet_realm::generator::society::Place as Ground;
+use hamlet_realm::pick::{Also, Selected, Thing, focus_on, select};
+use hamlet_realm::{moving, orders};
 use hamlet_rules::hamlet::HOME;
-use hamlet_world::generator::society::Place as Ground;
-use hamlet_world::pick::{Also, Selected, Thing, focus_on, select};
-use hamlet_world::{moving, orders};
 
 use super::deed::Deed;
 use super::{Open, close, restore, stop};

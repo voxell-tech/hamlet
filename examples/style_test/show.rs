@@ -1,10 +1,10 @@
 //! The set on show: its cast, their scripts and the camera on them.
 
 use bevy::prelude::*;
-use hamlet_world::keeper::{
+use hamlet_realm::keeper::{
     Act, Keeper, Kit, Motion, Trip, spawn_agent,
 };
-use hamlet_world::{Clock, WorldCamera};
+use hamlet_realm::{Clock, WorldCamera};
 
 use crate::sets;
 use crate::style::scene::Terrain;

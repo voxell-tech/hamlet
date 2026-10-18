@@ -23,14 +23,14 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 use bevy::winit::WinitSettings;
-use hamlet_world::WorldSystems;
-use hamlet_world::debug::DebugSettings;
-use hamlet_world::generator::land::Land;
-use hamlet_world::generator::society::Society;
-use hamlet_world::generator::{
+use hamlet_realm::WorldSystems;
+use hamlet_realm::debug::DebugSettings;
+use hamlet_realm::generator::land::Land;
+use hamlet_realm::generator::society::Society;
+use hamlet_realm::generator::{
     GenPlugin, GenView, Loading, Phase, Tally,
 };
-use hamlet_world::sound::SoundSettings;
+use hamlet_realm::sound::SoundSettings;
 
 use self::bench::{
     BenchRun, MainTime, main_began, main_ended, run_bench,

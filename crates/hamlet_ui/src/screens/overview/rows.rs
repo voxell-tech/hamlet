@@ -15,8 +15,8 @@ use hamlet_core::agents::{
     MergedInto, Purpose, Settlement, Treasury,
 };
 use hamlet_core::oversight::Waiting;
+use hamlet_realm::pick::Thing;
 use hamlet_rules::hamlet::HOME;
-use hamlet_world::pick::Thing;
 
 use super::{Naming, Search};
 use crate::icons::Glyph;

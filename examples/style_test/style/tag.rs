@@ -1,8 +1,8 @@
 //! The paper tag: a UI node tied by a string to a point in the world.
 
 use bevy::prelude::*;
-use hamlet_world::WorldCamera;
-use hamlet_world::needs::{TagSettings, glyph};
+use hamlet_realm::WorldCamera;
+use hamlet_realm::needs::{TagSettings, glyph};
 
 use super::demo::Demo;
 

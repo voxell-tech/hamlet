@@ -21,7 +21,7 @@ use bevy_fynix::views::{
     overlay, popup, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource, style};
-use hamlet_world::pick::{Orbit, Taken};
+use hamlet_realm::pick::{Orbit, Taken};
 
 use crate::feel::FootLight;
 use crate::icons::{Glyph, glyph};

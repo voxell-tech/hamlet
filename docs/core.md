@@ -114,7 +114,7 @@ lost costs one frame.
 
 ## The bridge to the world
 
-`hamlet_world/src/hamlet.rs` puts the generator's id on the core's own
+`hamlet_realm/src/hamlet.rs` puts the generator's id on the core's own
 entity: `Housed(AgentId)` on an agent, `Laid(Pair)` on a road,
 `Sited(TownId)` on the hamlet. Systems give a plot to an agent without
 one and lay a road without one. Observers on `Left` and `Carried` turn a

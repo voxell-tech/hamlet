@@ -1,7 +1,7 @@
 # How the robots move
 
 The robots' motions, how one eases into the next, what a robot costs and
-how robots differ. The code is `hamlet_world/src/keeper/`. Everything is
+how robots differ. The code is `hamlet_realm/src/keeper/`. Everything is
 procedural: no models, textures or animation files.
 
 See it with `cargo run --example style_test`, then press N to step through

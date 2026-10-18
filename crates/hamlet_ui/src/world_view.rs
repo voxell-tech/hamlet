@@ -35,13 +35,13 @@ use chrono::Timelike;
 use hamlet_core::agents::Busy;
 use hamlet_core::oversight::Waiting;
 use hamlet_core::session::{Entry, Status, Transcript};
-use hamlet_world::bubble::Bubble;
-use hamlet_world::hand::Readout;
-use hamlet_world::keeper::KState;
-use hamlet_world::needs::NeedTag;
-use hamlet_world::pick::{NameTag, Sign, WorldSurface};
-use hamlet_world::sky::SkySettings;
-use hamlet_world::{Hour, Stage, WorldCamera, WorldSystems};
+use hamlet_realm::bubble::Bubble;
+use hamlet_realm::hand::Readout;
+use hamlet_realm::keeper::KState;
+use hamlet_realm::needs::NeedTag;
+use hamlet_realm::pick::{NameTag, Sign, WorldSurface};
+use hamlet_realm::sky::SkySettings;
+use hamlet_realm::{Hour, Stage, WorldCamera, WorldSystems};
 
 use crate::dock::PanelAppExt;
 use crate::icons::Glyph;
@@ -70,7 +70,7 @@ pub(crate) fn plugin(app: &mut App) {
         .icon(Glyph::Globe.image(ICON)),
     )
     .init_resource::<TimeOfDay>()
-    .insert_resource(hamlet_world::pick::NoNameTag)
+    .insert_resource(hamlet_realm::pick::NoNameTag)
     .add_systems(
         Update,
         (

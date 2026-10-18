@@ -14,9 +14,9 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, scroll, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use hamlet_realm::orders;
+use hamlet_realm::pick::{Thing, select};
 use hamlet_rules::hamlet::HOME;
-use hamlet_world::orders;
-use hamlet_world::pick::{Thing, select};
 
 use super::heading;
 use super::record::record_of;

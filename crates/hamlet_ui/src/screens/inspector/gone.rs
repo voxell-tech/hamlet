@@ -8,7 +8,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_core::agents::{LivesIn, MergedInto, Purpose};
-use hamlet_world::pick::{Selected, Thing, select};
+use hamlet_realm::pick::{Selected, Thing, select};
 
 use super::agent::dim;
 use super::papers::Papers;
@@ -101,9 +101,9 @@ pub(super) fn library() -> impl View {
             })
             .boxed(),
             action(Glyph::Move, "MOVE", |world| {
-                hamlet_world::moving::pick_up(
+                hamlet_realm::moving::pick_up(
                     world,
-                    hamlet_world::generator::society::Place::Library,
+                    hamlet_realm::generator::society::Place::Library,
                 )
             }),
         ]),

@@ -21,10 +21,10 @@ use bevy_fynix::dock::{
 use hamlet_core::agents::{Citizen, Left, Settlement};
 use hamlet_core::core::HomeDir;
 use hamlet_desktop::awake::KeepAwake;
-use hamlet_world::chief;
-use hamlet_world::pick::{Selected, Thing, select};
-use hamlet_world::sky::Quality;
-use hamlet_world::sound::SoundSettings;
+use hamlet_realm::chief;
+use hamlet_realm::pick::{Selected, Thing, select};
+use hamlet_realm::sky::Quality;
+use hamlet_realm::sound::SoundSettings;
 use serde::{Deserialize, Serialize};
 
 use crate::me::Me;
@@ -535,7 +535,7 @@ mod tests {
     fn what_was_selected_is_selected_again_once_it_is_there() {
         let mut world = World::new();
         world.init_resource::<Selected>();
-        world.init_resource::<hamlet_world::pick::Also>();
+        world.init_resource::<hamlet_realm::pick::Also>();
         world.init_resource::<Kept>();
         world.insert_resource(Pending {
             chosen: Some(Chosen::House("scout".into())),

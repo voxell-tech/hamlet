@@ -3,8 +3,8 @@
 
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
-use hamlet_world::Clock;
-use hamlet_world::keeper::{
+use hamlet_realm::Clock;
+use hamlet_realm::keeper::{
     Act, KState, Keeper, Motion, Stride, Trip,
 };
 

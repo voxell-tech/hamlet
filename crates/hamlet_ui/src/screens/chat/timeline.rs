@@ -15,11 +15,11 @@ use hamlet_core::agents::{Citizen, LivesIn, Mayor, Purpose};
 use hamlet_core::session::{
     Entry, Item, SessionKey, TalksTo, Transcript, reply_in,
 };
+use hamlet_realm::chief::{Chief, Look};
+use hamlet_realm::hamlet::Housed;
+use hamlet_realm::keeper;
+use hamlet_realm::palette::Palette;
 use hamlet_rules::hamlet::MAYOR;
-use hamlet_world::chief::{Chief, Look};
-use hamlet_world::hamlet::Housed;
-use hamlet_world::keeper;
-use hamlet_world::palette::Palette;
 
 use super::lines::{Row, rows};
 use crate::me::Me;
