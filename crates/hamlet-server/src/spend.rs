@@ -264,8 +264,21 @@ pub(crate) fn amount(usage: &Usage, price: Option<&Value>) -> Amount {
 
 impl Service {
     pub(crate) fn budget(&mut self, hamlet: &str) -> Result<Value> {
+        self.report(hamlet, None)
+    }
+
+    /// The hamlet's spend view, `fallback` naming the model of an
+    /// agent that runs the home's default.
+    pub(crate) fn report(
+        &mut self,
+        hamlet: &str,
+        fallback: Option<&str>,
+    ) -> Result<Value> {
         let limits = self.limits_of(hamlet)?;
-        let settings = self.settings()?;
+        let mut settings = self.settings()?;
+        if let Some(fallback) = fallback {
+            settings["model"] = fallback.into();
+        }
         let record = self
             .home
             .store()
@@ -281,11 +294,14 @@ impl Service {
             None,
             at.timestamp_millis(),
         )?;
+        // The first of equally near caps, as TypeScript's stable
+        // sort keeps it.
         let nearest = meters(books.hamlet, &limits["budget"])
             .into_iter()
             .filter_map(|(spent, cap, time)| {
                 cap.map(|cap| (spent, cap, time))
             })
+            .rev()
             .max_by(|a, b| {
                 (a.0 as f64 / a.1.max(1) as f64)
                     .total_cmp(&(b.0 as f64 / b.1.max(1) as f64))
