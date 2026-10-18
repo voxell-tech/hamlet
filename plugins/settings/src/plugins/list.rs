@@ -55,6 +55,7 @@ struct Line {
     name: String,
     version: String,
     builtin: bool,
+    essential: bool,
     status: Status,
     installed: bool,
     /// The capabilities its manifest asks for.
@@ -106,6 +107,7 @@ fn list(
                 name: info.name.clone(),
                 version: info.version.clone(),
                 builtin: info.builtin,
+                essential: info.essential,
                 status: *status,
                 installed: !uninstalled,
                 asks: asks.map_or(0, |asks| asks.0.len()),
@@ -135,10 +137,10 @@ fn line(line: &Line) -> AnyView {
         (_, Status::Disabled) => "Disabled",
         (_, Status::Failed) => "Failed",
     };
-    let kind = if line.builtin {
-        "Built in"
-    } else {
-        "Installed"
+    let kind = match (line.essential, line.builtin) {
+        (true, _) => "Essential",
+        (_, true) => "Built in",
+        _ => "Installed",
     };
     let mut words = vec![
         label(line.name.clone())
@@ -189,31 +191,38 @@ fn line(line: &Line) -> AnyView {
             },
         ));
     }
-    let control = if line.installed {
+    let mut cells = vec![
+        column((words, buttons(actions)))
+            .gap(6.0)
+            .fills_width()
+            .boxed(),
+    ];
+    if line.essential {
+    } else if line.installed {
         let on =
             matches!(line.status, Status::Starting | Status::Running);
-        switch(on, move |world, on| {
-            if on {
-                world.trigger(Enable(id.clone()));
-            } else {
-                world.trigger(Disable(id.clone()));
-            }
-            world.flush();
-        })
-        .boxed()
+        cells.push(
+            switch(on, move |world, on| {
+                if on {
+                    world.trigger(Enable(id.clone()));
+                } else {
+                    world.trigger(Disable(id.clone()));
+                }
+                world.flush();
+            })
+            .boxed(),
+        );
     } else {
-        good_action(Glyph::Plus, "INSTALL", move |world| {
-            world.trigger(AskToInstall { plugin: id.clone() });
-            world.flush();
-        })
-    };
-    row((
-        column((words, buttons(actions))).gap(6.0).fills_width(),
-        control,
-    ))
-    .gap(12.0)
-    .align(AlignItems::Center)
-    .boxed()
+        cells.push(good_action(
+            Glyph::Plus,
+            "INSTALL",
+            move |world| {
+                world.trigger(AskToInstall { plugin: id.clone() });
+                world.flush();
+            },
+        ));
+    }
+    row(cells).gap(12.0).align(AlignItems::Center).boxed()
 }
 
 /// The list of plugins.

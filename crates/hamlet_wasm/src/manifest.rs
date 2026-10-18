@@ -152,6 +152,7 @@ impl From<&Manifest> for hamlet_sdk::plugin::Manifest {
             exports: manifest.exports.clone(),
             imports: manifest.imports.clone(),
             builtin: false,
+            essential: false,
         }
     }
 }

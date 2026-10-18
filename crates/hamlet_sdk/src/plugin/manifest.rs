@@ -29,6 +29,8 @@ pub struct Manifest {
     pub imports: Imports,
     /// Compiled into the app, with everything granted.
     pub builtin: bool,
+    /// The app cannot run without it: it is never disabled.
+    pub essential: bool,
 }
 
 impl Manifest {
@@ -44,7 +46,14 @@ impl Manifest {
             exports: Exports::default(),
             imports: Imports::default(),
             builtin: true,
+            essential: false,
         }
+    }
+
+    /// Marks the plugin as one the app cannot run without.
+    pub fn essential(mut self) -> Self {
+        self.essential = true;
+        self
     }
 
     pub fn named(mut self, name: &str) -> Self {

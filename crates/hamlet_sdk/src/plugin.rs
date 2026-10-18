@@ -99,4 +99,33 @@ mod tests {
         app.world_mut().flush();
         assert!(listed(&app));
     }
+
+    struct Base;
+
+    impl HamletPlugin for Base {
+        fn manifest() -> Manifest {
+            Manifest::built_in("base").essential()
+        }
+
+        fn entry(entry: &mut Entry) {
+            entry.panel("base", "BASE", Glyph::Book, || {
+                label("x").boxed()
+            });
+        }
+    }
+
+    #[test]
+    fn an_essential_plugin_refuses_to_be_disabled() {
+        let mut app = App::new();
+        app.add_plugins((dock::plugin, plugin))
+            .add_hamlet_plugin::<Base>();
+
+        app.world_mut().trigger(Disable("base".into()));
+        app.world_mut().flush();
+        let mut plugins =
+            app.world_mut().query::<(&PluginInfo, &Status)>();
+        let (info, status) = plugins.single(app.world()).unwrap();
+        assert!(info.essential);
+        assert_eq!(*status, Status::Running);
+    }
 }

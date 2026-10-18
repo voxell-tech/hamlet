@@ -187,6 +187,7 @@ mod tests {
             name: "P".into(),
             version: "1".into(),
             builtin: false,
+            essential: false,
         };
         let plugin = app
             .world_mut()

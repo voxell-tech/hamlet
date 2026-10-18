@@ -13,6 +13,7 @@ fn info(id: &str, name: &str, version: &str) -> PluginInfo {
         name: name.into(),
         version: version.into(),
         builtin: false,
+        essential: false,
     }
 }
 

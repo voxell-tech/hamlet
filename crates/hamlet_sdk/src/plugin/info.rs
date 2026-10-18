@@ -12,6 +12,8 @@ pub struct PluginInfo {
     pub name: String,
     pub version: String,
     pub builtin: bool,
+    /// The app cannot run without it: it is never disabled.
+    pub essential: bool,
 }
 
 impl From<&Manifest> for PluginInfo {
@@ -21,6 +23,7 @@ impl From<&Manifest> for PluginInfo {
             name: manifest.name.clone(),
             version: manifest.version.clone(),
             builtin: manifest.builtin,
+            essential: manifest.essential,
         }
     }
 }

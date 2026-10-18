@@ -33,6 +33,7 @@ fn installed(
                 name: name.into(),
                 version: "0.1.0".into(),
                 builtin: false,
+                essential: false,
             },
             Granted::allowing(&[capability]),
             Status::Running,

@@ -34,7 +34,10 @@ pub(super) fn disable(
     mut commands: Commands,
 ) {
     for (plugin, info, status) in &plugins {
-        if info.id == disable.0 && *status != Status::Disabled {
+        if info.id == disable.0
+            && !info.essential
+            && *status != Status::Disabled
+        {
             commands
                 .entity(plugin)
                 .despawn_related::<Contributions>()

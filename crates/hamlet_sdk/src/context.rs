@@ -86,6 +86,7 @@ mod tests {
                 name: "Far".into(),
                 version: "1".into(),
                 builtin: false,
+                essential: false,
             })
             .id();
         world

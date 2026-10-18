@@ -73,6 +73,7 @@ mod tests {
             name: id.into(),
             version: "1".into(),
             builtin,
+            essential: false,
         };
         let plugin = world
             .spawn((info, Granted::allowing(&[Capability::UiKeys])))

@@ -46,6 +46,7 @@ pub(super) fn put(world: &mut World) {
                 name: "Greeter".into(),
                 version: "0.1.0".into(),
                 builtin: false,
+                essential: false,
             },
             Granted::allowing(&[Capability::ReadAgents]),
         ))
