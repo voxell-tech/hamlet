@@ -64,6 +64,17 @@ test("keeps old scripts and refuses malformed agent keys", async () => {
     };
     writeFileSync(file, JSON.stringify(old));
     expect(await readScript(file)).toEqual(old);
+    writeFileSync(
+        file,
+        JSON.stringify({ ...old, models: ["faux-1", "faux-2"] }),
+    );
+    const script = await readScript(file);
+    const models = scriptedProvider(
+        script,
+        () => "",
+        (streams) => streams,
+    ).getModels();
+    expect(models.map((model) => model.id)).toEqual(["faux-1", "faux-2"]);
     writeFileSync(file, JSON.stringify({ agents: { "home:mayor": ["No"] } }));
     await expect(readScript(file)).rejects.toThrow("not a faux script");
 });

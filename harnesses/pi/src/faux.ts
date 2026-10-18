@@ -66,6 +66,7 @@ const Steps = Type.Array(Step);
  */
 export const Script = Type.Object(
     {
+        models: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
         responses: Type.Optional(Steps),
         agents: Type.Optional(
             Type.Record(Type.String({ pattern: "^[^:]+:[0-9]+$" }), Steps, {
@@ -143,20 +144,14 @@ export function scriptedProvider(
         ...(script.tokensPerSecond === undefined
             ? {}
             : { tokensPerSecond: script.tokensPerSecond }),
-        ...(script.price === undefined
-            ? {}
-            : {
-                  models: [
-                      {
-                          id: FAUX.id,
-                          cost: {
-                              ...script.price,
-                              cacheRead: 0,
-                              cacheWrite: 0,
-                          },
-                      },
-                  ],
-              }),
+        models: (script.models ?? [FAUX.id]).map((id) => ({
+            id,
+            ...(script.price === undefined
+                ? {}
+                : {
+                      cost: { ...script.price, cacheRead: 0, cacheWrite: 0 },
+                  }),
+        })),
     });
     const shared = (script.responses ?? []).map(answer);
     const queues = new Map<string, FauxResponseFactory[]>([
