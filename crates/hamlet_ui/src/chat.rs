@@ -596,7 +596,7 @@ mod tests {
     }
 
     fn paging_pages() -> Vec<v0::Transcript> {
-        include_str!("../../../server/test/frames/paging.jsonl")
+        include_str!("../../hamlet_protocol/frames/paging.jsonl")
             .lines()
             .filter_map(|line| {
                 let frame =

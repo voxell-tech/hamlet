@@ -3421,6 +3421,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_acceptance"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "futures",
+ "hamlet_protocol",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "uuid",
+]
+
+[[package]]
 name = "hamlet_assets"
 version = "0.1.0"
 dependencies = [

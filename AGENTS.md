@@ -84,6 +84,19 @@ npm run check   # TypeScript and Biome
 npm test
 ```
 
+The acceptance suite in `crates/hamlet_acceptance` starts real server
+processes on scratch homes and drives them through protocol v0, so plain
+`cargo test` compiles none of it. It needs the built CLI and
+`npm ci --prefix server`, and must be clean before a commit too. It never
+contacts a model server or the internet: models are faux, or a loopback
+fake of its own. `make check` runs it; by hand, at the root:
+
+```sh
+cargo build -p hamlet_cli
+cargo clippy -p hamlet_acceptance --all-targets --features acceptance
+cargo test -p hamlet_acceptance --features acceptance
+```
+
 `npm test` builds the Rust CLI before running the server and CLI contract
 tests. For direct Vitest runs, build `hamlet_cli` first. `HAMLET_CLI` selects
 a CLI binary outside `target/debug/hamlet`.
@@ -99,8 +112,9 @@ cargo run -p hamlet_protocol_gen
 
 Update `docs/protocol.md` when the protocol changes.
 
-The client tests replay the faux server sessions in `server/test/frames/`.
-To re-record them offline, run in `server/`:
+The client tests replay the faux server sessions in
+`crates/hamlet_protocol/frames/`. To re-record them offline, run in
+`server/`:
 
 ```sh
 HAMLET_RECORD_FRAMES=1 npx vitest --run test/frames.test.ts

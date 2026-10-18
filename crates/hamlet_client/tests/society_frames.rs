@@ -73,7 +73,7 @@ fn entity(world: &mut World, number: u64) -> Entity {
 fn recorded_society_carries_letters_and_questions_with_their_authors()
 {
     let mut app = replay(
-        include_str!("../../../server/test/frames/society.jsonl"),
+        include_str!("../../hamlet_protocol/frames/society.jsonl"),
         |_| {},
     );
     let world = app.world_mut();
@@ -100,7 +100,7 @@ fn recorded_leaving_restores_the_same_agent_then_resolves_its_merge_host()
     let mut removed = false;
     let mut restored = false;
     let mut app = replay(
-        include_str!("../../../server/test/frames/leaving.jsonl"),
+        include_str!("../../hamlet_protocol/frames/leaving.jsonl"),
         |world| {
             let scout = world
                 .query::<(Entity, &Citizen)>()
@@ -131,7 +131,7 @@ fn recorded_leaving_restores_the_same_agent_then_resolves_its_merge_host()
 #[test]
 fn recorded_vote_casts_ballots_and_moves_the_office() {
     let mut app = replay(
-        include_str!("../../../server/test/frames/vote.jsonl"),
+        include_str!("../../hamlet_protocol/frames/vote.jsonl"),
         |_| {},
     );
     let world = app.world_mut();
@@ -151,7 +151,7 @@ fn recorded_realm_places_a_second_town_builds_a_road_and_closes_then_erases_it()
     let mut built = false;
     let mut closed = false;
     let mut app = replay(
-        include_str!("../../../server/test/frames/realm.jsonl"),
+        include_str!("../../hamlet_protocol/frames/realm.jsonl"),
         |world| {
             placed |= world
                 .query::<&Spot>()
@@ -185,7 +185,7 @@ fn recorded_library_consults_then_replaces_the_shelf_on_shelving_and_unshelving(
  {
     let mut shelved = false;
     let app = replay(
-        include_str!("../../../server/test/frames/library.jsonl"),
+        include_str!("../../hamlet_protocol/frames/library.jsonl"),
         |world| {
             shelved |= world.get_resource::<Skills>().is_some_and(
                 |skills| {

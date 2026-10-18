@@ -30,7 +30,7 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     let mut app = app();
     let world = app.world_mut();
     for message in frames(include_str!(
-        "../../../server/test/frames/hello.jsonl"
+        "../../hamlet_protocol/frames/hello.jsonl"
     )) {
         receive(world, message);
     }
@@ -75,7 +75,7 @@ fn recorded_turn_keeps_the_agent_while_its_work_and_words_change() {
     let mut app = app();
     let world = app.world_mut();
     let mut messages = frames(include_str!(
-        "../../../server/test/frames/turn.jsonl"
+        "../../hamlet_protocol/frames/turn.jsonl"
     ))
     .into_iter();
     receive(world, messages.next().unwrap());
@@ -120,7 +120,7 @@ fn recorded_approvals_join_the_founders_needs_until_closed() {
     let mut opened = 0;
     let mut previous = None;
     for message in frames(include_str!(
-        "../../../server/test/frames/approval.jsonl"
+        "../../hamlet_protocol/frames/approval.jsonl"
     )) {
         receive(world, message);
         let founder = named(world, "founder").unwrap();
@@ -298,7 +298,7 @@ fn recorded_fault_marks_the_agent_and_keeps_the_fault_in_its_needs() {
     let mut app = app();
     let world = app.world_mut();
     for message in frames(include_str!(
-        "../../../server/test/frames/fault.jsonl"
+        "../../hamlet_protocol/frames/fault.jsonl"
     )) {
         receive(world, message);
         if world.query::<&Waiting>().iter(world).next().is_some() {

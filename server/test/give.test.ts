@@ -875,7 +875,10 @@ type Frame =
     | { from: "server"; message: ServerMessage };
 
 it("keeps a recorded give session in protocol v0 with a gift receipt and skill change", async () => {
-    const file = new URL("./frames/give.jsonl", import.meta.url);
+    const file = new URL(
+        "../../crates/hamlet_protocol/frames/give.jsonl",
+        import.meta.url,
+    );
     if (process.env.HAMLET_RECORD_FRAMES === "1") {
         const frames = await recordGive();
         await writeFile(

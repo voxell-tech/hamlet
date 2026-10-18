@@ -377,12 +377,12 @@ mod tests {
     fn the_minimal_window_shows_recorded_live_late_and_reset_activity()
      {
         for recording in [
-            include_str!("../../../server/test/frames/paging.jsonl"),
-            include_str!("../../../server/test/frames/turn.jsonl"),
+            include_str!("../../hamlet_protocol/frames/paging.jsonl"),
+            include_str!("../../hamlet_protocol/frames/turn.jsonl"),
             include_str!(
-                "../../../server/test/frames/new-and-resume.jsonl"
+                "../../hamlet_protocol/frames/new-and-resume.jsonl"
             ),
-            include_str!("../../../server/test/frames/rewind.jsonl"),
+            include_str!("../../hamlet_protocol/frames/rewind.jsonl"),
         ] {
             let mut app = panel_app();
             app.init_resource::<Bar>()

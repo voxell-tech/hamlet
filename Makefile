@@ -49,6 +49,8 @@ check: $(FYNIX) $(SERVER)
 	$(CARGO) build --all-targets
 	$(CARGO) clippy --all-targets -- -D warnings
 	$(CARGO) test
+	$(CARGO) clippy -p hamlet_acceptance --all-targets --features acceptance -- -D warnings
+	$(CARGO) test -p hamlet_acceptance --features acceptance
 	$(NPM) run check --prefix server
 	$(NPM) test --prefix server
 

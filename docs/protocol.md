@@ -307,7 +307,7 @@ even when their cause is an ordinary access refusal.
 2. In `server/`, run `npm run schema` to export `protocol.schema.json`.
 3. At the root, run `cargo run -p hamlet_protocol_gen` to generate
    `crates/hamlet_protocol/src/v0.rs`. Do not edit generated files by hand.
-4. Re-record `server/test/frames/` when the wire sessions change. The offline
-   command is in [`AGENTS.md`](../AGENTS.md).
+4. Re-record `crates/hamlet_protocol/frames/` when the wire sessions
+   change. The offline command is in [`AGENTS.md`](../AGENTS.md).
 5. Update this page. `server/test/protocol-doc.test.ts` checks that every
    client and server message type in the exported schema is named here.

@@ -546,7 +546,7 @@ fn a_town_follows_where_the_record_sets_it_down() {
 fn a_received_realm_houses_the_founder_in_its_hall() {
     let mut app = bare();
     for line in
-        include_str!("../../../../server/test/frames/hello.jsonl")
+        include_str!("../../../hamlet_protocol/frames/hello.jsonl")
             .lines()
     {
         let frame =

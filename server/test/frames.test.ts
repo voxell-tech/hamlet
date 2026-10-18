@@ -63,7 +63,10 @@ type Asked = WithoutId<Extract<ClientMessage, { id: string }>>;
 
 for (const name of scenarios)
     it(`keeps a real ${name} session in protocol v0`, async () => {
-        const file = new URL(`./frames/${name}.jsonl`, import.meta.url);
+        const file = new URL(
+            `../../crates/hamlet_protocol/frames/${name}.jsonl`,
+            import.meta.url,
+        );
         if (process.env.HAMLET_RECORD_FRAMES === "1") {
             const run = await record(name);
             await run.connection.close();
@@ -74,9 +77,15 @@ for (const name of scenarios)
             });
             const frames = run.home.secrets.value(run.frames);
             checkScenario(name, frames);
-            await mkdir(new URL("./frames/", import.meta.url), {
-                recursive: true,
-            });
+            await mkdir(
+                new URL(
+                    "../../crates/hamlet_protocol/frames/",
+                    import.meta.url,
+                ),
+                {
+                    recursive: true,
+                },
+            );
             await writeFile(
                 file,
                 `${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`,

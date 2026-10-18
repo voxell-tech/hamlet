@@ -5,7 +5,7 @@ use serde_json::Value;
 
 fn messages(name: &str) -> Vec<ServerMessage> {
     let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../server/test/frames")
+        .join("frames")
         .join(format!("{name}.jsonl"));
     std::fs::read_to_string(file)
         .unwrap()

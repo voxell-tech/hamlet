@@ -171,7 +171,10 @@ it("keeps the recorded refusal envelopes byte-identical for legacy owner excepti
     const run = await served({ models: fauxModels().models });
     for (const name of ["reads-and-edits", "give"]) {
         const text = await readFile(
-            new URL(`./frames/${name}.jsonl`, import.meta.url),
+            new URL(
+                `../../crates/hamlet_protocol/frames/${name}.jsonl`,
+                import.meta.url,
+            ),
             "utf8",
         );
         const requests = new Map<string, ClientMessage>();

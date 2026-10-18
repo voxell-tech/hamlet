@@ -114,7 +114,7 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     let chat = app.world_mut().spawn(Chat(reference())).id();
     app.update();
     let mut recorded = frames(include_str!(
-        "../../../server/test/frames/turn.jsonl"
+        "../../hamlet_protocol/frames/turn.jsonl"
     ));
     let read_back = recorded.pop().unwrap();
     let mut expected_ops = Vec::new();
@@ -188,7 +188,7 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
     earlier(app.world_mut(), chat);
     assert!(requests(&mut app).is_empty());
     let pages = frames(include_str!(
-        "../../../server/test/frames/paging.jsonl"
+        "../../hamlet_protocol/frames/paging.jsonl"
     ))
     .into_iter()
     .filter_map(|message| {
@@ -304,7 +304,7 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
     requests(&mut app);
     let mut before = Vec::new();
     for mut message in frames(include_str!(
-        "../../../server/test/frames/rewind.jsonl"
+        "../../hamlet_protocol/frames/rewind.jsonl"
     )) {
         if let v0::ServerMessage::Reply(reply) = &mut message
             && reply.kind == v0::ReplyKind::Rewound
@@ -357,14 +357,14 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
 fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
     for (recording, id, code, failure) in [
         (
-            include_str!("../../../server/test/frames/tool.jsonl"),
+            include_str!("../../hamlet_protocol/frames/tool.jsonl"),
             "34:1",
             7,
             Some("broken"),
         ),
         (
             include_str!(
-                "../../../server/test/frames/approval.jsonl"
+                "../../hamlet_protocol/frames/approval.jsonl"
             ),
             "34:1",
             0,
@@ -480,11 +480,11 @@ fn recorded_chats_keep_last_activity_from_live_status_and_transcripts()
     use hamlet_client::chats::Status;
 
     for recording in [
-        include_str!("../../../server/test/frames/paging.jsonl"),
-        include_str!("../../../server/test/frames/turn.jsonl"),
-        include_str!("../../../server/test/frames/rewind.jsonl"),
+        include_str!("../../hamlet_protocol/frames/paging.jsonl"),
+        include_str!("../../hamlet_protocol/frames/turn.jsonl"),
+        include_str!("../../hamlet_protocol/frames/rewind.jsonl"),
         include_str!(
-            "../../../server/test/frames/new-and-resume.jsonl"
+            "../../hamlet_protocol/frames/new-and-resume.jsonl"
         ),
     ] {
         let mut app = app();
@@ -528,7 +528,7 @@ fn a_transcript_without_last_activity_keeps_the_received_live_status()
     use hamlet_client::chats::Status;
 
     let mut recorded = frames(include_str!(
-        "../../../server/test/frames/turn.jsonl"
+        "../../hamlet_protocol/frames/turn.jsonl"
     ));
     let v0::ServerMessage::Transcript(mut page) =
         recorded.pop().unwrap()
@@ -558,7 +558,7 @@ fn new_and_resumed_conversations_keep_their_received_number() {
     let chat = app.world_mut().spawn(Chat(reference())).id();
     let mut numbers = Vec::new();
     for message in frames(include_str!(
-        "../../../server/test/frames/new-and-resume.jsonl"
+        "../../hamlet_protocol/frames/new-and-resume.jsonl"
     )) {
         let transcript =
             matches!(&message, v0::ServerMessage::Transcript(_));
@@ -748,9 +748,9 @@ fn past_and_current_chats_receive_only_their_own_frames() {
     let sent = requests(&mut app);
     assert_eq!(sent.len(), 2);
     assert!(sent.iter().any(|request| matches!(request, v0::ClientMessage::Open(open) if open.chat == past_ref)));
-    for message in
-        frames(include_str!("../../../server/test/frames/turn.jsonl"))
-    {
+    for message in frames(include_str!(
+        "../../hamlet_protocol/frames/turn.jsonl"
+    )) {
         receive(app.world_mut(), message);
     }
     assert_eq!(
@@ -769,7 +769,7 @@ fn past_and_current_chats_receive_only_their_own_frames() {
             .is_empty()
     );
     let mut page = frames(include_str!(
-        "../../../server/test/frames/turn.jsonl"
+        "../../hamlet_protocol/frames/turn.jsonl"
     ))
     .pop()
     .unwrap();
@@ -795,7 +795,7 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
         app.update();
         requests(&mut app);
         let pages = frames(include_str!(
-            "../../../server/test/frames/paging.jsonl"
+            "../../hamlet_protocol/frames/paging.jsonl"
         ))
         .into_iter()
         .filter_map(|message| match message {

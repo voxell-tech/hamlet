@@ -50,7 +50,8 @@ root package, `hamlet`. The window's crates are:
 | `hamlet_cli` | The `hamlet` command: process management and terminal clients, without Bevy |
 | `hamlet-server` | The Rust server: claims a home as the TypeScript server does, keeps its realm database `realm.sqlite`, and runs operations once each with the marker of their outcome |
 | `hamlet_protocol_gen` | Generates Rust protocol types from `server/protocol.schema.json`; run with `cargo run -p hamlet_protocol_gen` |
-| `hamlet_protocol` | Checked-in protocol v0 types in `src/v0.rs`, with a test that catches schema drift |
+| `hamlet_protocol` | Checked-in protocol v0 types in `src/v0.rs`, with a test that catches schema drift, and the recorded sessions in `frames/` |
+| `hamlet_acceptance` | The acceptance suite: scenarios against a server process, through protocol v0 and the `hamlet` command |
 | `hamlet_client` | The client core: the connection, Outbox, received realm, waits and watched chats. Bevy app/ECS, no rendering |
 | `hamlet_desktop` | The window's machine: kept awake while a received agent is busy, file and link openers, temporary editor files, the folder dialog and the app's icon |
 | `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
@@ -78,8 +79,10 @@ They are porting references, described in [`core.md`](core.md):
 
 The active runtime is `server/`, its own Node package. Paths in this
 section are under `server/src/`. Recorded faux sessions in
-`server/test/frames/` are checked by the server tests and replayed by the
-Rust client tests.
+`crates/hamlet_protocol/frames/` are checked by the server tests and
+replayed by the Rust client tests. `crates/hamlet_acceptance` starts a
+server process and checks what it does through protocol v0 alone; its
+README says how a server is started for it.
 
 Each concept has an entry `<name>.ts` and, when needed, implementation
 files in `<name>/`. Outside code imports the entry; internals import
