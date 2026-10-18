@@ -212,6 +212,8 @@ interface plugin {
     // An event a plugin published, or the host, that this plugin
     // imports under `imports.events` and may use.
     event(published),
+    // The answer to a `fetch` this plugin made.
+    fetched(fetch-answer),
   }
 
   record published {
@@ -294,6 +296,46 @@ interface plugin {
     // `send-chat` is, and may be limited to the commands the
     // manifest lists.
     run-as-chief(string),
+    // Fetches an address over https with GET or POST. It needs the
+    // capability `net`, whose ask in the manifest lists the hosts it
+    // may reach in its `scope` (a host such as `api.example.com`, or
+    // `host:port` for a port other than 443); an ask with no hosts
+    // reaches none. The answer reaches a later `step` as `fetched`,
+    // whatever happened. The host follows no redirect, sends no
+    // header but the content type, and limits the bytes of the
+    // request and of the answer, the time, the requests waiting and
+    // the number a minute.
+    fetch(fetch-request),
+  }
+
+  enum http-method { get, post }
+
+  record fetch-request {
+    // The plugin's own number for the request, which the answer
+    // names. It is not the number of any request still waiting.
+    id: u32,
+    method: http-method,
+    url: string,
+    // The content type of a `post` body, or empty.
+    content-type: string,
+    body: list<u8>,
+  }
+
+  record fetch-answer {
+    // The `id` of the request it answers.
+    id: u32,
+    // The answer, whatever its status, or why there is none: the
+    // address or the host is not allowed, `net` is not granted (the
+    // chief is asked where it is yet to be decided), a limit was
+    // passed or the request failed.
+    outcome: result<fetch-response, string>,
+  }
+
+  record fetch-response {
+    status: u16,
+    // The content type of the answer, or empty.
+    content-type: string,
+    body: list<u8>,
   }
 
   record chat-message {

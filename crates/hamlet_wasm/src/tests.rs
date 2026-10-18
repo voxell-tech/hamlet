@@ -7,6 +7,7 @@ mod files;
 mod interop;
 mod limits;
 mod needs;
+mod net;
 mod panels;
 mod permissions;
 mod reads;

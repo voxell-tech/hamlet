@@ -20,7 +20,7 @@ struct Seen {
     told: Vec<String>,
 }
 
-fn probe() -> Plugin {
+pub(super) fn probe() -> Plugin {
     Plugin::new(
         "probe",
         fixture::component(&fixture::drawing(
@@ -30,7 +30,7 @@ fn probe() -> Plugin {
     )
 }
 
-fn open(scratch: &Scratch, plugin: Plugin) -> App {
+pub(super) fn open(scratch: &Scratch, plugin: Plugin) -> App {
     let mut app = home::app(scratch, &[plugin]);
     app.init_resource::<Seen>()
         .add_observer(
@@ -46,7 +46,7 @@ fn open(scratch: &Scratch, plugin: Plugin) -> App {
 }
 
 /// The plugin does `intents` in a frame.
-fn does(app: &mut App, intents: Vec<Intent>) {
+pub(super) fn does(app: &mut App, intents: Vec<Intent>) {
     let plugin = app
         .world_mut()
         .query::<(Entity, &PluginInfo)>()

@@ -69,7 +69,8 @@ pub(super) fn route(
                 | Intent::Redraw(_)
                 | Intent::OpenPanel(_)
                 | Intent::SendChat(_)
-                | Intent::RunAsChief(_) => {}
+                | Intent::RunAsChief(_)
+                | Intent::Fetch(_) => {}
             }
         }
     }

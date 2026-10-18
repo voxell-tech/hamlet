@@ -16,6 +16,7 @@ pub mod calls;
 pub mod collection;
 pub mod events;
 pub mod files;
+pub mod net;
 pub mod state;
 pub mod storage;
 pub mod subject;

@@ -3,7 +3,6 @@
 //! is limited to what the ask lists and to a number a minute, and is
 //! noted in the open chat with the plugin's name.
 
-use std::collections::HashMap;
 use std::fmt;
 
 use bevy::prelude::*;
@@ -14,40 +13,15 @@ use hamlet_sdk::plugin::PluginInfo;
 
 use crate::interface::exports::hamlet::plugin::plugin::Intent;
 use crate::limits::Limits;
+use crate::rate::Rate;
 use crate::run::Done;
 
 /// The characters of a message that a notice or a petition quotes.
 const QUOTED: usize = 60;
 
-/// The seconds a count of acts is kept for.
-const WINDOW: f32 = 60.0;
-
-/// The acts each plugin did lately, counted over a minute by the
-/// app's clock.
+/// The acts each plugin did lately.
 #[derive(Resource, Default)]
-pub struct Acted(HashMap<Entity, (f32, u32)>);
-
-impl Acted {
-    /// Whether the plugin may do one more act at `now`, seconds by
-    /// the app's clock, when it may do `per_minute` in each minute.
-    /// An act it may not do is counted out.
-    fn admit(
-        &mut self,
-        plugin: Entity,
-        now: f32,
-        per_minute: u32,
-    ) -> bool {
-        let (since, count) = self.0.entry(plugin).or_insert((now, 0));
-        if now - *since >= WINDOW || now < *since {
-            (*since, *count) = (now, 0);
-        }
-        if *count >= per_minute {
-            return false;
-        }
-        *count += 1;
-        true
-    }
-}
+pub struct Acted(Rate);
 
 /// Why an act is not done, and whether the chief is to be asked.
 struct Refused {
@@ -119,7 +93,7 @@ pub fn carry_out(
                 }
                 continue;
             }
-            if !acted.admit(*plugin, now, limits.acts_per_minute) {
+            if !acted.0.admit(*plugin, now, limits.acts_per_minute) {
                 warn!(
                     "plugin {}: over {} acts a minute, one dropped",
                     info.id, limits.acts_per_minute

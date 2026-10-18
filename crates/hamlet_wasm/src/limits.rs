@@ -58,6 +58,16 @@ pub struct Limits {
     /// The bytes of the text of one message a plugin sends as the
     /// chief.
     pub act_text_bytes: usize,
+    /// The time one fetch may take, in milliseconds.
+    pub fetch_ms: u64,
+    /// The bytes of the body of a request a plugin fetches with.
+    pub fetch_request_bytes: usize,
+    /// The bytes of the body of an answer to a fetch.
+    pub fetch_response_bytes: usize,
+    /// The fetches one plugin may have waiting at once.
+    pub fetches_in_flight: usize,
+    /// The fetches one plugin may start in a minute.
+    pub fetches_per_minute: u32,
     /// The bytes of all the files one plugin keeps in its folder of
     /// files.
     pub files_bytes: u64,

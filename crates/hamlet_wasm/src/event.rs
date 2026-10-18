@@ -67,7 +67,8 @@ pub fn panel_of(incoming: &Incoming) -> Option<&str> {
         | Incoming::Denied(_)
         | Incoming::Command(_)
         | Incoming::Reply(_)
-        | Incoming::Event(_) => None,
+        | Incoming::Event(_)
+        | Incoming::Fetched(_) => None,
         Incoming::Click(press) => Some(&press.panel),
         Incoming::Toggled(toggle) => Some(&toggle.panel),
         Incoming::TextChanged(typed) => Some(&typed.panel),

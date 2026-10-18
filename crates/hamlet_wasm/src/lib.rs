@@ -30,7 +30,9 @@ pub mod interop;
 pub mod limits;
 pub mod load;
 pub mod manifest;
+pub mod net;
 pub mod panel;
+pub mod rate;
 pub mod reach;
 pub mod reload;
 pub mod reply;
@@ -58,6 +60,7 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Limits>()
     .init_resource::<Papers>()
     .init_resource::<acts::Acted>()
+    .init_resource::<net::Fetching>()
     .add_message::<run::Done>()
     .add_message::<run::Said>()
     .add_observer(admit::admit)
@@ -88,6 +91,12 @@ pub fn plugin(app: &mut App) {
         Update,
         (
             inbox::tick.in_set(PluginSet::Collect),
+            net::finish
+                .in_set(PluginSet::Collect)
+                .run_if(net::Fetching::any),
+            net::start
+                .in_set(PluginSet::Apply)
+                .run_if(on_message::<run::Done>),
             run::step.in_set(PluginSet::Step).run_if(inbox::has_mail),
             run::apply
                 .in_set(PluginSet::Apply)

@@ -137,13 +137,14 @@ pub fn apply(
                     }
                 }
                 // Between plugins: `interop` carries these out.
-                // As the chief: `acts` does.
+                // As the chief: `acts` does. Over the web: `net`.
                 (
                     Intent::RunCommand(_)
                     | Intent::Reply(_)
                     | Intent::Publish(_)
                     | Intent::SendChat(_)
-                    | Intent::RunAsChief(_),
+                    | Intent::RunAsChief(_)
+                    | Intent::Fetch(_),
                     _,
                 ) => {}
             }
