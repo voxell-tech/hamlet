@@ -58,9 +58,10 @@ pub(super) fn hear_answer(
     mut cues: MessageWriter<Cue>,
 ) {
     let sound = match answer.choice {
-        Choice::Allow | Choice::Always | Choice::GoAhead => {
-            Sound::Allowed
-        }
+        Choice::Allow
+        | Choice::Always
+        | Choice::AskNextTime
+        | Choice::GoAhead => Sound::Allowed,
         Choice::Deny | Choice::Withdraw => Sound::Denied,
         Choice::Reply | Choice::Dismiss => return,
     };

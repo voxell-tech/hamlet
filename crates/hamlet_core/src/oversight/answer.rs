@@ -8,8 +8,8 @@ use super::danger::{Danger, Refused};
 use super::decide::{Asked, Held, Parked, Trusted, standing};
 use super::grants::{self, Grants};
 use super::instruction::{About, Instruction, objections};
-use super::limits;
 use super::queue::{Asks, Kind, Waiting, close, raiser};
+use super::{limits, plugin};
 use crate::agent::Ruling;
 use crate::session::{self, Began, Stop};
 use crate::tools::Leave;
@@ -76,6 +76,9 @@ pub(super) fn settle(world: &mut World, answer: Answer) {
     };
     if !waiting.answers.contains(&choice) {
         return;
+    }
+    if waiting.kind == Kind::Plugin {
+        return plugin::settle(world, entity, choice);
     }
     let text = text.trim().to_string();
     let with = |lead: &str| {

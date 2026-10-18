@@ -188,11 +188,21 @@ fn button(need: &Need, at: usize) -> AnyView {
         }
         _ => "ALWAYS ALLOW",
     };
-    use Glyph::{Check, CheckAll, Cross, Restore, Talk};
+    use Glyph::{Check, CheckAll, Clock, Cross, Restore, Talk};
+    let plugin = need.kind == Kind::Plugin;
     let (which, text, rules, mood): (_, _, fn(&mut Cx), _) =
         match choice {
+            Choice::Allow if plugin => {
+                (Check, "ALLOW", lamp, Mood::Good)
+            }
             Choice::Allow => (Check, "ALLOW ONCE", lamp, Mood::Good),
             Choice::Always => (CheckAll, always, brass, Mood::Plain),
+            Choice::AskNextTime => {
+                (Clock, "ASK NEXT TIME", brass, Mood::Plain)
+            }
+            Choice::Deny if plugin => {
+                (Cross, "DON'T ALLOW", grim, Mood::Bad)
+            }
             Choice::Deny => (Cross, "DENY", grim, Mood::Bad),
             Choice::GoAhead => (Check, "GO AHEAD", lamp, Mood::Good),
             Choice::Withdraw => {
@@ -245,6 +255,11 @@ fn strip(need: &Need) -> AnyView {
             (None, Some((session, id, change))) => {
                 chat::change_view(session, id, change)
             }
+            // What a plugin asks under the question the line puts.
+            (None, None) if need.kind == Kind::Plugin => {
+                let rest = need.about.lines().skip(1);
+                note(rest.collect::<Vec<_>>().join("\n")).boxed()
+            }
             // The exact text, which a tag in the world may cut.
             (None, None) => {
                 note(need.about.clone()).tagged(MonoText).boxed()
@@ -268,6 +283,7 @@ fn strip(need: &Need) -> AnyView {
             Kind::Question => "QUESTION",
             Kind::Fault => "FAULT",
             Kind::Lapsed => "UNANSWERED",
+            Kind::Plugin => "PLUGIN",
         };
         let asked = match need.asked {
             1 => String::new(),

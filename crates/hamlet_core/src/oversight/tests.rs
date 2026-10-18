@@ -1334,3 +1334,38 @@ fn a_hamlet_in_manual_mode_asks_before_each_edit_and_command() {
     assert!(!hamlet.work().manual());
     session::shutdown(app.world_mut());
 }
+
+#[derive(Resource, Default)]
+struct Heard(Vec<(Entity, Choice)>);
+
+#[test]
+fn a_plugin_petition_is_answered_like_any_and_the_answer_goes_back() {
+    let rt = Runtime::new().unwrap();
+    let (mut app, _home) = app("plugin", &rt, Vec::new());
+    app.init_resource::<Heard>().add_observer(
+        |settled: On<Settled>, mut heard: ResMut<Heard>| {
+            heard.0.push((settled.entity, settled.choice));
+        },
+    );
+    let asked = petition(
+        app.world_mut(),
+        "Roster",
+        "Install Roster 0.1.0?".into(),
+        vec![Choice::Allow, Choice::Deny],
+    );
+    let needs = queue(&mut app);
+    assert_eq!(needs.len(), 1);
+    assert_eq!(needs[0].kind, Kind::Plugin);
+
+    // A choice the petition does not offer is not taken.
+    answer(&mut app, asked, Choice::AskNextTime, "");
+    assert_eq!(waits(app.world_mut()).len(), 1);
+
+    answer(&mut app, asked, Choice::Allow, "");
+    assert!(waits(app.world_mut()).is_empty());
+    assert_eq!(
+        app.world().resource::<Heard>().0,
+        [(asked, Choice::Allow)]
+    );
+    session::shutdown(app.world_mut());
+}

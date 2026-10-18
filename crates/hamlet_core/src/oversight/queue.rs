@@ -23,6 +23,9 @@ pub enum Kind {
     /// Something that waited when the app last quit and was never
     /// answered.
     Lapsed,
+    /// A plugin's petition. Its answer goes to whoever raised it, as
+    /// a [`Settled`](super::Settled).
+    Plugin,
 }
 
 impl Kind {
@@ -34,6 +37,7 @@ impl Kind {
             Kind::Question => "question",
             Kind::Fault => "fault",
             Kind::Lapsed => "lapsed",
+            Kind::Plugin => "plugin",
         }
     }
 }
@@ -86,6 +90,11 @@ pub(crate) fn line(
         Kind::Lapsed => {
             format!("{by}, unanswered: {}", clip(about, max))
         }
+        // The first line of the text is the question.
+        Kind::Plugin => clip(
+            about.lines().next().unwrap_or(about),
+            max + by.len(),
+        ),
     }
 }
 
@@ -126,6 +135,14 @@ impl Needs {
 /// The count of things raised so far.
 #[derive(Resource, Default)]
 pub(super) struct Raised(u64);
+
+impl Raised {
+    /// The number of the next thing raised.
+    pub(super) fn next(&mut self) -> u64 {
+        self.0 += 1;
+        self.0
+    }
+}
 
 /// Something that waits, as a panel shows it.
 #[derive(Clone, Debug, PartialEq)]
@@ -177,11 +194,7 @@ pub(super) fn raise(
     session: Option<Entity>,
     answers: Vec<Choice>,
 ) -> Entity {
-    let order = {
-        let mut raised = world.resource_mut::<Raised>();
-        raised.0 += 1;
-        raised.0
-    };
+    let order = world.resource_mut::<Raised>().next();
     let id = format!("{}-{order}", log::now_millis());
     let agent = agents::named(world, by);
     let number = agent

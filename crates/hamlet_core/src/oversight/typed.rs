@@ -54,7 +54,9 @@ fn plain(open: Option<Kind>) -> Plain {
     match open {
         Some(Kind::Question) => Plain::Reply,
         Some(Kind::Approval(_) | Kind::Objection(_)) => Plain::Hold,
-        Some(Kind::Fault | Kind::Lapsed) | None => Plain::Send,
+        Some(Kind::Fault | Kind::Lapsed | Kind::Plugin) | None => {
+            Plain::Send
+        }
     }
 }
 

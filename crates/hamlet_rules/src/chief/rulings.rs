@@ -179,6 +179,8 @@ pub enum Choice {
     Allow,
     /// Run it, and let the agent do the like without asking.
     Always,
+    /// Allow it for now and ask again at the next launch.
+    AskNextTime,
     Deny,
     GoAhead,
     /// Take the instruction back.
@@ -193,6 +195,7 @@ impl Choice {
         match self {
             Choice::Allow => "allow",
             Choice::Always => "always",
+            Choice::AskNextTime => "ask-next-time",
             Choice::Deny => "deny",
             Choice::GoAhead => "go",
             Choice::Withdraw => "withdraw",
