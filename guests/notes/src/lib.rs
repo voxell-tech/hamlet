@@ -18,6 +18,7 @@ struct Notes;
 impl Plugin for Notes {
     fn entry() {
         hamlet_guest::panel(PANEL, "NOTES", "notes");
+        hamlet_guest::command(update::ADD, "Add a note");
     }
 
     fn step(inbox: Vec<Incoming>) -> Vec<Intent> {
@@ -30,13 +31,20 @@ impl Plugin for Notes {
         }
         let mut session = State::<Session>::load();
         let mut index = storage::index();
+        let mut out = Vec::new();
         for incoming in events {
-            update::handle(incoming, &mut session, &mut index);
+            update::handle(
+                incoming,
+                &mut session,
+                &mut index,
+                &mut out,
+            );
         }
         if let Err(why) = State::save(&session) {
             hamlet_guest::log(Level::Warn, &why);
         }
-        vec![Intent::Redraw(PANEL.into())]
+        out.push(Intent::Redraw(PANEL.into()));
+        out
     }
 
     fn panel_view(_panel: &str) -> View {

@@ -1,6 +1,9 @@
-//! What an event does to the notes and to what the panel shows.
+//! What an event does to the notes and to what the panel shows, and
+//! the answers and events it sends other plugins.
 
-use hamlet_guest::{Incoming, RequestResult};
+use hamlet_guest::{
+    Incoming, Intent, Level, RequestResult, calls, events, log,
+};
 
 use crate::model::{Index, MAX_NOTE, Session, cut};
 use crate::storage;
@@ -11,24 +14,35 @@ const PAPERS: &str = "read.papers";
 const REASON: &str =
     "To copy the selected agent's notes into a note of your own.";
 
-/// Carries out one event.
+/// The command that adds a note with the words it is given.
+pub const ADD: &str = "add";
+
+/// The event of a note that was saved. Its payload is the note's
+/// number.
+pub const SAVED: &str = "note-saved";
+
+/// Carries out one event. `out` gets what the plugin sends to
+/// others.
 pub fn handle(
     incoming: Incoming,
     session: &mut Session,
     index: &mut Index,
+    out: &mut Vec<Intent>,
 ) {
     match incoming {
-        Incoming::Click(press) => click(&press.id, session, index),
+        Incoming::Click(press) => {
+            click(&press.id, session, index, out)
+        }
         Incoming::Toggled(toggle) if toggle.id == "preview" => {
             session.preview = toggle.on;
         }
         Incoming::TextChanged(typed) => {
-            text(&typed.id, &typed.text, session, index);
+            text(&typed.id, &typed.text, session, index, out);
         }
         Incoming::Granted(name) if name == PAPERS => {
             if std::mem::take(&mut session.waiting) {
                 session.hint.clear();
-                copy(session, index);
+                copy(session, index, out);
             }
         }
         Incoming::Denied(name) if name == PAPERS => {
@@ -37,16 +51,35 @@ pub fn handle(
                             so none were copied."
                 .into();
         }
+        Incoming::Command(call) => {
+            let added = match call.command.as_str() {
+                ADD => calls::args::<String>(&call)
+                    .and_then(|words| add(index, &words)),
+                other => Err(format!("no command `{other}`")),
+            };
+            if let Ok(id) = &added {
+                saved(*id, out);
+            }
+            out.push(calls::reply(
+                &call,
+                added.as_ref().map_err(String::clone),
+            ));
+        }
         _ => {}
     }
 }
 
-fn click(id: &str, session: &mut Session, index: &mut Index) {
+fn click(
+    id: &str,
+    session: &mut Session,
+    index: &mut Index,
+    out: &mut Vec<Intent>,
+) {
     let sure = session.sure.take();
     session.hint.clear();
     match id {
-        "new" => create(session, index, ""),
-        "from-agent" => ask(session, index),
+        "new" => create(session, index, "", out),
+        "from-agent" => ask(session, index, out),
         "delete" => {
             if let Some(selected) = session.selected
                 && sure == Some(selected)
@@ -72,6 +105,7 @@ fn text(
     text: &str,
     session: &mut Session,
     index: &mut Index,
+    out: &mut Vec<Intent>,
 ) {
     match id {
         "search" => session.search = text.to_string(),
@@ -89,32 +123,53 @@ fn text(
                 );
             }
             index.touch(id, body);
-            if let Err(why) = storage::save_body(id, body)
+            match storage::save_body(id, body)
                 .and_then(|()| storage::save_index(index))
             {
-                session.hint = why;
+                Ok(()) => saved(id, out),
+                Err(why) => session.hint = why,
             }
         }
         _ => {}
     }
 }
 
-/// Adds a note with these words and selects it.
-fn create(session: &mut Session, index: &mut Index, body: &str) {
+/// Adds a note with these words, and returns its number.
+fn add(index: &mut Index, body: &str) -> Result<u64, String> {
     let body = cut(body, MAX_NOTE);
     let id = index.add(body);
-    let saved = storage::save_body(id, body)
-        .and_then(|()| storage::save_index(index));
-    match saved {
-        Ok(()) => {
-            session.selected = Some(id);
-            session.preview = false;
-        }
-        Err(why) => {
+    storage::save_body(id, body)
+        .and_then(|()| storage::save_index(index))
+        .map_err(|why| {
             index.remove(id);
             storage::delete(id);
-            session.hint = why;
+            why
+        })?;
+    Ok(id)
+}
+
+/// Adds a note with these words and selects it.
+fn create(
+    session: &mut Session,
+    index: &mut Index,
+    body: &str,
+    out: &mut Vec<Intent>,
+) {
+    match add(index, body) {
+        Ok(id) => {
+            session.selected = Some(id);
+            session.preview = false;
+            saved(id, out);
         }
+        Err(why) => session.hint = why,
+    }
+}
+
+/// Tells the plugins that hear of it that the note `id` was saved.
+fn saved(id: u64, out: &mut Vec<Intent>) {
+    match events::publish(SAVED, &id) {
+        Ok(intent) => out.push(intent),
+        Err(why) => log(Level::Warn, &why),
     }
 }
 
@@ -129,9 +184,13 @@ fn remove(id: u64, session: &mut Session, index: &mut Index) {
 
 /// Asks to use the agent's notes, and copies them if the chief
 /// allows it.
-fn ask(session: &mut Session, index: &mut Index) {
+fn ask(
+    session: &mut Session,
+    index: &mut Index,
+    out: &mut Vec<Intent>,
+) {
     match hamlet_guest::request(PAPERS, REASON) {
-        RequestResult::Granted => copy(session, index),
+        RequestResult::Granted => copy(session, index, out),
         RequestResult::Pending => {
             session.waiting = true;
             session.hint = "Waiting for you to answer, to read the \
@@ -146,14 +205,18 @@ fn ask(session: &mut Session, index: &mut Index) {
     }
 }
 
-fn copy(session: &mut Session, index: &mut Index) {
+fn copy(
+    session: &mut Session,
+    index: &mut Index,
+    out: &mut Vec<Intent>,
+) {
     match hamlet_guest::papers() {
         Ok(papers) if papers.notes.trim().is_empty() => {
             session.hint = "The selected agent has no notes. Select \
                             an agent in the world first."
                 .into();
         }
-        Ok(papers) => create(session, index, &papers.notes),
+        Ok(papers) => create(session, index, &papers.notes, out),
         Err(why) => session.hint = why,
     }
 }

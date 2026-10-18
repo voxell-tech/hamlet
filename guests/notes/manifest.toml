@@ -3,6 +3,16 @@ name = "Notes"
 version = "0.1.0"
 interface = "0.4.0"
 
+# What other plugins may run, hear of and read. The notes are the
+# keys of its storage that start with `note.`.
+[exports]
+commands = ["add"]
+events = ["note-saved"]
+
+[[exports.collections]]
+name = "notes"
+prefix = "note."
+
 [[asks]]
 capability = "read.papers"
 reason = "To copy the selected agent's notes into a note of your own."
