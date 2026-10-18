@@ -1,0 +1,8 @@
+id = "notes"
+name = "Notes"
+version = "0.1.0"
+interface = "0.3.0"
+
+[[asks]]
+capability = "read.papers"
+reason = "To copy the selected agent's notes into a note of your own."
