@@ -76,13 +76,13 @@ fn a_returned_tree_is_drawn_and_a_redraw_keeps_a_typed_text() {
     let scratch = Scratch::new("tree");
     let mut app = home::app(
         &scratch,
-        &[Plugin {
-            id: "probe",
-            wasm: fixture::component(&fixture::drawing(
+        &[Plugin::new(
+            "probe",
+            fixture::component(&fixture::drawing(
                 &items("0 refreshes"),
                 &items("0 refreshes"),
             )),
-        }],
+        )],
     );
     home::views(&mut app);
     app.update();

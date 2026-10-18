@@ -19,10 +19,10 @@ fn a_declared_panel_lives_as_long_as_its_plugin_is_enabled() {
     let scratch = Scratch::new("declared");
     let mut app = home::app(
         &scratch,
-        &[Plugin {
-            id: "probe",
-            wasm: fixture::component(&fixture::declaring()),
-        }],
+        &[Plugin::new(
+            "probe",
+            fixture::component(&fixture::declaring()),
+        )],
     );
     app.update();
     assert!(listed(&app, "probe/notes"));

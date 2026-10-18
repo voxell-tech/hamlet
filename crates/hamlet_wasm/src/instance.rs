@@ -7,9 +7,12 @@ use bevy::ecs::component::Component;
 use wasmtime::component::Component as Compiled;
 use wasmtime::{Engine, Store};
 
+use crate::agents::AgentList;
 use crate::fault::Fault;
+use crate::grant::{Granted, READ_AGENTS};
 use crate::host::{self, State};
 use crate::interface::Hamlet;
+use crate::interface::hamlet::plugin::host::Agent;
 use crate::limits::Limits;
 
 /// On the entity of an installed plugin: its store and the exports
@@ -37,6 +40,31 @@ impl Instance {
             Hamlet::instantiate(&mut store, component, &linker)
                 .map_err(Fault::load)?;
         Ok(Self { store, exports })
+    }
+
+    /// This, for the plugin of this id, whose name its host
+    /// functions give when they log.
+    pub fn named(mut self, id: &str) -> Self {
+        self.store.data_mut().plugin = id.into();
+        self
+    }
+
+    /// Gives the store what its host functions answer from: the
+    /// capabilities the plugin holds, and a copy of the agents when
+    /// it may read them. Called before each call into the plugin, so
+    /// a grant that changed is seen by the next.
+    pub fn see(&mut self, granted: &Granted, agents: &AgentList) {
+        let state = self.store.data_mut();
+        if state.granted != granted.0 {
+            state.granted.clone_from(&granted.0);
+        }
+        let readable: &[Agent] = match granted.holds(READ_AGENTS) {
+            true => &agents.0,
+            false => &[],
+        };
+        if state.agents != readable {
+            state.agents = readable.to_vec();
+        }
     }
 
     /// Compiles the component in `file` and instantiates it.

@@ -2,12 +2,15 @@
 //! defines, and the state they work on.
 
 mod declare;
+mod read;
 
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 
 pub use self::declare::Declared;
 use crate::fault::Fault;
-use crate::interface::hamlet::plugin::host::{self, Host, Level};
+use crate::interface::hamlet::plugin::host::{
+    self, Agent, Host, Level,
+};
 use crate::limits::{Limiter, Limits};
 
 /// The name of the imported interface the linker defines.
@@ -28,6 +31,11 @@ pub struct State {
     pub(crate) bytes: usize,
     pub(crate) declared: Vec<Declared>,
     pub(crate) panel_room: usize,
+    /// The id of the plugin this store belongs to.
+    pub(crate) plugin: String,
+    pub(crate) granted: Vec<String>,
+    /// The agents, when the plugin may read them.
+    pub(crate) agents: Vec<Agent>,
 }
 
 impl State {
@@ -39,6 +47,9 @@ impl State {
             bytes: limits.log_bytes,
             declared: Vec::new(),
             panel_room: limits.panels,
+            plugin: String::new(),
+            granted: Vec::new(),
+            agents: Vec::new(),
         }
     }
 
@@ -62,6 +73,10 @@ impl Host for State {
 
     fn panel(&mut self, id: String, title: String, icon: String) {
         self.declare(id, title, icon);
+    }
+
+    fn agents(&mut self) -> Result<Vec<Agent>, String> {
+        self.read_agents()
     }
 }
 

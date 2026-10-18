@@ -17,7 +17,7 @@ pub mod ui;
 pub use self::bindings::exports::hamlet::plugin::plugin::{
     Incoming, Intent, Outgoing, Tree,
 };
-pub use self::bindings::hamlet::plugin::host::Level;
+pub use self::bindings::hamlet::plugin::host::{Agent, Level};
 
 /// What the host calls on a plugin.
 pub trait Plugin {
@@ -45,6 +45,12 @@ pub fn log(level: Level, message: &str) {
 /// name of one of the panels' icons.
 pub fn panel(id: &str, title: &str, icon: &str) {
     bindings::hamlet::plugin::host::panel(id, title, icon);
+}
+
+/// The living agents, each with its hamlet. It needs the capability
+/// `read.agents`, and is an error without it.
+pub fn agents() -> Result<Vec<Agent>, String> {
+    bindings::hamlet::plugin::host::agents()
 }
 
 /// Exports a [`Plugin`] as the component's `plugin` interface.

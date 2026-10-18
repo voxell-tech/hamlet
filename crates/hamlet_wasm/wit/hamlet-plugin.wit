@@ -8,6 +8,17 @@ interface host {
   // Adds a panel to the dock. Only `entry` declares; a call at any other
   // time is dropped. `icon` names a glyph of the panels' icon family.
   panel: func(id: string, title: string, icon: string);
+
+  record agent {
+    name: string,
+    hamlet: string,
+  }
+
+  // The living agents, each with its hamlet: a copy. It needs the
+  // capability `read.agents`; without it the error is
+  // "read.agents not granted". A grant taken back applies to the next
+  // call.
+  agents: func() -> result<list<agent>, string>;
 }
 
 interface plugin {

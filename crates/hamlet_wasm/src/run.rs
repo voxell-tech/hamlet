@@ -4,7 +4,9 @@
 use bevy::prelude::*;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 
+use crate::agents::AgentList;
 use crate::draw::Dirty;
+use crate::grant::Granted;
 use crate::host::Logged;
 use crate::inbox::Inbox;
 use crate::instance::Instance;
@@ -24,10 +26,12 @@ pub struct Done {
 /// whose call fails is marked failed.
 pub fn step(
     limits: Res<Limits>,
+    agents: Res<AgentList>,
     mut plugins: Query<(
         Entity,
         &PluginInfo,
         &Status,
+        &Granted,
         &mut Inbox,
         &mut Instance,
         &mut Dirty,
@@ -35,12 +39,20 @@ pub fn step(
     mut done: MessageWriter<Done>,
     mut commands: Commands,
 ) {
-    for (plugin, info, status, mut inbox, mut instance, mut dirty) in
-        &mut plugins
+    for (
+        plugin,
+        info,
+        status,
+        granted,
+        mut inbox,
+        mut instance,
+        mut dirty,
+    ) in &mut plugins
     {
         if *status != Status::Running || inbox.is_empty() {
             continue;
         }
+        instance.see(granted, &agents);
         let mail = inbox.take();
         match instance.step(&limits, &mail) {
             Ok(output) => {

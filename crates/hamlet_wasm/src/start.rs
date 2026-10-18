@@ -1,13 +1,15 @@
 //! Bringing a plugin up: instantiate it, run its `entry` and spawn
 //! the panels it declared.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use bevy::prelude::*;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 
+use crate::agents::AgentList;
 use crate::draw::Dirty;
 use crate::engine::Host;
+use crate::grant::Granted;
 use crate::inbox::Inbox;
 use crate::instance::Instance;
 use crate::limits::Limits;
@@ -19,19 +21,33 @@ use crate::{panel, run};
 #[component(immutable)]
 pub struct Source(pub PathBuf);
 
-/// Instantiates the component in `wasm` and runs its `entry`, for
+/// What a plugin is started with.
+pub struct Setting<'a> {
+    pub host: &'a Host,
+    pub limits: &'a Limits,
+    pub agents: &'a AgentList,
+}
+
+/// Instantiates the component in `source` and runs its `entry`, for
 /// the plugin entity `plugin`. A plugin that does not start is
 /// marked failed.
 pub fn bring_up(
     plugin: Entity,
     info: &PluginInfo,
-    wasm: &Path,
-    host: &Host,
-    limits: &Limits,
+    source: &Source,
+    granted: &Granted,
+    setting: &Setting,
     commands: &mut Commands,
 ) {
-    let started = Instance::from_file(&host.0, wasm, limits)
-        .and_then(|mut instance| {
+    let Setting {
+        host,
+        limits,
+        agents,
+    } = setting;
+    let started = Instance::from_file(&host.0, &source.0, limits)
+        .and_then(|instance| {
+            let mut instance = instance.named(&info.id);
+            instance.see(granted, agents);
             let output = instance.entry(limits)?;
             output
                 .logs

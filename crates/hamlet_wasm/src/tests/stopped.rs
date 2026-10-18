@@ -22,12 +22,12 @@ fn a_failed_plugin_shows_a_placeholder_that_restarts_it() {
     let scratch = Scratch::new("stopped");
     let mut app = home::app(
         &scratch,
-        &[Plugin {
-            id: "probe",
-            wasm: fixture::component(&fixture::failing(&items(
+        &[Plugin::new(
+            "probe",
+            fixture::component(&fixture::failing(&items(
                 "0 refreshes",
             ))),
-        }],
+        )],
     );
     home::views(&mut app);
     app.update();

@@ -1,0 +1,97 @@
+use std::path::PathBuf;
+
+use bevy::prelude::*;
+use hamlet_core::agents::{Citizen, Left, LivesIn, Settlement};
+
+use crate::agents::AgentList;
+use crate::fixture;
+use crate::fixture::home::{self, Plugin, Scratch};
+use crate::grant::{Granted, READ_AGENTS};
+use crate::host::Logged;
+use crate::interface::exports::hamlet::plugin::plugin::Intent;
+use crate::interface::hamlet::plugin::host::{Agent, Level};
+use crate::limits::Limits;
+
+fn agent(name: &str, hamlet: &str) -> Agent {
+    Agent {
+        name: name.into(),
+        hamlet: hamlet.into(),
+    }
+}
+
+#[test]
+fn a_read_needs_its_grant_and_a_change_of_grant_applies_at_once() {
+    let limits = Limits::default();
+    let mut plugin = super::load(&fixture::reading()).unwrap();
+    let agents =
+        AgentList(vec![agent("ada", "home"), agent("bo", "home")]);
+    let granted = Granted(vec![READ_AGENTS.into()]);
+    let lines = |plugin: &mut crate::instance::Instance| {
+        let out = plugin.step(&limits, &[]).unwrap();
+        (out.intents, out.logs)
+    };
+    let denied = (
+        vec![Intent::LogLine(String::new())],
+        vec![Logged {
+            level: Level::Error,
+            message: "read.agents not granted".into(),
+        }],
+    );
+
+    plugin.see(&Granted::default(), &agents);
+    assert_eq!(lines(&mut plugin), denied);
+
+    plugin.see(&granted, &agents);
+    assert_eq!(
+        lines(&mut plugin),
+        (vec![Intent::LogLine("he".into())], Vec::new())
+    );
+
+    plugin.see(&Granted::default(), &agents);
+    assert_eq!(lines(&mut plugin), denied);
+}
+
+#[test]
+fn the_agent_list_follows_the_core_and_grants_stop_at_what_was_asked()
+{
+    let scratch = Scratch::new("reads");
+    let mut app = home::app(
+        &scratch,
+        &[Plugin::new(
+            "reader",
+            fixture::component(&fixture::reading()),
+        )
+        .asking(&[READ_AGENTS])
+        .granted(&[READ_AGENTS, "net"])],
+    );
+    app.update();
+    let mut held = app.world_mut().query::<&Granted>();
+    assert_eq!(
+        held.single(app.world()).ok(),
+        Some(&Granted(vec![READ_AGENTS.into()]))
+    );
+
+    let hamlet = app
+        .world_mut()
+        .spawn((
+            Name::new("Pear Tree"),
+            Settlement {
+                home: PathBuf::new(),
+                name: "home".into(),
+            },
+        ))
+        .id();
+    let ada = app
+        .world_mut()
+        .spawn((Name::new("ada"), Citizen(1), LivesIn(hamlet)))
+        .id();
+    app.update();
+    assert_eq!(
+        app.world().resource::<AgentList>().0,
+        [agent("ada", "Pear Tree")]
+    );
+
+    app.world_mut().entity_mut(ada).insert(Left);
+    app.update();
+    assert!(app.world().resource::<AgentList>().0.is_empty());
+}

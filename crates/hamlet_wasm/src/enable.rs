@@ -3,23 +3,31 @@
 use bevy::prelude::*;
 use hamlet_sdk::plugin::{Contributions, Enable, PluginInfo, Status};
 
+use crate::agents::AgentList;
 use crate::engine::Host;
+use crate::grant::Granted;
 use crate::limits::Limits;
-use crate::start::{self, Source};
+use crate::start::{self, Setting, Source};
 
 /// Brings up again the disabled or failed plugin of this id, from
 /// its file, with a store of its own.
 pub fn restart(
     enable: On<Enable>,
-    plugins: Query<(Entity, &PluginInfo, &Status, &Source)>,
+    plugins: Query<(Entity, &PluginInfo, &Status, &Source, &Granted)>,
     host: Option<Res<Host>>,
     limits: Res<Limits>,
+    agents: Res<AgentList>,
     mut commands: Commands,
 ) {
     let Some(host) = host else {
         return;
     };
-    for (plugin, info, status, source) in &plugins {
+    let setting = Setting {
+        host: &host,
+        limits: &limits,
+        agents: &agents,
+    };
+    for (plugin, info, status, source, granted) in &plugins {
         if info.id != enable.0
             || !matches!(status, Status::Disabled | Status::Failed)
         {
@@ -32,9 +40,9 @@ pub fn restart(
         start::bring_up(
             plugin,
             info,
-            &source.0,
-            &host,
-            &limits,
+            source,
+            granted,
+            &setting,
             &mut commands,
         );
     }

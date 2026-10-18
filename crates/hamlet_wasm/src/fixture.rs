@@ -18,6 +18,7 @@ const COMMON: &str = r#"
   (import "hamlet:plugin/host@0.1.0" "log" (func $log (param i32 i32 i32)))
   (import "hamlet:plugin/host@0.1.0" "panel"
     (func $panel (param i32 i32 i32 i32 i32 i32)))
+  (import "hamlet:plugin/host@0.1.0" "agents" (func $agents (param i32)))
   (memory (export "memory") 1)
   (global $heap (mut i32) (i32.const 4096))
   (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32)
@@ -112,6 +113,24 @@ pub fn declaring() -> String {
     (param i32 i32) (result i32)
     (i32.const 0))
   {NO_VIEW})"#
+    )
+}
+
+/// Reads the agents in `step`. It answers with a line as long as the
+/// list is, or logs the error it got as an error.
+pub fn reading() -> String {
+    format!(
+        r#"(module {COMMON} {QUIET} {NO_VIEW}
+  (func (export "hamlet:plugin/plugin@0.1.0#step")
+    (param i32 i32) (result i32)
+    (call $agents (i32.const 96))
+    (if (i32.eqz (i32.load8_u (i32.const 96)))
+      (then (i32.store (i32.const 24) (i32.load (i32.const 104))))
+      (else
+        (call $log (i32.const 2) (i32.load (i32.const 100))
+          (i32.load (i32.const 104)))
+        (i32.store (i32.const 24) (i32.const 0))))
+    (i32.const 0)))"#
     )
 }
 

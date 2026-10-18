@@ -4,11 +4,13 @@ use bevy::prelude::*;
 use hamlet_core::core::HomeDir;
 use hamlet_sdk::plugin::{self as sdk, PluginInfo, Status};
 
-use crate::approved;
+use crate::agents::AgentList;
+use crate::approved::{self, Approval};
 use crate::engine::Host;
+use crate::grant::Granted;
 use crate::install::{self, Installed};
 use crate::limits::Limits;
-use crate::start::{self, Source};
+use crate::start::{self, Setting, Source};
 
 /// Scans the install folder and loads the plugins `approved.toml`
 /// names, each as an entity. A plugin that is not named is never
@@ -17,13 +19,19 @@ pub fn installed(
     home: Res<HomeDir>,
     host: Option<Res<Host>>,
     limits: Res<Limits>,
+    agents: Res<AgentList>,
     mut commands: Commands,
 ) {
     let Some(host) = host else {
         return;
     };
+    let setting = Setting {
+        host: &host,
+        limits: &limits,
+        agents: &agents,
+    };
     let folder = home.0.plugins();
-    let approved = approved::ids(&folder);
+    let approved = approved::list(&folder);
     for found in install::scan(&folder) {
         let installed = match found {
             Ok(installed) => installed,
@@ -33,36 +41,39 @@ pub fn installed(
             }
         };
         let id = &installed.manifest.id;
-        if !approved.contains(id) {
+        let Some(approval) = approved.iter().find(|a| a.id == *id)
+        else {
             info!("plugin {id}: installed, not approved, not loaded");
             continue;
-        }
-        spawn(&host, &limits, installed, &mut commands);
+        };
+        spawn(&setting, installed, approval, &mut commands);
     }
 }
 
 fn spawn(
-    host: &Host,
-    limits: &Limits,
+    setting: &Setting,
     installed: Installed,
+    approval: &Approval,
     commands: &mut Commands,
 ) {
     let manifest = sdk::Manifest::from(&installed.manifest);
     let info = PluginInfo::from(&manifest);
+    let granted = Granted::within(
+        &info.id,
+        &approval.grants,
+        &installed.manifest.asks,
+    );
+    let source = Source(installed.wasm);
     let plugin = commands
         .spawn((
             info.clone(),
             manifest,
-            Source(installed.wasm.clone()),
+            source.clone(),
+            granted.clone(),
             Status::Starting,
         ))
         .id();
     start::bring_up(
-        plugin,
-        &info,
-        &installed.wasm,
-        host,
-        limits,
-        commands,
+        plugin, &info, &source, &granted, setting, commands,
     );
 }

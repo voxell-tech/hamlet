@@ -34,8 +34,61 @@ impl Drop for Scratch {
 
 /// A plugin to install and approve.
 pub struct Plugin {
-    pub id: &'static str,
-    pub wasm: Vec<u8>,
+    id: &'static str,
+    wasm: Vec<u8>,
+    asks: &'static [&'static str],
+    grants: &'static [&'static str],
+}
+
+impl Plugin {
+    pub fn new(id: &'static str, wasm: Vec<u8>) -> Self {
+        Self {
+            id,
+            wasm,
+            asks: &[],
+            grants: &[],
+        }
+    }
+
+    /// This, asking for these capabilities in its manifest.
+    pub fn asking(mut self, asks: &'static [&'static str]) -> Self {
+        self.asks = asks;
+        self
+    }
+
+    /// This, approved with these grants.
+    pub fn granted(
+        mut self,
+        grants: &'static [&'static str],
+    ) -> Self {
+        self.grants = grants;
+        self
+    }
+
+    fn manifest(&self) -> String {
+        let mut text = format!(
+            "id = \"{0}\"\nname = \"{0}\"\nversion = \
+             \"0.1.0\"\ninterface = \"0.1.0\"\n",
+            self.id
+        );
+        for ask in self.asks {
+            text += &format!(
+                "[[asks]]\ncapability = \"{ask}\"\nreason = \"a \
+                 test\"\n"
+            );
+        }
+        text
+    }
+
+    fn approval(&self) -> String {
+        let grants = self
+            .grants
+            .iter()
+            .map(|grant| format!("\"{grant}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("{{ id = \"{}\", grants = [{grants}] }}", self.id)
+    }
 }
 
 /// An app with `home` holding `plugins`, all approved.
@@ -46,19 +99,12 @@ pub fn app(home: &Scratch, plugins: &[Plugin]) -> App {
         std::fs::create_dir_all(&dir).expect("a plugin folder");
         std::fs::write(dir.join("plugin.wasm"), &plugin.wasm)
             .expect("a component");
-        std::fs::write(
-            dir.join("manifest.toml"),
-            format!(
-                "id = \"{0}\"\nname = \"{0}\"\nversion = \
-                 \"0.1.0\"\ninterface = \"0.1.0\"\n",
-                plugin.id
-            ),
-        )
-        .expect("a manifest");
+        std::fs::write(dir.join("manifest.toml"), plugin.manifest())
+            .expect("a manifest");
     }
     let ids = plugins
         .iter()
-        .map(|plugin| format!("\"{}\"", plugin.id))
+        .map(Plugin::approval)
         .collect::<Vec<_>>()
         .join(", ");
     std::fs::write(

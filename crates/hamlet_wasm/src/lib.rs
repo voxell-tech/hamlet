@@ -4,10 +4,12 @@
 use bevy::prelude::*;
 use hamlet_assets::TuningPlugin;
 
+use self::agents::AgentList;
 use self::engine::Host;
 use self::limits::{Limits, WasmTuning};
 use self::trees::PluginTrees;
 
+pub mod agents;
 pub mod approved;
 pub mod call;
 pub mod draw;
@@ -16,6 +18,7 @@ pub mod engine;
 pub mod event;
 pub mod fault;
 pub mod glyph;
+pub mod grant;
 pub mod host;
 pub mod inbox;
 pub mod install;
@@ -43,6 +46,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<WasmTuning>::default())
         .init_resource::<Limits>()
         .init_resource::<PluginTrees>()
+        .init_resource::<AgentList>()
         .add_message::<run::Done>()
         .add_observer(enable::restart)
         .add_observer(event::deliver)
@@ -70,6 +74,9 @@ pub fn plugin(app: &mut App) {
                     .in_set(PluginSet::Apply)
                     .run_if(on_message::<run::Done>),
                 draw::draw.in_set(PluginSet::Draw).run_if(draw::due),
+                agents::keep
+                    .before(PluginSet::Step)
+                    .run_if(agents::moved),
             ),
         );
     match Host::new(&Limits::default()) {

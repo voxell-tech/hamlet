@@ -4,6 +4,8 @@
 use bevy::prelude::*;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 
+use crate::agents::AgentList;
+use crate::grant::Granted;
 use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::trees::{Drawn, PluginTrees};
@@ -43,22 +45,25 @@ pub fn due(plugins: Query<&Dirty>) -> bool {
 /// the tree it returns. A plugin whose call fails is marked failed.
 pub fn draw(
     limits: Res<Limits>,
+    agents: Res<AgentList>,
     mut plugins: Query<(
         Entity,
         &PluginInfo,
         &Status,
+        &Granted,
         &mut Dirty,
         &mut Instance,
     )>,
     mut trees: ResMut<PluginTrees>,
     mut commands: Commands,
 ) {
-    for (plugin, info, status, mut dirty, mut instance) in
+    for (plugin, info, status, granted, mut dirty, mut instance) in
         &mut plugins
     {
         if *status != Status::Running || dirty.is_empty() {
             continue;
         }
+        instance.see(granted, &agents);
         for dock in dirty.take() {
             let Some(local) = panel::local_id(&info.id, &dock) else {
                 continue;

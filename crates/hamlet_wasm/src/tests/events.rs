@@ -11,13 +11,13 @@ fn a_click_reaches_the_plugin_and_its_answer_changes_the_panel() {
     let scratch = Scratch::new("click");
     let mut app = home::app(
         &scratch,
-        &[Plugin {
-            id: "probe",
-            wasm: fixture::component(&fixture::drawing(
+        &[Plugin::new(
+            "probe",
+            fixture::component(&fixture::drawing(
                 &items("0 refreshes"),
                 &items("1 refresh"),
             )),
-        }],
+        )],
     );
     app.update();
     let shows = |app: &App, count: &str| {
