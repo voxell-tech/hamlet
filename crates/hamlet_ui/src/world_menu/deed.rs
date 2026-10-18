@@ -17,6 +17,7 @@ use hamlet_core::agents::{
 };
 use hamlet_core::session::Rewind;
 use hamlet_realm::orders;
+use hamlet_sdk::confirm::Confirm;
 
 use super::close;
 use crate::feel::Mood;
@@ -41,8 +42,8 @@ pub(crate) enum Deed {
     /// Deletes what is archived of a hamlet that was closed down,
     /// for good.
     EraseHamlet(String),
-    /// Takes a skill out of the library.
-    Unshelve(String),
+    /// A command a plugin asked the chief to confirm.
+    Command(Confirm),
     /// Puts the open conversation away and starts another.
     NewSession,
     /// Makes this agent the mayor of its hamlet.
@@ -91,8 +92,8 @@ impl Deed {
             Deed::EraseHamlet(hamlet) => {
                 chat::send(world, format!("/erase-hamlet {hamlet}"))
             }
-            Deed::Unshelve(skill) => {
-                chat::send(world, format!("/unshelve {skill}"))
+            Deed::Command(asked) => {
+                chat::send(world, asked.command.clone())
             }
             Deed::NewSession => chat::send(world, "/new".into()),
             Deed::DefaultCharter => {
@@ -128,10 +129,7 @@ impl Deed {
             Deed::EraseHamlet(hamlet) => {
                 format!("DELETE {} FOR GOOD?", hamlet.to_uppercase())
             }
-            Deed::Unshelve(skill) => format!(
-                "TAKE {} OUT OF THE LIBRARY?",
-                skill.to_uppercase()
-            ),
+            Deed::Command(asked) => asked.question.clone(),
             Deed::NewSession => "START A NEW SESSION?".to_string(),
             Deed::Mayor(agent) => {
                 format!("MAKE {} MAYOR?", name(agent))
@@ -174,10 +172,7 @@ impl Deed {
                                  resumed. The agent keeps its notes \
                                  and skills."
                 .to_string(),
-            Deed::Unshelve(skill) => format!(
-                "{skill} is deleted from the library for every \
-                 hamlet. This cannot be undone."
-            ),
+            Deed::Command(asked) => asked.outcome.clone(),
             Deed::EraseHamlet(hamlet) => format!(
                 "Everything archived of {hamlet} is deleted from \
                  disk. This cannot be undone."
@@ -201,17 +196,17 @@ impl Deed {
         }
     }
 
-    fn verb(&self) -> &'static str {
+    fn verb(&self) -> String {
         match self {
-            Deed::Remove(_) => "REMOVE",
-            Deed::Merge { .. } => "MERGE",
-            Deed::Close(_) => "CLOSE DOWN",
-            Deed::Erase(_) | Deed::EraseHamlet(_) => "DELETE",
-            Deed::Unshelve(_) => "TAKE OUT",
-            Deed::NewSession => "NEW SESSION",
-            Deed::Mayor(_) => "MAKE MAYOR",
-            Deed::Rewind { .. } => "REWIND",
-            Deed::DefaultCharter => "USE THE DEFAULT",
+            Deed::Remove(_) => "REMOVE".into(),
+            Deed::Merge { .. } => "MERGE".into(),
+            Deed::Close(_) => "CLOSE DOWN".into(),
+            Deed::Erase(_) | Deed::EraseHamlet(_) => "DELETE".into(),
+            Deed::Command(asked) => asked.verb.clone(),
+            Deed::NewSession => "NEW SESSION".into(),
+            Deed::Mayor(_) => "MAKE MAYOR".into(),
+            Deed::Rewind { .. } => "REWIND".into(),
+            Deed::DefaultCharter => "USE THE DEFAULT".into(),
         }
     }
 
@@ -231,7 +226,7 @@ impl Deed {
             }
             Deed::Erase(_)
             | Deed::EraseHamlet(_)
-            | Deed::Unshelve(_)
+            | Deed::Command(_)
             | Deed::NewSession
             | Deed::Mayor(_)
             | Deed::Rewind { .. }

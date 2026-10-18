@@ -3,6 +3,7 @@
 //! `hamlet_ui`.
 
 pub mod cards;
+pub mod confirm;
 pub mod convo;
 pub mod dock;
 pub mod feel;

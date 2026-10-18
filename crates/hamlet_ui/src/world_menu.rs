@@ -26,6 +26,7 @@ use hamlet_core::agents::{self};
 use hamlet_core::oversight::Veto;
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Asked, AskedGround, Thing};
+use hamlet_sdk::confirm::Confirm;
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
@@ -35,7 +36,21 @@ pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Open>()
         .init_resource::<Founding>()
         .add_observer(ask_of_row)
+        .add_observer(ask_confirm)
         .add_systems(Update, answer_ask);
+}
+
+/// Asks the question a plugin gave, at the pointer.
+fn ask_confirm(
+    asked: On<Confirm>,
+    window: Query<&Window>,
+    mut open: ResMut<Open>,
+) {
+    let at = window
+        .iter()
+        .find_map(Window::cursor_position)
+        .unwrap_or_default();
+    *open = Open::Question(Deed::Command(asked.event().clone()), at);
 }
 
 /// The popup open over the world, and its place in the window.

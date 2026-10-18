@@ -7,12 +7,12 @@ use bevy_fynix::views::{FrameProps, column, frame, label};
 use bevy_fynix::{ViewExt, each, keyed, resource};
 use hamlet_core::core::Skills;
 pub use hamlet_sdk::cards::{card, item};
+use hamlet_sdk::confirm::Confirm;
 
 use crate::View;
 use crate::dock::show_tab;
 use crate::icons::Glyph;
 use crate::looks::{action, bad_action};
-use crate::world_menu::{self, Deed};
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct SkillRow {
@@ -76,10 +76,19 @@ pub(crate) fn skills() -> impl View {
                     Glyph::Delete,
                     "TAKE OUT",
                     move |world| {
-                        world_menu::ask(
-                            world,
-                            Deed::Unshelve(gone.clone()),
-                        )
+                        world.trigger(Confirm {
+                            question: format!(
+                                "TAKE {} OUT OF THE LIBRARY?",
+                                gone.to_uppercase()
+                            ),
+                            outcome: format!(
+                                "{gone} is deleted from the library \
+                                 for every hamlet. This cannot be \
+                                 undone."
+                            ),
+                            verb: "TAKE OUT".into(),
+                            command: format!("/unshelve {gone}"),
+                        })
                     },
                 );
                 card(
