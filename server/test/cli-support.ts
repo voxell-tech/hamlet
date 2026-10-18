@@ -53,6 +53,10 @@ export function hamlet(
     const ended = new Promise<number | string>((resolve) =>
         child.on("close", (code, signal) => resolve(code ?? signal ?? "")),
     );
+    // A command may reject its arguments before reading stdin; its exit and output still decide the test.
+    child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+        if (error.code !== "EPIPE") throw error;
+    });
     if (input !== undefined) child.stdin.end(input);
     closeAfter(async () => {
         if (child.exitCode === null && child.signalCode === null) {

@@ -58,7 +58,11 @@ describe("the hamlet command", () => {
     it("reads its flags and names its mistakes (main.rs:189)", async () => {
         const home = scratch();
 
-        const unknown = command(["server", "--hedless"], home);
+        const unknown = command(
+            ["server", "--hedless"],
+            home,
+            "ignored\n".repeat(262_144),
+        );
         expect(await unknown.ended).toBe(1);
         expect(unknown.err()).toContain("unknown argument `--hedless`");
         expect(unknown.err()).toContain("usage: hamlet");
