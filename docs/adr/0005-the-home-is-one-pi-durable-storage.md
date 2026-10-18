@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: partly superseded by ADR 0009
 ---
 
 # The home is one pi-durable storage, beside the files tools use
@@ -9,6 +9,12 @@ storage: a single SQLite file. The records (the hamlet's record, the realm,
 oversight, spend, the library's record) are pi-durable documents, and so
 are the chief's documents (limits, charter, characters, allowed models,
 settings), which the window edits through the server.
+
+[ADR 0009](0009-the-server-is-rust-and-harnesses-run-the-conversations.md)
+supersedes the one storage: the server keeps Hamlet's records in a store of
+its own, and each harness keeps its conversations in its own. A change and
+the marker of its result still commit together, now in the server's store,
+and the marker is kept for good. The files tools use still stay files.
 
 A tool that changes a record commits the change in one transaction with a
 marker of its result, kept for that call only. pi-durable commits a tool's

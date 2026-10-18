@@ -70,6 +70,55 @@ where they run can change without the agent noticing. On a chief's own
 machine they run in the sandbox of C18: bubblewrap on Linux, Seatbelt on
 macOS.
 
+## Harnesses
+
+An agent's conversations run in a harness, apart from the server that
+keeps the rules (ADR 0009).
+
+**S17.** An agent has a harness for its new conversations. A conversation
+stays with the harness, and the version of it, it began in, for as long as
+it is kept. Changing an agent's harness changes only its later
+conversations, and keeps its identity, house, roads and permissions.
+
+**S18.** The server allows every tool call and every change to the record
+when it is carried out, under the permissions, waits, limits and budget as
+they are then. A permission refused, taken back or lapsed by then allows
+nothing, even for a call a harness began before a restart. Taking a
+permission back undoes nothing it already allowed.
+
+**S19.** A change to the record made by a tool call, and its charge, happen
+once however often the call runs; running it again gives back its first
+result. The same call asked for again with different arguments is refused.
+
+**S20.** A model call's usage is charged once, however often its harness
+reports it. Work that the budget decides does not go on while usage a
+harness recorded is not yet charged.
+
+**S21.** The harnesses a server runs are part of its claim on the home
+(S2): each opens only its own store, only while that server runs, and none
+goes on working after its server stops.
+
+**S22.** A harness that fails stops only the conversations it runs. The
+rest of the realm goes on, and work waiting on an answer from those
+conversations waits. They carry on from where they stopped when the
+harness runs again (S3).
+
+**S23.** A typed line, letter, question, reply, ballot or reflection is
+taken into its conversation once, in order, however often it is delivered.
+A stopped turn stays stopped through a restart: nothing it had queued is
+taken in again.
+
+**S24.** A harness is used only if the server's permissions and budget
+decide every tool call and model call it makes. What a harness cannot do,
+such as taking a conversation back, is refused in words for a chief, never
+done another way.
+
+**S25.** A part of a home that is missing, or belongs to another home, is
+an error, never replaced by an empty one. A home made by an earlier server
+is moved with no server running, keeping its conversations and their
+numbers and what waits, and leaving the original as it was; or it is not
+opened.
+
 ## Working on Hamlet
 
 **S13.** The `hamlet` command is a Rust binary in `crates/hamlet_cli`,

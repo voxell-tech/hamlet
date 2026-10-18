@@ -50,6 +50,28 @@ Where agents' tools run and their houses are kept: local, on the
 server's own computer, or remote, as the chief chooses in Settings.
 _Avoid_: sandbox, house
 
+### Running agents
+
+**Harness**:
+The kind of program an agent's conversations run in, apart from the server
+that keeps the hamlet's rules. Each agent has one for its new
+conversations.
+_Avoid_: engine, backend
+
+**Runtime**:
+One running harness, with its own identity, version and store, serving the
+conversations bound to it. Several agents may share one.
+_Avoid_: worker, harness process
+
+**Binding**:
+The tie between a conversation and the runtime it began in, kept for as
+long as the conversation is.
+
+**Marker**:
+What is kept of an operation's result together with the change it made,
+so asking for the operation again gives that result back.
+_Avoid_: receipt
+
 ### Between agents
 
 **Road**:

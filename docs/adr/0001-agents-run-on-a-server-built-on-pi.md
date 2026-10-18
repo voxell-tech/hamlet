@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: partly superseded by ADR 0009
 ---
 
 # Agents run on a server, built in TypeScript on pi-durable
@@ -11,6 +11,12 @@ rebuilt in TypeScript on pi-durable (`@earendil-works/pi-durable`), pi's
 durable harness, and the window stays Rust and Bevy, as a client of that
 server. The concepts stay (chief, mayor, agents, hamlets, roads, votes,
 budget, realm, oversight); how they are built changes.
+
+[ADR 0009](0009-the-server-is-rust-and-harnesses-run-the-conversations.md)
+supersedes the choice of TypeScript for the server: Hamlet's rules move to
+Rust, and pi-durable runs the conversations in a harness apart from them.
+The server, the window as its client, and pi-durable for conversations
+still hold.
 
 pi-durable commits every turn, tool call and piece of state before anything
 is shown, so a server that stops mid-turn picks the work up when it opens

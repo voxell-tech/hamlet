@@ -9,6 +9,10 @@ to [ADR 0008](../adr/0008-agents-use-the-chiefs-own-git.md).
 The work happens on its own branch, and the window keeps working on `main`
 until the branch replaces the Rust runtime whole.
 
+The Rust server that replaces this one, with conversations in harnesses
+apart from it, is proposed in [`rust-server.md`](rust-server.md)
+(ADR 0009).
+
 ## The shape
 
 ```

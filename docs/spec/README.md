@@ -1,9 +1,9 @@
 # The spec
 
 What Hamlet does, as requirements, independent of how it is built. It is the
-target of the rebuild in `docs/proposals/agent-server.md`: the concepts and
-rules stay; the server, the storage and the connection to the window are
-new. The words are those of [`CONTEXT.md`](../../CONTEXT.md).
+target of the rebuild in `docs/proposals/agent-server.md` and of the Rust
+server in `docs/proposals/rust-server.md`: the concepts and rules stay; the
+server, the storage and the connection to the window are new. The words are those of [`CONTEXT.md`](../../CONTEXT.md).
 
 | File | Holds | IDs |
 |---|---|---|
