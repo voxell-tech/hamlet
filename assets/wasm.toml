@@ -1,0 +1,9 @@
+# The limits on the installed plugins' calls. What each value means is
+# written beside its field in crates/hamlet_wasm/src/limits.rs.
+
+[limits]
+call_ms = 50
+tick_ms = 5
+memory_mib = 16
+table_elements = 10000
+log_lines = 32

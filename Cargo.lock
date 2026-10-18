@@ -3739,7 +3739,9 @@ name = "hamlet_wasm"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "hamlet_assets",
  "hamlet_sdk",
+ "serde",
  "wasmtime",
 ]
 
