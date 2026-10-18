@@ -1,7 +1,5 @@
 //! Commands and file operations confined to a policy (S12, C18).
 
-#![allow(dead_code)] // The tools' caller is being written.
-
 mod bwrap;
 mod env;
 pub(crate) mod path;
@@ -41,6 +39,7 @@ enum Kind {
 
 impl Sandbox {
     /// Linux bubblewrap.
+    #[cfg(test)]
     pub(crate) const BWRAP: Self = Self(Kind::Bwrap);
 
     /// The sandbox of this machine's platform (C18).

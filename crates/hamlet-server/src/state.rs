@@ -1,7 +1,9 @@
 //! Protocol views of the record and the chief's settings.
 
 use anyhow::Result;
-use hamlet_protocol::v0::{Changes, ServerMessage, State, Update};
+use hamlet_protocol::v0::{
+    Changes, ServerMessage, State, Update, Wait,
+};
 use serde_json::{Value, json};
 
 use crate::documents::mode_words;
@@ -17,7 +19,16 @@ pub(crate) fn state(
     let records = records(service.home.store().connection())?;
     let mut hamlets = Vec::new();
     let mut agents = Vec::new();
-    let mut grants = Vec::new();
+    let held =
+        crate::gate::grants(service.home.store().connection())?;
+    let mut grants = held
+        .iter()
+        .map(|grant| {
+            json!({"agent":{"hamlet":grant.agent.hamlet,"number":grant.agent.number},"name":grant.name,"permission":grant.permission,"by":grant.by,"source":"grant"})
+        })
+        .collect::<Vec<_>>();
+    let root = service.home.layout().root().to_owned();
+    let mut kept = Vec::new();
     for record in records {
         let limits = service.limits_of(&record.id)?;
         let work = service.work(&record.id)?;
@@ -68,9 +79,18 @@ pub(crate) fn state(
             });
             let mayor =
                 left.is_none() && agent.number == record.mayor;
+            let reference_of = crate::record::AgentRef {
+                hamlet: record.id.clone(),
+                number: agent.number,
+            };
+            let work = crate::chats::work(service, &reference_of)?;
+            let busy = left.is_none() && work.busy;
+            let doing =
+                if left.is_some() { "rest" } else { work.doing };
             let mut view = json!({"ref":reference(agent.number), "name":agent.name,"purpose":agent.purpose,"since":agent.since,"mayor":mayor,
-                "model":model(agent,&limits,&settings,mayor),"busy":false,"faulted":false,"activity":{"doing":"rest","doingWords":"Resting","step":0,"failures":0},
-                "saying":{"text":"","thought":false},"spent":{"tokens":0,"micros":0,"ms":0,"cost":"$0.00"},"skills":[],"consulting":false,"conversations":[]});
+                "model":model(agent,&limits,&settings,mayor),"busy":busy,"faulted":!busy && work.faulted,
+                "activity":{"doing":doing,"doingWords":crate::chats::words(doing),"step":if left.is_some() {0} else {work.step},"failures":if left.is_some() {0} else {work.failures}},
+                "saying":{"text":work.saying,"thought":work.thought},"spent":{"tokens":0,"micros":0,"ms":0,"cost":"$0.00"},"skills":[],"consulting":false,"conversations":[]});
             let spent = books
                 .agents
                 .get(&agent.number)
@@ -79,11 +99,20 @@ pub(crate) fn state(
             view["spent"] = serde_json::to_value(spent)?;
             view["spent"]["cost"] =
                 crate::spend::money(spent.micros).into();
+            if left.is_none() {
+                let house = root
+                    .join("houses")
+                    .join(&record.id)
+                    .join(agent.number.to_string());
+                view["skills"] =
+                    crate::prompt::skill_names(&house).into();
+            }
             if let Some(left) = left {
                 view["left"] = json!({"how":if left.merge.is_some(){"merged"}else{"removed"}, "into":left.merge.as_ref().map(|m|reference(m.kept.number)), "at":left.at,"by":by_words(&left.by),"reason":left.reason,"words":record.farewell(left)});
             }
             agents.push(view);
         }
+        kept.push(record.clone());
         for permission in ["network", "unconfined"] {
             for name in limits["permissions"][permission]
                 .as_array()
@@ -101,8 +130,28 @@ pub(crate) fn state(
             }
         }
     }
-    let mut view = json!({"epoch":epoch,"revision":revision,"chief":service.chief,"sandbox":"unavailable", "houses":service.home.layout().root().join("houses"),
-        "hamlets":hamlets,"agents":agents,"grants":grants,"waits":[],"providers":service.provider_views()?,"library":[],"closed":[],"starters":[],"deeds":["folder","mode","queue"],
+    let mut waits = Vec::new();
+    for wait in
+        crate::oversight::open(service.home.store().connection())?
+    {
+        let record = wait.chat.as_ref().and_then(|chat| {
+            kept.iter().find(|r| r.id == chat.hamlet)
+        });
+        let current = match &wait.chat {
+            Some(chat) => crate::chats::records::current_number(
+                service.home.store().connection(),
+                &crate::record::AgentRef {
+                    hamlet: chat.hamlet.clone(),
+                    number: chat.number,
+                },
+                &chat.chief,
+            )?,
+            None => None,
+        };
+        waits.push(crate::oversight::view(&wait, record, current)?);
+    }
+    let mut view = json!({"epoch":epoch,"revision":revision,"chief":service.chief,"sandbox":service.chats.sandbox.name(), "houses":service.home.layout().root().join("houses"),
+        "hamlets":hamlets,"agents":agents,"grants":grants,"waits":waits,"providers":service.provider_views()?,"library":[],"closed":[],"starters":[],"deeds":crate::chats::deed_names(),
         "settings":{"model":settings["model"],"reflectEvery":settings["reflectEvery"],"allowNet":settings["allowNet"],"unset":settings["saved"] != true,"link":settings["link"],
             "endpoints":settings["endpoints"].as_array().into_iter().flatten().map(|e|json!({"name":e["name"],"baseUrl":e["baseUrl"],"key":service.credentials.configured(e["name"].as_str().unwrap_or_default())})).collect::<Vec<_>>(),
             "workspace":{"url":service.credentials.workspace_url(),"running":null}}});
@@ -145,6 +194,7 @@ fn by_words(by: &str) -> String {
 pub(crate) fn changed(
     before: &State,
     after: &mut State,
+    endings: impl Fn(&str) -> String,
 ) -> Option<ServerMessage> {
     let mut changes = Vec::new();
     for hamlet in &after.hamlets {
@@ -172,14 +222,29 @@ pub(crate) fn changed(
             });
         }
     }
-    if before.settings != after.settings {
-        changes.push(Update::Settings {
-            settings: after.settings.clone(),
-        });
+    for wait in &after.waits {
+        if before.waits.iter().find(|w| id_of(w) == id_of(wait))
+            != Some(wait)
+        {
+            changes.push(Update::Wait { wait: wait.clone() });
+        }
+    }
+    for wait in &before.waits {
+        if !after.waits.iter().any(|w| id_of(w) == id_of(wait)) {
+            changes.push(Update::WaitClosed {
+                how: endings(id_of(wait)),
+                id: id_of(wait).into(),
+            });
+        }
     }
     if before.grants != after.grants {
         changes.push(Update::Grants {
             grants: after.grants.clone(),
+        });
+    }
+    if before.settings != after.settings {
+        changes.push(Update::Settings {
+            settings: after.settings.clone(),
         });
     }
     if before.providers != after.providers {
@@ -204,4 +269,14 @@ pub(crate) fn changed(
             changes,
         })
     })
+}
+
+/// The id of `wait`, whatever its kind.
+pub(crate) fn id_of(wait: &Wait) -> &str {
+    match wait {
+        Wait::Approval { id, .. }
+        | Wait::Fault { id, .. }
+        | Wait::Question { id, .. }
+        | Wait::Objection { id, .. } => id,
+    }
 }

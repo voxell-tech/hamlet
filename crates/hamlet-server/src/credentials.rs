@@ -165,7 +165,9 @@ impl Credentials {
         )
     }
 
-    pub fn scrub(&self, value: &mut Value) {
+    /// The secrets kept here, longest first, which nothing shown or
+    /// kept may hold.
+    pub fn secrets(&self) -> Vec<String> {
         let mut secrets = vec![self.stored.connection.token.as_str()];
         secrets.extend(self.api_key.as_deref());
         secrets.extend(
@@ -178,6 +180,13 @@ impl Credentials {
         }
         secrets.retain(|s| !s.is_empty());
         secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));
+        secrets.into_iter().map(String::from).collect()
+    }
+
+    pub fn scrub(&self, value: &mut Value) {
+        let secrets = self.secrets();
+        let secrets =
+            secrets.iter().map(String::as_str).collect::<Vec<_>>();
         scrub_value(value, &secrets);
     }
 }

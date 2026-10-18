@@ -47,6 +47,17 @@ pub(super) fn skills(house: &Path) -> String {
     )
 }
 
+/// The folders of the house's skills.
+pub(super) fn names(house: &Path) -> Vec<String> {
+    if !real_dir(house) {
+        return Vec::new();
+    }
+    shelf(&house.join("skills"))
+        .into_iter()
+        .map(|skill| skill.folder)
+        .collect()
+}
+
 /// The library's part: where it is, and each skill with the command
 /// that runs it from there. None while it has no skills.
 pub(super) fn library(root: &Path) -> Option<String> {

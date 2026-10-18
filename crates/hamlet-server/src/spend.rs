@@ -376,10 +376,9 @@ impl Service {
         )
     }
 
-    pub(crate) fn reset_budget(
-        &mut self,
-        hamlet: &str,
-    ) -> Result<String> {
+    /// Starts the budget period of `hamlet` again from now, keeping
+    /// the ledger; gives the words of `/reset-budget`.
+    pub fn reset_budget(&mut self, hamlet: &str) -> Result<String> {
         self.home.store().connection().execute(
             "INSERT INTO spend_reset(hamlet,at,by,models,roads) \
              VALUES (?1,?2,?3,(SELECT COALESCE(MAX(ordinal),0) FROM \
@@ -403,11 +402,23 @@ pub fn usage(
     db: &Connection,
     binding: BindingId,
 ) -> Result<hamlet_protocol::v0::UsageView> {
+    usage_of(db, &[binding])
+}
+
+/// The model usage of `bindings` together, as of a conversation and
+/// the branches it was forked or rewound from.
+pub fn usage_of(
+    db: &Connection,
+    bindings: &[BindingId],
+) -> Result<hamlet_protocol::v0::UsageView> {
+    let bindings = serde_json::to_string(
+        &bindings.iter().map(|b| b.0).collect::<Vec<_>>(),
+    )?;
     let mut query = db.prepare(
         "SELECT u.input+u.cache_read+u.cache_write,u.output,u.\
          micros,u.ms,u.cache_read,u.detail FROM harness_usage u \
-         JOIN harness_attempt a USING(runtime,key) WHERE \
-         a.binding=?1 ORDER BY u.ordinal",
+         JOIN harness_attempt a USING(runtime,key) WHERE a.binding \
+         IN (SELECT value FROM json_each(?1)) ORDER BY u.ordinal",
     )?;
     let mut calls = 0;
     let mut unreported = 0;
@@ -418,7 +429,7 @@ pub fn usage(
     let mut cached = 0;
     let mut reasoning = 0;
     let mut last_input = 0;
-    for row in query.query_map([binding.0], |r| {
+    for row in query.query_map([bindings], |r| {
         Ok((
             r.get::<_, i64>(0)?,
             r.get::<_, i64>(1)?,

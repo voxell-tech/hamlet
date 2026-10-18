@@ -117,7 +117,11 @@ impl Config {
             faux,
             model,
             api_key: set("HAMLET_API_KEY"),
-            tools: tools::specs(),
+            tools: crate::tools::specs()
+                .into_iter()
+                .chain(crate::chats::specs())
+                .chain(tools::specs())
+                .collect(),
         })
     }
 }

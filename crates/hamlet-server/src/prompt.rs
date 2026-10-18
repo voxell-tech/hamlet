@@ -1,8 +1,6 @@
 //! The prompt an agent is told before each model call, in C11's
 //! order, as the TypeScript server composes it.
 
-#![allow(dead_code)]
-
 mod brief;
 mod shelf;
 #[cfg(test)]
@@ -47,11 +45,9 @@ const OWN_MODEL: &str = "the hamlet's own model";
 pub(crate) struct Instruction {
     /// The number of the agent instructed.
     pub agent: i64,
-    pub task: String,
     pub chief: String,
     pub text: String,
     pub at: i64,
-    pub done: Option<i64>,
 }
 
 /// The agent a prompt is for, and what of its conversation the
@@ -180,6 +176,11 @@ pub(crate) fn budget(
 }
 
 /// The whole prompt as the model reads it.
+/// The folders of the skills in `house`, as a client lists them.
+pub(crate) fn skill_names(house: &Path) -> Vec<String> {
+    shelf::names(house)
+}
+
 pub(crate) fn text(sections: &[Section]) -> String {
     sections
         .iter()

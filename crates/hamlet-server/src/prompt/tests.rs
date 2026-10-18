@@ -137,11 +137,9 @@ fn tells_the_mayor_its_agents_and_an_agent_its_place() {
     admit(&mut service, "smith", "Builds things");
     let given = [Instruction {
         agent: 1,
-        task: "t".into(),
         chief: "alice".into(),
         text: "Explore carefully".into(),
         at: now(),
-        done: None,
     }];
     let decided = "# How your hamlet was run lately\nFrom the \
                    hamlet's record, each with the reason that was \

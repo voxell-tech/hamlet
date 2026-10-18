@@ -3,15 +3,18 @@
 //! once.
 
 mod change;
+mod chats;
 mod claim;
 mod credentials;
 mod documents;
 mod fault;
+mod gate;
 pub mod harness;
 mod home;
 mod limits;
 mod models;
 mod operation;
+mod oversight;
 mod papers;
 mod prompt;
 pub mod protocol;

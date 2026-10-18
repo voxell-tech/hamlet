@@ -2,8 +2,6 @@
 //! on a folder (C16): `read`, `write`, `edit`, `bash`, `search` and
 //! `find`.
 
-#![allow(dead_code)] // The runtime's caller is being written.
-
 mod bash;
 mod diff;
 mod files;

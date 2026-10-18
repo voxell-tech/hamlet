@@ -1,8 +1,6 @@
 //! The change an edit or a write makes to a file, as the gate shows
 //! it (C30).
 
-#![allow(dead_code)] // The gate that calls it is being written.
-
 use hamlet_protocol::v0::{Change, ChangeLines, ChangeLinesMark};
 use serde_json::Value;
 

@@ -248,78 +248,32 @@ impl Service {
         })
     }
 
-    pub(crate) fn say(
+    /// Sets how the hamlet's agents ask before they change its
+    /// folder.
+    pub(crate) fn set_mode(
         &mut self,
-        address: &Address,
-        text: &str,
+        hamlet: &str,
+        mode: &str,
+    ) -> Result<String> {
+        let mut work = self.work(hamlet)?;
+        work["mode"] = mode.into();
+        save(self.home.store().connection(), "work", hamlet, &work)?;
+        let suffix = if work["folder"].is_null() {
+            " It counts once this hamlet works on a folder."
+        } else {
+            ""
+        };
+        Ok(format!("{}{suffix}", mode_words(mode)))
+    }
+
+    /// Points the hamlet at the folder `tail` names, at none, or
+    /// tells which it works on.
+    pub(crate) fn folder(
+        &mut self,
+        hamlet: &str,
+        tail: &str,
     ) -> Result<std::result::Result<String, Refusal>> {
-        if let Err(error) = self.agent(address, "say")? {
-            return Ok(Err(error));
-        }
-        let text = trim(text);
-        let (command, tail) = text
-            .split_once(char::is_whitespace)
-            .unwrap_or((text, ""));
-        let tail = trim(tail);
-        let mut work = self.work(&address.hamlet)?;
-        match command {
-            "/budget" => {
-                let report = self.budget(&address.hamlet)?;
-                let mut lines = vec![
-                    report["summary"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_string(),
-                ];
-                lines.extend(
-                    report["lines"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|v| v.as_str().map(String::from)),
-                );
-                return Ok(Ok(lines.join("\n")));
-            }
-            "/reset-budget" => {
-                return Ok(Ok(self.reset_budget(&address.hamlet)?));
-            }
-            "/queue" => {
-                return Ok(Ok("Nothing waits for you.".into()));
-            }
-            "/mode" => {
-                if !["manual", "auto"].contains(&tail) {
-                    return Ok(Err(Refusal::Invalid(
-                        "usage: /mode <manual|auto>".into(),
-                    )));
-                }
-                work["mode"] = tail.into();
-                save(
-                    self.home.store().connection(),
-                    "work",
-                    &address.hamlet,
-                    &work,
-                )?;
-                let suffix = if work["folder"].is_null() {
-                    " It counts once this hamlet works on a folder."
-                } else {
-                    ""
-                };
-                return Ok(Ok(format!(
-                    "{}{suffix}",
-                    mode_words(tail)
-                )));
-            }
-            "/folder" => {}
-            _ => {
-                return Ok(Err(Refusal::Unsupported(
-                    if text.starts_with('/') {
-                        "that command"
-                    } else {
-                        "conversations"
-                    },
-                )));
-            }
-        }
+        let mut work = self.work(hamlet)?;
         if tail.is_empty() {
             return Ok(Ok(match work["folder"].as_str() {
                 Some(folder) => format!(
@@ -379,12 +333,7 @@ impl Service {
             before.insert(0, previous);
         }
         work["folder"] = folder.clone();
-        save(
-            self.home.store().connection(),
-            "work",
-            &address.hamlet,
-            &work,
-        )?;
+        save(self.home.store().connection(), "work", hamlet, &work)?;
         Ok(Ok(match folder.as_str() {
             Some(folder) => format!(
                 "This hamlet works on `{folder}` now. {}",
@@ -455,15 +404,8 @@ pub(crate) fn read(
             json!({"type":"read", "to":id, "papers":{"character":character,"notes":notes,"skills":[]}}),
         )?);
     }
-    let root = service.home.layout().root().to_owned();
-    let house = root
-        .join("houses")
-        .join(&address.hamlet)
-        .join(agent.number.to_string());
     let settings = service.settings()?;
-    let work = service.work(&address.hamlet)?;
     let limits = service.limits_of(&address.hamlet)?;
-    let (charter, _) = service.charter()?;
     let mayor = service
         .home
         .store()
@@ -473,64 +415,25 @@ pub(crate) fn read(
         == agent.number;
     let model =
         crate::state::model(&agent, &limits, &settings, mayor);
-    let mut sections = vec![
-        charter.trim_end().to_string(),
-        format!(
-            "# Environment\nSandbox: unavailable. Network for \
-             tools: {}. Model: {model}.\nSystem: {}.\nWorkspace: {}",
-            if settings["allowNet"] == true {
-                "on"
-            } else {
-                "off unless a chief allows it; a command that needs \
-                 it is held until the chief answers, so set \
-                 `network` to true on it and carry on"
-            },
-            if cfg!(target_os = "macos") {
-                "macOS, whose shell tools are the BSD ones"
-            } else {
-                "Linux"
-            },
-            house.display()
-        ),
-    ];
-    if let Some(folder) = work["folder"].as_str() {
-        sections.push(format!(
-            "# The project\nYour hamlet works on the folder \
-             {folder}. The work a chief asks for is done there."
-        ));
-    }
-    if !trim(&agent.character).is_empty() {
-        sections.push(format!(
-            "# Your character\n{}",
-            cut(
-                trim(&agent.character),
-                4000,
-                "\n[The character is longer than 4000 characters \
-                 and is cut here.]"
-            )
-        ));
-    }
-    sections.push(
-        format!(
-            "# NOTES.md\n{}",
-            cut(
-                &notes,
-                8000,
-                "\n[NOTES.md is longer than 8000 characters and is \
-                 cut here. Shorten it so that all of it is shown.]"
-            )
-        )
-        .trim_end()
-        .into(),
-    );
-    sections.push("# Skills\n(none yet)".into());
-    sections.push(format!(
-        "# Library\nSkills every agent shares, kept in {}.",
-        root.join("library").display()
-    ));
-    sections
-        .push("# Budget\nNo model work has been admitted.".into());
+    let instructions = crate::chats::records::instructions(
+        service.home.store().connection(),
+        &address.hamlet,
+    )?;
+    let sandbox = service.chats.sandbox.name().to_owned();
+    let subject = crate::prompt::Subject {
+        hamlet: &address.hamlet,
+        number: i64::try_from(agent.number)?,
+        model: (!model.is_empty()).then_some(model.as_str()),
+        sandbox: &sandbox,
+        instructions: &instructions,
+        task: None,
+    };
+    let mut sections = crate::prompt::sections(service, &subject)?;
+    sections.push(crate::harness::link::Section {
+        name: "budget".into(),
+        text: crate::prompt::budget(service, &subject)?,
+    });
     Ok(serde_json::from_value(
-        json!({"type":"read", "to":id, "prompt":sections.join("\n\n")}),
+        json!({"type":"read", "to":id, "prompt":crate::prompt::text(&sections)}),
     )?)
 }

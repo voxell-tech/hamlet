@@ -24,6 +24,7 @@ pub struct Service {
     pub(crate) houses: Houses,
     pub(crate) overrides: Overrides,
     pub(crate) models: crate::models::Models,
+    pub(crate) chats: crate::chats::Chats,
 }
 
 impl Service {
@@ -79,6 +80,7 @@ impl Service {
         for directory in ["library", "tools", "librarian"] {
             std::fs::create_dir_all(root.join(directory))?;
         }
+        crate::prompt::stock(&root.join("library"));
         Ok(Self {
             home,
             chief,
@@ -87,6 +89,9 @@ impl Service {
             limits: Rules::new()?,
             overrides: Overrides::from_env(faux)?,
             models: crate::models::Models::open(&root, faux)?,
+            chats: crate::chats::Chats::new(
+                crate::sandbox::Sandbox::platform(),
+            ),
         })
     }
 
@@ -116,30 +121,19 @@ impl Service {
             ClientMessage::Close(_) => return Ok(None),
             ClientMessage::Edit(edit) => reply(id, self.edit(edit)?),
             ClientMessage::Read(read) => self.read(read)?,
-            ClientMessage::Say(say) => {
-                reply(id, self.say(&say.to, &say.text)?)
-            }
-            ClientMessage::Open(open) => {
-                let text = match self
-                    .agent(&open.chat.with, "watch chat")?
-                {
-                    Err(error) => error.text(),
-                    Ok(_) => {
-                        Refusal::Unsupported("conversations").text()
-                    }
-                };
-                fault(Some(id), text)
-            }
-            ClientMessage::New(_)
+            // The runtime hands these to the chats first.
+            ClientMessage::Say(_)
+            | ClientMessage::Open(_)
+            | ClientMessage::New(_)
             | ClientMessage::Resume(_)
             | ClientMessage::Retry(_)
             | ClientMessage::Rewind(_)
-            | ClientMessage::Stop(_) => unsupported("conversations"),
+            | ClientMessage::Stop(_)
+            | ClientMessage::Answer(_) => {
+                unsupported("conversations")
+            }
             ClientMessage::Give(_) | ClientMessage::GivePart(_) => {
                 unsupported("gifts")
-            }
-            ClientMessage::Answer(_) => {
-                unsupported("answers to waits")
             }
             ClientMessage::Login(_) => unsupported("sign-ins"),
             ClientMessage::Check(_) => unsupported("model checks"),

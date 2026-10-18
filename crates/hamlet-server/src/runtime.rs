@@ -18,16 +18,21 @@ use tokio_tungstenite::tungstenite::protocol::{
 };
 use tokio_tungstenite::tungstenite::{Error, Message};
 
-use crate::Home;
 use crate::credentials::write_whole;
 use crate::harness::{self, Harnesses, Notice};
 use crate::protocol::{Protocol, fault};
 use crate::service::Service;
+use crate::state::id_of;
+use crate::{Home, chats};
 
 const LARGEST: usize = 1_048_576;
 const BEGIN: &str =
     "A connection begins with hello and the home's token.";
 const GRACE: Duration = Duration::from_secs(1);
+/// How long a closing home waits for the reflections it owes.
+const REFLECTING: Duration = Duration::from_secs(120);
+/// How long a closing home waits for its runtimes to stop.
+const STOPPING: Duration = Duration::from_secs(30);
 
 /// The server start contract, including the script passed to its
 /// harness.
@@ -105,17 +110,19 @@ impl Drop for Published {
 /// releasing the home.
 pub async fn serve(options: Options) -> Result<()> {
     let mut signals = Signals::new()?;
+    crate::sandbox::Sandbox::platform().probe()?;
     let home = Home::open(&options.home)?;
     let mut service = Service::new(home, options.faux.is_some())?;
-    // Runtimes with bound conversations carry on their work; protocol
-    // v0 serves no conversation yet, so none is bound here.
+    chats::load(&mut service)?;
     let layout = service.home.layout().clone();
     let (mut harnesses, notices) = Harnesses::start(
         &layout,
         service.home.store(),
         harness::Config::from_env(options.faux.clone())?,
     )?;
-    report(&notices);
+    for notice in notices {
+        chats::heard(&mut service, &mut harnesses, notice).await?;
+    }
     service.start_models()?;
     flush_models(&mut service, &mut harnesses).await?;
     let started = async {
@@ -124,8 +131,18 @@ pub async fn serve(options: Options) -> Result<()> {
             for notice in
                 harnesses.handle(service.home.store(), event).await?
             {
-                if let Notice::Provider(result) = notice {
-                    service.provider_result(result)?;
+                match notice {
+                    Notice::Provider(result) => {
+                        service.provider_result(result)?;
+                    }
+                    notice => {
+                        chats::heard(
+                            &mut service,
+                            &mut harnesses,
+                            notice,
+                        )
+                        .await?
+                    }
                 }
             }
         }
@@ -134,6 +151,7 @@ pub async fn serve(options: Options) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(15), started)
         .await
         .context("starting model providers")??;
+    chats::start(&mut service, &mut harnesses).await?;
     let protocol = Protocol::new()?;
     let listener = TcpListener::bind((
         std::net::Ipv4Addr::LOCALHOST,
@@ -176,7 +194,7 @@ pub async fn serve(options: Options) -> Result<()> {
                 }
                 Some(event) = incoming.recv() => {
                     match event {
-                        Event::Gone(id) => { clients.remove(&id); service.models.disconnect(id); }
+                        Event::Gone(id) => { clients.remove(&id); service.models.disconnect(id); service.chats.gone(id); }
                         Event::Late(id) => {
                             if let Some(client) = clients.get_mut(&id) && !client.welcomed && !client.refused { refuse(client, BEGIN, 1008)?; }
                         }
@@ -202,6 +220,23 @@ pub async fn serve(options: Options) -> Result<()> {
                                 continue;
                             }
                             let request = serde_json::to_value(&message)?;
+                            match chats::converse(&mut service, &mut harnesses, id, &message).await {
+                                Ok(None) => {}
+                                Ok(Some(answer)) => {
+                                    if let Some(answer) = answer && let Some(client) = clients.get_mut(&id) { send(client, &service, answer)?; }
+                                    deliver(&mut service, &mut clients)?;
+                                    refresh(&mut service, &mut state, &mut clients)?;
+                                    continue;
+                                }
+                                Err(error) => {
+                                    failed(&service, &error);
+                                    if let Some(client) = clients.get_mut(&id) { send(client, &service, fault(request["id"].as_str(), "The server could not complete this request."))?; }
+                                    deliver(&mut service, &mut clients)?;
+                                    refresh(&mut service, &mut state, &mut clients)?;
+                                    continue;
+                                }
+                            }
+                            let Some(client) = clients.get_mut(&id) else { continue; };
                             if let Some(answers) = service.model_request(id, &message)? {
                                 for answer in answers { send(client, &service, answer)?; }
                                 refresh(&mut service, &mut state, &mut clients)?;
@@ -212,9 +247,7 @@ pub async fn serve(options: Options) -> Result<()> {
                                 Ok(Some(answer)) => send(client, &service, answer)?,
                                 Ok(None) => {},
                                 Err(error) => {
-                                    let mut diagnostic = json!(format!("Request failed: {error:#}"));
-                                    service.credentials.scrub(&mut diagnostic);
-                                    eprintln!("{diagnostic}");
+                                    failed(&service, &error);
                                     send(client, &service, fault(request["id"].as_str(), "The server could not complete this request."))?;
                                 }
                             }
@@ -232,14 +265,12 @@ pub async fn serve(options: Options) -> Result<()> {
                 },
                 event = harnesses.next() => {
                     let notices = harnesses.handle(service.home.store(), event).await?;
-                    report(&notices);
-                    for notice in notices {
-                        if let Notice::Provider(result) = notice {
-                            for (id, answer) in service.provider_result(result)? {
-                                if let Some(client) = clients.get_mut(&id) { send(client, &service, answer)?; }
-                            }
-                        }
-                    }
+                    heard(&mut service, &mut harnesses, &mut clients, notices).await?;
+                    refresh(&mut service, &mut state, &mut clients)?;
+                }
+                Some(ran) = service.chats.tools.join_next() => {
+                    if let Ok(ran) = ran { chats::ran(&mut service, &mut harnesses, ran).await?; }
+                    deliver(&mut service, &mut clients)?;
                     refresh(&mut service, &mut state, &mut clients)?;
                 }
                 Some(_) = tasks.join_next() => {},
@@ -248,6 +279,19 @@ pub async fn serve(options: Options) -> Result<()> {
         Ok::<_, anyhow::Error>(())
     }.await;
     drop(listener);
+    let result = match result {
+        Ok(()) => {
+            close(
+                &mut service,
+                &mut harnesses,
+                &mut signals,
+                &mut clients,
+            )
+            .await
+        }
+        result => result,
+    };
+    service.chats.stop_tools();
     shutdown.send_replace(true);
     let drained =
         async { while tasks.join_next().await.is_some() {} };
@@ -273,21 +317,127 @@ async fn flush_models(
     Ok(())
 }
 
-/// Logs what a chief must hear of the runtimes until protocol v0
-/// shows it.
-fn report(notices: &[Notice]) {
+/// Takes in what the runtimes told, and sends clients what follows.
+async fn heard(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    clients: &mut HashMap<u64, Client>,
+    notices: Vec<Notice>,
+) -> Result<()> {
     for notice in notices {
         match notice {
-            Notice::Refused { runtime, words }
-            | Notice::Fault { runtime, words } => {
-                eprintln!(
-                    "hamlet-server: {}: {words}",
-                    runtime.as_str()
-                );
+            Notice::Provider(result) => {
+                for (id, answer) in service.provider_result(result)? {
+                    if let Some(client) = clients.get_mut(&id) {
+                        send(client, service, answer)?;
+                    }
+                }
             }
-            _ => {}
+            notice => {
+                chats::heard(service, harnesses, notice).await?
+            }
+        }
+        deliver(service, clients)?;
+    }
+    Ok(())
+}
+
+/// Sends the messages the chats hold for clients.
+fn deliver(
+    service: &mut Service,
+    clients: &mut HashMap<u64, Client>,
+) -> Result<()> {
+    for (id, message) in std::mem::take(&mut service.chats.outbox) {
+        if let Some(client) =
+            clients.get_mut(&id).filter(|c| c.welcomed && !c.refused)
+        {
+            send(client, service, message)?;
         }
     }
+    Ok(())
+}
+
+fn failed(service: &Service, error: &anyhow::Error) {
+    let mut diagnostic = json!(format!("Request failed: {error:#}"));
+    service.credentials.scrub(&mut diagnostic);
+    eprintln!("{diagnostic}");
+}
+
+/// Closes in order (S3): the reflections owed are asked for and
+/// waited on, then each runtime stops its work and exits. A second
+/// signal exits at once.
+async fn close(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    signals: &mut Signals,
+    clients: &mut HashMap<u64, Client>,
+) -> Result<()> {
+    let waits = chats::close(service, harnesses).await?;
+    deliver(service, clients)?;
+    let settled = |service: &mut Service| -> Result<bool> {
+        for (binding, request) in &waits {
+            let standing =
+                service.home.store().standing(*binding, request)?;
+            let open = standing.is_none_or(|standing| {
+                !matches!(
+                    standing.status.as_deref(),
+                    Some("done" | "unanswered")
+                )
+            });
+            if open {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    };
+    let reflected = async {
+        while !settled(service)? {
+            run_once(service, harnesses, clients).await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    };
+    tokio::select! {
+        _ = signals.next() => std::process::exit(130),
+        done = tokio::time::timeout(REFLECTING, reflected) => {
+            if let Ok(done) = done { done?; }
+        }
+    }
+    harnesses.begin_close().await;
+    let stopped = async {
+        while !harnesses.down() {
+            run_once(service, harnesses, clients).await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    };
+    tokio::select! {
+        _ = signals.next() => std::process::exit(130),
+        done = tokio::time::timeout(STOPPING, stopped) => {
+            if let Ok(done) = done { done?; }
+        }
+    }
+    Ok(())
+}
+
+/// Handles one event of a runtime or one finished tool call.
+async fn run_once(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    clients: &mut HashMap<u64, Client>,
+) -> Result<()> {
+    tokio::select! {
+        event = harnesses.next() => {
+            let notices =
+                harnesses.handle(service.home.store(), event).await?;
+            heard(service, harnesses, clients, notices).await?;
+        }
+        Some(ran) = service.chats.tools.join_next() => {
+            if let Ok(ran) = ran {
+                chats::ran(service, harnesses, ran).await?;
+            }
+            deliver(service, clients)?;
+        }
+    }
+    Ok(())
 }
 
 fn refresh(
@@ -296,7 +446,22 @@ fn refresh(
     clients: &mut HashMap<u64, Client>,
 ) -> Result<()> {
     let mut after = service.state(state.epoch, state.revision)?;
-    if let Some(change) = crate::state::changed(state, &mut after) {
+    let mut endings = HashMap::new();
+    for wait in &state.waits {
+        if !after.waits.iter().any(|w| id_of(w) == id_of(wait)) {
+            let db = service.home.store().connection();
+            endings.insert(
+                id_of(wait).to_owned(),
+                crate::oversight::ended(db, id_of(wait))?,
+            );
+        }
+    }
+    let ending = |id: &str| {
+        endings.get(id).cloned().unwrap_or_else(|| "lapsed".into())
+    };
+    if let Some(change) =
+        crate::state::changed(state, &mut after, ending)
+    {
         for client in
             clients.values_mut().filter(|c| c.welcomed && !c.refused)
         {

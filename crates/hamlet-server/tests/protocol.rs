@@ -377,19 +377,12 @@ fn budget_commands_reset_the_report_without_erasing_spend() {
         service.state(1, 0).unwrap().hamlets[0].budget.spent.micros,
         125000
     );
-    let report = request(
-        &mut service,
-        json!({"type":"say","to":mayor(),"text":"/budget"}),
-    );
-    assert!(report["text"].as_str().unwrap().starts_with(
-        "Hamlet today: $0.13 of $2.00\n- mayor: faux::faux-1, $0.13"
-    ));
-    let reset = request(
-        &mut service,
-        json!({"type":"say","to":mayor(),"text":"/reset-budget"}),
-    );
+    let report =
+        service.state(1, 0).unwrap().hamlets[0].budget.clone();
+    assert_eq!(report.summary, "Hamlet today: $0.13 of $2.00");
+    assert_eq!(report.lines[0], "- mayor: faux::faux-1, $0.13");
     assert_eq!(
-        reset["text"],
+        service.reset_budget("home").unwrap(),
         "The budget starts again from here. What was spent before \
          is kept in the ledger."
     );

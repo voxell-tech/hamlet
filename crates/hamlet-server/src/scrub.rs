@@ -1,8 +1,6 @@
 //! Credentials taken out of text and values before they are kept or
 //! shown (C32).
 
-#![allow(dead_code)] // The tools' caller is being written.
-
 use serde_json::Value;
 
 /// The words a credential is replaced with.
