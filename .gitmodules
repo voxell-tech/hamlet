@@ -2,3 +2,7 @@
 	path = vendor/fynix
 	url = git@github.com:voxell-tech/fynix.git
 	branch = nixon/wait-for-theme
+[submodule "vendor/openui-rs"]
+	path = vendor/openui-rs
+	url = https://github.com/voxell-tech/openui-rs
+	branch = main

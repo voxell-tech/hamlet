@@ -36,6 +36,9 @@ plugin_skills = { version = "0.1.0", path = "plugins/skills" }
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
 
+# openui-rs
+openui-lang = { path = "vendor/openui-rs/crates/openui-lang" }
+
 # bevy
 bevy_app = { version = "0.19", default-features = false, features = ["std"] }
 bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
