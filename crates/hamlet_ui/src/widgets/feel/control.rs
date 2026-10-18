@@ -117,7 +117,13 @@ pub(super) fn hover_tick(
     mut turn: Local<u32>,
 ) {
     let heard = |(hovered, mood): (&Hovered, Option<&Mood>)| {
-        hovered.0 && mood.is_some_and(|mood| mood.ticks())
+        hovered.0
+            && mood.is_some_and(|mood| {
+                matches!(
+                    mood,
+                    Mood::Plain | Mood::Ink | Mood::Good | Mood::Bad
+                )
+            })
     };
     if buttons.iter().any(heard) {
         sounds::write(&mut cues, &mut turn, Sound::Tick);

@@ -2,7 +2,6 @@
 //! for the chief, and a flash when the agent it shows changes.
 
 use bevy::asset::{Asset, Assets};
-use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::{With, Without};
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
@@ -14,6 +13,7 @@ use bevy::time::Time;
 use bevy::ui::ComputedNode;
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
 use hamlet_core::oversight::Waiting;
+use hamlet_sdk::feel::Lit;
 
 use super::{FeelSettings, MagicColors, ease, linear};
 use crate::me::Me;
@@ -41,15 +41,6 @@ impl UiMaterial for Backdrop {
     fn fragment_shader() -> ShaderRef {
         "embedded://hamlet_ui/widgets/feel/backdrop.wgsl".into()
     }
-}
-
-/// A panel that light falls into.
-#[derive(Component, Clone, Copy, Default)]
-pub struct Lit {
-    /// A lamp is lit over it while something waits for the chief.
-    pub alarm: bool,
-    /// It flashes when the agent it shows changes.
-    pub flash: bool,
 }
 
 pub(super) fn lay(

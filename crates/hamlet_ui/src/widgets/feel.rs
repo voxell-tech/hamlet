@@ -10,14 +10,13 @@ mod foot;
 use bevy::app::{App, Update};
 use bevy::asset::embedded_asset;
 use bevy::color::{Color, ColorToComponents, LinearRgba};
-use bevy::ecs::component::Component;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::on_message;
 use bevy::math::Vec3;
 use bevy::ui_render::prelude::UiMaterialPlugin;
+pub use hamlet_sdk::feel::{Lit, Mood};
 
-pub use self::backdrop::Lit;
 pub use self::foot::FootLight;
 use crate::theme::{HamletTheme, ThemeChanged};
 
@@ -55,37 +54,6 @@ pub fn plugin(app: &mut App) {
                 .chain(),
         ),
     );
-}
-
-/// The meaning of a press on a button, which sets its light, its
-/// sound and its motion.
-#[derive(Component, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Mood {
-    /// A tab, a menu item or the like: it gives under a press and
-    /// nothing more.
-    #[default]
-    Quiet,
-    /// An ordinary lettered button.
-    Plain,
-    /// Lettering with no plate, such as a way back: lit as a plain
-    /// button is, with the light about its words and its mark alone.
-    Ink,
-    /// The action a screen is for: a lamp that burns low at rest.
-    Good,
-    /// Something refused, stopped or thrown away.
-    Bad,
-    /// A text field, which is lit while it is typed in.
-    Field,
-}
-
-impl Mood {
-    /// The pointer coming onto it is heard.
-    fn ticks(self) -> bool {
-        matches!(
-            self,
-            Self::Plain | Self::Ink | Self::Good | Self::Bad
-        )
-    }
 }
 
 /// The tuning of the feel.

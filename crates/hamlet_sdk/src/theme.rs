@@ -30,7 +30,7 @@ use hamlet_assets::{
 };
 use serde::{Deserialize, Serialize};
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<HamletTheme>::default())
         .add_message::<ThemeChanged>()
         .init_state::<Look>()
@@ -264,7 +264,7 @@ fn dress(
 }
 
 /// The contrast of two colours, as WCAG 2 has it.
-pub(crate) fn contrast(one: Color, other: Color) -> f32 {
+pub fn contrast(one: Color, other: Color) -> f32 {
     let light =
         |color: Color| LinearRgba::from(color).luminance() + 0.05;
     let (a, b) = (light(one), light(other));

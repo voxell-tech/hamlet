@@ -1,0 +1,16 @@
+[package]
+name = "hamlet_sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What a plugin of the command center is built with: the plugin types, the theme, the looks and the dock's panels"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_assets.workspace = true
+hamlet_core.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true
+serde.workspace = true
