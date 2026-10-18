@@ -240,6 +240,12 @@ export function voteTask(home: Home) {
                             )
                                 failed =
                                     "it passed but could not be done: this hamlet has been removed";
+                            if (
+                                home.overrides.workspace !== undefined &&
+                                vote.motion.kind === "found_hamlet"
+                            )
+                                failed =
+                                    "founding another hamlet is not supported by remote workspaces";
                             if (!failed) {
                                 if (vote.motion.kind === "replace_mayor") {
                                     const candidate = vote.motion.candidate;

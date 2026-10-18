@@ -1,5 +1,11 @@
 export { type GiftRefusal, giftRefusalText } from "./house/gift-rules.ts";
 export { clearStagedGifts, giftSkill, give, uploads } from "./house/gifts.ts";
+export {
+    type HousePlace,
+    REMOTE_FILE_BYTES,
+    type RemoteHouse,
+    remoteHouse,
+} from "./house/remote.ts";
 export { paper, type SkillPaper, shelf } from "./house/skill-paper.ts";
 export {
     House,

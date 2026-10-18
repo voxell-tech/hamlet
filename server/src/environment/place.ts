@@ -12,11 +12,13 @@ import { WorkDoc } from "./work.ts";
 export type Place = {
     house: string;
     folder: string | null;
+    /** Virtual paths must never be resolved against the server's filesystem. */
+    remote?: boolean;
 };
 
 /** The place of the agent `conversation` is with, `undefined` for a conversation with no agent. */
 export async function placeOf(
-    home: Pick<HomeBase, "layout">,
+    home: Pick<HomeBase, "layout" | "overrides">,
     read: DocumentReader,
     conversation: ConversationId,
     context: Context,
@@ -24,5 +26,11 @@ export async function placeOf(
     const agent = await read.snapshot(WithDoc, conversation, context);
     if (agent === undefined) return undefined;
     const work = await read.snapshot(WorkDoc, agent.hamlet, context);
+    if (home.overrides.workspace !== undefined)
+        return {
+            house: "/house",
+            folder: work?.folder == null ? null : "/project",
+            remote: true,
+        };
     return { house: houseOf(home.layout, agent), folder: work?.folder ?? null };
 }

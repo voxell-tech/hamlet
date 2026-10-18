@@ -10,6 +10,7 @@ import { Value } from "typebox/value";
 import { LEAVE, type Leave } from "../environment.ts";
 import type { SandboxEnv } from "../sandbox.ts";
 import type { Secrets } from "../scrub.ts";
+import type { WorkspaceEnv } from "../workspace.ts";
 import { toolFailureText } from "./failure.ts";
 
 /** A confined command's ending, including the tool receipt and any retained shell output. */
@@ -38,7 +39,7 @@ export async function leaveFor(
 
 /** Runs argv directly, or a bash command through pi's spill-aware adapter, scrubbing both before output is kept. */
 export async function runConfined(
-    env: SandboxEnv,
+    env: SandboxEnv | WorkspaceEnv,
     argv: readonly string[] | string,
     options: {
         secrets: Secrets;

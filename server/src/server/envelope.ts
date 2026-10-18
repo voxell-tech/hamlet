@@ -38,6 +38,10 @@ import {
 import type { Result } from "../result.ts";
 import type { Secrets } from "../scrub.ts";
 import { type WatchFailure, watchFailureText } from "../transcript.ts";
+import {
+    type WorkspaceUnavailable,
+    workspaceUnavailableText,
+} from "../workspace.ts";
 
 /** A completed chief operation, before wire correlation and credential scrubbing. */
 export type Receipt = {
@@ -48,6 +52,7 @@ export type Receipt = {
 
 /** Chief-facing failures whose wording is chosen at the protocol seam. */
 export type ChiefFailure =
+    | WorkspaceUnavailable
     | LibraryRefusal
     | RecordRefusal
     | DecisionHeld
@@ -106,6 +111,8 @@ function rendered(
     kind: "notice" | "error";
 } {
     switch (failure.kind) {
+        case "workspace-unavailable":
+            return { text: workspaceUnavailableText(failure), kind: "error" };
         case "library-stage":
         case "library-list":
         case "library-paper":
@@ -255,6 +262,7 @@ function rendered(
             return { text: giftRefusalText(failure), kind: "error" };
 
         case "folder-not-absolute":
+        case "folder-not-remote":
         case "folder-not-directory":
         case "folder-overlaps-home":
             return { text: workFailureText(failure), kind: "error" };

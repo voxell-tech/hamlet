@@ -1,0 +1,174 @@
+{
+  "protocol": 1,
+  "description": "Workspace protocol v1 messages as Hamlet posts them to the manager's POST /v1, each with the reply expected when the cases run in order against one fresh workspace. Request ids are never reused by a real client: the replay case shows the manager refusing a repeated id. Each write's data is the base64 of content_utf8 or of the bytes in content_hex.",
+  "cases": [
+    {
+      "name": "cancel_before_admission",
+      "message": {"kind": "cancel", "id": "dc326bf3-b8e6-4e0a-8eba-219c3f307f91"},
+      "reply": {"kind": "ok", "value": {"state": "cancelled"}}
+    },
+    {
+      "name": "cancelled_execute",
+      "message": {
+        "kind": "execute",
+        "request": {
+          "version": 1,
+          "id": "dc326bf3-b8e6-4e0a-8eba-219c3f307f91",
+          "workspace": "fixture", "agent": 1,
+          "project": false, "network": false, "read_only": false,
+          "operation": {"kind": "exec", "argv": ["/bin/bash", "-c", "touch /house/cancelled-escape"], "cwd": "/house", "timeout_ms": 10000}
+        }
+      },
+      "reply": {"kind": "error", "code": "aborted", "message": "Workspace operation cancelled before admission. Nothing was run.", "uncertain": false}
+    },
+    {
+      "name": "readonly_library",
+      "message": {
+        "kind": "execute",
+        "request": {
+          "version": 1,
+          "id": "bf6b73db-1d72-4c7a-972d-774e827a259c",
+          "workspace": "fixture", "agent": 1,
+          "project": false, "network": false, "read_only": false,
+          "library": [{"path": "proof.txt", "data": "c2hhcmVkLTE3Cg==", "mode": 420}],
+          "operation": {"kind": "exec", "argv": ["/bin/bash", "-c", "cat /library/proof.txt; if (printf wrong > /library/proof.txt) 2>/dev/null; then exit 7; fi"], "cwd": "/house", "timeout_ms": 10000}
+        }
+      },
+      "reply": {"kind": "ok", "value": {"exitCode": 0, "stdout": "shared-17\n", "stderr": ""}}
+    },
+    {
+      "name": "write_utf8",
+      "message": {
+        "kind": "execute",
+        "request": {
+          "version": 1,
+          "id": "250b2dc7-b129-421c-8fee-d8d68588c401",
+          "workspace": "fixture",
+          "agent": 1,
+          "project": false,
+          "network": false,
+          "read_only": false,
+          "operation": {
+            "kind": "write",
+            "path": "/house/greeting.txt",
+            "data": "aMOpbGxvLCB3w7ZybGQg4pyTCg==",
+            "append": false
+          }
+        }
+      },
+      "content_utf8": "héllo, wörld ✓\n",
+      "reply": { "kind": "ok", "value": null }
+    },
+    {
+      "name": "write_binary",
+      "message": {
+        "kind": "execute",
+        "request": {
+          "version": 1,
+          "id": "ef16b93f-be78-426c-aceb-8bf8cd8772a1",
+          "workspace": "fixture",
+          "agent": 1,
+          "project": false,
+          "network": false,
+          "read_only": false,
+          "operation": {
+            "kind": "write",
+            "path": "/house/blob.bin",
+            "data": "AP/+gAo=",
+            "append": false
+          }
+        }
+      },
+      "content_hex": "00fffe800a",
+      "reply": { "kind": "ok", "value": null }
+    },
+    {
+      "name": "status_after_write",
+      "message": {
+        "kind": "status",
+        "id": "250b2dc7-b129-421c-8fee-d8d68588c401"
+      },
+      "reply": { "kind": "ok", "value": null }
+    },
+    {
+      "name": "replay_refused",
+      "message": {
+        "kind": "execute",
+        "request": {
+          "version": 1,
+          "id": "250b2dc7-b129-421c-8fee-d8d68588c401",
+          "workspace": "fixture",
+          "agent": 1,
+          "project": false,
+          "network": false,
+          "read_only": false,
+          "operation": {
+            "kind": "write",
+            "path": "/house/greeting.txt",
+            "data": "aMOpbGxvLCB3w7ZybGQg4pyTCg==",
+            "append": false
+          }
+        }
+      },
+      "content_utf8": "héllo, wörld ✓\n",
+      "reply": {
+        "kind": "error",
+        "code": "uncertain",
+        "message": "The workspace operation may have changed files. Inspect its result before repeating it.",
+        "uncertain": true
+      }
+    },
+    {
+      "name": "exec_streams",
+      "message": {
+        "kind": "execute",
+        "request": {
+          "version": 1,
+          "id": "f29ac998-0370-404c-9a22-8c286da50777",
+          "workspace": "fixture",
+          "agent": 1,
+          "project": false,
+          "network": false,
+          "read_only": false,
+          "operation": {
+            "kind": "exec",
+            "argv": ["/bin/bash", "-c", "printf out; printf err >&2; exit 3"],
+            "cwd": "/house",
+            "timeout_ms": 10000
+          }
+        }
+      },
+      "reply": {
+        "kind": "ok",
+        "value": { "exitCode": 3, "stdout": "out", "stderr": "err" }
+      }
+    },
+    {
+      "name": "unsupported_version",
+      "message": {
+        "kind": "execute",
+        "request": {
+          "version": 2,
+          "id": "c0294bed-db15-42fd-afdb-74be51abda75",
+          "workspace": "fixture",
+          "agent": 1,
+          "project": false,
+          "network": true,
+          "read_only": false,
+          "operation": {
+            "kind": "exec",
+            "argv": ["/bin/true"],
+            "cwd": "/house",
+            "timeout_ms": 10000
+          }
+        }
+      },
+      "reply": {
+        "kind": "error",
+        "code": "not_supported",
+        "message": "This workspace service supports protocol 1 only.",
+        "uncertain": false
+      }
+    }
+  ]
+}

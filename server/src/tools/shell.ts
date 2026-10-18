@@ -4,6 +4,7 @@ import { createBashTool } from "@earendil-works/pi-durable/tools";
 import { agentEnv, placeOf } from "../environment.ts";
 import type { Home } from "../home.ts";
 import { SandboxEnv } from "../sandbox.ts";
+import { WorkspaceEnv } from "../workspace.ts";
 import { toolFailureText } from "./failure.ts";
 import { leaveFor, runConfined } from "./run.ts";
 
@@ -68,7 +69,10 @@ export function bashTool(home: Home, wallSecs = WALL_SECS) {
                           context,
                       )
                     : api.env;
-            if (!(env instanceof SandboxEnv)) {
+            if (
+                !(env instanceof SandboxEnv) &&
+                !(env instanceof WorkspaceEnv)
+            ) {
                 return {
                     output: [
                         {

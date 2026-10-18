@@ -15,6 +15,7 @@ export type WorkFailure = {
     retrySafe: true;
 } & (
     | { kind: "folder-not-absolute" }
+    | { kind: "folder-not-remote" }
     | { kind: "folder-not-directory"; path: string }
     | { kind: "folder-overlaps-home"; root: string }
 );
@@ -22,6 +23,8 @@ export type WorkFailure = {
 /** The chief's unchanged folder refusal text. */
 export function workFailureText(error: WorkFailure): string {
     switch (error.kind) {
+        case "folder-not-remote":
+            return "Remote workspaces accept only `/folder /project` or `/folder none`. Local folders are not uploaded or synchronized.";
         case "folder-not-absolute":
             return "give the folder's full path, such as /Users/you/code/project";
         case "folder-not-directory":
@@ -58,7 +61,16 @@ export async function folder(
         );
     }
     let next: string | null = null;
-    if (typed !== "none") {
+    if (home.overrides.workspace !== undefined) {
+        if (typed !== "none" && typed !== "/project")
+            return err({
+                kind: "folder-not-remote",
+                operation: "set-folder",
+                hamlet,
+                retrySafe: true,
+            });
+        next = typed === "none" ? null : "/project";
+    } else if (typed !== "none") {
         const expanded =
             typed === "~"
                 ? homedir()

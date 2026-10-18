@@ -1,0 +1,6 @@
+{
+  "listen": "0.0.0.0:80",
+  "root": "/workspace",
+  "actor_uid_file": "/run/ate/actor-uid",
+  "public_key": "REPLACE_WITH_THE_BASE64_PUBLIC_KEY_PRINTED_BY_KEYGEN="
+}

@@ -36,3 +36,21 @@ export const PARTS: readonly Part[] = [
     Budget,
     Choice,
 ];
+
+/** Remote homes retain domain parts; hand tools and cross-workspace founding/dealings remain unsupported. */
+export const REMOTE_PARTS: readonly Part[] = [
+    Prompt,
+    HamletBrief,
+    Tools,
+    Agents,
+    Letters,
+    Leaving,
+    Merging,
+    Votes,
+    Librarian,
+    Objections,
+    Gate,
+    Talk,
+    Budget,
+    Choice,
+];

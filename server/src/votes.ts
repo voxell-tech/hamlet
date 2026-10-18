@@ -252,6 +252,13 @@ export const Votes: Part = (home: VoteHome) => {
                     }),
                     replay: "safe",
                     execute: async (args, api, context) => {
+                        if (
+                            home.overrides.workspace !== undefined &&
+                            args.kind === "found_hamlet"
+                        )
+                            return refusedTool(
+                                "Founding another hamlet is not supported by remote workspaces. No vote was opened.",
+                            );
                         const known = await api.snapshot(
                             CallDoc,
                             api.taskId,

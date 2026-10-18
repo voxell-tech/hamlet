@@ -5,14 +5,17 @@ import type {
     ConversationId,
     DocumentReader,
 } from "@earendil-works/pi-durable";
+import { WithDoc } from "./chats/conversations.ts";
 import { placeOf } from "./environment/place.ts";
 import type { Manifest } from "./hand/manifests.ts";
 import { houseOf } from "./home/layout.ts";
 import type { HomeBase } from "./home.ts";
+import { librarySnapshot } from "./library/shelf.ts";
 import type { AgentRef } from "./record.ts";
 import { canon, directoryRoot, policyHash, within } from "./sandbox/policy.ts";
 import { closedPolicy, openPolicy } from "./sandbox/reach.ts";
 import { SandboxEnv } from "./sandbox.ts";
+import { WorkspaceEnv } from "./workspace.ts";
 
 /** The name of the tool task memo a gate leaves for one call. */
 export const LEAVE = "hamlet.leave";
@@ -24,10 +27,13 @@ export type Leave = {
 
 /** Conversation environments whose helpers close with their home. */
 export class Confinement {
-    readonly #environments = new Map<string, SandboxEnv>();
+    readonly #environments = new Map<string, SandboxEnv | WorkspaceEnv>();
 
     /** Reuses only environments with the same working directory and complete policy. */
-    keep(key: string, create: () => SandboxEnv): SandboxEnv {
+    keep(
+        key: string,
+        create: () => SandboxEnv | WorkspaceEnv,
+    ): SandboxEnv | WorkspaceEnv {
         let env = this.#environments.get(key);
         if (env === undefined) {
             env = create();
@@ -50,14 +56,14 @@ export class Confinement {
  * the rest of the home. It reaches the network only with `leave`.
  */
 export async function agentEnv(
-    home: Pick<HomeBase, "layout" | "sandbox" | "confinement">,
+    home: Pick<HomeBase, "layout" | "sandbox" | "confinement" | "overrides">,
     target: {
         readonly conversationId: ConversationId;
         readonly read: DocumentReader;
     },
     leave: Leave,
     context: Context,
-): Promise<SandboxEnv | undefined> {
+): Promise<SandboxEnv | WorkspaceEnv | undefined> {
     const place = await placeOf(
         home,
         target.read,
@@ -65,6 +71,40 @@ export async function agentEnv(
         context,
     );
     if (place === undefined) return undefined;
+    const connection = home.overrides.workspace;
+    if (connection !== undefined) {
+        const agent = await target.read.snapshot(
+            WithDoc,
+            target.conversationId,
+            context,
+        );
+        if (agent === undefined) return undefined;
+        const identity = {
+            workspace: agent.hamlet,
+            agent: agent.number,
+            project: place.folder !== null,
+            network: leave.net,
+        };
+        return home.confinement.keep(
+            `remote:${JSON.stringify(identity)}`,
+            () =>
+                new WorkspaceEnv(connection, identity, async (context) => {
+                    const reader = treeWorker(home, {
+                        root: home.layout.library,
+                        caps: { entries: 1024, bytes: 4 * 1024 * 1024 },
+                    });
+                    try {
+                        return await librarySnapshot(
+                            home.layout.library,
+                            reader,
+                            context,
+                        );
+                    } finally {
+                        await reader.cleanup(context);
+                    }
+                }),
+        );
+    }
     directoryRoot(place.house);
     if (place.folder !== null) directoryRoot(place.folder);
     const shared = [home.layout.tools, home.layout.library];
@@ -176,7 +216,7 @@ export function insideHouse(path: string, house: string): boolean {
     return within(canon(path), canon(house));
 }
 
-export { footing } from "./environment/footing.ts";
+export { footing, remoteFooting } from "./environment/footing.ts";
 export { type Place, placeOf } from "./environment/place.ts";
 export {
     folder,

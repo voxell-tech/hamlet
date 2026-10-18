@@ -1,0 +1,14 @@
+**
+!Cargo.toml
+!Cargo.lock
+!src/
+!src/**
+!examples/
+!examples/**
+!crates/
+!crates/**
+!vendor/
+!vendor/**
+**/target/
+**/.git
+**/node_modules/

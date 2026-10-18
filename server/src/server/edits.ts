@@ -2,7 +2,6 @@ import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { current } from "../chats/conversations.ts";
 import { agentEnv } from "../environment.ts";
-import { houseOf } from "../home/layout.ts";
 import type { Home } from "../home.ts";
 import type { NotesFailure } from "../house.ts";
 import { editLimits, type LimitsRefusal } from "../limits.ts";
@@ -66,8 +65,9 @@ export async function edit(
                         agent,
                         retrySafe: false,
                     });
+                // The house path as the agent's own environment names it, so remote edits reach /house.
                 const result = await env.writeFile(
-                    join(houseOf(home.layout, agent), "NOTES.md"),
+                    join(home.houses.of(agent).path, "NOTES.md"),
                     text,
                     context,
                 );

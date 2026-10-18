@@ -16,6 +16,7 @@ import {
     LEAVE,
     type Leave,
     placeOf,
+    remoteFooting,
     WorkDoc,
 } from "./environment.ts";
 import { type Call, callOf, callText } from "./gate/call.ts";
@@ -260,7 +261,15 @@ export const Gate: Part = (home) => {
                                 context,
                             );
                             if (location !== undefined && env !== undefined) {
-                                const path = footing(parsed.path, location);
+                                const resolved = await remoteFooting(
+                                    parsed.path,
+                                    location,
+                                    env,
+                                    context,
+                                );
+                                if (!resolved.ok)
+                                    return { block: resolved.error.message };
+                                const path = resolved.value;
                                 const read = await env.readTextFile(
                                     path,
                                     context,
@@ -338,7 +347,12 @@ export const Gate: Part = (home) => {
                                     typed.kind === "edit"
                                         ? typed.path
                                         : undefined;
-                                if (path !== undefined) {
+                                // Remote house edits keep the chief's approval: containment would need the
+                                // workspace's own path resolution, which must not be consulted inside this commit.
+                                if (
+                                    path !== undefined &&
+                                    home.overrides.workspace === undefined
+                                ) {
                                     const house = houseOf(home.layout, place);
                                     const work = await tx.doc(
                                         WorkDoc,

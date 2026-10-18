@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, mkdtemp, open, readdir, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, posix } from "node:path";
 import type { Context } from "@earendil-works/chord";
+import type { FileError, FileInfo } from "@earendil-works/pi-durable/env";
 import { submitLine } from "../chats/conversations.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Home } from "../home.ts";
@@ -18,9 +19,11 @@ import { err, ok, type Result } from "../result.ts";
 import { directoryRoot } from "../sandbox/policy.ts";
 import type { Receipt } from "../server.ts";
 import { checkShelf, type GiftRefusal, manifestSize } from "./gift-rules.ts";
-import { deliver, GIFT_CAPS, stage } from "./trees.ts";
+import { type RemoteHouse, remoteHouse } from "./remote.ts";
+import { deliver, GIFT_CAPS, stage, type TreeFailure } from "./trees.ts";
 
-type GiftResult<T> = Result<T, GiftRefusal | AddressFailure>;
+/** A raw tree failure carries remote facts the gift wording cannot state, such as a partial delivery. */
+type GiftResult<T> = Result<T, GiftRefusal | AddressFailure | TreeFailure>;
 const IDLE_MS = 60_000;
 function refuse(
     kind:
@@ -58,6 +61,94 @@ async function resolved(
         ref: target.value.ref,
         name: nameOf(record, target.value.ref.number),
     });
+}
+
+/** Remote facts pass through as tree failures; the rest keep the gift's own wording. */
+function giftTree(
+    kind: "skill-tree" | "gift-tree",
+    failure: TreeFailure,
+): Result<never, GiftRefusal | TreeFailure> {
+    if (
+        (failure.kind === "refused" && failure.remote !== undefined) ||
+        (failure.kind === "bytes-cap" && failure.scope === "file")
+    )
+        return err(failure);
+    return err({ kind, failure, operation: "give", retrySafe: false });
+}
+function unreadable(): Result<never, GiftRefusal> {
+    return err({
+        kind: "gift-tree",
+        failure: {
+            kind: "refused",
+            operation: "deliver-tree",
+            retrySafe: false,
+        },
+        operation: "give",
+        retrySafe: false,
+    });
+}
+function unmappable(): Result<never, TreeFailure> {
+    return err({
+        kind: "refused",
+        remote: "unmappable",
+        operation: "deliver-tree",
+        retrySafe: false,
+    });
+}
+
+/** Inspects one path of a remote house without following a final link; `null` when it is missing. */
+async function remoteInfo(
+    house: RemoteHouse,
+    rel: string,
+    context: Context,
+): Promise<Result<FileInfo | null, FileError>> {
+    const env = house.open();
+    try {
+        const info = await env.fileInfo(posix.join(house.path, rel), context);
+        if (info.ok) return info;
+        return info.error.code === "not_found" ? ok(null) : info;
+    } finally {
+        await env.cleanup(context);
+    }
+}
+
+/** The receiving shelf's admission check, in the house's workspace when it is remote. */
+async function shelfReady(
+    home: Home,
+    agent: AgentRef,
+    shelf: string,
+    roots: string[],
+    context: Context,
+): Promise<GiftResult<void>> {
+    const house = houseOf(home.layout, agent);
+    const where = remoteHouse(home, house);
+    if (where.kind === "host") return checkShelf(house, shelf, roots);
+    if (where.kind === "unmappable") return unmappable();
+    const linked = (): GiftResult<never> =>
+        err({
+            kind: "gift-tree",
+            failure: {
+                kind: "shelf-linked",
+                operation: "deliver-tree",
+                retrySafe: false,
+            },
+            operation: "give",
+            retrySafe: false,
+        });
+    const dir = await remoteInfo(where.house, shelf, context);
+    if (!dir.ok) return unreadable();
+    if (dir.value !== null && dir.value.kind !== "directory") return linked();
+    if (dir.value === null) return ok(undefined);
+    for (const root of new Set(roots)) {
+        const entry = await remoteInfo(
+            where.house,
+            posix.join(shelf, root),
+            context,
+        );
+        if (!entry.ok) return unreadable();
+        if (entry.value?.kind === "symlink") return linked();
+    }
+    return ok(undefined);
 }
 
 /** Abandoned gifts are removed before the server accepts uploads. */
@@ -196,13 +287,7 @@ export function uploads(home: Home, context: Context) {
             roots,
             context,
         );
-        if (!result.ok)
-            return err({
-                kind: "gift-tree",
-                failure: result.error,
-                operation: "give",
-                retrySafe: false,
-            });
+        if (!result.ok) return giftTree("gift-tree", result.error);
         const paths = result.value.map((name) => `inbox/${name}`);
         const cleaned = await clean(upload);
         if (!cleaned.ok) return cleaned;
@@ -231,10 +316,12 @@ export function uploads(home: Home, context: Context) {
             const agent = target.value.ref;
             const sized = manifestSize(message.files);
             if (!sized.ok) return sized;
-            const checked = await checkShelf(
-                houseOf(home.layout, agent),
+            const checked = await shelfReady(
+                home,
+                agent,
                 "inbox",
                 message.files.map((file) => file.path.split("/")[0] ?? ""),
+                context,
             );
             if (!checked.ok) return checked;
             if (stopped || owner.aborted) return refuse("connection-closed");
@@ -391,7 +478,23 @@ export async function giftSkill(
     if (!target.ok) return target;
     const agent = target.value.ref,
         house = houseOf(home.layout, agent);
-    if (await lstat(join(house, "skills", skill)).catch(() => undefined))
+    const receiving = remoteHouse(home, house);
+    if (receiving.kind === "unmappable") return unmappable();
+    let present: boolean;
+    if (receiving.kind === "remote") {
+        const found = await remoteInfo(
+            receiving.house,
+            `skills/${skill}`,
+            context,
+        );
+        if (!found.ok) return unreadable();
+        present = found.value !== null;
+    } else
+        present =
+            (await lstat(join(house, "skills", skill)).catch(
+                () => undefined,
+            )) !== undefined;
+    if (present)
         return err({
             kind: "skill-exists",
             agent: target.value.name,
@@ -409,13 +512,25 @@ export async function giftSkill(
         giver = `${given.value.name}${from.hamlet === to.hamlet ? "" : `@${from.hamlet}`}`;
         shelf = "skills";
     }
-    if (
-        !(
-            await lstat(join(source, shelf, skill, "SKILL.md")).catch(
-                () => undefined,
-            )
-        )?.isFile()
-    )
+    const giving = remoteHouse(home, source);
+    if (giving.kind === "unmappable") return unmappable();
+    let paper: boolean;
+    if (giving.kind === "remote") {
+        const found = await remoteInfo(
+            giving.house,
+            `${shelf}/${skill}/SKILL.md`,
+            context,
+        );
+        if (!found.ok) return unreadable();
+        paper = found.value?.kind === "file";
+    } else
+        paper =
+            (
+                await lstat(join(source, shelf, skill, "SKILL.md")).catch(
+                    () => undefined,
+                )
+            )?.isFile() === true;
+    if (!paper)
         return err({
             kind: "skill-missing",
             agent: from?.agent ?? "",
@@ -437,13 +552,7 @@ export async function giftSkill(
             GIFT_CAPS,
             context,
         );
-        if (!copied.ok)
-            outcome = err({
-                kind: "skill-tree",
-                failure: copied.error,
-                operation: "give",
-                retrySafe: false,
-            });
+        if (!copied.ok) outcome = giftTree("skill-tree", copied.error);
         else {
             const result = await deliver(
                 home,
@@ -452,15 +561,11 @@ export async function giftSkill(
                 [skill],
                 context,
             );
-            if (!result.ok)
-                outcome = err({
-                    kind: "gift-tree",
-                    failure: result.error,
-                    operation: "give",
-                    retrySafe: false,
-                });
+            if (!result.ok) outcome = giftTree("gift-tree", result.error);
             else {
-                home.houses.invalidate(house);
+                if (receiving.kind === "remote")
+                    home.houses.of(agent).invalidate();
+                else home.houses.invalidate(house);
                 await home.harness.commit(async (tx) => {
                     (
                         await tx.doc(RecordDoc, to.hamlet, to.hamlet)

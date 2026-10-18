@@ -1,4 +1,6 @@
 import { defineDoc, type ModelRef } from "@earendil-works/pi-durable";
+import { type Static, Type } from "typebox";
+import { Value } from "typebox/value";
 import type { Limits } from "./limits/rules.ts";
 import { MAYOR } from "./record/document.ts";
 
@@ -47,6 +49,16 @@ export const SettingsDoc = defineDoc<Settings>({
     }),
 });
 
+/** Private connection to the workspace manager; no infrastructure credentials belong in Hamlet. */
+export const WorkspaceSettings = Type.Object(
+    {
+        url: Type.String({ minLength: 1 }),
+        token: Type.String({ minLength: 16 }),
+    },
+    { additionalProperties: false },
+);
+export type WorkspaceSettings = Static<typeof WorkspaceSettings>;
+
 /** Settings that `HAMLET_*` environment variables give this process alone, never written down. */
 export type Overrides = {
     readonly model?: string;
@@ -56,6 +68,8 @@ export type Overrides = {
     readonly baseUrl?: string;
     /** The key of the endpoint that serves the default model. */
     readonly apiKey?: string;
+    /** Explicitly routes ordinary tools to the workspace manager. */
+    readonly workspace?: WorkspaceSettings;
 };
 
 /** The overrides `env` sets; an empty variable sets nothing. */
@@ -74,12 +88,54 @@ export function readOverrides(
     const model = set("HAMLET_MODEL");
     const baseUrl = set("HAMLET_BASE_URL");
     const apiKey = set("HAMLET_API_KEY");
+    if (set("HAMLET_SUBSTRATE") !== undefined)
+        throw new Error(
+            "HAMLET_SUBSTRATE is unsupported. Configure HAMLET_WORKSPACE with the separate manager's URL and token.",
+        );
+    const rawWorkspace = set("HAMLET_WORKSPACE");
+    let workspace: WorkspaceSettings | undefined;
+    if (rawWorkspace !== undefined) {
+        let value: unknown;
+        try {
+            value = JSON.parse(rawWorkspace);
+        } catch {
+            throw new Error(
+                "HAMLET_WORKSPACE must be a JSON connection configuration.",
+            );
+        }
+        if (!Value.Check(WorkspaceSettings, value))
+            throw new Error(
+                "HAMLET_WORKSPACE needs a manager URL and token of at least 16 characters.",
+            );
+        try {
+            const url = new URL(value.url);
+            const loopback = ["127.0.0.1", "[::1]", "localhost"].includes(
+                url.hostname,
+            );
+            if (
+                (url.protocol !== "https:" &&
+                    !(url.protocol === "http:" && loopback)) ||
+                url.username ||
+                url.password ||
+                url.search ||
+                url.hash ||
+                url.port === "0"
+            )
+                throw new Error("Invalid manager URL");
+        } catch {
+            throw new Error(
+                "HAMLET_WORKSPACE needs HTTPS or loopback HTTP without URL credentials or query parameters.",
+            );
+        }
+        workspace = value;
+    }
     return {
         ...(model === undefined ? {} : { model }),
         ...(every === undefined ? {} : { reflectEvery: Number(every) }),
         ...(net === undefined ? {} : { allowNet: net === "1" }),
         ...(baseUrl === undefined ? {} : { baseUrl }),
         ...(apiKey === undefined ? {} : { apiKey }),
+        ...(workspace === undefined ? {} : { workspace }),
     };
 }
 

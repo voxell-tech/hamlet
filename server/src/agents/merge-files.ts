@@ -7,7 +7,7 @@ import {
     writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, posix } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { tellChiefs } from "../chats/conversations.ts";
 import { stopAgent } from "../chats.ts";
@@ -15,8 +15,11 @@ import { treeWorker } from "../environment.ts";
 import { houseOf } from "../home/layout.ts";
 import type { Home } from "../home.ts";
 import {
+    type HousePlace,
     list as listTree,
     MERGE_CAPS,
+    type RemoteHouse,
+    remoteHouse,
     remove as removeTree,
     stage as stageTree,
     type TreeFailure,
@@ -32,9 +35,9 @@ import {
     recordRefusal,
     toolText,
 } from "../record.ts";
-import { ok, type Result } from "../result.ts";
+import { err, ok, type Result } from "../result.ts";
 import type { SandboxEnv } from "../sandbox.ts";
-import { broughtBytes, type Planned, planMerge } from "./merge-plan.ts";
+import { broughtBytes, digest, type Planned, planMerge } from "./merge-plan.ts";
 
 type NotesFailure = {
     kind: "notes-unreadable";
@@ -157,36 +160,224 @@ export async function prepare(
             target: new Map(to.value.files.map((f) => [f.path, f.sha256])),
         });
         if (!planned.ok) return planned;
-        const { files } = planned.value;
-        for (const rel of files.keys()) {
-            const parts = rel.split("/");
-            let path = target;
-            for (const [index, part] of parts.entries()) {
-                path = join(path, part);
-                const stat = await lstat(path).catch((error: unknown) => {
-                    if (
-                        error instanceof Error &&
-                        "code" in error &&
-                        error.code === "ENOENT"
-                    )
-                        return undefined;
-                    throw error;
+        const rels = [...planned.value.files.keys()];
+        const where = remoteHouse(home, target);
+        let blocked: Result<string | undefined, TreeFailure>;
+        switch (where.kind) {
+            case "host":
+                blocked = ok(await blockedHere(target, rels));
+                break;
+            case "remote":
+                blocked = await blockedRemote(where.house, rels, context);
+                break;
+            case "unmappable":
+                blocked = err({
+                    kind: "refused",
+                    operation: "list-tree",
+                    remote: "unmappable",
+                    retrySafe: false,
                 });
-                if (stat && (index === parts.length - 1 || !stat.isDirectory()))
-                    return {
-                        ok: false,
-                        error: {
-                            kind: "destination-blocked",
-                            operation: "merge",
-                            path: rel,
-                            retrySafe: true,
-                        },
-                    };
-            }
+                break;
         }
+        if (!blocked.ok) return blocked;
+        if (blocked.value !== undefined)
+            return {
+                ok: false,
+                error: {
+                    kind: "destination-blocked",
+                    operation: "merge",
+                    path: blocked.value,
+                    retrySafe: true,
+                },
+            };
         return planned;
     } finally {
         await rm(stage, { recursive: true, force: true });
+    }
+}
+
+/** The first planned path whose destination, or a parent of it, is already taken in a local house. */
+async function blockedHere(
+    target: string,
+    rels: readonly string[],
+): Promise<string | undefined> {
+    for (const rel of rels) {
+        const parts = rel.split("/");
+        let path = target;
+        for (const [index, part] of parts.entries()) {
+            path = join(path, part);
+            const stat = await lstat(path).catch((error: unknown) => {
+                if (
+                    error instanceof Error &&
+                    "code" in error &&
+                    error.code === "ENOENT"
+                )
+                    return undefined;
+                throw error;
+            });
+            if (stat && (index === parts.length - 1 || !stat.isDirectory()))
+                return rel;
+        }
+    }
+    return undefined;
+}
+
+/** The same check in a workspace house, without following links; an unreadable step refuses the merge. */
+async function blockedRemote(
+    house: RemoteHouse,
+    rels: readonly string[],
+    context: Context,
+): Promise<Result<string | undefined, TreeFailure>> {
+    const env = house.open();
+    try {
+        for (const rel of rels) {
+            const parts = rel.split("/");
+            let path = house.path;
+            for (const [index, part] of parts.entries()) {
+                path = posix.join(path, part);
+                const info = await env.fileInfo(path, context);
+                if (!info.ok) {
+                    if (info.error.code === "not_found") break;
+                    return err({
+                        kind: "refused",
+                        operation: "list-tree",
+                        retrySafe: false,
+                    });
+                }
+                if (
+                    index === parts.length - 1 ||
+                    info.value.kind !== "directory"
+                )
+                    return ok(rel);
+            }
+        }
+        return ok(undefined);
+    } finally {
+        await env.cleanup(context);
+    }
+}
+
+/** Where an agent's house is kept: decoded from its server path label, never inspected on the host when remote. */
+function houseAt(home: Home, ref: AgentRef): HousePlace {
+    return remoteHouse(home, houseOf(home.layout, ref));
+}
+
+/**
+ * Replaces the kept house's NOTES.md. A workspace house is read back afterwards, so a partial or unconfirmed write
+ * counts as not written and the journal stays pending.
+ */
+async function writeNotes(
+    home: Home,
+    ref: AgentRef,
+    text: string,
+    context: Context,
+): Promise<boolean> {
+    const where = houseAt(home, ref);
+    if (where.kind === "unmappable") return false;
+    if (where.kind === "host") {
+        const env = mergeWriter(home, ref);
+        try {
+            const written = await env.writeFile(
+                join(houseOf(home.layout, ref), "NOTES.md"),
+                text,
+                context,
+            );
+            return written.ok;
+        } finally {
+            await env.cleanup(context);
+        }
+    }
+    const path = posix.join(where.house.path, "NOTES.md");
+    const env = where.house.open();
+    try {
+        const written = await env.writeFile(path, text, context);
+        if (!written.ok) return false;
+        const read = await env.readBinaryFile(path, context);
+        return read.ok && Buffer.from(read.value).equals(Buffer.from(text));
+    } finally {
+        await env.cleanup(context);
+    }
+}
+
+/**
+ * Claims each pending brought file from the host delivery stage under a missing name only. Nothing is replaced; a
+ * failed or unconfirmed claim stops the delivery and leaves what was claimed for the retry to recognize by digest.
+ */
+async function claimRemote(
+    house: RemoteHouse,
+    delivery: string,
+    pending: readonly { path: string; sha256: string }[],
+    context: Context,
+): Promise<boolean> {
+    const env = house.open();
+    try {
+        for (const f of pending) {
+            const bytes = await readFile(
+                join(delivery, "tree", ...f.path.split("/")),
+            );
+            if (digest(bytes) !== f.sha256) return false;
+            const written = await env.writeExclusive(
+                posix.join(house.path, f.path),
+                bytes,
+                0o644,
+                context,
+            );
+            if (!written.ok) return false;
+        }
+        return true;
+    } finally {
+        await env.cleanup(context);
+    }
+}
+
+/** Removes folders left empty by a split, up to but never including the house itself; a non-empty folder stops it. */
+async function trimRemote(
+    house: RemoteHouse,
+    paths: readonly string[],
+    context: Context,
+): Promise<void> {
+    const env = house.open();
+    try {
+        for (const file of paths) {
+            let dir = posix.dirname(posix.join(house.path, file));
+            while (dir !== house.path && dir.startsWith(`${house.path}/`)) {
+                // Only a real folder is removed; a link that took its place is left alone.
+                const info = await env.fileInfo(dir, context);
+                if (!info.ok || info.value.kind !== "directory") break;
+                const gone = await env.remove(dir, undefined, context);
+                if (!gone.ok) break;
+                dir = posix.dirname(dir);
+            }
+        }
+    } finally {
+        await env.cleanup(context);
+    }
+}
+
+/** Removes folders left empty by a split in a local house, through its confined writer. */
+async function trimHere(
+    home: Home,
+    ref: AgentRef,
+    paths: readonly string[],
+    context: Context,
+): Promise<boolean> {
+    const root = houseOf(home.layout, ref);
+    const env = mergeWriter(home, ref);
+    try {
+        const trimmed = await env.exec(
+            [
+                process.execPath,
+                "-e",
+                `const fs=require("node:fs"),p=require("node:path"); const [root,...files]=process.argv.slice(1); for(const file of files) { let dir=p.dirname(p.join(root,file)); while(dir!==root && dir.startsWith(root+p.sep)) { try { fs.rmdirSync(dir); } catch { break; } dir=p.dirname(dir); } }`,
+                root,
+                ...paths,
+            ],
+            undefined,
+            context,
+        );
+        return trimmed.ok && trimmed.value.exitCode === 0;
+    } finally {
+        await env.cleanup(context);
     }
 }
 
@@ -233,7 +424,7 @@ async function apply(
         const present = new Map(
             listed.value.files.map((f) => [f.path, f.sha256]),
         );
-        const pending: string[] = [];
+        const pending: { path: string; sha256: string }[] = [];
         for (const f of merge.brought) {
             if (present.get(f.path) === f.sha256) continue;
             if (present.has(f.path)) return pendingFiles(hamlet, entry);
@@ -242,12 +433,30 @@ async function apply(
             const staged = join(delivery, "tree", f.path);
             await mkdir(dirname(staged), { recursive: true });
             await writeFile(staged, bytes);
-            pending.push(f.path);
+            pending.push(f);
         }
-        if (pending.length) {
+        const kept = houseAt(home, { hamlet, number: merge.kept.number });
+        if (kept.kind === "unmappable") return pendingFiles(hamlet, entry);
+        if (pending.length && kept.kind === "remote") {
+            const claimed = await claimRemote(
+                kept.house,
+                delivery,
+                pending,
+                context,
+            );
+            if (!claimed) return pendingFiles(hamlet, entry);
+            // Read back through the house's own tree: a claim the workspace did not confirm may be partial.
+            const after = await listTree(home, target, ".", context);
+            if (!after.ok) return pendingFiles(hamlet, entry);
+            const found = new Map(
+                after.value.files.map((f) => [f.path, f.sha256]),
+            );
+            if (pending.some((f) => found.get(f.path) !== f.sha256))
+                return pendingFiles(hamlet, entry);
+        } else if (pending.length) {
             await writeFile(
                 join(delivery, "manifest.json"),
-                JSON.stringify(pending),
+                JSON.stringify(pending.map((f) => f.path)),
             );
             const copier = treeWorker(home, {
                 root: delivery,
@@ -296,37 +505,33 @@ for (const rel of JSON.parse(fs.readFileSync(p.join(stage, "manifest.json"), "ut
                 await copier.cleanup(context);
             }
         }
-        const env = mergeWriter(home, { hamlet, number: merge.kept.number });
-        try {
-            const read = await notes(
-                home,
-                { hamlet, number: merge.kept.number },
-                context,
-            );
-            if (!read.ok) return read;
-            const current = read.value.text;
-            if (current !== merge.notesBefore && current !== merge.notesAfter)
-                return {
-                    ok: false,
-                    error: {
-                        kind: "changed-notes",
-                        operation: "merge",
-                        hamlet,
-                        archive: entry.id,
-                        kept: merge.kept.name,
-                        absorbed: entry.agent.name,
-                        retrySafe: true,
-                    },
-                };
-            const result = await env.writeFile(
-                join(target, "NOTES.md"),
-                merge.notesAfter,
-                context,
-            );
-            if (!result.ok) return pendingFiles(hamlet, entry);
-        } finally {
-            await env.cleanup(context);
-        }
+        const read = await notes(
+            home,
+            { hamlet, number: merge.kept.number },
+            context,
+        );
+        if (!read.ok) return read;
+        const current = read.value.text;
+        if (current !== merge.notesBefore && current !== merge.notesAfter)
+            return {
+                ok: false,
+                error: {
+                    kind: "changed-notes",
+                    operation: "merge",
+                    hamlet,
+                    archive: entry.id,
+                    kept: merge.kept.name,
+                    absorbed: entry.agent.name,
+                    retrySafe: true,
+                },
+            };
+        const written = await writeNotes(
+            home,
+            { hamlet, number: merge.kept.number },
+            merge.notesAfter,
+            context,
+        );
+        if (!written) return pendingFiles(hamlet, entry);
         await home.harness.commit(async (tx) => {
             const a = (await tx.doc(RecordDoc, hamlet, hamlet)).archive.find(
                 (a) => a.id === entry.id,
@@ -351,63 +556,44 @@ async function part(
     const ref = { hamlet, number: merge.kept.number };
     await stopAgent(home, ref, context);
     const root = houseOf(home.layout, ref);
-    const env = mergeWriter(home, ref);
-    try {
-        const read = await notes(home, ref, context, "split");
-        if (!read.ok) return read;
-        const current = read.value.text;
-        const clean =
-            current === merge.notesAfter || current === merge.notesBefore;
-        const said = `\`${entry.agent.name}\` was split off again`;
-        const text = clean
-            ? merge.notesBefore
-            : current.includes(said)
-              ? current
-              : `${current.trimEnd()}\n\n## Split\n- ${said} and has its own house. What these notes hold of its work is its business now. My notes from before the merge are in merged/${entry.agent.name}/NOTES.before.md.\n`;
-        const written = await env.writeFile(
-            join(root, "NOTES.md"),
-            text,
-            context,
-        );
-        if (!written.ok) return pendingFiles(hamlet, entry);
-        const listed = await listTree(home, root, ".", context);
-        if (!listed.ok) return pendingFiles(hamlet, entry);
-        const listing = new Map(
-            listed.value.files.map((f) => [f.path, f.sha256]),
-        );
-        const paths = merge.brought
-            .filter(
-                (f) =>
-                    listing.get(f.path) === f.sha256 &&
-                    (clean || dirname(f.path) !== `merged/${entry.agent.name}`),
-            )
-            .map((f) => f.path);
-        if (paths.length) {
-            const treeOutcome3 = await removeTree(home, root, paths, context);
-            if (!treeOutcome3.ok) return pendingFiles(hamlet, entry);
-            const trimmed = await env.exec(
-                [
-                    process.execPath,
-                    "-e",
-                    `const fs=require("node:fs"),p=require("node:path"); const [root,...files]=process.argv.slice(1); for(const file of files) { let dir=p.dirname(p.join(root,file)); while(dir!==root && dir.startsWith(root+p.sep)) { try { fs.rmdirSync(dir); } catch { break; } dir=p.dirname(dir); } }`,
-                    root,
-                    ...paths,
-                ],
-                undefined,
-                context,
-            );
-            if (!trimmed.ok || trimmed.value.exitCode !== 0)
-                return pendingFiles(hamlet, entry);
-        }
-        await home.harness.commit(async (tx) => {
-            const a = (await tx.doc(RecordDoc, hamlet, hamlet)).archive.find(
-                (a) => a.id === entry.id,
-            );
-            if (a?.merge) a.merge.applied = true;
-        }, context);
-    } finally {
-        await env.cleanup(context);
+    const where = houseAt(home, ref);
+    if (where.kind === "unmappable") return pendingFiles(hamlet, entry);
+    const read = await notes(home, ref, context, "split");
+    if (!read.ok) return read;
+    const current = read.value.text;
+    const clean = current === merge.notesAfter || current === merge.notesBefore;
+    const said = `\`${entry.agent.name}\` was split off again`;
+    const text = clean
+        ? merge.notesBefore
+        : current.includes(said)
+          ? current
+          : `${current.trimEnd()}\n\n## Split\n- ${said} and has its own house. What these notes hold of its work is its business now. My notes from before the merge are in merged/${entry.agent.name}/NOTES.before.md.\n`;
+    const written = await writeNotes(home, ref, text, context);
+    if (!written) return pendingFiles(hamlet, entry);
+    const listed = await listTree(home, root, ".", context);
+    if (!listed.ok) return pendingFiles(hamlet, entry);
+    const listing = new Map(listed.value.files.map((f) => [f.path, f.sha256]));
+    const paths = merge.brought
+        .filter(
+            (f) =>
+                listing.get(f.path) === f.sha256 &&
+                (clean || dirname(f.path) !== `merged/${entry.agent.name}`),
+        )
+        .map((f) => f.path);
+    if (paths.length) {
+        const treeOutcome3 = await removeTree(home, root, paths, context);
+        if (!treeOutcome3.ok) return pendingFiles(hamlet, entry);
+        if (where.kind === "remote")
+            await trimRemote(where.house, paths, context);
+        else if (!(await trimHere(home, ref, paths, context)))
+            return pendingFiles(hamlet, entry);
     }
+    await home.harness.commit(async (tx) => {
+        const a = (await tx.doc(RecordDoc, hamlet, hamlet)).archive.find(
+            (a) => a.id === entry.id,
+        );
+        if (a?.merge) a.merge.applied = true;
+    }, context);
     return ok(undefined);
 }
 

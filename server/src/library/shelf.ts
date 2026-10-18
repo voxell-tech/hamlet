@@ -3,6 +3,16 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Context } from "@earendil-works/chord";
+import {
+    type ExecutionEnv,
+    err,
+    FileError,
+    ok,
+    type Result,
+} from "@earendil-works/pi-durable/env";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { skillsIn } from "../house/skills.ts";
 
 /** The starter skills the server ships, one folder each (H33). */
@@ -66,11 +76,14 @@ export async function installStarters(root: string): Promise<string[]> {
 }
 
 /** The library's part of a prompt: where it is, and each skill with the command that runs it from there (library.rs:98-145). */
-export async function libraryPart(root: string): Promise<string | undefined> {
+export async function libraryPart(
+    root: string,
+    visibleRoot = root,
+): Promise<string | undefined> {
     const skills = await skillsIn(root);
     if (skills.length === 0) return undefined;
     const lines = skills.map(({ name, description, usage, folder }) => {
-        const there = `${root}/${folder}/`;
+        const there = `${visibleRoot}/${folder}/`;
         const run =
             usage === undefined
                 ? ""
@@ -78,10 +91,83 @@ export async function libraryPart(root: string): Promise<string | undefined> {
         return `- ${name}: ${description}${run} (${there}SKILL.md)`;
     });
     return [
-        `# Library\nSkills every agent shares, kept in ${root}. Use one as it stands: read it and run it from there, and do not copy it into your workspace. Where its text says \`skills/<name>/\`, its files are in \`${root}/<name>/\`. You cannot write there. To share a skill of your own, use \`submit_skill\`.`,
+        `# Library\nSkills every agent shares, kept in ${visibleRoot}. Use one as it stands: read it and run it from there, and do not copy it into your workspace. Where its text says \`skills/<name>/\`, its files are in \`${visibleRoot}/<name>/\`. You cannot write there. To share a skill of your own, use \`submit_skill\`.`,
         ...lines,
     ].join("\n");
 }
+
+/** Bounded regular files from Hamlet's authoritative shelf, for a read-only operation snapshot. Never follows links. */
+export async function librarySnapshot(
+    root: string,
+    env: ExecutionEnv,
+    context: Context,
+): Promise<Result<{ path: string; data: string; mode: number }[], FileError>> {
+    let output = "";
+    const read = await env.exec(
+        [process.execPath, "-e", SNAPSHOT, root],
+        {
+            onOutput: (text, _context, meta) => {
+                if (meta.stream === "stdout") output += text;
+                if (output.length > 6 * 1024 * 1024)
+                    throw new Error("Library snapshot exceeds its limit");
+            },
+        },
+        context,
+    );
+    if (!read.ok || read.value.exitCode !== 0)
+        return err(
+            new FileError(
+                "unknown",
+                "Library could not be read safely within 1024 entries and 4 MiB",
+            ),
+        );
+    let value: unknown;
+    try {
+        value = JSON.parse(output);
+    } catch {
+        return err(new FileError("unknown", "Invalid library snapshot"));
+    }
+    if (!Value.Check(SNAPSHOT_FILES, value))
+        return err(new FileError("unknown", "Invalid library snapshot"));
+    return ok(value);
+}
+
+const SNAPSHOT_FILES = Type.Array(
+    Type.Object({
+        path: Type.String(),
+        data: Type.String(),
+        mode: Type.Integer(),
+    }),
+);
+
+// Runs under the shelf's read-only sandbox, so root or ancestor swaps cannot expose the server's private files.
+const SNAPSHOT = `
+const fs = require('node:fs'), path = require('node:path');
+const root = process.argv[1], files = [];
+let bytes = 0, entries = 0;
+function walk(directory) {
+    for (const entry of fs.readdirSync(path.join(root, directory), {withFileTypes: true})) {
+        if (!directory && entry.name.startsWith('.')) continue;
+        if (++entries > 1024) throw Error('entries');
+        const name = directory ? directory + '/' + entry.name : entry.name;
+        if (entry.isDirectory()) walk(name);
+        else if (entry.isFile()) {
+            const fd = fs.openSync(path.join(root, name), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+            try {
+                const info = fs.fstatSync(fd);
+                if (!info.isFile()) throw Error('file');
+                const data = Buffer.alloc(4 * 1024 * 1024 - bytes + 1);
+                let size = 0, read;
+                while ((read = fs.readSync(fd, data, size, data.length - size, null)) > 0) size += read;
+                bytes += size;
+                if (bytes > 4 * 1024 * 1024) throw Error('bytes');
+                files.push({path: name, data: data.subarray(0, size).toString('base64'), mode: info.mode & 511});
+            } finally { fs.closeSync(fd); }
+        } else throw Error('link or special file');
+    }
+}
+walk(''); process.stdout.write(JSON.stringify(files));
+`;
 
 /** The files of the starter `name`, relative to its folder. */
 async function filesOf(name: string): Promise<string[]> {

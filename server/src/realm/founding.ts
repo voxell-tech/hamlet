@@ -245,7 +245,7 @@ export const found: RecordDeed = async (home, given, context) => {
         context,
     );
     if (!result.ok) return result;
-    await home.houses.of({ hamlet, number: 0 }).build();
+    await home.houses.of({ hamlet, number: 0 }).build(context);
     return ok(
         `The hamlet \`${hamlet}\` is founded under the mayor \`${mayor}\`, and it is yours. /hamlet ${hamlet} talks to it.`,
     );
@@ -460,7 +460,7 @@ async function finishHamlet(
             realm?.pending?.to.hamlet !== ref.hamlet ||
             realm.pending.to.number !== ref.number
         )
-            await home.houses.of(ref).build();
+            await home.houses.of(ref).build(context);
     }
     return ok(undefined);
 }

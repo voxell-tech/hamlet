@@ -9,13 +9,13 @@ import type { With } from "./chats/conversations.ts";
 import { agentOf } from "./chats/errands.ts";
 import { WorkDoc } from "./environment.ts";
 import { ManifestsDoc, manifestFaultText } from "./hand/manifests.ts";
-import { houseOf } from "./home/layout.ts";
 import type { Home, Part } from "./home.ts";
 import { installStarters, libraryPart } from "./library/shelf.ts";
 import { CharacterDoc } from "./prompt/character.ts";
 import { charterOf } from "./prompt/charter.ts";
 import { agentKey } from "./record.ts";
 import { modelName, SettingsDoc, settingsOf } from "./settings.ts";
+import { WorkspaceEnv } from "./workspace.ts";
 
 /** The machine's shell tools, as the prompt names them (prompt.rs:10-17). */
 const SYSTEM =
@@ -60,7 +60,7 @@ export const Prompt: Part = (home) => {
                     context,
                 );
                 if (agent === undefined) return undefined;
-                const house = houseOf(home.layout, agent);
+                const house = home.houses.of(agent).path;
                 return render({ agent, house, input, context });
             },
             { tag: false },
@@ -77,7 +77,14 @@ export const Prompt: Part = (home) => {
                 part("character", character),
                 part("notes", notes),
                 part("skills", (given) => skills(home, given)),
-                part("library", () => libraryPart(home.layout.library)),
+                part("library", () =>
+                    libraryPart(
+                        home.layout.library,
+                        home.overrides.workspace === undefined
+                            ? home.layout.library
+                            : "/library",
+                    ),
+                ),
             ],
         }),
         async start() {
@@ -99,6 +106,8 @@ async function machine(
     home: Home,
     { house, input, context }: PartInput,
 ): Promise<string> {
+    if (home.overrides.workspace !== undefined)
+        return "# Environment\nSandbox: remote workspace. System: Linux. Network is denied unless granted. Granted commands use HTTP_PROXY and HTTPS_PROXY for public HTTP(S) on ports 80 and 443; direct sockets, private destinations and UDP remain blocked. Commands write only this agent's /house and the enabled shared /project. Output is buffered until the process tree exits, at most 1 MiB; file transfers are limited to 4 MiB.";
     const settings = settingsOf(
         await input.read.snapshot(SettingsDoc, context),
         home.overrides,
@@ -126,11 +135,14 @@ async function project({
     context,
 }: PartInput): Promise<string | undefined> {
     const work = await input.read.snapshot(WorkDoc, agent.hamlet, context);
-    const folder = work?.folder;
-    if (work === undefined || folder == null) return undefined;
+    if (work === undefined || work.folder === null) return undefined;
+    const remote = input.env instanceof WorkspaceEnv;
+    const folder = remote ? "/project" : work.folder;
     const lines = [
         `Your hamlet works on the folder ${folder}. The work a chief asks for is done there. This changes what is said above about where commands run:`,
-        `- \`bash\` runs with ${folder} as its working directory. A command may write there and in your own workspace, and nowhere else. It can read the rest of the machine, so the project's own tools (cargo, npm, make and the like) run as they do for the chief.`,
+        remote
+            ? "- `bash` runs in /project, shared with this hamlet's agents. Only /project, your own /house, the read-only shared /library and installed runtime are visible. This is a remote project, not a synchronized folder on the chief's machine."
+            : `- \`bash\` runs with ${folder} as its working directory. A command may write there and in your own workspace, and nowhere else. It can read the rest of the machine, so the project's own tools (cargo, npm, make and the like) run as they do for the chief.`,
         "- `read`, `write` and `edit` take a path relative to the project, or a full path.",
         "- `read`, `search` and `find` look at files without running a command. Use them rather than cat, grep and find.",
         `- Your own workspace is ${house}. NOTES.md and skills/ are there and stay there: never put notes, skills or files of your own in the project. Give \`write\` and \`edit\` their full path, and run a skill from your workspace, as shown below.`,

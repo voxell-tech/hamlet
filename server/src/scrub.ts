@@ -13,12 +13,20 @@ export type Secrets = {
 };
 
 /** A home-owned capability that reads credentials afresh for each operation. */
-export function secretsFrom(credentials: Credentials): Secrets {
+export function secretsFrom(
+    credentials: Credentials,
+    connectionSecrets: readonly string[] = [],
+): Secrets {
     return {
-        words: (text) => scrubValue(credentials.secrets(), text),
+        words: (text) =>
+            scrubValue([...credentials.secrets(), ...connectionSecrets], text),
         value: (value, extra = []) =>
-            scrubValue([...credentials.secrets(), ...extra], value),
-        shell: (env) => shellOutput(env, credentials.secrets()),
+            scrubValue(
+                [...credentials.secrets(), ...connectionSecrets, ...extra],
+                value,
+            ),
+        shell: (env) =>
+            shellOutput(env, [...credentials.secrets(), ...connectionSecrets]),
     };
 }
 

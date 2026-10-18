@@ -1,0 +1,89 @@
+# Private manager on an existing Substrate cluster. Supply the image digest
+# and the hamlet-workspace secret (manager.json and signing-key) separately.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hamlet-workspace
+  namespace: ate-system
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hamlet-workspace
+  namespace: ate-system
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard-rwo
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hamlet-workspace
+  namespace: ate-system
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hamlet-workspace
+  template:
+    metadata:
+      labels:
+        app: hamlet-workspace
+    spec:
+      serviceAccountName: hamlet-workspace
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 2000
+        runAsGroup: 2000
+        runAsNonRoot: true
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          image: REPLACE_WITH_IMMUTABLE_IMAGE
+          args: [manager, /etc/hamlet-workspace/manager.json]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          readinessProbe:
+            exec:
+              command: [curl, --silent, --fail, --max-time, "2", http://127.0.0.1:7420/v1]
+            periodSeconds: 10
+          volumeMounts:
+            - {name: config, mountPath: /etc/hamlet-workspace, readOnly: true}
+            - {name: identity, mountPath: /run/hamlet-workspace, readOnly: true}
+            - {name: state, mountPath: /var/lib/hamlet-workspace}
+      volumes:
+        - name: config
+          secret:
+            secretName: hamlet-workspace
+            defaultMode: 0440
+        - name: state
+          persistentVolumeClaim:
+            claimName: hamlet-workspace
+        - name: identity
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  audience: api.ate-system.svc
+                  expirationSeconds: 3600
+                  path: control-token
+              - clusterTrustBundle:
+                  signerName: servicedns.podcert.ate.dev/identity
+                  labelSelector:
+                    matchLabels:
+                      podcert.ate.dev/canarying: live
+                  path: control-ca.pem

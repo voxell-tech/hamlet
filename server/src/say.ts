@@ -35,6 +35,7 @@ import type { ChiefFailure, Receipt } from "./server.ts";
 import { resetBudget } from "./spend/ledger.ts";
 import { reportOf } from "./spend.ts";
 import * as voting from "./votes.ts";
+import { workspaceUnavailable } from "./workspace.ts";
 
 /** A chief's typed line: a receipt or refusal, or no immediate outcome when admitted as work. Stored words are scrubbed (H24, C32). */
 export async function say(
@@ -48,6 +49,14 @@ export async function say(
     const text = home.secrets.words(message.text);
     const command = readCommand(text);
     if (command !== undefined && "kind" in command) return err(command);
+    // Refused before any record changes: a workspace home has no local folders and moves no house between workspaces.
+    if (home.overrides.workspace !== undefined) {
+        const refused =
+            command?.command === "deed"
+                ? REMOTE_REFUSED[command.deed]
+                : undefined;
+        if (refused !== undefined) return workspaceUnavailable(refused);
+    }
     if (command?.command === "deed") {
         const deed = DEED_HANDLERS[command.deed];
         if (!deed) return receipt("Choose that address in your client.");
@@ -304,6 +313,17 @@ function receipt(
     if (typeof outcome === "string") return ok({ text: outcome });
     return outcome.ok ? ok({ text: outcome.value }) : outcome;
 }
+
+/** What a refused deed would have done, in the chief's words. */
+const REMOTE_REFUSED: Readonly<Record<string, string>> = {
+    // The record entry is dropped before the house is erased, so the archive is refused while it is still kept.
+    erase: "erase an archived agent's house",
+    found: "found a hamlet",
+    "move-hamlet": "move a hamlet between workspaces",
+    "remove-hamlet": "remove a hamlet",
+    "restore-hamlet": "restore a hamlet",
+    "erase-hamlet": "erase a hamlet",
+};
 
 const DEED_HANDLERS: Record<
     string,

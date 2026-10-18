@@ -1,5 +1,7 @@
 /target
 .DS_Store
+/.amp/in/
+/.amp/portals/
 
 # Worktrees of agents working in parallel.
 .claude/worktrees/

@@ -33,6 +33,7 @@ import {
     GIFT_CAPS,
     giftRefusalText,
     list as listTree,
+    remoteHouse,
     remove as removeTree,
     stage as stageTree,
     type TreeListing,
@@ -226,7 +227,7 @@ async function consult(
                         });
                     question = `You are the librarian. You keep the library: the skills every agent of every hamlet shares. \`${by}\` offers a skill for it, giving this reason: ${given.text.trim()}\n\nTake it only if it is all of these: useful to agents other than the one that wrote it; not something a skill on the shelves already does; clear enough that an agent who has never seen it could run it from its text alone; and free of anything private to one agent, such as names, keys or paths of its own.\n\nOn the shelves now:\n${shelves.map((s) => `- ${s.name}: ${s.description}`).join("\n")}\nThe skill offered, with its files (${files.value.files.map((f) => f.path).join(", ")}):\n\n${[...paper].slice(0, 6000).join("")}\n\nAnswer with ACCEPT or REFUSE as your first word, then one or two sentences of why. If you refuse, say what would change your answer.`;
                 } else {
-                    question = `You are the librarian. You keep the library: the skills every agent of every hamlet shares. \`${by}\` asks you for a skill: ${given.text.trim()}\n\nThe shelves, each skill with the command that runs it:\n${(await libraryPart(home.layout.library)) ?? "(nothing yet)"}\nAnswer in a few sentences. Name the skill or skills that do it and give the exact command to run, as it is written above. If nothing on the shelves does it, say so plainly, and say that it may write a skill of its own and offer it with \`submit_skill\` afterwards. Do not invent a skill that is not on the shelves.`;
+                    question = `You are the librarian. You keep the library: the skills every agent of every hamlet shares. \`${by}\` asks you for a skill: ${given.text.trim()}\n\nThe shelves, each skill with the command that runs it:\n${(await libraryPart(home.layout.library, home.overrides.workspace === undefined ? home.layout.library : "/library")) ?? "(nothing yet)"}\nAnswer in a few sentences. Name the skill or skills that do it and give the exact command to run, as it is written above. If nothing on the shelves does it, say so plainly, and say that it may write a skill of its own and offer it with \`submit_skill\` afterwards. Do not invent a skill that is not on the shelves.`;
                 }
                 const notes = await readFile(
                     join(home.layout.librarian, "NOTES.md"),
@@ -580,6 +581,54 @@ async function removableSkill(
     skill: string,
     context: Context,
 ): Promise<CleanupResult> {
+    const place = remoteHouse(home, house);
+    if (place.kind !== "host") {
+        if (place.kind === "unmappable")
+            return {
+                ok: false,
+                error: {
+                    kind: "house-copy-inspection",
+                    operation: "shelve-skill",
+                    skill,
+                    retrySafe: false,
+                },
+            };
+        const env = place.house.open();
+        try {
+            const listed = await env.tree("skills", GIFT_CAPS, context);
+            if (!listed.ok)
+                return {
+                    ok: false,
+                    error: {
+                        kind: "house-copy-inspection",
+                        operation: "shelve-skill",
+                        skill,
+                        retrySafe: false,
+                    },
+                };
+            const readonly = listed.value.some(
+                (entry) =>
+                    entry.kind === "directory" &&
+                    (entry.path === "." ||
+                        entry.path === skill ||
+                        entry.path.startsWith(`${skill}/`)) &&
+                    (entry.mode & 0o300) !== 0o300,
+            );
+            return readonly
+                ? {
+                      ok: false,
+                      error: {
+                          kind: "house-copy-readonly",
+                          operation: "shelve-skill",
+                          skill,
+                          retrySafe: false,
+                      },
+                  }
+                : { ok: true, value: null };
+        } finally {
+            await env.cleanup(context);
+        }
+    }
     const env = houseReader(home, { path: house }, context);
     try {
         const result = await env.exec(

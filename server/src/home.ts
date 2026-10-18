@@ -25,17 +25,23 @@ import { agentEnv, Confinement, houseReader, WorkDoc } from "./environment.ts";
 import { Credentials } from "./home/credentials.ts";
 import { type Layout, layOut } from "./home/layout.ts";
 import { claim } from "./home/lock.ts";
-import { PARTS } from "./home/parts.ts";
+import { PARTS, REMOTE_PARTS } from "./home/parts.ts";
 import { Houses } from "./house/skills.ts";
 import { PeerStatistics } from "./letters.ts";
 import { LimitsDoc } from "./limits/rules.ts";
 import { ModelHome } from "./models.ts";
 import { CharacterDoc } from "./prompt.ts";
 import { liveHamlets, RealmDoc } from "./realm/places.ts";
-import { agentKey, HOME, RecordDoc } from "./record.ts";
+import { type AgentRef, agentKey, HOME, RecordDoc } from "./record.ts";
 import { platformSandbox, type Sandbox } from "./sandbox.ts";
 import { type Secrets, secretsFrom } from "./scrub.ts";
-import { type Overrides, readOverrides, SettingsDoc } from "./settings.ts";
+import {
+    type Overrides,
+    readOverrides,
+    SettingsDoc,
+    type WorkspaceSettings,
+} from "./settings.ts";
+import { WorkspaceEnv } from "./workspace.ts";
 
 /** Overrides for the resources and parts opened with a home. */
 export type HomeOptions = {
@@ -110,9 +116,12 @@ export async function openHome(
         );
         const sandbox = platformSandbox();
         const confinement = new Confinement();
-        const houses = new Houses(layout, (agent, context) =>
-            houseReader({ layout, sandbox }, agent, context),
-        );
+        const houses =
+            overrides.workspace === undefined
+                ? new Houses(layout, (agent, context) =>
+                      houseReader({ layout, sandbox }, agent, context),
+                  )
+                : remoteHouses(layout, overrides.workspace);
         const base: HomeBase = {
             dir: root,
             layout,
@@ -122,7 +131,12 @@ export async function openHome(
             chief: options.chief || env.HAMLET_USER || env.USER || "user",
             overrides,
             credentials,
-            secrets: secretsFrom(credentials),
+            secrets: secretsFrom(
+                credentials,
+                overrides.workspace === undefined
+                    ? []
+                    : [overrides.workspace.token],
+            ),
             now: options.now ?? Date.now,
         };
         const modelHome = new ModelHome(base, options.models, options.logins);
@@ -188,8 +202,10 @@ export async function openHome(
             },
         };
         await found(home, context);
+        const parts =
+            home.overrides.workspace === undefined ? PARTS : REMOTE_PARTS;
         running.push(
-            ...[...PARTS, modelHome.part, ...(options.parts ?? [])].map(
+            ...[...parts, modelHome.part, ...(options.parts ?? [])].map(
                 (part) => part(home),
             ),
         );
@@ -281,7 +297,40 @@ async function found(home: Home, context: Context): Promise<void> {
         }
         return agents;
     }, context);
-    for (const agent of agents) await home.houses.of(agent).build();
+    for (const agent of agents) {
+        const built = await home.houses.of(agent).build(context);
+        // Only a workspace house is refused here; the home stays open and its tools and papers report the house's state.
+        if (!built.ok)
+            console.error(
+                `Hamlet could not prepare the workspace house of agent ${agent.number} in ${agent.hamlet}: ${home.secrets.words(built.error.message)}`,
+            );
+    }
+}
+
+/** Houses read and initialized only through the workspace service, at `/house`. */
+function remoteHouses(layout: Layout, connection: WorkspaceSettings): Houses {
+    const house = (agent: AgentRef) => ({
+        workspace: agent.hamlet,
+        agent: agent.number,
+        project: false,
+        network: false,
+    });
+    return new Houses(
+        layout,
+        (agent) =>
+            new WorkspaceEnv(connection, { ...house(agent), read_only: true }),
+        {
+            path: () => "/house",
+            build: async (agent, context) => {
+                const env = new WorkspaceEnv(connection, house(agent));
+                try {
+                    return await env.initialize(context);
+                } finally {
+                    await env.cleanup(context);
+                }
+            },
+        },
+    );
 }
 
 /**

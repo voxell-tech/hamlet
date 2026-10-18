@@ -67,13 +67,15 @@ export const Agents: Part = (home) => ({
                     const agent = record?.agents.find(
                         (a) => a.name === tidyName(args.name),
                     );
-                    if (agent)
-                        await home.houses
-                            .of({
-                                hamlet: place.hamlet,
-                                number: agent.number,
-                            })
-                            .build();
+                    if (!agent) return;
+                    const built = await home.houses
+                        .of({ hamlet: place.hamlet, number: agent.number })
+                        .build(context);
+                    // The agent is recorded; its house reports its own state until a later open prepares it again.
+                    if (!built.ok)
+                        console.error(
+                            `Hamlet could not prepare the workspace house of agent ${agent.number} in ${place.hamlet}: ${home.secrets.words(built.error.message)}`,
+                        );
                 },
             }),
             defineMayorTool(home, {

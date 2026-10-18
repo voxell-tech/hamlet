@@ -1,11 +1,13 @@
-import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
-import type { FileErrorCode } from "@earendil-works/pi-durable/env";
+import type {
+    ExecutionEnv,
+    FileError,
+    FileErrorCode,
+} from "@earendil-works/pi-durable/env";
 import { buildHouse, houseOf, type Layout } from "../home/layout.ts";
 import { type AgentRef, agentKey } from "../record.ts";
 import { err, ok, type Result } from "../result.ts";
-import type { SandboxEnv } from "../sandbox.ts";
 import { shelf as readShelf } from "./skill-paper.ts";
 
 /** A skill as the front matter of its `SKILL.md` tells of it (C8). */
@@ -76,30 +78,51 @@ export function notesFailureText(error: NotesFailure): string {
     throw new Error(`Unclassified notes failure: ${unhandled}`);
 }
 
+/** Opens a read-only environment over one agent's house; its owner closes it. */
+export type HouseReader = (agent: AgentRef, context: Context) => ExecutionEnv;
+
+/**
+ * Houses kept in a remote workspace instead of the home's folders. Their files are authoritative there; no local copy
+ * is made or consulted.
+ */
+export type RemoteHouses = {
+    /** The house's path as the workspace's own environments name it. */
+    readonly path: (agent: AgentRef) => string;
+    /** Creates missing initial files in the agent's house without replacing existing ones. */
+    readonly build: (
+        agent: AgentRef,
+        context: Context,
+    ) => Promise<Result<void, FileError>>;
+};
+
 /** One house's bounded read-only notes and skill papers. */
 export class House {
-    /** The stable location of this agent's house. */
+    /** The stable location of this agent's house, as its environments name it. */
     readonly path: string;
     readonly #agent: AgentRef;
     readonly #layout: Layout;
-    readonly #reader: (agent: AgentRef, context: Context) => SandboxEnv;
-    #env: SandboxEnv | undefined;
+    readonly #reader: HouseReader;
+    readonly #remote: RemoteHouses | undefined;
+    #env: ExecutionEnv | undefined;
     #names: Promise<string[]> | undefined;
     #until = 0;
 
-    /** Readers are supplied by the home's confinement seam. */
+    /** Readers are supplied by the home's confinement seam; `remote` places the house in a workspace. */
     constructor(
         layout: Layout,
         agent: AgentRef,
-        reader: (agent: AgentRef, context: Context) => SandboxEnv,
+        reader: HouseReader,
+        remote?: RemoteHouses,
     ) {
         this.#layout = layout;
         this.#agent = { ...agent };
-        this.path = houseOf(layout, agent);
+        this.path =
+            remote === undefined ? houseOf(layout, agent) : remote.path(agent);
         this.#reader = reader;
+        this.#remote = remote;
     }
 
-    #environment(context: Context): SandboxEnv {
+    #environment(context: Context): ExecutionEnv {
         this.#env ??= this.#reader(this.#agent, context);
         return this.#env;
     }
@@ -159,9 +182,16 @@ export class House {
     }
 
     async #shelf(contents: boolean, context: Context): Promise<Skill[]> {
-        if (!(await lstat(this.path).catch(() => undefined))?.isDirectory())
-            return [];
         const env = this.#environment(context);
+        // The house itself must be a real directory where its environment sees it, not a link.
+        const root = await env.fileInfo(this.path, context);
+        if (!root.ok && root.error.code === "not_found") {
+            // A house not built yet gets a fresh reader once it exists.
+            if (this.#env === env) this.#env = undefined;
+            await env.cleanup(context);
+            return [];
+        }
+        if (!root.ok || root.value.kind !== "directory") return [];
         const dir = join(this.path, "skills");
         const listed = await env.listDir(dir, context);
         if (!listed.ok) return [];
@@ -217,9 +247,19 @@ export class House {
         return this.#names;
     }
 
-    /** Creates only missing initial files. */
-    build(): Promise<string> {
-        return buildHouse(this.#layout, this.#agent);
+    /**
+     * Creates only missing initial files, wherever the house is kept, and returns `path`; existing notes and skills
+     * stay as they are. A refused remote house is a returned failure; a local folder failure still throws.
+     */
+    async build(context?: Context): Promise<Result<string, FileError>> {
+        if (this.#remote === undefined)
+            return ok(await buildHouse(this.#layout, this.#agent));
+        if (context === undefined)
+            throw new Error(
+                "A remote house build requires its operation context.",
+            );
+        const built = await this.#remote.build(this.#agent, context);
+        return built.ok ? ok(this.path) : built;
     }
 
     /** Invalidates the names without replacing a live helper. */
@@ -227,7 +267,7 @@ export class House {
         this.#until = 0;
     }
 
-    /** Releases the read-only helper owned by this house. */
+    /** Releases the read-only environment owned by this house. */
     async close(context: Context): Promise<void> {
         await this.#env?.cleanup(context);
         this.#env = undefined;
@@ -240,15 +280,14 @@ export class Houses {
     readonly #kept = new Map<string, House>();
     #delivery: Promise<unknown> = Promise.resolve();
     readonly #layout: Layout;
-    readonly #reader: (agent: AgentRef, context: Context) => SandboxEnv;
+    readonly #reader: HouseReader;
+    readonly #remote: RemoteHouses | undefined;
 
-    /** Takes the home's layout and its read-only constructor. */
-    constructor(
-        layout: Layout,
-        reader: (agent: AgentRef, context: Context) => SandboxEnv,
-    ) {
+    /** Takes the home's layout, its read-only constructor and, for workspace houses, how to reach them. */
+    constructor(layout: Layout, reader: HouseReader, remote?: RemoteHouses) {
         this.#layout = layout;
         this.#reader = reader;
+        this.#remote = remote;
     }
 
     /** Returns the same house handle for an agent's stable identity. */
@@ -256,7 +295,7 @@ export class Houses {
         const key = agentKey(agent);
         let house = this.#kept.get(key);
         if (house === undefined) {
-            house = new House(this.#layout, agent, this.#reader);
+            house = new House(this.#layout, agent, this.#reader, this.#remote);
             this.#kept.set(key, house);
         }
         return house;
