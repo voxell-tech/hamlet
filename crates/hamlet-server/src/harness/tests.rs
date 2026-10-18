@@ -663,3 +663,132 @@ fn a_hello_lacking_the_link_version_or_a_needed_capability_is_refused()
     recorded.runtime = None;
     assert!(words(&recorded).contains("records no runtime"));
 }
+
+#[tokio::test]
+async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
+ {
+    use super::{
+        Config, Event, Harnesses, Inner, Notice, Pending, Phase,
+        Received,
+    };
+
+    let scratch = Scratch::new("bad-created");
+    let home = crate::Home::open(&scratch.join("layout")).unwrap();
+    let (mut store, binding) = bound(&scratch, 0);
+    store.conversation_made(binding.id, "1", "pi", "1").unwrap();
+    let other = store
+        .add_binding(
+            &binding.agent,
+            false,
+            &binding.model,
+            &binding.runtime,
+        )
+        .unwrap();
+    let (sender, receiver) = super::mpsc::unbounded_channel();
+    let mut harnesses = Harnesses {
+        config: Config {
+            node: "node".into(),
+            entry: "unused".into(),
+            faux: None,
+            model: Some(binding.model.clone()),
+            api_key: None,
+            tools: vec![],
+        },
+        layout: home.layout().clone(),
+        runtimes: vec![],
+        sender,
+        receiver,
+        next: 1,
+        pending: Default::default(),
+        provider_requests: Default::default(),
+        closing: false,
+    };
+    let bad = harnesses.add(binding.runtime.clone());
+    let good =
+        harnesses.add(RuntimeInstance::new("unaffected").unwrap());
+    harnesses.runtimes[bad].phase = Phase::Ready;
+    harnesses.runtimes[good].phase = Phase::Ready;
+    harnesses
+        .pending
+        .insert("create".into(), (bad, Pending::Create(other)));
+    let notices = harnesses.handle(&mut store, Event(Inner::Received(Received {
+        runtime: bad, generation: 0,
+        line: Some(json!({"v":1,"type":"created","id":"r1","re":"create","conversation":"1"}).to_string()),
+    }))).await.unwrap();
+    assert!(notices.iter().any(|n| matches!(n, Notice::Refused { runtime, .. } if *runtime == binding.runtime)));
+    assert!(harnesses.runtimes[good].phase == Phase::Ready);
+    assert!(
+        harnesses
+            .bind(&mut store, &binding.agent, false)
+            .await
+            .is_err()
+    );
+    assert_eq!(store.bindings_of(&binding.runtime).unwrap().len(), 2);
+    assert!(
+        store
+            .binding(other)
+            .unwrap()
+            .unwrap()
+            .conversation
+            .is_none()
+    );
+}
+
+#[test]
+fn an_unanswered_input_is_dropped_and_never_resent() {
+    let scratch = Scratch::new("unanswered-input");
+    let (mut store, binding) = bound(&scratch, 0);
+    store
+        .keep_input(
+            binding.id,
+            &super::Input {
+                request: "chief:1",
+                content: "Hello",
+                steer: false,
+                mark: None,
+                write: false,
+                boundary: false,
+            },
+        )
+        .unwrap();
+    store
+        .input_stands(
+            binding.id,
+            "chief:1",
+            Some("1"),
+            "unanswered",
+            Some("withdrawn"),
+            None,
+        )
+        .unwrap();
+    assert!(store.owed(binding.id, true).unwrap().is_empty());
+    let state = store
+        .connection()
+        .query_row(
+            "SELECT state FROM harness_input WHERE request = \
+             'chief:1'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    assert_eq!(state, "dropped");
+    store
+        .input_stands(
+            binding.id,
+            "chief:1",
+            Some("1"),
+            "queued",
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .standing(binding.id, "chief:1")
+            .unwrap()
+            .unwrap()
+            .status
+            .as_deref(),
+        Some("unanswered")
+    );
+}

@@ -329,11 +329,16 @@ Stopping a turn (C25) marks its unadmitted inputs dropped in the server's
 store before the runtime is told, so no restart submits them again, and
 keeps that a cancel is owed. The runtime ends the running turn and drops
 its queue. A cancel owed to a runtime that is down is sent when it is
-ready again, before any input kept since. Operations of the stopped turn
+ready again. Inputs kept since remain in the server until the cancel's
+acknowledgement is committed. This closes the lost-acknowledgement race:
+replaying the cancel after a server crash cannot stop a newer input that
+the server already sent. A real-process test withholds the acknowledgement,
+keeps a newer line, kills the server, and checks that line answers once
+after restart. Operations of the stopped turn
 that arrive later are refused, and its waits lapse (H34). Shown with a
 turn waiting for a chief and an input queued behind it, and with the
-runtime killed while both were in pi. Inputs pi withdrew stay admitted in
-the server's store, and other states of recovery are not tested.
+runtime killed while both were in pi. An input pi answers `unanswered`
+is marked dropped atomically with its terminal status and is never resent.
 
 ### Recovering
 
@@ -350,6 +355,12 @@ open.
 A runtime whose link to the server closes stops its work and exits, so no
 agent runs without its server (S21). It notices by the end of its
 standard input.
+
+A message that fails while being handled, including a duplicate bound
+conversation ID, refuses and stops that runtime alone (S22). A refused
+runtime cannot acquire new bindings. The server reports the fault and
+keeps serving the other runtimes; retrying an invalid runtime message
+cannot terminate the realm.
 
 Who acts in an operation is never taken from the runtime or a tool's
 arguments. The server derives the actor from the conversation's binding

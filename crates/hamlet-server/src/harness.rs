@@ -422,8 +422,30 @@ impl Harnesses {
                 }
                 match received.line {
                     Some(line) => {
-                        self.received(store, received.runtime, &line)
+                        match self
+                            .received(store, received.runtime, &line)
                             .await
+                        {
+                            Ok(notices) => Ok(notices),
+                            Err(error) => {
+                                let index = received.runtime;
+                                self.runtimes[index].phase =
+                                    Phase::Refused;
+                                let mut notices =
+                                    vec![Notice::Refused {
+                                        runtime: self.runtimes[index]
+                                            .id
+                                            .clone(),
+                                        words: format!(
+                                            "The runtime could not \
+                                             be handled: {error:#}"
+                                        ),
+                                    }];
+                                notices
+                                    .extend(self.closed(index).await);
+                                Ok(notices)
+                            }
+                        }
                     }
                     None => Ok(self.closed(received.runtime).await),
                 }
@@ -447,12 +469,19 @@ impl Harnesses {
             bail!("There is no harness named {harness}.");
         }
         let runtime = store.runtime_for(&harness)?;
-        let binding =
-            store.add_binding(agent, errand, &model, &runtime)?;
         let index = match self.index(&runtime) {
             Some(index) => index,
-            None => self.add(runtime),
+            None => self.add(runtime.clone()),
         };
+        if self.runtimes[index].phase == Phase::Refused {
+            bail!(
+                "The runtime {} was refused; no conversation was \
+                 made.",
+                runtime.as_str()
+            );
+        }
+        let binding =
+            store.add_binding(agent, errand, &model, &runtime)?;
         let mut notices = Vec::new();
         if self.runtimes[index].phase == Phase::Down
             && self.runtimes[index].restart_at.is_none()
@@ -928,7 +957,6 @@ impl Harnesses {
                 self.runtimes[index]
                     .submitting
                     .remove(&(binding, request.clone()));
-                store.input_admitted(binding, &request)?;
                 let status = match admitted.status {
                     link::AdmittedStatus::Queued => "queued",
                     link::AdmittedStatus::Placed => "placed",
@@ -992,6 +1020,7 @@ impl Harnesses {
                 };
                 self.runtimes[index].cancelling.remove(&binding);
                 store.cancelled(binding)?;
+                self.flush(store, index, true).await?;
                 Ok(vec![Notice::Cancelled { binding }])
             }
             RuntimeMessage::Page(page) => {
@@ -1337,8 +1366,8 @@ impl Harnesses {
                 }
                 continue;
             };
-            // Before the inputs kept since, which it must not
-            // withdraw.
+            // No later input reaches pi until the cancel is durably
+            // acknowledged.
             if store.cancelling(binding.id)? {
                 self.send_cancel(
                     index,
@@ -1346,6 +1375,7 @@ impl Harnesses {
                     conversation.clone(),
                 )
                 .await;
+                continue;
             }
             for owed in store.owed(binding.id, resync)? {
                 let request = owed.request.clone();

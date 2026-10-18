@@ -430,7 +430,9 @@ impl Store {
         // A status never goes back once the input ended.
         self.db.execute(
             "UPDATE harness_input SET submission = coalesce(?3, \
-             submission), status = ?4, reason = ?5, detail = ?6 \
+             submission), status = ?4, reason = ?5, detail = ?6, \
+             state = CASE WHEN ?4 = 'unanswered' THEN 'dropped' \
+             WHEN state = 'kept' THEN 'admitted' ELSE state END \
              WHERE binding = ?1 AND request = ?2 AND \
              coalesce(status, '') NOT IN ('done', 'unanswered')",
             params![
@@ -515,19 +517,6 @@ impl Store {
             )
             .optional()?
             .is_some())
-    }
-
-    pub(crate) fn input_admitted(
-        &mut self,
-        binding: BindingId,
-        request: &str,
-    ) -> Result<()> {
-        self.db.execute(
-            "UPDATE harness_input SET state = 'admitted' WHERE \
-             binding = ?1 AND request = ?2 AND state = 'kept'",
-            params![binding.0, request],
-        )?;
-        Ok(())
     }
 
     /// Begins cancelling `binding`, in one commit: its owed inputs

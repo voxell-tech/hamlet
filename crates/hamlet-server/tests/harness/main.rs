@@ -700,6 +700,54 @@ fn a_runtime_whose_store_is_gone_is_refused_in_words() {
 }
 
 #[test]
+fn a_cancel_replayed_after_a_server_crash_spares_the_line_kept_since()
+{
+    let realm = Realm::new("cancel-ack-crash");
+    let held = json!({"text":"held", "holdUntil":"never"});
+    let faux = realm.script(
+        "faux.json",
+        json!({"agents":{"home:0":[held.clone(), held]}}),
+    );
+    let mut driver = Driver::start(
+        &realm,
+        &faux,
+        &[("HAMLET_HARNESS_FAULT", "before_cancelled")],
+    );
+    let (binding, runtime) = driver.bind(0);
+    driver.submit(binding, "chief:1", "Stop this.");
+    driver.until(|n| n["kind"] == "attempted");
+    driver.send(json!({"do":"cancel", "binding":binding}));
+    assert_eq!(realm.wait_paused("runtime"), "before_cancelled");
+    driver.submit(binding, "chief:2", "Keep this exact line.");
+    // The history reply follows every request already sent to this
+    // conversation.
+    driver.history(binding);
+    let pid = driver.runtime_pid();
+    driver.kill();
+    support::gone(pid);
+    let after = realm.script(
+        "after.json",
+        json!({"agents":{"home:0":["answered after restart"]}}),
+    );
+    let mut driver = Driver::start(&realm, &after, &[]);
+    driver.answer(binding, "answered after restart");
+    let history = driver.history(binding);
+    assert_eq!(
+        history
+            .iter()
+            .filter(|item| item["kind"] == "user"
+                && item["text"] == "Keep this exact line.")
+            .count(),
+        1
+    );
+    assert_eq!(
+        realm.submission_states(&runtime),
+        ["unanswered", "done"]
+    );
+    driver.stop();
+}
+
+#[test]
 fn a_runtime_given_another_runtime_s_store_is_refused_in_words() {
     let start = |tag: &str| {
         let realm = Realm::new(tag);

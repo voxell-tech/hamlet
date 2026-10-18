@@ -5,6 +5,7 @@ import { join } from "node:path";
 export type FaultPoint =
     | "before_admit"
     | "after_admit"
+    | "before_cancelled"
     | "before_operation"
     | "after_receive";
 

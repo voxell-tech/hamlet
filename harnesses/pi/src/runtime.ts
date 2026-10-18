@@ -817,7 +817,10 @@ class Runtime {
                 );
                 if (conversation === undefined) return;
                 await conversation.abort(context);
-                this.#channel.send({ type: "cancelled", re });
+                // The crash fixture can withhold the acknowledgement while later requests still arrive.
+                void fault("before_cancelled").then(() =>
+                    this.#channel.send({ type: "cancelled", re }),
+                );
                 return;
             }
             case "history": {
