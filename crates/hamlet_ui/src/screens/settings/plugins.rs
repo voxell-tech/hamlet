@@ -2,6 +2,7 @@
 //! each asks for and what the chief chose, by plugin and by
 //! capability.
 
+mod adds;
 mod capabilities;
 mod control;
 mod links;

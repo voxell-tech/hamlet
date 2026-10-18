@@ -189,6 +189,9 @@ pub enum Scene {
     PluginPermissions,
     /// The Settings panel at each capability and who asks for it.
     PluginCapabilities,
+    /// The Settings panel at the list of plugins, with the commands,
+    /// menu lines and shortcuts each adds.
+    PluginAdds,
     /// The Settings panel at its Plugins page, after reloads.
     PluginReload,
     /// Every icon, at each size it is drawn for.

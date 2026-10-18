@@ -3,9 +3,15 @@
 
 use bevy::ecs::world::World;
 use hamlet_sdk::capability::{
-    Asked, Asks, Capability, Choice, Choices, Uninstalled,
+    Asked, Asks, Capability, Choice, Choices, Granted, Uninstalled,
 };
-use hamlet_sdk::plugin::{Imports, Manifest, PluginInfo, Status};
+use hamlet_sdk::command::Command;
+use hamlet_sdk::icons::Glyph;
+use hamlet_sdk::keys::{Key, chord};
+use hamlet_sdk::menu::{Menu, MenuEntry};
+use hamlet_sdk::plugin::{
+    ContributedBy, Imports, Manifest, PluginInfo, Status,
+};
 use hamlet_ui::settings::{Open, Tab};
 
 use super::Scene;
@@ -30,11 +36,47 @@ fn info(id: &str, name: &str, version: &str) -> PluginInfo {
     }
 }
 
+/// An installed plugin that the chief allowed `ui.menu`, with one
+/// line in the VIEW menu.
+pub(super) fn installed_line(world: &mut World) {
+    let almanac = world
+        .spawn((
+            info("almanac", "Almanac", "0.3.0"),
+            Granted::allowing(&[Capability::UiMenu]),
+            Status::Running,
+        ))
+        .id();
+    world.spawn((
+        Command::new("look", "Look at the dates"),
+        ContributedBy(almanac),
+    ));
+    world.spawn((
+        MenuEntry {
+            menu: Menu::View,
+            section: 1,
+            label: "Almanac".into(),
+            command: "look".into(),
+            icon: Some(Glyph::Clock),
+        },
+        ContributedBy(almanac),
+    ));
+}
+
+/// A shortcut Notes and Almanac both want, so that neither runs.
+fn chorded(command: &str) -> Key {
+    Key {
+        chord: chord::parse("Cmd+Shift+N").expect("a chord"),
+        command: command.into(),
+    }
+}
+
 /// Three plugins, one of them not installed, and the page of the
-/// scene open: the permissions of Roster, or the capabilities.
+/// scene open: the permissions of Roster, the capabilities, or the
+/// list with what each plugin adds.
 pub(super) fn put(world: &mut World, scene: Scene) {
     use Capability::{
-        ChatSend, Net, PluginUse, ReadAgents, ReadPapers,
+        ChatSend, Net, PluginUse, ReadAgents, ReadPapers, UiKeys,
+        UiMenu,
     };
 
     let roster = Choices::default()
@@ -54,18 +96,28 @@ pub(super) fn put(world: &mut World, scene: Scene) {
         roster,
         Status::Running,
     ));
+    let almanac = world
+        .spawn((
+            info("almanac", "Almanac", "0.3.0"),
+            asks(&[
+                (
+                    ReadPapers,
+                    "To show an agent's notes beside the dates.",
+                ),
+                (Net, "To fetch the harvest calendar."),
+                (UiKeys, "To open the dates with Cmd+Shift+N."),
+            ]),
+            Choices::default()
+                .decided(ReadPapers, Choice::Allow, false)
+                .decided(UiKeys, Choice::Allow, false),
+            Status::Running,
+        ))
+        .id();
     world.spawn((
-        info("almanac", "Almanac", "0.3.0"),
-        asks(&[
-            (
-                ReadPapers,
-                "To show an agent's notes beside the dates.",
-            ),
-            (Net, "To fetch the harvest calendar."),
-        ]),
-        Choices::default().decided(ReadPapers, Choice::Allow, false),
-        Status::Running,
+        Command::new("look", "Look at the dates"),
+        ContributedBy(almanac),
     ));
+    world.spawn((chorded("look"), ContributedBy(almanac)));
     world.spawn((
         info("tides", "Tides", "1.2.0"),
         asks(&[(Net, "To fetch the tide table from the harbour.")]),
@@ -81,13 +133,37 @@ pub(super) fn put(world: &mut World, scene: Scene) {
         },
         ..Manifest::built_in("clipper").needs("notes", ">=0.1, <1")
     };
+    let notes = world
+        .spawn((
+            info("notes", "Notes", "0.1.0"),
+            Manifest::built_in("notes"),
+            asks(&[
+                (ReadPapers, "To copy the selected agent's notes."),
+                (UiMenu, "To put New note in the HAMLET menu."),
+                (UiKeys, "To start a new note with Cmd+Shift+N."),
+            ]),
+            Choices::default()
+                .decided(ReadPapers, Choice::Allow, false)
+                .decided(UiMenu, Choice::Allow, false)
+                .decided(UiKeys, Choice::Allow, false),
+            Status::Running,
+        ))
+        .id();
     world.spawn((
-        info("notes", "Notes", "0.1.0"),
-        Manifest::built_in("notes"),
-        asks(&[(ReadPapers, "To copy the selected agent's notes.")]),
-        Choices::default().decided(ReadPapers, Choice::Allow, false),
-        Status::Running,
+        Command::new("new", "New note"),
+        ContributedBy(notes),
     ));
+    world.spawn((
+        MenuEntry {
+            menu: Menu::App,
+            section: 1,
+            label: "New note".into(),
+            command: "new".into(),
+            icon: None,
+        },
+        ContributedBy(notes),
+    ));
+    world.spawn((chorded("new"), ContributedBy(notes)));
     world.spawn((
         info("clipper", "Clipper", "0.1.0"),
         clipper,
@@ -104,9 +180,13 @@ pub(super) fn put(world: &mut World, scene: Scene) {
             .decided_for(PluginUse, "notes", Choice::Allow, false),
         Status::Running,
     ));
-    if scene == Scene::PluginPermissions {
-        world.insert_resource(Open(Some("clipper".into())));
-    } else {
-        world.insert_resource(Tab::ByCapability);
+    match scene {
+        Scene::PluginPermissions => {
+            world.insert_resource(Open(Some("clipper".into())));
+        }
+        Scene::PluginCapabilities => {
+            world.insert_resource(Tab::ByCapability);
+        }
+        _ => {}
     }
 }

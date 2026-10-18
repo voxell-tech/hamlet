@@ -2,9 +2,11 @@
 //! that installs it.
 
 use bevy::app::{App, Update};
+use bevy::ecs::entity::Entity;
 use bevy::ecs::query::Has;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
+use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ui::AlignItems;
 use bevy_fynix::views::{
@@ -12,13 +14,16 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_sdk::capability::{
-    AskToInstall, AskToRemove, Asks, Uninstalled,
+    AskToInstall, AskToRemove, Asks, Granted, Uninstalled,
 };
+use hamlet_sdk::command::Commands;
+use hamlet_sdk::keys::Keys;
 use hamlet_sdk::plugin::{
     Blocked, Disable, Enable, PluginInfo, Status,
 };
 use hamlet_sdk::reload::{Reload, Rollback};
 
+use super::adds::{self, Adds, Contributed};
 use super::links::{self, Everyone, Links};
 use super::{Open, moved, switch};
 use crate::icons::Glyph;
@@ -27,8 +32,14 @@ use crate::platform::DisplayText;
 use crate::{AnyView, View};
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Listed>()
-        .add_systems(Update, list.run_if(moved));
+    app.init_resource::<Listed>().add_systems(
+        Update,
+        list.run_if(
+            moved
+                .or_eager(resource_changed::<Commands>)
+                .or_eager(resource_changed::<Keys>),
+        ),
+    );
 }
 
 /// One plugin, as its page shows it.
@@ -49,6 +60,8 @@ struct Line {
     rollback: bool,
     /// The plugins it needs and the plugins that need it.
     links: Links,
+    /// Its commands, menu lines and shortcuts.
+    adds: Adds,
 }
 
 /// Every plugin, by name.
@@ -57,20 +70,32 @@ struct Listed(Vec<Line>);
 
 fn list(
     plugins: Query<(
+        Entity,
         &PluginInfo,
         &Status,
         Option<&Asks>,
         Has<Uninstalled>,
         Option<&Reload>,
         Option<&Blocked>,
+        Option<&Granted>,
     )>,
     everyone: Everyone,
+    from: Contributed,
     mut listed: ResMut<Listed>,
 ) {
     let mut lines = plugins
         .iter()
-        .map(|(info, status, asks, uninstalled, reload, blocked)| {
-            Line {
+        .map(
+            |(
+                plugin,
+                info,
+                status,
+                asks,
+                uninstalled,
+                reload,
+                blocked,
+                granted,
+            )| Line {
                 id: info.id.clone(),
                 name: info.name.clone(),
                 version: info.version.clone(),
@@ -86,8 +111,9 @@ fn list(
                 rollback: reload
                     .is_some_and(|reload| reload.rollback),
                 links: links::of(&info.id, &everyone),
-            }
-        })
+                adds: adds::of(plugin, info, granted, &from),
+            },
+        )
         .collect::<Vec<_>>();
     lines.sort_by(|a, b| a.name.cmp(&b.name));
     if listed.0 != lines {
@@ -117,6 +143,7 @@ fn line(line: &Line) -> AnyView {
         note(format!("{} - {kind} - {status}", line.version)).boxed(),
     ];
     words.extend(links::lines(&line.links));
+    words.extend(adds::lines(&line.adds));
     for why in &line.notes {
         words.push(note(why.clone()).boxed());
     }

@@ -124,6 +124,7 @@ pub(super) fn setup(world: &mut World) {
         Scene::Plugins
             | Scene::PluginPermissions
             | Scene::PluginCapabilities
+            | Scene::PluginAdds
             | Scene::PluginReload
     ) {
         world.insert_resource(hamlet_ui::settings::Pane::Plugins);
@@ -133,9 +134,14 @@ pub(super) fn setup(world: &mut World) {
     }
     if matches!(
         scene,
-        Scene::PluginPermissions | Scene::PluginCapabilities
+        Scene::PluginPermissions
+            | Scene::PluginCapabilities
+            | Scene::PluginAdds
     ) {
         super::permissions::put(world, scene);
+    }
+    if scene == Scene::ViewMenu {
+        super::permissions::installed_line(world);
     }
     if scene == Scene::PluginRoster {
         super::roster::put(world);
@@ -160,6 +166,7 @@ pub(super) fn setup(world: &mut World) {
             | Scene::Plugins
             | Scene::PluginPermissions
             | Scene::PluginCapabilities
+            | Scene::PluginAdds
             | Scene::PluginReload
     ) {
         let mut config = hamlet_model::config::Config::default();
