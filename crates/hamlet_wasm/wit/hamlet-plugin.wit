@@ -112,7 +112,8 @@ interface plugin {
 
   // What one node of a panel is. `heading` and `note` are text in the
   // panels' heading and dim small looks. A `button`, `checkbox` and
-  // `text-field` need an id, which names them in events.
+  // `text-field` and `text-area` need an id, which names them in
+  // events.
   variant widget {
     column,
     row,
@@ -128,6 +129,13 @@ interface plugin {
     // The text.
     text-field(string),
     divider,
+    // A box of several lines to type in, with the text. A change is
+    // committed as `text-changed` when focus leaves it or on Ctrl+Enter
+    // (Cmd+Enter on a Mac).
+    text-area(string),
+    // Markdown text, drawn and not editable: headings, emphasis, lists,
+    // code and rules. A link is shown as its text.
+    markdown(string),
   }
 
   record checkbox {

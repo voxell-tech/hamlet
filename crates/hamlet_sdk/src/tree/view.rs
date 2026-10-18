@@ -1,6 +1,8 @@
 //! A plugin panel's contents, drawn as the native panels are.
 
+mod area;
 mod bind;
+mod markdown;
 mod node;
 mod stopped;
 #[cfg(test)]

@@ -64,7 +64,9 @@ fn text_of(widget: &Widget) -> &str {
         | Widget::Note(text)
         | Widget::Icon(text)
         | Widget::Button(text)
-        | Widget::TextField(text) => text,
+        | Widget::TextField(text)
+        | Widget::TextArea(text)
+        | Widget::Markdown(text) => text,
         Widget::Checkbox(checkbox) => &checkbox.label,
         Widget::Column
         | Widget::Row
@@ -105,7 +107,10 @@ fn read(
     let kind = kind(wire.widget);
     let needs_id = matches!(
         kind,
-        Kind::Button(_) | Kind::Checkbox { .. } | Kind::TextField(_)
+        Kind::Button(_)
+            | Kind::Checkbox { .. }
+            | Kind::TextField(_)
+            | Kind::TextArea(_)
     );
     if needs_id && wire.id.is_none() {
         return Err(format!("{kind:?} has no id"));
@@ -146,5 +151,7 @@ fn kind(widget: Widget) -> Kind {
         },
         Widget::TextField(text) => Kind::TextField(text),
         Widget::Divider => Kind::Divider,
+        Widget::TextArea(text) => Kind::TextArea(text),
+        Widget::Markdown(text) => Kind::Markdown(text),
     }
 }

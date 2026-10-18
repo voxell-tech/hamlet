@@ -35,10 +35,12 @@ fn drawn(content: Vec<Node>) -> Node {
 
 #[test]
 fn a_program_becomes_the_tree_of_its_components() {
-    let program = "root = Column([title, name, loud, \
+    let program = "root = Column([title, name, loud, body, shown, \
                    Divider()])\ntitle = Heading(\"HI\")\nname = \
                    TextField($name)\nloud = Checkbox(\"Loud\", \
-                   $loud)\n$name = \"Ada\"\n$loud = true";
+                   $loud)\nbody = TextArea($body)\nshown = \
+                   Markdown(\"# Hi\")\n$name = \"Ada\"\n$loud = \
+                   true\n$body = \"One\\nTwo\"";
 
     let out =
         run(program, &AgentList::default(), &Granted::default());
@@ -54,6 +56,8 @@ fn a_program_becomes_the_tree_of_its_components() {
                 checked: true
             })
             .id("n.2"),
+            Node::new(Kind::TextArea("One\nTwo".into())).id("n.3"),
+            Node::new(Kind::Markdown("# Hi".into())),
             Node::new(Kind::Divider),
         ])
     );

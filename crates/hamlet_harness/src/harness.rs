@@ -90,15 +90,16 @@ impl Harness {
         })
     }
 
-    /// Commits `text` in the text field `node` of `panel`.
+    /// Commits `text` in the text field or text area `node` of
+    /// `panel`.
     pub fn type_text(
         &mut self,
         panel: &str,
         node: &str,
         text: &str,
     ) -> Result<(), String> {
-        self.touch(panel, node, "text field", |kind| {
-            matches!(kind, Kind::TextField(_))
+        self.touch(panel, node, "text field or text area", |kind| {
+            matches!(kind, Kind::TextField(_) | Kind::TextArea(_))
                 .then(|| Act::Typed(text.into()))
         })
     }

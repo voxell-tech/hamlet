@@ -37,6 +37,8 @@ fn line(node: &Node) -> String {
         }
         Kind::TextField(text) => format!("text-field {text:?}{id}"),
         Kind::Divider => format!("divider{id}"),
+        Kind::TextArea(text) => format!("text-area {text:?}{id}"),
+        Kind::Markdown(text) => format!("markdown {text:?}{id}"),
     }
 }
 

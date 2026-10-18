@@ -108,6 +108,11 @@ impl Walk<'_> {
                 self.wire(path, element, Some("text"));
                 Node::new(Kind::TextField(text("text"))).id(path)
             }
+            "TextArea" => {
+                self.wire(path, element, Some("text"));
+                Node::new(Kind::TextArea(text("text"))).id(path)
+            }
+            "Markdown" => Node::new(Kind::Markdown(text("text"))),
             "Divider" => Node::new(Kind::Divider),
             other => {
                 self.raise(format!("no component `{other}` to draw"));

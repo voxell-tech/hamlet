@@ -39,6 +39,16 @@ pub fn all() -> Vec<ComponentDef> {
                     .bindable()
                     .with_default(""),
             ),
+        ComponentDef::new(
+            "TextArea",
+            "Several lines of text to type in",
+        )
+        .param(
+            Param::optional("text", Type::String)
+                .bindable()
+                .with_default(""),
+        ),
+        text("Markdown", "Markdown text, drawn and not editable"),
         ComponentDef::new("Divider", "A hairline"),
     ]
 }

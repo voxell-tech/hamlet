@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use bevy::input_focus::{FocusCause, InputFocus};
+use bevy::input::InputPlugin;
+use bevy::input_focus::{FocusCause, InputFocus, InputFocusPlugin};
 use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy::time::{TimePlugin, TimeUpdateStrategy};
@@ -11,6 +12,7 @@ use hamlet_assets::Tuning;
 use super::panel;
 use crate::icons::Glyph;
 use crate::theme::{HamletTheme, insert_theme};
+use crate::tree::event::{Act, Interaction};
 use crate::tree::node::{Kind, Node};
 use crate::tree::store::{Drawn, PluginTrees};
 
@@ -50,8 +52,7 @@ fn field(app: &mut App) -> Entity {
         .expect("one text field")
 }
 
-#[test]
-fn a_redraw_keeps_a_typed_text_and_the_views_of_matched_nodes() {
+fn app() -> App {
     let mut app = App::new();
     app.add_plugins((
         crate::tree::plugin,
@@ -62,6 +63,60 @@ fn a_redraw_keeps_a_typed_text_and_the_views_of_matched_nodes() {
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         Duration::from_millis(50),
     ));
+    app
+}
+
+#[derive(Resource, Default)]
+struct Typed(Vec<(String, String)>);
+
+#[test]
+fn a_text_area_tells_the_plugin_its_text_when_focus_leaves_it() {
+    let mut app = app();
+    app.add_plugins((InputPlugin, InputFocusPlugin))
+        .init_resource::<Typed>()
+        .add_observer(
+            |event: On<Interaction>, mut typed: ResMut<Typed>| {
+                if let Act::Typed(text) = &event.act {
+                    typed.0.push((event.node.clone(), text.clone()));
+                }
+            },
+        );
+    app.world_mut().resource_mut::<PluginTrees>().set(
+        PANEL,
+        Drawn::Tree(Node::new(Kind::Column).of(vec![
+            Node::new(Kind::TextArea("One\nTwo".into())).id("body"),
+        ])),
+    );
+    mount::<HamletTheme>(app.world_mut(), panel(PANEL));
+    app.update();
+    app.update();
+    let area = field(&mut app);
+    let shown = app.world().get::<EditableText>(area).unwrap();
+    assert_eq!(shown.value().to_string(), "One\nTwo");
+    assert!(shown.allow_newlines);
+
+    app.world_mut()
+        .resource_mut::<InputFocus>()
+        .set(area, FocusCause::Pressed);
+    app.update();
+    app.world_mut()
+        .get_mut::<EditableText>(area)
+        .unwrap()
+        .editor_mut()
+        .set_text("One\nTwo\nThree");
+    app.world_mut().resource_mut::<InputFocus>().clear();
+    app.update();
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<Typed>().0,
+        [("body".to_string(), "One\nTwo\nThree".to_string())]
+    );
+}
+
+#[test]
+fn a_redraw_keeps_a_typed_text_and_the_views_of_matched_nodes() {
+    let mut app = app();
     app.world_mut()
         .resource_mut::<PluginTrees>()
         .set(PANEL, Drawn::Tree(tree("0 refreshes", false)));

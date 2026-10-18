@@ -50,7 +50,7 @@ impl Node {
     }
 
     /// This, with the id events and redraws know it by. A button, a
-    /// checkbox and a text field need one.
+    /// checkbox, a text field and a text area need one.
     pub fn id(mut self, id: &str) -> Self {
         self.id = Some(id.into());
         self
@@ -125,6 +125,19 @@ pub fn checkbox(label: &str, checked: bool) -> Node {
 
 pub fn text_field(text: &str) -> Node {
     Node::new(Widget::TextField(text.into()), Vec::new())
+}
+
+/// Several lines of text to type in. A change reaches the plugin as
+/// `Incoming::TextChanged` when focus leaves the box or on
+/// Ctrl+Enter. It needs an id.
+pub fn text_area(text: &str) -> Node {
+    Node::new(Widget::TextArea(text.into()), Vec::new())
+}
+
+/// Markdown text, drawn: headings, emphasis, lists, code and rules.
+/// A link shows as its text.
+pub fn markdown(text: &str) -> Node {
+    Node::new(Widget::Markdown(text.into()), Vec::new())
 }
 
 pub fn divider() -> Node {

@@ -22,9 +22,16 @@ pub enum Kind {
     Note(String),
     Icon(Glyph),
     Button(String),
-    Checkbox { label: String, checked: bool },
+    Checkbox {
+        label: String,
+        checked: bool,
+    },
     TextField(String),
     Divider,
+    /// Several lines to type in.
+    TextArea(String),
+    /// Markdown text, drawn.
+    Markdown(String),
 }
 
 /// What a node is, without what it holds. A node that changes its
@@ -42,6 +49,8 @@ pub enum Tag {
     Checkbox,
     TextField,
     Divider,
+    TextArea,
+    Markdown,
 }
 
 /// How a node is found among its siblings: by its id, or by its
@@ -86,6 +95,8 @@ impl Node {
             Kind::Checkbox { .. } => Tag::Checkbox,
             Kind::TextField(_) => Tag::TextField,
             Kind::Divider => Tag::Divider,
+            Kind::TextArea(_) => Tag::TextArea,
+            Kind::Markdown(_) => Tag::Markdown,
         }
     }
 
@@ -105,6 +116,8 @@ impl Node {
             | Kind::Note(text)
             | Kind::Button(text)
             | Kind::TextField(text)
+            | Kind::TextArea(text)
+            | Kind::Markdown(text)
             | Kind::Checkbox { label: text, .. } => text,
             _ => "",
         }

@@ -28,7 +28,7 @@ into nodes), `read.rs` (queries), `action.rs`, `interact.rs`, `draw.rs`,
 
 A node is an optional id, a kind and its children. The kinds are the widgets
 of [`wasm.md`](wasm.md): column, row, scroll, label, heading, note, icon,
-button, checkbox, text field and divider. The view is rebuilt only where
+button, checkbox, text field, text area, markdown and divider. The view is rebuilt only where
 the tree differs: nodes are matched by id among their siblings, so a field being
 typed in keeps its text and focus.
 
@@ -54,6 +54,8 @@ positional.
 | `Button` | `label`, `action?` |
 | `Checkbox` | `label`, `checked?` (bound to a `$variable`), `action?` |
 | `TextField` | `text?` (bound to a `$variable`) |
+| `TextArea` | `text?` (bound to a `$variable`), several lines |
+| `Markdown` | `text`, drawn and not editable |
 | `Divider` | none |
 
 `PanelLibrary::signatures` gives each signature as the language prints it,
@@ -62,7 +64,7 @@ for a prompt to be made from later.
 ### State
 
 `$variables` and the values bound to them live in `State` on the panel's
-entity. A `TextField($name)` writes to `$name` when its text is committed
+entity. A `TextField($name)` or `TextArea($name)` writes to `$name` when its text is committed
 (Enter, or leaving the field), and a `Checkbox("x", $on)` when it is toggled. The
 panel is then evaluated again. A node that is not bound shows the value the
 program gives, and a text typed in it is put back.

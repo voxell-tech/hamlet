@@ -3739,6 +3739,7 @@ dependencies = [
  "hamlet_assets",
  "hamlet_core",
  "hamlet_rules",
+ "pulldown-cmark",
  "serde",
  "toml",
 ]

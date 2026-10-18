@@ -10,7 +10,7 @@ pub(super) const PANEL: &str = "probe/main";
 
 pub(super) fn items(count: &'static str) -> Vec<Item> {
     vec![
-        Item(None, Widget::Column, 7),
+        Item(None, Widget::Column, 9),
         Item(None, Widget::Row, 2),
         Item(None, Widget::Icon("robot"), 0),
         Item(None, Widget::Heading("ROSTER"), 0),
@@ -21,6 +21,8 @@ pub(super) fn items(count: &'static str) -> Vec<Item> {
         Item(None, Widget::Divider, 0),
         Item(None, Widget::Scroll, 1),
         Item(None, Widget::Note("Nobody yet."), 0),
+        Item(Some("body"), Widget::TextArea("One\nTwo"), 0),
+        Item(None, Widget::Markdown("# Hi"), 0),
     ]
 }
 
@@ -41,6 +43,8 @@ pub(super) fn tree(count: &str, hint: bool) -> Node {
         Node::new(Kind::Divider),
         Node::new(Kind::Scroll)
             .of(vec![Node::new(Kind::Note("Nobody yet.".into()))]),
+        Node::new(Kind::TextArea("One\nTwo".into())).id("body"),
+        Node::new(Kind::Markdown("# Hi".into())),
     ];
     if hint {
         children.push(Node::new(Kind::Note("A hint.".into())));

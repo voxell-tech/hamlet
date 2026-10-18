@@ -14,6 +14,8 @@ pub enum Widget {
     Checkbox(&'static str, bool),
     TextField(&'static str),
     Divider,
+    TextArea(&'static str),
+    Markdown(&'static str),
 }
 
 /// A node: its id, what it is and how many children follow it.
@@ -95,6 +97,8 @@ pub fn data(at: u32, nodes: &[Item]) -> String {
             Widget::Checkbox(text, on) => (8, Some(*text), *on),
             Widget::TextField(text) => (9, Some(*text), false),
             Widget::Divider => (10, None, false),
+            Widget::TextArea(text) => (11, Some(*text), false),
+            Widget::Markdown(text) => (12, Some(*text), false),
         };
         bytes[node + 12] = tag;
         if let Some(text) = text {

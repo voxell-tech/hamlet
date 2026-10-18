@@ -88,12 +88,21 @@ children. The interface cannot hold a node in a node, so the list is flat.
 | `button(label)` | A brass button |
 | `checkbox(label, checked)` | A tick and its label |
 | `text-field(text)` | A well sunk into the panel |
+| `text-area(text)` | A well of several lines, ten high, to type in. Enter starts a line. Focus leaving it, or Ctrl+Enter (Cmd+Enter on a Mac), commits the text; Escape puts back the text the tree showed |
+| `markdown(text)` | Markdown drawn and not editable: headings, emphasis, lists, code and rules. A link shows as its words, and a table or a picture as plain text |
 | `divider` | A hairline |
 
-A `button`, `checkbox` and `text-field` need an id, which names them in
+A `button`, `checkbox`, `text-field` and `text-area` need an id, which names them in
 events. Two siblings may not share an id. A tree with a node over the limit
 of `tree_nodes`, nested deeper than `tree_depth`, or against these rules
 fails the call, and the plugin is failed.
+
+The text of a `text-area` or a `markdown` is held to the same text limits as
+any other text. The box of a text area and the blocks of a markdown node are
+built again when the text the tree gives them changes, and not otherwise, so
+what is typed in a text area stays until the plugin shows other text.
+`markdown` is a small subset drawn in `hamlet_sdk::tree::view::markdown`; the
+chat's own renderer is part of the chat.
 
 The ids make the redraw cheap. A node is matched with the node of the last
 tree that has its id among the same parent's children, or its place if it
