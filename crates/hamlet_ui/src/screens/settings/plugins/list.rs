@@ -14,7 +14,9 @@ use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_sdk::capability::{
     AskToInstall, AskToRemove, Asks, Uninstalled,
 };
-use hamlet_sdk::plugin::{Disable, Enable, PluginInfo, Status};
+use hamlet_sdk::plugin::{
+    Blocked, Disable, Enable, PluginInfo, Status,
+};
 use hamlet_sdk::reload::{Reload, Rollback};
 
 use super::{Open, moved, switch};
@@ -39,8 +41,9 @@ struct Line {
     installed: bool,
     /// The capabilities its manifest asks for.
     asks: usize,
-    /// Why the files on disk are not what runs.
-    note: Option<String>,
+    /// Why the files on disk are not what runs, and why the plugin
+    /// is held back for what it needs.
+    notes: Vec<String>,
     /// Whether it has a last good version to go back to.
     rollback: bool,
 }
@@ -56,21 +59,29 @@ fn list(
         Option<&Asks>,
         Has<Uninstalled>,
         Option<&Reload>,
+        Option<&Blocked>,
     )>,
     mut listed: ResMut<Listed>,
 ) {
     let mut lines = plugins
         .iter()
-        .map(|(info, status, asks, uninstalled, reload)| Line {
-            id: info.id.clone(),
-            name: info.name.clone(),
-            version: info.version.clone(),
-            builtin: info.builtin,
-            status: *status,
-            installed: !uninstalled,
-            asks: asks.map_or(0, |asks| asks.0.len()),
-            note: reload.and_then(|reload| reload.note.clone()),
-            rollback: reload.is_some_and(|reload| reload.rollback),
+        .map(|(info, status, asks, uninstalled, reload, blocked)| {
+            Line {
+                id: info.id.clone(),
+                name: info.name.clone(),
+                version: info.version.clone(),
+                builtin: info.builtin,
+                status: *status,
+                installed: !uninstalled,
+                asks: asks.map_or(0, |asks| asks.0.len()),
+                notes: reload
+                    .and_then(|reload| reload.note.clone())
+                    .into_iter()
+                    .chain(blocked.map(|blocked| blocked.0.clone()))
+                    .collect(),
+                rollback: reload
+                    .is_some_and(|reload| reload.rollback),
+            }
         })
         .collect::<Vec<_>>();
     lines.sort_by(|a, b| a.name.cmp(&b.name));
@@ -100,7 +111,7 @@ fn line(line: &Line) -> AnyView {
             .boxed(),
         note(format!("{} - {kind} - {status}", line.version)).boxed(),
     ];
-    if let Some(why) = &line.note {
+    for why in &line.notes {
         words.push(note(why.clone()).boxed());
     }
     let words = column(words).gap(2.0);
