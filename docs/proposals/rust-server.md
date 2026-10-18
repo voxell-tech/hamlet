@@ -67,11 +67,16 @@ other's store or writes its tables.
 | Markers of the results of operations | The results it recorded for the agent |
 | Prompt material, which tools an agent may run, the sandbox and where tools run | Translating these into pi's sections, tools and hooks |
 | Protocol v0, the connection's token and what it publishes to clients | Nothing a client sees directly |
+| Credentials, the stored model lists, and sign-ins as the chief sees them | Provider work done on request with pi-ai: model calls, a sign-in's steps, refreshing a login and fetching model lists; it keeps none of it |
 
 The server may cache a transcript to serve clients, but never keeps a
 second transcript of its own. Notes, skills, the library's skills, tools
 added by hand and the folder a hamlet works on stay files (ADR 0005).
-Credentials stay out of both stores (S7).
+Credentials stay out of both stores (S7). The server holds them in
+`credentials.json` and hands a runtime the one a call needs, in memory,
+when it allows the attempt. Signing in and refreshing a login run in a
+runtime's pi-ai at the server's request, and the server keeps what they
+return. Nothing provider-specific is written again in Rust.
 
 ## The home on disk
 
@@ -480,10 +485,6 @@ It did not show:
 - Whether markers are ever cleared, and when.
 - How letters, questions and votes recover when the two agents are in
   different runtimes.
-- Who owns the model catalogue, sign-ins and refreshing logins. They are
-  pi-ai's, in JavaScript, today, while the server in Rust holds S7's
-  credentials. With that: how a runtime gets a provider credential for a
-  call, while keeping credentials out of both stores (S7, C32).
 - The format and order of moving a home: whether the pi runtime's store is
   built from `home.sqlite`'s conversations or begins as a copy of it.
 - Moving back once both stores have changed since the move.
