@@ -162,6 +162,8 @@ fn main() -> Result<()> {
         // reviews.
         app.insert_resource(Unreviewed);
     }
+    #[cfg(feature = "wasm")]
+    app.add_plugins(hamlet_wasm::plugin);
     let tick = ScheduleRunnerPlugin::run_loop(TICK);
     match mode {
         Mode::Repl => {

@@ -1,0 +1,14 @@
+[package]
+name = "hamlet_wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The host of the installed plugins: WASM components run under limits, one store each"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_sdk.workspace = true
+bevy.workspace = true
+wasmtime.workspace = true
