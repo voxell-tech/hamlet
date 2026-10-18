@@ -101,6 +101,7 @@ hamlet_core.workspace = true
 hamlet_desktop.workspace = true
 hamlet_ui.workspace = true
 hamlet_realm.workspace = true
+hamlet_sdk.workspace = true
 anyhow.workspace = true
 bevy.workspace = true
 bevy_app.workspace = true

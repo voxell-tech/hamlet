@@ -1,22 +1,18 @@
-//! The library's skills, and the card a row of a list is.
+//! The library's skills, as a list of cards.
 
 use bevy::ecs::resource::Resource;
 use bevy::ui::{AlignItems, UiRect, px};
-use bevy_fynix::tokens::{Motion, Tone};
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, row,
-};
-use bevy_fynix::{
-    ScopedExt, StateExt, ViewExt, each, keyed, resource,
-};
+use bevy_fynix::tokens::Tone;
+use bevy_fynix::views::{FrameProps, column, frame, label};
+use bevy_fynix::{ViewExt, each, keyed, resource};
 use hamlet_core::core::Skills;
+pub use hamlet_sdk::cards::{card, item};
 
+use crate::View;
 use crate::dock::show_tab;
 use crate::icons::Glyph;
-use crate::looks::{Fills, action, away, bad_action};
-use crate::platform::DisplayText;
+use crate::looks::{action, bad_action};
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View};
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct SkillRow {
@@ -97,45 +93,4 @@ pub(crate) fn skills() -> impl View {
         .within(column(()).gap(8.0)),
     ))
     .gap(0.0)
-}
-
-/// One card: a title over a dim line.
-pub fn item(title: String, detail: String, tone: Tone) -> AnyView {
-    card(title, detail, tone, None)
-}
-
-/// One card: a title, with `beside` it at the card's right when
-/// there is something to press, over a dim line the card's whole
-/// width.
-pub fn card(
-    title: String,
-    detail: String,
-    tone: Tone,
-    beside: Option<AnyView>,
-) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
-        let name = row((label(title)
-            .size(13.0)
-            .bold(true)
-            .tone(tone)
-            .tagged(DisplayText),))
-        .fills_width()
-        .boxed();
-        let head =
-            std::iter::once(name).chain(beside).collect::<Vec<_>>();
-        cx.build(
-            column((
-                row(head).gap(8.0).align(AlignItems::Center),
-                label(detail).size(13.0).tone(Tone::Dim),
-            ))
-            .gap(4.0)
-            .padding(UiRect::axes(px(14.0), px(10.0)))
-            .border(1.0)
-            .border_color(cx.theme().palette.brass_6)
-            .radius(cx.theme().space.round)
-            .fill(cx.theme().palette.card)
-            .appear(away)
-            .transition(Motion::Expand),
-        )
-    })
 }

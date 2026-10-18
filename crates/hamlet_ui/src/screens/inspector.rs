@@ -3,24 +3,29 @@
 
 mod agent;
 mod gone;
-mod papers;
+mod house;
 
 use bevy::app::{App, Update};
-use bevy::ecs::change_detection::DetectChanges;
+use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::entity::Entity;
-use bevy::ecs::schedule::common_conditions::resource_changed;
-use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::{
+    resource_changed, resource_exists_and_changed,
+};
+use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_core::agents::Left;
 use hamlet_realm::pick::{Selected, Thing};
+use hamlet_sdk::convo::AgentSelected;
+pub(crate) use hamlet_sdk::convo::of_agent;
+use hamlet_sdk::papers::keep_papers;
 
 pub use self::agent::{Briefing, Section};
 pub(crate) use self::agent::{now, show_prompt};
-pub(crate) use self::gone::{of_agent, skills_screen};
-pub(crate) use self::papers::house;
-pub use self::papers::{Papers, keep_papers};
+pub(crate) use self::gone::skills_screen;
+pub(crate) use self::house::house;
 use crate::dock::{PanelAppExt, lit_panel, panel, show_tab};
 use crate::feel::Lit;
 use crate::icons::Glyph;
@@ -49,20 +54,33 @@ pub fn plugin(app: &mut App) {
             .icon(Glyph::Book.image(ICON)),
     )
     .init_resource::<Section>()
-    .init_resource::<Papers>()
     .init_resource::<Briefing>()
-    .add_observer(papers::papers_on_job)
     .add_systems(
         Update,
         (
             tabs::mark::<Section>,
             agent::leave_prompt.run_if(resource_changed::<Me>),
-            keep_papers.run_if(
-                resource_changed::<Me>
-                    .or_eager(resource_changed::<Section>),
-            ),
+            keep_papers.run_if(resource_changed::<Section>),
+            mark_selected
+                .run_if(resource_exists_and_changed::<Selected>),
         ),
     );
+}
+
+/// Keeps [`AgentSelected`] true to the world's selection.
+fn mark_selected(
+    selected: Res<Selected>,
+    mut marked: ResMut<AgentSelected>,
+) {
+    marked.set_if_neq(AgentSelected(matches!(
+        selected.0,
+        Some(
+            Thing::Keeper
+                | Thing::Cottage
+                | Thing::Resident(_)
+                | Thing::ResidentHouse(_)
+        )
+    )));
 }
 
 /// The subject of the panel: every hamlet when nothing is selected, a

@@ -1,43 +1,60 @@
 //! The notes, the character and the skills an agent keeps in its
 //! house, read for its pages.
 
+use bevy::app::{App, Update};
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::common_conditions::resource_changed;
+use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Query, Res, ResMut};
-use bevy::ecs::world::World;
 use hamlet_core::agents;
 use hamlet_core::core::HomeDir;
 use hamlet_core::session::{self, JobFinished, Seat};
-use hamlet_home::Home;
 
-use crate::me::Me;
+use crate::convo::{AgentSelected, Me};
 
 /// The most of the notes or the character the panel shows.
 const NOTES_SHOWN: usize = 6000;
 
-/// The house of the selected agent: its root and its workspace.
-pub(crate) fn house(world: &World) -> Home {
-    let home = &world.resource::<HomeDir>().0;
-    let me = world.resource::<Me>();
-    session::house_at(home, world.get::<Seat>(me.session))
+/// Reads the papers again when the chat is with another agent, when
+/// the selection changes and when a turn has ended.
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Papers>()
+        .init_resource::<AgentSelected>()
+        .add_observer(papers_on_job)
+        .add_systems(
+            Update,
+            keep_papers.run_if(
+                resource_changed::<Me>
+                    .or_eager(resource_changed::<AgentSelected>),
+            ),
+        );
 }
 
 /// The notes, the character and the skills the selected agent keeps
-/// in its house, as its pages show them.
-#[derive(Resource, Default, PartialEq)]
+/// in its house, as its pages show them. Empty while no agent is
+/// selected.
+#[derive(Resource, Default, PartialEq, Debug)]
 pub struct Papers {
-    pub(super) notes: String,
-    pub(super) character: String,
+    pub notes: String,
+    pub character: String,
     /// Each skill of its own by its name, with what it is for.
-    pub(super) skills: Vec<(String, String)>,
+    pub skills: Vec<(String, String)>,
 }
 
 fn read_papers(
     home: Option<&HomeDir>,
     me: &Me,
+    selected: AgentSelected,
     seats: &Query<&Seat>,
     papers: &mut ResMut<Papers>,
 ) {
+    if !selected.0 {
+        if **papers != Papers::default() {
+            **papers = Papers::default();
+        }
+        return;
+    }
     let Some(home) = home else {
         return;
     };
@@ -60,20 +77,22 @@ fn read_papers(
 pub fn keep_papers(
     home: Option<Res<HomeDir>>,
     me: Res<Me>,
+    selected: Res<AgentSelected>,
     seats: Query<&Seat>,
     mut papers: ResMut<Papers>,
 ) {
-    read_papers(home.as_deref(), &me, &seats, &mut papers);
+    read_papers(home.as_deref(), &me, *selected, &seats, &mut papers);
 }
 
 /// Reads them again when a turn has ended, which is when an agent
 /// has written them.
-pub(super) fn papers_on_job(
+fn papers_on_job(
     _: On<JobFinished>,
     home: Option<Res<HomeDir>>,
     me: Res<Me>,
+    selected: Res<AgentSelected>,
     seats: Query<&Seat>,
     mut papers: ResMut<Papers>,
 ) {
-    read_papers(home.as_deref(), &me, &seats, &mut papers);
+    read_papers(home.as_deref(), &me, *selected, &seats, &mut papers);
 }

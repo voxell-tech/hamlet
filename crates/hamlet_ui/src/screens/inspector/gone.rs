@@ -4,21 +4,20 @@ use bevy::ecs::entity::Entity;
 use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, row, scroll,
+    BehaviorExt, FrameProps, column, row, scroll,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_core::agents::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Selected, Thing, select};
+use hamlet_sdk::convo::of_agent;
+use hamlet_sdk::papers::Papers;
 
 use super::agent::dim;
-use super::papers::Papers;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, action, bad_action, bare, filling, good_action, note,
-    stated, title,
+    Fills, action, bad_action, bare, good_action, note, stated, title,
 };
-use crate::me::Me;
-use crate::platform::{DisplayText, Wraps};
+use crate::platform::Wraps;
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx, View, lists, overview};
 
@@ -148,36 +147,6 @@ fn skills() -> AnyView {
     .gap(12.0),))
     .fills_height()
     .boxed()
-}
-
-/// A page of `what` about the selected agent, under whose it is.
-pub(crate) fn of_agent(
-    what: &'static str,
-    body: fn() -> AnyView,
-) -> impl View {
-    keyed(
-        resource::<Me, _>(|m| (m.session, m.with.clone())),
-        move |(_, with)| {
-            let whose = match with {
-                Some(name) => {
-                    format!("{}: {what}", name.to_uppercase())
-                }
-                None => format!("THE MAYOR: {what}"),
-            };
-            column((
-                label(whose)
-                    .size(13.0)
-                    .bold(true)
-                    .tone(Tone::Faint)
-                    .tagged(DisplayText),
-                body(),
-            ))
-            .fills_height()
-            .gap(12.0)
-            .boxed()
-        },
-    )
-    .within(filling())
 }
 
 /// The Skills panel: the selected agent's own skills, and the

@@ -143,7 +143,7 @@ mod tests {
 
     use super::super::tests::step;
     use super::*;
-    use crate::me::Me;
+    use crate::me::{Me, MeOf};
     use crate::theme::HamletTheme;
 
     /// A world with one panel of each kind, and their backdrops.

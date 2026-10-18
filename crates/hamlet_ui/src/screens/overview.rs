@@ -25,14 +25,14 @@ use hamlet_core::core::HomeDir;
 use hamlet_core::oversight::Waiting;
 use hamlet_realm::pick::{Thing, focus_on, select};
 use hamlet_rules::realm::Realm;
+pub(crate) use hamlet_sdk::cards::heading;
 
 pub use self::hamlet::{Naming, Page, hamlet};
 use self::rows::{hamlet_rows, pressable};
 pub(crate) use self::rows::{stale, standing};
-use crate::icons::{Glyph, glyph};
+use crate::icons::Glyph;
 use crate::looks::{
-    Fills, ICON, action, bad_action, bare, good_action, note, raised,
-    title, well,
+    Fills, action, bad_action, bare, good_action, note, title, well,
 };
 use crate::platform::DisplayText;
 use crate::roll::hamlets_moved;
@@ -83,24 +83,6 @@ pub fn read_search(
     if text.value() != search.0.as_str() {
         search.0 = text.value().to_string();
     }
-}
-
-/// A heading over a part of the panel, behind its icon.
-pub(crate) fn heading(
-    which: Glyph,
-    text: impl Into<String>,
-) -> AnyView {
-    row((
-        raised(glyph(which, ICON).tone(Tone::Faint)),
-        label(text.into())
-            .size(11.0)
-            .bold(true)
-            .tone(Tone::Faint)
-            .tagged(DisplayText),
-    ))
-    .gap(7.0)
-    .align(AlignItems::Center)
-    .boxed()
 }
 
 /// The hamlets that were closed down, each to be brought back.

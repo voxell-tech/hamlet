@@ -38,7 +38,9 @@ use hamlet_realm::pick::Selected;
 pub use hamlet_sdk::looks::{
     ICON, brass, grim, lamp, marked, retrace, well,
 };
-pub use hamlet_sdk::{AnyView, Cx, View, looks, theme, with_cx};
+pub use hamlet_sdk::{
+    AnyView, Cx, SdkPlugin, View, looks, theme, with_cx,
+};
 
 pub use self::dock::{lit_panel, panel};
 pub use self::me::Me;
@@ -61,6 +63,7 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
+            SdkPlugin,
             me::plugin,
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),

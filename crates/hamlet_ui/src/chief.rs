@@ -378,6 +378,7 @@ mod tests {
     use hamlet_core::session::SessionKey;
 
     use super::*;
+    use crate::me::MeOf;
 
     fn app() -> (App, Entity, Entity) {
         let mut app = App::new();

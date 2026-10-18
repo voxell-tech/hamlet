@@ -2,15 +2,28 @@
 //! crate depends on this and on the engine crates, never on
 //! `hamlet_ui`.
 
+pub mod cards;
+pub mod convo;
 pub mod feel;
 pub mod icons;
 pub mod looks;
+pub mod papers;
 pub mod platform;
 pub mod theme;
 
+use bevy::app::{App, Plugin};
 use bevy_fynix::Bevy;
 
 use self::theme::HamletTheme;
+
+/// What the plugins stand on. Add it to the app before any plugin.
+pub struct SdkPlugin;
+
+impl Plugin for SdkPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(papers::plugin);
+    }
+}
 
 /// The context a view of the window is built in.
 pub type Cx<'a> = bevy_fynix::Cx<'a, Bevy, HamletTheme>;

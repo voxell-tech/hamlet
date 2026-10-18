@@ -408,8 +408,8 @@ pub fn message_bar() -> impl View {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
+    use crate::me::MeOf;
 
     #[test]
     fn the_chat_stays_at_its_end_until_it_is_read_back() {

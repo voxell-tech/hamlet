@@ -20,8 +20,8 @@ use hamlet_core::agents::{
 use hamlet_core::core::RefreshLists;
 use hamlet_core::session::{self, Seat};
 use hamlet_realm::pick::{Thing, select};
+use hamlet_sdk::papers::Papers;
 
-use super::papers::Papers;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
@@ -259,7 +259,7 @@ fn notes() -> impl View {
 /// Opens the selected agent's character in the program the system
 /// keeps for such a file, made empty if there is none yet.
 fn edit_character(world: &mut World) {
-    let house = super::papers::house(world);
+    let house = super::house::house(world);
     if let Ok(file) = agents::papers::character_file(&house) {
         crate::links::open_file(&file);
     }

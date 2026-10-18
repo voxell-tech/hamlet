@@ -526,7 +526,7 @@ mod tests {
     use super::*;
     use crate::chat;
     use crate::links::Roots;
-    use crate::me::Me;
+    use crate::me::{Me, MeOf};
     use crate::theme::{self, HamletTheme};
 
     fn app() -> App {
