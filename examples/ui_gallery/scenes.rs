@@ -72,6 +72,9 @@ impl Plugin for GalleryPlugin {
             .insert_resource(first_run(self.0))
             .init_resource::<chrome::ChromeSettings>()
             .add_message::<Cue>()
+            // `theme::plugin` owns it; the gallery sets its theme by
+            // hand instead.
+            .add_message::<theme::ThemeChanged>()
             .add_systems(Startup, (setup, chrome::draw_marks))
             .add_systems(
                 PostStartup,

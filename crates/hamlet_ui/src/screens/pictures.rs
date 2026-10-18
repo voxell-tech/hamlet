@@ -58,7 +58,6 @@ type Read = (Source, Option<Stamp>, Option<Pixels>);
 /// Reads the pictures of the chat off the frame and keeps them.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Pictures>()
-        .init_resource::<ChatSettings>()
         .add_observer(show)
         .add_observer(unshow)
         .add_observer(look_again)

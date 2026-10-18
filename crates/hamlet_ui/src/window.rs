@@ -50,6 +50,7 @@ const LEAST_FULL: (u32, u32) = (1180, 680);
 pub fn plugin(app: &mut App) {
     app.init_state::<Layout>()
         .init_state::<Showing>()
+        .init_resource::<FullSize>()
         .add_computed_state::<WorldShown>()
         .insert_resource(winit_settings(false))
         .add_systems(OnExit(Layout::Full), keep_size)
@@ -121,9 +122,16 @@ impl ComputedStates for WorldShown {
     }
 }
 
-/// The size the full window goes back to.
+/// The size the full window goes back to, at first the size it was
+/// last left at in the home.
 #[derive(Resource)]
 pub(crate) struct FullSize(pub (u32, u32));
+
+impl bevy::ecs::world::FromWorld for FullSize {
+    fn from_world(world: &mut bevy::ecs::world::World) -> Self {
+        FullSize(saved_size(&world.resource::<HomeDir>().0.root))
+    }
+}
 
 fn size_file(home: &Path) -> PathBuf {
     home.join("window")

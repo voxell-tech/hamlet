@@ -36,7 +36,6 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::state::state::OnEnter;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::{Bevy, FynixPlugin};
-use hamlet_core::core::HomeDir;
 use hamlet_realm::pick::Selected;
 
 pub use self::dock::{lit_panel, panel};
@@ -88,15 +87,10 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(me::plugin);
-        let home = &app.world().resource::<HomeDir>().0.root;
-        let size = window::saved_size(home);
         app.add_plugins((
+            me::plugin,
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
-        ))
-        .insert_resource(window::FullSize(size))
-        .add_plugins((
             (
                 roll::plugin,
                 root::plugin,

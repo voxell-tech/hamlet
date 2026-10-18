@@ -28,8 +28,7 @@ use crate::{
 };
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_message::<ThemeChanged>()
-        .add_systems(Startup, open)
+    app.add_systems(Startup, open)
         // Before anything this frame queues work on the panels it
         // would despawn.
         .add_systems(
