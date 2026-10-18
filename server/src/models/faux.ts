@@ -72,7 +72,9 @@ export const Script = Type.Object(
     {
         responses: Type.Optional(Steps),
         agents: Type.Optional(
-            Type.Record(Type.String({ pattern: "^[^:]+:[0-9]+$" }), Steps),
+            Type.Record(Type.String({ pattern: "^[^:]+:[0-9]+$" }), Steps, {
+                additionalProperties: false,
+            }),
         ),
         errands: Type.Optional(Steps),
         /** Dollars per million tokens the faux model charges; free when absent. */
@@ -165,18 +167,18 @@ export function scriptedModels(script: Script): MutableModels {
             ? []
             : [["errands", script.errands.map(answer)] as const]),
     ]);
-    const dispatch: FauxResponseFactory = (prompt, options, state, model) => {
-        faux.appendResponses([dispatch]);
+    const stream = priced((model, prompt, options) => {
         const queue = queues.get(caller(prompt)) ?? shared;
-        const step = queue.shift();
-        return step === undefined
-            ? fauxAssistantMessage("", {
-                  stopReason: "error",
-                  errorMessage: "No more faux responses queued",
-              })
-            : step(prompt, options, state, model);
-    };
-    faux.setResponses([dispatch]);
+        faux.setResponses([
+            queue.shift() ??
+                (() =>
+                    fauxAssistantMessage("", {
+                        stopReason: "error",
+                        errorMessage: "No more faux responses queued",
+                    })),
+        ]);
+        return faux.stream(model, prompt, options);
+    });
     const models = createModels();
     models.setProvider(
         createProvider({
@@ -186,8 +188,8 @@ export function scriptedModels(script: Script): MutableModels {
             },
             models: faux.models,
             api: {
-                stream: priced(faux.stream),
-                streamSimple: priced(faux.streamSimple),
+                stream,
+                streamSimple: stream,
             },
         }),
     );
@@ -203,9 +205,11 @@ function caller(prompt: TranscriptContext): string {
         for (const [name, text] of Object.entries(message.sections ?? {})) {
             if (name === "instructions" && text !== null) errand = true;
             const found =
-                text === null
+                name !== "machine" || text === null
                     ? null
-                    : /Workspace: [^\n]*\/houses\/([^/\n]+)\/(\d+)/.exec(text);
+                    : /^Workspace: [^\n]*\/houses\/([^/\n]+)\/(\d+)$/m.exec(
+                          text,
+                      );
             if (found) agent = `${found[1]}:${found[2]}`;
         }
     }
