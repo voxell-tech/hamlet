@@ -202,7 +202,7 @@ pub(super) fn setup(world: &mut World) {
         )
         .expect("a charter");
         world.insert_resource(HomeDir(home));
-        world.insert_resource(hamlet_ui::settings::Pane::Charter);
+        world.insert_resource(plugin_settings::Pane::Charter);
     }
     if matches!(
         scene,

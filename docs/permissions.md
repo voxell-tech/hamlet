@@ -254,8 +254,8 @@ allowed, for this run too: the next use asks.
 
 ## Settings
 
-The Plugins page of Settings (`hamlet_ui/src/screens/settings/plugins.rs`
-and its folder, a page the plugin `window` adds as any plugin adds one) shows it
+The Plugins page of Settings (`plugins/settings/src/plugins.rs` and its
+folder, a page the plugin `settings` adds as any plugin adds one) shows it
 two ways, on two tabs:
 
 - **By plugin.** Each plugin with its version and status, its switch, the

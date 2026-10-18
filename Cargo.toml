@@ -38,6 +38,7 @@ hamlet_harness = { version = "0.1.0", path = "crates/hamlet_harness" }
 hamlet_plugins = { version = "0.1.0", path = "plugins/all" }
 plugin_skills = { version = "0.1.0", path = "plugins/skills" }
 plugin_needs = { version = "0.1.0", path = "plugins/needs" }
+plugin_settings = { version = "0.1.0", path = "plugins/settings" }
 
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
@@ -134,6 +135,7 @@ hamlet_openui.workspace = true
 hamlet_offscreen.workspace = true
 hamlet_harness.workspace = true
 plugin_needs.workspace = true
+plugin_settings.workspace = true
 bevy_fynix.workspace = true
 serde_json.workspace = true
 

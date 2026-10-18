@@ -17,7 +17,7 @@ use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::world_menu::{Deed, question};
 use hamlet_ui::{
     Cx, ICON, Me, View, chat, inspector, lit_panel, menu, panel,
-    settings, status_bar, toolbar, welcome,
+    status_bar, toolbar, welcome,
 };
 
 use super::{Scene, Stand, Ui};
@@ -85,8 +85,10 @@ pub(super) fn seed_dock(world: &mut World) {
     );
     registry.register(
         "settings",
-        DockWindowKind::new("SETTINGS", || panel(settings::screen()))
-            .icon(Glyph::Sliders.image(ICON)),
+        DockWindowKind::new("SETTINGS", || {
+            panel(plugin_settings::screen())
+        })
+        .icon(Glyph::Sliders.image(ICON)),
     );
     let scene = *world.resource::<Scene>();
     let mut tree = world.resource_mut::<DockTree>();

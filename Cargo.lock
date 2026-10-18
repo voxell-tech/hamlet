@@ -3560,6 +3560,7 @@ dependencies = [
  "hamlet_vfx",
  "hamlet_wasm",
  "plugin_needs",
+ "plugin_settings",
  "serde_json",
  "tokio",
 ]
@@ -3731,6 +3732,7 @@ dependencies = [
  "bevy_app",
  "hamlet_sdk",
  "plugin_needs",
+ "plugin_settings",
  "plugin_skills",
 ]
 
@@ -5637,6 +5639,22 @@ dependencies = [
  "bevy_fynix",
  "hamlet_core",
  "hamlet_rules",
+ "hamlet_sdk",
+]
+
+[[package]]
+name = "plugin_settings"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "hamlet_chat",
+ "hamlet_core",
+ "hamlet_desktop",
+ "hamlet_home",
+ "hamlet_limits",
+ "hamlet_model",
+ "hamlet_realm",
  "hamlet_sdk",
 ]
 

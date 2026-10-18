@@ -20,64 +20,77 @@ use bevy_fynix::views::{
     number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_chat::deed::CharterReset;
+use hamlet_chat::deed::{self, CharterReset, Deed};
+use hamlet_chat::me::Me;
+use hamlet_chat::{links, markdown};
 use hamlet_core::core::{HomeDir, SaveSettings, Settings};
 use hamlet_core::oversight::Revoke;
 use hamlet_core::oversight::grants::Grants;
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_home::charter;
+use hamlet_limits::{models, rules};
 use hamlet_model::config::Config;
 use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
-use hamlet_sdk::page;
-use hamlet_sdk::plugin::Entry;
-use hamlet_sdk::settings::{
-    Line, SetUpAgain, SettingsPage, SettingsPages, ShowModels,
-};
-
-pub use self::plugins::{Open, Tab};
-use crate::dock::{Panel, PanelAppExt, panel};
-use crate::icons::Glyph;
-use crate::looks::{
+use hamlet_sdk::dock::panel;
+use hamlet_sdk::icons::Glyph;
+use hamlet_sdk::looks::{
     Fills, ICON, action, bad_action, bare, buttons, doors, hairline,
     note, page_head, tick, well,
 };
-use crate::me::Me;
-use crate::platform::DisplayText;
-use crate::roll::{either, moved};
-use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View, markdown, with_cx};
+use hamlet_sdk::platform::DisplayText;
+use hamlet_sdk::plugin::{
+    AppPluginExt, Entry, HamletPlugin, Manifest,
+};
+use hamlet_sdk::roll::{either, moved};
+use hamlet_sdk::settings::{
+    Line, SetUpAgain, SettingsPage, SettingsPages, ShowModels,
+};
+use hamlet_sdk::{
+    AnyView, Cx, View, feel, icons, looks, page, platform, roll,
+    tabs, with_cx,
+};
 
+pub use self::plugins::{Open, Tab};
+
+/// Adds the Settings plugin.
 pub fn plugin(app: &mut App) {
-    app.add_panel(Panel::new(
-        "settings",
-        "SETTINGS",
-        Glyph::Sliders,
-        || panel(screen()),
-    ))
-    .add_plugins(plugins::plugin)
-    .init_resource::<Pane>()
-    .init_resource::<Charter>()
-    .add_observer(charter_reset)
-    .add_observer(show_models)
-    .add_systems(
-        Update,
-        (
-            read_charter.run_if(resource_changed::<Pane>),
-            leave_page.run_if(resource_changed::<SettingsPages>),
-        ),
-    );
+    app.add_plugins(plugins::plugin)
+        .init_resource::<Pane>()
+        .init_resource::<Charter>()
+        .add_observer(charter_reset)
+        .add_observer(show_models)
+        .add_systems(
+            Update,
+            (
+                read_charter.run_if(resource_changed::<Pane>),
+                leave_page.run_if(resource_changed::<SettingsPages>),
+            ),
+        )
+        .add_hamlet_plugin::<SettingsPlugin>();
 }
 
-/// Declares the page of the plugins, a door of the Settings panel.
-pub(crate) fn contribute(entry: &mut Entry) {
-    entry.settings_page_with(
-        "PLUGINS",
-        Glyph::Power,
-        "What is added to Hamlet, each on or off, and what each may \
-         do.",
-        plugins::page,
-    );
+/// The plugin that adds the Settings panel and the page of the
+/// plugins.
+pub struct SettingsPlugin;
+
+impl HamletPlugin for SettingsPlugin {
+    fn manifest() -> Manifest {
+        Manifest::built_in("settings").named("Settings")
+    }
+
+    fn entry(entry: &mut Entry) {
+        entry.panel("settings", "SETTINGS", Glyph::Sliders, || {
+            panel(screen())
+        });
+        entry.settings_page_with(
+            "PLUGINS",
+            Glyph::Power,
+            "What is added to Hamlet, each on or off, and what each \
+             may do.",
+            plugins::page,
+        );
+    }
 }
 
 /// Turns back to the front page when the page a plugin added is gone.
@@ -410,7 +423,7 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
             actions.push(action(
                 Glyph::Restore,
                 "BACK TO THE DEFAULT",
-                |world| world_menu::ask(world, Deed::DefaultCharter),
+                |world| deed::ask(world, Deed::DefaultCharter),
             ));
         }
         buttons(actions).boxed()

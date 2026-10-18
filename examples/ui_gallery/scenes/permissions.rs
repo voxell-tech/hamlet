@@ -15,7 +15,7 @@ use hamlet_sdk::plugin::{
     ContributedBy, Imports, Manifest, PluginInfo, Status,
 };
 use hamlet_sdk::settings::SettingsPage;
-use hamlet_ui::settings::{Open, Tab};
+use plugin_settings::{Open, Tab};
 
 use super::Scene;
 

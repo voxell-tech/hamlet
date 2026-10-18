@@ -2,7 +2,7 @@
 
 use bevy::ecs::system::{Res, ResMut};
 use hamlet_sdk::settings::SettingsPages;
-use hamlet_ui::settings::Pane;
+use plugin_settings::Pane;
 
 use super::Scene;
 

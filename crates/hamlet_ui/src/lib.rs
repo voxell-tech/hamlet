@@ -41,7 +41,7 @@ pub use hamlet_sdk::{
 };
 
 pub use self::root::toolbar;
-pub use self::screens::{inspector, overview, settings};
+pub use self::screens::{inspector, overview};
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
 pub use self::widgets::{feel, icons, platform, tabs, tuning};

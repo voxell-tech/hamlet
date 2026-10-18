@@ -14,7 +14,7 @@ use bevy_fynix::dock::{
 };
 use hamlet_core::core::RefreshLists;
 pub(crate) use hamlet_sdk::dock::{
-    Panel, PanelAppExt, TabShown, lit_panel, panel, show_tab,
+    Panel, PanelAppExt, TabShown, lit_panel, show_tab,
 };
 
 use crate::remember;

@@ -1,0 +1,21 @@
+[package]
+name = "plugin_settings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Settings panel: the front page of the home's settings, each on a page of its own, and the Plugins page"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_chat.workspace = true
+hamlet_core.workspace = true
+hamlet_desktop.workspace = true
+hamlet_home.workspace = true
+hamlet_limits.workspace = true
+hamlet_model.workspace = true
+hamlet_realm.workspace = true
+hamlet_sdk.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true

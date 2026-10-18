@@ -219,7 +219,7 @@ plugin: a door of the Settings panel's front page, under the pages of the
 panel itself, to a page that is the plugin panel `panel`. `holds` is a line
 under the title of the door, and may be empty. `SettingsPages` is the read-model
 of the pages that may show: built in plugins' first, then by plugin and title.
-The Plugins page is one: the plugin `window` adds it with
+The Plugins page is one: the plugin `settings` adds it with
 `Entry::settings_page_with`, which takes the view of the page. A plugin that is
 not built in shows its pages only while the chief allows it `ui.settings`.
 
@@ -268,6 +268,7 @@ feature of its name, all on by default. The binary and the gallery add
 | Plugin | What it adds |
 |---|---|
 | `plugin_needs` | The Needs You panel, titled PETITIONS: everything that waits for the chief, oldest first, with the answers each takes and a field for the reason or reply. It reads the chief's `ChiefName` and, where the window has set it, `DrawChange`, so it runs with no window |
+| `plugin_settings` | The Settings panel: its front page and the pages of it (endpoints, models, agents, charter, realm, senses) and the Plugins page. It stands on `hamlet_chat` (markdown, links, the deeds that ask first), `hamlet_limits` (the models and the rules of the realm) and `hamlet_realm` (the sky and the sound it sets) |
 | `plugin_skills` | The Skills panel: the selected agent's own skills over the library, a VIEW line that opens it, and a SKILLS tab of the inspector's page of an agent that has skills of its own. TAKE OUT asks through `Confirm` and then runs `/unshelve` as the chief |
 
 Settings has a Plugins page that lists every `PluginInfo` with a switch

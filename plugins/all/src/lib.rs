@@ -12,6 +12,8 @@ impl PluginGroup for Builtin {
         let group = PluginGroupBuilder::start::<Self>();
         #[cfg(feature = "needs")]
         let group = group.add(plugin_needs::plugin);
+        #[cfg(feature = "settings")]
+        let group = group.add(plugin_settings::plugin);
         #[cfg(feature = "skills")]
         let group = group.add(plugin_skills::plugin);
         group
