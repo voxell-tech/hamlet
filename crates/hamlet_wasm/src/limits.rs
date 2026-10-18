@@ -23,6 +23,8 @@ pub struct Limits {
     pub table_elements: usize,
     /// The log lines one call may leave. The rest are dropped.
     pub log_lines: usize,
+    /// The bytes of one log line. The rest of a longer line is cut.
+    pub log_bytes: usize,
 }
 
 impl Limits {

@@ -1,7 +1,10 @@
 //! The host of the installed plugins: WASM components run under
 //! limits, one store each.
 
+pub mod call;
 pub mod engine;
+pub mod fault;
+pub mod host;
 pub mod install;
 pub mod instance;
 pub mod interface;
