@@ -598,3 +598,50 @@ async fn sends_a_whole_state_when_a_hamlet_closes_or_goes() {
         })
         .await;
 }
+
+#[tokio::test]
+async fn stops_another_hamlets_agent_by_name_and_office() {
+    let held = || {
+        call(
+            "bash",
+            json!({"command": "touch never", "network": true}),
+        )
+    };
+    let mut s = Session::start(Script::new().agent("mill:0", [
+        call("create_agent", json!({"name": "scout", "purpose": "Explore", "reason": "Needed"})),
+        words("Ready."), held(),
+    ]).agent("mill:1", [held(), held()])).await;
+    s.chief.say(mayor(), "/found mill miller Grind flour").await;
+    s.chief.say(to("mill", "mayor"), "Hire scout.").await;
+    for (address, target) in [
+        ("scout", "scout"),
+        ("scout@mill", "scout"),
+        ("mayor@mill", "mayor"),
+    ] {
+        s.chief.tell(to("mill", target), "Work.").await;
+        let wait = s
+            .chief
+            .wait_for("the mill's approval", |w| {
+                matches!(w, Wait::Approval { .. })
+            })
+            .await;
+        let reply =
+            s.chief.say(mayor(), &format!("/stop {address}")).await;
+        assert_eq!(reply.text, format!("Stopping {address}."));
+        s.chief
+            .until("the wait lapsed", |c| c.waits().is_empty())
+            .await;
+        assert!(s.chief.changes().contains(&Update::WaitClosed {
+            id: hamlet_acceptance::realm::wait_id(&wait).into(),
+            how: "stopped".into()
+        }));
+        assert!(
+            !s.home
+                .file(&format!(
+                    "houses/mill/{}/never",
+                    if target == "mayor" { 0 } else { 1 }
+                ))
+                .exists()
+        );
+    }
+}

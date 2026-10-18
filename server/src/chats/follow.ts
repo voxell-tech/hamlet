@@ -339,6 +339,7 @@ async function follow(
                 (await tx.doc(ReflectionDoc, id)).unreflected++;
             }
             if (
+                place.chief !== null &&
                 follow.last === "failed" &&
                 failure === undefined &&
                 !(entry !== undefined && ReflectionEntry.is(entry))

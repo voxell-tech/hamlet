@@ -70,6 +70,13 @@ const Steps = Type.Array(Step);
  */
 export const Script = Type.Object(
     {
+        /** Model ids offered by this provider; `faux-1` when absent. */
+        models: Type.Optional(
+            Type.Array(Type.String({ minLength: 1 }), {
+                minItems: 1,
+                uniqueItems: true,
+            }),
+        ),
         responses: Type.Optional(Steps),
         agents: Type.Optional(
             Type.Record(Type.String({ pattern: "^[^:]+:[0-9]+$" }), Steps, {
@@ -140,19 +147,18 @@ export function scriptedModels(script: Script): MutableModels {
         ...(script.tokensPerSecond === undefined
             ? {}
             : { tokensPerSecond: script.tokensPerSecond }),
-        ...(script.price === undefined
+        ...(script.models === undefined && script.price === undefined
             ? {}
             : {
-                  models: [
-                      {
-                          id: "faux-1",
-                          cost: {
-                              ...script.price,
-                              cacheRead: 0,
-                              cacheWrite: 0,
-                          },
+                  models: (script.models ?? ["faux-1"]).map((id) => ({
+                      id,
+                      cost: {
+                          input: script.price?.input ?? 0,
+                          output: script.price?.output ?? 0,
+                          cacheRead: 0,
+                          cacheWrite: 0,
                       },
-                  ],
+                  })),
               }),
     });
     const shared = (script.responses ?? []).map(answer);

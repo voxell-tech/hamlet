@@ -55,3 +55,7 @@ required-features = ["acceptance"]
 [[test]]
 name = "cli"
 required-features = ["acceptance"]
+
+[[test]]
+name = "sandbox"
+required-features = ["acceptance"]

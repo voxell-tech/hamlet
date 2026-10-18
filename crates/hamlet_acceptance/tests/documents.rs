@@ -679,3 +679,85 @@ async fn refuses_requests_for_hamlets_and_agents_that_do_not_exist() {
         "{page:?}"
     );
 }
+
+#[tokio::test]
+async fn composes_project_instructions_skills_and_unicode_cuts() {
+    let mut s = Session::start_with(
+        Script::new(),
+        &[("HAMLET_REFLECT_EVERY", "0"), ("HAMLET_NET", "1")],
+    )
+    .await;
+    let work = s.home.side().join("work");
+    std::fs::create_dir_all(work.join(".git")).unwrap();
+    std::fs::write(work.join("CLAUDE.md"), "Use tabs.").unwrap();
+    let house = s.home.file("houses/home/0");
+    std::fs::create_dir_all(house.join("skills/forecast")).unwrap();
+    std::fs::write(
+        house.join("skills/forecast/SKILL.md"),
+        "---\nname: forecast\ndescription: Get the forecast\nusage: \
+         sh forecast.sh\n---\n",
+    )
+    .unwrap();
+    s.chief
+        .say(mayor(), &format!("/folder {}", work.display()))
+        .await;
+    let prompt = s.chief.prompt(mayor()).await;
+    for text in [
+        "System: Linux.",
+        "Network for tools: on.",
+        "git worktree",
+        "The chief approves each edit",
+        "# The project's CLAUDE.md\nUse tabs.",
+        "forecast: Get the forecast",
+    ] {
+        assert!(prompt.contains(text), "{text}: {prompt}");
+    }
+    assert!(prompt.contains(&format!(
+        "cd '{}' && sh forecast.sh",
+        house.display()
+    )));
+    std::fs::write(work.join("AGENTS.md"), "🌻".repeat(8001))
+        .unwrap();
+    edit(&mut s.chief, |id| Edit::Character {
+        id,
+        agent: mayor(),
+        text: "🌻".repeat(4001),
+    })
+    .await;
+    std::fs::write(house.join("NOTES.md"), "🌻".repeat(8001))
+        .unwrap();
+    let prompt = s.chief.prompt(mayor()).await;
+    assert!(!prompt.contains("Use tabs."));
+    for (heading, count, ending) in [
+        (
+            "# The project's AGENTS.md",
+            8000,
+            "[AGENTS.md is longer than 8000 characters and is cut \
+             here.]",
+        ),
+        (
+            "# Your character",
+            4000,
+            "[The character is longer than 4000 characters and is \
+             cut here.]",
+        ),
+        (
+            "# NOTES.md",
+            8000,
+            "[NOTES.md is longer than 8000 characters and is cut \
+             here. Shorten it so that all of it is shown.]",
+        ),
+    ] {
+        assert!(
+            prompt.contains(&format!(
+                "{heading}\n{}\n{ending}",
+                "🌻".repeat(count)
+            )),
+            "missing {heading}"
+        );
+    }
+    std::fs::write(house.join("NOTES.md"), [255, 254, 65]).unwrap();
+    let prompt = s.chief.prompt(mayor()).await;
+    assert!(prompt.contains("# NOTES.md\n\n# "));
+    assert!(!prompt.contains("[NOTES.md is longer"));
+}

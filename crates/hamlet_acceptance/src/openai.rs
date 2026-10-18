@@ -1,14 +1,15 @@
-//! A loopback endpoint that speaks enough of the OpenAI API for a
-//! server's real providers: a model listing, and an answer of
-//! "Hello." to every chat completion.
+//! A scripted loopback OpenAI endpoint for the server's providers.
+
+use std::path::PathBuf;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 use tokio::io::{
     AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader,
 };
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio::task::{JoinHandle, JoinSet};
 
 /// One request the endpoint received.
 #[derive(Clone, Debug)]
@@ -26,7 +27,36 @@ pub struct Endpoint {
     pub url: String,
     received: mpsc::UnboundedReceiver<Request>,
     seen: Vec<Request>,
+    responses: mpsc::UnboundedSender<Response>,
+    listing: watch::Sender<Value>,
     task: JoinHandle<()>,
+}
+
+/// One completion, consumed when its request arrives, before any
+/// hold.
+#[derive(Clone, Debug)]
+pub struct Response {
+    pub status: u16,
+    pub text: String,
+    pub finish: String,
+    pub usage: Option<Value>,
+    pub hold_until: Option<PathBuf>,
+    /// OpenAI tool calls in the assistant delta.
+    pub calls: Vec<Value>,
+}
+
+impl Default for Response {
+    fn default() -> Self {
+        Self {
+            status: 200,
+            text: "Hello.".into(),
+            finish: "stop".into(),
+            usage: Some(json!({"prompt_tokens": 100,
+                "completion_tokens": 20, "cost": COST})),
+            hold_until: None,
+            calls: vec![],
+        }
+    }
 }
 
 /// The cost the endpoint bills for every answer, in dollars.
@@ -40,20 +70,84 @@ impl Endpoint {
             TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let (sender, received) = mpsc::unbounded_channel();
+        let (responses, mut plans) = mpsc::unbounded_channel();
+        let (listing, listings) = watch::channel(json!({
+            "data": [{"id": "org/large", "context_length": 32000}]
+        }));
+        let (incoming, mut requests) = mpsc::unbounded_channel::<(
+            Request,
+            oneshot::Sender<(Response, Option<Value>)>,
+        )>();
         let task = tokio::spawn(async move {
-            while let Ok((stream, _)) = listener.accept().await {
-                let sender = sender.clone();
-                tokio::spawn(async move {
-                    answer(stream, sender).await;
-                });
+            let mut connections = JoinSet::new();
+            loop {
+                tokio::select! {
+                    accepted = listener.accept() => {
+                        let Ok((stream, _)) = accepted else { break };
+                        connections.spawn(answer(stream, incoming.clone()));
+                    }
+                    Some((request, reply)) = requests.recv() => {
+                        let list = request.path.ends_with("/models")
+                            .then(|| listings.borrow().clone());
+                        let response = if list.is_some() {
+                            Response::default()
+                        } else {
+                            plans.try_recv().unwrap_or_default()
+                        };
+                        let _ = sender.send(request);
+                        let _ = reply.send((response, list));
+                    }
+                    _ = connections.join_next(), if !connections.is_empty() => {}
+                }
             }
         });
         Self {
             url: format!("http://127.0.0.1:{port}/v1"),
             received,
             seen: vec![],
+            responses,
+            listing,
             task,
         }
+    }
+
+    /// Queues completion responses; an empty queue answers "Hello.".
+    pub fn enqueue(
+        &self,
+        responses: impl IntoIterator<Item = Response>,
+    ) {
+        for response in responses {
+            self.responses.send(response).unwrap();
+        }
+    }
+
+    /// Replaces the next and subsequent model listings.
+    pub fn list(&self, data: Value) {
+        self.listing.send_replace(json!({"data": data}));
+    }
+
+    /// Waits for `count` completion requests, including held
+    /// requests.
+    pub async fn completions(
+        &mut self,
+        count: usize,
+    ) -> Vec<Request> {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let completions = self
+                    .requests()
+                    .iter()
+                    .filter(|r| r.path.ends_with("/chat/completions"))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if completions.len() >= count {
+                    return completions;
+                }
+                self.seen.push(self.received.recv().await.unwrap());
+            }
+        })
+        .await
+        .expect("completion requests arrive")
     }
 
     /// Every request received so far.
@@ -73,7 +167,10 @@ impl Drop for Endpoint {
 
 async fn answer(
     stream: TcpStream,
-    received: mpsc::UnboundedSender<Request>,
+    incoming: mpsc::UnboundedSender<(
+        Request,
+        oneshot::Sender<(Response, Option<Value>)>,
+    )>,
 ) -> Option<()> {
     let mut stream = BufReader::new(stream);
     let mut line = String::new();
@@ -101,21 +198,46 @@ async fn answer(
     let mut body = vec![0; length];
     stream.read_exact(&mut body).await.ok()?;
     let body = serde_json::from_slice::<Value>(&body).ok();
-    let (kind, text) = if path.ends_with("/models") {
-        let listing = json!({
-            "data": [{"id": "org/large", "context_length": 32000}]
-        });
+    let (send, receive) = oneshot::channel();
+    incoming
+        .send((
+            Request {
+                path,
+                authorization,
+                body,
+            },
+            send,
+        ))
+        .ok()?;
+    let (response, listing) = receive.await.ok()?;
+    if let Some(file) = &response.hold_until {
+        while !file.exists() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+    let (kind, text) = if let Some(listing) = listing {
         ("application/json", listing.to_string())
+    } else if response.status != 200 {
+        (
+            "application/json",
+            json!({"error": {"message": response.text}}).to_string(),
+        )
     } else {
-        let chunks = [
+        let mut delta =
+            json!({"role": "assistant", "content": response.text});
+        if !response.calls.is_empty() {
+            delta["tool_calls"] = json!(response.calls);
+        }
+        let mut chunks = vec![
             json!({"id": "call-1", "choices": [{"index": 0, "delta":
-                {"role": "assistant", "content": "Hello."},
+                delta,
                 "finish_reason": null}]}),
             json!({"choices": [{"index": 0, "delta": {},
-                "finish_reason": "stop"}]}),
-            json!({"choices": [], "usage": {"prompt_tokens": 100,
-                "completion_tokens": 20, "cost": COST}}),
+                "finish_reason": response.finish}]}),
         ];
+        if let Some(usage) = response.usage {
+            chunks.push(json!({"choices": [], "usage": usage}));
+        }
         let mut text = chunks
             .iter()
             .map(|c| format!("data: {c}\n\n"))
@@ -124,17 +246,11 @@ async fn answer(
         ("text/event-stream", text)
     };
     let head = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: \
-         {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {} Reply\r\nContent-Type: \
+         {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        response.status,
         text.len()
     );
-    received
-        .send(Request {
-            path,
-            authorization,
-            body,
-        })
-        .ok()?;
     let stream = stream.get_mut();
     stream.write_all(head.as_bytes()).await.ok()?;
     stream.write_all(text.as_bytes()).await.ok()?;

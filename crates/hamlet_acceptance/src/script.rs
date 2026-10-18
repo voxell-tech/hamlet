@@ -12,6 +12,8 @@ use serde_json::Value;
 #[serde(rename_all = "camelCase")]
 pub struct Script {
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    models: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     responses: Vec<Step>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     agents: BTreeMap<String, Vec<Step>>,
@@ -33,6 +35,12 @@ impl Script {
     /// A script that answers nothing.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The faux provider's model ids; `faux-1` when absent.
+    pub fn models(mut self, ids: &[&str]) -> Self {
+        self.models = ids.iter().map(|id| (*id).into()).collect();
+        self
     }
 
     /// Answers for any conversation without a list of its own, in

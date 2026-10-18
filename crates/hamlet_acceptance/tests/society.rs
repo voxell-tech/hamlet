@@ -545,6 +545,19 @@ async fn merges_houses_by_command_keeping_both_sides() {
     assert_eq!(house("list.txt"), "mine");
     assert_eq!(house("merged/scout/list.txt"), "theirs");
     assert_eq!(house("found.txt"), "Dune");
+    let brief = s.chief.prompt(to("home", "smith")).await;
+    assert!(
+        brief.contains(
+            "scout: merged into you; its notes, skills and roads \
+             are yours"
+        ),
+        "{brief}"
+    );
+    let brief = s.chief.prompt(mayor()).await;
+    assert!(
+        brief.contains("scout: merged into smith; talk to smith"),
+        "{brief}"
+    );
     let reply = s
         .chief
         .say(mayor(), "/merge founder into founder Needed")
@@ -969,4 +982,225 @@ async fn briefs_each_agent_on_its_hamlet() {
         "{scout_prompt}"
     );
     assert!(!scout_prompt.contains("Agents:\n"), "{scout_prompt}");
+}
+
+#[tokio::test]
+async fn carries_a_question_across_a_crash_without_asking_twice() {
+    let mut s = Session::start(society().agent("home:0", [
+        call("ask_agent", json!({"name": "scout", "message": "Do the tests pass?"})),
+        words("The scout answered."),
+    ]).agent("home:1", [words("Never.").held_until("release")])).await;
+    build(&mut s).await;
+    s.chief.open(&chat(mayor())).await;
+    s.chief.tell(mayor(), "Ask scout.").await;
+    s.chief
+        .until("scout working on the question", |c| {
+            c.agent("home", "scout").is_some_and(|a| a.busy)
+        })
+        .await;
+    let question = peer("scout", 0, ChatRefKind::Questions);
+    s.chief.open(&question).await;
+    s.chief
+        .shows(
+            &question,
+            "Question from `mayor` (waiting for your answer):\nDo \
+             the tests pass?",
+        )
+        .await;
+    s.server.kill().await;
+    let server = s
+        .home
+        .serve(
+            &Script::new()
+                .agent("home:1", [words("Yes, all green.")])
+                .agent("home:0", [words("The scout answered.")]),
+            QUIET,
+        )
+        .await;
+    let mut chief = Client::join(&server).await;
+    chief.open(&chat(mayor())).await;
+    chief.shows(&chat(mayor()), "The scout answered.").await;
+    chief.idle("home", "founder").await;
+    let page = chief.open(&question).await;
+    assert_eq!(
+        page.items
+            .iter()
+            .map(|i| i.text.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Question from `mayor` (waiting for your answer):\nDo \
+             the tests pass?",
+            "Yes, all green."
+        ]
+    );
+    assert_eq!(
+        chief
+            .agent("home", "scout")
+            .unwrap()
+            .conversations
+            .unwrap()
+            .iter()
+            .find(|c| c.kind == ConversationViewKind::Questions)
+            .unwrap()
+            .count,
+        1
+    );
+    let page = chief.open(&chat(mayor())).await;
+    assert_eq!(
+        page.items
+            .iter()
+            .filter_map(|i| i.tool.as_ref())
+            .filter(|t| t.name == "ask_agent" && t.exit == Some(0))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn a_failed_peer_turn_does_not_fault_the_agent() {
+    let mut s = Session::start(society().agent("home:0", [
+        call("tell_agent", json!({"name": "scout", "message": "Explore."})), words("Sent."), words("Noted the failure."),
+    ]).agent("home:1", [failure("Peer model unavailable")])).await;
+    build(&mut s).await;
+    s.chief.say(mayor(), "Send scout.").await;
+    let peer_chat = peer("scout", 0, ChatRefKind::Letters);
+    s.chief.open(&peer_chat).await;
+    s.chief
+        .until("the peer failure", |c| {
+            c.items(&peer_chat).iter().any(|i| {
+                i.kind == ItemKind::Error
+                    && i.text.contains("Peer model unavailable")
+            })
+        })
+        .await;
+    s.chief.idle("home", "scout").await;
+    assert!(!s.chief.agent("home", "scout").unwrap().faulted);
+    assert!(s.chief.waits().is_empty(), "{:?}", s.chief.waits());
+}
+
+#[tokio::test]
+async fn keeps_record_names_and_brief_numbers_after_erasure() {
+    let mut s = Session::start(society().agent(
+        "home:0",
+        [
+            call(
+                "remove_agent",
+                json!({"name": "nobody", "reason": "No work"}),
+            ),
+            words("Refused."),
+        ],
+    ))
+    .await;
+    build(&mut s).await;
+    s.chief.say(mayor(), "/remove scout Finished").await;
+    s.chief.say(mayor(), "/erase scout").await;
+    assert!(s.join().await.agent("home", "scout").is_none());
+    let record = s.chief.say(mayor(), "/record").await.text;
+    assert!(
+        record.contains("between `smith` and `scout`: Build"),
+        "{record}"
+    );
+    let prompt = s.chief.prompt(mayor()).await;
+    assert!(
+        prompt.contains("between `smith` and `agent #1`: Build"),
+        "{prompt}"
+    );
+    s.chief.open(&chat(mayor())).await;
+    s.chief.say(mayor(), "Remove nobody.").await;
+    let page = s.chief.open(&chat(mayor())).await;
+    assert!(
+        page.items
+            .iter()
+            .filter_map(|i| i.tool.as_ref()?.failure.as_ref())
+            .any(|f| f.contains("nobody")),
+        "{page:?}"
+    );
+    let prompt = s.chief.prompt(mayor()).await;
+    assert!(prompt.contains("nobody"), "{prompt}");
+}
+
+#[tokio::test]
+async fn keeps_a_refused_road_beside_six_recent_decisions() {
+    let mut s = Session::start(
+        society()
+            .agent(
+                "home:1",
+                [
+                    call(
+                        "request_road",
+                        json!({"to":"poet", "reason":"Need verses"}),
+                    ),
+                    words("Understood."),
+                ],
+            )
+            .agent("home:0", [words("Not yet.")]),
+    )
+    .await;
+    build(&mut s).await;
+    s.chief.say(to("home", "scout"), "Ask for a road.").await;
+    let brief = s.chief.prompt(to("home", "scout")).await;
+    assert!(
+        brief.contains(
+            "The mayor did not build the road you asked for to \
+             `poet`: Not yet."
+        ),
+        "{brief}"
+    );
+    for n in 0..4 {
+        s.chief
+            .say(mayor(), &format!("/road scout poet built-{n}"))
+            .await;
+        s.chief
+            .say(mayor(), &format!("/unroad scout poet removed-{n}"))
+            .await;
+    }
+    let brief = s.chief.prompt(to("home", "scout")).await;
+    assert!(
+        brief.contains("What touched you:")
+            && brief.contains("Not yet."),
+        "{brief}"
+    );
+    assert!(
+        !brief.contains(": built-0")
+            && !brief.contains(": removed-0"),
+        "{brief}"
+    );
+    for n in 1..4 {
+        assert!(
+            brief.contains(&format!(": built-{n}"))
+                && brief.contains(&format!(": removed-{n}")),
+            "{brief}"
+        );
+    }
+    s.chief.limit("home", "mayor", "toldDays", json!(0)).await;
+    let brief = s.chief.prompt(to("home", "scout")).await;
+    assert!(
+        !brief.contains(": built-3")
+            && !brief.contains("What touched you:"),
+        "{brief}"
+    );
+}
+
+#[tokio::test]
+async fn stops_at_a_model_time_cap_charged_by_a_road() {
+    let mut s = Session::start(
+        society().agent("home:0", [words("After reset.")]),
+    )
+    .await;
+    build(&mut s).await;
+    s.chief.limit("home", "road", "minutes", json!(1)).await;
+    let road = s.chief.say(mayor(), "/road scout poet Work").await;
+    assert_eq!(road.kind, ReplyKind::Notice, "{road:?}");
+    s.chief.limit("home", "budget", "minutes", json!(1)).await;
+    s.chief.open(&chat(mayor())).await;
+    s.chief.say(mayor(), "No time left.").await;
+    let page = s.chief.open(&chat(mayor())).await;
+    assert!(
+        page.items.iter().any(|i| i.kind == ItemKind::Notice
+            && i.text.contains("1m model time of 1m model time")),
+        "{page:?}"
+    );
+    s.chief.say(mayor(), "/reset-budget").await;
+    s.chief.say(mayor(), "Answer now.").await;
+    s.chief.shows(&chat(mayor()), "After reset.").await;
 }

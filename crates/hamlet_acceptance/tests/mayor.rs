@@ -495,9 +495,10 @@ async fn names_a_permission_the_limits_give() {
 
 #[tokio::test]
 async fn faults_when_the_model_fails_until_dismissed() {
-    let mut s = Session::start(
-        Script::new().responses([failure("Faux model unavailable")]),
-    )
+    let mut s = Session::start(Script::new().responses([
+        failure("Faux model unavailable"),
+        failure("Faux model unavailable"),
+    ]))
     .await;
     let mayor_chat = chat(mayor());
     s.chief.open(&mayor_chat).await;
@@ -527,6 +528,22 @@ async fn faults_when_the_model_fails_until_dismissed() {
         error.text.contains("Faux model unavailable"),
         "{error:?}"
     );
+    let page = s.chief.open(&mayor_chat).await;
+    assert_eq!(
+        page.last.unwrap().unwrap(),
+        TranscriptLast {
+            what: "error".into(),
+            at: error.at
+        }
+    );
+    s.chief.say(mayor(), "Try again.").await;
+    let repeated = s
+        .chief
+        .wait_for("the repeated fault", |w| {
+            matches!(w, Wait::Fault { asked: 2, .. })
+        })
+        .await;
+    assert_eq!(wait_id(&repeated), wait_id(&wait));
     let reply =
         s.chief.choose(wait_id(&wait), Choice::Dismiss, None).await;
     assert_eq!(reply.kind, ReplyKind::Notice);
@@ -1266,10 +1283,13 @@ async fn tells_what_the_mayor_is_doing() {
     let tail = "é".repeat(400) + "done";
     let mut s = Session::start(Script::new().responses([
         call("read", json!({"path": "NOTES.md"})),
+        call("search", json!({"pattern": "Notes"})),
+        call("find", json!({"path": "."})),
         call(
             "write",
             json!({"path": "NOTES.md", "content": "remember"}),
         ),
+        call("read", json!({"path": "skills/missing/SKILL.md"})),
         words(&tail),
     ]))
     .await;
@@ -1284,6 +1304,33 @@ async fn tells_what_the_mayor_is_doing() {
     let founder = s.chief.agent("home", "founder").unwrap();
     // The last 600 bytes of what it said.
     assert_eq!(founder.saying.text, "é".repeat(298) + "done");
+    let activities = s
+        .chief
+        .changes()
+        .into_iter()
+        .filter_map(|u| match u {
+            Update::Agent { agent } => Some(agent.activity),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        activities.iter().any(|a| a.failures == 1),
+        "{activities:?}"
+    );
+    for (doing, step) in [
+        (Doing::ReadNotes, 2),
+        (Doing::ReadFile, 4),
+        (Doing::ReadFile, 6),
+        (Doing::WriteNotes, 8),
+        (Doing::ReadSkill, 10),
+    ] {
+        assert!(
+            activities.iter().any(|a| a.doing == doing
+                && a.step == step
+                && a.failures == 0),
+            "{activities:?}"
+        );
+    }
     let doings = s
         .chief
         .changes()
@@ -1399,4 +1446,384 @@ async fn runs_one_rounds_tool_calls_in_order() {
     let order =
         std::fs::read_to_string(format!("{dir}/order")).unwrap();
     assert_eq!(order, "a\nb\n");
+}
+
+#[tokio::test]
+async fn faults_on_thinking_without_an_answer() {
+    let mut s = Session::start(
+        Script::new()
+            .responses([words("").thinking("Still thinking.")]),
+    )
+    .await;
+    s.chief.open(&chat(mayor())).await;
+    s.chief.say(mayor(), "Answer.").await;
+    let wait = s
+        .chief
+        .wait_for("an empty-answer fault", |w| {
+            matches!(w, Wait::Fault { .. })
+        })
+        .await;
+    let Wait::Fault { about, .. } = wait else {
+        unreachable!()
+    };
+    assert_eq!(
+        about,
+        "the model answered with nothing. Send the message again"
+    );
+    assert!(
+        s.chief
+            .items(&chat(mayor()))
+            .iter()
+            .any(|i| i.kind == ItemKind::Reasoning
+                && i.text == "Still thinking.")
+    );
+}
+
+#[tokio::test]
+async fn bounds_one_task_and_admits_the_next() {
+    let mut s =
+        Session::start(Script::new().price(1000.0).responses([
+            call("read", json!({"path": "NOTES.md"})),
+            words("A new task answers."),
+        ]))
+        .await;
+    s.chief.limit("home", "budget", "cost", json!(null)).await;
+    s.chief.limit("home", "task", "cost", json!(0.01)).await;
+    s.chief.open(&chat(mayor())).await;
+    s.chief.say(mayor(), "Read.").await;
+    s.chief
+        .until("a task cap notice", |c| {
+            c.texts(&chat(mayor()))
+                .iter()
+                .any(|t| t.contains("This task has spent its cap"))
+        })
+        .await;
+    s.chief.say(mayor(), "A new task.").await;
+    s.chief.shows(&chat(mayor()), "A new task answers.").await;
+    assert!(s.chief.waits().is_empty());
+}
+
+#[tokio::test]
+async fn reads_a_lowered_cap_before_the_next_model_call() {
+    let mut s = Session::start(
+        Script::new().responses([
+            call("read", json!({"path": "NOTES.md"}))
+                .held_until("release"),
+            words("After a raise."),
+        ]),
+    )
+    .await;
+    s.chief.open(&chat(mayor())).await;
+    s.chief.tell(mayor(), "Read.").await;
+    s.chief
+        .until("a running turn", |c| c.working(&chat(mayor())))
+        .await;
+    assert_eq!(
+        s.chief.limit("home", "budget", "cost", json!(0)).await.kind,
+        ReplyKind::Notice
+    );
+    std::fs::write(s.home.side().join("release"), "").unwrap();
+    s.chief
+        .until("the lowered cap", |c| {
+            c.texts(&chat(mayor()))
+                .iter()
+                .any(|t| t.contains("budget") && t.contains("$0.00"))
+        })
+        .await;
+    s.chief.limit("home", "budget", "cost", json!(5)).await;
+    s.chief.say(mayor(), "Now answer.").await;
+    s.chief.shows(&chat(mayor()), "After a raise.").await;
+}
+
+#[tokio::test]
+async fn reflects_owed_work_when_starting_a_new_chat() {
+    let mut s = Session::start_with(
+        Script::new().responses(
+            [words("Remembered.")].into_iter().chain(reflected()),
+        ),
+        &[("HAMLET_REFLECT_EVERY", "10")],
+    )
+    .await;
+    s.chief.say(mayor(), "Remember.").await;
+    s.chief.say(mayor(), "/new").await;
+    let file = s.home.file("houses/home/0/NOTES.md");
+    s.chief
+        .until("the retiring chat's notes", |_| {
+            std::fs::read_to_string(&file)
+                .unwrap()
+                .contains("Reflected.")
+        })
+        .await;
+    let past = s
+        .chief
+        .open(&ChatRef {
+            past: Some(1),
+            ..chat(mayor())
+        })
+        .await;
+    assert!(
+        past.items.iter().any(|i| i
+            .tool
+            .as_ref()
+            .is_some_and(|t| t.name == "write"))
+    );
+    assert_eq!(s.chief.open(&chat(mayor())).await.number, Some(2));
+}
+
+#[tokio::test]
+async fn reflects_owed_work_at_an_orderly_stop() {
+    let mut s = Session::start_with(
+        Script::new().responses(
+            [words("Remembered.")].into_iter().chain(reflected()),
+        ),
+        &[("HAMLET_REFLECT_EVERY", "10")],
+    )
+    .await;
+    s.chief.say(mayor(), "Remember.").await;
+    s.chief.idle("home", "founder").await;
+    assert_eq!(s.server.stop().await, Some(0));
+    assert_eq!(notes_from(&s.home), "# Notes\nReflected.\n");
+    let server = s.home.serve(&Script::new(), QUIET).await;
+    let mut chief = Client::join(&server).await;
+    let page = chief.open(&chat(mayor())).await;
+    assert_eq!(
+        page.items.iter().filter(|i| i.text == "Noted.").count(),
+        1
+    );
+}
+
+fn notes_from(home: &Home) -> String {
+    std::fs::read_to_string(home.file("houses/home/0/NOTES.md"))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn refuses_reflection_approvals_during_shutdown() {
+    let mut s = Session::start_with(
+        Script::new().responses([
+            words("Remembered."),
+            call("bash", json!({"command": "touch never"})),
+            words("Nothing ran."),
+        ]),
+        &[("HAMLET_REFLECT_EVERY", "10")],
+    )
+    .await;
+    let dir = manual(&mut s).await;
+    s.chief.say(mayor(), "Remember.").await;
+    s.chief.idle("home", "founder").await;
+    assert_eq!(s.server.stop().await, Some(0));
+    assert!(!std::path::Path::new(&dir).join("never").exists());
+    let server = s.home.serve(&Script::new(), QUIET).await;
+    let mut chief = Client::join(&server).await;
+    assert!(chief.waits().is_empty());
+    let page = chief.open(&chat(mayor())).await;
+    assert!(
+        page.items
+            .iter()
+            .filter_map(|i| i.tool.as_ref()?.failure.as_ref())
+            .any(|f| f.contains("nobody is here to approve it")),
+        "{page:?}"
+    );
+}
+
+#[tokio::test]
+async fn rewinds_a_reflected_turn_without_undoing_files_or_spend() {
+    let mut s = Session::start_with(
+        Script::new().price(1.0).responses(
+            [words("Remembered.")].into_iter().chain(reflected()),
+        ),
+        &[("HAMLET_REFLECT_EVERY", "1")],
+    )
+    .await;
+    s.chief.open(&chat(mayor())).await;
+    s.chief.say(mayor(), "Remember.").await;
+    s.chief.shows(&chat(mayor()), "Noted.").await;
+    s.chief.idle("home", "founder").await;
+    let before =
+        s.join().await.agent("home", "founder").unwrap().spent;
+    let page = s.chief.open(&chat(mayor())).await;
+    let target = page
+        .items
+        .iter()
+        .find(|i| i.kind == ItemKind::User)
+        .unwrap()
+        .id
+        .clone();
+    let reply = s
+        .chief
+        .request(|id| {
+            ClientMessage::Rewind(Rewind {
+                id,
+                chat: chat(mayor()),
+                item: target,
+            })
+        })
+        .await;
+    assert_eq!(reply.kind, ReplyKind::Rewound);
+    assert_eq!(notes(&s), "# Notes\nReflected.\n");
+    let page = s.chief.open(&chat(mayor())).await;
+    assert!(page.items.is_empty(), "{page:?}");
+    assert_eq!(
+        s.join().await.agent("home", "founder").unwrap().spent,
+        before
+    );
+    assert!(
+        s.chief
+            .say(mayor(), "/retry")
+            .await
+            .text
+            .contains("nothing")
+    );
+    assert_eq!(s.server.stop().await, Some(0));
+    let server = s.home.serve(&Script::new(), QUIET).await;
+    let mut chief = Client::join(&server).await;
+    assert!(chief.open(&chat(mayor())).await.items.is_empty());
+    assert_eq!(chief.agent("home", "founder").unwrap().spent, before);
+}
+
+#[tokio::test]
+async fn keeps_edit_trust_and_network_refusal_across_restart_but_not_resume()
+ {
+    let mut s = Session::start(Script::new().responses([
+        call("write", json!({"path":"a.txt", "content":"one"})),
+        call("bash", json!({"command":"echo curl > network"})),
+        call("bash", json!({"command":"echo command > ran"})),
+    ]))
+    .await;
+    let dir = manual(&mut s).await;
+    s.chief.tell(mayor(), "Work.").await;
+    let edit = s.chief.wait_for("edit", |_| true).await;
+    s.chief.choose(wait_id(&edit), Choice::Always, None).await;
+    let net = s
+        .chief
+        .wait_for("network", |w| {
+            matches!(
+                w,
+                Wait::Approval {
+                    danger: WaitDanger::Network,
+                    ..
+                }
+            )
+        })
+        .await;
+    s.chief
+        .choose(wait_id(&net), Choice::Deny, Some("no network"))
+        .await;
+    let command = s
+        .chief
+        .wait_for("command", |w| {
+            matches!(
+                w,
+                Wait::Approval {
+                    danger: WaitDanger::Command,
+                    ..
+                }
+            )
+        })
+        .await;
+    s.server.kill().await;
+    let server = s
+        .home
+        .serve(
+            &Script::new().responses([
+                call(
+                    "write",
+                    json!({"path":"b.txt", "content":"two"}),
+                ),
+                call(
+                    "bash",
+                    json!({"command":"echo wget > network"}),
+                ),
+                words("Finished."),
+                call(
+                    "write",
+                    json!({"path":"c.txt", "content":"three"}),
+                ),
+                words("Refused."),
+            ]),
+            QUIET,
+        )
+        .await;
+    let mut chief = Client::join(&server).await;
+    assert_eq!(chief.waits(), std::slice::from_ref(&command));
+    chief.open(&chat(mayor())).await;
+    chief.choose(wait_id(&command), Choice::Allow, None).await;
+    chief.shows(&chat(mayor()), "Finished.").await;
+    chief.idle("home", "founder").await;
+    assert!(chief.waits().is_empty());
+    let dir = std::path::Path::new(&dir);
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "one"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("b.txt")).unwrap(),
+        "two"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("ran")).unwrap(),
+        "command\n"
+    );
+    assert!(!dir.join("network").exists());
+    chief.say(mayor(), "/new").await;
+    chief.say(mayor(), "/resume 1").await;
+    chief.tell(mayor(), "Write again.").await;
+    let edit = chief
+        .wait_for("edit after resume", |w| {
+            matches!(
+                w,
+                Wait::Approval {
+                    danger: WaitDanger::Edit,
+                    ..
+                }
+            )
+        })
+        .await;
+    chief.choose(wait_id(&edit), Choice::Deny, None).await;
+    chief.shows(&chat(mayor()), "Refused.").await;
+    assert!(!dir.join("c.txt").exists());
+}
+
+#[tokio::test]
+async fn stopping_drops_queued_lines_and_leaves_the_next_line_alone()
+{
+    let mut s = Session::start(
+        Script::new().responses([
+            call("bash", json!({"command":"echo never > forbidden"}))
+                .held_until("release"),
+            words("Next answer."),
+        ]),
+    )
+    .await;
+    let dir = manual(&mut s).await;
+    s.chief.open(&chat(mayor())).await;
+    s.chief.tell(mayor(), "Held.").await;
+    s.chief
+        .until("the running turn", |c| c.working(&chat(mayor())))
+        .await;
+    s.chief.tell(mayor(), "Queued.").await;
+    s.chief.until("the queued line", |c| c.messages().iter().any(|m| matches!(m, ServerMessage::Turn(t) if t.ops.iter().any(|o| matches!(o, Op::Status { pending, .. } if *pending == 1))))).await;
+    std::fs::write(s.home.side().join("release"), "").unwrap();
+    let wait = s.chief.wait_for("command", |_| true).await;
+    let reply = s.chief.say(mayor(), "/stop mayor").await;
+    assert_eq!(reply.text, "Stopping mayor.");
+    s.chief
+        .until("the dropped line notice", |c| {
+            c.items(&chat(mayor()))
+                .iter()
+                .any(|i| i.text.contains("1 queued dropped"))
+        })
+        .await;
+    s.chief
+        .until("the wait lapsed", |c| c.waits().is_empty())
+        .await;
+    assert!(s.chief.changes().contains(&Update::WaitClosed {
+        id: wait_id(&wait).into(),
+        how: "stopped".into()
+    }));
+    s.chief.say(mayor(), "Next.").await;
+    s.chief.shows(&chat(mayor()), "Next answer.").await;
+    assert!(!std::path::Path::new(&dir).join("forbidden").exists());
+    let page = s.chief.open(&chat(mayor())).await;
+    assert!(!page.items.iter().any(|i| i.text == "Queued."));
 }
