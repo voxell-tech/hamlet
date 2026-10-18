@@ -1,13 +1,14 @@
-//! Puts a plugin through a script with no window and prints what its
+//! Puts plugins through a script with no window and prints what their
 //! panels showed (docs/authoring.md).
 //!
-//! `cargo run --example plugin_check --features wasm -- <plugin dir>
-//! [--script steps.toml] [--out dir] [--no-pictures]`
+//! `cargo run --example plugin_check --features wasm -- <plugin
+//! dir>... [--script steps.toml] [--out dir] [--no-pictures]`
 //!
-//! Without a script the plugin runs two frames and a picture of each
-//! panel is drawn. The pictures go to `--out`, `plugin-check-out` by
-//! default, and `--no-pictures` leaves them out. The exit code is 1
-//! when a step failed.
+//! Several folders are installed in one home, so that the plugins can
+//! use each other. Without a script they run two frames and a picture
+//! of each panel is drawn. The pictures go to `--out`,
+//! `plugin-check-out` by default, and `--no-pictures` leaves them
+//! out. The exit code is 1 when a step failed.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -27,21 +28,38 @@ fn main() -> ExitCode {
     }
 }
 
-/// Runs the plugin, and says whether every step worked.
+/// The plugin folders on the command line: the arguments that are
+/// neither a flag nor the value of one that takes a value.
+fn folders() -> Vec<PathBuf> {
+    let mut args = std::env::args().skip(1);
+    let mut folders = Vec::new();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--script" | "--out" => {
+                args.next();
+            }
+            flag if flag.starts_with("--") => {}
+            _ => folders.push(PathBuf::from(arg)),
+        }
+    }
+    folders
+}
+
+/// Runs the plugins, and says whether every step worked.
 fn check() -> Result<bool, String> {
-    let folder = std::env::args()
-        .nth(1)
-        .filter(|arg| !arg.starts_with("--"))
-        .map(PathBuf::from)
-        .ok_or(
-            "usage: plugin_check <plugin dir> [--script steps.toml] \
-             [--out dir]",
-        )?;
+    let folders = folders();
+    if folders.is_empty() {
+        return Err("usage: plugin_check <plugin dir>... [--script \
+                    steps.toml] [--out dir] [--no-pictures]"
+            .into());
+    }
     let out = word("--out").map_or_else(
         || PathBuf::from("plugin-check-out"),
         PathBuf::from,
     );
-    let mut harness = Harness::open(&folder)?;
+    let refs =
+        folders.iter().map(PathBuf::as_path).collect::<Vec<_>>();
+    let mut harness = Harness::open_all(&refs)?;
     let mut script = match word("--script") {
         Some(file) => {
             let text = std::fs::read_to_string(&file)

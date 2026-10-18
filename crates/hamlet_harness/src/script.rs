@@ -7,6 +7,9 @@
 //! [[step]]
 //! click = { panel = "main", node = "go" }
 //! ```
+//!
+//! A script for several plugins puts one in front with `plugin =
+//! "id"` before the steps that are for it.
 
 use serde::Deserialize;
 
@@ -22,6 +25,9 @@ pub struct Script {
 #[derive(Deserialize, PartialEq, Debug)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Step {
+    /// Puts the plugin of this id in front, where there are several:
+    /// the steps after it are done to that one.
+    Plugin(String),
     /// Runs this many frames.
     Tick(u32),
     /// Presses a button.
@@ -35,6 +41,9 @@ pub enum Step {
     /// Replaces the papers of the selected agent, which a plugin that
     /// may read them sees.
     SetPapers(Papering),
+    /// Selects the agent of this name in the world, or none for an
+    /// empty name.
+    SetSelected(String),
     /// The chief allows a capability the plugin asked for.
     Grant(String),
     /// The chief refuses one.

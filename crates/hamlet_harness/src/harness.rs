@@ -6,12 +6,13 @@ use std::path::Path;
 
 use bevy::ecs::message::{MessageCursor, Messages};
 use bevy::prelude::*;
-use hamlet_sdk::agents::{Agent, AgentList};
+use hamlet_sdk::agents::{Agent, AgentList, SelectedAgent};
 use hamlet_sdk::capability::{
     Asks, Capability, Choice, Decide, Replied,
 };
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::papers::Papers;
+use hamlet_sdk::plugin::PluginInfo;
 use hamlet_sdk::tree::event::{Act, Interaction};
 use hamlet_sdk::tree::id::{dock_id, local_id};
 use hamlet_sdk::tree::node::{Kind, Node};
@@ -27,10 +28,15 @@ use crate::{outline, render};
 /// and has its panels drawn again.
 const SETTLE: usize = 3;
 
-/// One installed plugin, in a scratch home of its own, with the host
-/// that runs it. Everything the plugin may read is made up here.
+/// The plugins of a scratch home of their own, installed, with the
+/// host that runs them. Everything a plugin may read is made up
+/// here. What is done to a plugin is done to the one in front, which
+/// is the first until [`Harness::select`] says another.
 pub struct Harness {
     app: App,
+    /// Every plugin installed, in the order they were given.
+    ids: Vec<String>,
+    /// The plugin in front.
     id: String,
     size: UVec2,
     said: MessageCursor<Said>,
@@ -46,14 +52,26 @@ impl Harness {
     /// answered none of its asks, and brings it up. The home goes
     /// with the harness.
     pub fn open(folder: &Path) -> Result<Self, String> {
+        Self::open_all(&[folder])
+    }
+
+    /// Installs the plugins in `folders` into one scratch home, each
+    /// as `open` does, and brings them up together. The first is in
+    /// front.
+    pub fn open_all(folders: &[&Path]) -> Result<Self, String> {
         let scratch = Scratch::new()?;
-        let id = home::install(&scratch, folder)?;
+        let ids = folders
+            .iter()
+            .map(|folder| home::install(&scratch, folder))
+            .collect::<Result<Vec<_>, _>>()?;
+        let id = ids.first().ok_or("no plugin was given")?.clone();
         let mut app = home::app(&scratch);
         app.update();
         let said =
             app.world().resource::<Messages<Said>>().get_cursor();
         let mut harness = Self {
             app,
+            ids,
             id,
             size: render::SIZE,
             said,
@@ -64,15 +82,33 @@ impl Harness {
         Ok(harness)
     }
 
+    /// Puts the plugin `id` in front: what is done next is done to
+    /// it.
+    pub fn select(&mut self, id: &str) -> Result<(), String> {
+        if !self.ids.iter().any(|known| known == id) {
+            return Err(format!(
+                "no plugin `{id}`; there are {:?}",
+                self.ids
+            ));
+        }
+        self.id = id.into();
+        Ok(())
+    }
+
     /// This, drawing pictures of `size` pixels.
     pub fn sized(mut self, size: UVec2) -> Self {
         self.size = size;
         self
     }
 
-    /// The id of the plugin.
+    /// The id of the plugin in front.
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// The ids of the plugins, in the order they were given.
+    pub fn ids(&self) -> &[String] {
+        &self.ids
     }
 
     /// Runs one frame: the plugin gets a tick.
@@ -165,7 +201,12 @@ impl Harness {
     /// The tree `panel`, by the id the plugin gave it, shows now.
     /// None while it shows nothing, or that its plugin stopped.
     pub fn tree(&self, panel: &str) -> Option<Node> {
-        let dock = dock_id(&self.id, panel);
+        self.tree_of(&self.id, panel)
+    }
+
+    /// The tree the panel `panel` of the plugin `id` shows now.
+    pub fn tree_of(&self, id: &str, panel: &str) -> Option<Node> {
+        let dock = dock_id(id, panel);
         let trees = self.app.world().resource::<PluginTrees>();
         match trees.shape(&dock) {
             Shape::Tree(_) => trees.node(&dock, &[]).cloned(),
@@ -175,25 +216,53 @@ impl Harness {
 
     /// The lines of the tree `panel` shows, one for each node.
     pub fn outline(&self, panel: &str) -> Vec<String> {
-        self.tree(panel)
+        self.outline_of(&self.id, panel)
+    }
+
+    /// The lines of the tree the panel `panel` of the plugin `id`
+    /// shows.
+    pub fn outline_of(&self, id: &str, panel: &str) -> Vec<String> {
+        self.tree_of(id, panel)
             .map(|root| outline::lines(&root))
             .unwrap_or_default()
     }
 
-    /// Why the plugin stopped, if it did.
-    pub fn stopped(&mut self) -> Option<String> {
-        let world = self.app.world_mut();
-        let mut failed = world.query::<&Failure>();
-        failed.iter(world).next().map(|failure| failure.0.clone())
+    /// Makes `name`, or none, the agent selected in the world, which
+    /// a plugin that may read the agents hears of.
+    pub fn set_selected(&mut self, name: Option<&str>) {
+        self.app.world_mut().resource_mut::<SelectedAgent>().0 =
+            name.map(str::to_string);
+        self.frames(SETTLE);
     }
 
-    /// The panels the plugin declared, by the ids it gave them.
+    /// Why the plugin in front stopped, if it did.
+    pub fn stopped(&mut self) -> Option<String> {
+        self.stopped_of(&self.id.clone())
+    }
+
+    /// Why the plugin `id` stopped, if it did.
+    pub fn stopped_of(&mut self, id: &str) -> Option<String> {
+        let world = self.app.world_mut();
+        let mut failed = world.query::<(&PluginInfo, &Failure)>();
+        failed
+            .iter(world)
+            .find(|(info, _)| info.id == id)
+            .map(|(_, failure)| failure.0.clone())
+    }
+
+    /// The panels the plugin in front declared, by the ids it gave
+    /// them.
     pub fn panels(&mut self) -> Vec<String> {
+        self.panels_of(&self.id.clone())
+    }
+
+    /// The panels the plugin `id` declared, by the ids it gave them.
+    pub fn panels_of(&mut self, id: &str) -> Vec<String> {
         let world = self.app.world_mut();
         let mut panels = world.query::<&Panel>();
         let mut found = panels
             .iter(world)
-            .filter_map(|panel| local_id(&self.id, &panel.id))
+            .filter_map(|panel| local_id(id, &panel.id))
             .map(str::to_string)
             .collect::<Vec<_>>();
         found.sort();
@@ -247,8 +316,10 @@ impl Harness {
         let capability = Capability::parse(capability)
             .map_err(|e| e.to_string())?;
         let world = self.app.world_mut();
-        let mut asks = world.query::<&Asks>();
-        if !asks.iter(world).any(|asks| asks.names(capability)) {
+        let mut asks = world.query::<(&PluginInfo, &Asks)>();
+        if !asks.iter(world).any(|(info, asks)| {
+            info.id == self.id && asks.names(capability)
+        }) {
             return Err(format!(
                 "the manifest does not ask for `{}`",
                 capability.name()
@@ -327,7 +398,12 @@ impl Harness {
                 Level::Warn => "warn",
                 Level::Error => "error",
             };
-            self.logs.push(format!("{level}: {}", said.text));
+            self.logs.push(match self.ids.len() {
+                1 => format!("{level}: {}", said.text),
+                _ => {
+                    format!("{} {level}: {}", said.plugin, said.text)
+                }
+            });
         }
     }
 }

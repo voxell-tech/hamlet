@@ -46,6 +46,13 @@ pub fn load<T: DeserializeOwned>(
         .transpose()
 }
 
+/// The value of `item` as a `T` written with `postcard`.
+pub fn value<T: DeserializeOwned>(
+    item: &CollectionItem,
+) -> Result<T, String> {
+    postcard::from_bytes(&item.value).map_err(|e| e.to_string())
+}
+
 /// Sets `key`. It needs `collections.write` and a collection that its
 /// plugin says is writable.
 pub fn put(

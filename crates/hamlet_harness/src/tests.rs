@@ -9,6 +9,11 @@ use crate::{Harness, run};
 /// A plugin folder whose panel `main` has a button, and a label that
 /// reads "before" until the button is pressed.
 fn folder(name: &str) -> PathBuf {
+    folder_of(name, "probe")
+}
+
+/// The same, for the plugin `id`.
+fn folder_of(name: &str, id: &str) -> PathBuf {
     let folder = std::env::temp_dir().join(format!(
         "hamlet_harness_{name}_{}",
         std::process::id()
@@ -31,7 +36,7 @@ fn folder(name: &str) -> PathBuf {
     std::fs::write(
         folder.join("manifest.toml"),
         format!(
-            "id = \"probe\"\nname = \"Probe\"\nversion = \
+            "id = \"{id}\"\nname = \"Probe\"\nversion = \
              \"0.1.0\"\ninterface = \"{VERSION}\"\n"
         ),
     )
@@ -84,4 +89,27 @@ fn a_script_reports_the_step_that_failed_and_stops() {
         !report.lines.iter().any(|line| line.starts_with("step 3"))
     );
     let _ = std::fs::remove_dir_all(&plugin);
+}
+
+#[test]
+fn several_plugins_run_in_one_home_and_the_one_in_front_takes_the_clicks()
+ {
+    let (first, second) =
+        (folder_of("many_a", "alpha"), folder_of("many_b", "beta"));
+    let mut harness = Harness::open_all(&[&first, &second]).unwrap();
+    assert_eq!(harness.ids(), ["alpha", "beta"]);
+    let shows = |harness: &Harness, text: &str| {
+        harness
+            .outline("main")
+            .contains(&format!("  label \"{text}\" #count"))
+    };
+
+    harness.select("beta").unwrap();
+    harness.click("main", "go").unwrap();
+    assert!(shows(&harness, "after"));
+    harness.select("alpha").unwrap();
+    assert!(shows(&harness, "before"));
+    assert!(harness.select("gamma").is_err());
+    let _ = std::fs::remove_dir_all(&first);
+    let _ = std::fs::remove_dir_all(&second);
 }

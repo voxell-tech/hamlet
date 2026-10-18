@@ -17,19 +17,26 @@ pub struct Report {
 }
 
 /// The script a plugin is put through when it is given none: two
-/// frames, then a picture of each panel it declared.
+/// frames, then a picture of each panel it declared. With several
+/// plugins, each is put in front for its pictures.
 pub fn plain(harness: &mut Harness) -> Script {
-    let pictures = harness.panels().into_iter().map(|panel| {
-        Step::Render(Picture {
-            file: format!("{panel}.png"),
-            panel,
-        })
-    });
-    Script {
-        steps: std::iter::once(Step::Tick(2))
-            .chain(pictures)
-            .collect(),
+    let several = harness.ids().len() > 1;
+    let mut steps = vec![Step::Tick(2)];
+    for id in harness.ids().to_vec() {
+        if several {
+            steps.push(Step::Plugin(id.clone()));
+        }
+        for panel in harness.panels_of(&id) {
+            steps.push(Step::Render(Picture {
+                file: match several {
+                    true => format!("{id}-{panel}.png"),
+                    false => format!("{panel}.png"),
+                },
+                panel,
+            }));
+        }
     }
+    Script { steps }
 }
 
 /// Puts the plugin through `script`, drawing pictures under `out`.
@@ -40,7 +47,11 @@ pub fn run(
 ) -> Report {
     let mut said = 0;
     let mut seen = Vec::new();
-    let mut lines = vec![format!("plugin {}", harness.id())];
+    let mut lines = harness
+        .ids()
+        .iter()
+        .map(|id| format!("plugin {id}"))
+        .collect::<Vec<_>>();
     show(harness, &mut lines, &mut seen, &mut said);
     for (at, step) in script.steps.iter().enumerate() {
         let number = at + 1;
@@ -63,6 +74,7 @@ pub fn run(
 
 fn describe(step: &Step) -> String {
     match step {
+        Step::Plugin(id) => format!("plugin {id}"),
         Step::Tick(frames) => format!("tick {frames}"),
         Step::Click(t) => format!("click {}/{}", t.panel, t.node),
         Step::Type(t) => {
@@ -78,6 +90,7 @@ fn describe(step: &Step) -> String {
                 papers.notes.len()
             )
         }
+        Step::SetSelected(name) => format!("set-selected {name:?}"),
         Step::Grant(capability) => format!("grant {capability}"),
         Step::Deny(capability) => format!("deny {capability}"),
         Step::Render(p) => {
@@ -96,6 +109,7 @@ fn apply(
     lines: &mut Vec<String>,
 ) -> Result<(), String> {
     match step {
+        Step::Plugin(id) => harness.select(id),
         Step::Tick(frames) => {
             (0..*frames).for_each(|_| harness.tick());
             Ok(())
@@ -118,6 +132,14 @@ fn apply(
                 &papers.notes,
                 &papers.character,
                 &papers.skills,
+            );
+            Ok(())
+        }
+        Step::SetSelected(name) => {
+            harness.set_selected(
+                Some(name)
+                    .filter(|n| !n.is_empty())
+                    .map(String::as_str),
             );
             Ok(())
         }
@@ -144,8 +166,9 @@ fn apply(
     }
 }
 
-/// Adds what the plugin logged since the last look, and the panels
-/// that look otherwise than they did.
+/// Adds what the plugins logged since the last look, and the panels
+/// that look otherwise than they did. With several plugins a panel is
+/// named with its plugin.
 fn show(
     harness: &mut Harness,
     lines: &mut Vec<String>,
@@ -156,21 +179,30 @@ fn show(
         lines.push(format!("  log {line}"));
     }
     *said = harness.logs().len();
-    let stopped = harness.stopped();
-    for panel in harness.panels() {
-        let now = match &stopped {
-            Some(why) => vec![format!("stopped: {why}")],
-            None => harness.outline(&panel),
-        };
-        let was = seen.iter().position(|(shown, _)| *shown == panel);
-        if was.is_some_and(|at| seen[at].1 == now) {
-            continue;
-        }
-        lines.push(format!("  panel {panel}"));
-        lines.extend(now.iter().map(|line| format!("    {line}")));
-        match was {
-            Some(at) => seen[at].1 = now,
-            None => seen.push((panel, now)),
+    let several = harness.ids().len() > 1;
+    for id in harness.ids().to_vec() {
+        let stopped = harness.stopped_of(&id);
+        for panel in harness.panels_of(&id) {
+            let now = match &stopped {
+                Some(why) => vec![format!("stopped: {why}")],
+                None => harness.outline_of(&id, &panel),
+            };
+            let name = match several {
+                true => format!("{id}/{panel}"),
+                false => panel,
+            };
+            let was =
+                seen.iter().position(|(shown, _)| *shown == name);
+            if was.is_some_and(|at| seen[at].1 == now) {
+                continue;
+            }
+            lines.push(format!("  panel {name}"));
+            lines
+                .extend(now.iter().map(|line| format!("    {line}")));
+            match was {
+                Some(at) => seen[at].1 = now,
+                None => seen.push((name, now)),
+            }
         }
     }
 }
