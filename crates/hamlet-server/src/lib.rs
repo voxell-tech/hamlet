@@ -17,12 +17,14 @@ mod prompt;
 pub mod protocol;
 pub mod record;
 pub mod runtime;
+pub mod sandbox;
 mod scrub;
 pub mod service;
 mod settings;
 pub mod spend;
 mod state;
 mod store;
+mod tools;
 
 pub use claim::Held;
 pub use home::{Home, Layout};

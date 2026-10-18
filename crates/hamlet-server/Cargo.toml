@@ -36,6 +36,7 @@ chrono.workspace = true
 futures.workspace = true
 interprocess.workspace = true
 jsonschema = { version = "0.33", default-features = false }
+regex.workspace = true
 ring.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
@@ -43,11 +44,12 @@ serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
+unicode-normalization = "0.1"
 url = "2"
 uuid.workspace = true
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", features = ["fs"] }
+rustix = { version = "1", features = ["fs", "process"] }
 
 [dev-dependencies]
 hamlet_acceptance = { path = "../hamlet_acceptance" }
