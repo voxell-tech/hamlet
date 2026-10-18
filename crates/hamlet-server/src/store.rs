@@ -20,6 +20,12 @@ const MIGRATIONS: &[&str] = &[
     ) STRICT, WITHOUT ROWID;",
     // 2. Hamlet records, realm-wide living names and road charges.
     include_str!("record/schema.sql"),
+    // 3. The identity shared with the home's realm.id file.
+    "CREATE TABLE store_identity (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        home TEXT NOT NULL
+    ) STRICT;
+    PRAGMA application_id = 1212239180;",
 ];
 
 /// A home's realm database, open in this process alone.
@@ -31,8 +37,12 @@ impl Store {
     /// Opens the database at `path`, creating it when missing, and
     /// brings its schema up to this server's version.
     pub fn open(path: &Path) -> Result<Self> {
+        let fresh = !path.try_exists()?;
         let mut db = Connection::open(path)
             .with_context(|| format!("opening {}", path.display()))?;
+        migrate(&mut db, fresh).with_context(|| {
+            format!("migrating {}", path.display())
+        })?;
         // A reply goes out after its commit, so the commit must be on
         // disk by then.
         db.execute_batch(
@@ -40,9 +50,6 @@ impl Store {
              PRAGMA synchronous = FULL;
              PRAGMA foreign_keys = ON;",
         )?;
-        migrate(&mut db).with_context(|| {
-            format!("migrating {}", path.display())
-        })?;
         Ok(Self { db })
     }
 
@@ -51,13 +58,14 @@ impl Store {
         &self.db
     }
 
+    /// Closes the database and reports any closing error.
     pub fn close(self) -> Result<()> {
         self.db.close().map_err(|(_, error)| error.into())
     }
 }
 
 /// Applies the steps `db` lacks, all in one transaction.
-fn migrate(db: &mut Connection) -> Result<()> {
+fn migrate(db: &mut Connection, fresh: bool) -> Result<()> {
     let tx =
         db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let version = tx.query_row("PRAGMA user_version", [], |row| {
@@ -69,6 +77,37 @@ fn migrate(db: &mut Connection) -> Result<()> {
         "the schema is version {version}, newer than this server's \
          {known}"
     );
+    ensure!(
+        fresh || version > 0,
+        "the existing realm database has no schema; restore it from \
+         a complete home backup"
+    );
+    let application =
+        tx.query_row("PRAGMA application_id", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    ensure!(
+        application == if version < 3 { 0 } else { 1_212_239_180 },
+        "the database is not this server's realm store"
+    );
+    // Earlier schemas predate application_id. Check their tables
+    // before upgrading them.
+    if version >= 1 {
+        tx.prepare(
+            "SELECT runtime, key, kind, digest, outcome FROM marker \
+             LIMIT 0",
+        )?;
+    }
+    if version >= 2 {
+        tx.prepare("SELECT id, document FROM record_hamlet LIMIT 0")?;
+        tx.prepare(
+            "SELECT name, hamlet, number FROM record_name LIMIT 0",
+        )?;
+        tx.prepare(
+            "SELECT id, hamlet, agent, task, at, tokens, micros, ms \
+             FROM record_road_charge LIMIT 0",
+        )?;
+    }
     for step in &MIGRATIONS[usize::try_from(version)?..] {
         tx.execute_batch(step)?;
     }

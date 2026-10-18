@@ -118,8 +118,7 @@ pub enum Change {
     Seat {
         number: u64,
     },
-    /// The house owner marks a merge's files applied after its
-    /// recoverable work completes.
+    /// The completed file work of a merge or split.
     FinishMerge {
         archive: String,
     },
@@ -342,7 +341,7 @@ impl RecordOperation {
             at: self.at,
             by: self.actor.by(),
             reason: if trim {
-                self.reason.trim().into()
+                names::trim(&self.reason).into()
             } else {
                 self.reason.clone()
             },
@@ -506,7 +505,7 @@ impl Operation for RecordOperation {
             Change::FinishMerge { archive } => match record
                 .archive
                 .iter_mut()
-                .find(|a| a.id == *archive && a.back.is_none())
+                .find(|a| a.id == *archive)
                 .and_then(|a| a.merge.as_mut())
             {
                 Some(merge) => {
@@ -611,7 +610,7 @@ impl Operation for FoundRecord {
             agents: vec![Agent {
                 number: 0,
                 name: self.name.clone(),
-                purpose: self.purpose.trim().into(),
+                purpose: names::trim(&self.purpose).into(),
                 since: self.at,
                 model: None,
                 character: String::new(),

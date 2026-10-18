@@ -35,6 +35,8 @@ impl RuntimeInstance {
         Ok(Self(name))
     }
 
+    /// The persistent runtime name used in markers and harness
+    /// folders.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -54,7 +56,9 @@ pub struct OperationId {
 pub trait Operation: Serialize {
     /// The operation's name, kept in its markers.
     const KIND: &'static str;
+    /// The completed change's result, retained for replay.
     type Done: Serialize + DeserializeOwned;
+    /// The reason the change was refused, retained for replay.
     type Refusal: Serialize + DeserializeOwned;
 
     /// The refusal of an actor without the authority to run this now.

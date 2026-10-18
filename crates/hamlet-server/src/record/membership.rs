@@ -40,7 +40,7 @@ impl Hamlet {
         Err(self
             .archive
             .iter()
-            .find(|a| a.agent.name == name && a.back.is_none())
+            .rfind(|a| a.agent.name == name && a.back.is_none())
             .map_or_else(
                 || Reason::AgentMissing {
                     name: name.into(),
@@ -65,7 +65,7 @@ impl RecordOperation {
             return Ok(Err(self.refuse(reason)));
         }
         if matches!(self.actor, Actor::Mayor(_))
-            && given.purpose.trim().is_empty()
+            && names::trim(&given.purpose).is_empty()
         {
             return Ok(Err(self.refuse(Reason::PurposeEmpty)));
         }
@@ -81,7 +81,7 @@ impl RecordOperation {
             .model
             .clone()
             .filter(|m| !m.is_empty() && r.limits.models.contains(m));
-        let purpose = given.purpose.trim().to_string();
+        let purpose = names::trim(&given.purpose).to_string();
         r.agents.push(Agent {
             number,
             name: name.clone(),
@@ -178,10 +178,13 @@ impl RecordOperation {
             let gone = r
                 .ordinary(name)
                 .map_err(|reason| self.refuse(reason))?;
-            if purpose.as_ref().is_some_and(|p| p.trim().is_empty()) {
+            if purpose
+                .as_ref()
+                .is_some_and(|p| names::trim(p).is_empty())
+            {
                 return Err(self.refuse(Reason::MergedPurposeEmpty));
             }
-            if self.reason.trim().is_empty() {
+            if names::trim(&self.reason).is_empty() {
                 return Err(self.refuse(Reason::ReasonEmpty));
             }
             self.unprotected(r, &kept)?;
@@ -192,7 +195,7 @@ impl RecordOperation {
         };
         let agent =
             r.ordinary(name).map_err(|reason| self.refuse(reason))?;
-        if self.reason.trim().is_empty() {
+        if names::trim(&self.reason).is_empty() {
             return Err(self.refuse(Reason::ReasonEmpty));
         }
         self.unprotected(r, &agent)?;
@@ -209,7 +212,7 @@ impl RecordOperation {
             agent: agent.clone(),
             at: self.at,
             by: self.actor.by(),
-            reason: self.reason.trim().into(),
+            reason: names::trim(&self.reason).into(),
             roads: r
                 .roads_of()
                 .into_iter()
@@ -220,7 +223,6 @@ impl RecordOperation {
         };
         r.agents.retain(|a| a.number != agent.number);
         r.roads.retain(|road| !road.touches(agent.number));
-        r.protected.retain(|p| p.agent != agent.number);
         if let (
             Departure::Merged {
                 purpose,
@@ -279,7 +281,7 @@ impl RecordOperation {
             }
             let purpose = purpose.as_ref().map_or_else(
                 || kept.purpose.clone(),
-                |p| p.trim().into(),
+                |p| names::trim(p).into(),
             );
             for living in &mut r.agents {
                 if living.number == kept.number {

@@ -29,6 +29,13 @@ path, as the Rust app names it, for both the path as given and its
 canonical form (`server/src/home/lock.ts`). A second server on the same
 home, by any spelling of its path, is refused (S2).
 
+The Rust server keeps its record in `realm.sqlite`, paired with `realm.id`.
+It checks that both name the same home before serving it. A missing or
+mismatched part is refused; restore the complete home from backup rather
+than deleting an identity to open it. Pre-identity Rust databases acquire
+the pair on their first successful open. A TypeScript `home.sqlite` is
+refused even when a `realm.sqlite` is beside it.
+
 ## Credentials
 
 `credentials.json` has mode 0600 and is replaced whole through a temporary

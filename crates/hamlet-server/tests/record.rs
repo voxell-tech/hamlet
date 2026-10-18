@@ -156,6 +156,62 @@ fn carry(store: &mut Store, key: &str, from: u64, to: u64) {
 }
 
 #[test]
+fn a_departed_namesake_reports_the_latest_departure() {
+    let (_scratch, mut store) = seeded("record-namesake");
+    done(&mut store, "first", &request("home", admit("scout")));
+    departed(&mut store, "first-left", "scout");
+    done(&mut store, "second", &request("home", admit("scout")));
+    let mut call = request("home", remove("scout"));
+    call.reason = "The second scout finished".into();
+    done(&mut store, "second-left", &call);
+    assert_eq!(
+        refused(&mut store, "gone", &call).text(Audience::Agent),
+        "`scout` was removed from the hamlet by the chief chief \
+         (\"The second scout finished\"). Its house is archived and \
+         its roads went with it; only a chief can restore it."
+    );
+}
+
+#[test]
+fn admission_and_departure_use_javascript_whitespace_rules() {
+    let (_scratch, mut store) = seeded("record-whitespace");
+    done(
+        &mut store,
+        "bom",
+        &request("home", admit("\u{feff}Scout\u{feff}")),
+    );
+    assert_eq!(
+        record(&store, "home").named("scout").unwrap().number,
+        1
+    );
+    assert_eq!(
+        refused(
+            &mut store,
+            "next-line",
+            &request("home", admit("\u{85}Smith\u{85}"))
+        )
+        .reason,
+        Reason::NameFormat
+    );
+    let mut call = request("home", admit("smith"));
+    call.actor = Actor::Mayor(place("home", 0));
+    if let Change::Admit(given) = &mut call.change {
+        given.purpose = "\u{feff}".into();
+    }
+    assert_eq!(
+        refused(&mut store, "empty-purpose", &call).reason,
+        Reason::PurposeEmpty
+    );
+    call.change = remove("scout");
+    call.reason = "\u{feff}".into();
+    assert_eq!(
+        refused(&mut store, "empty-reason", &call).reason,
+        Reason::ReasonEmpty
+    );
+    assert!(record(&store, "home").named("scout").is_some());
+}
+
+#[test]
 fn admission_has_realm_names_stable_numbers_and_a_cap_beside_the_current_mayor()
  {
     let (_scratch, mut store) = seeded("record-membership");
@@ -532,6 +588,47 @@ fn restoring_keeps_identity_and_surviving_roads_not_namesakes_and_does_not_charg
 }
 
 #[test]
+fn road_budget_wording_rounds_like_the_typescript_server() {
+    let (_scratch, mut store) = seeded("record-money");
+    for name in ["scout", "smith"] {
+        done(&mut store, name, &request("home", admit(name)));
+    }
+    for (price, text) in [
+        (124_999, "$0.12"),
+        (125_000, "$0.13"),
+        (125_001, "$0.13"),
+        (15_000, "$0.01"),
+    ] {
+        limits(&mut store, &format!("limit-{price}"), "home", |l| {
+            l.road.micros = price;
+            l.road_budget = Some(RoadBudget {
+                start: 0,
+                end: 1000,
+                month: false,
+                other: Amount::default(),
+                cost: Some(0),
+                ms: None,
+            });
+        });
+        assert_eq!(
+            refused(
+                &mut store,
+                &format!("road-{price}"),
+                &request("home", road("scout", "smith"))
+            )
+            .text(Audience::Chief),
+            format!(
+                "the hamlet cannot pay for it today: it costs \
+                 {text} and would bring the hamlet to {text} of \
+                 $0.00. Only the chief can raise the budget, on the \
+                 hamlet's Bylaws page"
+            )
+        );
+    }
+    assert!(store.road_charges("home").unwrap().is_empty());
+}
+
+#[test]
 fn road_budget_is_checked_with_the_charge_and_exhaustion_never_leaves_a_road()
  {
     let (_scratch, mut store) = seeded("record-budget");
@@ -687,8 +784,22 @@ fn current_vote_limits_and_chief_tasks_hold_effects_but_chiefs_can_overrule()
         Reason::RecordChief
     );
     call.actor = Actor::Chief("chief".into());
-    done(&mut store, "overrule", &call);
-    assert!(record(&store, "home").protected.is_empty());
+    let RecordResult::Departed { archive } =
+        done(&mut store, "overrule", &call)
+    else {
+        panic!("expected the chief's removal")
+    };
+    done(
+        &mut store,
+        "bring-back",
+        &request("home", restore(&archive, "scout")),
+    );
+    call.actor = Actor::Mayor(place("home", 0));
+    assert!(matches!(
+        refused(&mut store, "remove-restored", &call).reason,
+        Reason::Protected { done: None, .. }
+    ));
+    assert!(record(&store, "home").named("scout").is_some());
 }
 
 #[test]
@@ -980,4 +1091,24 @@ fn merge_restoration_preserves_learned_traffic_and_enforces_reverse_order()
         1
     );
     assert_eq!(store.road_charges("home").unwrap(), charges);
+    for archive in [archive, later] {
+        done(
+            &mut store,
+            &format!("finish-split-{archive}"),
+            &request(
+                "home",
+                Change::FinishMerge {
+                    archive: archive.clone(),
+                },
+            ),
+        );
+        let r = record(&store, "home");
+        let entry = r
+            .archive
+            .iter()
+            .find(|entry| entry.id == archive)
+            .unwrap();
+        assert!(entry.back.is_some());
+        assert!(entry.merge.as_ref().unwrap().applied);
+    }
 }

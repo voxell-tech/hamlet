@@ -1,6 +1,6 @@
 //! The claim on a home that keeps every other server out of it (S2).
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -12,7 +12,7 @@ use interprocess::local_socket::{
     ListenerNonblockingMode, ListenerOptions, Stream,
 };
 
-/// How long a released claim may take to let its socket go.
+/// The interval between accepting probes and checking for release.
 const POLL: Duration = Duration::from_millis(50);
 
 /// This process's claim on a home, held until dropped.
@@ -36,21 +36,38 @@ impl std::fmt::Display for Held {
 impl std::error::Error for Held {}
 
 impl Claim {
-    /// Claims the existing folder `dir` as the TypeScript server's
-    /// `server/src/home/lock.ts` does: by the spelling
-    /// [`std::path::absolute`] gives and by the canonical path, so no
-    /// two spellings of one home are held at once.
+    /// The claims on the given spelling and the resolved home's
+    /// canonical path.
     pub fn take(dir: &Path) -> Result<Self> {
         let root = std::path::absolute(dir)?;
-        let canonical = root.canonicalize().with_context(|| {
-            format!("resolving {}", root.display())
-        })?;
+        let canonical =
+            resolved_path(&root)?.canonicalize().with_context(
+                || format!("resolving {}", root.display()),
+            )?;
         let mut holders = vec![Holder::take(&root)?];
-        if canonical != root {
+        // Path equality ignores a trailing slash, but the socket hash
+        // does not.
+        if canonical.as_os_str() != root.as_os_str() {
             holders.push(Holder::take(&canonical)?);
         }
         Ok(Self { _holders: holders })
     }
+}
+
+/// Node's path.resolve spelling, with parent components removed
+/// before following symlinks.
+pub(crate) fn resolved_path(dir: &Path) -> Result<PathBuf> {
+    let mut resolved = PathBuf::new();
+    for component in std::path::absolute(dir)?.components() {
+        match component {
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            Component::CurDir => {}
+            other => resolved.push(other),
+        }
+    }
+    Ok(resolved)
 }
 
 /// The listener on one spelling's socket, served by a thread of its

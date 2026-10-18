@@ -331,11 +331,21 @@ impl RecordOperation {
 }
 
 fn money(micros: u64) -> String {
-    if micros > 0 && micros < 10_000 {
-        "<$0.01".into()
-    } else {
-        format!("${:.2}", micros as f64 / 1_000_000.0)
+    if micros == 0 {
+        return "$0.00".into();
     }
+    if micros < 10_000 {
+        return "<$0.01".into();
+    }
+    // JavaScript's toFixed rounds the binary dollar value, with ties
+    // upward. Integer scaling avoids rounding twice at values
+    // such as 0.015.
+    let bits = (micros as f64 / 1_000_000.0).to_bits();
+    let significand =
+        u128::from((bits & ((1 << 52) - 1)) | (1 << 52));
+    let shift = 1023 + 52 - ((bits >> 52) & 0x7ff);
+    let cents = (significand * 100 + (1 << (shift - 1))) >> shift;
+    format!("${}.{:02}", cents / 100, cents % 100)
 }
 
 fn duration(ms: u64) -> String {

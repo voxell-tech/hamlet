@@ -278,6 +278,136 @@ fn a_held_home_refuses_another_claim_by_any_spelling() {
     Home::open(&scratch.join("link")).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn a_trailing_slash_claim_also_holds_the_canonical_spelling() {
+    let scratch = Scratch::new("server-trailing-slash");
+    let dir = scratch.join("home");
+    let spelling = PathBuf::from(format!("{}/", dir.display()));
+    let home = Home::open(&spelling).unwrap();
+    assert!(is_held(&dir));
+    home.close().unwrap();
+    Home::open(&dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_parent_after_a_symlink_resolves_as_the_typescript_home_does() {
+    let scratch = Scratch::new("server-parent-spelling");
+    let a = scratch.join("a");
+    let b = scratch.join("b");
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(b.join("child")).unwrap();
+    std::os::unix::fs::symlink(b.join("child"), a.join("link"))
+        .unwrap();
+    let home = Home::open(&a.join("link/..")).unwrap();
+    assert_eq!(home.layout().root(), a);
+    assert!(is_held(&a));
+    Home::open(&b).unwrap().close().unwrap();
+    home.close().unwrap();
+}
+
+#[test]
+fn a_home_refuses_a_missing_or_substituted_store_or_identity() {
+    let a = Scratch::new("server-home-a");
+    let b = Scratch::new("server-home-b");
+    Home::open(&a).unwrap().close().unwrap();
+    Home::open(&b).unwrap().close().unwrap();
+    std::fs::rename(a.join("realm.sqlite"), a.join("kept.sqlite"))
+        .unwrap();
+    assert!(Home::open(&a).is_err());
+    assert!(!a.join("realm.sqlite").exists());
+    std::fs::copy(b.join("realm.sqlite"), a.join("realm.sqlite"))
+        .unwrap();
+    assert!(Home::open(&a).is_err());
+    std::fs::rename(a.join("kept.sqlite"), a.join("realm.sqlite"))
+        .unwrap();
+    Home::open(&a).unwrap().close().unwrap();
+    std::fs::remove_file(a.join("realm.id")).unwrap();
+    assert!(Home::open(&a).is_err());
+}
+
+#[test]
+fn an_existing_empty_or_foreign_database_is_not_initialized() {
+    for version in [0, 1, 2] {
+        let dir = Scratch::new("server-foreign-store");
+        let db = Connection::open(dir.join("realm.sqlite")).unwrap();
+        db.execute_batch(
+            "CREATE TABLE foreign_data (value TEXT); INSERT INTO \
+             foreign_data VALUES ('kept');",
+        )
+        .unwrap();
+        db.pragma_update(None, "user_version", version).unwrap();
+        drop(db);
+        let before = std::fs::read(dir.join("realm.sqlite")).unwrap();
+        assert!(
+            Home::open(&dir).is_err(),
+            "accepted version {version}"
+        );
+        assert_eq!(
+            std::fs::read(dir.join("realm.sqlite")).unwrap(),
+            before
+        );
+    }
+    let dir = Scratch::new("server-empty-store");
+    std::fs::write(dir.join("realm.sqlite"), []).unwrap();
+    assert!(Home::open(&dir).is_err());
+}
+
+#[test]
+fn migrations_keep_old_markers_and_roll_back_failed_steps() {
+    let dir = Scratch::new("server-migrations");
+    let db = Connection::open(dir.join("realm.sqlite")).unwrap();
+    db.execute_batch(
+        "CREATE TABLE marker (runtime TEXT NOT NULL, key TEXT NOT \
+         NULL, kind TEXT NOT NULL, digest BLOB NOT NULL, outcome \
+         TEXT NOT NULL, PRIMARY KEY (runtime, key)) STRICT, WITHOUT \
+         ROWID;
+         INSERT INTO marker VALUES ('pi-1', '7', 'give', X'00', \
+         '{\"done\":{\"left\":7}}');
+         CREATE TABLE record_name (collision TEXT);
+         PRAGMA user_version = 1;",
+    )
+    .unwrap();
+    drop(db);
+    assert!(Home::open(&dir).is_err());
+    let db = Connection::open(dir.join("realm.sqlite")).unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name = \
+             'record_hamlet'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+    db.execute_batch("DROP TABLE record_name").unwrap();
+    drop(db);
+    let mut home = Home::open(&dir).unwrap();
+    assert_eq!(count(&mut home, "PRAGMA user_version"), 3);
+    assert_eq!(count(&mut home, "SELECT count(*) FROM marker"), 1);
+    assert_eq!(
+        home.store()
+            .connection()
+            .query_row(
+                "SELECT outcome FROM marker WHERE key = '7'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        "{\"done\":{\"left\":7}}"
+    );
+    home.close().unwrap();
+    Home::open(&dir).unwrap().close().unwrap();
+}
+
 #[test]
 fn a_store_from_a_newer_server_is_refused() {
     let dir = Scratch::new("server-newer");
@@ -300,6 +430,10 @@ fn a_home_of_the_typescript_server_is_refused() {
     std::fs::write(dir.join("home.sqlite"), "").unwrap();
     assert!(Home::open(&dir).is_err());
     assert!(!dir.join("realm.sqlite").exists());
+    let mixed = Scratch::new("server-mixed-home");
+    Home::open(&mixed).unwrap().close().unwrap();
+    std::fs::write(mixed.join("home.sqlite"), "").unwrap();
+    assert!(Home::open(&mixed).is_err());
 }
 
 #[test]
