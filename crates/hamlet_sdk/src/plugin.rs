@@ -3,6 +3,7 @@
 
 mod add;
 mod blocked;
+mod command;
 mod contribution;
 mod enable;
 mod entry;
@@ -18,6 +19,7 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 
 pub use self::add::AppPluginExt;
 pub use self::blocked::{Blocked, present};
+pub use self::command::Command;
 pub use self::contribution::{ContributedBy, Contributions};
 pub use self::enable::{Disable, Enable};
 pub use self::entry::{Entry, EntryPoint};

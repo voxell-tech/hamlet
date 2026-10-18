@@ -15,7 +15,23 @@ pub struct Declared {
     pub icon: Glyph,
 }
 
+/// A command a plugin declared.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Offered {
+    pub id: String,
+    pub title: String,
+}
+
 impl State {
+    pub(super) fn offer(&mut self, id: String, title: String) {
+        if self.offered.len() >= self.command_room
+            || self.offered.iter().any(|offered| offered.id == id)
+        {
+            return;
+        }
+        self.offered.push(Offered { id, title });
+    }
+
     pub(super) fn declare(
         &mut self,
         id: String,

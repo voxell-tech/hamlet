@@ -11,7 +11,7 @@ use hamlet_sdk::capability::Granted;
 use hamlet_sdk::papers::Papers;
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 
-pub use self::declare::Declared;
+pub use self::declare::{Declared, Offered};
 pub use self::request::Want;
 use crate::fault::Fault;
 use crate::interface::hamlet::plugin::host::{
@@ -39,6 +39,8 @@ pub struct State {
     pub(crate) bytes: usize,
     pub(crate) declared: Vec<Declared>,
     pub(crate) panel_room: usize,
+    pub(crate) offered: Vec<Offered>,
+    pub(crate) command_room: usize,
     /// The id of the plugin this store belongs to.
     pub(crate) plugin: String,
     pub(crate) granted: Granted,
@@ -65,6 +67,8 @@ impl State {
             bytes: limits.log_bytes,
             declared: Vec::new(),
             panel_room: limits.panels,
+            offered: Vec::new(),
+            command_room: limits.commands,
             plugin: String::new(),
             granted: Granted::default(),
             wants: Vec::new(),
@@ -96,6 +100,10 @@ impl Host for State {
 
     fn panel(&mut self, id: String, title: String, icon: String) {
         self.declare(id, title, icon);
+    }
+
+    fn command(&mut self, id: String, title: String) {
+        self.offer(id, title);
     }
 
     fn agents(&mut self) -> Result<Vec<host::Agent>, String> {

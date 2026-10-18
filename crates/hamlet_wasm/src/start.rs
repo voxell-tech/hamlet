@@ -7,19 +7,19 @@ use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::Granted;
 use hamlet_sdk::papers::Papers;
-use hamlet_sdk::plugin::{PluginInfo, Status};
+use hamlet_sdk::plugin::{Exports, PluginInfo, Status};
 
 use crate::draw::Dirty;
 use crate::engine::Host;
 use crate::fault::Fault;
-use crate::host::{Declared, Logged, Want};
+use crate::host::{Declared, Logged, Offered, Want};
 use crate::inbox::Inbox;
 use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::reload::keep;
 use crate::stop::{self, Failure};
 use crate::storage::DATA;
-use crate::{panel, run};
+use crate::{command, panel, run};
 
 /// On the entity of an installed plugin: the file of its component.
 #[derive(Component, Clone, PartialEq, Debug)]
@@ -38,6 +38,7 @@ pub struct Setting<'a> {
 pub struct Built {
     pub instance: Instance,
     pub panels: Vec<Declared>,
+    pub commands: Vec<Offered>,
     pub wants: Vec<Want>,
     /// What `entry` logged.
     pub logs: Vec<Logged>,
@@ -69,6 +70,7 @@ pub fn build(
     Ok(Built {
         instance,
         panels: output.panels,
+        commands: output.commands,
         wants: output.wants,
         logs: output.logs,
     })
@@ -80,6 +82,7 @@ pub fn build(
 pub fn bring_up(
     plugin: Entity,
     info: &PluginInfo,
+    exports: &Exports,
     source: &Source,
     granted: &Granted,
     setting: &Setting,
@@ -91,6 +94,7 @@ pub fn bring_up(
         Ok(Built {
             instance,
             panels: declared,
+            commands: offered,
             wants,
             logs,
         }) => {
@@ -99,6 +103,9 @@ pub fn bring_up(
             run::want(commands, plugin, &wants);
             let shown =
                 panel::spawn(plugin, &info.id, &declared, commands);
+            command::spawn(
+                plugin, &info.id, exports, &offered, commands,
+            );
             commands
                 .entity(plugin)
                 .insert((

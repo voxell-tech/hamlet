@@ -230,6 +230,7 @@ fn spawn(
     start::bring_up(
         plugin,
         &info,
+        &installed.manifest.exports,
         &source,
         &granted,
         setting,

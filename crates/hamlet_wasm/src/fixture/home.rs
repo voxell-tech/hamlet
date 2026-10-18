@@ -56,6 +56,11 @@ pub struct Plugin {
     later: &'static [&'static str],
     /// The plugins it needs, each an id and a range.
     needs: &'static [(&'static str, &'static str)],
+    /// Lines of its manifest, such as its exports and imports.
+    lines: &'static str,
+    /// The targets of scoped capabilities it is allowed, each a
+    /// capability and a target.
+    targets: &'static [(&'static str, &'static str)],
     /// Whether the chief installed it, as far as the store says.
     installed: bool,
 }
@@ -70,8 +75,26 @@ impl Plugin {
             grants: &[],
             later: &[],
             needs: &[],
+            lines: "",
+            targets: &[],
             installed: true,
         }
+    }
+
+    /// This, with these lines added to its manifest.
+    pub fn saying(mut self, lines: &'static str) -> Self {
+        self.lines = lines;
+        self
+    }
+
+    /// This, allowed these targets of scoped capabilities, each a
+    /// capability and a target. It asks for the capabilities.
+    pub fn allowed_for(
+        mut self,
+        targets: &'static [(&'static str, &'static str)],
+    ) -> Self {
+        self.targets = targets;
+        self
     }
 
     /// This, needing these plugins, each an id and a range.
@@ -137,7 +160,10 @@ impl Plugin {
                 "[[needs]]\nid = \"{id}\"\nrange = \"{range}\"\n"
             );
         }
-        for ask in self.asks {
+        text += self.lines;
+        let scoped =
+            self.targets.iter().map(|(capability, _)| capability);
+        for ask in self.asks.iter().chain(scoped) {
             text += &format!(
                 "[[asks]]\ncapability = \"{ask}\"\nreason = \"a \
                  test\"\n"
@@ -156,14 +182,29 @@ impl Plugin {
                 .filter_map(|name| Capability::parse(name).ok())
                 .map(move |capability| (capability, choice))
         };
-        of(self.grants, Choice::Allow)
+        let choices = of(self.grants, Choice::Allow)
             .chain(of(self.later, Choice::AskNextTime))
             .fold(
                 Choices::default(),
                 |choices, (capability, choice)| {
                     choices.decided(capability, choice, false)
                 },
-            )
+            );
+        self.targets
+            .iter()
+            .filter_map(|(name, target)| {
+                Some((Capability::parse(name).ok()?, *target))
+            })
+            .fold(choices, |choices, (capability, target)| {
+                choices
+                    .decided(capability, Choice::AskNextTime, false)
+                    .decided_for(
+                        capability,
+                        target,
+                        Choice::Allow,
+                        false,
+                    )
+            })
     }
 }
 

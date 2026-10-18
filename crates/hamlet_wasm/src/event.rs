@@ -64,7 +64,9 @@ pub fn panel_of(incoming: &Incoming) -> Option<&str> {
     match incoming {
         Incoming::Tick(_)
         | Incoming::Granted(_)
-        | Incoming::Denied(_) => None,
+        | Incoming::Denied(_)
+        | Incoming::Command(_)
+        | Incoming::Reply(_) => None,
         Incoming::Click(press) => Some(&press.panel),
         Incoming::Toggled(toggle) => Some(&toggle.panel),
         Incoming::TextChanged(typed) => Some(&typed.panel),

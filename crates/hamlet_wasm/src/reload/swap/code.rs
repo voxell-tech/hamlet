@@ -13,7 +13,7 @@ use crate::install::Installed;
 use crate::reload::keep;
 use crate::start::{self, Built, Setting, Source};
 use crate::stop::Failure;
-use crate::{panel, run};
+use crate::{command, panel, run};
 
 /// Builds the version in `file` and runs its `entry` and a draw of
 /// each panel it declares. Where all of it works, the version takes
@@ -38,6 +38,7 @@ pub(super) fn swap(
     let Built {
         mut instance,
         panels,
+        commands: offered,
         wants,
         logs,
     } = start::build(&info, &source, &granted, setting, case.state)
@@ -55,6 +56,14 @@ pub(super) fn swap(
         &info.id,
         &case.held,
         &panels,
+        commands,
+    );
+    command::replace(
+        case.plugin,
+        &info.id,
+        &installed.manifest.exports,
+        &case.offered,
+        &offered,
         commands,
     );
     renew(commands, case.plugin, installed, case.choices.clone());

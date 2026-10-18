@@ -15,11 +15,12 @@ use hamlet_sdk::capability::{
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{
-    self as sdk, Contributions, PluginInfo, Status,
+    self as sdk, Command, Contributions, PluginInfo, Status,
 };
 use hamlet_sdk::reload::Reload;
 
 use super::{Modified, Waiting, Watch, keep};
+use crate::command;
 use crate::engine::Host;
 use crate::install::{self, Body, Installed};
 use crate::instance::Instance;
@@ -52,6 +53,8 @@ struct Case<'a> {
     choices: Choices,
     /// The panels the running version has.
     held: Vec<(Entity, &'a Panel)>,
+    /// The commands the running version has.
+    offered: Vec<Entity>,
 }
 
 /// Builds the new version of each plugin whose files changed. It
@@ -73,6 +76,7 @@ pub fn reload(
         Without<Uninstalled>,
     >,
     panels: Query<(Entity, &Panel)>,
+    offered: Query<(), With<Command>>,
     host: Option<Res<Host>>,
     limits: Res<Limits>,
     agents: Res<AgentList>,
@@ -111,7 +115,7 @@ pub fn reload(
             Ok(Next::Ask { installed, fresh }) => {
                 let case = case(
                     *plugin, info, folder, *status, choices, held,
-                    state, &panels,
+                    state, &panels, &offered,
                 );
                 ask(&case, &installed, fresh, &mut commands);
                 continue;
@@ -126,7 +130,7 @@ pub fn reload(
         };
         let case = case(
             *plugin, info, folder, *status, &kept, held, state,
-            &panels,
+            &panels, &offered,
         );
         let version = installed.manifest.version.clone();
         let done = match &installed.body {
@@ -165,7 +169,9 @@ fn case<'a>(
     held: Option<&Contributions>,
     state: &'a [u8],
     panels: &'a Query<(Entity, &Panel)>,
+    offered: &Query<(), With<Command>>,
 ) -> Case<'a> {
+    let held_by = || held.into_iter().flat_map(|held| held.iter());
     Case {
         plugin,
         info,
@@ -173,9 +179,8 @@ fn case<'a>(
         status,
         state,
         choices: choices.clone(),
-        held: panels
-            .iter_many(held.into_iter().flat_map(|held| held.iter()))
-            .collect(),
+        held: panels.iter_many(held_by()).collect(),
+        offered: command::held(held_by(), offered),
     }
 }
 

@@ -4,7 +4,7 @@
 use wasmtime::Store;
 
 use crate::fault::Fault;
-use crate::host::{Declared, Logged, State, Want};
+use crate::host::{Declared, Logged, Offered, State, Want};
 use crate::instance::Instance;
 use crate::interface::Hamlet;
 use crate::interface::exports::hamlet::plugin::plugin::{
@@ -21,6 +21,8 @@ pub struct Output {
     pub logs: Vec<Logged>,
     /// The panels the call declared. Only `entry` may.
     pub panels: Vec<Declared>,
+    /// The commands the call declared. Only `entry` may.
+    pub commands: Vec<Offered>,
     /// What the call tried to use that the chief is yet to decide.
     pub wants: Vec<Want>,
 }
@@ -72,6 +74,7 @@ impl Instance {
             });
         }
         output.panels.clear();
+        output.commands.clear();
         Ok(output)
     }
 
@@ -108,6 +111,7 @@ impl Instance {
     ) -> Result<(T, Output), Fault> {
         self.store.data_mut().logs.clear();
         self.store.data_mut().declared.clear();
+        self.store.data_mut().offered.clear();
         self.store.data_mut().wants.clear();
         self.store.set_epoch_deadline(limits.call_ticks());
         let returned = call(&self.exports, &mut self.store)
@@ -117,6 +121,7 @@ impl Instance {
             intents: Vec::new(),
             logs: std::mem::take(&mut state.logs),
             panels: std::mem::take(&mut state.declared),
+            commands: std::mem::take(&mut state.offered),
             wants: std::mem::take(&mut state.wants),
         };
         Ok((returned, output))

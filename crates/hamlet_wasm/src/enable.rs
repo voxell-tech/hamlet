@@ -71,6 +71,7 @@ pub fn restart(
         start::bring_up(
             plugin,
             info,
+            &manifest.exports,
             source,
             granted,
             &setting,

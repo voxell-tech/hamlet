@@ -65,6 +65,7 @@ pub fn admit(
             (Some(source), _, Some(host)) => start::bring_up(
                 plugin,
                 info,
+                &manifest.exports,
                 source,
                 &Granted::of(asks, choices),
                 &Setting {

@@ -1,4 +1,4 @@
-package hamlet:plugin@0.3.0;
+package hamlet:plugin@0.4.0;
 
 interface host {
   enum level { info, warn, error }
@@ -32,6 +32,12 @@ interface host {
   // The selected agent's papers: a copy. It needs the capability
   // `read.papers`, and is gated as `agents` is.
   papers: func() -> result<agent-papers, string>;
+
+  // Declares a command the plugin exports, which other plugins may run
+  // by `id` once its manifest lists it under `exports.commands`. Only
+  // `entry` declares; a call at any other time is dropped. `title` is
+  // what a menu or a key shows for it.
+  command: func(id: string, title: string);
 
   // The standing answer to a `request`.
   enum request-result {
@@ -90,6 +96,30 @@ interface plugin {
     granted(string),
     // The chief did not.
     denied(string),
+    // Another plugin runs a command this plugin exports. It answers
+    // with a `reply` intent that names `call-id`.
+    command(command-call),
+    // The answer to a command this plugin ran.
+    reply(call-answer),
+  }
+
+  record command-call {
+    // The host's number for the call, which the reply gives back.
+    call-id: u64,
+    // The id of the plugin that runs the command.
+    sender: string,
+    command: string,
+    // A copy of the arguments, in a format the two plugins agree on.
+    args: list<u8>,
+  }
+
+  record call-answer {
+    // The `call-id` of the call it answers.
+    call-id: u64,
+    // The bytes the command returns, or why there are none: the plugin
+    // is switched off, stopped or not there, the call is not
+    // allowed, it was not answered in time, or the command failed.
+    outcome: result<list<u8>, string>,
   }
 
   // A button was pressed.
@@ -116,6 +146,21 @@ interface plugin {
     log-line(string),
     // Draw the panel again, though no event reached it.
     redraw(string),
+    // Runs a command of another plugin. The answer reaches a later
+    // `step` as `reply`, whatever happened to the call.
+    run-command(call-request),
+    // Answers a `command` the plugin was given.
+    reply(call-answer),
+  }
+
+  record call-request {
+    // The caller's own number for the call, which is not the number
+    // of any of its calls still waiting. The reply names it.
+    call-id: u64,
+    // The id of the plugin that exports the command.
+    plugin: string,
+    command: string,
+    args: list<u8>,
   }
 
   record outgoing {

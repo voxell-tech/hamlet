@@ -12,16 +12,19 @@ pub mod bindings {
     });
 }
 
+pub mod calls;
 pub mod state;
 pub mod storage;
 pub mod ui;
 
 pub use self::bindings::exports::hamlet::plugin::plugin::{
-    Incoming, Intent, Outgoing, Tree, View as Wired,
+    CallAnswer, CallRequest, CommandCall, Incoming, Intent, Outgoing,
+    Tree, View as Wired,
 };
 pub use self::bindings::hamlet::plugin::host::{
     Agent, AgentPapers, Level, RequestResult,
 };
+pub use self::calls::Calls;
 pub use self::state::State;
 
 /// What the host calls on a plugin.
@@ -50,6 +53,13 @@ pub fn log(level: Level, message: &str) {
 /// name of one of the panels' icons.
 pub fn panel(id: &str, title: &str, icon: &str) {
     bindings::hamlet::plugin::host::panel(id, title, icon);
+}
+
+/// Declares a command the plugin exports, which other plugins run by
+/// `id` once the manifest lists it under `exports.commands`. Only
+/// `entry` may call it. `title` is what a menu or a key shows.
+pub fn command(id: &str, title: &str) {
+    bindings::hamlet::plugin::host::command(id, title);
 }
 
 /// The living agents, each with its hamlet. It needs the capability

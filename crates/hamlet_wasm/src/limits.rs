@@ -54,6 +54,19 @@ pub struct Limits {
     pub storage_value_bytes: usize,
     /// The bytes of the state the host holds for one plugin.
     pub state_bytes: usize,
+    /// The commands one plugin may declare. The rest are dropped.
+    pub commands: usize,
+    /// The plugins a call may cross, one running a command whose
+    /// handler runs another. A call over it is answered with an
+    /// error.
+    pub call_depth: usize,
+    /// The calls one plugin may have waiting for an answer at once.
+    pub calls_in_flight: usize,
+    /// The frames a call waits for its answer before it is answered
+    /// with an error.
+    pub call_frames: u64,
+    /// The bytes of the arguments of a call, and of a reply.
+    pub call_bytes: usize,
 }
 
 /// The time one call may take, in milliseconds, for runs on a busy

@@ -103,6 +103,8 @@ pub fn apply(
                     dirty.mark(&dock_id(&info.id, panel))
                 }
                 (Intent::Redraw(_), None) => {}
+                // Between plugins: `interop` carries these out.
+                (Intent::RunCommand(_) | Intent::Reply(_), _) => {}
             }
         }
     }
