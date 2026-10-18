@@ -24,7 +24,7 @@ use hamlet_sdk::reload::Reload;
 use super::switch;
 use crate::icons::Glyph;
 use crate::looks::bare;
-use crate::{AnyView, View, tabs};
+use crate::{AnyView, tabs};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Tab>()
@@ -83,7 +83,7 @@ fn moved(
 }
 
 /// The page's contents.
-pub(super) fn page() -> impl View {
+pub(super) fn page() -> AnyView {
     keyed(resource::<Open, _>(|open| open.0.is_some()), |open| {
         match open {
             true => permissions::view().boxed(),
@@ -98,6 +98,7 @@ pub(super) fn page() -> impl View {
         }
     })
     .within(bare())
+    .boxed()
 }
 
 /// The list or the capabilities, as the tab says.

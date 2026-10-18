@@ -16,6 +16,7 @@ use crate::inspector::InspectorSection;
 use crate::keys::Key;
 use crate::menu::{Menu, MenuEntry};
 use crate::page::{Native, ShownWhen};
+use crate::settings::SettingsPage;
 
 /// The declarations of one plugin. It reaches neither the app nor the
 /// world.
@@ -33,6 +34,7 @@ enum Declared {
     Key(Key),
     Context(ContextItem, Option<fn(&World, &Subject) -> bool>),
     Inspector(InspectorSection, Option<NativePage>),
+    Settings(SettingsPage, Option<fn() -> AnyView>),
 }
 
 /// A page a built-in plugin draws itself: its view, and when it is
@@ -206,6 +208,45 @@ impl Entry {
         );
     }
 
+    /// Adds a door to the Settings panel, to a page that is the
+    /// plugin panel `panel`, by its id in the dock.
+    pub fn settings_page(
+        &mut self,
+        title: &str,
+        icon: Glyph,
+        panel: &str,
+    ) {
+        self.declared.push(Declared::Settings(
+            SettingsPage {
+                title: title.into(),
+                icon,
+                holds: String::new(),
+                panel: panel.into(),
+            },
+            None,
+        ));
+    }
+
+    /// Adds a door to the Settings panel, to a page that `view`
+    /// draws, with `holds` under its title.
+    pub fn settings_page_with(
+        &mut self,
+        title: &str,
+        icon: Glyph,
+        holds: &str,
+        view: fn() -> AnyView,
+    ) {
+        self.declared.push(Declared::Settings(
+            SettingsPage {
+                title: title.into(),
+                icon,
+                holds: holds.into(),
+                panel: String::new(),
+            },
+            Some(view),
+        ));
+    }
+
     fn declare_section(
         &mut self,
         target: &str,
@@ -274,6 +315,13 @@ impl Entry {
                     if let Some((view, when)) = page {
                         section
                             .insert((Native(view), ShownWhen(when)));
+                    }
+                }
+                Declared::Settings(page, view) => {
+                    let mut page =
+                        commands.spawn((page, ContributedBy(plugin)));
+                    if let Some(view) = view {
+                        page.insert(Native(view));
                     }
                 }
                 Declared::Context(item, when) => {

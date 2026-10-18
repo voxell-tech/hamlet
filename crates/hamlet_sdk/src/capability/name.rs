@@ -30,6 +30,7 @@ pub enum Capability {
     UiKeys,
     UiContext,
     UiInspector,
+    UiSettings,
     Net,
     FsPick,
     FsFolder,
@@ -40,7 +41,7 @@ pub enum Capability {
 }
 
 impl Capability {
-    pub const ALL: [Capability; 17] = [
+    pub const ALL: [Capability; 18] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -51,6 +52,7 @@ impl Capability {
         Capability::UiKeys,
         Capability::UiContext,
         Capability::UiInspector,
+        Capability::UiSettings,
         Capability::Net,
         Capability::FsPick,
         Capability::FsFolder,
@@ -73,6 +75,7 @@ impl Capability {
             Capability::UiKeys => "ui.keys",
             Capability::UiContext => "ui.context",
             Capability::UiInspector => "ui.inspector",
+            Capability::UiSettings => "ui.settings",
             Capability::Net => "net",
             Capability::FsPick => "fs.pick",
             Capability::FsFolder => "fs.folder",
@@ -117,6 +120,7 @@ impl Capability {
             Capability::UiInspector => {
                 "Add tabs to the Inspector's page of an agent"
             }
+            Capability::UiSettings => "Add pages to the Settings",
             Capability::Net => "Reach the network",
             Capability::FsPick => {
                 "Ask for a file with the file dialog"

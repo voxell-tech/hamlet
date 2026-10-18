@@ -360,8 +360,8 @@ pub fn door(
 /// The same as a row of a list, with no frame about it.
 pub fn list_door(
     which: Glyph,
-    title: &'static str,
-    holds: &'static str,
+    title: impl Into<String>,
+    holds: impl Into<String>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
     way_in(which, title, holds, passage, act).boxed()
@@ -369,8 +369,8 @@ pub fn list_door(
 
 fn way_in(
     which: Glyph,
-    title: &'static str,
-    holds: &'static str,
+    title: impl Into<String>,
+    holds: impl Into<String>,
     look: fn(&mut Cx),
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
@@ -379,9 +379,14 @@ fn way_in(
             column((
                 headed(
                     which,
-                    label(title).bold(true).tagged(DisplayText),
+                    label(title.into())
+                        .bold(true)
+                        .tagged(DisplayText),
                 ),
-                label(holds).size(12.0).bold(false).tone(Tone::Dim),
+                label(holds.into())
+                    .size(12.0)
+                    .bold(false)
+                    .tone(Tone::Dim),
             ))
             .gap(4.0)
             .grow(1.0)
@@ -422,13 +427,13 @@ pub fn page_head(
     front: &'static str,
     act: fn(&mut World),
     which: Glyph,
-    name: &'static str,
+    name: impl Into<String>,
 ) -> impl View {
     row((
         back(front, act),
         headed(
             which,
-            label(name)
+            label(name.into())
                 .bold(true)
                 .tone(Tone::Faint)
                 .tagged(DisplayText),

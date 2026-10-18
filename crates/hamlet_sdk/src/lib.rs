@@ -22,6 +22,7 @@ pub mod papers;
 pub mod platform;
 pub mod plugin;
 pub mod reload;
+pub mod settings;
 pub mod theme;
 pub mod tree;
 
@@ -46,6 +47,7 @@ impl Plugin for SdkPlugin {
             menu::plugin,
             papers::plugin,
             plugin::plugin,
+            settings::plugin,
             tree::plugin,
         ));
     }

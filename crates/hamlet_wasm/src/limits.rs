@@ -64,6 +64,9 @@ pub struct Limits {
     /// The inspector tabs one plugin may declare. The rest are
     /// dropped.
     pub inspector_sections: usize,
+    /// The settings pages one plugin may declare. The rest are
+    /// dropped.
+    pub settings_pages: usize,
     /// The shortcuts one plugin may declare. The rest are dropped.
     pub keys: usize,
     /// The plugins a call may cross, one running a command whose

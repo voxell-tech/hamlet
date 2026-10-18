@@ -6,14 +6,27 @@ use hamlet_sdk::context::ContextItems;
 use hamlet_sdk::inspector::InspectorSections;
 use hamlet_sdk::keys::Keys;
 use hamlet_sdk::menu::Menus;
+use hamlet_sdk::settings::SettingsPages;
 
 use super::permissions::petitions;
 use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
 
 const EXPORTS: &str = "[exports]\ncommands = [\"go\"]\n";
-const ALL: &[&str] =
-    &["ui.menu", "ui.keys", "ui.context", "ui.inspector"];
+const ALL: &[&str] = &[
+    "ui.menu",
+    "ui.keys",
+    "ui.context",
+    "ui.inspector",
+    "ui.settings",
+];
+const CAPABILITIES: [Capability; 5] = [
+    Capability::UiMenu,
+    Capability::UiKeys,
+    Capability::UiContext,
+    Capability::UiInspector,
+    Capability::UiSettings,
+];
 
 fn far() -> Plugin {
     let module = fixture::contributing();
@@ -24,13 +37,14 @@ fn far() -> Plugin {
 
 /// What shows of what the plugin declared: the commands of its menu
 /// lines, shortcuts and context menu items, and the panels of its
-/// inspector tabs.
+/// inspector tabs and settings pages.
 #[derive(PartialEq, Default, Debug)]
 struct Shown {
     menus: Vec<String>,
     keys: Vec<String>,
     contexts: Vec<String>,
     tabs: Vec<String>,
+    pages: Vec<String>,
 }
 
 impl Shown {
@@ -61,6 +75,12 @@ impl Shown {
                 .iter()
                 .map(|line| line.panel.clone())
                 .collect(),
+            pages: world
+                .resource::<SettingsPages>()
+                .0
+                .iter()
+                .map(|line| line.panel.clone())
+                .collect(),
         }
     }
 
@@ -72,6 +92,7 @@ impl Shown {
             keys: one("far/go"),
             contexts: one("far/go"),
             tabs: one("far/go"),
+            pages: one("far/go"),
         }
     }
 }
@@ -104,21 +125,11 @@ fn what_a_plugin_declares_shows_only_while_its_capability_is_allowed()
             _ => None,
         })
         .collect::<Vec<_>>();
-    for capability in [
-        Capability::UiMenu,
-        Capability::UiKeys,
-        Capability::UiContext,
-        Capability::UiInspector,
-    ] {
+    for capability in CAPABILITIES {
         assert!(asked.contains(&capability), "{asked:?}");
     }
 
-    for capability in [
-        Capability::UiMenu,
-        Capability::UiKeys,
-        Capability::UiContext,
-        Capability::UiInspector,
-    ] {
+    for capability in CAPABILITIES {
         decide(&mut app, capability, Choice::Allow);
     }
     assert_eq!(Shown::of(&app), Shown::all());
@@ -140,12 +151,8 @@ fn what_a_plugin_declares_shows_only_while_its_capability_is_allowed()
     decide(&mut app, Capability::UiMenu, Choice::Deny);
     assert_eq!(Shown::of(&app).menus, Vec::<String>::new());
     assert_eq!(Shown::of(&app).keys.len(), 1);
-    for capability in [
-        Capability::UiKeys,
-        Capability::UiContext,
-        Capability::UiInspector,
-    ] {
-        decide(&mut app, capability, Choice::Deny);
+    for capability in &CAPABILITIES[1..] {
+        decide(&mut app, *capability, Choice::Deny);
     }
     assert_eq!(Shown::of(&app), Shown::default());
 }

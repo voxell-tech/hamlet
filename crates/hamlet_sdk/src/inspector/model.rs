@@ -12,8 +12,8 @@ use crate::dock::Panel;
 use crate::icons::Glyph;
 use crate::plugin::{ContributedBy, PluginInfo};
 
-/// Every tab that may show, in the order a page lists them: by
-/// plugin, then title.
+/// Every tab that may show, in the order a page lists them: the
+/// built-in plugins' first, then by plugin and title.
 #[derive(Resource, Default, Clone, PartialEq, Debug)]
 pub struct InspectorSections(pub Vec<Line>);
 
@@ -28,6 +28,8 @@ pub struct Line {
     pub icon: Glyph,
     /// The id of the plugin that added it.
     pub plugin: String,
+    /// Whether that plugin is built in.
+    pub builtin: bool,
 }
 
 impl InspectorSections {
@@ -86,11 +88,13 @@ pub(super) fn keep(
                 panel: section.panel.clone(),
                 icon,
                 plugin: info.id.clone(),
+                builtin: info.builtin,
             })
         })
         .collect::<Vec<_>>();
     now.sort_by(|a, b| {
-        (&a.plugin, &a.title).cmp(&(&b.plugin, &b.title))
+        (!a.builtin, &a.plugin, &a.title)
+            .cmp(&(!b.builtin, &b.plugin, &b.title))
     });
     if shown.0 != now {
         shown.0 = now;

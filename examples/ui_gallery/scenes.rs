@@ -4,6 +4,7 @@ mod clipper;
 mod dock;
 mod greeter;
 mod notes;
+mod pages;
 mod permissions;
 mod petitions;
 mod reload;
@@ -30,6 +31,7 @@ use hamlet_assets::Tuning;
 use hamlet_core::core::{Link, Sandboxing};
 use hamlet_realm::sound::{Cue, SoundSettings};
 use hamlet_sdk::inspector::InspectorSections;
+use hamlet_sdk::settings::SettingsPages;
 use hamlet_ui::history::History;
 use hamlet_ui::theme::{self, HamletTheme};
 use hamlet_ui::{Bar, Roll, asking, chrome, menu, select, welcome};
@@ -108,6 +110,18 @@ impl Plugin for GalleryPlugin {
                         .run_if(resource_changed::<InspectorSections>)
                         .run_if(|scene: Res<Scene>| {
                             *scene == Scene::SkillsTab
+                        }),
+                    pages::plugins
+                        .run_if(resource_changed::<SettingsPages>)
+                        .run_if(|scene: Res<Scene>| {
+                            matches!(
+                                *scene,
+                                Scene::Plugins
+                                    | Scene::PluginPermissions
+                                    | Scene::PluginCapabilities
+                                    | Scene::PluginAdds
+                                    | Scene::PluginReload
+                            )
                         }),
                 ),
             )

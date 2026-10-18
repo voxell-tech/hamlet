@@ -79,6 +79,13 @@ interface host {
   // is. Only `entry` declares.
   inspector-section: func(target: string, title: string, panel: string);
 
+  // Adds a door to the Settings panel, with `title` and the glyph
+  // `icon` of the panels' icon family, to a page that is the plugin's
+  // own panel `panel`, by the id it gave it with `panel`. It needs the
+  // capability `ui.settings`, and is gated as `menu-item` is. Only
+  // `entry` declares.
+  settings-page: func(title: string, icon: string, panel: string);
+
   // The standing answer to a `request`.
   enum request-result {
     // The plugin may use the capability.

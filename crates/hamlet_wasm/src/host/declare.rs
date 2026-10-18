@@ -60,6 +60,15 @@ pub struct Tabbed {
     pub panel: String,
 }
 
+/// A door of the Settings panel a plugin declared.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Paged {
+    pub title: String,
+    pub icon: Glyph,
+    /// The id the plugin knows the panel by.
+    pub panel: String,
+}
+
 /// A shortcut a plugin declared.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Chorded {
@@ -75,6 +84,7 @@ pub struct Offers {
     pub menus: Vec<Placed>,
     pub contexts: Vec<Targeted>,
     pub tabs: Vec<Tabbed>,
+    pub pages: Vec<Paged>,
     pub keys: Vec<Chorded>,
 }
 
@@ -180,6 +190,31 @@ impl State {
         self.offered.tabs.push(Tabbed {
             target,
             title,
+            panel,
+        });
+    }
+
+    pub(super) fn page(
+        &mut self,
+        title: String,
+        icon: String,
+        panel: String,
+    ) {
+        if self.offered.pages.len() >= self.page_room {
+            return;
+        }
+        let named = glyph::named(&icon);
+        if named.is_none() {
+            self.write(
+                Level::Warn,
+                format!("no icon named `{icon}`"),
+            );
+        }
+        self.want_to_contribute(Capability::UiSettings);
+        let title = self.cut(title);
+        self.offered.pages.push(Paged {
+            title,
+            icon: named.unwrap_or(glyph::UNKNOWN),
             panel,
         });
     }

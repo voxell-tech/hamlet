@@ -6,6 +6,7 @@ mod plugins;
 use std::path::Path;
 
 use bevy::app::{App, Update};
+use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
@@ -26,6 +27,9 @@ use hamlet_home::charter;
 use hamlet_model::config::Config;
 use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
+use hamlet_sdk::page;
+use hamlet_sdk::plugin::Entry;
+use hamlet_sdk::settings::{Line, SettingsPage, SettingsPages};
 
 pub use self::plugins::{Open, Tab};
 use crate::dock::{Panel, PanelAppExt, panel};
@@ -36,6 +40,7 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::platform::DisplayText;
+use crate::roll::{either, moved};
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx, View, markdown, with_cx};
 
@@ -51,8 +56,31 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Charter>()
     .add_systems(
         Update,
-        read_charter.run_if(resource_changed::<Pane>),
+        (
+            read_charter.run_if(resource_changed::<Pane>),
+            leave_page.run_if(resource_changed::<SettingsPages>),
+        ),
     );
+}
+
+/// Declares the page of the plugins, a door of the Settings panel.
+pub(crate) fn contribute(entry: &mut Entry) {
+    entry.settings_page_with(
+        "PLUGINS",
+        Glyph::Power,
+        "What is added to Hamlet, each on or off, and what each may \
+         do.",
+        plugins::page,
+    );
+}
+
+/// Turns back to the front page when the page a plugin added is gone.
+fn leave_page(pages: Res<SettingsPages>, mut pane: ResMut<Pane>) {
+    if let Pane::Contributed(item) = *pane
+        && !pages.holds(item)
+    {
+        *pane = Pane::Front;
+    }
 }
 
 fn field(name: &'static str, value: impl View) -> impl View {
@@ -104,19 +132,19 @@ pub enum Pane {
     /// The rules that hold for every hamlet.
     Realm,
     Senses,
-    /// Every plugin, with its switch.
-    Plugins,
+    /// A page a plugin added, by the entity of its
+    /// [`SettingsPage`], which has its words and its icon.
+    Contributed(Entity),
 }
 
 impl Pane {
-    const PAGES: [Pane; 7] = [
+    const PAGES: [Pane; 6] = [
         Pane::Endpoints,
         Pane::Models,
         Pane::Agents,
         Pane::Charter,
         Pane::Realm,
         Pane::Senses,
-        Pane::Plugins,
     ];
 
     fn title(self) -> &'static str {
@@ -128,26 +156,25 @@ impl Pane {
             Pane::Charter => "CHARTER",
             Pane::Realm => "REALM",
             Pane::Senses => "SOUND AND SIGHT",
-            Pane::Plugins => "PLUGINS",
+            Pane::Contributed(_) => "",
         }
     }
 
     fn glyph(self) -> Glyph {
         match self {
-            Pane::Front => Glyph::Sliders,
+            Pane::Front | Pane::Contributed(_) => Glyph::Sliders,
             Pane::Endpoints => Glyph::Globe,
             Pane::Models => Glyph::Chip,
             Pane::Agents => Glyph::Robot,
             Pane::Charter => Glyph::Notes,
             Pane::Realm => Glyph::Signpost,
             Pane::Senses => Glyph::Sun,
-            Pane::Plugins => Glyph::Power,
         }
     }
 
     fn holds(self) -> &'static str {
         match self {
-            Pane::Front => "",
+            Pane::Front | Pane::Contributed(_) => "",
             Pane::Endpoints => {
                 "Where models come from, and their keys."
             }
@@ -161,10 +188,6 @@ impl Pane {
             Pane::Charter => "What every agent is told.",
             Pane::Realm => "Rules that apply to every hamlet.",
             Pane::Senses => "Sound, music and how much is drawn.",
-            Pane::Plugins => {
-                "What is added to Hamlet, each on or off, and what \
-                 each may do."
-            }
         }
     }
 }
@@ -478,12 +501,70 @@ fn again() -> impl View {
     .align(AlignItems::FlexStart)
 }
 
+/// The door to a page a plugin added.
+fn contributed_door(line: &Line) -> AnyView {
+    let item = line.item;
+    crate::looks::list_door(
+        line.icon,
+        line.title.clone(),
+        line.holds.clone(),
+        move |world| {
+            *world.resource_mut::<Pane>() = Pane::Contributed(item)
+        },
+    )
+}
+
+/// A page a plugin added, under a head with its words.
+fn contributed(item: Entity) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let (icon, title, panel) = cx
+            .world
+            .get::<SettingsPage>(item)
+            .map(|page| {
+                (page.icon, page.title.clone(), page.panel.clone())
+            })
+            .unwrap_or((
+                Glyph::Sliders,
+                String::new(),
+                String::new(),
+            ));
+        let body = page::content(cx.world, item, &panel);
+        cx.build(
+            column((
+                page_head(
+                    "SETTINGS",
+                    |world| {
+                        *world.resource_mut::<Pane>() = Pane::Front
+                    },
+                    icon,
+                    title,
+                ),
+                body,
+            ))
+            .gap(16.0),
+        )
+    })
+}
+
 /// The Settings panel's contents.
 pub fn screen() -> AnyView {
-    let page = keyed(resource::<Pane, _>(|pane| *pane), |pane| {
+    // The doors are listed again when a page comes or goes.
+    let shown = derived(|world: &World| {
+        (
+            *world.resource::<Pane>(),
+            world.resource::<SettingsPages>().clone(),
+        )
+    })
+    .when(either(moved::<Pane>(), moved::<SettingsPages>()));
+    let page = keyed(shown, |(pane, added)| {
+        if let Pane::Contributed(item) = pane {
+            return contributed(*item);
+        }
         if *pane == Pane::Front {
-            let (pages, foot) =
-                (Pane::PAGES.map(door).into(), again().boxed());
+            let mut pages =
+                Pane::PAGES.map(door).into_iter().collect::<Vec<_>>();
+            pages.extend(added.0.iter().map(contributed_door));
+            let foot = again().boxed();
             return with_cx(move |cx| doors(cx, pages, foot));
         }
         let body = match pane {
@@ -492,8 +573,9 @@ pub fn screen() -> AnyView {
             Pane::Agents => agents().boxed(),
             Pane::Charter => with_cx(charter_page),
             Pane::Realm => crate::rules::realm().boxed(),
-            Pane::Plugins => plugins::page().boxed(),
-            Pane::Front | Pane::Senses => senses().boxed(),
+            Pane::Front | Pane::Senses | Pane::Contributed(_) => {
+                senses().boxed()
+            }
         };
         column((
             page_head(

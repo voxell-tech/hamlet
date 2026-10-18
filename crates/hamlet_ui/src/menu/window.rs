@@ -8,6 +8,7 @@ use hamlet_sdk::plugin::{
     AppPluginExt, Entry, HamletPlugin, Manifest,
 };
 
+use crate::screens::settings;
 use crate::world_view::TimeOfDay;
 use crate::{window, world_menu};
 
@@ -32,6 +33,7 @@ impl HamletPlugin for Window {
 
     fn entry(entry: &mut Entry) {
         world_menu::contribute(entry);
+        settings::contribute(entry);
         entry.command("found", "Found a Hamlet...", |commands| {
             commands.queue(world_menu::ask_found);
         });

@@ -119,16 +119,6 @@ pub(super) fn setup(world: &mut World) {
     });
     world.init_resource::<Also>();
     world.insert_resource(Selected(Some(Thing::Resident(agent))));
-    if matches!(
-        scene,
-        Scene::Plugins
-            | Scene::PluginPermissions
-            | Scene::PluginCapabilities
-            | Scene::PluginAdds
-            | Scene::PluginReload
-    ) {
-        world.insert_resource(hamlet_ui::settings::Pane::Plugins);
-    }
     if scene == Scene::PluginReload {
         super::reload::put(world);
     }
