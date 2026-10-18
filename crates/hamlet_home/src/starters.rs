@@ -23,6 +23,7 @@ const STARTERS: &[Starter] = &[
     starter!("call-api", ["SKILL.md", "scripts/api.py"]),
     starter!("system-info", ["SKILL.md", "scripts/info.py"]),
     starter!("write-skill", ["SKILL.md"]),
+    starter!("write-a-plugin", ["SKILL.md"]),
     starter!("manage-notes", ["SKILL.md"]),
     starter!("write-typst", ["SKILL.md"]),
 ];
