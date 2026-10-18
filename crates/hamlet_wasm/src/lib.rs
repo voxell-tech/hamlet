@@ -13,6 +13,7 @@ pub mod call;
 pub mod draw;
 pub mod enable;
 pub mod engine;
+pub mod event;
 pub mod fault;
 pub mod glyph;
 pub mod host;
@@ -43,6 +44,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<PluginTrees>()
         .add_message::<run::Done>()
         .add_observer(enable::restart)
+        .add_observer(event::deliver)
         .add_observer(trees::forget)
         .configure_sets(
             Update,

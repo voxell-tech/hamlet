@@ -11,8 +11,33 @@ interface host {
 }
 
 interface plugin {
+  // What reached the plugin. The events name the panel by the id the
+  // plugin gave it, and the node by the id the plugin gave the node.
   variant incoming {
     tick(u64),
+    click(press),
+    toggled(toggle),
+    text-changed(typed),
+  }
+
+  // A button was pressed.
+  record press {
+    panel: string,
+    id: string,
+  }
+
+  // A checkbox was asked to take a state.
+  record toggle {
+    panel: string,
+    id: string,
+    on: bool,
+  }
+
+  // A text field was committed with Enter or by leaving it.
+  record typed {
+    panel: string,
+    id: string,
+    text: string,
   }
 
   variant intent {

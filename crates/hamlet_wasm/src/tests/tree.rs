@@ -12,9 +12,9 @@ use crate::tree::{Kind, Node};
 use crate::trees::{Drawn, PluginTrees};
 use crate::view;
 
-const PANEL: &str = "probe/main";
+pub(super) const PANEL: &str = "probe/main";
 
-fn items() -> Vec<Item> {
+pub(super) fn items(count: &'static str) -> Vec<Item> {
     vec![
         Item(None, Widget::Column, 7),
         Item(None, Widget::Row, 2),
@@ -22,7 +22,7 @@ fn items() -> Vec<Item> {
         Item(None, Widget::Heading("ROSTER"), 0),
         Item(Some("go"), Widget::Button("Refresh"), 0),
         Item(Some("name"), Widget::TextField("Ada"), 0),
-        Item(Some("count"), Widget::Label("0 refreshes"), 0),
+        Item(Some("count"), Widget::Label(count), 0),
         Item(Some("hint"), Widget::Checkbox("Show hint", false), 0),
         Item(None, Widget::Divider, 0),
         Item(None, Widget::Scroll, 1),
@@ -30,7 +30,7 @@ fn items() -> Vec<Item> {
     ]
 }
 
-fn tree(count: &str, hint: bool) -> Node {
+pub(super) fn tree(count: &str, hint: bool) -> Node {
     let mut children = vec![
         Node::new(Kind::Row).of(vec![
             Node::new(Kind::Icon(Glyph::Robot)),
@@ -79,8 +79,8 @@ fn a_returned_tree_is_drawn_and_a_redraw_keeps_a_typed_text() {
         &[Plugin {
             id: "probe",
             wasm: fixture::component(&fixture::drawing(
-                &items(),
-                &items(),
+                &items("0 refreshes"),
+                &items("0 refreshes"),
             )),
         }],
     );

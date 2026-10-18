@@ -1,7 +1,9 @@
 //! The props of a node, read from the tree as it stands.
 
+use bevy::ecs::world::World;
 use bevy_fynix::{Signal, resource};
 
+use crate::event::{Act, Interaction};
 use crate::tree::Key;
 use crate::trees::PluginTrees;
 
@@ -27,6 +29,12 @@ impl At {
             panel: self.panel.clone(),
             path,
         }
+    }
+
+    /// Tells the plugin that `act` was done to this node.
+    pub fn send(&self, world: &mut World, act: Act) {
+        let node = self.path.last().map_or("", |key| &key.name);
+        Interaction::send(world, &self.panel, node, act);
     }
 
     pub fn text(&self) -> Signal<String> {

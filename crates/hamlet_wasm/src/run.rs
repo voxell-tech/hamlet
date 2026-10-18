@@ -11,7 +11,7 @@ use crate::instance::Instance;
 use crate::interface::exports::hamlet::plugin::plugin::Intent;
 use crate::interface::hamlet::plugin::host::Level;
 use crate::limits::Limits;
-use crate::panel;
+use crate::{event, panel};
 
 /// What one plugin's `step` asked for.
 #[derive(Message)]
@@ -30,22 +30,28 @@ pub fn step(
         &Status,
         &mut Inbox,
         &mut Instance,
+        &mut Dirty,
     )>,
     mut done: MessageWriter<Done>,
     mut commands: Commands,
 ) {
-    for (plugin, info, status, mut inbox, mut instance) in
+    for (plugin, info, status, mut inbox, mut instance, mut dirty) in
         &mut plugins
     {
         if *status != Status::Running || inbox.is_empty() {
             continue;
         }
-        match instance.step(&limits, &inbox.take()) {
+        let mail = inbox.take();
+        match instance.step(&limits, &mail) {
             Ok(output) => {
                 output
                     .logs
                     .iter()
                     .for_each(|line| say(&info.id, line));
+                // A panel that was written to may look different now.
+                for local in mail.iter().filter_map(event::panel_of) {
+                    dirty.mark(&panel::dock_id(&info.id, local));
+                }
                 done.write(Done {
                     plugin,
                     intents: output.intents,

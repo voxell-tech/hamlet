@@ -12,8 +12,11 @@ impl Plugin for Hello {
     fn step(inbox: Vec<Incoming>) -> Vec<Intent> {
         inbox
             .into_iter()
-            .map(|Incoming::Tick(tick)| {
-                Intent::LogLine(format!("tick {tick}"))
+            .filter_map(|incoming| match incoming {
+                Incoming::Tick(tick) => {
+                    Some(Intent::LogLine(format!("tick {tick}")))
+                }
+                _ => None,
             })
             .collect()
     }

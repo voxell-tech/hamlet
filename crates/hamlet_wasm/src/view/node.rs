@@ -15,6 +15,7 @@ use hamlet_sdk::theme::HamletTheme;
 use hamlet_sdk::{AnyView, Cx, icons};
 
 use super::bind::At;
+use crate::event::Act;
 use crate::tree::{Key, Tag};
 
 /// The space between the children of a column or a row.
@@ -46,22 +47,37 @@ pub(super) fn view(at: &At, tag: Tag) -> AnyView {
         Tag::Icon(which) => {
             icons::glyph(which, ICON).tone(Tone::Faint).boxed()
         }
-        Tag::Button => lettered(at.text())
-            .rules(brass)
-            .tagged(Mood::Plain)
-            .on_activate(|_| {})
-            .boxed(),
+        Tag::Button => {
+            let button = at.clone();
+            lettered(at.text())
+                .rules(brass)
+                .tagged(Mood::Plain)
+                .on_activate(move |world| {
+                    button.send(world, Act::Click)
+                })
+                .boxed()
+        }
         Tag::Checkbox => {
-            row((tick(at.checked()), label(at.text()).size(13.0)))
+            let boxed = at.clone();
+            let mark =
+                tick(at.checked()).on_change(move |world, on| {
+                    boxed.send(world, Act::Toggled(on))
+                });
+            row((mark, label(at.text()).size(13.0)))
                 .gap(GAP)
                 .align(AlignItems::Center)
                 .boxed()
         }
-        Tag::TextField => text_field(at.text(), |_, _| {})
+        Tag::TextField => {
+            let field = at.clone();
+            text_field(at.text(), move |world, text| {
+                field.send(world, Act::Typed(text))
+            })
             .fills_width()
             .rules(well)
             .tagged(Mood::Field)
-            .boxed(),
+            .boxed()
+        }
         Tag::Divider => AnyView::new(|cx: &mut Cx| {
             let line = hairline(cx.theme().palette.brass_6);
             cx.build(line)
