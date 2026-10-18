@@ -5,8 +5,8 @@ use std::f32::consts::{FRAC_PI_2, PI};
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use hamlet_assets::tint::hex;
-use hamlet_world::meshes::{Rng, noise2};
-use hamlet_world::palette::Palette;
+use hamlet_realm::meshes::{Rng, noise2};
+use hamlet_realm::palette::Palette;
 
 use super::scene::{Built, Terrain};
 use super::stall::plank;

@@ -24,8 +24,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_core::agents::{self};
 use hamlet_core::oversight::Veto;
-use hamlet_world::orders;
-use hamlet_world::pick::{Asked, AskedGround, Thing};
+use hamlet_realm::orders;
+use hamlet_realm::pick::{Asked, AskedGround, Thing};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;

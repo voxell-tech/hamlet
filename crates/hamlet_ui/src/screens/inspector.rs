@@ -14,7 +14,7 @@ use bevy::ecs::world::World;
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_core::agents::Left;
-use hamlet_world::pick::{Selected, Thing};
+use hamlet_realm::pick::{Selected, Thing};
 
 pub use self::agent::{Briefing, Section};
 pub(crate) use self::agent::{now, show_prompt};

@@ -25,8 +25,8 @@ use hamlet_core::oversight::{
 };
 use hamlet_core::session::{Entry, Transcript};
 use hamlet_core::tools::Change;
+use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_rules::chief::rulings::Choice;
-use hamlet_world::needs::{TagAnswered, TagOpened};
 
 use crate::dock::{PanelAppExt, lit_panel, show_tab};
 use crate::feel::{Lit, Mood};

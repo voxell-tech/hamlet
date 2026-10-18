@@ -1,15 +1,15 @@
 //! A made-up society, and the sky with effects switched.
 
 use bevy::prelude::*;
-use hamlet_world::generator::land::Land;
-use hamlet_world::generator::noise::{key, unit};
-use hamlet_world::generator::society::{RoadLevel, Society};
-use hamlet_world::sky::SkySettings;
+use hamlet_realm::generator::land::Land;
+use hamlet_realm::generator::noise::{key, unit};
+use hamlet_realm::generator::society::{RoadLevel, Society};
+use hamlet_realm::sky::SkySettings;
 
 /// The site of the town an agent lives in.
 pub fn site_of(
     world: &Society,
-    agent: &hamlet_world::generator::society::Agent,
+    agent: &hamlet_realm::generator::society::Agent,
 ) -> usize {
     world.town(agent.town).map(|t| t.site).unwrap_or(0)
 }

@@ -28,9 +28,9 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 use bevy::winit::{UpdateMode, WinitSettings};
+use hamlet_realm::debug::DebugSettings;
+use hamlet_realm::{Clock, WorldSystems};
 use hamlet_vfx::inlay::InlayState;
-use hamlet_world::debug::DebugSettings;
-use hamlet_world::{Clock, WorldSystems};
 
 use self::note::note;
 use crate::bench::{BenchRun, run_bench, run_crowd_bench};

@@ -23,8 +23,8 @@ use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_core::agents::{Activity, LivesIn, Settlement, Treasury};
 use hamlet_core::core::HomeDir;
 use hamlet_core::oversight::Waiting;
+use hamlet_realm::pick::{Thing, focus_on, select};
 use hamlet_rules::realm::Realm;
-use hamlet_world::pick::{Thing, focus_on, select};
 
 pub use self::hamlet::{Naming, Page, hamlet};
 use self::rows::{hamlet_rows, pressable};

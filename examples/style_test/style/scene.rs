@@ -6,8 +6,8 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use bevy::prelude::*;
 use hamlet_assets::tint::hex;
-use hamlet_world::meshes::{Line, Mb, Rng, fbm, noise2, smoothstep};
-use hamlet_world::palette::Palette;
+use hamlet_realm::meshes::{Line, Mb, Rng, fbm, noise2, smoothstep};
+use hamlet_realm::palette::Palette;
 
 use super::cottage::cottage;
 use super::planting::{fence, planting};

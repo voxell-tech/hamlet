@@ -45,9 +45,9 @@ use hamlet_core::agents;
 use hamlet_core::session::{
     Entry, Reply, SessionKey, SessionOutput, Transcript, UserMessage,
 };
+use hamlet_realm::orders::{Decree, Tell};
 use hamlet_rules::chief::{self, Target};
 use hamlet_rules::hamlet::HOME;
-use hamlet_world::orders::{Decree, Tell};
 
 pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};

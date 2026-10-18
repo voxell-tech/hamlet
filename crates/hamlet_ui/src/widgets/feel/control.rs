@@ -26,7 +26,7 @@ use bevy::ui::{
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
 use bevy::ui_widgets::{Activate, Button};
 use bevy_fynix::Focused;
-use hamlet_world::sound::{Cue, Sound};
+use hamlet_realm::sound::{Cue, Sound};
 
 use super::{FeelSettings, MagicColors, Mood, ease, linear, waver};
 use crate::sounds;

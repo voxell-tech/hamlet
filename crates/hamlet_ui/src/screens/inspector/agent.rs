@@ -19,7 +19,7 @@ use hamlet_core::agents::{
 };
 use hamlet_core::core::RefreshLists;
 use hamlet_core::session::{self, Seat};
-use hamlet_world::pick::{Thing, select};
+use hamlet_realm::pick::{Thing, select};
 
 use super::papers::Papers;
 use crate::feel::Mood;

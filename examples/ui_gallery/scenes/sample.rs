@@ -23,6 +23,8 @@ use hamlet_core::session::{
     ASKED, MAIL, SessionKey, TalksTo, Transcript,
 };
 use hamlet_home::Home;
+use hamlet_realm::chief;
+use hamlet_realm::pick::{Also, Selected, Thing};
 use hamlet_rules::budget::{AgentBudget, Amount};
 use hamlet_rules::chief::asking::Pick;
 use hamlet_rules::chief::rulings::Choice;
@@ -31,8 +33,6 @@ use hamlet_ui::links::{Aimed, Roots};
 use hamlet_ui::{
     Me, asking, chat, history, inspector, menu, overview, welcome,
 };
-use hamlet_world::chief;
-use hamlet_world::pick::{Also, Selected, Thing};
 use serde_json::{Value, json};
 
 use super::Scene;
@@ -138,7 +138,7 @@ pub(super) fn setup(world: &mut World) {
         });
         world.init_resource::<welcome::Committing>();
         world.init_resource::<hamlet_desktop::awake::KeepAwake>();
-        world.init_resource::<hamlet_world::sky::Quality>();
+        world.init_resource::<hamlet_realm::sky::Quality>();
     }
     if scene == Scene::Charter {
         let home = house();

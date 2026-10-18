@@ -19,9 +19,9 @@ use hamlet_home::instance::{self, Instance};
 use hamlet_home::{Home, limits};
 use hamlet_model::config::Config;
 use hamlet_model::log;
+use hamlet_realm::hamlet::RealmPlugin;
 use hamlet_sandbox as sandbox;
 use hamlet_ui::{ShowRequests, UiPlugin, window_plugin};
-use hamlet_world::hamlet::RealmPlugin;
 
 const USAGE: &str = "\
 usage: hamlet [--headless | --repl] [--insecure] [--replay \

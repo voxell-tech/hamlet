@@ -1,7 +1,7 @@
 # Sound
 
 Everything heard in the app is made in code, in
-`hamlet_world/src/sound/`: no samples, no files. Settings has two
+`hamlet_realm/src/sound/`: no samples, no files. Settings has two
 switches, Sound for the effects and the ambience and Music for the music.
 
 Everything with a note is in **D major**, mostly on its pentatonic scale

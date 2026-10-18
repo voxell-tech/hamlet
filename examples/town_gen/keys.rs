@@ -1,15 +1,15 @@
 //! The keys that grow the society and move the view.
 
 use bevy::prelude::*;
-use hamlet_world::generator::land::Land;
-use hamlet_world::generator::noise::key;
-use hamlet_world::generator::society::{RoadLevel, Society};
-use hamlet_world::generator::{GenView, Traffic};
-use hamlet_world::keeper::KState;
-use hamlet_world::keeper::work::{Paper, Task, Work};
-use hamlet_world::sky::SkySettings;
-use hamlet_world::sound::SoundSettings;
-use hamlet_world::{Hour, Sky, Stage};
+use hamlet_realm::generator::land::Land;
+use hamlet_realm::generator::noise::key;
+use hamlet_realm::generator::society::{RoadLevel, Society};
+use hamlet_realm::generator::{GenView, Traffic};
+use hamlet_realm::keeper::KState;
+use hamlet_realm::keeper::work::{Paper, Task, Work};
+use hamlet_realm::sky::SkySettings;
+use hamlet_realm::sound::SoundSettings;
+use hamlet_realm::{Hour, Sky, Stage};
 
 /// The town the keys act on, and a counter that makes each key press
 /// pick something different.

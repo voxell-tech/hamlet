@@ -3322,11 +3322,11 @@ dependencies = [
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_model",
+ "hamlet_realm",
  "hamlet_rules",
  "hamlet_sandbox",
  "hamlet_ui",
  "hamlet_vfx",
- "hamlet_world",
  "serde_json",
  "tokio",
 ]
@@ -3406,6 +3406,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_realm"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "chrono",
+ "hamlet_assets",
+ "hamlet_core",
+ "hamlet_home",
+ "hamlet_rules",
+ "hamlet_testing",
+ "hamlet_vfx",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "hamlet_rules"
 version = "0.1.0"
 dependencies = [
@@ -3446,9 +3462,9 @@ dependencies = [
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_model",
+ "hamlet_realm",
  "hamlet_rules",
  "hamlet_testing",
- "hamlet_world",
  "image",
  "parley",
  "pulldown-cmark",
@@ -3467,22 +3483,6 @@ dependencies = [
  "bevy_hanabi",
  "hamlet_assets",
  "serde",
-]
-
-[[package]]
-name = "hamlet_world"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "chrono",
- "hamlet_assets",
- "hamlet_core",
- "hamlet_home",
- "hamlet_rules",
- "hamlet_testing",
- "hamlet_vfx",
- "serde",
- "toml",
 ]
 
 [[package]]

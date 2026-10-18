@@ -23,8 +23,8 @@ use hamlet_core::oversight::grants::Grants;
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_home::charter;
 use hamlet_model::config::Config;
-use hamlet_world::sky::Quality;
-use hamlet_world::sound::SoundSettings;
+use hamlet_realm::sky::Quality;
+use hamlet_realm::sound::SoundSettings;
 
 use crate::dock::{PanelAppExt, panel};
 use crate::icons::Glyph;

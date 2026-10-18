@@ -17,15 +17,15 @@ use std::time::{Duration, Instant};
 use bevy::audio::AudioPlugin;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
-use hamlet_world::generator::land::Land;
-use hamlet_world::generator::society::{Place, Society, TownId};
-use hamlet_world::generator::{GenView, Loading, Tally};
-use hamlet_world::hamlet::RealmPlugin;
-use hamlet_world::moving::{self, Carrying};
-use hamlet_world::pick::Reach;
-use hamlet_world::sky::SkySettings;
-use hamlet_world::sound::SoundSettings;
-use hamlet_world::{Clock, Hour, Stage, WorldCamera};
+use hamlet_realm::generator::land::Land;
+use hamlet_realm::generator::society::{Place, Society, TownId};
+use hamlet_realm::generator::{GenView, Loading, Tally};
+use hamlet_realm::hamlet::RealmPlugin;
+use hamlet_realm::moving::{self, Carrying};
+use hamlet_realm::pick::Reach;
+use hamlet_realm::sky::SkySettings;
+use hamlet_realm::sound::SoundSettings;
+use hamlet_realm::{Clock, Hour, Stage, WorldCamera};
 
 use self::offscreen::Target;
 

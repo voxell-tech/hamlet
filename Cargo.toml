@@ -23,7 +23,7 @@ hamlet_core = { version = "0.1.0", path = "crates/hamlet_core" }
 hamlet_desktop = { version = "0.1.0", path = "crates/hamlet_desktop" }
 hamlet_assets = { version = "0.1.0", path = "crates/hamlet_assets" }
 hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
-hamlet_world = { version = "0.1.0", path = "crates/hamlet_world" }
+hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
 
@@ -99,7 +99,7 @@ hamlet_home.workspace = true
 hamlet_core.workspace = true
 hamlet_desktop.workspace = true
 hamlet_ui.workspace = true
-hamlet_world.workspace = true
+hamlet_realm.workspace = true
 anyhow.workspace = true
 bevy.workspace = true
 bevy_app.workspace = true

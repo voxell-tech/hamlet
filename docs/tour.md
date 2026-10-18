@@ -36,8 +36,8 @@ flowchart TD
     rules --> records
     agent -- "model, tools,<br/>letters to others" --> records
     records -- "hamlet_core: agents<br/>watches the files" --> entities
-    entities -- "hamlet_world: hamlet<br/>the bridge" --> society
-    society -- "hamlet_world: generator" --> drawn
+    entities -- "hamlet_realm: hamlet<br/>the bridge" --> society
+    society -- "hamlet_realm: generator" --> drawn
     entities --> panels
     records -- "the sessions' transcripts" --> panels
 ```
@@ -57,14 +57,14 @@ table. The binary and the examples are the root package.
 | `hamlet_desktop` | The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder dialog and the app's icon |
 | `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
-| `hamlet_world` | The 3D world, drawn from the core's entities |
+| `hamlet_realm` | The 3D world, drawn from the core's entities |
 | `hamlet_ui` | The window: panels, menus, chat and pointer around the world |
 
 Inside a crate, a module with several subjects is a file and a folder of
 the same name, and each file opens with a line saying what it holds. Read
 `lib.rs` for the list.
 
-`hamlet_world` has one folder for each thing in the world: `generator/`
+`hamlet_realm` has one folder for each thing in the world: `generator/`
 (land, towns, houses, roads and traffic from a seed), `keeper/` (the
 robots), `chief/` (the wizard and its Hearth), `hand/` (what the chief does
 by hand), `pick/` (pointing, selecting and the camera) and `sound/`.
@@ -79,11 +79,11 @@ Names to keep apart:
 - `hamlet_core/src/agent.rs` is the loop one agent runs. `agents.rs` is
   every agent as an entity.
 - `hamlet_rules/src/hamlet.rs` is a hamlet's record on disk.
-  `hamlet_world/src/hamlet.rs` is the bridge that puts hamlets into the
+  `hamlet_realm/src/hamlet.rs` is the bridge that puts hamlets into the
   world.
 - `chief.rs` is a chief's commands in `hamlet_rules`, the wizard in
-  `hamlet_world` and the chief's panel in `hamlet_ui`.
-- `hand.rs` is the hand in `hamlet_world`. In `hamlet_ui` it carries what
+  `hamlet_realm` and the chief's panel in `hamlet_ui`.
+- `hand.rs` is the hand in `hamlet_realm`. In `hamlet_ui` it carries what
   the hand did to the core.
 
 ## Where do I change...
@@ -100,7 +100,7 @@ Paths are under `crates/`.
 | What needs the chief's approval | `hamlet_core/src/oversight/danger.rs` |
 | What an agent's commands may touch | `hamlet_sandbox/src/`; [`sandbox.md`](sandbox.md) |
 | The folder a hamlet works on | `hamlet_rules/src/work.rs` keeps it; `Tools::work_on` in `hamlet_core/src/tools.rs` applies it |
-| The workbench and its clockwork on a common | `hamlet_world/src/works.rs` |
+| The workbench and its clockwork on a common | `hamlet_realm/src/works.rs` |
 | The library of shared skills | `hamlet_rules/src/library.rs` |
 | Spending and limits | `hamlet_rules/src/budget/`, `hamlet_home/src/limits.rs` |
 | Models, their prices and who may run them | `hamlet_model/src/catalogue.rs`, `hamlet_rules/src/models.rs` |
@@ -117,12 +117,12 @@ Paths are under `crates/`.
 | A colour in the world | `assets/palette.toml` |
 | A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`. What each value means is beside its field in the code |
 | The height something stands at | `LandData::surface`: the ground as it is drawn, never the smooth `height` |
-| How a house looks | `hamlet_world/src/generator/house.rs` |
-| How a robot moves | `hamlet_world/src/keeper/acts/`; [`robots.md`](robots.md) |
-| An effect | `hamlet_vfx/src/`; when it is set off, `hamlet_world/src/generator/magic.rs` |
-| A sound or the music | `hamlet_world/src/sound/`; [`sound.md`](sound.md) |
-| The camera | `hamlet_world/src/pick/camera.rs` |
-| The wizard or the Hearth | `hamlet_world/src/chief/`; [`chief.md`](chief.md) |
+| How a house looks | `hamlet_realm/src/generator/house.rs` |
+| How a robot moves | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
+| An effect | `hamlet_vfx/src/`; when it is set off, `hamlet_realm/src/generator/magic.rs` |
+| A sound or the music | `hamlet_realm/src/sound/`; [`sound.md`](sound.md) |
+| The camera | `hamlet_realm/src/pick/camera.rs` |
+| The wizard or the Hearth | `hamlet_realm/src/chief/`; [`chief.md`](chief.md) |
 | What is saved between launches | `hamlet_ui/src/remember.rs`; settings in `hamlet_model/src/config.rs` |
 
 ## Tuning while the app runs

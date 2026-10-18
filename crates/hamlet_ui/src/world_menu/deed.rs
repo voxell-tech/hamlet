@@ -16,7 +16,7 @@ use hamlet_core::agents::{
     self, Busy, Citizen, Left, LivesIn, Settlement,
 };
 use hamlet_core::session::Rewind;
-use hamlet_world::orders;
+use hamlet_realm::orders;
 
 use super::close;
 use crate::feel::Mood;

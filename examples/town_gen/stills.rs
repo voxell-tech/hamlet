@@ -4,16 +4,16 @@ use std::path::PathBuf;
 
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
-use hamlet_world::generator::land::Land;
-use hamlet_world::generator::layout::{Route, plot};
-use hamlet_world::generator::society::{
+use hamlet_realm::generator::land::Land;
+use hamlet_realm::generator::layout::{Route, plot};
+use hamlet_realm::generator::society::{
     AgentId, Pair, RoadLevel, Society, TownId,
 };
-use hamlet_world::generator::{GenView, Rehearsal, Traffic, house};
-use hamlet_world::keeper::KState;
-use hamlet_world::keeper::work::{Chore, routine};
-use hamlet_world::sky::SkySettings;
-use hamlet_world::{Clock, Hour, Stage};
+use hamlet_realm::generator::{GenView, Rehearsal, Traffic, house};
+use hamlet_realm::keeper::KState;
+use hamlet_realm::keeper::work::{Chore, routine};
+use hamlet_realm::sky::SkySettings;
+use hamlet_realm::{Clock, Hour, Stage};
 
 use crate::made_up::{site_of, society};
 
@@ -332,7 +332,7 @@ fn yard_view(
     let spot = plot(land, site_of(world, a), a.plot);
     let yard = house::yard_of(land, agent, false, spot.yaw, 0);
     let (p, _) =
-        yard.stand(hamlet_world::keeper::work::Station::Beat, 0.5);
+        yard.stand(hamlet_realm::keeper::work::Station::Beat, 0.5);
     let p = Quat::from_rotation_y(spot.yaw) * p;
     GenView {
         focus: spot.at + Vec2::new(p.x, p.z) * 0.8,
@@ -491,7 +491,7 @@ fn bridge_view(land: &Land, world: &Society) -> GenView {
     for r in &world.roads {
         let end = |id: AgentId| {
             let a = world.agent(id).unwrap();
-            hamlet_world::generator::layout::End {
+            hamlet_realm::generator::layout::End {
                 site: site_of(world, a),
                 plot: a.plot,
             }

@@ -37,7 +37,7 @@ use bevy::state::state::OnEnter;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::{Bevy, FynixPlugin};
 use hamlet_core::core::HomeDir;
-use hamlet_world::pick::Selected;
+use hamlet_realm::pick::Selected;
 
 pub use self::dock::{lit_panel, panel};
 pub use self::looks::{

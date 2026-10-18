@@ -10,8 +10,8 @@ use bevy::ecs::system::Query;
 use bevy::ecs::world::World;
 use hamlet_core::agents::{self, Citizen, Mayor};
 use hamlet_core::session::{self, SessionKey};
+use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_rules::hamlet::HOME;
-use hamlet_world::pick::{Selected, Thing, select};
 
 use crate::dock::show_tab;
 

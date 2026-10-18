@@ -33,10 +33,10 @@ use hamlet_core::agents::{
     MergedInto, Purpose, Roster, Treasury, Works,
 };
 use hamlet_core::oversight::Waiting;
+use hamlet_realm::chief::{Beside, Look};
+use hamlet_realm::hand::Proud;
+use hamlet_realm::pick::{Following, Hovered, Thing};
 use hamlet_rules::work::Mode;
-use hamlet_world::chief::{Beside, Look};
-use hamlet_world::hand::Proud;
-use hamlet_world::pick::{Following, Hovered, Thing};
 
 use crate::feel::FeelSettings;
 use crate::inspector::now;
