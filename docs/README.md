@@ -30,6 +30,7 @@ Then read the page for the part you are about to touch.
 | [`sound.md`](sound.md) | Every sound and the music, all made in code |
 | [`ui-warmth.md`](ui-warmth.md) | How the panels glow and answer the hand |
 | [`chat.md`](chat.md) | What an agent's chat holds, in what order, and how it is drawn as a group chat |
+| [`sdk.md`](sdk.md) | What a plugin is built with: the plugin types, `hamlet_sdk`, the `plugins/` folder and the `Builtin` group |
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
 | [`cursors.md`](cursors.md) | The pointer and its modes |
 | [`releases.md`](releases.md) | How a release is built and published for the three platforms |

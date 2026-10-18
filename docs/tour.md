@@ -58,7 +58,12 @@ table. The binary and the examples are the root package.
 | `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
 | `hamlet_realm` | The 3D world, drawn from the core's entities |
+| `hamlet_sdk` | What a plugin is built with: the plugin types, the theme, looks and icons, the dock's panels |
 | `hamlet_ui` | The window: panels, menus, chat and pointer around the world |
+
+The plugins are under `plugins/`: `plugins/all` is `hamlet_plugins`, which
+lists them, and each other folder is one plugin crate. See
+[`sdk.md`](sdk.md).
 
 Inside a crate, a module with several subjects is a file and a folder of
 the same name, and each file opens with a line saying what it holds. Read
@@ -76,9 +81,9 @@ as the style test does; the town generator adds it with `generator::plugin`
 and an `Origin` for its seed.
 `hamlet_ui` has `screens/` for the panels that draw from the core's state
 alone, one file or folder each, and `widgets/` for what every panel is built
-from: `feel/`, `icons.rs`, `tabs.rs`, `platform.rs` and `tuning.rs`. The
-other panels are files beside them, and `theme.rs` and `looks.rs` are how
-things look.
+from: `feel/`, `tabs.rs` and `tuning.rs`. The other panels are files beside
+them. How things look (`theme.rs`, `looks.rs`, `icons.rs`, `platform.rs`)
+is in `hamlet_sdk`.
 
 Names to keep apart:
 
@@ -117,9 +122,13 @@ Paths are under `crates/`.
 | A starter skill | `hamlet_home/starters/<name>/SKILL.md` |
 | A panel | Its file in `hamlet_ui/src/screens/`, or in `hamlet_ui/src/` |
 | The right-click menu | `hamlet_ui/src/world_menu/items.rs` |
-| A colour in the panels | `assets/theme.toml`, its fields in `hamlet_ui/src/theme.rs` |
-| How a control looks or feels | `hamlet_ui/src/looks.rs`, `widgets/feel/`; [`ui-warmth.md`](ui-warmth.md) |
-| An icon | `hamlet_ui/src/widgets/icons.rs`; [`icons.md`](icons.md) |
+| A colour in the panels | `assets/theme.toml`, its fields in `hamlet_sdk/src/theme.rs` |
+| How a control looks or feels | `hamlet_sdk/src/looks.rs`, `hamlet_ui/src/widgets/feel/`; [`ui-warmth.md`](ui-warmth.md) |
+| An icon | `hamlet_sdk/src/icons.rs`; [`icons.md`](icons.md) |
+| A plugin, or what a plugin may add | `plugins/<name>/`, `hamlet_sdk/src/plugin/`; [`sdk.md`](sdk.md) |
+| Which plugins are built in | `plugins/all/Cargo.toml` and `src/lib.rs` |
+| The Skills panel | `plugins/skills/src/` |
+| The Plugins page of Settings | `hamlet_ui/src/screens/settings/plugins.rs` |
 | A colour in the world | `assets/palette.toml` |
 | A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`. What each value means is beside its field in the code |
 | The height something stands at | `LandData::surface`: the ground as it is drawn, never the smooth `height` |

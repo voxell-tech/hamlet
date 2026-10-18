@@ -6,7 +6,7 @@ there is no icon font, no file to load and no licence to carry.
 
 ## Where they live
 
-`hamlet_ui/src/widgets/icons.rs` is the only place an icon is drawn.
+`hamlet_sdk/src/icons.rs` is the only place an icon is drawn.
 
 - `Glyph` names every icon. A name says what the picture is (`Moon`,
   `Bell`, `Check`) unless the picture is the hamlet's own thing (`Mayor`,
@@ -16,7 +16,7 @@ there is no icon font, no file to load and no licence to carry.
 - `icons::draw` draws every icon once at startup, at a few sizes and twice
   the pixels.
 
-`looks.rs` holds the helpers that set an icon beside words, such as
+`hamlet_sdk/src/looks.rs` holds the helpers that set an icon beside words, such as
 `marked` and `action`.
 
 ## The family
