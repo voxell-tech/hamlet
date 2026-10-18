@@ -2,8 +2,8 @@
 
 use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
+use hamlet_sdk::capability::Granted;
 use hamlet_sdk::dock::Panel;
-use hamlet_sdk::grant::Granted;
 use hamlet_sdk::plugin::{ContributedBy, PluginInfo};
 use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 

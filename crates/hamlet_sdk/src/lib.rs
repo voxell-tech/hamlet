@@ -3,12 +3,12 @@
 //! `hamlet_ui`.
 
 pub mod agents;
+pub mod capability;
 pub mod cards;
 pub mod confirm;
 pub mod convo;
 pub mod dock;
 pub mod feel;
-pub mod grant;
 pub mod icons;
 pub mod looks;
 pub mod papers;
@@ -29,6 +29,7 @@ impl Plugin for SdkPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             agents::plugin,
+            capability::plugin,
             dock::plugin,
             papers::plugin,
             plugin::plugin,

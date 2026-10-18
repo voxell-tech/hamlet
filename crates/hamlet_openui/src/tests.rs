@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use hamlet_sdk::agents::{Agent, AgentList};
+use hamlet_sdk::capability::{Capability, Granted};
 use hamlet_sdk::dock::Panel;
-use hamlet_sdk::grant::{Granted, READ_AGENTS};
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::tree::event::{Act, Interaction};
 use hamlet_sdk::tree::node::{Kind, Node};
@@ -126,8 +126,11 @@ fn the_agents_query_needs_its_grant() {
     }]);
 
     let denied = run(program, &agents, &Granted::default());
-    let allowed =
-        run(program, &agents, &Granted(vec![READ_AGENTS.into()]));
+    let allowed = run(
+        program,
+        &agents,
+        &Granted::allowing(&[Capability::ReadAgents]),
+    );
 
     assert_eq!(denied.problems, ["read.agents not granted"]);
     assert_eq!(

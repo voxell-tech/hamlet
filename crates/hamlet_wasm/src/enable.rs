@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
-use hamlet_sdk::grant::Granted;
+use hamlet_sdk::capability::Granted;
 use hamlet_sdk::plugin::{Contributions, Enable, PluginInfo, Status};
 
 use crate::engine::Host;

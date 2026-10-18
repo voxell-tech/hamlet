@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use hamlet_sdk::agents::AgentList;
-use hamlet_sdk::grant::Granted;
+use hamlet_sdk::capability::Granted;
 use hamlet_sdk::tree::node::{Kind, Node};
 use openui_lang::{Document, Inputs};
 

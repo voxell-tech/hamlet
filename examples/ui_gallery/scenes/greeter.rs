@@ -5,8 +5,8 @@ use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
 use hamlet_openui::Source;
 use hamlet_sdk::agents::{Agent, AgentList};
+use hamlet_sdk::capability::{Capability, Granted};
 use hamlet_sdk::dock::Panel;
-use hamlet_sdk::grant::{Granted, READ_AGENTS};
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::plugin::{ContributedBy, PluginInfo};
 use hamlet_sdk::tree::id::dock_id;
@@ -47,7 +47,7 @@ pub(super) fn put(world: &mut World) {
                 version: "0.1.0".into(),
                 builtin: false,
             },
-            Granted(vec![READ_AGENTS.into()]),
+            Granted::allowing(&[Capability::ReadAgents]),
         ))
         .id();
     world.spawn((

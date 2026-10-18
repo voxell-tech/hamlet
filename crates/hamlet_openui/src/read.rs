@@ -2,7 +2,7 @@
 //! the grant of its read.
 
 use hamlet_sdk::agents::AgentList;
-use hamlet_sdk::grant::{Granted, READ_AGENTS};
+use hamlet_sdk::capability::{Capability, Granted};
 use openui_lang::{ToolRequest, Value};
 
 /// The result of `request`, and what is wrong with it. A result
@@ -14,10 +14,12 @@ pub(crate) fn answer(
     granted: &Granted,
 ) -> (Value, Option<String>) {
     let failed = match request.tool() {
-        "agents" if granted.holds(READ_AGENTS) => {
+        "agents" if granted.holds(Capability::ReadAgents) => {
             return (rows(agents_rows(agents), Value::Null), None);
         }
-        "agents" => format!("{READ_AGENTS} not granted"),
+        "agents" => {
+            format!("{} not granted", Capability::ReadAgents.name())
+        }
         other => format!("no query named `{other}`"),
     };
     (rows(Vec::new(), Value::from(failed.as_str())), Some(failed))

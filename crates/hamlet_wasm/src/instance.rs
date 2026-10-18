@@ -5,7 +5,7 @@ use std::path::Path;
 
 use bevy::ecs::component::Component;
 use hamlet_sdk::agents::{Agent, AgentList};
-use hamlet_sdk::grant::{Granted, READ_AGENTS};
+use hamlet_sdk::capability::{Capability, Granted};
 use wasmtime::component::Component as Compiled;
 use wasmtime::{Engine, Store};
 
@@ -54,13 +54,14 @@ impl Instance {
     /// a grant that changed is seen by the next.
     pub fn see(&mut self, granted: &Granted, agents: &AgentList) {
         let state = self.store.data_mut();
-        if state.granted != granted.0 {
-            state.granted.clone_from(&granted.0);
+        if state.granted != *granted {
+            state.granted.clone_from(granted);
         }
-        let readable: &[Agent] = match granted.holds(READ_AGENTS) {
-            true => &agents.0,
-            false => &[],
-        };
+        let readable: &[Agent] =
+            match granted.holds(Capability::ReadAgents) {
+                true => &agents.0,
+                false => &[],
+            };
         if state.agents != readable {
             state.agents = readable.to_vec();
         }

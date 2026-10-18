@@ -32,6 +32,7 @@ Then read the page for the part you are about to touch.
 | [`chat.md`](chat.md) | What an agent's chat holds, in what order, and how it is drawn as a group chat |
 | [`sdk.md`](sdk.md) | What a plugin is built with: the plugin types, `hamlet_sdk`, the `plugins/` folder and the `Builtin` group |
 | [`wasm.md`](wasm.md) | The host of the installed plugins: the interface, the panel tree and events, grants, the limits, the install folder and how to build a plugin |
+| [`permissions.md`](permissions.md) | What an installed plugin may be allowed to do: the capabilities, the choices, the petitions, where the choices are kept, what is never granted and the limits |
 | [`panels.md`](panels.md) | How a plugin's panel is described: the tree, Hamlet's panel language and its components, state, actions and reads, the data plugin kind and the example |
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
 | [`cursors.md`](cursors.md) | The pointer and its modes |

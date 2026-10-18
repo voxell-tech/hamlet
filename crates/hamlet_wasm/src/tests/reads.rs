@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use hamlet_core::agents::{Citizen, Left, LivesIn, Settlement};
 use hamlet_sdk::agents::{Agent, AgentList};
-use hamlet_sdk::grant::{Granted, READ_AGENTS};
+use hamlet_sdk::capability::{Capability, Granted, Verdict};
 
 use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
@@ -25,7 +25,7 @@ fn a_read_needs_its_grant_and_a_change_of_grant_applies_at_once() {
     let mut plugin = super::load(&fixture::reading()).unwrap();
     let agents =
         AgentList(vec![agent("ada", "home"), agent("bo", "home")]);
-    let granted = Granted(vec![READ_AGENTS.into()]);
+    let granted = Granted::allowing(&[Capability::ReadAgents]);
     let lines = |plugin: &mut crate::instance::Instance| {
         let out = plugin.step(&limits, &[]).unwrap();
         (out.intents, out.logs)
@@ -61,14 +61,15 @@ fn the_agent_list_follows_the_core_and_grants_stop_at_what_was_asked()
             "reader",
             fixture::component(&fixture::reading()),
         )
-        .asking(&[READ_AGENTS])
-        .granted(&[READ_AGENTS, "net"])],
+        .asking(&["read.agents"])
+        .granted(&["read.agents", "net"])],
     );
     app.update();
     let mut held = app.world_mut().query::<&Granted>();
+    let held = held.single(app.world()).unwrap();
     assert_eq!(
-        held.single(app.world()).ok(),
-        Some(&Granted(vec![READ_AGENTS.into()]))
+        held.all(),
+        [(Capability::ReadAgents, Verdict::Allowed)]
     );
 
     let hamlet = app

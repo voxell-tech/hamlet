@@ -2,14 +2,14 @@
 //! returns is a copy.
 
 use bevy::log::warn;
-use hamlet_sdk::grant::READ_AGENTS;
+use hamlet_sdk::capability::Capability;
 
 use super::State;
 use crate::interface::hamlet::plugin::host::Agent;
 
 impl State {
     pub(super) fn read_agents(&self) -> Result<Vec<Agent>, String> {
-        self.require(READ_AGENTS)?;
+        self.require(Capability::ReadAgents)?;
         Ok(self
             .agents
             .iter()
@@ -22,11 +22,12 @@ impl State {
 
     /// Whether the plugin holds `capability`. A denial is logged with
     /// the plugin's id.
-    fn require(&self, capability: &str) -> Result<(), String> {
-        if self.granted.iter().any(|held| held == capability) {
+    fn require(&self, capability: Capability) -> Result<(), String> {
+        if self.granted.holds(capability) {
             return Ok(());
         }
-        warn!("plugin {}: {capability} not granted", self.plugin);
-        Err(format!("{capability} not granted"))
+        let name = capability.name();
+        warn!("plugin {}: {name} not granted", self.plugin);
+        Err(format!("{name} not granted"))
     }
 }

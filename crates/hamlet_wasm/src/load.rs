@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use hamlet_core::core::HomeDir;
 use hamlet_openui::data::{self, DataPanel};
 use hamlet_sdk::agents::AgentList;
-use hamlet_sdk::grant::Granted;
+use hamlet_sdk::capability::{Capability, Choice, Choices, Granted};
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::plugin::{self as sdk, PluginInfo, Status};
 use hamlet_sdk::tree::glyph;
@@ -72,21 +72,33 @@ fn plugin(
 ) -> (Entity, PluginInfo, Granted) {
     let manifest = sdk::Manifest::from(&installed.manifest);
     let info = PluginInfo::from(&manifest);
-    let granted = Granted::within(
-        &info.id,
-        &approval.grants,
-        &installed
-            .manifest
-            .asks
-            .iter()
-            .map(|ask| ask.capability.as_str())
-            .collect::<Vec<_>>(),
-    );
+    let asked = installed.asks.capabilities();
+    let choices = approval
+        .grants
+        .iter()
+        .filter_map(|name| Capability::parse(name).ok())
+        .filter(|capability| {
+            let named = asked.contains(capability);
+            if !named {
+                warn!(
+                    "plugin {}: {} is approved but the manifest \
+                     does not ask for it",
+                    info.id,
+                    capability.name()
+                );
+            }
+            named
+        })
+        .fold(Choices::default(), |choices, capability| {
+            choices.decided(capability, Choice::Allow, false)
+        });
+    let granted = Granted::of(&installed.asks, &choices);
     let plugin = commands
         .spawn((
             info.clone(),
             manifest,
-            granted.clone(),
+            installed.asks.clone(),
+            choices,
             Status::Starting,
         ))
         .id();

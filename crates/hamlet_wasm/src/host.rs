@@ -5,6 +5,7 @@ mod declare;
 mod read;
 
 use hamlet_sdk::agents::Agent;
+use hamlet_sdk::capability::Granted;
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 
 pub use self::declare::Declared;
@@ -32,7 +33,7 @@ pub struct State {
     pub(crate) panel_room: usize,
     /// The id of the plugin this store belongs to.
     pub(crate) plugin: String,
-    pub(crate) granted: Vec<String>,
+    pub(crate) granted: Granted,
     /// The agents, when the plugin may read them.
     pub(crate) agents: Vec<Agent>,
 }
@@ -47,7 +48,7 @@ impl State {
             declared: Vec::new(),
             panel_room: limits.panels,
             plugin: String::new(),
-            granted: Vec::new(),
+            granted: Granted::default(),
             agents: Vec::new(),
         }
     }

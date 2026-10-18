@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
-use hamlet_sdk::grant::Granted;
+use hamlet_sdk::capability::Granted;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 use hamlet_sdk::tree::id::dock_id;
 

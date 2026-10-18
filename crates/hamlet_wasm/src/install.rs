@@ -4,6 +4,8 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use hamlet_sdk::capability::{Asks, Refusal};
+
 use crate::interface::VERSION;
 use crate::manifest::{Kind, Manifest};
 
@@ -15,6 +17,9 @@ const PANEL: &str = "panel.ui";
 #[derive(Debug)]
 pub struct Installed {
     pub manifest: Manifest,
+    /// What the manifest asks for, every ask one that can be
+    /// granted.
+    pub asks: Asks,
     pub body: Body,
 }
 
@@ -40,6 +45,8 @@ pub enum Why {
     Interface {
         found: String,
     },
+    /// The manifest asks for what cannot be granted.
+    Asks(Refusal),
 }
 
 /// A folder of the install folder that was turned down.
@@ -68,6 +75,7 @@ impl fmt::Display for Rejected {
                 "built for interface {found}, the host speaks \
                  {VERSION}"
             ),
+            Why::Asks(refusal) => write!(f, "{refusal}"),
         }
     }
 }
@@ -109,7 +117,14 @@ pub fn read(folder: &Path) -> Result<Installed, Rejected> {
                 .unwrap_or_else(|| "none".into()),
         }));
     }
-    Ok(Installed { manifest, body })
+    let asks = manifest
+        .asked()
+        .map_err(|refusal| rejected(Why::Asks(refusal)))?;
+    Ok(Installed {
+        manifest,
+        asks,
+        body,
+    })
 }
 
 /// Every folder of the install folder `plugins`, read. A missing

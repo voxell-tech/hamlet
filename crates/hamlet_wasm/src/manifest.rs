@@ -1,5 +1,6 @@
 //! `manifest.toml`: what an installed plugin says about itself.
 
+use hamlet_sdk::capability::{Asked, Asks, Refusal};
 use hamlet_sdk::plugin::Need;
 
 /// A capability a plugin asks for, and why.
@@ -8,6 +9,9 @@ use hamlet_sdk::plugin::Need;
 pub struct Ask {
     pub capability: String,
     pub reason: String,
+    /// What the capability is limited to, where it can be.
+    #[serde(default)]
+    pub scope: Vec<String>,
 }
 
 /// What an installed plugin is made of.
@@ -50,6 +54,30 @@ pub struct Manifest {
 impl Manifest {
     pub fn parse(text: &str) -> Result<Self, toml::de::Error> {
         toml::from_str(text)
+    }
+
+    /// What the manifest asks for, or the first ask that cannot be
+    /// granted.
+    pub fn asked(&self) -> Result<Asks, Refusal> {
+        self.asks
+            .iter()
+            .map(|ask| {
+                Asked::parse(&ask.capability, &ask.reason, &ask.scope)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|asks| {
+                let mut seen = Vec::new();
+                // The first ask for a capability is the one kept.
+                Asks(
+                    asks.into_iter()
+                        .filter(|ask| {
+                            let new = !seen.contains(&ask.capability);
+                            seen.push(ask.capability);
+                            new
+                        })
+                        .collect(),
+                )
+            })
     }
 }
 

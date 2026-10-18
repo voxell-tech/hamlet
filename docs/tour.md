@@ -133,7 +133,7 @@ Paths are under `crates/`.
 | Which plugins are built in | `plugins/all/Cargo.toml` and `src/lib.rs` |
 | The Skills panel | `plugins/skills/src/` |
 | What an installed plugin may call, and its limits | `hamlet_wasm/wit/hamlet-plugin.wit`, `hamlet_wasm/src/host.rs` and `host/`, `assets/wasm.toml`; [`wasm.md`](wasm.md) |
-| Which installed plugins load, and what each is granted | `hamlet_wasm/src/install.rs`, `approved.rs`, `load.rs`, `hamlet_sdk/src/grant.rs`; [`wasm.md`](wasm.md) |
+| Which installed plugins load, and what each is granted | `hamlet_wasm/src/install.rs`, `approved.rs`, `load.rs`, `hamlet_sdk/src/capability/`; [`wasm.md`](wasm.md) |
 | What a plugin's panel is drawn as | `hamlet_sdk/src/tree/view/node.rs` (a node as a view), `tree/node.rs`, `tree/store.rs`; `hamlet_wasm/src/wire.rs` and `draw.rs` for a WASM plugin's; [`wasm.md`](wasm.md) |
 | What a plugin's panel shows when it stopped | `hamlet_sdk/src/tree/view/stopped.rs`, `hamlet_wasm/src/stop.rs`; [`wasm.md`](wasm.md) |
 | How a click or typing reaches a plugin | `hamlet_sdk/src/tree/event.rs`, `hamlet_wasm/src/event.rs`; [`wasm.md`](wasm.md) |
