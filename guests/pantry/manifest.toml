@@ -1,0 +1,8 @@
+id = "pantry"
+name = "Pantry"
+version = "0.1.0"
+interface = "0.8.0"
+
+[[asks]]
+capability = "db"
+reason = "To keep what is in the pantry in a database of its own."

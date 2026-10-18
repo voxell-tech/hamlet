@@ -1,0 +1,70 @@
+# Run from the Hamlet checkout, after building Pantry into a folder:
+#   guests/pantry/build.sh <dir>/pantry
+#   cargo run --example plugin_check --features wasm -- \
+#     <dir>/pantry --script guests/pantry/steps.toml --out <pictures>
+#
+# The plugin is installed with its ask unanswered, as a chief would
+# who let it in and was asked at the first use.
+
+[[step]]
+tick = 2
+
+# Without the grant the table cannot be read or written.
+[[step]]
+expect = { panel = "pantry", text = "db not granted" }
+
+[[step]]
+click = { panel = "pantry", node = "tea" }
+
+[[step]]
+grant = "db"
+
+[[step]]
+click = { panel = "pantry", node = "tea" }
+
+[[step]]
+click = { panel = "pantry", node = "tea" }
+
+[[step]]
+click = { panel = "pantry", node = "bread" }
+
+[[step]]
+expect = { panel = "pantry", text = "Items: 2" }
+
+[[step]]
+expect = { panel = "pantry", text = "Tea x2" }
+
+# A find looks a record up by its field, without reading the others.
+[[step]]
+click = { panel = "pantry", node = "drinks" }
+
+[[step]]
+expect = { panel = "pantry", text = "Drinks: Tea x2" }
+
+[[step]]
+render = { panel = "pantry", file = "pantry.png" }
+
+# The records are on disk: the app starts again and they are there.
+[[step]]
+restart = true
+
+[[step]]
+tick = 2
+
+[[step]]
+expect = { panel = "pantry", text = "Items: 2" }
+
+[[step]]
+expect = { panel = "pantry", text = "Bread x1" }
+
+[[step]]
+click = { panel = "pantry", node = "remove" }
+
+[[step]]
+expect = { panel = "pantry", text = "Items: 1" }
+
+[[step]]
+restart = true
+
+[[step]]
+expect = { panel = "pantry", text = "Items: 1" }
