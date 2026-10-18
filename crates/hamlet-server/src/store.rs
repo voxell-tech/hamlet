@@ -37,6 +37,9 @@ const MIGRATIONS: &[&str] = &[
     include_str!("harness/schema.sql"),
     // 6. Task attribution, model time and append-only budget resets.
     include_str!("spend.sql"),
+    // 7. Chats, kept transcripts, the gate and what waits for a
+    // chief.
+    include_str!("chats/schema.sql"),
 ];
 
 /// A home's realm database, open in this process alone.

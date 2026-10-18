@@ -361,6 +361,8 @@ pub struct Partial {
 pub struct Prompt {
     pub conversation: String,
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<String>,
     pub v: i64,
 }
 

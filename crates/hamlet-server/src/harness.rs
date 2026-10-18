@@ -6,7 +6,7 @@
 //! [`Harnesses::handle`], which answers the runtime and returns what
 //! the host may show.
 
-mod answers;
+pub mod answers;
 mod bindings;
 // Generated, so formatted as the generator writes it.
 #[rustfmt::skip]
@@ -16,16 +16,19 @@ mod process;
 mod tests;
 pub mod tools;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub use answers::Decided;
 use anyhow::{Context, Result, bail};
-pub use bindings::{Binding, BindingId, DEFAULT_HARNESS};
+pub use bindings::{
+    Binding, BindingId, DEFAULT_HARNESS, Input, Standing,
+};
 use link::{
-    Capability, HelloStore, Item, LinkError, ModelRef,
-    RuntimeMessage, ServerMessage, ToolSpec,
+    Capability, Diagnostic, HelloStore, Item, LinkError, Mark,
+    ModelRef, Partial, RuntimeMessage, Section, ServerMessage,
+    ToolSpec,
 };
 use process::{Launch, Process, Received};
 use serde_json::Value;
@@ -55,6 +58,8 @@ const RESTART_MOST: Duration = Duration::from_secs(30);
 const RESTART_FORGIVEN: Duration = Duration::from_secs(60);
 /// How long a stopping runtime has before it is killed.
 const STOP_GRACE: Duration = Duration::from_secs(5);
+/// Entries asked for at once when catching up on a conversation.
+const SYNC_PAGE: i64 = 200;
 
 /// How this server starts runtimes and what it gives them.
 #[derive(Clone, Debug)]
@@ -69,8 +74,6 @@ pub struct Config {
     /// The key `HAMLET_API_KEY` gives, held in memory alone.
     pub api_key: Option<String>,
     pub tools: Vec<ToolSpec>,
-    /// Whether a new call of the tool waits for a chief.
-    pub asks: fn(&str) -> bool,
 }
 
 impl Config {
@@ -115,7 +118,6 @@ impl Config {
             model,
             api_key: set("HAMLET_API_KEY"),
             tools: tools::specs(),
-            asks: |_| false,
         })
     }
 }
@@ -141,7 +143,7 @@ pub enum Notice {
         words: String,
     },
     /// The runtime ended; it starts again after `restart_in` unless
-    /// it was refused.
+    /// it was refused or the harnesses close.
     Exited {
         runtime: RuntimeInstance,
         status: String,
@@ -150,23 +152,41 @@ pub enum Notice {
     Created {
         binding: BindingId,
     },
+    /// The runtime kept the input `request`; `standing` is how it
+    /// stands now.
     Admitted {
         binding: BindingId,
         request: String,
+        standing: Standing,
     },
+    /// The input `request` ended.
+    Settled {
+        binding: BindingId,
+        request: String,
+        standing: Standing,
+    },
+    /// An entry the server had not kept before.
     Kept {
         binding: BindingId,
         item: Item,
     },
-    Running {
+    /// What the conversation is doing now.
+    Live {
         binding: BindingId,
         running: bool,
+        pending: i64,
+        partial: Option<Partial>,
     },
-    /// A tool call now waits for a chief's answer.
-    Waiting {
+    /// A model call of the conversation was allowed.
+    Attempted {
         binding: BindingId,
-        key: String,
-        tool: String,
+    },
+    /// The runtime asks what only the host can answer, with
+    /// [`Harnesses::answer`].
+    Call {
+        binding: BindingId,
+        re: Re,
+        call: Call,
     },
     Cancelled {
         binding: BindingId,
@@ -184,6 +204,74 @@ pub enum Notice {
     },
 }
 
+/// What a runtime asks of the host for one of its conversations.
+// Each is moved to the host once, never kept in bulk.
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum Call {
+    /// Whether a tool call may run, asked before it is kept as begun.
+    Allow {
+        key: String,
+        input: Option<String>,
+        tool: String,
+        arguments: BTreeMap<String, Value>,
+    },
+    /// A tool call to carry out under its operation key.
+    Operation {
+        key: String,
+        input: Option<String>,
+        tool: String,
+        arguments: BTreeMap<String, Value>,
+    },
+    /// The prompt sections for the next model call.
+    Prompt { input: Option<String> },
+    /// Whether a final answer stands.
+    Yield { input: Option<String>, answer: Item },
+}
+
+/// The message a [`Call`] came in, to answer it by.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Re {
+    index: usize,
+    generation: u64,
+    id: String,
+}
+
+/// The host's answer to a [`Call`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum Answer {
+    Allowed,
+    /// The call waits for a chief; nothing of it is marked.
+    Waiting(String),
+    /// The call may not run, in words for the agent.
+    Refusal(String),
+    /// The marked result of an operation.
+    Result {
+        text: String,
+        error: bool,
+        details: Option<BTreeMap<String, Value>>,
+        diagnostics: Vec<Diagnostic>,
+    },
+    Sections(Vec<Section>),
+    /// The answer stands, or fails with `words`.
+    Verdict {
+        words: Option<String>,
+        notice: Option<Mark>,
+    },
+}
+
+impl Answer {
+    /// A result with no details or diagnostics.
+    pub fn result(text: impl Into<String>, error: bool) -> Self {
+        Self::Result {
+            text: text.into(),
+            error,
+            details: None,
+            diagnostics: Vec::new(),
+        }
+    }
+}
+
 /// One thing for [`Harnesses::handle`] to do.
 pub struct Event(Inner);
 
@@ -198,6 +286,9 @@ enum Pending {
     Submit(BindingId, String),
     Cancel(BindingId),
     History(BindingId),
+    /// A page read to catch up on entries kept while the server did
+    /// not hear of them.
+    Sync(BindingId),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -232,6 +323,8 @@ pub struct Harnesses {
     next: u64,
     pending: HashMap<String, (usize, Pending)>,
     provider_requests: HashMap<usize, Vec<link::ProviderRequest>>,
+    /// Set once the harnesses close, so no runtime starts again.
+    closing: bool,
 }
 
 impl Harnesses {
@@ -253,6 +346,7 @@ impl Harnesses {
             next: 1,
             pending: HashMap::new(),
             provider_requests: HashMap::new(),
+            closing: false,
         };
         let mut notices = Vec::new();
         for row in store.runtimes()? {
@@ -283,7 +377,7 @@ impl Harnesses {
         {
             self.launch(store, index)?;
         }
-        self.flush(store, index).await
+        self.flush(store, index, false).await
     }
 
     /// The next event to handle.
@@ -361,26 +455,136 @@ impl Harnesses {
         {
             notices.extend(self.launch(store, index)?);
         }
-        self.flush(store, index).await?;
+        self.flush(store, index, false).await?;
         Ok((binding, notices))
     }
 
-    /// Keeps an input for `binding` and submits it in its order. A
-    /// request id kept before adds nothing new.
+    /// Keeps an input or a write for `binding` and submits it in its
+    /// order. A request id kept before adds nothing new.
     pub async fn submit(
         &mut self,
         store: &mut Store,
         binding: BindingId,
-        request: &str,
-        content: &str,
-        steer: bool,
+        input: &Input<'_>,
     ) -> Result<()> {
         let bound = self.bound(store, binding)?;
-        store.keep_input(binding, request, content, steer)?;
+        store.keep_input(binding, input)?;
         if let Some(index) = self.index(&bound.runtime) {
-            self.flush(store, index).await?;
+            self.flush(store, index, false).await?;
         }
         Ok(())
+    }
+
+    /// Binds a copy of `parent` up to its entry `at`, which its
+    /// runtime makes.
+    pub async fn fork(
+        &mut self,
+        store: &mut Store,
+        parent: BindingId,
+        at: &str,
+    ) -> Result<BindingId> {
+        let bound = self.bound(store, parent)?;
+        if bound.conversation.is_none() {
+            bail!("The conversation is not made yet.");
+        }
+        let fork = store.add_fork(&bound, at)?;
+        if let Some(index) = self.index(&bound.runtime) {
+            self.flush(store, index, false).await?;
+        }
+        Ok(fork)
+    }
+
+    /// Answers the call `re` came in. A runtime that started again
+    /// since asks again, so its answer is dropped.
+    pub async fn answer(&mut self, re: Re, answer: Answer) {
+        let Some(runtime) = self.runtimes.get(re.index) else {
+            return;
+        };
+        if runtime.generation != re.generation
+            || runtime.phase != Phase::Ready
+        {
+            return;
+        }
+        let re_id = re.id;
+        self.send(re.index, |v, id| {
+            let re = re_id;
+            match answer {
+                Answer::Allowed => {
+                    ServerMessage::Allowed(link::Allowed {
+                        id,
+                        re,
+                        v,
+                    })
+                }
+                Answer::Waiting(words) => {
+                    ServerMessage::Waiting(link::Waiting {
+                        id,
+                        re,
+                        v,
+                        words,
+                    })
+                }
+                Answer::Refusal(words) => {
+                    ServerMessage::Refusal(link::Refusal {
+                        id,
+                        re,
+                        v,
+                        words,
+                    })
+                }
+                Answer::Result {
+                    text,
+                    error,
+                    details,
+                    diagnostics,
+                } => ServerMessage::Result(link::Result {
+                    details,
+                    diagnostics: (!diagnostics.is_empty())
+                        .then_some(diagnostics),
+                    error,
+                    id,
+                    re,
+                    text,
+                    v,
+                }),
+                Answer::Sections(sections) => {
+                    ServerMessage::Sections(link::Sections {
+                        id,
+                        re,
+                        sections,
+                        v,
+                    })
+                }
+                Answer::Verdict { words, notice } => {
+                    ServerMessage::Verdict(link::Verdict {
+                        id,
+                        notice,
+                        re,
+                        v,
+                        words,
+                    })
+                }
+            }
+        })
+        .await;
+    }
+
+    /// Tells `runtime` that the wait of its call `key` was answered,
+    /// so it asks again at once.
+    pub async fn wake(
+        &mut self,
+        runtime: &RuntimeInstance,
+        key: &str,
+    ) {
+        if let Some(index) = self.index(runtime)
+            && self.runtimes[index].phase == Phase::Ready
+        {
+            let key = key.to_owned();
+            self.send(index, |v, id| {
+                ServerMessage::Answered(link::Answered { id, key, v })
+            })
+            .await;
+        }
     }
 
     /// Stops the running turn of `binding` and drops its queue:
@@ -491,7 +695,30 @@ impl Harnesses {
         self.runtimes[index].process.as_ref()?.pid()
     }
 
-    /// Closes every link, so each runtime exits, and waits for them.
+    /// Asks every runtime to stop in order: its running work is
+    /// signalled and waited on, then it exits. None starts again.
+    pub async fn begin_close(&mut self) {
+        self.closing = true;
+        for index in 0..self.runtimes.len() {
+            self.runtimes[index].restart_at = None;
+            if self.runtimes[index].phase == Phase::Ready {
+                self.send(index, |v, id| {
+                    ServerMessage::Close(link::Close { id, v })
+                })
+                .await;
+            }
+        }
+    }
+
+    /// Whether every runtime has exited.
+    pub fn down(&self) -> bool {
+        self.runtimes
+            .iter()
+            .all(|runtime| runtime.process.is_none())
+    }
+
+    /// Closes every link, so each runtime exits, and waits for them;
+    /// one still there after its grace is killed.
     pub async fn close(mut self) {
         for runtime in &mut self.runtimes {
             if let Some(process) = runtime.process.take() {
@@ -591,8 +818,12 @@ impl Harnesses {
         runtime.cancelling.clear();
         runtime.submitting.clear();
         self.pending.retain(|_, (at, _)| *at != index);
+        let closing = self.closing;
         let runtime = &mut self.runtimes[index];
         let restart_in = if runtime.phase == Phase::Refused {
+            None
+        } else if closing {
+            runtime.phase = Phase::Down;
             None
         } else {
             if runtime.ready_since.is_some_and(|since| {
@@ -681,7 +912,7 @@ impl Harnesses {
                     &adapter,
                     &version,
                 )?;
-                self.flush(store, index).await?;
+                self.flush(store, index, false).await?;
                 Ok(vec![Notice::Created { binding }])
             }
             RuntimeMessage::Admitted(admitted) => {
@@ -694,7 +925,60 @@ impl Harnesses {
                     .submitting
                     .remove(&(binding, request.clone()));
                 store.input_admitted(binding, &request)?;
-                Ok(vec![Notice::Admitted { binding, request }])
+                let status = match admitted.status {
+                    link::AdmittedStatus::Queued => "queued",
+                    link::AdmittedStatus::Placed => "placed",
+                    link::AdmittedStatus::Done => "done",
+                    link::AdmittedStatus::Unanswered => "unanswered",
+                };
+                store.input_stands(
+                    binding,
+                    &request,
+                    Some(&admitted.submission),
+                    status,
+                    admitted.reason.as_deref(),
+                    admitted.detail.as_ref(),
+                )?;
+                let standing = store
+                    .standing(binding, &request)?
+                    .context("an admitted input")?;
+                Ok(vec![Notice::Admitted {
+                    binding,
+                    request,
+                    standing,
+                }])
+            }
+            RuntimeMessage::Settled(settled) => {
+                let runtime = &self.runtimes[index].id;
+                let Some(binding) =
+                    store.bound(runtime, &settled.conversation)?
+                else {
+                    return Ok(Vec::new());
+                };
+                let status = match settled.status {
+                    link::SettledStatus::Done => "done",
+                    link::SettledStatus::Unanswered => "unanswered",
+                };
+                store.input_stands(
+                    binding.id,
+                    &settled.request,
+                    None,
+                    status,
+                    settled.reason.as_deref(),
+                    settled.detail.as_ref(),
+                )?;
+                // An input this server never kept, such as one the
+                // runtime made itself, ends unheard of.
+                let Some(standing) =
+                    store.standing(binding.id, &settled.request)?
+                else {
+                    return Ok(Vec::new());
+                };
+                Ok(vec![Notice::Settled {
+                    binding: binding.id,
+                    request: settled.request,
+                    standing,
+                }])
             }
             RuntimeMessage::Cancelled(cancelled) => {
                 let Some((_, Pending::Cancel(binding))) =
@@ -707,77 +991,82 @@ impl Harnesses {
                 Ok(vec![Notice::Cancelled { binding }])
             }
             RuntimeMessage::Page(page) => {
-                Ok(match self.pending.remove(&page.re) {
+                match self.pending.remove(&page.re) {
                     Some((_, Pending::History(binding))) => {
-                        vec![Notice::Page {
+                        Ok(vec![Notice::Page {
                             binding,
                             items: page.items,
                             earlier: page.earlier,
-                        }]
+                        }])
                     }
-                    _ => Vec::new(),
-                })
+                    Some((_, Pending::Sync(binding))) => {
+                        self.synced(store, index, binding, page).await
+                    }
+                    _ => Ok(Vec::new()),
+                }
             }
             RuntimeMessage::Statuses(_) => Ok(Vec::new()),
             RuntimeMessage::ProviderResult(result) => {
                 Ok(vec![Notice::Provider(result)])
             }
             RuntimeMessage::Allow(allow) => {
-                let Some(binding) = self
-                    .conversation(
-                        store,
-                        index,
-                        &allow.conversation,
-                        &allow.id,
-                    )
-                    .await?
-                else {
-                    return Ok(Vec::new());
+                let call = Call::Allow {
+                    key: allow.key,
+                    input: allow.input,
+                    tool: allow.tool,
+                    arguments: allow.arguments,
                 };
-                let asked = answers::allow(
+                self.call(
                     store,
-                    &binding,
-                    &allow.key,
-                    &allow.tool,
-                    &allow.arguments,
-                    self.config.asks,
-                )?;
-                self.answer(index, allow.id, asked.answer).await;
-                Ok(waiting(
-                    asked.new_wait,
-                    &binding,
-                    allow.key,
-                    allow.tool,
-                ))
+                    index,
+                    &allow.conversation,
+                    allow.id,
+                    call,
+                )
+                .await
             }
             RuntimeMessage::Operation(operation) => {
-                let Some(binding) = self
-                    .conversation(
-                        store,
-                        index,
-                        &operation.conversation,
-                        &operation.id,
-                    )
-                    .await?
-                else {
-                    return Ok(Vec::new());
+                let call = Call::Operation {
+                    key: operation.key,
+                    input: operation.input,
+                    tool: operation.tool,
+                    arguments: operation.arguments,
                 };
-                let asked = answers::operation(
+                self.call(
                     store,
-                    &binding,
-                    &operation.key,
-                    &operation.tool,
-                    &operation.arguments,
-                    self.config.asks,
-                    now(),
-                )?;
-                self.answer(index, operation.id, asked.answer).await;
-                Ok(waiting(
-                    asked.new_wait,
-                    &binding,
-                    operation.key,
-                    operation.tool,
-                ))
+                    index,
+                    &operation.conversation,
+                    operation.id,
+                    call,
+                )
+                .await
+            }
+            RuntimeMessage::Prompt(prompt) => {
+                let call = Call::Prompt {
+                    input: prompt.input,
+                };
+                self.call(
+                    store,
+                    index,
+                    &prompt.conversation,
+                    prompt.id,
+                    call,
+                )
+                .await
+            }
+            RuntimeMessage::Yield(answer) => {
+                let call = Call::Yield {
+                    input: answer.input,
+                    answer: answer.answer,
+                };
+                self.call(
+                    store,
+                    index,
+                    &answer.conversation,
+                    answer.id,
+                    call,
+                )
+                .await
             }
             RuntimeMessage::Attempt(attempt) => {
                 let Some(binding) = self
@@ -813,7 +1102,7 @@ impl Harnesses {
                         .as_str()
                         .map(String::from),
                 };
-                if let Some(words) = answers::attempt(
+                if let Some(stop) = answers::attempt(
                     store,
                     &binding,
                     &attempt.key,
@@ -823,13 +1112,18 @@ impl Harnesses {
                     now(),
                 )? {
                     let re = attempt.id;
+                    // A cap of spend ends the turn as stopped, with
+                    // its words kept for the chief.
+                    let notice =
+                        stop.spend.then(|| notice(&stop.words));
+                    let words = stop.words;
                     self.send(index, |v, id| {
                         ServerMessage::Stopped(link::Stopped {
                             v,
                             id,
                             re,
                             words,
-                            notice: None,
+                            notice,
                         })
                     })
                     .await;
@@ -855,7 +1149,9 @@ impl Harnesses {
                     })
                 })
                 .await;
-                Ok(Vec::new())
+                Ok(vec![Notice::Attempted {
+                    binding: binding.id,
+                }])
             }
             RuntimeMessage::Usage(report) => {
                 let runtime = self.runtimes[index].id.clone();
@@ -891,69 +1187,35 @@ impl Harnesses {
                 }
                 Ok(Vec::new())
             }
-            RuntimeMessage::Prompt(prompt) => {
-                let Some(binding) = self
-                    .conversation(
-                        store,
-                        index,
-                        &prompt.conversation,
-                        &prompt.id,
-                    )
-                    .await?
+            RuntimeMessage::Kept(kept) => {
+                let runtime = &self.runtimes[index].id;
+                let Some(binding) =
+                    store.bound(runtime, &kept.conversation)?
                 else {
                     return Ok(Vec::new());
                 };
-                let sections = answers::prompt(store, &binding)?;
-                let re = prompt.id;
-                self.send(index, |v, id| {
-                    ServerMessage::Sections(link::Sections {
-                        id,
-                        re,
-                        sections,
-                        v,
-                    })
+                Ok(if store.keep_item(binding.id, &kept.item)? {
+                    vec![Notice::Kept {
+                        binding: binding.id,
+                        item: kept.item,
+                    }]
+                } else {
+                    Vec::new()
                 })
-                .await;
-                Ok(Vec::new())
-            }
-            RuntimeMessage::Kept(kept) => {
-                let runtime = &self.runtimes[index].id;
-                Ok(
-                    match store.bound(runtime, &kept.conversation)? {
-                        Some(binding) => vec![Notice::Kept {
-                            binding: binding.id,
-                            item: kept.item,
-                        }],
-                        None => Vec::new(),
-                    },
-                )
             }
             RuntimeMessage::Live(live) => {
                 let runtime = &self.runtimes[index].id;
                 Ok(
                     match store.bound(runtime, &live.conversation)? {
-                        Some(binding) => vec![Notice::Running {
+                        Some(binding) => vec![Notice::Live {
                             binding: binding.id,
                             running: live.running,
+                            pending: live.pending,
+                            partial: live.partial,
                         }],
                         None => Vec::new(),
                     },
                 )
-            }
-            RuntimeMessage::Settled(_) => Ok(Vec::new()),
-            RuntimeMessage::Yield(answer) => {
-                let re = answer.id;
-                self.send(index, |v, id| {
-                    ServerMessage::Verdict(link::Verdict {
-                        id,
-                        notice: None,
-                        re,
-                        v,
-                        words: None,
-                    })
-                })
-                .await;
-                Ok(Vec::new())
             }
             RuntimeMessage::Error(error) => {
                 if let Some(re) = &error.re
@@ -973,7 +1235,7 @@ impl Harnesses {
                         Pending::Cancel(binding) => {
                             runtime.cancelling.remove(&binding);
                         }
-                        Pending::History(_) => {}
+                        Pending::History(_) | Pending::Sync(_) => {}
                     }
                 }
                 Ok(vec![self.fault(index, error.message)])
@@ -1025,16 +1287,26 @@ impl Harnesses {
         let runtime = &mut self.runtimes[index];
         runtime.phase = Phase::Ready;
         runtime.ready_since = Some(Instant::now());
-        self.flush(store, index).await?;
+        // What the runtime kept or ended while this server did not
+        // hear of it is asked for again.
+        self.flush(store, index, true).await?;
+        for binding in store.bindings_of(&id)? {
+            if let Some(conversation) = binding.conversation {
+                self.sync(index, binding.id, conversation, None)
+                    .await;
+            }
+        }
         Ok(vec![Notice::Ready { runtime: id }])
     }
 
     /// Sends what `index` is owed: conversations to make, then each
-    /// conversation's kept inputs in order.
+    /// conversation's kept inputs in order, and when `resync` also
+    /// those admitted whose end was not heard, which answer again.
     async fn flush(
         &mut self,
         store: &mut Store,
         index: usize,
+        resync: bool,
     ) -> Result<()> {
         if self.runtimes[index].phase != Phase::Ready {
             return Ok(());
@@ -1057,25 +1329,7 @@ impl Harnesses {
             let Some(conversation) = binding.conversation.clone()
             else {
                 if self.runtimes[index].creating.insert(binding.id) {
-                    let create = |v, id| {
-                        ServerMessage::Create(link::Create {
-                            agent: format!(
-                                "{}:{}",
-                                binding.agent.hamlet,
-                                binding.agent.number
-                            ),
-                            errand: binding.errand,
-                            id,
-                            key: binding.id.0.to_string(),
-                            model: binding.model.clone(),
-                            v,
-                        })
-                    };
-                    let id = self.send(index, create).await;
-                    self.pending.insert(
-                        id,
-                        (index, Pending::Create(binding.id)),
-                    );
+                    self.make(store, index, &binding).await?;
                 }
                 continue;
             };
@@ -1089,7 +1343,7 @@ impl Harnesses {
                 )
                 .await;
             }
-            for owed in store.owed(binding.id)? {
+            for owed in store.owed(binding.id, resync)? {
                 let request = owed.request.clone();
                 if !self.runtimes[index]
                     .submitting
@@ -1100,15 +1354,31 @@ impl Harnesses {
                 let conversation = conversation.clone();
                 let id = self
                     .send(index, |v, id| {
-                        ServerMessage::Submit(link::Submit {
-                            content: owed.content,
-                            conversation,
-                            mark: None,
-                            id,
-                            request: owed.request,
-                            steer: owed.steer,
-                            v,
-                        })
+                        if owed.write {
+                            ServerMessage::Write(link::Write {
+                                boundary: owed
+                                    .boundary
+                                    .then_some(true),
+                                conversation,
+                                id,
+                                mark: owed.mark.unwrap_or(Mark {
+                                    data: BTreeMap::new(),
+                                    kind: "hamlet.notice".into(),
+                                }),
+                                request: owed.request,
+                                v,
+                            })
+                        } else {
+                            ServerMessage::Submit(link::Submit {
+                                content: owed.content,
+                                conversation,
+                                id,
+                                mark: owed.mark,
+                                request: owed.request,
+                                steer: owed.steer,
+                                v,
+                            })
+                        }
                     })
                     .await;
                 self.pending.insert(
@@ -1117,6 +1387,55 @@ impl Harnesses {
                 );
             }
         }
+        Ok(())
+    }
+
+    /// Asks the runtime to make the conversation of `binding`: a new
+    /// one, or a copy of the one it forks.
+    async fn make(
+        &mut self,
+        store: &Store,
+        index: usize,
+        binding: &Binding,
+    ) -> Result<()> {
+        let key = binding.id.0.to_string();
+        let fork = match (binding.fork_of, &binding.fork_at) {
+            (Some(parent), Some(at)) => Some((
+                self.bound(store, parent)?
+                    .conversation
+                    .context("a fork of a conversation not made")?,
+                at.clone(),
+            )),
+            _ => None,
+        };
+        let agent = format!(
+            "{}:{}",
+            binding.agent.hamlet, binding.agent.number
+        );
+        let errand = binding.errand;
+        let model = binding.model.clone();
+        let message = move |v, id| match fork {
+            Some((conversation, at)) => {
+                ServerMessage::Fork(link::Fork {
+                    at,
+                    conversation,
+                    id,
+                    key,
+                    v,
+                })
+            }
+            None => ServerMessage::Create(link::Create {
+                agent,
+                errand,
+                id,
+                key,
+                model,
+                v,
+            }),
+        };
+        let id = self.send(index, message).await;
+        self.pending
+            .insert(id, (index, Pending::Create(binding.id)));
         Ok(())
     }
 
@@ -1145,45 +1464,90 @@ impl Harnesses {
         Ok(bound)
     }
 
-    async fn answer(
+    /// A call of the conversation `conversation`, for the host to
+    /// answer.
+    async fn call(
+        &mut self,
+        store: &Store,
+        index: usize,
+        conversation: &str,
+        id: String,
+        call: Call,
+    ) -> Result<Vec<Notice>> {
+        let Some(binding) = self
+            .conversation(store, index, conversation, &id)
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
+        let re = Re {
+            index,
+            generation: self.runtimes[index].generation,
+            id,
+        };
+        Ok(vec![Notice::Call {
+            binding: binding.id,
+            re,
+            call,
+        }])
+    }
+
+    /// Asks for the entries of `conversation` before `before`, to
+    /// keep those the server lacks.
+    async fn sync(
         &mut self,
         index: usize,
-        re: String,
-        answer: answers::Answer,
+        binding: BindingId,
+        conversation: String,
+        before: Option<String>,
     ) {
-        self.send(index, |v, id| match answer {
-            answers::Answer::Allowed => {
-                ServerMessage::Allowed(link::Allowed { id, re, v })
-            }
-            answers::Answer::Waiting(words) => {
-                ServerMessage::Waiting(link::Waiting {
+        let id = self
+            .send(index, |v, id| {
+                ServerMessage::History(link::History {
+                    before,
+                    conversation,
                     id,
-                    re,
-                    v,
-                    words,
-                })
-            }
-            answers::Answer::Refused(words) => {
-                ServerMessage::Refusal(link::Refusal {
-                    id,
-                    re,
-                    v,
-                    words,
-                })
-            }
-            answers::Answer::Result { text, error } => {
-                ServerMessage::Result(link::Result {
-                    details: None,
-                    diagnostics: None,
-                    error,
-                    id,
-                    re,
-                    text,
+                    limit: SYNC_PAGE,
                     v,
                 })
+            })
+            .await;
+        self.pending.insert(id, (index, Pending::Sync(binding)));
+    }
+
+    /// Keeps the entries of a page read to catch up, asking for the
+    /// page before it until one holds an entry already kept.
+    async fn synced(
+        &mut self,
+        store: &mut Store,
+        index: usize,
+        binding: BindingId,
+        page: link::Page,
+    ) -> Result<Vec<Notice>> {
+        let mut known = false;
+        let mut notices = Vec::new();
+        for item in page.items.iter() {
+            if store.has_item(binding, &item.entry)? {
+                known = true;
+            } else if store.keep_item(binding, item)? {
+                notices.push(Notice::Kept {
+                    binding,
+                    item: item.clone(),
+                });
             }
-        })
-        .await;
+        }
+        if page.earlier
+            && !known
+            && let (Some(first), Some(conversation)) = (
+                page.items.first(),
+                self.bound(store, binding)?.conversation,
+            )
+        {
+            let before = first.entry.clone();
+            self.sync(index, binding, conversation, Some(before))
+                .await;
+        }
+        Ok(notices)
     }
 
     async fn error(
@@ -1255,23 +1619,6 @@ impl Harnesses {
         (credential["type"] == "api_key")
             .then(|| credential["key"].as_str().map(str::to_owned))
             .flatten()
-    }
-}
-
-fn waiting(
-    new_wait: bool,
-    binding: &Binding,
-    key: String,
-    tool: String,
-) -> Vec<Notice> {
-    if new_wait {
-        vec![Notice::Waiting {
-            binding: binding.id,
-            key,
-            tool,
-        }]
-    } else {
-        Vec::new()
     }
 }
 
@@ -1427,6 +1774,17 @@ fn schedule(runtime: &mut Runtime) -> Duration {
 async fn sleep_until(at: Option<Instant>) {
     if let Some(at) = at {
         tokio::time::sleep_until(at.into()).await;
+    }
+}
+
+/// A notice for people alone, made now.
+fn notice(text: &str) -> Mark {
+    Mark {
+        data: BTreeMap::from([
+            ("text".into(), Value::from(text)),
+            ("at".into(), Value::from(now())),
+        ]),
+        kind: "hamlet.notice".into(),
     }
 }
 

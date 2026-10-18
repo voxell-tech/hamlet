@@ -1392,6 +1392,9 @@
                 "conversation": {
                     "type": "string",
                     "minLength": 1
+                },
+                "input": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false

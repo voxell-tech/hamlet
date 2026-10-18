@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
 
-use super::link::ModelRef;
+use super::link::{Item, Mark, ModelRef};
 use crate::record::AgentRef;
 use crate::{RuntimeInstance, Store};
 
@@ -28,6 +28,9 @@ pub struct Binding {
     pub runtime: RuntimeInstance,
     /// The runtime's id for the conversation, once it made it.
     pub conversation: Option<String>,
+    /// The conversation this one copies up to the entry `fork_at`.
+    pub fork_of: Option<BindingId>,
+    pub fork_at: Option<String>,
 }
 
 /// A runtime as the server keeps it.
@@ -45,6 +48,33 @@ pub(crate) struct Owed {
     pub request: String,
     pub content: String,
     pub steer: bool,
+    pub mark: Option<Mark>,
+    /// Written for people alone, with a boundary when `boundary`.
+    pub write: bool,
+    pub boundary: bool,
+}
+
+/// What a conversation is owed: an input or a write, kept until the
+/// runtime admits it.
+#[derive(Clone, Debug)]
+pub struct Input<'a> {
+    pub request: &'a str,
+    pub content: &'a str,
+    pub steer: bool,
+    pub mark: Option<&'a Mark>,
+    pub write: bool,
+    pub boundary: bool,
+}
+
+/// How an input stands, as its runtime last told it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Standing {
+    pub submission: Option<String>,
+    /// `queued`, `placed`, `done` or `unanswered`.
+    pub status: Option<String>,
+    pub reason: Option<String>,
+    pub detail: Option<serde_json::Value>,
+    pub followed: bool,
 }
 
 impl Store {
@@ -220,6 +250,33 @@ impl Store {
         Ok(BindingId(self.db.last_insert_rowid()))
     }
 
+    /// Binds a copy of `parent` up to its entry `at`, in its runtime,
+    /// with the items it kept up to there.
+    pub(crate) fn add_fork(
+        &mut self,
+        parent: &Binding,
+        at: &str,
+    ) -> Result<BindingId> {
+        let ordinal = ordinal_of(at)?;
+        let tx = self.db.transaction()?;
+        tx.execute(
+            "INSERT INTO harness_binding (hamlet, number, errand, \
+             model, runtime, fork_of, fork_at) SELECT hamlet, \
+             number, errand, model, runtime, id, ?2 FROM \
+             harness_binding WHERE id = ?1",
+            params![parent.id.0, at],
+        )?;
+        let fork = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO harness_item (binding, entry, ordinal, \
+             item) SELECT ?2, entry, ordinal, item FROM \
+             harness_item WHERE binding = ?1 AND ordinal <= ?3",
+            params![parent.id.0, fork, ordinal],
+        )?;
+        tx.commit()?;
+        Ok(BindingId(fork))
+    }
+
     /// Keeps the runtime's id for the conversation of `binding` and
     /// the versions it began with.
     pub(crate) fn conversation_made(
@@ -243,39 +300,221 @@ impl Store {
     pub(crate) fn keep_input(
         &mut self,
         binding: BindingId,
-        request: &str,
-        content: &str,
-        steer: bool,
+        input: &Input<'_>,
     ) -> Result<bool> {
+        let mark =
+            input.mark.map(serde_json::to_string).transpose()?;
         let kept = self.db.execute(
             "INSERT INTO harness_input (binding, request, ordinal, \
-             content, steer, state) SELECT ?1, ?2, \
-             coalesce(max(ordinal), 0) + 1, ?3, ?4, 'kept' FROM \
-             harness_input WHERE binding = ?1 ON CONFLICT (binding, \
-             request) DO NOTHING",
-            params![binding.0, request, content, steer],
+             content, steer, state, mark, write, boundary) SELECT \
+             ?1, ?2, coalesce(max(ordinal), 0) + 1, ?3, ?4, 'kept', \
+             ?5, ?6, ?7 FROM harness_input WHERE binding = ?1 ON \
+             CONFLICT (binding, request) DO NOTHING",
+            params![
+                binding.0,
+                input.request,
+                input.content,
+                input.steer,
+                mark,
+                input.write,
+                input.boundary
+            ],
         )?;
         Ok(kept == 1)
     }
 
-    /// The inputs owed to `binding`, in the order they were kept.
+    /// The inputs owed to `binding`, in the order they were kept:
+    /// those not yet admitted, then, when `unsettled`, those
+    /// admitted whose end the server has not heard.
     pub(crate) fn owed(
         &self,
         binding: BindingId,
+        unsettled: bool,
     ) -> Result<Vec<Owed>> {
         let mut query = self.db.prepare(
-            "SELECT request, content, steer FROM harness_input \
-             WHERE binding = ?1 AND state = 'kept' ORDER BY ordinal",
+            "SELECT request, content, steer, mark, write, boundary \
+             FROM harness_input WHERE binding = ?1 AND (state = \
+             'kept' OR (?2 AND state = 'admitted' AND followed = 0 \
+             AND coalesce(status, '') NOT IN ('done', \
+             'unanswered'))) ORDER BY ordinal",
+        )?;
+        query
+            .query_map(params![binding.0, unsettled], |row| {
+                Ok((
+                    Owed {
+                        request: row.get(0)?,
+                        content: row.get(1)?,
+                        steer: row.get(2)?,
+                        mark: None,
+                        write: row.get(4)?,
+                        boundary: row.get(5)?,
+                    },
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?
+            .map(|row| {
+                let (mut owed, mark) = row?;
+                owed.mark = mark
+                    .map(|m| serde_json::from_str(&m))
+                    .transpose()?;
+                Ok(owed)
+            })
+            .collect()
+    }
+
+    /// How the input `request` of `binding` stands.
+    pub fn standing(
+        &self,
+        binding: BindingId,
+        request: &str,
+    ) -> Result<Option<Standing>> {
+        self.db
+            .query_row(
+                "SELECT submission, status, reason, detail, \
+                 followed FROM harness_input WHERE binding = ?1 AND \
+                 request = ?2",
+                params![binding.0, request],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, bool>(4)?,
+                    ))
+                },
+            )
+            .optional()?
+            .map(|(submission, status, reason, detail, followed)| {
+                Ok(Standing {
+                    submission,
+                    status,
+                    reason,
+                    detail: detail
+                        .map(|d| serde_json::from_str(&d))
+                        .transpose()?,
+                    followed,
+                })
+            })
+            .transpose()
+    }
+
+    /// The request whose input the runtime admitted as `submission`.
+    pub fn request_of(
+        &self,
+        binding: BindingId,
+        submission: &str,
+    ) -> Result<Option<String>> {
+        Ok(self
+            .db
+            .query_row(
+                "SELECT request FROM harness_input WHERE binding = \
+                 ?1 AND submission = ?2",
+                params![binding.0, submission],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    /// Keeps how the input `request` of `binding` stands now.
+    pub(crate) fn input_stands(
+        &mut self,
+        binding: BindingId,
+        request: &str,
+        submission: Option<&str>,
+        status: &str,
+        reason: Option<&str>,
+        detail: Option<&serde_json::Value>,
+    ) -> Result<()> {
+        let detail = detail.map(serde_json::to_string).transpose()?;
+        // A status never goes back once the input ended.
+        self.db.execute(
+            "UPDATE harness_input SET submission = coalesce(?3, \
+             submission), status = ?4, reason = ?5, detail = ?6 \
+             WHERE binding = ?1 AND request = ?2 AND \
+             coalesce(status, '') NOT IN ('done', 'unanswered')",
+            params![
+                binding.0, request, submission, status, reason,
+                detail
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Keeps that the server acted on the end of the input `request`;
+    /// returns whether it had not yet.
+    pub fn follow(
+        &mut self,
+        binding: BindingId,
+        request: &str,
+    ) -> Result<bool> {
+        Ok(self.db.execute(
+            "UPDATE harness_input SET followed = 1 WHERE binding = \
+             ?1 AND request = ?2 AND followed = 0",
+            params![binding.0, request],
+        )? == 1)
+    }
+
+    /// The inputs whose end the server has heard and not acted on.
+    pub fn unfollowed(&self) -> Result<Vec<(BindingId, String)>> {
+        let mut query = self.db.prepare(
+            "SELECT binding, request FROM harness_input WHERE \
+             followed = 0 AND status IN ('done', 'unanswered') \
+             ORDER BY binding, ordinal",
         )?;
         Ok(query
-            .query_map([binding.0], |row| {
-                Ok(Owed {
-                    request: row.get(0)?,
-                    content: row.get(1)?,
-                    steer: row.get(2)?,
-                })
+            .query_map([], |row| {
+                Ok((BindingId(row.get(0)?), row.get(1)?))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Keeps `item` of `binding`; returns whether it is new.
+    pub(crate) fn keep_item(
+        &mut self,
+        binding: BindingId,
+        item: &Item,
+    ) -> Result<bool> {
+        Ok(self.db.execute(
+            "INSERT INTO harness_item (binding, entry, ordinal, \
+             item) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
+            params![
+                binding.0,
+                item.entry,
+                ordinal_of(&item.entry)?,
+                serde_json::to_string(item)?
+            ],
+        )? == 1)
+    }
+
+    /// The items `binding` kept, oldest first.
+    pub fn items(&self, binding: BindingId) -> Result<Vec<Item>> {
+        let mut query = self.db.prepare(
+            "SELECT item FROM harness_item WHERE binding = ?1 ORDER \
+             BY ordinal",
+        )?;
+        query
+            .query_map([binding.0], |row| row.get::<_, String>(0))?
+            .map(|item| Ok(serde_json::from_str(&item?)?))
+            .collect()
+    }
+
+    /// Whether `binding` kept the entry `entry`.
+    pub(crate) fn has_item(
+        &self,
+        binding: BindingId,
+        entry: &str,
+    ) -> Result<bool> {
+        Ok(self
+            .db
+            .query_row(
+                "SELECT 1 FROM harness_item WHERE binding = ?1 AND \
+                 entry = ?2",
+                params![binding.0, entry],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
     }
 
     pub(crate) fn input_admitted(
@@ -357,7 +596,16 @@ impl Store {
 }
 
 const BINDING: &str = "SELECT id, hamlet, number, errand, model, \
-                       runtime, conversation FROM harness_binding";
+                       runtime, conversation, fork_of, fork_at FROM \
+                       harness_binding";
+
+/// The order of the entry `entry`: a runtime's entry ids are numbers
+/// that grow.
+fn ordinal_of(entry: &str) -> Result<i64> {
+    entry
+        .parse::<i64>()
+        .with_context(|| format!("the entry id {entry} is no number"))
+}
 
 fn binding_row(
     row: &rusqlite::Row<'_>,
@@ -369,6 +617,8 @@ fn binding_row(
     let hamlet = row.get::<_, String>(1)?;
     let errand = row.get::<_, bool>(3)?;
     let conversation = row.get::<_, Option<String>>(6)?;
+    let fork_of = row.get::<_, Option<i64>>(7)?.map(BindingId);
+    let fork_at = row.get::<_, Option<String>>(8)?;
     Ok((|| {
         Ok(Binding {
             id,
@@ -381,6 +631,8 @@ fn binding_row(
                 .context("reading a binding's model")?,
             runtime: RuntimeInstance::new(runtime)?,
             conversation,
+            fork_of,
+            fork_at,
         })
     })())
 }

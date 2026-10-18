@@ -401,7 +401,11 @@ export const Charged = reply("charged", {});
 export type Charged = Static<typeof Charged>;
 
 /** Asks for a conversation's prompt sections before each model call. */
-export const Prompt = message("prompt", { conversation: ConversationId });
+export const Prompt = message("prompt", {
+    conversation: ConversationId,
+    /** The runtime's submission id of the input whose turn makes the call. */
+    input: Type.Optional(Type.String()),
+});
 export type Prompt = Static<typeof Prompt>;
 
 export const Sections = reply("sections", { sections: Type.Array(Section) });

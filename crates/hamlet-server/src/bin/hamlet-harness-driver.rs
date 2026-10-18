@@ -11,7 +11,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use hamlet_server::harness::link::ToolSpecReplay;
-use hamlet_server::harness::{BindingId, Config, Harnesses, Notice};
+use hamlet_server::harness::{
+    Answer, BindingId, Call, Config, Harnesses, Input, Notice,
+    answers,
+};
 use hamlet_server::record::AgentRef;
 use hamlet_server::{Home, RuntimeInstance};
 use serde_json::{Value, json};
@@ -47,7 +50,6 @@ async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
     let mut home = Home::open(&dir)?;
     let layout = home.layout().clone();
     let mut config = Config::from_env(faux)?;
-    config.asks = |tool| listed("HAMLET_ASK_TOOLS", tool);
     for tool in &mut config.tools {
         if listed("HAMLET_UNSAFE_TOOLS", &tool.name) {
             tool.replay = ToolSpecReplay::Unsafe;
@@ -55,14 +57,14 @@ async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
     }
     let (mut harnesses, notices) =
         Harnesses::start(&layout, home.store(), config)?;
-    print(&notices);
+    answer(&mut harnesses, &mut home, notices).await?;
     println!("{}", json!({"ready": true}));
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     loop {
         tokio::select! {
             event = harnesses.next() => {
                 let notices = harnesses.handle(home.store(), event).await?;
-                print(&notices);
+                answer(&mut harnesses, &mut home, notices).await?;
             }
             line = lines.next_line() => {
                 let Some(line) = line? else { break };
@@ -76,6 +78,71 @@ async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
     }
     harnesses.close().await;
     home.close()
+}
+
+/// Prints `notices`, answering each call as a host with no gate of
+/// its own: the tools `HAMLET_ASK_TOOLS` names wait for a chief.
+async fn answer(
+    harnesses: &mut Harnesses,
+    home: &mut Home,
+    notices: Vec<Notice>,
+) -> Result<()> {
+    print(&notices);
+    let asks = |tool: &str| listed("HAMLET_ASK_TOOLS", tool);
+    for notice in notices {
+        let Notice::Call { binding, re, call } = notice else {
+            continue;
+        };
+        let store = home.store();
+        let bound =
+            store.binding(binding)?.context("a call's binding")?;
+        let answer = match call {
+            Call::Allow {
+                key,
+                tool,
+                arguments,
+                ..
+            } => {
+                let asked = answers::allow(
+                    store, &bound, &key, &tool, &arguments, asks,
+                )?;
+                if asked.new_wait {
+                    println!(
+                        "{}",
+                        json!({"notice": {"kind": "waiting", "binding": binding.0, "key": key, "tool": tool}})
+                    );
+                }
+                asked.answer
+            }
+            Call::Operation {
+                key,
+                tool,
+                arguments,
+                ..
+            } => {
+                let at = chrono::Utc::now().timestamp_millis();
+                let asked = answers::operation(
+                    store, &bound, &key, &tool, &arguments, asks, at,
+                )?;
+                if asked.new_wait {
+                    println!(
+                        "{}",
+                        json!({"notice": {"kind": "waiting", "binding": binding.0, "key": key, "tool": tool}})
+                    );
+                }
+                asked.answer
+            }
+            Call::Prompt { .. } => {
+                Answer::Sections(answers::prompt(store, &bound)?)
+            }
+            Call::Yield { .. } => Answer::Verdict {
+                words: None,
+                notice: None,
+            },
+        };
+        harnesses.answer(re, answer).await;
+    }
+    Ok(())
 }
 
 async fn command(
@@ -107,7 +174,7 @@ async fn command(
             let errand = command["errand"].as_bool().unwrap_or(false);
             let (binding, notices) =
                 harnesses.bind(home.store(), &agent, errand).await?;
-            print(&notices);
+            answer(harnesses, home, notices).await?;
             let bound =
                 home.store().binding(binding)?.context("bound")?;
             Ok(
@@ -115,13 +182,22 @@ async fn command(
             )
         }
         "submit" => {
+            let request = text("request")?;
+            let content = text("content")?;
             harnesses
                 .submit(
                     home.store(),
                     binding()?,
-                    &text("request")?,
-                    &text("content")?,
-                    command["steer"].as_bool().unwrap_or(false),
+                    &Input {
+                        request: &request,
+                        content: &content,
+                        steer: command["steer"]
+                            .as_bool()
+                            .unwrap_or(false),
+                        mark: None,
+                        write: false,
+                        boundary: false,
+                    },
                 )
                 .await?;
             Ok(json!({"kept": text("request")?}))
@@ -188,18 +264,30 @@ fn notice_json(notice: &Notice) -> Value {
         Notice::Created { binding } => {
             json!({"kind": "created", "binding": binding.0})
         }
-        Notice::Admitted { binding, request } => {
+        Notice::Admitted {
+            binding, request, ..
+        } => {
             json!({"kind": "admitted", "binding": binding.0, "request": request})
+        }
+        Notice::Settled {
+            binding, request, ..
+        } => {
+            json!({"kind": "settled", "binding": binding.0, "request": request})
         }
         Notice::Kept { binding, item } => {
             json!({"kind": "kept", "binding": binding.0, "item": item})
         }
-        Notice::Running { binding, running } => {
+        Notice::Live {
+            binding, running, ..
+        } => {
             json!({"kind": "running", "binding": binding.0, "running": running})
         }
-        Notice::Waiting { binding, key, tool } => json!({
-            "kind": "waiting", "binding": binding.0, "key": key, "tool": tool,
-        }),
+        Notice::Attempted { binding } => {
+            json!({"kind": "attempted", "binding": binding.0})
+        }
+        Notice::Call { binding, call, .. } => {
+            json!({"kind": "call", "binding": binding.0, "call": format!("{call:?}")})
+        }
         Notice::Cancelled { binding } => {
             json!({"kind": "cancelled", "binding": binding.0})
         }

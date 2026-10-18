@@ -7,9 +7,8 @@ use std::collections::BTreeMap;
 use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
-use super::answers::{self, Answer};
 use super::link::{ModelRef, Usage};
-use super::{Binding, Decided, parse, tools};
+use super::{Answer, Binding, Decided, answers, parse, tools};
 use crate::record::{
     Actor, Admit, AgentRef, Change, FoundRecord, RecordOperation,
 };
@@ -107,10 +106,7 @@ fn run(
 }
 
 fn result(text: &str, error: bool) -> Answer {
-    Answer::Result {
-        text: text.into(),
-        error,
-    }
+    Answer::result(text, error)
 }
 
 #[test]
@@ -125,7 +121,7 @@ fn a_runtime_claiming_the_mayor_for_a_member_s_conversation_is_refused()
     ] {
         let mut claimed = road();
         claimed.insert("actor".into(), claim);
-        let Answer::Result { text, error } =
+        let Answer::Result { text, error, .. } =
             run(&mut store, &binding, "claimed", &claimed)
         else {
             panic!("not a result")
@@ -236,7 +232,7 @@ fn a_waiting_identity_asked_with_other_arguments_is_refused() {
         2,
     )
     .unwrap();
-    assert_eq!(asked.answer, Answer::Refused(tools::CONFLICT.into()));
+    assert_eq!(asked.answer, Answer::Refusal(tools::CONFLICT.into()));
     assert_eq!(roads(&store), 0);
 }
 
@@ -356,6 +352,7 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
         )
         .unwrap()
         .unwrap()
+        .words
         .starts_with("This task")
     );
     // A reset and a later charge in the same millisecond are ordered
@@ -606,7 +603,7 @@ fn cancelling_refuses_the_turn_s_calls_not_yet_carried_out() {
     for key in ["begun", "unasked"] {
         let answer = run(&mut store, &binding, key, &road());
         assert!(
-            matches!(answer, Answer::Refused(_)),
+            matches!(answer, Answer::Refusal(_)),
             "{key}: {answer:?}"
         );
     }

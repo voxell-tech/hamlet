@@ -11,26 +11,12 @@ use sha2::{Digest, Sha256};
 
 use super::bindings::Binding;
 use super::link::{ModelRef, Section, Usage};
-use super::tools;
+use super::{Answer, tools};
 use crate::operation::canonical;
 use crate::{OperationId, RuntimeInstance, Store};
 
-/// The answer to a tool call asked early or carried out.
-#[derive(Debug, PartialEq)]
-pub(crate) enum Answer {
-    Allowed,
-    /// Waiting for a chief; nothing of it is marked.
-    Waiting(String),
-    Refused(String),
-    /// The marked result, for the agent.
-    Result {
-        text: String,
-        error: bool,
-    },
-}
-
 /// The answer, and whether the call began a new wait for a chief.
-pub(crate) struct Asked {
+pub struct Asked {
     pub answer: Answer,
     pub new_wait: bool,
 }
@@ -51,7 +37,7 @@ const REVOKED_WORDS: &str = "A chief refused this call.";
 
 /// Asks early whether the call `key` of `binding` may run, keeping
 /// its wait when it asks a chief.
-pub(crate) fn allow(
+pub fn allow(
     store: &mut Store,
     binding: &Binding,
     key: &str,
@@ -61,7 +47,7 @@ pub(crate) fn allow(
 ) -> Result<Asked> {
     if let Err(words) = tools::parse(tool, arguments) {
         return Ok(Asked {
-            answer: Answer::Refused(words),
+            answer: Answer::Refusal(words),
             new_wait: false,
         });
     }
@@ -71,8 +57,8 @@ pub(crate) fn allow(
         answer: match gate {
             Gate::Pending => Answer::Waiting(PENDING_WORDS.into()),
             Gate::Allowed => Answer::Allowed,
-            Gate::Refused(words) => Answer::Refused(words),
-            Gate::Conflict => Answer::Refused(tools::CONFLICT.into()),
+            Gate::Refused(words) => Answer::Refusal(words),
+            Gate::Conflict => Answer::Refusal(tools::CONFLICT.into()),
         },
         new_wait,
     })
@@ -80,7 +66,7 @@ pub(crate) fn allow(
 
 /// Carries out the call `key` of `binding`: its marked result when it
 /// ran, else as its wait and the realm allow now.
-pub(crate) fn operation(
+pub fn operation(
     store: &mut Store,
     binding: &Binding,
     key: &str,
@@ -93,10 +79,7 @@ pub(crate) fn operation(
         Ok(call) => call,
         Err(words) => {
             return Ok(Asked {
-                answer: Answer::Result {
-                    text: words,
-                    error: true,
-                },
+                answer: Answer::result(words, true),
                 new_wait: false,
             });
         }
@@ -108,7 +91,7 @@ pub(crate) fn operation(
     let run = |store: &mut Store| -> Result<Answer> {
         let (text, error) =
             tools::run(store, &id, binding, &call, at)?;
-        Ok(Answer::Result { text, error })
+        Ok(Answer::result(text, error))
     };
     // A marked result stands whatever has changed since (S18).
     if marked(store, &id)? {
@@ -121,8 +104,8 @@ pub(crate) fn operation(
         gate(store, binding, key, tool, arguments, asks)?;
     let answer = match gate {
         Gate::Pending => Answer::Waiting(PENDING_WORDS.into()),
-        Gate::Refused(words) => Answer::Refused(words),
-        Gate::Conflict => Answer::Refused(tools::CONFLICT.into()),
+        Gate::Refused(words) => Answer::Refusal(words),
+        Gate::Conflict => Answer::Refusal(tools::CONFLICT.into()),
         Gate::Allowed => run(store)?,
     };
     Ok(Asked { answer, new_wait })
@@ -279,7 +262,14 @@ impl Store {
     }
 }
 
-/// Admits an attempt with its task and price, or returns the cap that
+/// Why an attempt may not be made.
+pub(crate) struct Stop {
+    pub words: String,
+    /// A cap of spend stopped it, which the chief is told of.
+    pub spend: bool,
+}
+
+/// Admits an attempt with its task and price, or returns what
 /// stopped it.
 pub(crate) fn attempt(
     store: &mut Store,
@@ -289,7 +279,7 @@ pub(crate) fn attempt(
     task: Option<&str>,
     price: Option<&Value>,
     at: i64,
-) -> Result<Option<String>> {
+) -> Result<Option<Stop>> {
     let old = store
         .db
         .query_row(
@@ -311,9 +301,11 @@ pub(crate) fn attempt(
             || provider != model.provider
             || name != model.id
             || previous_task.as_deref() != task)
-            .then(|| {
-                "This attempt key already names another model call."
-                    .into()
+            .then(|| Stop {
+                words: "This attempt key already names another \
+                        model call."
+                    .into(),
+                spend: false,
             }));
     }
     if let Some(words) = crate::spend::can_spend(
@@ -322,7 +314,7 @@ pub(crate) fn attempt(
         task,
         at,
     )? {
-        return Ok(Some(words));
+        return Ok(Some(Stop { words, spend: true }));
     }
     store.db.execute(
         "INSERT INTO harness_attempt (runtime, key, binding, \
@@ -394,8 +386,9 @@ pub(crate) fn charge(
     Ok(Some(()))
 }
 
-/// The prompt sections of the conversation of `binding`.
-pub(crate) fn prompt(
+/// The prompt sections of the conversation of `binding`: who it is
+/// with, for a host with no prompt of its own.
+pub fn prompt(
     store: &Store,
     binding: &Binding,
 ) -> Result<Vec<Section>> {

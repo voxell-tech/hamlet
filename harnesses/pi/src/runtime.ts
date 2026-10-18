@@ -566,10 +566,12 @@ class Runtime {
             sections: [
                 section(
                     "hamlet",
-                    async (input) => {
+                    async (prompt) => {
+                        const input = await this.#input(prompt.conversationId);
                         const answer = await channel.request({
                             type: "prompt",
-                            conversation: String(input.conversationId),
+                            conversation: String(prompt.conversationId),
+                            ...(input === undefined ? {} : { input }),
                         });
                         if (answer.type !== "sections")
                             throw new Error(unexpected(answer));
