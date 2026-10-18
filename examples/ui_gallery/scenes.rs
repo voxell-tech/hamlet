@@ -10,12 +10,14 @@ mod reload;
 mod roster;
 mod sample;
 mod sheets;
+mod tabs;
 mod world_menu;
 
 use bevy::app::{App, Plugin, PostStartup, Startup, Update};
 use bevy::asset::Handle;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::Res;
 use bevy::ecs::world::World;
 use bevy::image::Image;
@@ -27,6 +29,7 @@ use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
 use hamlet_assets::Tuning;
 use hamlet_core::core::{Link, Sandboxing};
 use hamlet_realm::sound::{Cue, SoundSettings};
+use hamlet_sdk::inspector::InspectorSections;
 use hamlet_ui::history::History;
 use hamlet_ui::theme::{self, HamletTheme};
 use hamlet_ui::{Bar, Roll, asking, chrome, menu, select, welcome};
@@ -101,6 +104,11 @@ impl Plugin for GalleryPlugin {
                         .run_if(|scene: Res<Scene>| {
                             *scene == Scene::PluginOpenui
                         }),
+                    tabs::skills
+                        .run_if(resource_changed::<InspectorSections>)
+                        .run_if(|scene: Res<Scene>| {
+                            *scene == Scene::SkillsTab
+                        }),
                 ),
             )
             .add_plugins((
@@ -155,6 +163,9 @@ pub enum Scene {
     Skills,
     /// The Skills panel with no agent selected.
     SkillsAlone,
+    /// The Inspector at the Skills tab of an agent that has skills of
+    /// its own.
+    SkillsTab,
     /// Every hamlet, with nothing selected.
     Overview,
     /// One hamlet and everyone in it.

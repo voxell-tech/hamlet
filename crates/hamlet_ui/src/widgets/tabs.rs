@@ -75,10 +75,10 @@ pub fn tab_look(cx: &mut Cx) {
 }
 
 /// A tab's icon and its name.
-pub fn tab_name(which: Glyph, name: &'static str) -> impl View {
+pub fn tab_name(which: Glyph, name: impl Into<String>) -> impl View {
     headed(
         which,
-        label(name)
+        label(name.into())
             .size(12.0)
             .bold(true)
             .wrap(false)
@@ -89,14 +89,14 @@ pub fn tab_name(which: Glyph, name: &'static str) -> impl View {
 /// A strip of `tabs`, each pressed to `choose` its value. The tabs
 /// are built once and marked as the value changes, so that a press
 /// moves nothing.
-pub fn strip<R: Resource + Copy>(
-    tabs: &[(R, Glyph, &'static str)],
+pub fn strip<R: Resource + Copy, N: AsRef<str>>(
+    tabs: &[(R, Glyph, N)],
     choose: fn(&mut World, R),
 ) -> impl View {
     let values = tabs.iter().map(|tab| tab.0).collect::<Vec<_>>();
     let list = row((menu_button(
         "",
-        tabs.iter().map(|tab| tab.2),
+        tabs.iter().map(|tab| tab.2.as_ref().to_string()),
         move |world, at| choose(world, values[at]),
     )
     .icon(Glyph::Menu.image(ICON)),))
@@ -106,9 +106,10 @@ pub fn strip<R: Resource + Copy>(
     .boxed();
     let tabs = tabs
         .iter()
-        .map(|&(of, which, name)| {
+        .map(|(of, which, name)| {
+            let (of, which) = (*of, *which);
             column((
-                button(tab_name(which, name))
+                button(tab_name(which, name.as_ref()))
                     .rules(tab_look)
                     .tagged(TabOf(of))
                     .tagged(FootLight::new(false))

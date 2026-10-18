@@ -8,10 +8,10 @@ mod house;
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::entity::Entity;
-use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::{
     resource_changed, resource_exists_and_changed,
 };
+use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
@@ -19,7 +19,8 @@ use hamlet_core::agents::Left;
 use hamlet_realm::pick::{Selected, Thing};
 use hamlet_sdk::convo::AgentSelected;
 pub(crate) use hamlet_sdk::convo::of_agent;
-use hamlet_sdk::papers::keep_papers;
+use hamlet_sdk::inspector::InspectorSections;
+use hamlet_sdk::papers::{Papers, keep_papers};
 
 pub use self::agent::{Briefing, Section};
 pub(crate) use self::agent::{now, show_prompt};
@@ -53,6 +54,10 @@ pub fn plugin(app: &mut App) {
         (
             tabs::mark::<Section>,
             agent::leave_prompt.run_if(resource_changed::<Me>),
+            agent::leave_gone.run_if(
+                resource_changed::<InspectorSections>
+                    .or_eager(resource_changed::<Papers>),
+            ),
             keep_papers.run_if(resource_changed::<Section>),
             mark_selected
                 .run_if(resource_exists_and_changed::<Selected>),

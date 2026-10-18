@@ -257,6 +257,7 @@ pub fn open(home: &Scratch) -> App {
         hamlet_sdk::command::plugin,
         hamlet_sdk::context::plugin,
         hamlet_sdk::dock::plugin,
+        hamlet_sdk::inspector::plugin,
         hamlet_sdk::keys::plugin,
         hamlet_sdk::menu::plugin,
         hamlet_sdk::plugin::plugin,

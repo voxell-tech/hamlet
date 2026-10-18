@@ -23,6 +23,7 @@ state_bytes = 65536
 commands = 32
 menu_items = 16
 context_items = 16
+inspector_sections = 4
 keys = 16
 call_depth = 4
 calls_in_flight = 8

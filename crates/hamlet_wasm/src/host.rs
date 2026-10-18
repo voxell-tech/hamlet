@@ -14,7 +14,7 @@ use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 
 pub use self::collections::{Reach, Shared};
 pub use self::declare::{
-    Chorded, Declared, Offered, Offers, Placed, Targeted,
+    Chorded, Declared, Offered, Offers, Placed, Tabbed, Targeted,
 };
 pub use self::request::Want;
 use crate::fault::Fault;
@@ -47,6 +47,7 @@ pub struct State {
     pub(crate) command_room: usize,
     pub(crate) menu_room: usize,
     pub(crate) context_room: usize,
+    pub(crate) section_room: usize,
     pub(crate) key_room: usize,
     /// The id of the plugin this store belongs to.
     pub(crate) plugin: String,
@@ -86,6 +87,7 @@ impl State {
             command_room: limits.commands,
             menu_room: limits.menu_items,
             context_room: limits.context_items,
+            section_room: limits.inspector_sections,
             key_room: limits.keys,
             plugin: String::new(),
             granted: Granted::default(),
@@ -155,6 +157,15 @@ impl Host for State {
         command: String,
     ) {
         self.contextualise(target, section, label, command);
+    }
+
+    fn inspector_section(
+        &mut self,
+        target: String,
+        title: String,
+        panel: String,
+    ) {
+        self.tab(target, title, panel);
     }
 
     fn agents(&mut self) -> Result<Vec<host::Agent>, String> {

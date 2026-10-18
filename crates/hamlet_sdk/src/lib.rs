@@ -13,9 +13,11 @@ pub mod dock;
 pub mod events;
 pub mod feel;
 pub mod icons;
+pub mod inspector;
 pub mod keys;
 pub mod looks;
 pub mod menu;
+pub mod page;
 pub mod papers;
 pub mod platform;
 pub mod plugin;
@@ -39,6 +41,7 @@ impl Plugin for SdkPlugin {
             command::plugin,
             context::plugin,
             dock::plugin,
+            inspector::plugin,
             keys::plugin,
             menu::plugin,
             papers::plugin,

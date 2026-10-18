@@ -4,7 +4,7 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Res, ResMut};
+use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, Display, UiRect, px};
 use bevy_fynix::tokens::Tone;
@@ -12,7 +12,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame, icon,
     label, row, scroll,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_core::agents::{
     self, Account, Activity, Busy, Doing, LivesIn, Paper, Purpose,
     Treasury,
@@ -20,6 +20,11 @@ use hamlet_core::agents::{
 use hamlet_core::core::RefreshLists;
 use hamlet_core::session::{self, Seat};
 use hamlet_realm::pick::{Thing, select};
+use hamlet_sdk::command::kind;
+use hamlet_sdk::inspector::{
+    InspectorSection, InspectorSections, Line,
+};
+use hamlet_sdk::page;
 use hamlet_sdk::papers::Papers;
 
 use crate::feel::Mood;
@@ -30,7 +35,7 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::platform::{DisplayText, Wraps};
-use crate::roll::rolled;
+use crate::roll::{either, moved, rolled};
 use crate::status::Bar;
 use crate::world_menu::{self};
 use crate::{AnyView, Cx, View, chat, markdown, tabs, with_cx};
@@ -46,9 +51,13 @@ pub enum Section {
     History,
     /// The whole of its prompt, which no tab leads to.
     Prompt,
+    /// The tab a plugin added, by the entity of its
+    /// [`InspectorSection`].
+    Contributed(Entity),
 }
 
-/// The sections that have a tab, with the icon and the name on it.
+/// The sections that have a tab of their own, with the icon and the
+/// name on it.
 const TABS: [(Section, Glyph, &str); 4] = [
     (Section::Conversation, Glyph::Talk, "CHAT"),
     (Section::Notes, Glyph::Notes, "NOTES"),
@@ -346,17 +355,41 @@ fn prompt(cx: &Cx) -> impl View + use<> {
     .gap(8.0)
 }
 
-/// The sections as tabs.
-fn tabs() -> AnyView {
-    tabs::strip(&TABS, |world, section| {
+/// The sections as tabs, the ones plugins added last.
+fn tabs(added: &[Line]) -> AnyView {
+    let mut all = TABS
+        .map(|(section, glyph, name)| (section, glyph, name.into()))
+        .to_vec();
+    all.extend(added.iter().map(|line| {
+        (
+            Section::Contributed(line.item),
+            line.icon,
+            line.title.clone(),
+        )
+    }));
+    tabs::strip::<Section, String>(&all, |world, section| {
         *world.resource_mut::<Section>() = section;
         world.trigger(RefreshLists);
     })
     .boxed()
 }
 
+/// The page a plugin added as a tab.
+fn contributed(item: Entity) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let panel = cx
+            .world
+            .get::<InspectorSection>(item)
+            .map(|section| section.panel.clone())
+            .unwrap_or_default();
+        let page = page::content(cx.world, item, &panel);
+        cx.build(page)
+    })
+}
+
 fn sections() -> impl View {
     keyed(resource::<Section, _>(|s| *s), |section| match section {
+        Section::Contributed(item) => contributed(*item),
         Section::Conversation => {
             column((chat::transcript(), chat::message_bar()))
                 .fills_height()
@@ -372,14 +405,48 @@ fn sections() -> impl View {
 }
 
 pub(super) fn living() -> impl View {
-    keyed(
-        resource::<Me, _>(|m| (m.session, m.agent, m.with.clone())),
-        |(_, agent, with)| {
-            column((header(*agent, with.clone()), tabs(), sections()))
-                .fills_height()
-                .gap(12.0)
-                .boxed()
-        },
-    )
+    // The page is built again when a tab comes or goes.
+    let shown = derived(|world: &World| {
+        let me = world.resource::<Me>();
+        let added = world
+            .resource::<InspectorSections>()
+            .of(kind::AGENT)
+            .filter(|line| page::shown(world, line.item))
+            .cloned()
+            .collect::<Vec<_>>();
+        (me.session, me.agent, me.with.clone(), added)
+    })
+    .when(either(
+        either(moved::<Me>(), moved::<InspectorSections>()),
+        moved::<Papers>(),
+    ));
+    keyed(shown, |(_, agent, with, added)| {
+        column((
+            header(*agent, with.clone()),
+            tabs(added),
+            sections(),
+        ))
+        .fills_height()
+        .gap(12.0)
+        .boxed()
+    })
     .within(filling())
+}
+
+/// Turns the page back to the conversation when the tab it was at
+/// is gone.
+pub(super) fn leave_gone(
+    sections: Res<InspectorSections>,
+    section: Res<Section>,
+    mut commands: Commands,
+) {
+    let Section::Contributed(item) = *section else {
+        return;
+    };
+    let listed = sections.holds(item);
+    commands.queue(move |world: &mut World| {
+        if !listed || !page::shown(world, item) {
+            *world.resource_mut::<Section>() = Section::Conversation;
+        }
+    });
 }

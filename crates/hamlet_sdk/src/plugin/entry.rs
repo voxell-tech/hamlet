@@ -12,8 +12,10 @@ use crate::command::{Command, Handler, HandlerWith, Opens, Subject};
 use crate::context::{ContextItem, ContextWhen};
 use crate::dock::Panel;
 use crate::icons::Glyph;
+use crate::inspector::InspectorSection;
 use crate::keys::Key;
 use crate::menu::{Menu, MenuEntry};
+use crate::page::{Native, ShownWhen};
 
 /// The declarations of one plugin. It reaches neither the app nor the
 /// world.
@@ -30,7 +32,12 @@ enum Declared {
     Menu(MenuEntry),
     Key(Key),
     Context(ContextItem, Option<fn(&World, &Subject) -> bool>),
+    Inspector(InspectorSection, Option<NativePage>),
 }
+
+/// A page a built-in plugin draws itself: its view, and when it is
+/// there.
+type NativePage = (fn() -> AnyView, fn(&World) -> bool);
 
 /// What a command does when it is run.
 enum Does {
@@ -168,6 +175,54 @@ impl Entry {
         );
     }
 
+    /// Adds a tab to the inspector's page of the things of kind
+    /// `target`, whose page is the plugin panel `panel`, by its id in
+    /// the dock.
+    pub fn inspector_section(
+        &mut self,
+        target: &str,
+        title: &str,
+        panel: &str,
+    ) {
+        self.declare_section(target, title, panel, None);
+    }
+
+    /// Adds a tab as `inspector_section` does, whose page `view`
+    /// draws, there only while `when` holds. The tab takes its icon
+    /// from the panel `panel`.
+    pub fn inspector_section_with(
+        &mut self,
+        target: &str,
+        title: &str,
+        panel: &str,
+        view: fn() -> AnyView,
+        when: fn(&World) -> bool,
+    ) {
+        self.declare_section(
+            target,
+            title,
+            panel,
+            Some((view, when)),
+        );
+    }
+
+    fn declare_section(
+        &mut self,
+        target: &str,
+        title: &str,
+        panel: &str,
+        page: Option<NativePage>,
+    ) {
+        self.declared.push(Declared::Inspector(
+            InspectorSection {
+                target: target.into(),
+                title: title.into(),
+                panel: panel.into(),
+            },
+            page,
+        ));
+    }
+
     fn declare_context(
         &mut self,
         target: &str,
@@ -212,6 +267,14 @@ impl Entry {
                 }
                 Declared::Key(key) => {
                     commands.spawn((key, ContributedBy(plugin)));
+                }
+                Declared::Inspector(section, page) => {
+                    let mut section = commands
+                        .spawn((section, ContributedBy(plugin)));
+                    if let Some((view, when)) = page {
+                        section
+                            .insert((Native(view), ShownWhen(when)));
+                    }
                 }
                 Declared::Context(item, when) => {
                     let mut item =

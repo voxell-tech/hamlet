@@ -212,7 +212,10 @@ pub(super) fn setup(world: &mut World) {
     if scene == Scene::Character {
         world.insert_resource(inspector::Section::Character);
     }
-    if matches!(scene, Scene::Skills | Scene::SkillsAlone) {
+    if matches!(
+        scene,
+        Scene::Skills | Scene::SkillsAlone | Scene::SkillsTab
+    ) {
         let skill =
             |name: &str, description: &str| hamlet_home::Skill {
                 name: name.into(),
@@ -220,7 +223,7 @@ pub(super) fn setup(world: &mut World) {
                 usage: None,
                 path: PathBuf::new(),
             };
-        if scene == Scene::Skills {
+        if matches!(scene, Scene::Skills | Scene::SkillsTab) {
             // No home here to read them from.
             world.insert_resource(hamlet_sdk::convo::AgentSelected(
                 true,

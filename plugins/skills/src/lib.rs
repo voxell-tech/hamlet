@@ -7,6 +7,7 @@ mod row;
 mod screen;
 
 use bevy::app::App;
+use hamlet_sdk::command::kind;
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::menu::Menu;
 use hamlet_sdk::plugin::{
@@ -29,6 +30,13 @@ impl HamletPlugin for SkillsPlugin {
     fn entry(entry: &mut Entry) {
         // Closed until asked for from a tab bar's plus.
         entry.panel("skills", "SKILLS", Glyph::Book, screen::screen);
+        entry.inspector_section_with(
+            kind::AGENT,
+            "SKILLS",
+            "skills",
+            screen::lists,
+            own::kept,
+        );
         entry.opens("open", "Skills", "skills");
         entry.menu_item(
             Menu::View,

@@ -29,6 +29,7 @@ pub enum Capability {
     UiMenu,
     UiKeys,
     UiContext,
+    UiInspector,
     Net,
     FsPick,
     FsFolder,
@@ -39,7 +40,7 @@ pub enum Capability {
 }
 
 impl Capability {
-    pub const ALL: [Capability; 16] = [
+    pub const ALL: [Capability; 17] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -49,6 +50,7 @@ impl Capability {
         Capability::UiMenu,
         Capability::UiKeys,
         Capability::UiContext,
+        Capability::UiInspector,
         Capability::Net,
         Capability::FsPick,
         Capability::FsFolder,
@@ -70,6 +72,7 @@ impl Capability {
             Capability::UiMenu => "ui.menu",
             Capability::UiKeys => "ui.keys",
             Capability::UiContext => "ui.context",
+            Capability::UiInspector => "ui.inspector",
             Capability::Net => "net",
             Capability::FsPick => "fs.pick",
             Capability::FsFolder => "fs.folder",
@@ -110,6 +113,9 @@ impl Capability {
             Capability::UiKeys => "Add keyboard shortcuts",
             Capability::UiContext => {
                 "Add items to the menus of things in the world"
+            }
+            Capability::UiInspector => {
+                "Add tabs to the Inspector's page of an agent"
             }
             Capability::Net => "Reach the network",
             Capability::FsPick => {

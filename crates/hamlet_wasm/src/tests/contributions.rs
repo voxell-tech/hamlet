@@ -3,6 +3,7 @@ use bevy_fynix::shortcut::{Chord, Mods};
 use hamlet_sdk::capability::{Capability, Choice, Decide, Subject};
 use hamlet_sdk::command::kind;
 use hamlet_sdk::context::ContextItems;
+use hamlet_sdk::inspector::InspectorSections;
 use hamlet_sdk::keys::Keys;
 use hamlet_sdk::menu::Menus;
 
@@ -11,7 +12,8 @@ use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
 
 const EXPORTS: &str = "[exports]\ncommands = [\"go\"]\n";
-const ALL: &[&str] = &["ui.menu", "ui.keys", "ui.context"];
+const ALL: &[&str] =
+    &["ui.menu", "ui.keys", "ui.context", "ui.inspector"];
 
 fn far() -> Plugin {
     let module = fixture::contributing();
@@ -20,17 +22,58 @@ fn far() -> Plugin {
         .asking(ALL)
 }
 
-/// The commands of the menu lines, the shortcuts and the context
-/// menu items that show.
-fn shown(app: &App) -> (Vec<String>, Vec<String>, Vec<String>) {
-    let menus = &app.world().resource::<Menus>().0;
-    let keys = &app.world().resource::<Keys>().0;
-    let contexts = &app.world().resource::<ContextItems>().0;
-    (
-        menus.iter().map(|line| line.command.clone()).collect(),
-        keys.iter().map(|bound| bound.command.clone()).collect(),
-        contexts.iter().map(|line| line.command.clone()).collect(),
-    )
+/// What shows of what the plugin declared: the commands of its menu
+/// lines, shortcuts and context menu items, and the panels of its
+/// inspector tabs.
+#[derive(PartialEq, Default, Debug)]
+struct Shown {
+    menus: Vec<String>,
+    keys: Vec<String>,
+    contexts: Vec<String>,
+    tabs: Vec<String>,
+}
+
+impl Shown {
+    fn of(app: &App) -> Self {
+        let world = app.world();
+        Self {
+            menus: world
+                .resource::<Menus>()
+                .0
+                .iter()
+                .map(|line| line.command.clone())
+                .collect(),
+            keys: world
+                .resource::<Keys>()
+                .0
+                .iter()
+                .map(|bound| bound.command.clone())
+                .collect(),
+            contexts: world
+                .resource::<ContextItems>()
+                .0
+                .iter()
+                .map(|line| line.command.clone())
+                .collect(),
+            tabs: world
+                .resource::<InspectorSections>()
+                .0
+                .iter()
+                .map(|line| line.panel.clone())
+                .collect(),
+        }
+    }
+
+    /// Everything the plugin declared, shown.
+    fn all() -> Self {
+        let one = |name: &str| vec![name.to_string()];
+        Self {
+            menus: one("far/go"),
+            keys: one("far/go"),
+            contexts: one("far/go"),
+            tabs: one("far/go"),
+        }
+    }
 }
 
 fn decide(app: &mut App, capability: Capability, choice: Choice) {
@@ -52,8 +95,8 @@ fn what_a_plugin_declares_shows_only_while_its_capability_is_allowed()
     let mut app = home::app(&scratch, &[far()]);
     app.update();
 
-    // Undecided: nothing shows, and the chief is asked for all three.
-    assert_eq!(shown(&app), (vec![], vec![], vec![]));
+    // Undecided: nothing shows, and the chief is asked for each.
+    assert_eq!(Shown::of(&app), Shown::default());
     let asked = petitions(&mut app)
         .into_iter()
         .filter_map(|(_, subject)| match subject {
@@ -61,15 +104,24 @@ fn what_a_plugin_declares_shows_only_while_its_capability_is_allowed()
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert!(asked.contains(&Capability::UiMenu), "{asked:?}");
-    assert!(asked.contains(&Capability::UiKeys), "{asked:?}");
-    assert!(asked.contains(&Capability::UiContext), "{asked:?}");
+    for capability in [
+        Capability::UiMenu,
+        Capability::UiKeys,
+        Capability::UiContext,
+        Capability::UiInspector,
+    ] {
+        assert!(asked.contains(&capability), "{asked:?}");
+    }
 
-    decide(&mut app, Capability::UiMenu, Choice::Allow);
-    decide(&mut app, Capability::UiKeys, Choice::Allow);
-    decide(&mut app, Capability::UiContext, Choice::Allow);
-    let go = vec!["far/go".to_string()];
-    assert_eq!(shown(&app), (go.clone(), go.clone(), go));
+    for capability in [
+        Capability::UiMenu,
+        Capability::UiKeys,
+        Capability::UiContext,
+        Capability::UiInspector,
+    ] {
+        decide(&mut app, capability, Choice::Allow);
+    }
+    assert_eq!(Shown::of(&app), Shown::all());
     let chord = app.world().resource::<Keys>().0[0].chord;
     let mods = Mods::PRIMARY;
     assert_eq!(
@@ -81,14 +133,21 @@ fn what_a_plugin_declares_shows_only_while_its_capability_is_allowed()
     );
     let item = &app.world().resource::<ContextItems>().0[0];
     assert_eq!(item.target, kind::AGENT);
+    let tab = &app.world().resource::<InspectorSections>().0[0];
+    assert_eq!(tab.title, "Go");
 
     // Revoked, they go at once, and one denied shows nothing.
     decide(&mut app, Capability::UiMenu, Choice::Deny);
-    assert_eq!(shown(&app).0, Vec::<String>::new());
-    assert_eq!(shown(&app).1.len(), 1);
-    decide(&mut app, Capability::UiKeys, Choice::Deny);
-    decide(&mut app, Capability::UiContext, Choice::Deny);
-    assert_eq!(shown(&app), (vec![], vec![], vec![]));
+    assert_eq!(Shown::of(&app).menus, Vec::<String>::new());
+    assert_eq!(Shown::of(&app).keys.len(), 1);
+    for capability in [
+        Capability::UiKeys,
+        Capability::UiContext,
+        Capability::UiInspector,
+    ] {
+        decide(&mut app, capability, Choice::Deny);
+    }
+    assert_eq!(Shown::of(&app), Shown::default());
 }
 
 #[test]
@@ -96,6 +155,5 @@ fn a_plugin_that_was_allowed_before_shows_its_line_at_once() {
     let scratch = Scratch::new("contributions_allowed");
     let mut app = home::app(&scratch, &[far().granted(ALL)]);
     app.update();
-    let go = vec!["far/go".to_string()];
-    assert_eq!(shown(&app), (go.clone(), go.clone(), go));
+    assert_eq!(Shown::of(&app), Shown::all());
 }

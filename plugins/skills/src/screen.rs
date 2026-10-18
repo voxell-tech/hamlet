@@ -17,9 +17,10 @@ pub(crate) fn screen() -> AnyView {
     panel(of_agent("ITS OWN SKILLS", lists))
 }
 
+/// The two lists, for the page of an agent as well.
 // One scroll for both lists, so that a long one of its own does not
 // push the library out of reach.
-fn lists() -> AnyView {
+pub(crate) fn lists() -> AnyView {
     scroll((column((
         own(),
         heading(Glyph::Book, "THE LIBRARY, SHARED BY ALL"),

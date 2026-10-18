@@ -40,7 +40,13 @@ struct Shot {
     scale: f32,
 }
 
-static SHOTS: [Shot; 49] = [
+static SHOTS: [Shot; 50] = [
+    Shot {
+        name: "skills-tab",
+        scene: Scene::SkillsTab,
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
     Shot {
         name: "world-menu-agent",
         scene: Scene::WorldMenu(Place::Agent),

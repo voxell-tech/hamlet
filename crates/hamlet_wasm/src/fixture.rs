@@ -24,6 +24,8 @@ const COMMON: &str = r#"
     (func $menu_item (param i32 i32 i32 i32 i32 i32 i32)))
   (import "hamlet:plugin/host@0.5.0" "context-item"
     (func $context_item (param i32 i32 i32 i32 i32 i32 i32)))
+  (import "hamlet:plugin/host@0.5.0" "inspector-section"
+    (func $inspector_section (param i32 i32 i32 i32 i32 i32)))
   (import "hamlet:plugin/host@0.5.0" "key"
     (func $key (param i32 i32 i32 i32)))
   (import "hamlet:plugin/host@0.5.0" "panel"
@@ -341,9 +343,10 @@ pub fn commanding(plugin: &str, command: &str, args: &str) -> String {
 }
 
 /// Declares the command "go", a line "Go" of the VIEW menu that runs
-/// it, an item "Go" of the menu of an agent and the shortcut Cmd+G
-/// for it, and logs "hello world" at info each time it is given a
-/// command.
+/// it, an item "Go" of the menu of an agent, a tab "Go" of the page
+/// of an agent that shows its panel "go", and the shortcut Cmd+G for
+/// the command, and logs "hello world" at info each time it is given
+/// a command.
 pub fn contributing() -> String {
     format!(
         r#"(module {COMMON} {NO_VIEW}
@@ -358,6 +361,8 @@ pub fn contributing() -> String {
     (call $menu_item (i32.const 660) (i32.const 4) (i32.const 3)
       (i32.const 640) (i32.const 2) (i32.const 600) (i32.const 2))
     (call $context_item (i32.const 700) (i32.const 5) (i32.const 0)
+      (i32.const 640) (i32.const 2) (i32.const 600) (i32.const 2))
+    (call $inspector_section (i32.const 700) (i32.const 5)
       (i32.const 640) (i32.const 2) (i32.const 600) (i32.const 2))
     (call $key (i32.const 680) (i32.const 5) (i32.const 600)
       (i32.const 2)))

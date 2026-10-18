@@ -1,5 +1,6 @@
 //! The skills the selected agent keeps in its own house.
 
+use bevy::ecs::world::World;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column};
 use bevy_fynix::{ViewExt, keyed, resource};
@@ -8,6 +9,11 @@ use hamlet_sdk::cards::item;
 use hamlet_sdk::convo::AgentSelected;
 use hamlet_sdk::looks::{bare, note};
 use hamlet_sdk::papers::Papers;
+
+/// Whether the selected agent has skills of its own.
+pub(crate) fn kept(world: &World) -> bool {
+    !world.resource::<Papers>().skills.is_empty()
+}
 
 /// The skills the selected agent wrote, or a word that none is
 /// selected.

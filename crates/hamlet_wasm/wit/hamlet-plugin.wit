@@ -70,6 +70,15 @@ interface host {
   // and is gated as `menu-item` is. Only `entry` declares.
   context-item: func(target: string, section: u32, label: string, command: string);
 
+  // Adds a tab to the Inspector's page of the things of kind `target`,
+  // which is `agent` for now, whose page is the plugin's own panel
+  // `panel`, by the id it gave it with `panel`. The tab takes the
+  // panel's icon. The plugin learns which agent is selected from the
+  // host event `selection-changed`, and draws the panel again. It
+  // needs the capability `ui.inspector`, and is gated as `menu-item`
+  // is. Only `entry` declares.
+  inspector-section: func(target: string, title: string, panel: string);
+
   // The standing answer to a `request`.
   enum request-result {
     // The plugin may use the capability.

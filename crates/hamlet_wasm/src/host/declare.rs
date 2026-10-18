@@ -4,6 +4,7 @@ use bevy_fynix::shortcut::Chord;
 use hamlet_sdk::capability::{Capability, Verdict};
 use hamlet_sdk::command::kind;
 use hamlet_sdk::icons::Glyph;
+use hamlet_sdk::inspector;
 use hamlet_sdk::keys::chord;
 use hamlet_sdk::menu::Menu;
 use hamlet_sdk::tree::glyph;
@@ -49,6 +50,16 @@ pub struct Targeted {
     pub command: String,
 }
 
+/// A tab of the inspector's page of a kind of thing that a plugin
+/// declared.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Tabbed {
+    pub target: String,
+    pub title: String,
+    /// The id the plugin knows the panel by.
+    pub panel: String,
+}
+
 /// A shortcut a plugin declared.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Chorded {
@@ -63,6 +74,7 @@ pub struct Offers {
     pub commands: Vec<Offered>,
     pub menus: Vec<Placed>,
     pub contexts: Vec<Targeted>,
+    pub tabs: Vec<Tabbed>,
     pub keys: Vec<Chorded>,
 }
 
@@ -144,6 +156,31 @@ impl State {
             section,
             label,
             command,
+        });
+    }
+
+    pub(super) fn tab(
+        &mut self,
+        target: String,
+        title: String,
+        panel: String,
+    ) {
+        if !inspector::KINDS.contains(&target.as_str()) {
+            self.write(
+                Level::Warn,
+                format!("the page of `{target}` has no tabs"),
+            );
+            return;
+        }
+        if self.offered.tabs.len() >= self.section_room {
+            return;
+        }
+        self.want_to_contribute(Capability::UiInspector);
+        let title = self.cut(title);
+        self.offered.tabs.push(Tabbed {
+            target,
+            title,
+            panel,
         });
     }
 

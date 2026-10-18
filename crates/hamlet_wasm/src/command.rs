@@ -1,12 +1,14 @@
-//! The commands, menu lines, context menu items and shortcuts of an
-//! installed plugin, as entities linked to it.
+//! The commands, menu lines, context menu items, inspector tabs and
+//! shortcuts of an installed plugin, as entities linked to it.
 
 use bevy::prelude::*;
 use hamlet_sdk::command::Command;
 use hamlet_sdk::context::ContextItem;
+use hamlet_sdk::inspector::InspectorSection;
 use hamlet_sdk::keys::Key;
 use hamlet_sdk::menu::MenuEntry;
 use hamlet_sdk::plugin::{Entry, Exports};
+use hamlet_sdk::tree::id::dock_id;
 
 use crate::host::Offers;
 
@@ -15,6 +17,7 @@ pub type Contributed = Or<(
     With<Command>,
     With<MenuEntry>,
     With<ContextItem>,
+    With<InspectorSection>,
     With<Key>,
 )>;
 
@@ -79,6 +82,13 @@ pub fn spawn(
                 None,
             );
         }
+    }
+    for tabbed in &offers.tabs {
+        entry.inspector_section(
+            &tabbed.target,
+            &tabbed.title,
+            &dock_id(id, &tabbed.panel),
+        );
     }
     for chorded in &offers.keys {
         if known(&chorded.command, "shortcut") {
