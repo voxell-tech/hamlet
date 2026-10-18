@@ -5,6 +5,7 @@
 mod claim;
 mod home;
 mod operation;
+pub mod record;
 mod store;
 
 pub use claim::Held;

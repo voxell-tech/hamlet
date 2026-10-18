@@ -18,6 +18,8 @@ const MIGRATIONS: &[&str] = &[
         outcome TEXT NOT NULL,
         PRIMARY KEY (runtime, key)
     ) STRICT, WITHOUT ROWID;",
+    // 2. Hamlet records, realm-wide living names and road charges.
+    include_str!("record/schema.sql"),
 ];
 
 /// A home's realm database, open in this process alone.
