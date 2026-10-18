@@ -82,4 +82,5 @@ feature of its name, all on by default. The binary and the gallery add
 | `plugin_skills` | The Skills panel: the selected agent's own skills over the library. TAKE OUT asks through `Confirm` and then runs `/unshelve` as the chief |
 
 Settings has a Plugins page that lists every `PluginInfo` with a switch
-that sends `Enable` or `Disable`.
+that sends `Enable` or `Disable`, and shows what each asks for and what the
+chief chose ([`permissions.md`](permissions.md)).

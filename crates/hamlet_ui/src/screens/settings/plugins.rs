@@ -1,118 +1,103 @@
-//! The Plugins page: every plugin there is, each with a switch.
+//! The Plugins page: every plugin there is, each with a switch, what
+//! each asks for and what the chief chose, by plugin and by
+//! capability.
+
+mod capabilities;
+mod control;
+mod list;
+mod permissions;
 
 use bevy::app::{App, Update};
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::query::{Added, Changed, Or};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Query, ResMut};
-use bevy::ui::AlignItems;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, row,
-};
+use bevy::ecs::system::Query;
+use bevy::ecs::world::World;
+use bevy_fynix::views::{FrameProps, column};
 use bevy_fynix::{ViewExt, keyed, resource};
-use hamlet_sdk::plugin::{Disable, Enable, PluginInfo, Status};
+use hamlet_sdk::capability::{Asks, Choices, Uninstalled};
+use hamlet_sdk::plugin::{PluginInfo, Status};
 
 use super::switch;
-use crate::looks::{Fills, bare, note};
-use crate::platform::DisplayText;
-use crate::{AnyView, View};
+use crate::icons::Glyph;
+use crate::looks::bare;
+use crate::{AnyView, View, tabs};
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Listed>()
-        .add_systems(Update, list.run_if(moved));
+    app.init_resource::<Tab>()
+        .init_resource::<Open>()
+        .add_plugins((
+            list::plugin,
+            permissions::plugin,
+            capabilities::plugin,
+        ))
+        .add_systems(Update, tabs::mark::<Tab>);
 }
 
-/// One plugin, as its page shows it.
-#[derive(Clone, PartialEq)]
-struct Line {
-    id: String,
-    name: String,
-    version: String,
-    builtin: bool,
-    status: Status,
+/// The two ways the page lists permissions.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum Tab {
+    /// Each plugin, with what it asks for.
+    #[default]
+    ByPlugin,
+    /// Each capability, with the plugins that ask for it.
+    ByCapability,
 }
 
-/// Every plugin, by name.
-#[derive(Resource, Default, PartialEq)]
-struct Listed(Vec<Line>);
+/// The plugin whose permissions are open, if one is.
+#[derive(Resource, Clone, PartialEq, Eq, Default, Debug)]
+pub struct Open(pub Option<String>);
 
+const TABS: [(Tab, Glyph, &str); 2] = [
+    (Tab::ByPlugin, Glyph::Power, "BY PLUGIN"),
+    (Tab::ByCapability, Glyph::Shield, "BY CAPABILITY"),
+];
+
+/// Whether a plugin, what it asks for or what the chief chose for it
+/// has come, changed or gone.
 fn moved(
-    changed: Query<(), Or<(Added<PluginInfo>, Changed<Status>)>>,
+    changed: Query<
+        (),
+        Or<(
+            Added<PluginInfo>,
+            Changed<Status>,
+            Changed<Asks>,
+            Changed<Choices>,
+            Added<Uninstalled>,
+        )>,
+    >,
     mut gone: RemovedComponents<PluginInfo>,
+    mut installed: RemovedComponents<Uninstalled>,
 ) -> bool {
-    !changed.is_empty() || gone.read().count() > 0
-}
-
-fn list(
-    plugins: Query<(&PluginInfo, &Status)>,
-    mut listed: ResMut<Listed>,
-) {
-    let mut lines = plugins
-        .iter()
-        .map(|(info, status)| Line {
-            id: info.id.clone(),
-            name: info.name.clone(),
-            version: info.version.clone(),
-            builtin: info.builtin,
-            status: *status,
-        })
-        .collect::<Vec<_>>();
-    lines.sort_by(|a, b| a.name.cmp(&b.name));
-    if listed.0 != lines {
-        listed.0 = lines;
-    }
-}
-
-fn line(line: &Line) -> AnyView {
-    let id = line.id.clone();
-    let status = match line.status {
-        Status::Starting => "Starting",
-        Status::Running => "Running",
-        Status::Disabled => "Disabled",
-        Status::Failed => "Failed",
-    };
-    let kind = if line.builtin {
-        "Built in"
-    } else {
-        "Installed"
-    };
-    let words = column((
-        label(line.name.clone())
-            .size(13.0)
-            .bold(true)
-            .tagged(DisplayText),
-        note(format!("{} - {kind} - {status}", line.version)),
-    ))
-    .gap(2.0);
-    row((
-        row((words,)).fills_width(),
-        switch(
-            matches!(line.status, Status::Starting | Status::Running),
-            move |world, on| {
-                if on {
-                    world.trigger(Enable(id.clone()));
-                } else {
-                    world.trigger(Disable(id.clone()));
-                }
-                world.flush();
-            },
-        ),
-    ))
-    .gap(12.0)
-    .align(AlignItems::Center)
-    .boxed()
+    !changed.is_empty()
+        || gone.read().count() > 0
+        || installed.read().count() > 0
 }
 
 /// The page's contents.
 pub(super) fn page() -> impl View {
-    keyed(resource::<Listed, _>(|l| l.0.clone()), |lines| {
-        if lines.is_empty() {
-            return note("No plugin is added.").boxed();
-        }
-        column(lines.iter().map(line).collect::<Vec<_>>())
+    keyed(resource::<Open, _>(|open| open.0.is_some()), |open| {
+        match open {
+            true => permissions::view().boxed(),
+            false => column((
+                tabs::strip(&TABS, |world: &mut World, tab| {
+                    *world.resource_mut::<Tab>() = tab;
+                }),
+                by_tab(),
+            ))
             .gap(12.0)
-            .boxed()
+            .boxed(),
+        }
     })
     .within(bare())
+}
+
+/// The list or the capabilities, as the tab says.
+fn by_tab() -> AnyView {
+    keyed(resource::<Tab, _>(|tab| *tab), |tab| match tab {
+        Tab::ByPlugin => list::view().boxed(),
+        Tab::ByCapability => capabilities::view().boxed(),
+    })
+    .within(bare())
+    .boxed()
 }

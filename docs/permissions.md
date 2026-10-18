@@ -85,6 +85,26 @@ A gated call that raised the petition gets no message: the plugin tries again.
 In Settings, setting Ask next time on a capability takes back what was
 allowed, for this run too: the next use asks.
 
+## Settings
+
+The Plugins page of Settings (`hamlet_ui/src/screens/settings/plugins.rs`
+and its folder) shows it two ways, on two tabs:
+
+- **By plugin.** Each plugin with its version and status, its switch, and a
+  PERMISSIONS button that opens its detail: every capability its manifest
+  asks for, what the capability lets it do, its reason, and a control of
+  three buttons (Allow, Ask next time, Don't allow) with the current choice
+  lit. A plugin that is not installed has an INSTALL button, which puts the
+  install petition again.
+- **By capability.** Each capability that some plugin asks for, with the
+  plugins that ask for it, each with the same control.
+
+A press sends `Decide`, which replaces the plugin's `Choices` and `Granted`
+and writes `grants.toml` before the next frame, so the plugin's next call
+sees it and a revoked capability returns its error at once. Each view reads
+a small `PartialEq` resource that a system keeps (`Listed`, `Details`,
+`Held`).
+
 ## Where the choices are kept
 
 One file for every plugin, `<home>/plugins/grants.toml`, written by

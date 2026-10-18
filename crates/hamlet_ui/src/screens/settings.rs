@@ -27,6 +27,7 @@ use hamlet_model::config::Config;
 use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 
+pub use self::plugins::{Open, Tab};
 use crate::dock::{Panel, PanelAppExt, panel};
 use crate::icons::Glyph;
 use crate::looks::{
@@ -161,7 +162,8 @@ impl Pane {
             Pane::Realm => "Rules that apply to every hamlet.",
             Pane::Senses => "Sound, music and how much is drawn.",
             Pane::Plugins => {
-                "What is added to Hamlet, each on or off."
+                "What is added to Hamlet, each on or off, and what \
+                 each may do."
             }
         }
     }

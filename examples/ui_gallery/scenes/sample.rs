@@ -119,8 +119,19 @@ pub(super) fn setup(world: &mut World) {
     });
     world.init_resource::<Also>();
     world.insert_resource(Selected(Some(Thing::Resident(agent))));
-    if scene == Scene::Plugins {
+    if matches!(
+        scene,
+        Scene::Plugins
+            | Scene::PluginPermissions
+            | Scene::PluginCapabilities
+    ) {
         world.insert_resource(hamlet_ui::settings::Pane::Plugins);
+    }
+    if matches!(
+        scene,
+        Scene::PluginPermissions | Scene::PluginCapabilities
+    ) {
+        super::permissions::put(world, scene);
     }
     if scene == Scene::PluginRoster {
         super::roster::put(world);
@@ -133,7 +144,11 @@ pub(super) fn setup(world: &mut World) {
     }
     if matches!(
         scene,
-        Scene::Settings | Scene::Charter | Scene::Plugins
+        Scene::Settings
+            | Scene::Charter
+            | Scene::Plugins
+            | Scene::PluginPermissions
+            | Scene::PluginCapabilities
     ) {
         let mut config = hamlet_model::config::Config::default();
         config.endpoints.push(hamlet_model::config::Endpoint {
