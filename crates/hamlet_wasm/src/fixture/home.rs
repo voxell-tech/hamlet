@@ -36,6 +36,8 @@ impl Drop for Scratch {
 pub struct Plugin {
     id: &'static str,
     wasm: Vec<u8>,
+    /// The panel of a plugin that has no code.
+    program: Option<&'static str>,
     asks: &'static [&'static str],
     grants: &'static [&'static str],
 }
@@ -45,8 +47,17 @@ impl Plugin {
         Self {
             id,
             wasm,
+            program: None,
             asks: &[],
             grants: &[],
+        }
+    }
+
+    /// A plugin that is the panel `program` and no code.
+    pub fn data(id: &'static str, program: &'static str) -> Self {
+        Self {
+            program: Some(program),
+            ..Self::new(id, Vec::new())
         }
     }
 
@@ -66,9 +77,13 @@ impl Plugin {
     }
 
     fn manifest(&self) -> String {
+        let kind = match self.program {
+            Some(_) => "kind = \"data\"",
+            None => "interface = \"0.1.0\"",
+        };
         let mut text = format!(
             "id = \"{0}\"\nname = \"{0}\"\nversion = \
-             \"0.1.0\"\ninterface = \"0.1.0\"\n",
+             \"0.1.0\"\n{kind}\n",
             self.id
         );
         for ask in self.asks {
@@ -97,8 +112,16 @@ pub fn app(home: &Scratch, plugins: &[Plugin]) -> App {
     for plugin in plugins {
         let dir = folder.join(plugin.id);
         std::fs::create_dir_all(&dir).expect("a plugin folder");
-        std::fs::write(dir.join("plugin.wasm"), &plugin.wasm)
-            .expect("a component");
+        match plugin.program {
+            Some(program) => {
+                std::fs::write(dir.join("panel.ui"), program)
+                    .expect("a program");
+            }
+            None => {
+                std::fs::write(dir.join("plugin.wasm"), &plugin.wasm)
+                    .expect("a component");
+            }
+        }
         std::fs::write(dir.join("manifest.toml"), plugin.manifest())
             .expect("a manifest");
     }
