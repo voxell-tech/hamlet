@@ -78,7 +78,8 @@ fn an_act_as_the_chief_waits_for_the_chief_and_is_noted_with_the_plugin()
         &scratch,
         probe()
             .asking(&["commands.run"])
-            .asking_next_time(&["commands.run"]),
+            .asking_next_time(&["commands.run"])
+            .limited_to(&[("commands.run", &["notes/new"])]),
     );
 
     does(&mut app, run("notes/new"));
@@ -127,6 +128,18 @@ fn acts_are_limited_to_the_scope_of_the_ask_and_to_so_many_a_minute()
 }
 
 #[test]
+fn an_ask_with_no_scope_reaches_nothing() {
+    let scratch = Scratch::new("act_unscoped");
+    let mut app = open(
+        &scratch,
+        probe().asking(&["commands.run"]).granted(&["commands.run"]),
+    );
+
+    does(&mut app, run("notes/new"));
+    assert!(ran(&app).is_empty());
+}
+
+#[test]
 fn a_plugin_that_does_not_ask_cannot_act_and_is_not_asked_about() {
     let scratch = Scratch::new("act_unnamed");
     let mut app = open(&scratch, probe());
@@ -150,7 +163,10 @@ fn a_message_over_the_cap_is_not_sent() {
     let scratch = Scratch::new("act_long");
     let mut app = open(
         &scratch,
-        probe().asking(&["chat.send"]).granted(&["chat.send"]),
+        probe()
+            .asking(&["chat.send"])
+            .granted(&["chat.send"])
+            .limited_to(&[("chat.send", &["scout"])]),
     );
     let message = |text: String| {
         vec![Intent::SendChat(ChatMessage {

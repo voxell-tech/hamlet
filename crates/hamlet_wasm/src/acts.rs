@@ -150,7 +150,7 @@ fn may(
 ) -> Result<(), Refused> {
     let name = capability.name();
     let scope = granted.scope(capability);
-    if !scope.is_empty() && !scope.iter().any(|to| to == target) {
+    if !scope.iter().any(|to| to == target) {
         return Err(Refused::because(format!(
             "{name} is not asked for `{target}`"
         )));

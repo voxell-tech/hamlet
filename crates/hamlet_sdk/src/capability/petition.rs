@@ -109,9 +109,8 @@ pub(super) fn using(
     );
     if let Some(ask) = asks.of(capability) {
         text += &format!("\nWhy: {}", ask.reason);
-        if !ask.scope.0.is_empty() {
-            text +=
-                &format!("\nLimited to: {}", ask.scope.0.join(", "));
+        if let Some(limit) = ask.capability.limit(&ask.scope.0) {
+            text += &format!("\nLimited to: {limit}");
         }
     }
     let said = said.trim();
@@ -136,8 +135,8 @@ fn listing(head: &str, asks: &[Asked]) -> String {
     for ask in asks {
         text +=
             &format!("\n{} - {}", ask.capability.name(), ask.reason);
-        if !ask.scope.0.is_empty() {
-            text += &format!(" [{}]", ask.scope.0.join(", "));
+        if let Some(limit) = ask.capability.limit(&ask.scope.0) {
+            text += &format!(" [limited to {limit}]");
         }
         if ask.capability.asked_at_use() {
             text += " (each is asked at its first use)";

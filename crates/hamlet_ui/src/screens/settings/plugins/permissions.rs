@@ -127,11 +127,8 @@ fn row_of(detail: &Detail, row: &Row) -> AnyView {
     if let Some(caution) = row.capability.caution() {
         parts.push(note(caution).boxed());
     }
-    if !row.scope.is_empty() {
-        parts.push(
-            note(format!("Limited to: {}", row.scope.join(", ")))
-                .boxed(),
-        );
+    if let Some(limit) = row.capability.limit(&row.scope) {
+        parts.push(note(format!("Limited to: {limit}")).boxed());
     }
     if detail.installed && row.capability.scoped() {
         if row.targets.is_empty() {

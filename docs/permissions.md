@@ -83,7 +83,9 @@ from `step` (`send-chat`, `run-as-chief`), carried out by `hamlet_wasm::acts`.
   petition keeps the choice for good.
 - The ask's `scope` limits them: the agents `chat.send` may write to, the
   command ids `commands.run` may run (`scope = ["notes/new"]`). Anything outside
-  is dropped with a warning and nobody is asked. No scope is no limit.
+  is dropped with a warning and nobody is asked. No scope reaches nothing, as
+  for `net`: an ask for either must name what it reaches, and the petition and
+  Settings say "Limited to: nothing" where it names none.
 - A message reaches the agent as `[sent by plugin <id>] <text>`, so it is told
   from the chief's own words and a text that starts with `/` is never read as a
   chief's command. A notice in the open chat tells the chief of each act, with

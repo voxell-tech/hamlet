@@ -117,6 +117,29 @@ impl Capability {
             )
     }
 
+    /// Whether it reaches only what its ask's scope lists, so that an
+    /// ask with no scope reaches nothing.
+    pub fn needs_scope(self) -> bool {
+        matches!(
+            self,
+            Capability::Net
+                | Capability::ChatSend
+                | Capability::CommandsRun
+        )
+    }
+
+    /// What `scope` limits it to, as the chief reads it, if it is
+    /// limited at all.
+    pub fn limit(self, scope: &[String]) -> Option<String> {
+        match (scope.is_empty(), self.needs_scope()) {
+            (false, _) => Some(scope.join(", ")),
+            (true, true) => {
+                Some("nothing, the ask names no scope".into())
+            }
+            (true, false) => None,
+        }
+    }
+
     /// What holding it lets a plugin do, in a few words.
     pub fn words(self) -> &'static str {
         match self {

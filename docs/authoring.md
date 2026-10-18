@@ -501,7 +501,8 @@ manifest with a reason (`guests/herald` does all four):
 ```toml
 [[asks]]
 capability = "chat.send"            # a message to an agent, as the chief
-reason = "To say hello to the agent you name."
+reason = "To say hello to the agent scout."
+scope = ["scout"]                   # the agents it may write to
 
 [[asks]]
 capability = "commands.run"         # a registered command, as the chief
@@ -533,7 +534,8 @@ let bytes = hamlet_guest::files::read("drafts/a.txt")?;
 ```
 
 A message and a command are noted in the chat as the plugin's, and a message
-reaches the agent as `[sent by plugin <id>] ...`. Each is limited to a number a
+reaches the agent as `[sent by plugin <id>] ...`. Each reaches only what the
+`scope` of its ask lists; with no `scope` it reaches nothing. Each is limited to a number a
 minute. A path of the folder of files that has `..`, is absolute or goes through a
 link is an error. A fetch to a host that is not in the `scope`, or over http, is
 answered with an error. The limits are in `assets/wasm.toml`; the rules are in
