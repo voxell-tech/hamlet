@@ -67,6 +67,12 @@ impl Capability {
         }
     }
 
+    /// Whether the chief chooses for it once for each thing it names,
+    /// such as each plugin, and not once for all.
+    pub fn scoped(self) -> bool {
+        matches!(self, Capability::PluginUse)
+    }
+
     /// What holding it lets a plugin do, in a few words.
     pub fn words(self) -> &'static str {
         match self {

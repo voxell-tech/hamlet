@@ -111,11 +111,12 @@ pub fn apply(
 /// Tells the SDK what the plugin `plugin` tried to use that the chief
 /// is yet to decide, so that the chief is asked.
 pub fn want(commands: &mut Commands, plugin: Entity, wants: &[Want]) {
-    for Want { capability, reason } in wants {
+    for want in wants {
         commands.trigger(Wanted {
             plugin,
-            capability: *capability,
-            reason: reason.clone(),
+            capability: want.capability,
+            target: want.target.clone(),
+            reason: want.reason.clone(),
         });
     }
 }

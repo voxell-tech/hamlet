@@ -146,6 +146,7 @@ mod tests {
             app.world_mut().trigger(Decide {
                 plugin: "p".into(),
                 capability,
+                target: None,
                 choice,
                 this_run,
             });
@@ -212,5 +213,45 @@ mod tests {
         let granted = app.world().get::<Granted>(plugin).unwrap();
         assert!(!granted.holds(ReadAgents));
         assert_eq!(granted.verdict(ReadAgents), Some(Verdict::Ask));
+    }
+
+    #[test]
+    fn a_scoped_capability_is_chosen_for_each_target_and_kept_in_the_record()
+     {
+        use Capability::PluginUse;
+
+        let ask = |scope: &[String]| {
+            Asks(vec![
+                Asked::parse("plugin.use", "a test", scope).unwrap(),
+            ])
+        };
+        let limited = ask(&["notes".into(), "tide".into()]);
+        let choices = Choices::allowing(&[PluginUse])
+            .decided_for(PluginUse, "notes", Choice::Allow, false)
+            .decided_for(PluginUse, "tide", Choice::Deny, false);
+
+        let granted = Granted::of(&limited, &choices);
+        let verdict = |granted: &Granted, to| {
+            granted.verdict_for(PluginUse, to)
+        };
+        assert_eq!(
+            verdict(&granted, "notes"),
+            Some(Verdict::Allowed)
+        );
+        assert_eq!(verdict(&granted, "tide"), Some(Verdict::Denied));
+        assert_eq!(verdict(&granted, "other"), None);
+        let open = Granted::of(&ask(&[]), &choices);
+        assert_eq!(verdict(&open, "other"), Some(Verdict::Ask));
+
+        let record = Record::installed("1.0.0", &choices);
+        let Standing::Installed {
+            choices: kept,
+            fresh,
+        } = standing(Some(&record), "1.0.0", &limited)
+        else {
+            panic!("installed");
+        };
+        assert!(fresh.is_empty());
+        assert_eq!(kept, choices);
     }
 }

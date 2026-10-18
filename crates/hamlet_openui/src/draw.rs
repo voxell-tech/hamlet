@@ -62,6 +62,7 @@ pub(crate) fn draw(
                 commands.trigger(Wanted {
                     plugin: by.0,
                     capability: *capability,
+                    target: None,
                     reason: String::new(),
                 });
             }

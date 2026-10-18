@@ -22,6 +22,9 @@ use crate::plugin::PluginInfo;
 pub struct Wanted {
     pub plugin: Entity,
     pub capability: Capability,
+    /// What a scoped capability is wanted for, such as another
+    /// plugin.
+    pub target: Option<String>,
     /// The plugin's own reason, if it gave one.
     pub reason: String,
 }
@@ -36,18 +39,24 @@ pub(super) fn wanted(
         return;
     };
     let capability = wanted.capability;
-    if granted.verdict(capability) != Some(Verdict::Ask) {
+    let verdict = match &wanted.target {
+        Some(target) => granted.verdict_for(capability, target),
+        None => granted.verdict(capability),
+    };
+    if verdict != Some(Verdict::Ask) {
         return;
     }
     let subject = Subject::Use {
         plugin: info.id.clone(),
         capability,
+        target: wanted.target.clone(),
     };
     if open.iter().any(|open| *open == subject) {
         return;
     }
-    let (plugin, reason) = (wanted.plugin, wanted.reason.clone());
+    let (plugin, target, reason) =
+        (wanted.plugin, wanted.target.clone(), wanted.reason.clone());
     commands.queue(move |world: &mut World| {
-        petition::using(world, plugin, capability, &reason)
+        petition::using(world, plugin, capability, target, &reason)
     });
 }

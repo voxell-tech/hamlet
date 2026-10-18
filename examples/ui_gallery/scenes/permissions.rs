@@ -5,7 +5,7 @@ use bevy::ecs::world::World;
 use hamlet_sdk::capability::{
     Asked, Asks, Capability, Choice, Choices, Uninstalled,
 };
-use hamlet_sdk::plugin::{PluginInfo, Status};
+use hamlet_sdk::plugin::{Imports, Manifest, PluginInfo, Status};
 use hamlet_ui::settings::{Open, Tab};
 
 use super::Scene;
@@ -33,7 +33,9 @@ fn info(id: &str, name: &str, version: &str) -> PluginInfo {
 /// Three plugins, one of them not installed, and the page of the
 /// scene open: the permissions of Roster, or the capabilities.
 pub(super) fn put(world: &mut World, scene: Scene) {
-    use Capability::{ChatSend, Net, ReadAgents, ReadPapers};
+    use Capability::{
+        ChatSend, Net, PluginUse, ReadAgents, ReadPapers,
+    };
 
     let roster = Choices::default()
         .decided(ReadAgents, Choice::Allow, false)
@@ -71,8 +73,32 @@ pub(super) fn put(world: &mut World, scene: Scene) {
         Status::Disabled,
         Uninstalled,
     ));
+    let clipper = Manifest {
+        imports: Imports {
+            commands: vec!["notes/add".into(), "almanac/look".into()],
+            events: vec!["notes/note-saved".into()],
+            ..Imports::default()
+        },
+        ..Manifest::built_in("clipper")
+    };
+    world.spawn((
+        info("clipper", "Clipper", "0.1.0"),
+        clipper,
+        asks(&[
+            (ReadAgents, "To send the selected agent's name."),
+            (
+                PluginUse,
+                "To send what it clips to Notes and Almanac.",
+            ),
+        ]),
+        Choices::default()
+            .decided(ReadAgents, Choice::Allow, false)
+            .decided(PluginUse, Choice::AskNextTime, false)
+            .decided_for(PluginUse, "notes", Choice::Allow, false),
+        Status::Running,
+    ));
     if scene == Scene::PluginPermissions {
-        world.insert_resource(Open(Some("roster".into())));
+        world.insert_resource(Open(Some("clipper".into())));
     } else {
         world.insert_resource(Tab::ByCapability);
     }

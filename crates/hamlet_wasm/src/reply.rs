@@ -9,12 +9,16 @@ use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::Incoming;
 
 /// Puts the answer in the inbox of the running plugin it is for, as
-/// `granted` or `denied` naming the capability.
+/// `granted` or `denied` naming the capability, and the target after
+/// a `:` where the capability is scoped.
 pub fn reply(
     replied: On<Replied>,
     mut plugins: Query<(&PluginInfo, &Status, &mut Inbox)>,
 ) {
-    let name = replied.capability.name().to_string();
+    let mut name = replied.capability.name().to_string();
+    if let Some(target) = &replied.target {
+        name = format!("{name}:{target}");
+    }
     for (info, status, mut inbox) in &mut plugins {
         if info.id == replied.plugin && *status == Status::Running {
             inbox.push(match replied.allowed {

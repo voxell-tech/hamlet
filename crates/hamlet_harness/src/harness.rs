@@ -240,6 +240,10 @@ impl Harness {
         capability: &str,
         allow: bool,
     ) -> Result<(), String> {
+        let (capability, target) = match capability.split_once(':') {
+            Some((name, target)) => (name, Some(target.to_string())),
+            None => (capability, None),
+        };
         let capability = Capability::parse(capability)
             .map_err(|e| e.to_string())?;
         let world = self.app.world_mut();
@@ -254,6 +258,7 @@ impl Harness {
         world.trigger(Decide {
             plugin: self.id.clone(),
             capability,
+            target: target.clone(),
             choice,
             this_run: false,
         });
@@ -261,6 +266,7 @@ impl Harness {
         world.trigger(Replied {
             plugin: self.id.clone(),
             capability,
+            target,
             allowed: allow,
         });
         world.flush();

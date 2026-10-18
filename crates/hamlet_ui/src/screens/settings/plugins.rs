@@ -16,7 +16,7 @@ use bevy::ecs::world::World;
 use bevy_fynix::views::{FrameProps, column};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_sdk::capability::{Asks, Choices, Uninstalled};
-use hamlet_sdk::plugin::{Blocked, PluginInfo, Status};
+use hamlet_sdk::plugin::{Blocked, Manifest, PluginInfo, Status};
 use hamlet_sdk::reload::Reload;
 
 use super::switch;
@@ -64,6 +64,7 @@ fn moved(
             Changed<Status>,
             Changed<Asks>,
             Changed<Choices>,
+            Changed<Manifest>,
             Changed<Reload>,
             Added<Uninstalled>,
             Added<Blocked>,

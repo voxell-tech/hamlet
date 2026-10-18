@@ -82,7 +82,26 @@ pub(super) fn put(world: &mut World) {
     world.trigger(Wanted {
         plugin: tides,
         capability: Capability::Net,
+        target: None,
         reason: "The harbour's table is on another machine.".into(),
+    });
+    // An installed plugin that tried to use another plugin.
+    let clipper = world
+        .spawn((
+            info("clipper", "Clipper", "0.1.0"),
+            asks(&[(
+                "plugin.use",
+                "To send what it clips to Notes.",
+            )]),
+            Choices::allowing(&[Capability::PluginUse]),
+        ))
+        .id();
+    world.flush();
+    world.trigger(Wanted {
+        plugin: clipper,
+        capability: Capability::PluginUse,
+        target: Some("notes".into()),
+        reason: String::new(),
     });
     // An installed plugin the chief is removing.
     world.spawn((

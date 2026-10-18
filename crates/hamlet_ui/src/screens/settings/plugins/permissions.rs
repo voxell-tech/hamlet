@@ -14,9 +14,11 @@ use bevy_fynix::{ViewExt, derived, keyed};
 use hamlet_sdk::capability::{
     AskToInstall, Asks, Capability, Choice, Choices, Uninstalled,
 };
-use hamlet_sdk::plugin::{Disable, Enable, PluginInfo, Status};
+use hamlet_sdk::plugin::{
+    Disable, Enable, Manifest, PluginInfo, Status,
+};
 
-use super::control::control;
+use super::control::{Target, control, state, target, targets};
 use super::{Open, moved, switch};
 use crate::icons::Glyph;
 use crate::looks::{
@@ -39,6 +41,8 @@ pub(super) struct Row {
     pub choice: Option<Choice>,
     /// Allowed for this run only.
     pub lent: bool,
+    /// For a scoped capability, a choice for each target.
+    pub targets: Vec<Target>,
 }
 
 /// One plugin and what it asks for.
@@ -63,28 +67,38 @@ fn keep(
         &Asks,
         &Choices,
         Has<Uninstalled>,
+        Option<&Manifest>,
     )>,
     mut details: ResMut<Details>,
 ) {
     let mut now = plugins
         .iter()
-        .map(|(info, status, asks, choices, uninstalled)| Detail {
-            id: info.id.clone(),
-            name: info.name.clone(),
-            version: info.version.clone(),
-            status: *status,
-            installed: !uninstalled,
-            rows: asks
-                .0
-                .iter()
-                .map(|ask| Row {
-                    capability: ask.capability,
-                    reason: ask.reason.clone(),
-                    choice: choices.choice(ask.capability),
-                    lent: choices.lent(ask.capability),
-                })
-                .collect(),
-        })
+        .map(
+            |(info, status, asks, choices, uninstalled, manifest)| {
+                Detail {
+                    id: info.id.clone(),
+                    name: info.name.clone(),
+                    version: info.version.clone(),
+                    status: *status,
+                    installed: !uninstalled,
+                    rows: asks
+                        .0
+                        .iter()
+                        .map(|ask| Row {
+                            capability: ask.capability,
+                            reason: ask.reason.clone(),
+                            choice: choices.choice(ask.capability),
+                            lent: choices.lent(ask.capability),
+                            targets: targets(
+                                manifest,
+                                choices,
+                                ask.capability,
+                            ),
+                        })
+                        .collect(),
+                }
+            },
+        )
         .collect::<Vec<_>>();
     now.sort_by(|a, b| a.name.cmp(&b.name));
     if details.0 != now {
@@ -93,16 +107,6 @@ fn keep(
 }
 
 fn row_of(detail: &Detail, row: &Row) -> AnyView {
-    let state = match (row.choice, row.lent) {
-        (_, true) => "Allowed until Hamlet quits.",
-        (None, _) => {
-            "Not answered yet. It is asked at the first use."
-        }
-        (Some(Choice::AskNextTime), _) => {
-            "Asked at the next use after Hamlet starts."
-        }
-        _ => "",
-    };
     let mut parts = vec![
         label(row.capability.name())
             .size(13.0)
@@ -112,10 +116,27 @@ fn row_of(detail: &Detail, row: &Row) -> AnyView {
         note(row.capability.words()).boxed(),
         note(format!("Why: {}", row.reason)).boxed(),
     ];
-    if detail.installed {
-        parts.push(control(&detail.id, row.capability, row.choice));
-        if !state.is_empty() {
-            parts.push(note(state).boxed());
+    if detail.installed && row.capability.scoped() {
+        if row.targets.is_empty() {
+            parts.push(
+                note("It names nothing yet to choose for.").boxed(),
+            );
+        }
+        parts.extend(
+            row.targets
+                .iter()
+                .map(|to| target(&detail.id, row.capability, to)),
+        );
+    } else if detail.installed {
+        parts.push(control(
+            &detail.id,
+            row.capability,
+            None,
+            row.choice,
+        ));
+        let words = state(row.choice, row.lent);
+        if !words.is_empty() {
+            parts.push(note(words).boxed());
         }
     }
     column(parts).gap(4.0).boxed()

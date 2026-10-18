@@ -207,6 +207,7 @@ fn a_request_is_answered_by_the_choice_and_only_a_named_capability_can_be_asked_
             line("he"),
             vec![Want {
                 capability: Capability::ReadAgents,
+                target: None,
                 reason: "why".into()
             }]
         )

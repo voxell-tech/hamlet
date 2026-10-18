@@ -76,6 +76,14 @@ impl Record {
                 .map(|(capability, choice)| {
                     (capability.name().into(), *choice)
                 })
+                .chain(choices.answered_targets().iter().map(
+                    |(capability, target, choice)| {
+                        (
+                            format!("{}:{target}", capability.name()),
+                            *choice,
+                        )
+                    },
+                ))
                 .collect(),
         }
     }
@@ -128,11 +136,20 @@ pub fn standing(
         .choices
         .iter()
         .filter_map(|(name, choice)| {
-            Some((Capability::parse(name).ok()?, *choice))
+            let (name, target) = match name.split_once(':') {
+                Some((name, target)) => (name, Some(target)),
+                None => (name.as_str(), None),
+            };
+            Some((Capability::parse(name).ok()?, target, *choice))
         })
-        .fold(Choices::default(), |choices, (capability, choice)| {
-            choices.decided(capability, choice, false)
-        })
+        .fold(
+            Choices::default(),
+            |choices, (capability, target, choice)| match target {
+                Some(target) => choices
+                    .decided_for(capability, target, choice, false),
+                None => choices.decided(capability, choice, false),
+            },
+        )
         .within(&wanted);
     Standing::Installed {
         choices,

@@ -11,6 +11,9 @@ use crate::interface::hamlet::plugin::host::RequestResult;
 #[derive(Clone, PartialEq, Debug)]
 pub struct Want {
     pub capability: Capability,
+    /// What a scoped capability is wanted for, such as another
+    /// plugin.
+    pub target: Option<String>,
     /// The plugin's own reason, if it gave one.
     pub reason: String,
 }
@@ -44,12 +47,29 @@ impl State {
         capability: Capability,
         reason: &str,
     ) {
-        if self.wants.iter().any(|want| want.capability == capability)
-        {
+        self.want_for(capability, None, reason);
+    }
+
+    /// Notes that the plugin wants `capability` for `target`, once
+    /// for each call.
+    pub(crate) fn want_for(
+        &mut self,
+        capability: Capability,
+        target: Option<&str>,
+        reason: &str,
+    ) {
+        let target = target.map(str::to_string);
+        if self.wants.iter().any(|want| {
+            want.capability == capability && want.target == target
+        }) {
             return;
         }
         let mut reason = reason.to_string();
         reason.truncate(reason.floor_char_boundary(self.bytes));
-        self.wants.push(Want { capability, reason });
+        self.wants.push(Want {
+            capability,
+            target,
+            reason,
+        });
     }
 }

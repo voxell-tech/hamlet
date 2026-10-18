@@ -13,9 +13,9 @@ use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_sdk::capability::{
     Asks, Capability, Choice, Choices, Uninstalled,
 };
-use hamlet_sdk::plugin::PluginInfo;
+use hamlet_sdk::plugin::{Manifest, PluginInfo};
 
-use super::control::control;
+use super::control::{Target, control, target, targets};
 use super::moved;
 use crate::looks::{Fills, bare, hairline, note};
 use crate::platform::DisplayText;
@@ -32,6 +32,8 @@ pub(super) struct Holder {
     pub id: String,
     pub name: String,
     pub choice: Option<Choice>,
+    /// For a scoped capability, a choice for each target.
+    pub targets: Vec<Target>,
     pub installed: bool,
 }
 
@@ -48,7 +50,13 @@ pub(super) struct Group {
 pub(super) struct Held(pub Vec<Group>);
 
 fn keep(
-    plugins: Query<(&PluginInfo, &Asks, &Choices, Has<Uninstalled>)>,
+    plugins: Query<(
+        &PluginInfo,
+        &Asks,
+        &Choices,
+        Has<Uninstalled>,
+        Option<&Manifest>,
+    )>,
     mut held: ResMut<Held>,
 ) {
     let mut now = Capability::ALL
@@ -58,11 +66,16 @@ fn keep(
             holders: plugins
                 .iter()
                 .filter(|(_, asks, ..)| asks.names(capability))
-                .map(|(info, _, choices, uninstalled)| Holder {
-                    id: info.id.clone(),
-                    name: info.name.clone(),
-                    choice: choices.choice(capability),
-                    installed: !uninstalled,
+                .map(|(info, _, choices, uninstalled, manifest)| {
+                    Holder {
+                        id: info.id.clone(),
+                        name: info.name.clone(),
+                        choice: choices.choice(capability),
+                        targets: targets(
+                            manifest, choices, capability,
+                        ),
+                        installed: !uninstalled,
+                    }
                 })
                 .collect(),
         })
@@ -85,8 +98,26 @@ fn group(group: &Group) -> AnyView {
                 .size(12.0)
                 .bold(true)
                 .tagged(DisplayText);
+            if holder.installed && group.capability.scoped() {
+                let mut parts = vec![name.boxed()];
+                if holder.targets.is_empty() {
+                    parts.push(
+                        note("It names nothing yet to choose for.")
+                            .boxed(),
+                    );
+                }
+                parts.extend(holder.targets.iter().map(|to| {
+                    target(&holder.id, group.capability, to)
+                }));
+                return column(parts).gap(6.0).boxed();
+            }
             let state = if holder.installed {
-                control(&holder.id, group.capability, holder.choice)
+                control(
+                    &holder.id,
+                    group.capability,
+                    None,
+                    holder.choice,
+                )
             } else {
                 note("Not installed").boxed()
             };

@@ -17,10 +17,11 @@ pub enum Subject {
         capabilities: Vec<Capability>,
     },
     /// Whether to let the plugin of this id use a capability it tried
-    /// to use.
+    /// to use, for the target of a scoped one.
     Use {
         plugin: String,
         capability: Capability,
+        target: Option<String>,
     },
     /// Whether to remove the plugin of this id, and its data.
     Remove { plugin: String },

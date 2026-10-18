@@ -3,6 +3,7 @@
 use bevy::ecs::component::Component;
 
 use super::offers::{Exports, Imports};
+use crate::capability::Capability;
 
 /// A plugin that must be present, and the versions of it that do.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
@@ -63,5 +64,20 @@ impl Manifest {
             range: range.into(),
         });
         self
+    }
+
+    /// What `capability` is chosen for one by one: the plugins this
+    /// one imports from for `plugin.use`. Empty for a capability that
+    /// is not scoped.
+    pub fn targets(&self, capability: Capability) -> Vec<String> {
+        match capability {
+            Capability::PluginUse => self
+                .imports
+                .plugins()
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            _ => Vec::new(),
+        }
     }
 }

@@ -21,6 +21,9 @@ use crate::plugin::PluginInfo;
 pub struct Decide {
     pub plugin: String,
     pub capability: Capability,
+    /// The plugin, or collection, that a scoped capability is chosen
+    /// for.
+    pub target: Option<String>,
     pub choice: Choice,
     /// Lets an [`Choice::AskNextTime`] through for the rest of this
     /// run.
@@ -51,11 +54,19 @@ fn apply(world: &mut World, plugin: Entity, decide: Decide) {
     let Some(choices) = world.get::<Choices>(plugin) else {
         return;
     };
-    let choices = choices.clone().decided(
-        decide.capability,
-        decide.choice,
-        decide.this_run,
-    );
+    let choices = match &decide.target {
+        Some(target) => choices.clone().decided_for(
+            decide.capability,
+            target,
+            decide.choice,
+            decide.this_run,
+        ),
+        None => choices.clone().decided(
+            decide.capability,
+            decide.choice,
+            decide.this_run,
+        ),
+    };
     if let Some(mut store) = world.get_resource_mut::<Store>() {
         let installed = store
             .get(&decide.plugin)

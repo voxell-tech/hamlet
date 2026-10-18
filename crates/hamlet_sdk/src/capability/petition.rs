@@ -72,16 +72,19 @@ pub(super) fn remove(world: &mut World, plugin: Entity) {
 pub struct Replied {
     pub plugin: String,
     pub capability: Capability,
+    pub target: Option<String>,
     pub allowed: bool,
 }
 
 /// Puts the question whether to let the plugin `plugin` use
-/// `capability` in the queue, unless it is already there. `said` is
-/// the plugin's own reason, if it gave one.
+/// `capability`, for `target` where it is scoped, in the queue,
+/// unless it is already there. `said` is the plugin's own reason, if
+/// it gave one.
 pub(super) fn using(
     world: &mut World,
     plugin: Entity,
     capability: Capability,
+    target: Option<String>,
     said: &str,
 ) {
     let (Some(info), Some(asks)) = (
@@ -93,9 +96,13 @@ pub(super) fn using(
     let subject = Subject::Use {
         plugin: info.id.clone(),
         capability,
+        target: target.clone(),
     };
+    let of = target
+        .map(|target| format!(" for `{target}`"))
+        .unwrap_or_default();
     let mut text = format!(
-        "{} asks to use {}. Allow it?\n{}",
+        "{} asks to use {}{of}. Allow it?\n{}",
         info.name,
         capability.name(),
         capability.words()
@@ -125,6 +132,9 @@ fn listing(head: &str, asks: &[Asked]) -> String {
     for ask in asks {
         text +=
             &format!("\n{} - {}", ask.capability.name(), ask.reason);
+        if ask.capability.scoped() {
+            text += " (each is asked at its first use)";
+        }
     }
     text
 }
@@ -239,12 +249,16 @@ fn apply(world: &mut World, subject: Subject, answer: Answer) {
             plugin,
             capabilities,
         } => {
-            let choice =
-                if allow { Choice::Allow } else { Choice::Deny };
             for capability in capabilities {
+                let choice = match (allow, capability.scoped()) {
+                    (true, false) => Choice::Allow,
+                    (true, true) => Choice::AskNextTime,
+                    (false, _) => Choice::Deny,
+                };
                 world.trigger(Decide {
                     plugin: plugin.clone(),
                     capability,
+                    target: None,
                     choice,
                     this_run: false,
                 });
@@ -261,7 +275,11 @@ fn apply(world: &mut World, subject: Subject, answer: Answer) {
                 world.flush();
             }
         }
-        Subject::Use { plugin, capability } => {
+        Subject::Use {
+            plugin,
+            capability,
+            target,
+        } => {
             let (choice, this_run) = match answer {
                 Answer::Allow => (Choice::Allow, false),
                 Answer::AskNextTime => (Choice::AskNextTime, true),
@@ -270,6 +288,7 @@ fn apply(world: &mut World, subject: Subject, answer: Answer) {
             world.trigger(Decide {
                 plugin: plugin.clone(),
                 capability,
+                target: target.clone(),
                 choice,
                 this_run,
             });
@@ -277,6 +296,7 @@ fn apply(world: &mut World, subject: Subject, answer: Answer) {
             world.trigger(Replied {
                 plugin,
                 capability,
+                target,
                 allowed: choice != Choice::Deny,
             });
         }
