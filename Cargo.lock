@@ -3322,6 +3322,7 @@ dependencies = [
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_model",
+ "hamlet_plugins",
  "hamlet_realm",
  "hamlet_rules",
  "hamlet_sandbox",
@@ -3404,6 +3405,13 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "toml",
+]
+
+[[package]]
+name = "hamlet_plugins"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
 ]
 
 [[package]]

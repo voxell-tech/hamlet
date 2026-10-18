@@ -1,0 +1,16 @@
+[package]
+name = "hamlet_plugins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The one place that lists the plugins compiled into the app"
+
+[lints]
+workspace = true
+
+[dependencies]
+bevy_app.workspace = true
+
+[features]
+# A plugin is built in when its feature is on.
+default = []

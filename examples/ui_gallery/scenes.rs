@@ -93,6 +93,7 @@ impl Plugin for GalleryPlugin {
                 hamlet_sdk::SdkPlugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_ui::screens::plugin,
+                hamlet_plugins::Builtin,
                 asking::plugin,
                 select::plugin,
             ));

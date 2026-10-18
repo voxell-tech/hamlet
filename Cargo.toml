@@ -1,11 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "plugins/*"]
 # The vendored fynix workspace is its own workspace.
 exclude = ["vendor"]
 # `cargo build`, `cargo test` and `cargo clippy` at the root cover every
 # crate, so the checks in AGENTS.md need no flags.
-default-members = [".", "crates/*"]
+default-members = [".", "crates/*", "plugins/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -27,6 +27,7 @@ hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_sdk = { version = "0.1.0", path = "crates/hamlet_sdk" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
+hamlet_plugins = { version = "0.1.0", path = "plugins/all" }
 
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
@@ -102,6 +103,7 @@ hamlet_desktop.workspace = true
 hamlet_ui.workspace = true
 hamlet_realm.workspace = true
 hamlet_sdk.workspace = true
+hamlet_plugins.workspace = true
 anyhow.workspace = true
 bevy.workspace = true
 bevy_app.workspace = true
