@@ -44,9 +44,7 @@ impl Endpoint {
             while let Ok((stream, _)) = listener.accept().await {
                 let sender = sender.clone();
                 tokio::spawn(async move {
-                    if let Some(request) = answer(stream).await {
-                        let _ = sender.send(request);
-                    }
+                    answer(stream, sender).await;
                 });
             }
         });
@@ -73,7 +71,10 @@ impl Drop for Endpoint {
     }
 }
 
-async fn answer(stream: TcpStream) -> Option<Request> {
+async fn answer(
+    stream: TcpStream,
+    received: mpsc::UnboundedSender<Request>,
+) -> Option<()> {
     let mut stream = BufReader::new(stream);
     let mut line = String::new();
     stream.read_line(&mut line).await.ok()?;
@@ -127,13 +128,16 @@ async fn answer(stream: TcpStream) -> Option<Request> {
          {}\r\nConnection: close\r\n\r\n",
         text.len()
     );
+    received
+        .send(Request {
+            path,
+            authorization,
+            body,
+        })
+        .ok()?;
     let stream = stream.get_mut();
     stream.write_all(head.as_bytes()).await.ok()?;
     stream.write_all(text.as_bytes()).await.ok()?;
     stream.shutdown().await.ok()?;
-    Some(Request {
-        path,
-        authorization,
-        body,
-    })
+    Some(())
 }

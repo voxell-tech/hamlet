@@ -15,6 +15,14 @@ pub fn fold(log: &[ServerMessage]) -> State {
                 let state = realm
                     .as_mut()
                     .expect("a change comes after a whole state");
+                assert_eq!(
+                    changes.epoch, state.epoch,
+                    "a change belongs to the current epoch"
+                );
+                assert!(
+                    changes.revision > state.revision,
+                    "a change advances the revision"
+                );
                 for update in &changes.changes {
                     apply(state, update);
                 }

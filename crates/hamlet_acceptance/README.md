@@ -7,6 +7,14 @@ generated types, and through the `hamlet` command. It knows nothing about
 how the server is built, so the same scenarios judge the TypeScript server
 in `server/` and the Rust server that replaces it.
 
+Passing these scenarios is not yet sufficient to delete `server/`.
+The coverage map below includes untested observable behaviour, including
+sandbox reach, question recovery, model selection and CLI lifecycle.
+Home migration and rollback also need their own checks before switching,
+as required by the Rust-server proposal. `covered` means the named TS
+test's observable assertions are represented, not that its entire domain
+is proved. Neither file counts nor a green run waive the gaps.
+
 Every message a server sends is parsed into `ServerMessage`, written back
 and compared with what arrived, so a field outside protocol v0 fails the
 scenario that received it.
@@ -45,7 +53,11 @@ The suite runs the command with these arguments added:
   the server uses its real model providers; the suite then points them at
   a loopback endpoint with `HAMLET_MODEL` and `HAMLET_BASE_URL`.
 
-Its environment is the suite's own, plus:
+Its environment is the suite's own with ambient `HAMLET_SERVER`,
+`HAMLET_TOKEN`, `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_API_KEY`,
+`HAMLET_NET`, `HAMLET_REFLECT_EVERY`, `HAMLET_WORKSPACE_URL` and
+`HAMLET_WORKSPACE_TOKEN` removed. These overrides must not connect a test
+to the chief's server or remote workspace. The suite then sets:
 
 - `HAMLET_HOME`: the home, a fresh scratch folder, or the folder a
   previous server of the same scenario used.
@@ -82,6 +94,26 @@ At SIGTERM, or a first SIGINT, the server finishes in order:
 A second SIGINT ends it at once with 130. SIGKILL may leave `server.json`
 behind; the next server replaces it.
 
+### Files exposed to the scenarios
+
+The suite also checks the public local-workspace files from
+[`docs/home.md`](../../docs/home.md), which the Rust-server proposal keeps:
+
+- `houses/<hamlet>/<number>/NOTES.md`, `skills/` and `inbox/`. The first
+  agent is `home:0`. `state.houses` names the absolute houses directory.
+- Arbitrary files made by tools or gifts in those houses. Merge scenarios
+  check the retained copies in `merged/<absorbed-name>/`, including
+  `NOTES.before.md` and conflicting files.
+- `library/<skill>/SKILL.md` and the library path in the composed prompt.
+
+Scenarios seed notes, skills and files there and check their bytes,
+executable modes, moves, copies and removal. Work folders, editor scripts,
+faux files and release markers live outside the home in scratch folders.
+No scenario opens a database, a harness store or `models.json`, or uses
+server log text for synchronisation. The only asserted startup diagnostic
+is the duplicate-home refusal above. The tests require a Unix host with
+the server's working sandbox and POSIX shell tools, not a Node server.
+
 ## Faux scripts
 
 A faux script is a JSON object of answers given in a model's place, so a
@@ -102,6 +134,22 @@ the house its conversation works in; a request with no list of its own
 takes from `responses`. A list that has run out answers with a model error,
 `No more faux responses queued`, and never falls back to `responses`.
 
+Lists are shared across every conversation of that agent, including chief,
+letters, questions and reflection. All one-off conversations share
+`errands`, which takes precedence over an agent list. Model checks with no
+agent use `responses`. Missing `responses` means an empty list; an explicit
+empty agent or errand list also fails immediately. Each call consumes its
+step when the provider is invoked, before waiting or streaming, even if it
+later fails or is cancelled. Concurrent calls take successive steps in
+invocation order. Each new server process starts fresh lists from its
+script, including after a crash; list positions are not durable.
+
+Queue selection is by conversation identity, not by arbitrary prompt
+words. The TS adapter obtains that identity from the `machine` section's
+house path and identifies errands by their `instructions` section. A
+second implementation may pass identity directly; it need not copy this
+prompt inspection. Moving an agent changes its queue key to its new house.
+
 A step is a string, which is the answer's words, or an object:
 
 | Field | What it does |
@@ -113,7 +161,29 @@ A step is a string, which is the answer's words, or an object:
 | `stallMs` | Milliseconds the answer takes. Stopping the request does not cut this short. |
 | `holdUntil` | A file the answer waits for, relative to the script's folder. Stopping the request ends the wait. |
 
-The faux model is `faux::faux-1`.
+`text`, `thinking` and `error` are strings, including empty strings.
+`calls` is an array; each call has exactly `name` (string) and `arguments`
+(a JSON object). Content is reasoning first, text second, then calls in
+array order; omitted fields produce no block. `error` retains that content
+but ends with an error rather than stop or tool use. `stallMs` is a
+nonnegative integer and runs before `holdUntil`; the latter is a nonempty
+path, absolute or resolved relative to the script file. Its existence,
+not its contents, releases the response. Cancellation consumes the step
+and emits no remaining content, but cannot interrupt `stallMs`.
+
+`agents` keys match `^[^:]+:[0-9]+$`. Prices are nonnegative finite numbers;
+`tokensPerSecond` is a positive finite number. Unknown fields in the script,
+steps, prices and calls are rejected. These additions preserve old scripts
+containing only `responses`, `tokensPerSecond` and the original step fields.
+
+The faux model is `faux::faux-1`, with a 128000-token context and a
+16384-token output limit. The pi Node harness uses pi-ai 1.2.0's faux
+provider for usage estimates and streaming. Chunk boundaries, generated
+tool IDs and timestamps are not fixed by a script. Rates default to zero;
+catalogue price overrides apply to successful responses, with cache rates
+zero. Usage is estimated from the actual prompt, so the scenarios assert
+accounting relationships rather than fixed faux token counts. The loopback
+OpenAI fixture supplies fixed usage for exact billing assertions.
 
 ## Scenarios
 
@@ -144,12 +214,12 @@ Status:
 |---|---|---|---|
 | acceptance.test.ts | Mayor via `hamlet chat`: gate, house note, reflect, budget, stop, crash | partly | `cli.rs` asks_for_approvals_and_keeps_them_across_a_crash (held edit, `/allow`, `/budget`, auto bash, `/stop`, wait kept across SIGKILL, chat exits 1, new chat shows wait); `mayor.rs` reflects_when_the_chief_asks. Missing: a house NOTES.md edit not held in manual mode. |
 | activity-connection.test.ts | Agent activity tells reading from writing; saying keeps last 600 bytes | partly | `mayor.rs` tells_what_the_mayor_is_doing (read-notes, write-notes, 600-byte tail). Missing: `read-file` for search/find, `read-skill`, and the `step`/`failures` counts. |
-| address.test.ts | Resolves office and missing/departed/malformed addresses | internal-only | Calls `livingAgent`/`resolveAddress` directly. Its refusal words appear in `documents.rs` and `society.rs` (`no agent named`, farewells). |
+| address.test.ts | Resolves office and missing/departed/malformed addresses | partly | Refusal words appear in `documents.rs` and `society.rs` (`no agent named`, farewells). Missing: malformed and non-text addresses and office resolution after handover. Direct resolver calls are internal, but their outcomes are observable. |
 | agent-chats.test.ts | Chief watches agent conversations: read-only, paged, scrubbed, counted, authored | partly | `society.rs` carries_a_letter_and_its_reply_then_asks_a_question (letters by default, questions by kind, authors, rewind refused, count 1); `realm.rs` founds_a_hamlet_by_vote_has_the_asker_pay_and_overturns_it (asked side counts). Missing: paging a peer chat, no turns after `close`, secret scrubbed, author named after moves. A foreign chief's watch needs a second chief. |
 | agents.test.ts | `create_agent`/`set_model`: names, character, model, roads, refusals, reserved | partly | `society.rs` refuses_agents_the_mayor_may_not_create (tidied name, refused calls create nobody, `# Notes`), asks_before_a_reserved_creation_and_caps_the_hamlet (reserved wait, allow). The road comes from `society()` in many tests. Missing: refusal words, the `character` argument, deny of a reserved creation. Allowed models and `set_model` need a second model. |
 | answers.test.ts | Empty answer, cut-off summarising, repeated model fault until dismissed | partly | `mayor.rs` faults_on_an_empty_answer, faults_when_the_model_fails_until_dismissed (one fault, dismiss). Missing: thinking-only answer, a repeated fault (`asked:2`), summarising and cut-off. Those need a `length` stop or a small context window, which neither the faux script nor the endpoint fake offers. |
 | brief.test.ts | Hamlet section of prompt: agents, instructions, roads, decisions, merges | partly | `society.rs` briefs_each_agent_on_its_hamlet (agents, the chief's instruction, decisions latest first, vote rule, an agent's roads); `realm.rs` agrees_a_road_and_a_move_between_hamlets (roads to other hamlets). Missing: merges and refusals in the record, decisions ageing out (needs a clock). |
-| budget.test.ts | Budget words, daily and task caps, model-time caps, errand payer | partly | `mayor.rs` stops_a_turn_when_the_budget_runs_out (priced faux, cap $0.01, stop notice, `/budget` line, `/reset-budget`). Missing: budget words in the prompt, task cap notice, a cap lowered mid-run, model-time cap. The errand payer is internal. |
+| budget.test.ts | Budget words, daily and task caps, model-time caps, errand payer | partly | `mayor.rs` stops_a_turn_when_the_budget_runs_out (priced faux, cap $0.01, stop notice, `/budget` line, `/reset-budget`). Missing: budget words in the prompt, task cap notice, a cap lowered mid-run, model-time cap and the errand payer's budget. |
 | catalogue.test.ts | Chief price, allowance, note survive a listing refresh and restart | partly | `documents.rs` prices_allows_and_notes_a_model_in_the_catalogue; `models.rs` lists_prices_and_bills_an_endpoints_models (`priced: yours`). Missing: survival across a changed listing and a restart; the endpoint fake's listing is fixed. |
 | change.test.ts | Diff summary of an edit or write: marks, counts, caps | internal-only | Pure `changeBetween`/`changeOf`. Its result is asserted as `wait.change` in `mayor.rs` holds_a_command_and_an_edit_for_approval_in_manual_mode. |
 | chat.test.ts | `hamlet chat` rendering: waits, streams, switching, help, tty, EOF, Ctrl-C | partly | `cli.rs` chats_with_answers_on_stdout_and_the_rest_on_stderr, asks_for_approvals_and_keeps_them_across_a_crash (standing wait shown at connect), starts_at_another_hamlet_and_switches_agents_and_hamlets. Missing: answer strips, dimmed reasoning and exit lines, help listing, login advice with no model, EOF waiting for its own lines, Ctrl-C leaving the mayor working, only the last answer on reconnect, `/new` before EOF, pinned past view. The tty prompt needs a pty. |
@@ -172,7 +242,8 @@ Status:
 | edits.test.ts | Limits edits by key or whole; change messages; refusals | partly | `documents.rs` edits_limits_one_key_or_whole_and_refuses_bad_values (including the nested list refusal). Missing: `__proto__` refused as an unknown field. |
 | envelope.test.ts | Reply and fault shapes, scrubbing, stable refusal words | partly | `documents.rs` refuses_requests_for_hamlets_and_agents_that_do_not_exist; `mayor.rs` gives_and_takes_back_a_standing_network_permission, answers_a_question_the_mayor_asks, carries_on_after_a_failure_with_retry; `society.rs` removes_restores_and_erases_an_agent_by_command, lays_and_takes_up_roads_by_command, merges_houses_by_command_keeping_both_sides, hands_the_office_over_by_command, shelves_an_offered_skill_for_every_agent_and_unshelves_it. Missing: `/to` usage, a scrubbed read refusal, `/remove nobody`, `/found all`, structured `retry` after an answer, byte equality with recorded frames. |
 | environment.test.ts | Shell working folder, sandbox reach, network, relative path footing | partly | `mayor.rs` holds_a_command_and_an_edit_for_approval_in_manual_mode (bash and write land in the folder), stops_a_running_command_and_its_turn and tells_what_the_mayor_is_doing (house with no folder). Missing: the reach matrix (home files unreadable, library read-only) and network reach. |
-| errands.test.ts | Errand payer, kept answer, failure, timeout, abort | internal-only | Errands started through the harness; payer and ledger read directly. |
+| errands.test.ts | Errand payer, kept answer, failure, timeout, abort | partly | `society.rs` checks accepted library and merge errands. Missing: errand charges reconciled against the payer's budget, kept answer after reopen, failure, timeout and abort. The TS test reads the ledger directly, but charging the right hamlet is observable in state. |
+| faux.test.ts | Legacy parsing, queue-key validation, concurrent dispatch, exhausted and absent queues, prompt-safe routing | internal-only | Adapter contract tests; no server behaviour beyond the faux format above. |
 | file-helper.test.ts | Sandbox file-helper framing, FIFO limits, reaping | internal-only | Fake transport, timers and PIDs. |
 | foundation-chief.test.ts | A home keeps chief authority when `HAMLET_USER`/`USER` changes | not yet | Needs restarts under other `HAMLET_USER`/`USER` values. The harness always sets `chief`, and no scenario overrides it. The migration case is internal. |
 | foundation-deeds.test.ts | Stop agents in other hamlets; answers routed to the right wait | not yet | `/stop scout@mill` and `/stop mayor@mill` are not scripted. The foreign-chief and raised-question cases need a second chief or internals. |
@@ -182,13 +253,13 @@ Status:
 | gift-uploads.test.ts | Upload pipeline races: disconnects, inbox swapped for a link | internal-only | Mocks `fs` and calls the uploads directly. |
 | gifts.test.ts | Typed `/give` of a starter: files, record, no turn, refusals | partly | `gifts.rs` installs_a_starter_skill_and_shows_it_to_every_connection (notice, refusals, no turn). Missing: files equal the shipped assets, refusal after a restart, a link at the destination, a linked skills folder. |
 | give.test.ts | `give`/`give-part` file and skill gifts: limits, paths, scrubbing | partly | `gifts.rs` all tests (parts, folders, `-2` names and the agent's line, bad paths and manifests, collisions, 40 MiB, offsets, per-connection and per-agent bounds, exactly 32 MiB, starters, another agent's skill with mode, typed giver, departed recipient). Missing: simultaneous gifts, a secret in a file name, skill listing not following links, FIFO skill paper, links/size/entry limits on skills, idle expiry, rollback, linked or deleted inbox, a giver in another hamlet, 4097 entries. |
-| grants.test.ts | Grants survive reopen; second revoke records nothing | internal-only | Calls `give`/`revoke`/`holds` directly. The grant flow is seen in `mayor.rs` gives_and_takes_back_a_standing_network_permission. |
+| grants.test.ts | Grants survive reopen; second revoke records nothing | partly | `mayor.rs` gives_and_takes_back_a_standing_network_permission checks the grant flow. Missing: survival across restart and repeated revoke recording nothing. These outcomes are observable even though the TS test calls the grant store directly. |
 | hand.test.ts | Hand-added tools: reserved names, reach, limits, schema, reload | not yet | Needs `tools/<name>/manifest.json` planted in the home. No scenario writes one. |
 | home.test.ts | First layout, default limits/settings, env overrides, single-server lock | partly | `documents.rs` starts_with_the_default_limits (layout and limits); `connection.rs` keeps_its_token_and_refuses_a_second_server_on_one_home; `mayor.rs` keeps_a_wait_and_the_chat_across_a_crash (a dead holder's lock taken over). Missing: default settings without `--faux`, in-memory `HAMLET_MODEL`/`HAMLET_NET`/`HAMLET_BASE_URL`, a bad `HAMLET_REFLECT_EVERY`, the lock through path aliases, the `tools` folder, the Rust app socket. |
 | house-files.test.ts | House tree staging, delivery, listing, removal helpers | internal-only | Pure helpers, `fs` spies, injected races. |
 | leaving-start.test.ts | Home opens when one part's start throws | internal-only | Injected fake parts. |
 | leaving.test.ts | `/remove`, `/restore`, `/erase`, `/undo`, `/record`; protected tasks | partly | `society.rs` removes_restores_and_erases_an_agent_by_command, protects_an_instructed_agent_then_removes_and_undoes. Missing: `/remove nobody`, blank reason, concurrent removal, departure stopping a turn and its waits, a full hamlet on restore, the founder back under its own name, restore under a taken name, grants cleared, "has only just ended". |
-| ledger.test.ts | Spend ledger: meters, dating, midnight, concurrency, road charges | partly | Totals in the state are seen in `mayor.rs` stops_a_turn_when_the_budget_runs_out, `models.rs` lists_prices_and_bills_an_endpoints_models and `society.rs` lays_and_takes_up_roads_by_command. Dating, midnight and month rollover, fork, concurrency and task books are internal (fake clock, custom provider). |
+| ledger.test.ts | Spend ledger: meters, dating, midnight, concurrency, road charges | partly | Totals in the state are seen in `mayor.rs` stops_a_turn_when_the_budget_runs_out, `models.rs` lists_prices_and_bills_an_endpoints_models and `society.rs` lays_and_takes_up_roads_by_command. Missing: spend kept through a fork, concurrent accounting, task books and daily/monthly rollover. The rollover tests need clock control; the ledger's storage representation alone is internal. |
 | letters.test.ts | `tell_agent`/`ask_agent`: replies, caps, refusals, cycles, sender marks | partly | `society.rs` carries_a_letter_and_its_reply_then_asks_a_question (reply author, letter and question items, road count). Missing: the task message cap, reused question chats, a cyclic question finishing, sender marking of chief-like text. Most refusal texts are tool output and never reach the wire. |
 | librarian.test.ts | `submit_skill`/`ask_librarian`: shelve, refuse, unfit, budget, races | partly | `society.rs` shelves_an_offered_skill_for_every_agent_and_unshelves_it (accepted, `state.library`, house copy gone, prompt elsewhere, `/unshelve` and its refusals). Missing: a refused verdict, unfit offers, budget spent, `ask_librarian`, a starter unshelved for good after restart, offering again after a stop, changes while judged, read-only copy, stage sweeping, verdict forms. |
 | library.test.ts | Starters installed once; edits kept; Library prompt section; read-only | partly | `documents.rs` composes_the_prompt_from_its_sections_in_order (Library heading); `gifts.rs` installs_a_starter_skill_and_shows_it_to_every_connection (`state.starters`). Missing: starter files on disk, chief edits and deletions kept across a restart, starter lines in the prompt, the library read-only to commands. |
@@ -210,7 +281,7 @@ Status:
 | protocol-doc.test.ts | Every message type is named in docs/protocol.md | internal-only | A static documentation check. |
 | protocol.test.ts | Message parsing: unknown type, missing or extra field, bad id | partly | `connection.rs` answers_malformed_messages_with_faults_and_stays_open (shout, lacks text, extra field, id, doc, what, reflectEvery, not an object). Missing: the other field forms (`text:7`, `set` lacks value, `whole:12`, `set.model`, `set.allowed`, papers lacks agent, login reply). Schema equality and `applyOp` are internal. |
 | question.test.ts | An `ask_agent` question survives a server restart | not yet | The mid-answer case is now scriptable with `holdUntil` and a restart, but no scenario does it. The after-answer case needs crash injection. |
-| reads.test.ts | Edit and read papers, charter, prompt, history over the protocol | partly | `documents.rs` edits_and_reads_the_charter_character_and_notes, lists_the_mayors_conversations_in_history; `mayor.rs` starts_a_new_session_and_resumes_the_first. Missing: history `current` after resume, and saving the default charter text storing none. That the prompt equals the next request is internal. |
+| reads.test.ts | Edit and read papers, charter, prompt, history over the protocol | partly | `documents.rs` edits_and_reads_the_charter_character_and_notes, lists_the_mayors_conversations_in_history; `mayor.rs` starts_and_resumes_sessions_by_message (history `current` after resume). Missing: restoring the default charter reports `own:false`, and the displayed prompt equals the next model request. The endpoint fake can record that request; this is observable, not internal. |
 | realm-acceptance.test.ts | Found by vote and overturn; cross-hamlet road and move; close/restore/erase | covered | `realm.rs` founds_a_hamlet_by_vote_has_the_asker_pay_and_overturns_it, agrees_a_road_and_a_move_between_hamlets, gathers_removal_asks_and_lets_only_the_chief_close_restore_and_erase; `cli.rs` follows_the_realm_as_hamlets_close_and_come_back. |
 | realm-surface.test.ts | Another hamlet's edits and reads; removed and departed refusals; CLI `--to` | partly | `realm.rs` edits_and_reads_another_hamlets_papers_until_it_is_removed; `cli.rs` starts_at_another_hamlet_and_switches_agents_and_hamlets, edits_another_hamlets_limits_alone. Missing: a departed mill agent's farewell on papers and character. The pinned model across a restart needs a second model and a held request. |
 | record-membership.test.ts | Admission names and cap, departure refusals, restore names | partly | `society.rs` refuses_agents_the_mayor_may_not_create (duplicate after tidying), protects_an_instructed_agent_then_removes_and_undoes (task protection), removes_restores_and_erases_an_agent_by_command (office cannot leave). Missing: a name clash across hamlets, an empty reason, restore under a taken name, the `mostRoads=0` restore words. |
@@ -222,7 +293,7 @@ Status:
 | review-wave2.test.ts | Typed replies, held words, scrubbed refusal, stop during check, previews | partly | `mayor.rs` answers_typed_commands_that_change_nothing, keeps_words_from_a_waiting_mayor_and_answers_by_command; `documents.rs` refuses_requests_for_hamlets_and_agents_that_do_not_exist (unknown hamlet). Missing: a refusal secret scrubbed, stop during a pending check, the binary overwrite preview, a spoken credential redacted in `saying`, typed commands to an unknown hamlet. |
 | rewind.test.ts | Rewind forks, keeps spend, lapses waits, refusals | partly | `mayor.rs` rewinds_a_chief_line_and_what_followed (rewound reply, reset then transcript). Missing: retry refused after a rewind, spend kept, the fork after a restart, refusals (running turn, non-chief item), rewind to the first line, waits of another conversation, the kept branch at close. |
 | roads.test.ts | Chief roads, office road refusals, `build_road` budget refusals | partly | `society.rs` lays_and_takes_up_roads_by_command, asks_the_mayor_for_a_road_and_the_mayor_builds_it. Missing: `build_road` refusals (cannot pay, same agent, office road) and simultaneous roads against one budget. |
-| roles.test.ts | Tools offered by role; reserved `create_agent` waits | partly | `society.rs` asks_before_a_reserved_creation_and_caps_the_hamlet (reserved wait, allow/deny answers). Missing: the case where only `buildRoads` is reserved. Tool offers and ballot confinement are internal. |
+| roles.test.ts | Tools offered by role; reserved `create_agent` waits | partly | `society.rs` asks_before_a_reserved_creation_and_caps_the_hamlet (reserved wait advertises allow/deny; only allow is exercised). Missing: denial of a reserved creation and the case where only `buildRoads` is reserved. Tool offers and ballot confinement are internal. |
 | sandbox-files.test.ts | File methods never escape through a swapped parent link | internal-only | Direct `SandboxEnv` calls with a racing swapper. |
 | sandbox-limits.test.ts | Exit codes, signals, ulimits, timeouts, probe messages | partly | `mayor.rs` closes_each_tool_with_its_exit_and_failure (exit 7 passed through). Missing: a signal as 137, ulimits, killing the process group. Probe texts need a machine without bubblewrap. Policy hashes are internal. |
 | sandbox-root-identity.test.ts | Sandbox roots cannot be replaced, moved or linked | internal-only | Direct `SandboxEnv`/`openPolicy` and private root kinds. |
@@ -232,7 +303,7 @@ Status:
 | search.test.ts | `search` and `find` results and refusals | not yet | Tool output never reaches the wire. Only refusal `failure` lines could be asserted, and no scenario calls these tools. |
 | server.test.ts | Served home: streaming equals read-back, late joiner, queue, same id | partly | `mayor.rs` answers_a_line_said_to_the_mayor, streams_a_turn_whose_ops_equal_the_transcript_read_again, admits_a_line_sent_twice_with_one_id_once; `documents.rs` edits_settings_and_refuses_bad_ones (a fresh state for a late connection). Missing: a late joiner mid-turn, a turn that finishes after every client has gone, quick lines answered in order, a write's change in the house, a resent id on a new connection. |
 | skills.test.ts | Skill front matter parsing; shelf refresh | partly | `gifts.rs` copies_another_agents_whole_skill (a written SKILL.md listed in `skills`); `society.rs` shelves_an_offered_skill_for_every_agent_and_unshelves_it (description from front matter). Missing: a skill without a name skipped, first-line fields, the `---` end, refresh after a rewrite. Speed and swap races are internal. |
-| society-acceptance.test.ts | Letters, roads, protection and undo, merge and split, votes, library, objections | covered | `society.rs` carries_a_letter_and_its_reply_then_asks_a_question, asks_the_mayor_for_a_road_and_the_mayor_builds_it, protects_an_instructed_agent_then_removes_and_undoes, merges_an_agent_redirects_its_letters_and_splits_it_back_out, holds_decisions_during_a_vote_follows_the_new_office_and_overturns, shelves_an_offered_skill_for_every_agent_and_unshelves_it, holds_an_instruction_for_an_objection_then_goes_or_withdraws. |
+| society-acceptance.test.ts | Letters, roads, protection and undo, merge and split, votes, library, objections | partly | `society.rs` carries_a_letter_and_its_reply_then_asks_a_question, asks_the_mayor_for_a_road_and_the_mayor_builds_it, protects_an_instructed_agent_then_removes_and_undoes, merges_an_agent_redirects_its_letters_and_splits_it_back_out, holds_decisions_during_a_vote_follows_the_new_office_and_overturns, shelves_an_offered_skill_for_every_agent_and_unshelves_it, holds_an_instruction_for_an_objection_then_goes_or_withdraws. Missing: the held-decision explanation the TS test reads from the harness transcript. TS returns that as ordinary tool-result text, not a protocol `failure`; only the refusal's effect is asserted here. Checking the words needs inspection of the next model request. |
 | society-state.test.ts | State shows hamlets, roads, departed agents, closed hamlets, library | partly | `realm.rs` sends_a_whole_state_when_a_hamlet_closes_or_goes; `society.rs` merges_an_agent_redirects_its_letters_and_splits_it_back_out (`left` merged), carries_a_letter_and_its_reply_then_asks_a_question (conversations, road messages); `gifts.rs` installs_a_starter_skill_and_shows_it_to_every_connection (starters). Missing: the exact starter library names, the office road between mayors, live `busy` with conversations, a failed peer turn not faulting (now scriptable with `error`). |
 | spine.test.ts | Founding, name rules, `/to`, roads, letters, departures | partly | `realm.rs` founds_names_and_places_hamlets_by_command; `society.rs` refuses_agents_the_mayor_may_not_create (name tidied), lays_and_takes_up_roads_by_command (`/road nobody`), removes_restores_and_erases_an_agent_by_command (farewell to a departed agent); `mayor.rs` answers_a_question_the_mayor_asks. Missing: `/to scout explore`, the other name rules, `librarian/NOTES.md` on disk, a road charged to the task. Owed-instruction windows are internal. |
 | state.test.ts | Deeds list, wait chat pinning, budget, activity, skill cache | partly | `mayor.rs` tells_what_the_mayor_is_doing (activity); `connection.rs` sends_every_connection_the_realms_changes (revisions increase). Missing: the exact `deeds` list, a wait pinned to a past chat after `/new`, the initial budget fields, `providers`, the think/fetch activity sequence, a new skill listed after the cache. |
@@ -242,7 +313,7 @@ Status:
 | tools.test.ts | Tool behaviour: bash exits, hints, folder gone, path placement, scrubbing | partly | `mayor.rs` closes_each_tool_with_its_exit_and_failure, stops_a_running_command_and_its_turn (bash in the house), holds_a_command_and_an_edit_for_approval_in_manual_mode (write in the folder). Missing: sandbox hints, the folder-gone failure, NOTES.md and skills/ kept in the house with a folder, git files, refused writes, a non-UTF-8 edit, scrubbing. Timeouts and the tool list are internal. |
 | turn.test.ts | One round's tool calls run one at a time, in order | covered | `mayor.rs` runs_one_rounds_tool_calls_in_order (a slow first call finishes before the second starts). The hook half is internal. |
 | turns.test.ts | Streaming equals read-back; rewind/new reset; paging; last activity; votes | partly | `mayor.rs` streams_a_turn_whose_ops_equal_the_transcript_read_again, closes_each_tool_with_its_exit_and_failure, holds_a_command_and_an_edit_for_approval_in_manual_mode, rewinds_a_chief_line_and_what_followed, starts_a_new_session_and_resumes_the_first, pages_a_long_transcript_forty_items_at_a_time; `society.rs` holds_decisions_during_a_vote_follows_the_new_office_and_overturns. Missing: `usage.calls`, reflection read back, credentials across streamed chunks, last activity for a tool, last error (now scriptable), `/new` in the office chat. |
-| usage.test.ts | Conversation usage summary wording | not yet | Needs control of the reported tokens and model time. The endpoint fake bills one fixed usage, and no scenario reads `usage.summary`. |
+| usage.test.ts | Conversation usage summary wording | not yet | No scenario reads `usage.summary`. The fixed endpoint usage could check one summary now; boundary cases need configurable tokens and model time. |
 | vote-words.test.ts | Tally and vote report wording | internal-only | Pure wording. "Passed:" is asserted in `society.rs` holds_decisions_during_a_vote_follows_the_new_office_and_overturns. |
 | votes.test.ts | Vote rules, passing, overturn, refusals, grounding, ballots, resume | partly | `society.rs` holds_decisions_during_a_vote_follows_the_new_office_and_overturns, refuses_votes_that_cannot_be_held; `realm.rs` founds_a_hamlet_by_vote_has_the_asker_pay_and_overturns_it. Missing: silence is not a yes, grounding and sealing, three requests per ballot, stopping an open vote, one vote at a time, a recent failed vote, resume after a restart, the first ballot only. Ballot timeouts need minutes. |
 | waits.test.ts | Wait joined across chats, kept across restart, lapses, faults asked again | partly | `mayor.rs` keeps_a_wait_and_the_chat_across_a_crash (the same wait, `since` kept), holds_a_command_and_an_edit_for_approval_in_manual_mode (`wait-closed allow`). Missing: lapse kinds `stopped`/`rewound`, and a repeated fault asked again (now scriptable). Joining from another chat needs a second chief. |
@@ -257,16 +328,16 @@ Status:
 
 | Status | Files |
 |---|---|
-| covered | 5 |
-| partly | 67 |
+| covered | 4 |
+| partly | 71 |
 | not yet | 15 |
-| internal-only | 23 |
-| total | 110 |
+| internal-only | 21 |
+| total | 111 |
 
 ### What is left uncovered, and why
 
 - **No scenario written yet; possible with today's harness.**
-  - Files: question, record, record-names, foundation-deeds (its stop half).
+  - Files: question, record, record-names, usage (one fixed summary), foundation-deeds (its stop half).
   - Parts of partly files: mayor review errands, repeated faults, last error, a failed peer turn, and reflection at `/new`, at an orderly stop and with rewind. Per-agent queues, `errands`, step `error` and `holdUntil` make these possible.
 - **A second model is needed.** The faux script serves only `faux-1`, and the endpoint fake lists one model. Affects choice, agents (`set_model`) and the pinned model in realm-surface.
 - **The endpoint fake is too fixed.**

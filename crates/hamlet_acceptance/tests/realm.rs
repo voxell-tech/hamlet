@@ -113,9 +113,32 @@ async fn founds_a_hamlet_by_vote_has_the_asker_pay_and_overturns_it()
             .spent
             .micros
     };
-    let before = spent(&s.chief, "home");
+    let before = spent(&founded, "home");
+    let mayor_chat = chat(mayor());
+    let own_before = s.chief.open(&mayor_chat).await.usage.micros;
     s.chief.say(mayor(), "Ask the mill").await;
-    s.chief.idle("home", "founder").await;
+    let own =
+        s.chief.open(&mayor_chat).await.usage.micros - own_before;
+    let peer = s
+        .chief
+        .open(&ChatRef {
+            from: Some(AgentRef {
+                hamlet: "home".into(),
+                number: 0,
+            }),
+            kind: Some(ChatRefKind::Questions),
+            ..chat(to("mill", "mayor"))
+        })
+        .await;
+    assert_eq!(peer.items.last().unwrap().text, "Three sacks");
+    assert!(peer.usage.micros > 0, "the answer must have a charge");
+    s.chief
+        .until("the asked conversation in the realm", |c| {
+            c.agent("mill", "miller").is_some_and(|a| {
+                a.conversations.is_some_and(|cs| !cs.is_empty())
+            })
+        })
+        .await;
     // The asked side lists the conversation.
     let asked = s.chief.agent("mill", "miller").unwrap();
     let questions = asked
@@ -130,9 +153,11 @@ async fn founds_a_hamlet_by_vote_has_the_asker_pay_and_overturns_it()
     );
     // The hamlet that asks pays for the answer.
     s.chief
-        .until("the home's spending", |c| spent(c, "home") > before)
+        .until("the home's spending includes both sides", |c| {
+            spent(c, "home") == before + own + peer.usage.micros
+        })
         .await;
-    assert_eq!(spent(&s.chief, "mill"), 0);
+    assert_eq!(spent(&s.join().await, "mill"), 0);
     let reply =
         s.chief.say(mayor(), "/overturn 1 Stay together").await;
     assert_eq!(reply.kind, ReplyKind::Notice);
@@ -476,7 +501,9 @@ async fn edits_and_reads_another_hamlets_papers_until_it_is_removed()
     let papers = s.chief.papers(to("mill", "mayor")).await;
     assert_eq!(
         (papers.character.as_str(), papers.notes.as_str()),
-        ("Be curious.", "# Notes\nKeep flour dry.")
+        ("Be curious.", "# Notes\nKeep flour dry."),
+        "{}",
+        s.server.log()
     );
     s.chief.say(to("mill", "mayor"), "What matters?").await;
     let history = s
@@ -524,15 +551,27 @@ async fn edits_and_reads_another_hamlets_papers_until_it_is_removed()
 async fn sends_a_whole_state_when_a_hamlet_closes_or_goes() {
     let mut s = Session::start(Script::new()).await;
     s.chief.say(mayor(), "/found mill miller Grind flour").await;
-    let states = |c: &Client| {
-        c.messages()
-            .iter()
-            .filter(|m| matches!(m, ServerMessage::State(_)))
-            .count()
-    };
-    let before = states(&s.chief);
+    s.chief
+        .until("the mill founded", |c| {
+            ids(&c.realm()).contains(&"mill".into())
+        })
+        .await;
     s.chief.say(mayor(), "/remove-hamlet mill Finished").await;
-    s.chief.until("a whole state", |c| states(c) > before).await;
+    s.chief
+        .until("a whole state with the mill closed", |c| {
+            c.messages().iter().any(|m| match m {
+                ServerMessage::State(state) => {
+                    ids(state) == ["home"]
+                        && state.closed.as_ref().is_some_and(
+                            |closed| {
+                                closed.iter().any(|h| h.id == "mill")
+                            },
+                        )
+                }
+                _ => false,
+            })
+        })
+        .await;
     let ServerMessage::State(state) = s
         .chief
         .messages()

@@ -253,8 +253,7 @@ async fn lays_and_takes_up_roads_by_command() {
     );
     let reply = s.chief.say(mayor(), "/unroad mayor scout").await;
     assert!(reply.text.contains("stays for as long"), "{reply:?}");
-    s.chief.settle(std::time::Duration::from_millis(300)).await;
-    let spent = s.chief.realm().hamlets[0].budget.spent.micros;
+    let spent = s.join().await.realm().hamlets[0].budget.spent.micros;
     let reply = s.chief.say(mayor(), "/road scout poet share").await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{reply:?}");
     s.chief
@@ -279,6 +278,12 @@ async fn lays_and_takes_up_roads_by_command() {
             c.realm().hamlets[0].budget.spent.micros == spent + 10_000
         })
         .await;
+    let reply = s.chief.say(mayor(), "/road scout poet again").await;
+    assert!(reply.text.contains("already have a road"), "{reply:?}");
+    assert_eq!(
+        s.join().await.realm().hamlets[0].budget.spent.micros,
+        spent + 10_000
+    );
 }
 
 #[tokio::test]
@@ -482,6 +487,12 @@ async fn merges_an_agent_redirects_its_letters_and_splits_it_back_out()
         reply.text.contains("Split `scout` from `smith`"),
         "{reply:?}"
     );
+    let restored = s.join().await;
+    assert!(restored.agent("home", "scout").unwrap().left.is_none());
+    assert_eq!(
+        restored.agent("home", "smith").unwrap().purpose,
+        "Smith"
+    );
 }
 
 #[tokio::test]
@@ -580,7 +591,14 @@ async fn holds_decisions_during_a_vote_follows_the_new_office_and_overturns()
     s.chief.open(&mayor_chat).await;
     s.chief.say(mayor(), "Remove scout").await;
     // Nothing else is decided while the vote is open.
-    assert!(s.chief.agent("home", "scout").unwrap().left.is_none());
+    assert!(
+        s.join()
+            .await
+            .agent("home", "scout")
+            .unwrap()
+            .left
+            .is_none()
+    );
     let called = s
         .chief
         .items(&mayor_chat)
@@ -917,7 +935,7 @@ async fn asks_before_a_reserved_creation_and_caps_the_hamlet() {
     let mayor_chat = chat(mayor());
     s.chief.open(&mayor_chat).await;
     s.chief.say(mayor(), "Hire smith").await;
-    assert!(s.chief.agent("home", "smith").is_none());
+    assert!(s.join().await.agent("home", "smith").is_none());
     s.chief.say(mayor(), "/remove scout Done").await;
     let reply = s.chief.say(mayor(), "/restore scout").await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{reply:?}");

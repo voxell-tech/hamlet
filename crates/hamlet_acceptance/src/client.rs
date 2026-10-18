@@ -454,8 +454,10 @@ impl Client {
     /// Reads whatever arrives within `time`, for checking that
     /// nothing more happens.
     pub async fn settle(&mut self, time: Duration) {
+        let deadline = tokio::time::Instant::now() + time;
         while let Ok(Some(message)) =
-            tokio::time::timeout(time, self.wire.message()).await
+            tokio::time::timeout_at(deadline, self.wire.message())
+                .await
         {
             self.log.push(message);
         }

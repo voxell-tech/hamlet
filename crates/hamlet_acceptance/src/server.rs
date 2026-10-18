@@ -17,6 +17,18 @@ pub const SERVER_VAR: &str = "HAMLET_ACCEPTANCE_SERVER";
 /// The longest a server may take to publish its address.
 const START: Duration = Duration::from_secs(30);
 
+pub(crate) const OVERRIDES: &[&str] = &[
+    "HAMLET_SERVER",
+    "HAMLET_TOKEN",
+    "HAMLET_MODEL",
+    "HAMLET_BASE_URL",
+    "HAMLET_API_KEY",
+    "HAMLET_NET",
+    "HAMLET_REFLECT_EVERY",
+    "HAMLET_WORKSPACE_URL",
+    "HAMLET_WORKSPACE_TOKEN",
+];
+
 /// A scratch folder, removed on drop.
 pub struct Scratch(PathBuf);
 
@@ -176,6 +188,9 @@ impl Server {
         let (program, args) = words.split_first().unwrap();
         let output = std::fs::File::create(log).unwrap();
         let mut command = Command::new(program);
+        for name in OVERRIDES {
+            command.env_remove(name);
+        }
         command.args(args).arg("--port").arg("0");
         if let Some(script) = script {
             command.arg("--faux").arg(script);

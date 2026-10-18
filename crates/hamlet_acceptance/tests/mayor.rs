@@ -219,6 +219,7 @@ async fn holds_a_command_and_an_edit_for_approval_in_manual_mode() {
     );
     assert_eq!(about, "printf 'heading\\napproved\\n' > result.txt");
     assert_eq!(wait_says(&command), "wants to run");
+    assert!(!std::path::Path::new(&dir).join("result.txt").exists());
     let reply =
         s.chief.choose(wait_id(&command), Choice::Allow, None).await;
     assert_eq!(reply.kind, ReplyKind::Notice);
@@ -242,6 +243,10 @@ async fn holds_a_command_and_an_edit_for_approval_in_manual_mode() {
         panic!("an edit approval carries its change: {edit:?}")
     };
     assert_eq!(wait_says(&edit), "wants to edit");
+    assert_eq!(
+        std::fs::read_to_string(format!("{dir}/result.txt")).unwrap(),
+        "heading\napproved\n"
+    );
     assert_eq!(
         change,
         &Change {
@@ -310,7 +315,7 @@ async fn holds_a_command_and_an_edit_for_approval_in_manual_mode() {
 #[tokio::test]
 async fn refuses_a_denied_command_and_tells_the_model_why() {
     let mut s = Session::start(Script::new().responses([
-        call("bash", json!({"command": "echo never"})),
+        call("bash", json!({"command": "echo ran > never"})),
         words("Understood."),
     ]))
     .await;
@@ -335,7 +340,7 @@ async fn refuses_a_denied_command_and_tells_the_model_why() {
         notice(&reply),
         (
             &ReplyKind::Notice,
-            "Answered /deny: mayor wants to run `echo never`"
+            "Answered /deny: mayor wants to run `echo ran > never`"
         )
     );
     s.chief.shows(&mayor_chat, "Understood.").await;
@@ -835,7 +840,15 @@ async fn starts_a_new_session_and_resumes_the_first() {
 
 #[tokio::test]
 async fn starts_and_resumes_sessions_by_message() {
-    let mut s = Session::start(Script::new()).await;
+    let mut s = Session::start(Script::new().responses([
+        words("First answer."),
+        words("Second answer."),
+    ]))
+    .await;
+    let mayor_chat = chat(mayor());
+    s.chief.say(mayor(), "First line.").await;
+    let first = s.chief.open(&mayor_chat).await;
+    assert_eq!(first.number, Some(1));
     let reply = s
         .chief
         .request(|id| ClientMessage::New(New { id, to: mayor() }))
@@ -843,6 +856,17 @@ async fn starts_and_resumes_sessions_by_message() {
     assert_eq!(
         notice(&reply),
         (&ReplyKind::Notice, "Started a new session.")
+    );
+    s.chief.say(mayor(), "Second line.").await;
+    let second = s.chief.open(&mayor_chat).await;
+    assert_eq!(second.number, Some(2));
+    assert_eq!(
+        second
+            .items
+            .iter()
+            .map(|i| i.text.as_str())
+            .collect::<Vec<_>>(),
+        ["Started a new session.", "Second line.", "Second answer."]
     );
     let reply = s
         .chief
@@ -854,7 +878,41 @@ async fn starts_and_resumes_sessions_by_message() {
             })
         })
         .await;
-    assert_eq!(reply.text, "Went back to an earlier session.");
+    assert_eq!(
+        notice(&reply),
+        (&ReplyKind::Notice, "Went back to an earlier session.")
+    );
+    let resumed = s.chief.open(&mayor_chat).await;
+    assert_eq!(resumed.number, first.number);
+    assert_eq!(
+        resumed
+            .items
+            .iter()
+            .map(|i| i.text.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "First line.",
+            "First answer.",
+            "Went back to an earlier session."
+        ]
+    );
+    let history = s.chief.history(mayor()).await;
+    assert_eq!(
+        history
+            .iter()
+            .filter(|p| p.current)
+            .map(|p| p.number)
+            .collect::<Vec<_>>(),
+        [1]
+    );
+    let past = s
+        .chief
+        .open(&ChatRef {
+            past: Some(2),
+            ..mayor_chat
+        })
+        .await;
+    assert_eq!(past.items, second.items);
 }
 
 #[tokio::test]
