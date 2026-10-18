@@ -152,6 +152,16 @@ pub(super) fn setup(world: &mut World) {
     if let Scene::WorldMenu(place) = scene {
         super::world_menu::put(world, place, agent);
     }
+    match scene {
+        Scene::PluginContext => {
+            super::contributions::context(world, agent)
+        }
+        Scene::PluginInspectorTab => super::contributions::tab(world),
+        Scene::PluginSettingsPage => {
+            super::contributions::page(world)
+        }
+        _ => {}
+    }
     if matches!(
         scene,
         Scene::Settings

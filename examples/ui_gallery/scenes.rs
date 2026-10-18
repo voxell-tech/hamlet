@@ -1,6 +1,7 @@
 //! Scenes of the panels and their controls held in fixed states.
 
 mod clipper;
+mod contributions;
 mod dock;
 mod greeter;
 mod notes;
@@ -106,12 +107,16 @@ impl Plugin for GalleryPlugin {
                         .run_if(|scene: Res<Scene>| {
                             *scene == Scene::PluginOpenui
                         }),
-                    tabs::skills
+                    tabs::turn
                         .run_if(resource_changed::<InspectorSections>)
                         .run_if(|scene: Res<Scene>| {
-                            *scene == Scene::SkillsTab
+                            matches!(
+                                *scene,
+                                Scene::SkillsTab
+                                    | Scene::PluginInspectorTab
+                            )
                         }),
-                    pages::plugins
+                    pages::turn
                         .run_if(resource_changed::<SettingsPages>)
                         .run_if(|scene: Res<Scene>| {
                             matches!(
@@ -121,6 +126,7 @@ impl Plugin for GalleryPlugin {
                                     | Scene::PluginCapabilities
                                     | Scene::PluginAdds
                                     | Scene::PluginReload
+                                    | Scene::PluginSettingsPage
                             )
                         }),
                 ),
@@ -229,6 +235,13 @@ pub enum Scene {
     ViewMenu,
     /// The panels with the menu of a thing in the world open.
     WorldMenu(Place),
+    /// The menu of an agent with an item an installed plugin added.
+    PluginContext,
+    /// The Inspector at a tab an installed plugin added to the page
+    /// of an agent.
+    PluginInspectorTab,
+    /// The Settings panel at a page an installed plugin added.
+    PluginSettingsPage,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
 }

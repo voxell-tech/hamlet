@@ -1,5 +1,6 @@
 //! What a plugin adds to the window besides panels: its commands,
-//! its menu lines and its shortcuts, as lines under its name.
+//! its menu lines, its context menu items, its inspector tabs, its
+//! settings pages and its shortcuts, as lines under its name.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::relationship::RelationshipTarget;
@@ -8,9 +9,12 @@ use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
 use hamlet_sdk::capability::{Capability, Granted, allowed};
 use hamlet_sdk::command::{Commands, full};
+use hamlet_sdk::context::ContextItem;
+use hamlet_sdk::inspector::InspectorSection;
 use hamlet_sdk::keys::{Key, Keys, Standing};
 use hamlet_sdk::menu::{Menu, MenuEntry};
 use hamlet_sdk::plugin::{Contributions, PluginInfo};
+use hamlet_sdk::settings::SettingsPage;
 
 use crate::AnyView;
 use crate::looks::note;
@@ -20,6 +24,9 @@ use crate::looks::note;
 pub(super) struct Contributed<'w, 's> {
     held: Query<'w, 's, &'static Contributions>,
     menus: Query<'w, 's, &'static MenuEntry>,
+    contexts: Query<'w, 's, &'static ContextItem>,
+    sections: Query<'w, 's, &'static InspectorSection>,
+    pages: Query<'w, 's, &'static SettingsPage>,
     keys: Query<'w, 's, &'static Key>,
     commands: Res<'w, Commands>,
     bound: Res<'w, Keys>,
@@ -37,6 +44,9 @@ pub(super) struct Chorded {
 pub(super) struct Adds {
     pub commands: Vec<String>,
     pub menus: Vec<String>,
+    pub contexts: Vec<String>,
+    pub tabs: Vec<String>,
+    pub pages: Vec<String>,
     pub keys: Vec<Chorded>,
 }
 
@@ -86,6 +96,46 @@ pub(super) fn of(
         })
         .collect::<Vec<_>>();
     menus.sort();
+    // Each line says where it is, and that it waits for the
+    // capability it needs while the chief has not allowed it.
+    let waits = |capability: Capability| match may(capability) {
+        true => String::new(),
+        false => format!(" (waits for {})", capability.name()),
+    };
+    let mut contexts = from
+        .contexts
+        .iter_many(&mine)
+        .map(|item| {
+            format!(
+                "{} > {}{}",
+                item.target,
+                item.label,
+                waits(Capability::UiContext)
+            )
+        })
+        .collect::<Vec<_>>();
+    contexts.sort();
+    let mut tabs = from
+        .sections
+        .iter_many(&mine)
+        .map(|section| {
+            format!(
+                "{} > {}{}",
+                section.target,
+                section.title,
+                waits(Capability::UiInspector)
+            )
+        })
+        .collect::<Vec<_>>();
+    tabs.sort();
+    let mut pages = from
+        .pages
+        .iter_many(&mine)
+        .map(|page| {
+            format!("{}{}", page.title, waits(Capability::UiSettings))
+        })
+        .collect::<Vec<_>>();
+    pages.sort();
     let keys = from
         .keys
         .iter_many(&mine)
@@ -125,6 +175,9 @@ pub(super) fn of(
     Adds {
         commands,
         menus,
+        contexts,
+        tabs,
+        pages,
         keys,
     }
 }
@@ -146,10 +199,18 @@ pub(super) fn lines(adds: &Adds) -> Vec<AnyView> {
                 .boxed(),
         );
     }
-    if !adds.menus.is_empty() {
-        views.push(
-            note(format!("Menu: {}", adds.menus.join(", "))).boxed(),
-        );
+    for (name, listed) in [
+        ("Menu", &adds.menus),
+        ("Context menu", &adds.contexts),
+        ("Inspector tabs", &adds.tabs),
+        ("Settings pages", &adds.pages),
+    ] {
+        if !listed.is_empty() {
+            views.push(
+                note(format!("{name}: {}", listed.join(", ")))
+                    .boxed(),
+            );
+        }
     }
     for key in &adds.keys {
         views.push(note(format!("Keys: {}", key.words)).boxed());

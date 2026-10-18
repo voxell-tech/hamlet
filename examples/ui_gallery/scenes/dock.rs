@@ -115,6 +115,7 @@ pub(super) fn seed_dock(world: &mut World) {
                 | Scene::PluginCapabilities
                 | Scene::PluginAdds
                 | Scene::PluginReload
+                | Scene::PluginSettingsPage
         ) {
             tree.add_tab(side, "settings");
         }
@@ -165,7 +166,7 @@ fn rewind_question() -> Ui {
 /// The menu of a thing in the world, in the scenes that show it.
 fn world_menu() -> Ui {
     AnyView::new(|cx: &mut Cx| match *cx.world.resource::<Scene>() {
-        Scene::WorldMenu(_) => {
+        Scene::WorldMenu(_) | Scene::PluginContext => {
             cx.build(hamlet_ui::world_menu::view())
         }
         _ => cx.build(frame()),

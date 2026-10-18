@@ -5,13 +5,16 @@ use bevy::ecs::world::World;
 use hamlet_sdk::capability::{
     Asked, Asks, Capability, Choice, Choices, Granted, Uninstalled,
 };
-use hamlet_sdk::command::Command;
+use hamlet_sdk::command::{Command, kind};
+use hamlet_sdk::context::ContextItem;
 use hamlet_sdk::icons::Glyph;
+use hamlet_sdk::inspector::InspectorSection;
 use hamlet_sdk::keys::{Key, chord};
 use hamlet_sdk::menu::{Menu, MenuEntry};
 use hamlet_sdk::plugin::{
     ContributedBy, Imports, Manifest, PluginInfo, Status,
 };
+use hamlet_sdk::settings::SettingsPage;
 use hamlet_ui::settings::{Open, Tab};
 
 use super::Scene;
@@ -75,8 +78,8 @@ fn chorded(command: &str) -> Key {
 /// list with what each plugin adds.
 pub(super) fn put(world: &mut World, scene: Scene) {
     use Capability::{
-        ChatSend, Net, PluginUse, ReadAgents, ReadPapers, UiKeys,
-        UiMenu,
+        ChatSend, Net, PluginUse, ReadAgents, ReadPapers, UiContext,
+        UiInspector, UiKeys, UiMenu, UiSettings,
     };
 
     let roster = Choices::default()
@@ -141,11 +144,21 @@ pub(super) fn put(world: &mut World, scene: Scene) {
                 (ReadPapers, "To copy the selected agent's notes."),
                 (UiMenu, "To put New note in the HAMLET menu."),
                 (UiKeys, "To start a new note with Cmd+Shift+N."),
+                (
+                    UiSettings,
+                    "To put its page, NOTES, in the Settings.",
+                ),
+                (
+                    UiInspector,
+                    "To put a NOTES tab in the Inspector's page of \
+                     an agent.",
+                ),
             ]),
             Choices::default()
                 .decided(ReadPapers, Choice::Allow, false)
                 .decided(UiMenu, Choice::Allow, false)
-                .decided(UiKeys, Choice::Allow, false),
+                .decided(UiKeys, Choice::Allow, false)
+                .decided(UiSettings, Choice::Allow, false),
             Status::Running,
         ))
         .id();
@@ -165,20 +178,55 @@ pub(super) fn put(world: &mut World, scene: Scene) {
     ));
     world.spawn((chorded("new"), ContributedBy(notes)));
     world.spawn((
-        info("clipper", "Clipper", "0.1.0"),
-        clipper,
-        asks(&[
-            (ReadAgents, "To send the selected agent's name."),
-            (
-                PluginUse,
-                "To send what it clips to Notes and Almanac.",
-            ),
-        ]),
-        Choices::default()
-            .decided(ReadAgents, Choice::Allow, false)
-            .decided(PluginUse, Choice::AskNextTime, false)
-            .decided_for(PluginUse, "notes", Choice::Allow, false),
-        Status::Running,
+        SettingsPage {
+            title: "NOTES".into(),
+            icon: Glyph::Notes,
+            holds: String::new(),
+            panel: "notes/settings".into(),
+        },
+        ContributedBy(notes),
+    ));
+    world.spawn((
+        InspectorSection {
+            target: kind::AGENT.into(),
+            title: "NOTES".into(),
+            panel: "notes/mentions".into(),
+        },
+        ContributedBy(notes),
+    ));
+    let clipper = world
+        .spawn((
+            info("clipper", "Clipper", "0.1.0"),
+            clipper,
+            asks(&[
+                (ReadAgents, "To send the selected agent's name."),
+                (
+                    PluginUse,
+                    "To send what it clips to Notes and Almanac.",
+                ),
+                (UiContext, "To put Clip name to Notes in a menu."),
+            ]),
+            Choices::default()
+                .decided(ReadAgents, Choice::Allow, false)
+                .decided(PluginUse, Choice::AskNextTime, false)
+                .decided_for(PluginUse, "notes", Choice::Allow, false)
+                .decided(UiContext, Choice::Deny, false),
+            Status::Running,
+        ))
+        .id();
+    world.spawn((
+        Command::new("clip", "Clip name to Notes"),
+        ContributedBy(clipper),
+    ));
+    world.spawn((
+        ContextItem {
+            target: kind::AGENT.into(),
+            section: 200,
+            label: "Clip name to Notes".into(),
+            command: "clip".into(),
+            icon: None,
+        },
+        ContributedBy(clipper),
     ));
     match scene {
         Scene::PluginPermissions => {

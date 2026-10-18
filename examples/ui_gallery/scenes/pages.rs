@@ -4,24 +4,22 @@ use bevy::ecs::system::{Res, ResMut};
 use hamlet_sdk::settings::SettingsPages;
 use hamlet_ui::settings::Pane;
 
-/// Turns the Settings panel to the page titled `title`, once it is
+use super::Scene;
+
+/// Turns the Settings panel to the page of the scene, once it is
 /// there.
-pub(super) fn turn_to(
-    title: &str,
-    pages: &SettingsPages,
-    pane: &mut Pane,
+pub(super) fn turn(
+    scene: Res<Scene>,
+    pages: Res<SettingsPages>,
+    mut pane: ResMut<Pane>,
 ) {
+    let title = match *scene {
+        Scene::PluginSettingsPage => "NOTES",
+        _ => "PLUGINS",
+    };
     if let Some(line) =
         pages.0.iter().find(|line| line.title == title)
     {
         *pane = Pane::Contributed(line.item);
     }
-}
-
-/// The Plugins page.
-pub(super) fn plugins(
-    pages: Res<SettingsPages>,
-    mut pane: ResMut<Pane>,
-) {
-    turn_to("PLUGINS", &pages, &mut pane);
 }

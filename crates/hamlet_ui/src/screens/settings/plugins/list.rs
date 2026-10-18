@@ -17,11 +17,14 @@ use hamlet_sdk::capability::{
     AskToInstall, AskToRemove, Asks, Granted, Uninstalled,
 };
 use hamlet_sdk::command::Commands;
+use hamlet_sdk::context::ContextItems;
+use hamlet_sdk::inspector::InspectorSections;
 use hamlet_sdk::keys::Keys;
 use hamlet_sdk::plugin::{
     Blocked, Disable, Enable, PluginInfo, Status,
 };
 use hamlet_sdk::reload::{Reload, Rollback};
+use hamlet_sdk::settings::SettingsPages;
 
 use super::adds::{self, Adds, Contributed};
 use super::links::{self, Everyone, Links};
@@ -37,7 +40,10 @@ pub(super) fn plugin(app: &mut App) {
         list.run_if(
             moved
                 .or_eager(resource_changed::<Commands>)
-                .or_eager(resource_changed::<Keys>),
+                .or_eager(resource_changed::<Keys>)
+                .or_eager(resource_changed::<ContextItems>)
+                .or_eager(resource_changed::<InspectorSections>)
+                .or_eager(resource_changed::<SettingsPages>),
         ),
     );
 }
@@ -60,7 +66,7 @@ struct Line {
     rollback: bool,
     /// The plugins it needs and the plugins that need it.
     links: Links,
-    /// Its commands, menu lines and shortcuts.
+    /// What it adds to the window.
     adds: Adds,
 }
 

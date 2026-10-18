@@ -4,23 +4,21 @@ use bevy::ecs::system::{Res, ResMut};
 use hamlet_sdk::inspector::InspectorSections;
 use hamlet_ui::inspector::Section;
 
-/// Turns the Inspector to the tab titled `title`, once it is there.
-pub(super) fn turn_to(
-    title: &str,
-    sections: &InspectorSections,
-    section: &mut Section,
+use super::Scene;
+
+/// Turns the Inspector to the tab of the scene, once it is there.
+pub(super) fn turn(
+    scene: Res<Scene>,
+    sections: Res<InspectorSections>,
+    mut section: ResMut<Section>,
 ) {
+    let title = match *scene {
+        Scene::SkillsTab => "SKILLS",
+        _ => "NOTES",
+    };
     if let Some(line) =
         sections.0.iter().find(|line| line.title == title)
     {
         *section = Section::Contributed(line.item);
     }
-}
-
-/// The Skills tab.
-pub(super) fn skills(
-    sections: Res<InspectorSections>,
-    mut section: ResMut<Section>,
-) {
-    turn_to("SKILLS", &sections, &mut section);
 }
