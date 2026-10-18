@@ -27,7 +27,7 @@ In `hamlet_wasm/src/`, a file for each part:
 | Part | Files |
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
-| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
+| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
 | The install folder | `manifest.rs`, `install.rs`, `cache.rs` (the compiled components kept beside a plugin) |
 | Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
 | Bringing up and the frame | `load.rs`, `admit.rs` (a plugin the chief just let in), `start.rs`, `enable.rs`, `inbox.rs`, `reply.rs` (an answer to a request), `run.rs`, `stop.rs` |
@@ -48,6 +48,9 @@ shows and the view built from it are in `hamlet_sdk::tree`.
 - `request(capability, reason) -> request-result`, which asks to use a
   capability the manifest names: `granted`, `denied` or `pending` (see
   [`permissions.md`](permissions.md)).
+- `storage-get(key)`, `storage-set(key, value)`, `storage-delete(key)` and
+  `storage-keys(prefix)`, the plugin's own store (see Storage below). They
+  need no capability.
 
 The plugin exports:
 
@@ -61,7 +64,7 @@ The plugin exports:
   `tree`, or `lang`, a program in Hamlet's panel language that the host
   draws (see [`panels.md`](panels.md)).
 
-`interface::VERSION` is the package version, now `0.2.0`; it changes
+`interface::VERSION` is the package version, now `0.3.0`; it changes
 whenever the WIT file does. A manifest that names another one is turned
 down by the scan, and a component whose imports or exports are of another
 version of the package fails to load, both with "built for interface X,
@@ -205,6 +208,31 @@ each means. They apply to every plugin alike, whatever it is granted.
   a plugin in a second. The rest are dropped, each with a warning in the log.
 - **Intents.** At most `intents_per_call` intents of one `step` are carried
   out. The rest are dropped, with one warning for the call.
+- **Storage.** At most `storage_keys` keys, `storage_key_bytes` in a key,
+  `storage_value_bytes` in a value and `storage_bytes` in all the values.
+  A write over one returns an error to the plugin.
+
+## Storage
+
+Every plugin has a store of its own, a map from keys to bytes, kept on disk
+and never another plugin's. It needs no capability.
+
+```
+<home>/plugins/<id>/data/
+  key-<key>        the value of <key>
+```
+
+A key is 1 to `storage_key_bytes` bytes of `a-z`, `0-9`, `.`, `_` and `-`
+that does not start with `.`. It is its own file name, so no key can name a
+place outside `data/`; any other key is an error (`storage-get` of one finds
+nothing). A value is written to a file beside the key's and renamed over it,
+so it is whole or not there. `storage-set` returns an error when the key is
+bad, the value is over `storage_value_bytes`, the store would pass
+`storage_keys` keys or `storage_bytes` bytes, or the file cannot be written.
+`storage-keys` lists the keys that start with a prefix, in order.
+
+The store lives in the plugin's folder, so it survives a restart, a reload
+and a switch off. It is the only thing in that folder a plugin writes.
 
 A saved change to the file reaches `Limits` while the app runs, and the next
 call takes the new `call_ms`. The engine keeps the tick and the pool it was
@@ -245,8 +273,8 @@ reason); the reason is logged.
 folder and not recorded as installed is never compiled, and a missing file
 installs nothing.
 
-A plugin's folder also holds two folders the host writes, which are not part
-of the plugin: `.cache/` and `.last-good/`.
+A plugin's folder also holds the folders the host writes, which are not part
+of the plugin: `.cache/`, `.last-good/` and the plugin's `data/`.
 
 ## Reload
 
@@ -282,8 +310,8 @@ as a dim line under the plugin's name on the Plugins page of Settings
 again at the next look. A plugin that could not start at all, at launch or
 after Enable, shows the reason in the same place.
 
-State is lost on a reload: a new instance starts from its `entry`. A plugin's
-own storage will carry state across, when there is one.
+What the plugin keeps in memory is lost on a reload: a new instance starts from
+its `entry`. Its storage on disk carries across.
 
 A plugin folder added while Hamlet runs is found at the next start.
 

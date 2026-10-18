@@ -12,6 +12,7 @@ pub mod bindings {
     });
 }
 
+pub mod storage;
 pub mod ui;
 
 pub use self::bindings::exports::hamlet::plugin::plugin::{

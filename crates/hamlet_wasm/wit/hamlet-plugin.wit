@@ -1,4 +1,4 @@
-package hamlet:plugin@0.2.0;
+package hamlet:plugin@0.3.0;
 
 interface host {
   enum level { info, warn, error }
@@ -37,6 +37,24 @@ interface host {
   // capability the manifest does not name is `denied` and nobody is
   // asked.
   request: func(capability: string, reason: string) -> request-result;
+
+  // The plugin's own store of keys and values, kept on disk and
+  // private to it. It needs no capability. A key is 1 to a few dozen
+  // characters of a-z, 0-9, `.`, `_` and `-`, not starting with `.`.
+  // A value over a cap, a key over a cap or a bad key is an error;
+  // the caps are the host's.
+
+  // The value of `key`, if it is there.
+  storage-get: func(key: string) -> option<list<u8>>;
+
+  // Sets `key`, replacing its value.
+  storage-set: func(key: string, value: list<u8>) -> result<_, string>;
+
+  // Removes `key`, if it is there.
+  storage-delete: func(key: string);
+
+  // The keys that start with `prefix`, in order.
+  storage-keys: func(prefix: string) -> list<string>;
 }
 
 interface plugin {

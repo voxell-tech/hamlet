@@ -44,6 +44,14 @@ pub struct Limits {
     pub events_per_second: u32,
     /// The intents one `step` may return. The rest are dropped.
     pub intents_per_call: usize,
+    /// The bytes of all the values one plugin keeps in its storage.
+    pub storage_bytes: u64,
+    /// The keys one plugin may keep in its storage.
+    pub storage_keys: usize,
+    /// The bytes of one storage key.
+    pub storage_key_bytes: usize,
+    /// The bytes of one storage value.
+    pub storage_value_bytes: usize,
 }
 
 impl Limits {

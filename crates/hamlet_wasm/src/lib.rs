@@ -31,6 +31,7 @@ pub mod reply;
 pub mod run;
 pub mod start;
 pub mod stop;
+pub mod storage;
 pub mod wire;
 
 #[cfg(any(test, feature = "fixture"))]

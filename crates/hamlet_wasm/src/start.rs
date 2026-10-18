@@ -17,6 +17,7 @@ use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::reload::keep;
 use crate::stop::{self, Failure};
+use crate::storage::DATA;
 use crate::{panel, run};
 
 /// On the entity of an installed plugin: the file of its component.
@@ -53,7 +54,9 @@ pub fn build(
         agents,
     } = setting;
     let instance = Instance::from_file(&host.0, &source.0, limits)?;
-    let mut instance = instance.named(&info.id);
+    let folder = source.0.parent().unwrap_or(Path::new(""));
+    let mut instance =
+        instance.named(&info.id).stored(folder.join(DATA), limits);
     instance.see(granted, agents);
     let output = instance.entry(limits)?;
     Ok(Built {

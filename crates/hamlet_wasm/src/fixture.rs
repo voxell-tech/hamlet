@@ -16,12 +16,16 @@ pub use self::tree::{Item, Widget};
 /// a bump allocator for the canonical ABI, and a static `outgoing`
 /// at 0 holding one `log-line` that reads "hello world" at 32.
 const COMMON: &str = r#"
-  (import "hamlet:plugin/host@0.2.0" "log" (func $log (param i32 i32 i32)))
-  (import "hamlet:plugin/host@0.2.0" "panel"
+  (import "hamlet:plugin/host@0.3.0" "log" (func $log (param i32 i32 i32)))
+  (import "hamlet:plugin/host@0.3.0" "panel"
     (func $panel (param i32 i32 i32 i32 i32 i32)))
-  (import "hamlet:plugin/host@0.2.0" "agents" (func $agents (param i32)))
-  (import "hamlet:plugin/host@0.2.0" "request"
+  (import "hamlet:plugin/host@0.3.0" "agents" (func $agents (param i32)))
+  (import "hamlet:plugin/host@0.3.0" "request"
     (func $request (param i32 i32 i32 i32) (result i32)))
+  (import "hamlet:plugin/host@0.3.0" "storage-get"
+    (func $storage_get (param i32 i32 i32)))
+  (import "hamlet:plugin/host@0.3.0" "storage-set"
+    (func $storage_set (param i32 i32 i32 i32 i32)))
   (memory (export "memory") 1)
   (global $heap (mut i32) (i32.const 4096))
   (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32)
@@ -40,13 +44,13 @@ const COMMON: &str = r#"
 "#;
 
 /// A `panel-view` that returns a tree of no nodes.
-const NO_VIEW: &str = r#"(func (export "hamlet:plugin/plugin@0.2.0#panel-view")
+const NO_VIEW: &str = r#"(func (export "hamlet:plugin/plugin@0.3.0#panel-view")
     (param i32 i32) (result i32)
     (i32.const 48))"#;
 
 /// An `entry` that does nothing.
 const QUIET: &str =
-    r#"(func (export "hamlet:plugin/plugin@0.2.0#entry"))"#;
+    r#"(func (export "hamlet:plugin/plugin@0.3.0#entry"))"#;
 
 /// What a `step` does when the first thing in its inbox is a click.
 const ON_CLICK: &str = "(global.set $clicked (i32.const 1))";
@@ -72,13 +76,13 @@ pub fn speaking(text: &str) -> String {
   (data (i32.const 176) "main")
   (data (i32.const 184) "MAIN")
   (data (i32.const 192) "book")
-  (func (export "hamlet:plugin/plugin@0.2.0#entry")
+  (func (export "hamlet:plugin/plugin@0.3.0#entry")
     (call $panel (i32.const 176) (i32.const 4) (i32.const 184)
       (i32.const 4) (i32.const 192) (i32.const 4)))
-  (func (export "hamlet:plugin/plugin@0.2.0#step")
+  (func (export "hamlet:plugin/plugin@0.3.0#step")
     (param i32 i32) (result i32)
     (i32.const 0))
-  (func (export "hamlet:plugin/plugin@0.2.0#panel-view")
+  (func (export "hamlet:plugin/plugin@0.3.0#panel-view")
     (param i32 i32) (result i32)
     (i32.const 256)))"#
     )
@@ -98,17 +102,17 @@ fn panelled(
   (data (i32.const 184) "MAIN")
   (data (i32.const 192) "book")
   (global $clicked (mut i32) (i32.const 0))
-  (func (export "hamlet:plugin/plugin@0.2.0#entry")
+  (func (export "hamlet:plugin/plugin@0.3.0#entry")
     (call $panel (i32.const 176) (i32.const 4) (i32.const 184)
       (i32.const 4) (i32.const 192) (i32.const 4)))
-  (func (export "hamlet:plugin/plugin@0.2.0#step")
+  (func (export "hamlet:plugin/plugin@0.3.0#step")
     (param i32 i32) (result i32)
     (if (i32.gt_u (local.get 1) (i32.const 0))
       (then
         (if (i32.eq (i32.load8_u (local.get 0)) (i32.const 1))
           (then {on_click}))))
     (i32.const 0))
-  (func (export "hamlet:plugin/plugin@0.2.0#panel-view")
+  (func (export "hamlet:plugin/plugin@0.3.0#panel-view")
     (param i32 i32) (result i32)
     (if (result i32) (global.get $clicked)
       (then (i32.const 1536))
@@ -126,14 +130,14 @@ pub fn declaring() -> String {
   (data (i32.const 144) "book")
   (data (i32.const 152) "again")
   (data (i32.const 160) "nowhere")
-  (func (export "hamlet:plugin/plugin@0.2.0#entry")
+  (func (export "hamlet:plugin/plugin@0.3.0#entry")
     (call $panel (i32.const 128) (i32.const 5) (i32.const 136)
       (i32.const 5) (i32.const 144) (i32.const 4))
     (call $panel (i32.const 152) (i32.const 5) (i32.const 136)
       (i32.const 5) (i32.const 160) (i32.const 7))
     (call $panel (i32.const 152) (i32.const 5) (i32.const 136)
       (i32.const 5) (i32.const 144) (i32.const 4)))
-  (func (export "hamlet:plugin/plugin@0.2.0#step")
+  (func (export "hamlet:plugin/plugin@0.3.0#step")
     (param i32 i32) (result i32)
     (i32.const 0))
   {NO_VIEW})"#
@@ -145,7 +149,7 @@ pub fn declaring() -> String {
 pub fn reading() -> String {
     format!(
         r#"(module {COMMON} {QUIET} {NO_VIEW}
-  (func (export "hamlet:plugin/plugin@0.2.0#step")
+  (func (export "hamlet:plugin/plugin@0.3.0#step")
     (param i32 i32) (result i32)
     (call $agents (i32.const 96))
     (if (i32.eqz (i32.load8_u (i32.const 96)))
@@ -167,7 +171,7 @@ pub fn requesting(capability: &str) -> String {
         r#"(module {COMMON} {QUIET} {NO_VIEW}
   (data (i32.const 80) "{capability}")
   (data (i32.const 112) "why")
-  (func (export "hamlet:plugin/plugin@0.2.0#step")
+  (func (export "hamlet:plugin/plugin@0.3.0#step")
     (param i32 i32) (result i32)
     (i32.store (i32.const 24)
       (call $request (i32.const 80) (i32.const {len})
@@ -176,11 +180,31 @@ pub fn requesting(capability: &str) -> String {
     )
 }
 
+/// Looks for the key "note" in its storage in `step`. It answers
+/// with a line as long as the value it found, and where there is none
+/// it stores "hello world" and answers with an empty line.
+pub fn keeping() -> String {
+    format!(
+        r#"(module {COMMON} {QUIET} {NO_VIEW}
+  (data (i32.const 120) "note")
+  (func (export "hamlet:plugin/plugin@0.3.0#step")
+    (param i32 i32) (result i32)
+    (call $storage_get (i32.const 120) (i32.const 4) (i32.const 96))
+    (if (i32.load8_u (i32.const 96))
+      (then (i32.store (i32.const 24) (i32.load (i32.const 104))))
+      (else
+        (call $storage_set (i32.const 120) (i32.const 4)
+          (i32.const 32) (i32.const 11) (i32.const 96))
+        (i32.store (i32.const 24) (i32.const 0))))
+    (i32.const 0)))"#
+    )
+}
+
 /// Logs "logged" and answers with a line as long as the inbox.
 pub fn echo() -> String {
     format!(
         r#"(module {COMMON} {QUIET} {NO_VIEW}
-  (func (export "hamlet:plugin/plugin@0.2.0#step")
+  (func (export "hamlet:plugin/plugin@0.3.0#step")
     (param i32 i32) (result i32)
     (call $log (i32.const 0) (i32.const 64) (i32.const 6))
     (i32.store (i32.const 24) (local.get 1))
@@ -192,7 +216,7 @@ pub fn echo() -> String {
 pub fn spin() -> String {
     format!(
         r#"(module {COMMON} {QUIET} {NO_VIEW}
-  (func (export "hamlet:plugin/plugin@0.2.0#step")
+  (func (export "hamlet:plugin/plugin@0.3.0#step")
     (param i32 i32) (result i32)
     (loop $again (br $again))
     (i32.const 0)))"#
@@ -203,7 +227,7 @@ pub fn spin() -> String {
 pub fn grow() -> String {
     format!(
         r#"(module {COMMON} {QUIET} {NO_VIEW}
-  (func (export "hamlet:plugin/plugin@0.2.0#step")
+  (func (export "hamlet:plugin/plugin@0.3.0#step")
     (param i32 i32) (result i32)
     (loop $again
       (drop (memory.grow (i32.const 16)))

@@ -2,6 +2,7 @@
 //! defines, and the state they work on.
 
 mod declare;
+mod keeping;
 mod read;
 mod request;
 
@@ -17,6 +18,7 @@ use crate::interface::hamlet::plugin::host::{
 };
 use crate::interface::{VERSION, built_for};
 use crate::limits::{Limiter, Limits};
+use crate::storage::Storage;
 
 /// The name of the imported interface the linker defines.
 const HOST: &str = "hamlet:plugin/host@";
@@ -44,6 +46,8 @@ pub struct State {
     pub(crate) wants: Vec<Want>,
     /// The agents, when the plugin may read them.
     pub(crate) agents: Vec<Agent>,
+    /// The plugin's storage, once it has a folder.
+    pub(crate) storage: Option<Storage>,
 }
 
 impl State {
@@ -59,6 +63,7 @@ impl State {
             granted: Granted::default(),
             wants: Vec::new(),
             agents: Vec::new(),
+            storage: None,
         }
     }
 
@@ -94,6 +99,26 @@ impl Host for State {
         reason: String,
     ) -> RequestResult {
         self.ask_for(&capability, &reason)
+    }
+
+    fn storage_get(&mut self, key: String) -> Option<Vec<u8>> {
+        self.stored(&key)
+    }
+
+    fn storage_set(
+        &mut self,
+        key: String,
+        value: Vec<u8>,
+    ) -> Result<(), String> {
+        self.store(&key, &value)
+    }
+
+    fn storage_delete(&mut self, key: String) {
+        self.unstore(&key);
+    }
+
+    fn storage_keys(&mut self, prefix: String) -> Vec<String> {
+        self.stored_keys(&prefix)
     }
 }
 

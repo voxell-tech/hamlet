@@ -6,6 +6,7 @@ mod permissions;
 mod reads;
 mod reload;
 mod stopped;
+mod storage;
 mod tree;
 
 use wasmtime::component::Component;
@@ -97,7 +98,7 @@ fn a_build_for_another_interface_says_which() {
     };
     assert_eq!(
         why,
-        "built for interface 0.1.0, this Hamlet speaks 0.2.0"
+        "built for interface 0.1.0, this Hamlet speaks 0.3.0"
     );
 }
 

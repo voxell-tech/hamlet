@@ -1,7 +1,7 @@
 //! A running plugin: its component, instantiated with a store of its
 //! own.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use bevy::ecs::component::Component;
 use hamlet_sdk::agents::{Agent, AgentList};
@@ -14,6 +14,7 @@ use crate::fault::Fault;
 use crate::host::{self, State};
 use crate::interface::Hamlet;
 use crate::limits::Limits;
+use crate::storage::{Caps, Storage};
 
 /// On the entity of an installed plugin: its store and the exports
 /// of its component. The store is `Send` and `Sync` because its
@@ -46,6 +47,17 @@ impl Instance {
     /// functions give when they log.
     pub fn named(mut self, id: &str) -> Self {
         self.store.data_mut().plugin = id.into();
+        self
+    }
+
+    /// This, with its storage in `folder`.
+    pub fn stored(
+        mut self,
+        folder: PathBuf,
+        limits: &Limits,
+    ) -> Self {
+        self.store.data_mut().storage =
+            Some(Storage::new(folder, Caps::of(limits)));
         self
     }
 
