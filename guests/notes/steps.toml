@@ -106,3 +106,47 @@ expect = { panel = "main", text = "From the menu" }
 
 [[step]]
 render = { panel = "main", file = "key-note.png" }
+
+# A note that mentions an agent, and the tab of that agent: it lists
+# the notes that mention it once the chief allows read.agents and
+# ui.inspector.
+[[step]]
+press = "Cmd+Shift+N"
+
+[[step]]
+type = { panel = "main", node = "body", text = "Juniper grafts the pears\n\nEvery March, on the north rows." }
+
+[[step]]
+grant = "read.agents"
+
+[[step]]
+grant = "ui.inspector"
+
+[[step]]
+set-selected = "Juniper"
+
+[[step]]
+expect = { panel = "mentions", text = "Juniper grafts the pears" }
+
+[[step]]
+section = { title = "NOTES", file = "agent-tab.png" }
+
+# The page in the Settings, with its checkbox turned on: a note then
+# opens in preview.
+[[step]]
+grant = "ui.settings"
+
+[[step]]
+page = { title = "NOTES", file = "settings-page.png" }
+
+[[step]]
+toggle = { panel = "settings", node = "open-in-preview" }
+
+[[step]]
+page = { title = "NOTES", file = "settings-page-on.png" }
+
+[[step]]
+run-menu = "New note"
+
+[[step]]
+render = { panel = "main", file = "opens-in-preview.png" }

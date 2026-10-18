@@ -12,16 +12,24 @@ use hamlet_guest::{Incoming, Intent, Level, Plugin, State};
 use crate::model::Session;
 
 const PANEL: &str = "main";
+/// The page of the Settings.
+const SETTINGS: &str = "settings";
+/// The tab of the Inspector's page of an agent.
+const MENTIONS: &str = "mentions";
 
 struct Notes;
 
 impl Plugin for Notes {
     fn entry() {
         hamlet_guest::panel(PANEL, "NOTES", "notes");
+        hamlet_guest::panel(SETTINGS, "NOTES SETTINGS", "sliders");
+        hamlet_guest::panel(MENTIONS, "NOTES OF AN AGENT", "book");
         hamlet_guest::command(update::ADD, "Add a note", None);
         hamlet_guest::command(update::NEW, "New note", Some("plus"));
         hamlet_guest::menu_item("hamlet", 1, "New note", update::NEW);
         hamlet_guest::key("Cmd+Shift+N", update::NEW);
+        hamlet_guest::settings_page("NOTES", "notes", SETTINGS);
+        hamlet_guest::inspector_section("agent", "NOTES", MENTIONS);
     }
 
     fn step(inbox: Vec<Incoming>) -> Vec<Intent> {
@@ -46,13 +54,25 @@ impl Plugin for Notes {
         if let Err(why) = State::save(&session) {
             hamlet_guest::log(Level::Warn, &why);
         }
-        out.push(Intent::Redraw(PANEL.into()));
+        out.extend(
+            [PANEL, SETTINGS, MENTIONS]
+                .map(|panel| Intent::Redraw(panel.into())),
+        );
         out
     }
 
-    fn panel_view(_panel: &str) -> View {
-        let session = State::<Session>::load();
-        view::panel(&session, &storage::index()).into()
+    fn panel_view(panel: &str) -> View {
+        match panel {
+            SETTINGS => view::settings(&storage::prefs()).into(),
+            MENTIONS => {
+                let session = State::<Session>::load();
+                view::mentions(&session, &storage::index()).into()
+            }
+            _ => {
+                let session = State::<Session>::load();
+                view::panel(&session, &storage::index()).into()
+            }
+        }
     }
 }
 

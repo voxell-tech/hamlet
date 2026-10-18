@@ -5,7 +5,7 @@ use hamlet_guest::{
     Incoming, Intent, Level, RequestResult, calls, events, log,
 };
 
-use crate::model::{Index, MAX_NOTE, Session, cut};
+use crate::model::{Index, MAX_NOTE, Prefs, Session, cut};
 use crate::{PANEL, storage};
 
 /// The capability the copy of an agent's notes needs.
@@ -20,6 +20,10 @@ pub const ADD: &str = "add";
 /// The command that adds an empty note and opens it. The chief runs
 /// it from the menu and the keyboard.
 pub const NEW: &str = "new";
+
+/// The checkbox of the Settings page that has a note open as drawn
+/// markdown.
+pub const OPEN_IN_PREVIEW: &str = "open-in-preview";
 
 /// The event of a note that was saved. Its payload is the note's
 /// number.
@@ -39,6 +43,18 @@ pub fn handle(
         }
         Incoming::Toggled(toggle) if toggle.id == "preview" => {
             session.preview = toggle.on;
+        }
+        Incoming::Toggled(toggle) if toggle.id == OPEN_IN_PREVIEW => {
+            let prefs = Prefs { preview: toggle.on };
+            if let Err(why) = storage::save_prefs(&prefs) {
+                log(Level::Warn, &why);
+            }
+        }
+        Incoming::Event(event)
+            if event.sender == "host"
+                && event.topic == "selection-changed" =>
+        {
+            session.agent = events::text(&event);
         }
         Incoming::TextChanged(typed) => {
             text(&typed.id, &typed.text, session, index, out);
@@ -101,6 +117,7 @@ fn click(
                 .and_then(|id| id.parse::<u64>().ok());
             if let Some(id) = chosen.filter(|id| index.has(*id)) {
                 session.selected = Some(id);
+                session.preview = storage::prefs().preview;
             }
         }
     }
@@ -174,7 +191,7 @@ fn open_new(
 ) -> Result<u64, String> {
     let id = add(index, body)?;
     session.selected = Some(id);
-    session.preview = false;
+    session.preview = storage::prefs().preview;
     saved(id, out);
     Ok(id)
 }

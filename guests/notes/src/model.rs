@@ -95,4 +95,13 @@ pub struct Session {
     pub hint: String,
     /// A copy of the agent's notes waits for the chief to answer.
     pub waiting: bool,
+    /// The agent selected in the world, as the host last said.
+    pub agent: String,
+}
+
+/// What the chief chose for Notes in the Settings, kept in storage.
+#[derive(Default, Serialize, Deserialize)]
+pub struct Prefs {
+    /// Whether a note opens as drawn markdown.
+    pub preview: bool,
 }

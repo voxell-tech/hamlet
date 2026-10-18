@@ -1,12 +1,14 @@
-//! The panel: a search, the list of notes and the open note.
+//! The panels: a search, the list of notes and the open note, the
+//! page of the Settings and the tab of an agent.
 
 use hamlet_guest::ui::{
-    Node, button, checkbox, column, divider, heading, icon, markdown,
-    note, row, text_area, text_field,
+    Node, button, checkbox, column, divider, heading, icon, label,
+    markdown, note, row, text_area, text_field,
 };
 
-use crate::model::{Entry, Index, MAX_SHOWN, Session};
+use crate::model::{Entry, Index, MAX_SHOWN, Prefs, Session};
 use crate::storage;
+use crate::update::OPEN_IN_PREVIEW;
 
 /// The panel for these notes and this session.
 pub fn panel(session: &Session, index: &Index) -> Node {
@@ -28,12 +30,51 @@ pub fn panel(session: &Session, index: &Index) -> Node {
     column(rows)
 }
 
+/// The page of the Settings: how a note opens.
+pub fn settings(prefs: &Prefs) -> Node {
+    column([
+        note("How a note opens."),
+        checkbox("Open notes in preview", prefs.preview)
+            .id(OPEN_IN_PREVIEW),
+    ])
+}
+
+/// The tab of the Inspector's page of an agent: the notes that
+/// mention the agent selected in the world.
+pub fn mentions(session: &Session, index: &Index) -> Node {
+    let agent = session.agent.trim();
+    if agent.is_empty() {
+        return column([note("Select an agent in the world.")]);
+    }
+    let found = containing(index, agent);
+    if found.is_empty() {
+        return column([note(&format!("No note mentions {agent}."))]);
+    }
+    let mut rows = vec![heading(&format!(
+        "NOTES THAT MENTION {}",
+        agent.to_uppercase()
+    ))];
+    rows.extend(
+        found
+            .iter()
+            .take(MAX_SHOWN)
+            .map(|entry| label(&entry.title)),
+    );
+    column(rows)
+}
+
 /// The notes whose title or words hold the search, newest first.
 fn matching<'a>(
     session: &Session,
     index: &'a Index,
 ) -> Vec<&'a Entry> {
-    let wanted = session.search.trim().to_lowercase();
+    containing(index, session.search.trim())
+}
+
+/// The notes whose title or words hold `wanted`, in any case,
+/// newest first. Every note holds nothing.
+fn containing<'a>(index: &'a Index, wanted: &str) -> Vec<&'a Entry> {
+    let wanted = wanted.to_lowercase();
     index
         .notes
         .iter()

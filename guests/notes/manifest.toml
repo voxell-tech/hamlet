@@ -13,6 +13,10 @@ events = ["note-saved"]
 name = "notes"
 prefix = "note."
 
+# The agent selected in the world, for its tab in the Inspector.
+[imports]
+events = ["host/selection-changed"]
+
 [[asks]]
 capability = "ui.menu"
 reason = "To put New note in the HAMLET menu."
@@ -24,3 +28,15 @@ reason = "To start a new note with Cmd+Shift+N."
 [[asks]]
 capability = "read.papers"
 reason = "To copy the selected agent's notes into a note of your own."
+
+[[asks]]
+capability = "read.agents"
+reason = "To know which agent is selected, for its tab in the Inspector."
+
+[[asks]]
+capability = "ui.settings"
+reason = "To put its page, NOTES, in the Settings."
+
+[[asks]]
+capability = "ui.inspector"
+reason = "To put a NOTES tab in the Inspector's page of an agent."

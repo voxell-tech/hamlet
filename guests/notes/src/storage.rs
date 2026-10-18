@@ -3,9 +3,10 @@
 
 use hamlet_guest::storage;
 
-use crate::model::Index;
+use crate::model::{Index, Prefs};
 
 const INDEX: &str = "index";
+const PREFS: &str = "prefs";
 
 fn key(id: u64) -> String {
     format!("note.{id}")
@@ -18,6 +19,15 @@ pub fn index() -> Index {
 
 pub fn save_index(index: &Index) -> Result<(), String> {
     storage::save(INDEX, index)
+}
+
+/// What the chief chose, the defaults where nothing was chosen.
+pub fn prefs() -> Prefs {
+    storage::load(PREFS).unwrap_or_default()
+}
+
+pub fn save_prefs(prefs: &Prefs) -> Result<(), String> {
+    storage::save(PREFS, prefs)
 }
 
 /// The words of a note, empty where there are none.
