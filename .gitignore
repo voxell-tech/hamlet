@@ -1,4 +1,5 @@
 /target
+/guests/*/target
 .DS_Store
 
 # Worktrees of agents working in parallel.
