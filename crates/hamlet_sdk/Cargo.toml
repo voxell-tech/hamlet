@@ -14,3 +14,4 @@ hamlet_core.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true
 serde.workspace = true
+toml.workspace = true

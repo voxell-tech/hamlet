@@ -1,7 +1,7 @@
 # The WASM host
 
 An installed plugin is a WASM component. `hamlet_wasm` loads the ones the
-chief approved, runs each in a store of its own under limits, calls it
+chief installed, runs each in a store of its own under limits, calls it
 once a frame with what happened and draws the panels it declares. A plugin
 never sees Bevy or the world. The built-in plugins of [`sdk.md`](sdk.md)
 are Rust in the binary and do not pass through it.
@@ -26,7 +26,7 @@ In `hamlet_wasm/src/`, a file for each part:
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
 | What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels), `host/read.rs` (the reads). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
-| The install folder | `manifest.rs`, `install.rs`, `approved.rs` |
+| The install folder | `manifest.rs`, `install.rs` |
 | Bringing up and the frame | `load.rs`, `start.rs`, `enable.rs`, `inbox.rs`, `run.rs`, `stop.rs` |
 | The panels | `panel.rs`, `wire.rs` (a returned tree made into nodes), `draw.rs`, `event.rs` |
 
@@ -152,30 +152,23 @@ panels again. `Disable` despawns the panels, as for a built-in plugin.
 
 ## Grants
 
-A grant is a capability name in the plugin's `Granted` component. A host
-function that needs one checks it on each call. A call without it returns
-the error `read.agents not granted` and is logged with the plugin's id.
-`Granted` is replaced by inserting it again, and the next call sees it.
+The capabilities, the chief's choices and the verdicts are in
+[`permissions.md`](permissions.md). A host function that needs a capability
+checks the plugin's `Granted` component on each call. A call without it
+returns the error `read.agents not granted` and is logged with the plugin's
+id. `Granted` is replaced by inserting it again, and the next call sees it.
 
 The host puts what a function answers from into the plugin's store before a
-call: the grants, and a copy of the agents only when `read.agents` is held.
+call: the grant, and a copy of the agents only when `read.agents` is held.
 The agents are `AgentList`, a resource that a system writes when the core's
 agents change, so a host function never touches the world. `agents()` returns
 a copy: the name of each living agent and the name of its hamlet.
 
-The only capability so far is `read.agents`. A grant is dropped, with a
-warning, when the plugin's manifest does not ask for it.
+### The install record
 
-### The approved list
-
-`plugins/approved.toml` stands in for the chief's answer to a petition, and
-the petition replaces it. A plugin is a bare id, or a table with grants:
-
-```toml
-plugins = ["hello", { id = "roster", grants = ["read.agents"] }]
-```
-
-The list is read when the app starts.
+`plugins/grants.toml` records which plugins are installed and what the chief
+chose for each (see [`permissions.md`](permissions.md)). A plugin that is
+scanned and not recorded as installed is never compiled.
 
 ## Limits
 
@@ -210,7 +203,7 @@ the load with the name of the import.
 
 ```
 <home>/plugins/
-  approved.toml        plugins = ["hello", { id = "roster", grants = [..] }]
+  grants.toml          which plugins are installed, and the chief's choices
   roster/
     manifest.toml
     plugin.wasm
@@ -218,16 +211,18 @@ the load with the name of the import.
 
 `manifest.toml` has `id`, `name`, `version` and `interface`, and may have
 `needs` (an `id` and a `range` each), `exports`, `imports` and `asks` (a
-`capability` and a `reason` each). It may also have `kind`: `wasm` (the
-default) or `data`, a plugin that is a `panel.ui` and no `plugin.wasm`, with an
-optional `icon` and no `interface` (see [`panels.md`](panels.md)). The scan
-turns a folder down when a file is missing, the manifest cannot be read, its
-`id` is not the folder's name or a WASM plugin's `interface` is not
-`interface::VERSION`; the reason is logged.
+`capability`, a `reason` and optionally a `scope` each). It may also have
+`kind`: `wasm` (the default) or `data`, a plugin that is a `panel.ui` and no
+`plugin.wasm`, with an optional `icon` and no `interface` (see
+[`panels.md`](panels.md)). The scan turns a folder down when a file is
+missing, the manifest cannot be read, its `id` is not the folder's name, a
+WASM plugin's `interface` is not `interface::VERSION` or an ask cannot be
+granted (a name that is not a capability, one that is never granted, or no
+reason); the reason is logged.
 
-`approved.toml` lists the plugins that may load. A plugin that is installed
-and not listed is never compiled, and a missing or unreadable list approves
-nothing.
+`grants.toml` records the plugins that may load. A plugin that is in the
+folder and not recorded as installed is never compiled, and a missing file
+installs nothing.
 
 ## Building a plugin
 
@@ -269,8 +264,15 @@ To build and install it into a home, with the grant:
 ```sh
 rustup target add wasm32-wasip2
 HAMLET_HOME=/tmp/hamlet-try guests/roster/build.sh
-echo 'plugins = [{ id = "roster", grants = ["read.agents"] }]' \
-  > /tmp/hamlet-try/plugins/approved.toml
+cat > /tmp/hamlet-try/plugins/grants.toml <<'EOF'
+[plugin.roster]
+state = "installed"
+version = "0.1.0"
+asks = ["read.agents"]
+
+[plugin.roster.choices]
+"read.agents" = "allow"
+EOF
 HAMLET_HOME=/tmp/hamlet-try cargo run --features wasm
 ```
 

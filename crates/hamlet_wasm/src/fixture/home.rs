@@ -10,6 +10,9 @@ use bevy_fynix::FynixPlugin;
 use hamlet_assets::Tuning;
 use hamlet_core::core::HomeDir;
 use hamlet_home::Home;
+use hamlet_sdk::capability::{
+    Capability, Choice, Choices, Record, Store,
+};
 use hamlet_sdk::theme::{HamletTheme, insert_theme};
 
 /// A folder that is removed when it goes.
@@ -95,18 +98,21 @@ impl Plugin {
         text
     }
 
-    fn approval(&self) -> String {
-        let grants = self
-            .grants
+    /// The choices of a chief who allowed `grants`, which the plugin
+    /// asks for.
+    fn choices(&self) -> Choices {
+        self.grants
             .iter()
-            .map(|grant| format!("\"{grant}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("{{ id = \"{}\", grants = [{grants}] }}", self.id)
+            .filter(|grant| self.asks.contains(grant))
+            .filter_map(|grant| Capability::parse(grant).ok())
+            .fold(Choices::default(), |choices, capability| {
+                choices.decided(capability, Choice::Allow, false)
+            })
     }
 }
 
-/// An app with `home` holding `plugins`, all approved.
+/// An app with `home` holding `plugins`, all installed as if the
+/// chief had allowed what each is granted.
 pub fn app(home: &Scratch, plugins: &[Plugin]) -> App {
     let folder = home.0.join("plugins");
     for plugin in plugins {
@@ -125,16 +131,13 @@ pub fn app(home: &Scratch, plugins: &[Plugin]) -> App {
         std::fs::write(dir.join("manifest.toml"), plugin.manifest())
             .expect("a manifest");
     }
-    let ids = plugins
-        .iter()
-        .map(Plugin::approval)
-        .collect::<Vec<_>>()
-        .join(", ");
-    std::fs::write(
-        folder.join("approved.toml"),
-        format!("plugins = [{ids}]\n"),
-    )
-    .expect("an approved list");
+    let mut store = Store::open(&folder);
+    for plugin in plugins {
+        store.set(
+            plugin.id,
+            Record::installed("0.1.0", &plugin.choices()),
+        );
+    }
     let mut app = App::new();
     app.insert_resource(HomeDir(Home {
         root: home.0.clone(),

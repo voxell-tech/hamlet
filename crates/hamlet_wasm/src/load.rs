@@ -1,15 +1,16 @@
-//! Loading the approved plugins of the install folder at startup.
+//! Loading the installed plugins of the install folder at startup.
 
 use bevy::prelude::*;
 use hamlet_core::core::HomeDir;
 use hamlet_openui::data::{self, DataPanel};
 use hamlet_sdk::agents::AgentList;
-use hamlet_sdk::capability::{Capability, Choice, Choices, Granted};
+use hamlet_sdk::capability::{
+    Choices, Granted, Record, Standing, Store, standing,
+};
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::plugin::{self as sdk, PluginInfo, Status};
 use hamlet_sdk::tree::glyph;
 
-use crate::approved::{self, Approval};
 use crate::engine::Host;
 use crate::install::{self, Body, Installed};
 use crate::limits::Limits;
@@ -18,10 +19,10 @@ use crate::start::{self, Setting, Source};
 /// The icon of a data plugin's panel when its manifest names none.
 const DATA_ICON: Glyph = Glyph::Book;
 
-/// Scans the install folder and loads the plugins `approved.toml`
-/// names, each as an entity. A plugin that is not named is never
-/// compiled. A plugin of code needs the engine; one of a panel does
-/// not.
+/// Scans the install folder and loads the plugins that `grants.toml`
+/// records as installed, each as an entity. A plugin that is not
+/// recorded is never compiled. A plugin of code needs the engine; one
+/// of a panel does not.
 pub fn installed(
     home: Res<HomeDir>,
     host: Option<Res<Host>>,
@@ -35,7 +36,7 @@ pub fn installed(
         agents: &agents,
     });
     let folder = home.0.plugins();
-    let approved = approved::list(&folder);
+    let mut store = Store::open(&folder);
     for found in install::scan(&folder) {
         let installed = match found {
             Ok(installed) => installed,
@@ -45,53 +46,37 @@ pub fn installed(
             }
         };
         let id = &installed.manifest.id;
-        let Some(approval) = approved.iter().find(|a| a.id == *id)
+        let version = &installed.manifest.version;
+        let Standing::Installed { choices, .. } =
+            standing(store.get(id), version, &installed.asks)
         else {
-            info!("plugin {id}: installed, not approved, not loaded");
+            info!("plugin {id}: not installed, not loaded");
             continue;
         };
+        store.set(id, Record::installed(version, &choices));
         match (&installed.body, &setting) {
             (Body::Wasm(_), Some(setting)) => {
-                spawn(setting, installed, approval, &mut commands)
+                spawn(setting, installed, choices, &mut commands)
             }
             (Body::Wasm(_), None) => {
                 warn!("plugin {id}: no engine, not loaded")
             }
             (Body::Data(_), _) => {
-                spawn_data(installed, approval, &mut commands)
+                spawn_data(installed, choices, &mut commands)
             }
         }
     }
+    commands.insert_resource(store);
 }
 
 /// Spawns the plugin entity with what both kinds of plugin have.
 fn plugin(
     installed: &Installed,
-    approval: &Approval,
+    choices: Choices,
     commands: &mut Commands,
 ) -> (Entity, PluginInfo, Granted) {
     let manifest = sdk::Manifest::from(&installed.manifest);
     let info = PluginInfo::from(&manifest);
-    let asked = installed.asks.capabilities();
-    let choices = approval
-        .grants
-        .iter()
-        .filter_map(|name| Capability::parse(name).ok())
-        .filter(|capability| {
-            let named = asked.contains(capability);
-            if !named {
-                warn!(
-                    "plugin {}: {} is approved but the manifest \
-                     does not ask for it",
-                    info.id,
-                    capability.name()
-                );
-            }
-            named
-        })
-        .fold(Choices::default(), |choices, capability| {
-            choices.decided(capability, Choice::Allow, false)
-        });
     let granted = Granted::of(&installed.asks, &choices);
     let plugin = commands
         .spawn((
@@ -108,14 +93,14 @@ fn plugin(
 fn spawn(
     setting: &Setting,
     installed: Installed,
-    approval: &Approval,
+    choices: Choices,
     commands: &mut Commands,
 ) {
     let Body::Wasm(file) = &installed.body else {
         return;
     };
     let (plugin, info, granted) =
-        plugin(&installed, approval, commands);
+        plugin(&installed, choices, commands);
     let source = Source(file.clone());
     commands.entity(plugin).insert(source.clone());
     start::bring_up(
@@ -125,13 +110,13 @@ fn spawn(
 
 fn spawn_data(
     installed: Installed,
-    approval: &Approval,
+    choices: Choices,
     commands: &mut Commands,
 ) {
     let Body::Data(file) = &installed.body else {
         return;
     };
-    let (plugin, info, _) = plugin(&installed, approval, commands);
+    let (plugin, info, _) = plugin(&installed, choices, commands);
     let icon = installed
         .manifest
         .icon

@@ -9,7 +9,6 @@ use hamlet_sdk::agents::Kept;
 use self::engine::Host;
 use self::limits::{Limits, WasmTuning};
 
-pub mod approved;
 pub mod call;
 pub mod draw;
 pub mod enable;
@@ -35,7 +34,7 @@ mod fixture;
 #[cfg(test)]
 mod tests;
 
-/// Loads the approved installed plugins, steps the ones that have
+/// Loads the installed plugins, steps the ones that have
 /// mail and draws their panels. Add it after the core and the SDK.
 pub fn plugin(app: &mut App) {
     app.add_plugins((

@@ -108,17 +108,17 @@ A plugin with no code: a folder of the install folder with `manifest.toml` and
 
 ```
 <home>/plugins/
-  approved.toml
+  grants.toml
   greeter_ui/
     manifest.toml     id, name, version, kind = "data", icon?, asks
     panel.ui
 ```
 
 `kind` is `wasm` (the default, with `interface` and `plugin.wasm`) or `data`.
-A data plugin is scanned, approved (`approved.toml`) and switched with
+A data plugin is scanned, installed (`grants.toml`) and switched with
 `Enable` and `Disable` as a WASM plugin is. It has one panel, `<id>/main`,
-titled with its name; its grants are the approved ones that its manifest asks
-for. The file is read when the plugin is brought up, and again on `Enable`; a
+titled with its name; its grants are the chief's choices for what its manifest
+asks for ([`permissions.md`](permissions.md)). The file is read when the plugin is brought up, and again on `Enable`; a
 saved change to it is not followed while the app runs. Like the other
 installed plugins it is loaded by the host behind `--features wasm`, though
 it needs no engine.
@@ -137,8 +137,15 @@ plugin later returns a tree, the panel goes back to the tree.
 ```sh
 mkdir -p /tmp/hamlet-try/plugins/greeter_ui
 cp guests/greeter_ui/* /tmp/hamlet-try/plugins/greeter_ui/
-echo 'plugins = [{ id = "greeter_ui", grants = ["read.agents"] }]' \
-  > /tmp/hamlet-try/plugins/approved.toml
+cat > /tmp/hamlet-try/plugins/grants.toml <<'EOF'
+[plugin.greeter_ui]
+state = "installed"
+version = "0.1.0"
+asks = ["read.agents"]
+
+[plugin.greeter_ui.choices]
+"read.agents" = "allow"
+EOF
 HAMLET_HOME=/tmp/hamlet-try cargo run --features wasm
 ```
 
