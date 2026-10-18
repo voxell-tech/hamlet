@@ -61,6 +61,7 @@ table. The binary and the examples are the root package.
 | `hamlet_sdk` | What a plugin is built with: the plugin types, the theme, looks and icons, the dock's panels |
 | `hamlet_ui` | The window: panels, menus, chat and pointer around the world |
 | `hamlet_wasm` | The host of the installed WASM plugins, behind the binary's `wasm` feature. See [`wasm.md`](wasm.md) |
+| `hamlet_openui` | Panels written in Hamlet's panel language: the components, the evaluation into a panel tree, state, actions and the data plugin. See [`panels.md`](panels.md) |
 | `hamlet_guest` | What a WASM plugin is written with: the interface bindings, the `Plugin` trait and the tree builder |
 
 The plugins are under `plugins/`: `plugins/all` is `hamlet_plugins`, which
@@ -136,10 +137,12 @@ Paths are under `crates/`.
 | What a plugin's panel is drawn as | `hamlet_sdk/src/tree/view/node.rs` (a node as a view), `tree/node.rs`, `tree/store.rs`; `hamlet_wasm/src/wire.rs` and `draw.rs` for a WASM plugin's; [`wasm.md`](wasm.md) |
 | What a plugin's panel shows when it stopped | `hamlet_sdk/src/tree/view/stopped.rs`, `hamlet_wasm/src/stop.rs`; [`wasm.md`](wasm.md) |
 | How a click or typing reaches a plugin | `hamlet_sdk/src/tree/event.rs`, `hamlet_wasm/src/event.rs`; [`wasm.md`](wasm.md) |
+| A panel written in the panel language, its components, actions and limits | `hamlet_openui/src/components.rs`, `action.rs`, `evaluate.rs`, `assets/panel_lang.toml`; [`panels.md`](panels.md) |
+| A plugin that is a panel and no code | `hamlet_openui/src/data.rs`, `hamlet_wasm/src/install.rs`, `load.rs`; `guests/greeter_ui/`; [`panels.md`](panels.md) |
 | Writing a WASM plugin | `hamlet_guest/src/lib.rs` and `ui.rs`, `guests/hello/`, `guests/roster/`; [`wasm.md`](wasm.md) |
 | The Plugins page of Settings | `hamlet_ui/src/screens/settings/plugins.rs` |
 | A colour in the world | `assets/palette.toml` |
-| A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`, `wasm.toml`. What each value means is beside its field in the code |
+| A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`, `wasm.toml`, `panel_lang.toml`. What each value means is beside its field in the code |
 | The height something stands at | `LandData::surface`: the ground as it is drawn, never the smooth `height` |
 | How a house looks | `hamlet_realm/src/generator/house.rs` |
 | How a robot moves | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |

@@ -218,9 +218,12 @@ the load with the name of the import.
 
 `manifest.toml` has `id`, `name`, `version` and `interface`, and may have
 `needs` (an `id` and a `range` each), `exports`, `imports` and `asks` (a
-`capability` and a `reason` each). The scan turns a folder down when a file
-is missing, the manifest cannot be read, its `id` is not the folder's name or
-its `interface` is not `interface::VERSION`; the reason is logged.
+`capability` and a `reason` each). It may also have `kind`: `wasm` (the
+default) or `data`, a plugin that is a `panel.ui` and no `plugin.wasm`, with an
+optional `icon` and no `interface` (see [`panels.md`](panels.md)). The scan
+turns a folder down when a file is missing, the manifest cannot be read, its
+`id` is not the folder's name or a WASM plugin's `interface` is not
+`interface::VERSION`; the reason is logged.
 
 `approved.toml` lists the plugins that may load. A plugin that is installed
 and not listed is never compiled, and a missing or unreadable list approves
