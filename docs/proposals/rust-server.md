@@ -275,6 +275,53 @@ The server holds the credentials, model lists and sign-ins. It hands the
 one credential a call needs to the runtime, in memory, in its answer
 allowing the attempt; pi-ai stores nothing.
 
+#### Models and spend ownership (step 4b)
+
+`credentials.json` and `models.json` belong to Rust. The chief's catalogue
+is a chief document in `realm.sqlite`, separate from fetched lists. A
+refresh can change a listed price and context, but keeps a chief's price,
+allowance and note, including cards no longer returned by the provider.
+This closes the question of which store owns catalogue edits and which
+side merges a refresh (S7).
+
+Provider work uses `provider_request` and `provider_result` on the private
+link. Rust asks for built-in descriptions, a model list, a hello, or a key
+sign-in; pi-ai does the provider work with in-memory credentials and no
+credential or model-list store. Custom OpenAI-compatible listing and key
+adapters live in the pi package. The sign-in belongs to the requesting
+connection; cancellation or disconnect discards its eventual result.
+Requests are independent, bounded, and are not persisted or retried by
+the server. OAuth and subscription sign-ins remain deferred.
+
+The server chooses the model at each allowed attempt: a chief's pin,
+then an allowed agent choice, the hamlet model, and the home default. It
+snapshots that model's price with the attempt. The runtime uses that model
+and its one credential, rather than retaining the credential in a
+conversation's configuration. `HAMLET_API_KEY` is removed from the child
+environment. Kept provider text, thinking, tool arguments and failures are
+scrubbed of the attempt's credential before pi records them (C32). A
+future live-delta path must also handle credentials split across chunks.
+
+The ledger records elapsed model time, first-token time when a delta
+arrives, token categories, reasoning tokens, the end reason and a billed
+charge when present (C31). An explicit zero bill stands over a catalogue
+price. Otherwise positive pi-ai cost stands, then the attempt's price;
+successful unreported calls estimate four bytes per token, while failed
+calls do not invent tokens. Raw provider usage beyond these fields is
+not yet retained.
+
+Daily and monthly books follow local calendar days. A budget reset appends
+the model and road ledgers' high-water marks, so a charge in the same
+millisecond after a reset still counts. A reset changes the period's
+report, never the ledger or a task's lifetime spend (H8, H12). This closes
+the question of reset ordering. The pi runtime identifies the running
+input, not a newer queued input, on an attempt; Rust namespaces it by
+runtime. Shared task identities and a separate payer for errands across
+agents or hamlets still need the society owner. Compaction recovery and
+the budget notice in a chief conversation need the conversation owner.
+An allowed call whose answer is lost remains the open charging question
+above.
+
 ### Cancelling
 
 Stopping a turn (C25) marks its unadmitted inputs dropped in the server's
