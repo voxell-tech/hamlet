@@ -317,8 +317,9 @@ report, never the ledger or a task's lifetime spend (H8, H12). This closes
 the question of reset ordering. The pi runtime identifies the running
 input, not a newer queued input, on an attempt; Rust namespaces it by
 runtime. Shared task identities and a separate payer for errands across
-agents or hamlets still need the society owner. Compaction recovery and
-the budget notice in a chief conversation need the conversation owner.
+agents or hamlets still need the society owner. A refused attempt's words
+show as the budget notice in the chief's conversation. Compaction
+recovery is still to come.
 An allowed call whose answer is lost remains the open charging question
 above.
 
@@ -358,6 +359,58 @@ A rewind forks in the runtime, then the server moves the chat to the fork
 in a change it can recover. Waits in the part taken out lapse. A rewind
 undoes no change to the record and no effect outside.
 
+### Conversations (step 4a)
+
+A chief's chats, their sessions, the transcript each runtime kept, the
+inputs, what waits for a chief, the gate's decision of each call, the
+asking within a turn, session trust and grants are in `realm.sqlite`. The
+server folds the protocol's transcript from the items a runtime keeps and
+its live state, as `server/src/transcript.ts` does: items named
+`<entry>:<block>`, live items `live:<n>`, pages of 40, and a rebound chat
+reset and sent whole. Paging reads the kept items, not the runtime. A
+line's reply goes out once its input settles. A new or resumed session's
+reply waits until its notice is kept, so what the client opens next shows
+it.
+
+The prompt is composed in the server for each model call, as
+`server/src/prompt/` composes it, and the budget words are held for the
+whole turn of an input. A final answer with no words and no call fails
+its turn. An answer cut off for room fails at once, with the words of a
+failed summary, because the link has no compaction (C28).
+
+Each tool call is one operation the server carries out. The runtime holds
+no tool, not even a file operation. The gate decides at `allow` and keeps
+its decision with the call: run, refuse, or hold for a chief. A held call
+waits, across a crash, until a chief answers it. Its runtime is then woken
+to ask again. A chief's choices to always allow are kept as session trust
+for edits and commands, or as grants for the network and unconfined runs.
+The file tools run in the server's process after checks on canonical
+paths. A command runs confined by bubblewrap or Seatbelt, ported from
+`server/src/sandbox/`. The server probes the sandbox at start and does not
+start without one. `bash`, `write` and `edit` keep a begun marker before
+they run. One that a restart interrupted answers that it may have
+partially run, and is not run again. `read` is safe to repeat, though
+TypeScript marks it unsafe. Credentials are scrubbed from what a tool
+shows and from live text, holding back the start of a secret that may be
+split across updates.
+
+A closing home asks for the reflections it owes and waits up to two
+minutes for them. Then it closes each runtime in order and kills a tool
+still running. A second signal exits at once with 130.
+
+Deliberate differences from TypeScript:
+- A tool call's summary lists its arguments in key order.
+- The model of each conversation is the configured one. Choosing a model
+  per agent at the attempt is step 4b's, and binding one per
+  conversation is open.
+- A faux script's step is taken back when the server refuses the call
+  that took it, as TypeScript refuses before the model is reached.
+
+This closes the open questions of how the gate reaches the record (it
+answers in the server, with the record as it is then), of history
+cursors (paging reads the server's kept items), and of whether shell
+commands and writes keep a begun marker (they do).
+
 ## Capabilities of a harness
 
 A runtime declares what it can do. What Hamlet never gives up is not
@@ -385,8 +438,8 @@ tests; what is shown for pi does not carry over to it.
 Tools run apart from the conversation (ADR 0003), and the server decides
 where: in the sandbox on the chief's machine (C18, S12) or in a remote
 workspace ([`remote-workspaces.md`](remote-workspaces.md)). The runtime
-holds no host tools. For pi, Hamlet's `ExecutionEnv` in the runtime sends
-each file and process operation to the server as an operation.
+holds no host tools. For pi, each tool call is one operation the server
+carries out (see [Conversations](#conversations-step-4a)).
 
 ## Protocol v0
 
@@ -562,6 +615,8 @@ endpoint beside them.
   pi withdrew are marked dropped.
 - What an attempt whose provider answer was lost is charged.
 - Whether markers are ever cleared, and when.
+- Which model a conversation is bound to, when an agent's choice or a
+  chief's pin changes after it began.
 - How letters, questions and votes recover when the two agents are in
   different runtimes.
 - The format and order of moving a home: whether the pi runtime's store is
