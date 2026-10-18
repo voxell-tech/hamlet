@@ -60,10 +60,13 @@ table. The binary and the examples are the root package.
 | `hamlet_realm` | The 3D world, drawn from the core's entities |
 | `hamlet_sdk` | What a plugin is built with: the plugin types, the theme, looks and icons, the dock's panels |
 | `hamlet_ui` | The window: panels, menus, chat and pointer around the world |
+| `hamlet_wasm` | The host of the installed WASM plugins, behind the binary's `wasm` feature. See [`wasm.md`](wasm.md) |
+| `hamlet_guest` | What a WASM plugin is written with: the interface bindings and the `Plugin` trait |
 
 The plugins are under `plugins/`: `plugins/all` is `hamlet_plugins`, which
 lists them, and each other folder is one plugin crate. See
-[`sdk.md`](sdk.md).
+[`sdk.md`](sdk.md). A plugin built for WASM is under `guests/`, in a
+workspace of its own.
 
 Inside a crate, a module with several subjects is a file and a folder of
 the same name, and each file opens with a line saying what it holds. Read
@@ -128,9 +131,12 @@ Paths are under `crates/`.
 | A plugin, or what a plugin may add | `plugins/<name>/`, `hamlet_sdk/src/plugin/`; [`sdk.md`](sdk.md) |
 | Which plugins are built in | `plugins/all/Cargo.toml` and `src/lib.rs` |
 | The Skills panel | `plugins/skills/src/` |
+| What an installed plugin may call, and its limits | `hamlet_wasm/wit/hamlet-plugin.wit`, `hamlet_wasm/src/host.rs`, `assets/wasm.toml`; [`wasm.md`](wasm.md) |
+| Which installed plugins load | `hamlet_wasm/src/install.rs`, `approved.rs`, `load.rs`; [`wasm.md`](wasm.md) |
+| Writing a WASM plugin | `hamlet_guest/src/lib.rs`, `guests/hello/`; [`wasm.md`](wasm.md) |
 | The Plugins page of Settings | `hamlet_ui/src/screens/settings/plugins.rs` |
 | A colour in the world | `assets/palette.toml` |
-| A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`. What each value means is beside its field in the code |
+| A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`, `wasm.toml`. What each value means is beside its field in the code |
 | The height something stands at | `LandData::surface`: the ground as it is drawn, never the smooth `height` |
 | How a house looks | `hamlet_realm/src/generator/house.rs` |
 | How a robot moves | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |

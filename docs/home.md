@@ -14,6 +14,7 @@ it elsewhere.
   workspace/      the only place the mayor's tools can write, besides a folder its hamlet works on
     NOTES.md      its memory, shown to it every turn
     skills/       its skills, one folder each with a SKILL.md
+  plugins/        installed WASM plugins, one folder each, and approved.toml (see wasm.md)
   tools/          tools added by hand; read-only to the agent
   sessions/       the mayor's logs, one JSONL file per session
   hamlet.jsonl    the record of the hamlet: agents, roads, mayors, votes

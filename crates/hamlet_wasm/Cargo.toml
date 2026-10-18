@@ -17,6 +17,9 @@ serde.workspace = true
 toml.workspace = true
 wasmtime.workspace = true
 
+[[example]]
+name = "bench"
+
 [dev-dependencies]
 # The test plugins are core modules in text, made into components
 # against the WIT file.
