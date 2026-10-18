@@ -21,6 +21,11 @@ pub mod load;
 pub mod manifest;
 pub mod run;
 
+#[cfg(test)]
+mod fixture;
+#[cfg(test)]
+mod tests;
+
 /// Loads the approved installed plugins and steps the ones that have
 /// mail. Add it after the core.
 pub fn plugin(app: &mut App) {
