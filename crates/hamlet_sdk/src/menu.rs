@@ -67,7 +67,7 @@ mod tests {
         assert_eq!(labels(&app), ["Wave"]);
 
         let id = app.world().resource::<Menus>().0[0].command.clone();
-        app.world_mut().trigger(RunCommand { id });
+        app.world_mut().trigger(RunCommand::of(id));
         app.world_mut().flush();
         assert!(app.world().contains_resource::<Waved>());
 

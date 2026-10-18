@@ -211,9 +211,7 @@ fn a_command_the_chief_runs_needs_no_grant_and_is_answered() {
         home::app(&scratch, &[target(fixture::answering())]);
     app.update();
 
-    app.world_mut().trigger(RunCommand {
-        id: "target/add".into(),
-    });
+    app.world_mut().trigger(RunCommand::of("target/add"));
     app.world_mut().flush();
     assert!(!app.world().resource::<Calls>().is_empty());
     said(&mut app, 6);

@@ -32,9 +32,7 @@ pub(super) fn press(
         if let Some(bound) = keys.0.iter().find(|bound| {
             bound.chord == chord && bound.standing == Standing::Runs
         }) {
-            commands.trigger(RunCommand {
-                id: bound.command.clone(),
-            });
+            commands.trigger(RunCommand::of(bound.command.clone()));
         }
     }
 }

@@ -7,7 +7,7 @@ use bevy_fynix::shortcut::Chord;
 
 use super::{ContributedBy, Status};
 use crate::AnyView;
-use crate::command::{Command, Handler, Opens};
+use crate::command::{Command, Handler, HandlerWith, Opens, Subject};
 use crate::dock::Panel;
 use crate::icons::Glyph;
 use crate::keys::Key;
@@ -32,6 +32,7 @@ enum Declared {
 /// What a command does when it is run.
 enum Does {
     Handler(fn(&mut Commands)),
+    HandlerWith(fn(&mut Commands, &Subject)),
     Opens(String),
     /// The plugin carries it out in code the app does not hold.
     Forwarded,
@@ -71,6 +72,17 @@ impl Entry {
         handler: fn(&mut Commands),
     ) {
         self.declare(id, title, None, Does::Handler(handler));
+    }
+
+    /// Adds a command that `handler` carries out on the [`Subject`]
+    /// it is run on.
+    pub fn command_with(
+        &mut self,
+        id: &str,
+        title: &str,
+        handler: fn(&mut Commands, &Subject),
+    ) {
+        self.declare(id, title, None, Does::HandlerWith(handler));
     }
 
     /// Adds a command that brings the panel `panel` forward.
@@ -147,6 +159,9 @@ impl Entry {
                     match does {
                         Does::Handler(handler) => {
                             command.insert(Handler(handler));
+                        }
+                        Does::HandlerWith(handler) => {
+                            command.insert(HandlerWith(handler));
                         }
                         Does::Opens(panel) => {
                             command.insert(Opens(panel));

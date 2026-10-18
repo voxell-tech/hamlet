@@ -199,7 +199,7 @@ fn item(line: &Line) -> AnyView {
     )
     .on_activate(move |world| {
         world.resource_mut::<OpenMenu>().0 = None;
-        world.trigger(RunCommand { id: id.clone() });
+        world.trigger(RunCommand::of(id.clone()));
         world.flush();
     })
     .boxed()

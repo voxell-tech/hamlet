@@ -7,7 +7,7 @@ use bevy::ecs::system::{Commands, Query};
 use bevy::ecs::world::World;
 use bevy::log::warn;
 
-use super::{Command, Handler, Notice, Opens};
+use super::{Command, Handler, HandlerWith, Notice, Opens, Subject};
 use crate::dock;
 use crate::plugin::{ContributedBy, PluginInfo, Status};
 
@@ -17,6 +17,26 @@ use crate::plugin::{ContributedBy, PluginInfo, Status};
 #[derive(Event, Clone, PartialEq, Eq, Debug)]
 pub struct RunCommand {
     pub id: String,
+    /// The thing it is run on, where it is run on one.
+    pub subject: Option<Subject>,
+}
+
+impl RunCommand {
+    /// Runs the command `id` on nothing.
+    pub fn of(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            subject: None,
+        }
+    }
+
+    /// Runs the command `id` on `subject`.
+    pub fn on(id: impl Into<String>, subject: Subject) -> Self {
+        Self {
+            id: id.into(),
+            subject: Some(subject),
+        }
+    }
 }
 
 /// A command that the plugin which owns it carries out in code of its
@@ -26,6 +46,9 @@ pub struct Forward {
     pub plugin: Entity,
     /// The name the plugin exports the command by.
     pub command: String,
+    /// The [`Subject`] it was run on, as [`Subject::encode`] writes
+    /// it, or nothing.
+    pub args: Vec<u8>,
 }
 
 pub(super) fn run(
@@ -35,6 +58,7 @@ pub(super) fn run(
         &Command,
         &ContributedBy,
         Option<&Handler>,
+        Option<&HandlerWith>,
         Option<&Opens>,
     )>,
     mut out: Commands,
@@ -58,24 +82,35 @@ pub(super) fn run(
             ),
         );
     }
-    let Some((.., handler, opens)) =
+    let Some((.., handler, with, opens)) =
         commands.iter().find(|(command, by, ..)| {
             by.0 == plugin && command.id == name
         })
     else {
         return refuse(&mut out, format!("{owner} has no `{name}`"));
     };
-    match (handler, opens) {
-        (Some(Handler(handler)), _) => handler(&mut out),
-        (_, Some(Opens(panel))) => {
+    match (handler, with, opens, &run.subject) {
+        (Some(Handler(handler)), ..) => handler(&mut out),
+        (_, Some(HandlerWith(handler)), _, Some(subject)) => {
+            handler(&mut out, subject)
+        }
+        (_, Some(_), ..) => refuse(
+            &mut out,
+            format!("`{id}` needs something to act on"),
+        ),
+        (.., Some(Opens(panel)), _) => {
             let panel = panel.clone();
             out.queue(move |world: &mut World| {
                 dock::open(world, &panel)
             });
         }
-        _ => out.trigger(Forward {
+        (.., subject) => out.trigger(Forward {
             plugin,
             command: name.into(),
+            args: subject
+                .as_ref()
+                .map(Subject::encode)
+                .unwrap_or_default(),
         }),
     }
 }

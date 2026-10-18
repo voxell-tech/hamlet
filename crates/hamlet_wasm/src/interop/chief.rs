@@ -1,5 +1,6 @@
-//! A command the chief runs from a menu or a key: it goes to the
-//! plugin that owns it, as a call from the sender `chief`.
+//! A command the chief runs from a menu, a key or a context menu: it
+//! goes to the plugin that owns it, as a call from the sender
+//! `chief`.
 
 use bevy::prelude::*;
 use hamlet_sdk::command::Forward;
@@ -35,7 +36,7 @@ pub(super) fn forward(
         call_id: id,
         sender: CHIEF.into(),
         command: forward.command.clone(),
-        args: Vec::new(),
+        args: forward.args.clone(),
     };
     if send(&mut inboxes, forward.plugin, Incoming::Command(call)) {
         info!("the chief runs {}/{}", info.id, forward.command);

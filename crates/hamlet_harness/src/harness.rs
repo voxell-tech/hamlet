@@ -247,7 +247,7 @@ impl Harness {
                 known.iter().map(|c| &c.id).collect::<Vec<_>>()
             ));
         }
-        self.app.world_mut().trigger(RunCommand { id });
+        self.app.world_mut().trigger(RunCommand::of(id));
         self.app.world_mut().flush();
         self.frames(SETTLE);
         Ok(())
