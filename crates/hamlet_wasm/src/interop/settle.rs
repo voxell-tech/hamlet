@@ -2,10 +2,10 @@
 //! stopped or removed, or it did not answer in time.
 
 use bevy::prelude::*;
+use hamlet_sdk::command::Notice;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 
-use super::calls::{Call, Calls};
-use super::command::idle;
+use super::calls::{Call, Caller, Calls};
 use super::mail::send;
 use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::{
@@ -28,6 +28,7 @@ pub(super) fn settle(
     plugins: Query<(&PluginInfo, &Status)>,
     mut inboxes: Query<(&Status, &mut Inbox)>,
     limits: Res<Limits>,
+    mut commands: Commands,
 ) {
     calls.frame += 1;
     let frame = calls.frame;
@@ -42,30 +43,43 @@ pub(super) fn settle(
         let Some(call) = calls.close(id) else {
             continue;
         };
-        if let End::Told(why) = end {
-            warn!(
-                "plugin {}: the call to {} ended: {why}",
-                caller_name(&call, &plugins),
-                call.target_id
-            );
-            send(
-                &mut inboxes,
-                call.caller,
-                Incoming::Reply(CallAnswer {
-                    call_id: call.caller_id,
-                    outcome: Err(why),
-                }),
-            );
+        let End::Told(why) = end else {
+            continue;
+        };
+        match &call.caller {
+            Caller::Plugin { entity, id } => {
+                warn!(
+                    "plugin {}: the call to {} ended: {why}",
+                    caller_name(*entity, &plugins),
+                    call.target_id
+                );
+                send(
+                    &mut inboxes,
+                    *entity,
+                    Incoming::Reply(CallAnswer {
+                        call_id: *id,
+                        outcome: Err(why),
+                    }),
+                );
+            }
+            Caller::Chief(command) => {
+                let words = format!(
+                    "`{}/{command}` did not run: {why}",
+                    call.target_id
+                );
+                warn!("{words}");
+                commands.trigger(Notice(words));
+            }
         }
     }
 }
 
 fn caller_name(
-    call: &Call,
+    caller: Entity,
     plugins: &Query<(&PluginInfo, &Status)>,
 ) -> String {
     plugins
-        .get(call.caller)
+        .get(caller)
         .map(|(info, _)| info.id.clone())
         .unwrap_or_default()
 }
@@ -76,15 +90,16 @@ fn ending(
     plugins: &Query<(&PluginInfo, &Status)>,
     limits: &Limits,
 ) -> Option<End> {
-    match plugins.get(call.caller) {
-        Ok((_, Status::Running)) => {}
-        _ => return Some(End::Quietly),
+    if let Caller::Plugin { entity, .. } = call.caller
+        && !matches!(plugins.get(entity), Ok((_, Status::Running)))
+    {
+        return Some(End::Quietly);
     }
     let target = &call.target_id;
     match plugins.get(call.target) {
         Err(_) => Some(End::Told(format!("`{target}` was removed"))),
         Ok((_, status)) if *status != Status::Running => Some(
-            End::Told(format!("`{target}` is {}", idle(*status))),
+            End::Told(format!("`{target}` is {}", status.words())),
         ),
         Ok(_) if frame >= call.due => Some(End::Told(format!(
             "`{target}` did not answer in {} frames",

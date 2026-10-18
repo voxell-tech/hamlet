@@ -2,11 +2,13 @@ use bevy::ecs::message::Messages;
 use bevy::prelude::*;
 use hamlet_sdk::agents::SelectedAgent;
 use hamlet_sdk::capability::{Capability, Subject};
-use hamlet_sdk::plugin::{Command, Disable};
+use hamlet_sdk::command::{Command, RunCommand};
+use hamlet_sdk::plugin::Disable;
 
 use super::permissions::petitions;
 use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
+use crate::interop::Calls;
 use crate::limits::Limits;
 use crate::run::Said;
 
@@ -200,4 +202,21 @@ fn a_command_to_a_plugin_that_is_off_or_silent_is_answered_with_an_error()
         )),
         "{lines:?}"
     );
+}
+
+#[test]
+fn a_command_the_chief_runs_needs_no_grant_and_is_answered() {
+    let scratch = Scratch::new("interop_chief");
+    let mut app =
+        home::app(&scratch, &[target(fixture::answering())]);
+    app.update();
+
+    app.world_mut().trigger(RunCommand {
+        id: "target/add".into(),
+    });
+    app.world_mut().flush();
+    assert!(!app.world().resource::<Calls>().is_empty());
+    said(&mut app, 6);
+
+    assert!(app.world().resource::<Calls>().is_empty());
 }

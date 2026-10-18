@@ -13,3 +13,15 @@ pub enum Status {
     Disabled,
     Failed,
 }
+
+impl Status {
+    /// What a plugin in this status is, in a few words.
+    pub fn words(self) -> &'static str {
+        match self {
+            Status::Starting => "not started yet",
+            Status::Running => "running",
+            Status::Disabled => "switched off",
+            Status::Failed => "stopped",
+        }
+    }
+}

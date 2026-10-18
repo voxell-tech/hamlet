@@ -254,6 +254,7 @@ pub fn open(home: &Scratch) -> App {
     .add_plugins((
         hamlet_sdk::agents::plugin,
         hamlet_sdk::capability::plugin,
+        hamlet_sdk::command::plugin,
         hamlet_sdk::dock::plugin,
         hamlet_sdk::plugin::plugin,
         hamlet_sdk::tree::plugin,

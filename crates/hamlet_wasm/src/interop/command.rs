@@ -3,9 +3,10 @@
 
 use bevy::prelude::*;
 use hamlet_sdk::capability::{Capability, Verdict, Wanted};
+use hamlet_sdk::command::Notice;
 use hamlet_sdk::plugin::Status;
 
-use super::calls::Calls;
+use super::calls::{Caller, Calls};
 use super::mail::{Who, send};
 use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::{
@@ -157,20 +158,10 @@ fn admit(
     if *status != Status::Running {
         return Err(Refused::because(format!(
             "`{plugin}` is {}",
-            idle(*status)
+            status.words()
         )));
     }
     Ok((target, depth))
-}
-
-/// What a plugin that is not running is, in a few words.
-pub(super) fn idle(status: Status) -> &'static str {
-    match status {
-        Status::Starting => "not started yet",
-        Status::Running => "running",
-        Status::Disabled => "switched off",
-        Status::Failed => "stopped",
-    }
 }
 
 /// Gives the caller the answer `by` made to a command.
@@ -181,6 +172,7 @@ pub(super) fn reply(
     inboxes: &mut Query<(&Status, &mut Inbox)>,
     calls: &mut Calls,
     limits: &Limits,
+    commands: &mut Commands,
 ) {
     let name = who.get(by).map_or("", |(_, info, ..)| &info.id);
     let Some(call) = calls.answer(answer.call_id, by) else {
@@ -202,12 +194,26 @@ pub(super) fn reply(
             .to_string()),
         other => other.clone(),
     };
-    send(
-        inboxes,
-        call.caller,
-        Incoming::Reply(CallAnswer {
-            call_id: call.caller_id,
-            outcome,
-        }),
-    );
+    match call.caller {
+        Caller::Plugin { entity, id } => {
+            send(
+                inboxes,
+                entity,
+                Incoming::Reply(CallAnswer {
+                    call_id: id,
+                    outcome,
+                }),
+            );
+        }
+        Caller::Chief(command) => {
+            if let Err(why) = outcome {
+                let words = format!(
+                    "`{}/{command}` failed: {why}",
+                    call.target_id
+                );
+                warn!("{words}");
+                commands.trigger(Notice(words));
+            }
+        }
+    }
 }

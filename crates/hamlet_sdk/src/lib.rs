@@ -5,6 +5,7 @@
 pub mod agents;
 pub mod capability;
 pub mod cards;
+pub mod command;
 pub mod confirm;
 pub mod convo;
 pub mod dock;
@@ -32,6 +33,7 @@ impl Plugin for SdkPlugin {
         app.add_plugins((
             agents::plugin,
             capability::plugin,
+            command::plugin,
             dock::plugin,
             papers::plugin,
             plugin::plugin,

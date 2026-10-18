@@ -2,14 +2,25 @@
 
 use bevy::prelude::*;
 
-/// A command run by one plugin that its target has not answered.
+/// Who ran a command.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Caller {
+    Plugin {
+        entity: Entity,
+        /// The plugin's own number for the call.
+        id: u64,
+    },
+    /// The chief, by the command of this name.
+    Chief(String),
+}
+
+/// A command run by one plugin or the chief that its target has not
+/// answered.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Call {
     /// The host's number for it, which the target answers with.
     pub id: u64,
-    pub caller: Entity,
-    /// The caller's own number for it.
-    pub caller_id: u64,
+    pub caller: Caller,
     pub target: Entity,
     pub target_id: String,
     /// The plugins it has crossed, this hop included.
@@ -27,6 +38,18 @@ pub struct Calls {
     pub(super) open: Vec<Call>,
 }
 
+impl Call {
+    /// The plugin's own number for the call, if `plugin` ran it.
+    fn numbered_by(&self, plugin: Entity) -> Option<u64> {
+        match self.caller {
+            Caller::Plugin { entity, id } if entity == plugin => {
+                Some(id)
+            }
+            _ => None,
+        }
+    }
+}
+
 impl Calls {
     /// Whether any call waits.
     pub fn any(calls: Res<Calls>) -> bool {
@@ -37,7 +60,7 @@ impl Calls {
     pub fn in_flight(&self, caller: Entity) -> usize {
         self.open
             .iter()
-            .filter(|call| call.caller == caller)
+            .filter(|call| call.numbered_by(caller).is_some())
             .count()
     }
 
@@ -45,7 +68,7 @@ impl Calls {
     pub fn waiting(&self, caller: Entity, id: u64) -> bool {
         self.open
             .iter()
-            .any(|call| call.caller == caller && call.caller_id == id)
+            .any(|call| call.numbered_by(caller) == Some(id))
     }
 
     /// The depth of a call `caller` runs now: one more than the
@@ -69,17 +92,47 @@ impl Calls {
         depth: usize,
         wait: u64,
     ) -> u64 {
+        let caller = Caller::Plugin {
+            entity: caller.0,
+            id: caller.1,
+        };
+        self.push(caller, target, depth, wait)
+    }
+
+    /// Notes a command the chief ran, to be given up `wait` frames
+    /// from now, and returns its number.
+    pub fn open_for_chief(
+        &mut self,
+        command: &str,
+        target: (Entity, &str),
+        wait: u64,
+    ) -> u64 {
+        let caller = Caller::Chief(command.into());
+        self.push(caller, target, 1, wait)
+    }
+
+    fn push(
+        &mut self,
+        caller: Caller,
+        target: (Entity, &str),
+        depth: usize,
+        wait: u64,
+    ) -> u64 {
         self.next += 1;
         self.open.push(Call {
             id: self.next,
-            caller: caller.0,
-            caller_id: caller.1,
+            caller,
             target: target.0,
             target_id: target.1.into(),
             depth,
             due: self.frame + wait,
         });
         self.next
+    }
+
+    /// Whether no call waits.
+    pub fn is_empty(&self) -> bool {
+        self.open.is_empty()
     }
 
     /// Takes the call numbered `id` that `target` is to answer.

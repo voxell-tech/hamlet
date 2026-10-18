@@ -4,6 +4,7 @@
 //! grants.
 
 mod calls;
+mod chief;
 mod command;
 mod hosted;
 mod mail;
@@ -22,20 +23,22 @@ use crate::run::Done;
 /// back, gives events to the plugins that import them, and answers
 /// the calls that end for another reason.
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Calls>().add_systems(
-        Update,
-        (
+    app.init_resource::<Calls>()
+        .add_observer(chief::forward)
+        .add_systems(
+            Update,
             (
-                settle::settle.run_if(Calls::any),
-                hosted::agents_changed
-                    .run_if(resource_changed::<AgentList>),
-                hosted::selection_changed
-                    .run_if(resource_changed::<SelectedAgent>),
-            )
-                .in_set(PluginSet::Collect),
-            route::route
-                .in_set(PluginSet::Apply)
-                .run_if(on_message::<Done>),
-        ),
-    );
+                (
+                    settle::settle.run_if(Calls::any),
+                    hosted::agents_changed
+                        .run_if(resource_changed::<AgentList>),
+                    hosted::selection_changed
+                        .run_if(resource_changed::<SelectedAgent>),
+                )
+                    .in_set(PluginSet::Collect),
+                route::route
+                    .in_set(PluginSet::Apply)
+                    .run_if(on_message::<Done>),
+            ),
+        );
 }

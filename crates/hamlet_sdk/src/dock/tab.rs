@@ -8,6 +8,23 @@ use bevy_fynix::dock::DockTree;
 #[derive(Event)]
 pub struct TabShown(pub String);
 
+/// Brings a panel's tab to the front. A panel that is closed is
+/// added to the first area that is not the world's.
+pub fn open(world: &mut World, id: &str) {
+    let mut tree = world.resource_mut::<DockTree>();
+    if tree.find_leaf_with_window(id).is_none() {
+        let area = tree
+            .leaves()
+            .filter(|(_, leaf)| !leaf.has_window("world"))
+            .map(|(node, _)| node)
+            .min_by_key(|node| node.0);
+        if let Some(area) = area {
+            tree.add_tab(area, id);
+        }
+    }
+    show_tab(world, id);
+}
+
 /// Brings a panel's tab to the front.
 pub fn show_tab(world: &mut World, id: &str) {
     let mut tree = world.resource_mut::<DockTree>();

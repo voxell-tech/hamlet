@@ -10,7 +10,7 @@ use bevy_fynix::dock::DockRegistry;
 
 pub use self::fill::{lit_panel, panel};
 pub use self::panel::{Body, Panel, PanelAppExt};
-pub use self::tab::{TabShown, show_tab};
+pub use self::tab::{TabShown, open, show_tab};
 use crate::theme::HamletTheme;
 
 /// Keeps the dock's registry of windows in step with the [`Panel`]

@@ -12,10 +12,11 @@ use hamlet_sdk::capability::{
     AskForMore, Capability, Choices, Record, Standing, Store,
     Uninstalled, standing,
 };
+use hamlet_sdk::command::Command;
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{
-    self as sdk, Command, Contributions, PluginInfo, Status,
+    self as sdk, Contributions, PluginInfo, Status,
 };
 use hamlet_sdk::reload::Reload;
 

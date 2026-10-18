@@ -55,6 +55,7 @@ pub(super) fn route(
                     &mut inboxes,
                     &mut calls,
                     &limits,
+                    &mut commands,
                 ),
                 Intent::Publish(publication) => publish::publish(
                     *plugin,

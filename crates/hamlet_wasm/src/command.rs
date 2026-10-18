@@ -1,7 +1,8 @@
 //! The commands of an installed plugin, as entities linked to it.
 
 use bevy::prelude::*;
-use hamlet_sdk::plugin::{Command, Entry, Exports};
+use hamlet_sdk::command::Command;
+use hamlet_sdk::plugin::{Entry, Exports};
 
 use crate::host::Offered;
 
@@ -18,7 +19,7 @@ pub fn spawn(
     let mut entry = Entry::default();
     for offered in declared {
         if exports.commands.contains(&offered.id) {
-            entry.command(&offered.id, &offered.title);
+            entry.forwarded(&offered.id, &offered.title, None);
         } else {
             warn!(
                 "plugin {id}: the command `{}` is not in its \
