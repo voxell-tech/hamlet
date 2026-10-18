@@ -618,3 +618,51 @@ fn cancelling_refuses_the_turn_s_calls_not_yet_carried_out() {
         result(LAID, false)
     );
 }
+
+#[test]
+fn a_hello_lacking_the_link_version_or_a_needed_capability_is_refused()
+ {
+    use std::path::Path;
+
+    use super::link::{Capability, Hello, HelloStore};
+    use super::{LINK_VERSION, NEEDED, refusal};
+
+    let row = super::bindings::RuntimeRow {
+        id: RuntimeInstance::new("pi-1").unwrap(),
+        adapter: Some("hamlet-pi 0.1.0".into()),
+        version: Some("pi-durable 1.2.0".into()),
+        begun: true,
+    };
+    let hello = Hello {
+        adapter: "hamlet-pi 0.1.0".into(),
+        capabilities: NEEDED.to_vec(),
+        harness: "pi-durable 1.2.0".into(),
+        id: "r1".into(),
+        runtime: Some("pi-1".into()),
+        store: HelloStore::Opened,
+        v: LINK_VERSION,
+        versions: vec![LINK_VERSION],
+    };
+    let store = Path::new("pi.sqlite");
+    assert_eq!(refusal(&hello, &row, store), None);
+    let words = |hello: &Hello| refusal(hello, &row, store).unwrap();
+    let mut other = hello.clone();
+    other.versions = vec![LINK_VERSION + 1];
+    assert!(words(&other).contains("link versions"), "{other:?}");
+    // History is optional; recovery is not.
+    let mut lacking = hello.clone();
+    lacking.capabilities = vec![Capability::History];
+    lacking.capabilities.extend(
+        NEEDED
+            .iter()
+            .filter(|needed| **needed != Capability::Recovery)
+            .cloned(),
+    );
+    assert!(words(&lacking).ends_with("harness: recovery."));
+    let mut upgraded = hello.clone();
+    upgraded.harness = "pi-durable 1.3.0".into();
+    assert!(words(&upgraded).contains("never changes"));
+    let mut recorded = hello;
+    recorded.runtime = None;
+    assert!(words(&recorded).contains("records no runtime"));
+}
