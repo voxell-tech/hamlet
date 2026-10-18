@@ -25,6 +25,8 @@ pub struct Limits {
     pub log_lines: usize,
     /// The bytes of one log line. The rest of a longer line is cut.
     pub log_bytes: usize,
+    /// The panels one plugin may declare. The rest are dropped.
+    pub panels: usize,
 }
 
 impl Limits {

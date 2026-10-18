@@ -4,7 +4,7 @@
 use wasmtime::Store;
 
 use crate::fault::Fault;
-use crate::host::{Logged, State};
+use crate::host::{Declared, Logged, State};
 use crate::instance::Instance;
 use crate::interface::Hamlet;
 use crate::interface::exports::hamlet::plugin::plugin::{
@@ -17,6 +17,8 @@ use crate::limits::Limits;
 pub struct Output {
     pub intents: Vec<Intent>,
     pub logs: Vec<Logged>,
+    /// The panels the call declared. Only `entry` may.
+    pub panels: Vec<Declared>,
 }
 
 impl Instance {
@@ -37,12 +39,14 @@ impl Instance {
         limits: &Limits,
         inbox: &[Incoming],
     ) -> Result<Output, Fault> {
-        self.run(limits, |exports, store| {
+        let mut output = self.run(limits, |exports, store| {
             let outgoing = exports
                 .hamlet_plugin_plugin()
                 .call_step(store, inbox)?;
             Ok(outgoing.intents)
-        })
+        })?;
+        output.panels.clear();
+        Ok(output)
     }
 
     fn run(
@@ -54,10 +58,15 @@ impl Instance {
         ) -> wasmtime::Result<Vec<Intent>>,
     ) -> Result<Output, Fault> {
         self.store.data_mut().logs.clear();
+        self.store.data_mut().declared.clear();
         self.store.set_epoch_deadline(limits.call_ticks());
         let intents = call(&self.exports, &mut self.store)
             .map_err(Fault::call)?;
-        let logs = std::mem::take(&mut self.store.data_mut().logs);
-        Ok(Output { intents, logs })
+        let state = self.store.data_mut();
+        Ok(Output {
+            intents,
+            logs: std::mem::take(&mut state.logs),
+            panels: std::mem::take(&mut state.declared),
+        })
     }
 }

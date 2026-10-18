@@ -1,3 +1,5 @@
+mod panels;
+
 use wasmtime::component::Component;
 
 use crate::engine::Host;

@@ -8,3 +8,4 @@ memory_mib = 16
 table_elements = 10000
 log_lines = 32
 log_bytes = 1024
+panels = 8

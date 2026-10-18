@@ -13,6 +13,7 @@ hamlet_assets.workspace = true
 hamlet_core.workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true
+bevy_fynix.workspace = true
 serde.workspace = true
 toml.workspace = true
 wasmtime.workspace = true
@@ -21,6 +22,7 @@ wasmtime.workspace = true
 name = "bench"
 
 [dev-dependencies]
+hamlet_home.workspace = true
 # The test plugins are core modules in text, made into components
 # against the WIT file.
 wat = "1.262"

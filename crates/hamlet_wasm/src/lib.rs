@@ -9,6 +9,7 @@ use self::limits::{Limits, WasmTuning};
 
 pub mod approved;
 pub mod call;
+pub mod enable;
 pub mod engine;
 pub mod fault;
 pub mod host;
@@ -19,7 +20,10 @@ pub mod interface;
 pub mod limits;
 pub mod load;
 pub mod manifest;
+pub mod panel;
 pub mod run;
+pub mod start;
+pub mod view;
 
 #[cfg(test)]
 mod fixture;
@@ -32,6 +36,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<WasmTuning>::default())
         .init_resource::<Limits>()
         .add_message::<run::Done>()
+        .add_observer(enable::restart)
         .configure_sets(
             Update,
             (PluginSet::Collect, PluginSet::Step, PluginSet::Apply)

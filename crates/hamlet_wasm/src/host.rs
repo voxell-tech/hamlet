@@ -1,8 +1,11 @@
 //! What a plugin may call in the host: the functions the linker
 //! defines, and the state they work on.
 
+mod declare;
+
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 
+pub use self::declare::Declared;
 use crate::fault::Fault;
 use crate::interface::hamlet::plugin::host::{self, Host, Level};
 use crate::limits::{Limiter, Limits};
@@ -23,6 +26,8 @@ pub struct State {
     pub(crate) logs: Vec<Logged>,
     pub(crate) room: usize,
     pub(crate) bytes: usize,
+    pub(crate) declared: Vec<Declared>,
+    pub(crate) panel_room: usize,
 }
 
 impl State {
@@ -32,16 +37,31 @@ impl State {
             logs: Vec::new(),
             room: limits.log_lines,
             bytes: limits.log_bytes,
+            declared: Vec::new(),
+            panel_room: limits.panels,
+        }
+    }
+
+    /// Keeps a line for the log, if the call has room for it.
+    pub(crate) fn write(
+        &mut self,
+        level: Level,
+        mut message: String,
+    ) {
+        if self.logs.len() < self.room {
+            message.truncate(message.floor_char_boundary(self.bytes));
+            self.logs.push(Logged { level, message });
         }
     }
 }
 
 impl Host for State {
-    fn log(&mut self, level: Level, mut message: String) {
-        if self.logs.len() < self.room {
-            message.truncate(message.floor_char_boundary(self.bytes));
-            self.logs.push(Logged { level, message });
-        }
+    fn log(&mut self, level: Level, message: String) {
+        self.write(level, message);
+    }
+
+    fn panel(&mut self, id: String, title: String, icon: String) {
+        self.declare(id, title, icon);
     }
 }
 

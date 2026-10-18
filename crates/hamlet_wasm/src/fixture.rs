@@ -1,6 +1,8 @@
 //! Test plugins: core modules in text, made into components against
 //! the WIT file.
 
+pub mod home;
+
 use std::path::Path;
 
 use wit_component::{ComponentEncoder, StringEncoding};
@@ -11,6 +13,8 @@ use wit_parser::Resolve;
 /// at 0 holding one `log-line` that reads "hello world" at 32.
 const COMMON: &str = r#"
   (import "hamlet:plugin/host@0.1.0" "log" (func $log (param i32 i32 i32)))
+  (import "hamlet:plugin/host@0.1.0" "panel"
+    (func $panel (param i32 i32 i32 i32 i32 i32)))
   (memory (export "memory") 1)
   (global $heap (mut i32) (i32.const 4096))
   (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32)
@@ -25,13 +29,39 @@ const COMMON: &str = r#"
   (data (i32.const 16) "\00\00\00\00\20\00\00\00\0b\00\00\00")
   (data (i32.const 32) "hello world")
   (data (i32.const 64) "logged")
-  (func (export "hamlet:plugin/plugin@0.1.0#entry"))
 "#;
+
+/// An `entry` that does nothing.
+const QUIET: &str =
+    r#"(func (export "hamlet:plugin/plugin@0.1.0#entry"))"#;
+
+/// Declares the panels "notes" and "again" (twice), with the icons
+/// "book" and one that does not exist.
+pub fn declaring() -> String {
+    format!(
+        r#"(module {COMMON}
+  (data (i32.const 128) "notes")
+  (data (i32.const 136) "NOTES")
+  (data (i32.const 144) "book")
+  (data (i32.const 152) "again")
+  (data (i32.const 160) "nowhere")
+  (func (export "hamlet:plugin/plugin@0.1.0#entry")
+    (call $panel (i32.const 128) (i32.const 5) (i32.const 136)
+      (i32.const 5) (i32.const 144) (i32.const 4))
+    (call $panel (i32.const 152) (i32.const 5) (i32.const 136)
+      (i32.const 5) (i32.const 160) (i32.const 7))
+    (call $panel (i32.const 152) (i32.const 5) (i32.const 136)
+      (i32.const 5) (i32.const 144) (i32.const 4)))
+  (func (export "hamlet:plugin/plugin@0.1.0#step")
+    (param i32 i32) (result i32)
+    (i32.const 0)))"#
+    )
+}
 
 /// Logs "logged" and answers with a line as long as the inbox.
 pub fn echo() -> String {
     format!(
-        r#"(module {COMMON}
+        r#"(module {COMMON} {QUIET}
   (func (export "hamlet:plugin/plugin@0.1.0#step")
     (param i32 i32) (result i32)
     (call $log (i32.const 0) (i32.const 64) (i32.const 6))
@@ -43,7 +73,7 @@ pub fn echo() -> String {
 /// Never returns.
 pub fn spin() -> String {
     format!(
-        r#"(module {COMMON}
+        r#"(module {COMMON} {QUIET}
   (func (export "hamlet:plugin/plugin@0.1.0#step")
     (param i32 i32) (result i32)
     (loop $again (br $again))
@@ -54,7 +84,7 @@ pub fn spin() -> String {
 /// Grows its memory until it is stopped.
 pub fn grow() -> String {
     format!(
-        r#"(module {COMMON}
+        r#"(module {COMMON} {QUIET}
   (func (export "hamlet:plugin/plugin@0.1.0#step")
     (param i32 i32) (result i32)
     (loop $again

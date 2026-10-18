@@ -32,6 +32,12 @@ pub fn log(level: Level, message: &str) {
     bindings::hamlet::plugin::host::log(level, message);
 }
 
+/// Adds a panel to the dock. Only `entry` may call it. `icon` is the
+/// name of one of the panels' icons.
+pub fn panel(id: &str, title: &str, icon: &str) {
+    bindings::hamlet::plugin::host::panel(id, title, icon);
+}
+
 /// Exports a [`Plugin`] as the component's `plugin` interface.
 #[macro_export]
 macro_rules! export {
