@@ -42,6 +42,15 @@ describe("a skill's front matter (skill.rs:16-46)", () => {
     });
 });
 
+it("reads papers after a house first seen before construction is built", async () => {
+    const home = await testHome(scratch(), { models: fauxModels().models });
+    const house = home.houses.of({ hamlet: "mill", number: 0 });
+    expect(await house.skills(context)).toEqual([]);
+    expect((await house.build(context)).ok).toBe(true);
+    await writeFile(join(house.path, "NOTES.md"), "Keep flour dry.");
+    expect(await house.notesText(context)).toBe("Keep flour dry.");
+});
+
 it("reads a whole house shelf without paying a process startup for each paper", async () => {
     const home = await testHome(scratch(), { models: fauxModels().models });
     const kept = home.houses.of({ hamlet: "home", number: 0 });

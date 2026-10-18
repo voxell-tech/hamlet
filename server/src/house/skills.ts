@@ -1,3 +1,4 @@
+import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import type {
@@ -182,6 +183,21 @@ export class House {
     }
 
     async #shelf(contents: boolean, context: Context): Promise<Skill[]> {
+        if (this.#env === undefined && this.#remote === undefined) {
+            // A newly published agent may not have its house yet. Do not pin
+            // a missing root: its creation would look like a replacement.
+            try {
+                await lstat(this.path);
+            } catch (error) {
+                if (
+                    error instanceof Error &&
+                    "code" in error &&
+                    error.code === "ENOENT"
+                )
+                    return [];
+                throw error;
+            }
+        }
         const env = this.#environment(context);
         // The house itself must be a real directory where its environment sees it, not a link.
         const root = await env.fileInfo(this.path, context);
