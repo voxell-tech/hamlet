@@ -302,8 +302,13 @@ answered at once. The transfer runs on the app's Tokio runtime with `reqwest`
 (`transfer`) and the systems. `hamlet_guest::net` makes the intents and reads the
 answer.
 
-The hosts are not resolved to a public address: a listed host that points to a
-private address is reached.
+An address as a host (`127.0.0.1`, `[::1]`) or `localhost` is reached only if
+the ask lists it, and is connected to as it is. A host that is a name is looked
+up by the host before the transfer, and the client is pinned to the answer
+(`resolve_to_addrs`, so the name still goes in `Host` and the certificate
+check) with the loopback, private, link-local, unique-local, shared, multicast
+and unspecified addresses taken out, unless the ask lists that address
+itself. A name with no address left is answered with an error.
 
 ## Plugins working together
 

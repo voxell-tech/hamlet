@@ -132,7 +132,10 @@ or `host:port` for a port other than 443. An ask with no hosts reaches none.
 
 - Only https addresses; an address with a user, another scheme or a host not
   listed is answered with an error and nobody is asked. A host is matched whole,
-  so `api.example.com` is not `evil.api.example.com`.
+  so `api.example.com` is not `evil.api.example.com`. An IP address or
+  `localhost` as a host is reached only if the ask lists that exact host, and a
+  listed name that points to a loopback, private, link-local, unique-local or
+  unspecified address is refused unless the ask lists that address as well.
 - It follows no redirect, since one could lead off the listed hosts, and sends no
   header but the content type of a POST.
 - `fetch_ms`, `fetch_request_bytes`, `fetch_response_bytes`, `fetches_in_flight`

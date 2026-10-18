@@ -2,6 +2,7 @@
 //! only to a host the ask lists, follows no redirect and is held to
 //! limits of bytes, time, requests waiting and requests a minute.
 
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use bevy::prelude::*;
@@ -37,7 +38,6 @@ type Finished = (Entity, u32, Result<FetchResponse, String>);
 /// The fetches under way, and the means to make them.
 #[derive(Resource)]
 pub struct Fetching {
-    client: Option<Client>,
     tx: UnboundedSender<Finished>,
     rx: UnboundedReceiver<Finished>,
     /// The plugin of each fetch under way.
@@ -49,7 +49,6 @@ impl Default for Fetching {
     fn default() -> Self {
         let (tx, rx) = unbounded_channel();
         Self {
-            client: client(),
             tx,
             rx,
             waiting: Vec::new(),
@@ -66,13 +65,116 @@ impl Fetching {
 }
 
 /// The client a fetch is made with: it follows no redirect, which
-/// could lead off the listed hosts.
-fn client() -> Option<Client> {
-    Client::builder()
-        .redirect(Policy::none())
-        .referer(false)
-        .build()
+/// could lead off the listed hosts. Where `pin` names a host and the
+/// addresses it was checked to have, the client connects to those
+/// and to no other, whatever a later lookup would answer.
+fn client(pin: Option<(&str, &[SocketAddr])>) -> Option<Client> {
+    let builder =
+        Client::builder().redirect(Policy::none()).referer(false);
+    match pin {
+        Some((host, addresses)) => {
+            builder.resolve_to_addrs(host, addresses)
+        }
+        None => builder,
+    }
+    .build()
+    .ok()
+}
+
+/// Whether `address` is one a plugin may reach by a name it was not
+/// given the address of: not loopback, private, link-local,
+/// unique-local, shared, multicast or unspecified.
+fn public(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            !(v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_multicast()
+                || (a == 100 && (64..128).contains(&b)))
+        }
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => public(IpAddr::V4(v4)),
+            None => {
+                let first = v6.segments()[0];
+                !(v6.is_loopback()
+                    || v6.is_unspecified()
+                    || v6.is_multicast()
+                    || first & 0xfe00 == 0xfc00
+                    || first & 0xffc0 == 0xfe80)
+            }
+        },
+    }
+}
+
+/// The addresses of `found` a connection may go to: the public ones,
+/// and those that are an address the ask lists in `hosts`.
+fn screen(
+    found: Vec<SocketAddr>,
+    hosts: &[String],
+) -> Vec<SocketAddr> {
+    let listed = hosts
+        .iter()
+        .filter_map(|entry| literal(entry))
+        .collect::<Vec<_>>();
+    found
+        .into_iter()
+        .filter(|found| {
+            public(found.ip()) || listed.contains(&found.ip())
+        })
+        .collect()
+}
+
+/// The address a scope entry such as `127.0.0.1`, `10.0.0.5:8443`
+/// or `[::1]:8443` names, if it names one.
+fn literal(entry: &str) -> Option<IpAddr> {
+    entry
+        .parse::<IpAddr>()
         .ok()
+        .or_else(|| entry.parse::<SocketAddr>().ok().map(|a| a.ip()))
+        .or_else(|| {
+            entry
+                .strip_prefix('[')?
+                .strip_suffix(']')?
+                .parse::<IpAddr>()
+                .ok()
+        })
+}
+
+/// The client to send `sent` with. A host that is a name is looked
+/// up here, and the client connects only to the addresses of the
+/// answer that `screen` lets through; an address or `localhost` is
+/// there only because the ask lists it, and is connected to as it is.
+async fn prepared(
+    sent: &Sent,
+    hosts: &[String],
+    patience: Duration,
+) -> Result<Client, String> {
+    let unreachable = || "the client cannot be made".to_string();
+    let Some(name) = sent.url.domain() else {
+        return client(None).ok_or_else(unreachable);
+    };
+    if name.eq_ignore_ascii_case("localhost") {
+        return client(None).ok_or_else(unreachable);
+    }
+    let port = sent.url.port_or_known_default().unwrap_or(HTTPS);
+    let found = tokio::time::timeout(
+        patience,
+        tokio::net::lookup_host((name, port)),
+    )
+    .await
+    .map_err(|_| "the lookup took too long".to_string())?
+    .map_err(|why| format!("the lookup failed: {why}"))?;
+    let reach = screen(found.collect(), hosts);
+    if reach.is_empty() {
+        return Err(format!(
+            "{name} is not at an address a plugin may reach"
+        ));
+    }
+    client(Some((name, &reach))).ok_or_else(unreachable)
 }
 
 /// A request that may be sent.
@@ -223,35 +325,44 @@ pub fn start(
                 *plugin,
                 now,
             );
-            let sent =
-                match (made, tokio.as_deref(), &fetching.client) {
-                    (Ok(sent), Some(tokio), Some(client)) => {
-                        let tx = fetching.tx.clone();
-                        let client = client.clone();
-                        let entity = *plugin;
-                        let patience =
-                            Duration::from_millis(limits.fetch_ms);
-                        let most = limits.fetch_response_bytes;
-                        info!(
-                            "plugin {}: fetches {}",
-                            info.id,
-                            sent.url.host_str().unwrap_or_default()
-                        );
-                        tokio.0.spawn(async move {
-                            let out = transfer(
-                                &client, &sent, patience, most,
-                            )
-                            .await;
-                            let _ = tx.send((entity, id, out));
-                        });
-                        fetching.waiting.push(*plugin);
-                        continue;
-                    }
-                    (Ok(_), ..) => {
-                        Refused::because("there is no network")
-                    }
-                    (Err(refused), ..) => refused,
-                };
+            let sent = match (made, tokio.as_deref()) {
+                (Ok(sent), Some(tokio)) => {
+                    let tx = fetching.tx.clone();
+                    let hosts =
+                        granted.scope(Capability::Net).to_vec();
+                    let entity = *plugin;
+                    let patience =
+                        Duration::from_millis(limits.fetch_ms);
+                    let most = limits.fetch_response_bytes;
+                    info!(
+                        "plugin {}: fetches {}",
+                        info.id,
+                        sent.url.host_str().unwrap_or_default()
+                    );
+                    tokio.0.spawn(async move {
+                        let out =
+                            match prepared(&sent, &hosts, patience)
+                                .await
+                            {
+                                Ok(client) => {
+                                    transfer(
+                                        &client, &sent, patience,
+                                        most,
+                                    )
+                                    .await
+                                }
+                                Err(why) => Err(why),
+                            };
+                        let _ = tx.send((entity, id, out));
+                    });
+                    fetching.waiting.push(*plugin);
+                    continue;
+                }
+                (Ok(_), ..) => {
+                    Refused::because("there is no network")
+                }
+                (Err(refused), ..) => refused,
+            };
             warn!("plugin {}: fetch refused: {}", info.id, sent.why);
             if sent.ask {
                 commands.trigger(Wanted {
@@ -379,6 +490,50 @@ mod tests {
         assert!(allowed("https://api.example.com/", &[]).is_err());
     }
 
+    #[test]
+    fn an_address_is_reached_only_if_listed_or_public() {
+        let found = |list: &[&str]| {
+            let all = [
+                "10.0.0.5",
+                "127.0.0.1",
+                "169.254.1.1",
+                "8.8.8.8",
+                "::1",
+                "fd00::1",
+                "fe80::1",
+                "::ffff:10.0.0.5",
+                "::",
+                "100.64.0.1",
+                "2606:4700::1",
+            ]
+            .map(|ip| SocketAddr::new(ip.parse().unwrap(), 443));
+            screen(all.to_vec(), &hosts(list))
+                .iter()
+                .map(|found| found.ip().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            found(&["api.example.com"]),
+            ["8.8.8.8", "2606:4700::1"]
+        );
+        assert_eq!(
+            found(&["10.0.0.5:8443", "[::1]"]),
+            ["10.0.0.5", "8.8.8.8", "::1", "2606:4700::1"]
+        );
+    }
+
+    #[test]
+    fn a_literal_address_or_localhost_is_allowed_only_where_listed() {
+        let ok = |address, list: &[&str]| {
+            allowed(address, &hosts(list)).is_ok()
+        };
+        assert!(!ok("https://127.0.0.1/", &["api.example.com"]));
+        assert!(!ok("https://localhost/", &["api.example.com"]));
+        assert!(!ok("https://[::1]/", &["api.example.com"]));
+        assert!(ok("https://127.0.0.1/", &["127.0.0.1"]));
+        assert!(ok("https://localhost/", &["localhost"]));
+    }
+
     /// A server on the loopback that answers one request with
     /// `answer`, after `pause`, and the request it was sent.
     async fn serving(
@@ -424,7 +579,7 @@ mod tests {
     #[tokio::test]
     async fn a_fetch_returns_the_status_type_and_body_of_the_answer()
     {
-        let client = client().unwrap();
+        let client = client(None).unwrap();
         let (port, served) = serving(
             b"HTTP/1.1 201 Created\r\nContent-Type: text/x\r\n\
               Content-Length: 2\r\n\r\nok",
@@ -453,7 +608,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_answer_over_the_cap_or_over_the_time_is_an_error() {
-        let client = client().unwrap();
+        let client = client(None).unwrap();
         let (port, _) = serving(
             b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nabcdef",
             Duration::ZERO,
@@ -485,7 +640,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_redirect_is_not_followed() {
-        let client = client().unwrap();
+        let client = client(None).unwrap();
         let (port, _) = serving(
             b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\n\
               Content-Length: 0\r\n\r\n",
