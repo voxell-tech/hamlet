@@ -119,6 +119,9 @@ A plugin with no code: a folder of the install folder with `manifest.toml` and
     panel.ui
 ```
 
+A data plugin has no storage and no state of the host's beyond the variables of
+its panel, which a reload keeps.
+
 `kind` is `wasm` (the default, with `interface` and `plugin.wasm`) or `data`.
 A data plugin is scanned, installed (`grants.toml`) and switched with
 `Enable` and `Disable` as a WASM plugin is. It has one panel, `<id>/main`,

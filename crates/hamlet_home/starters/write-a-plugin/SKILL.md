@@ -43,7 +43,7 @@ sandbox".
      <the plugin folder> --script <steps.toml> --out <pictures folder>
    ```
    Fix every `FAILED step` and run it again. A step is `tick`, `click`, `type`,
-   `toggle`, `set-agents`, `grant`, `deny`, `render` or `expect`.
+   `toggle`, `set-agents`, `set-papers`, `grant`, `deny`, `render` or `expect`.
 5. **Propose** it: tell the chief the folder and what each ask is for. The
    chief copies it to `<home>/plugins/<name>/` and starts Hamlet, which asks
    before the plugin runs. After that, a running Hamlet reloads the plugin
@@ -53,18 +53,20 @@ sandbox".
 
 - `interface` in a wasm plugin's manifest is the version this Hamlet speaks,
   and the template has it. A plugin built for another says so and does not load.
-- A capability the manifest does not name cannot be used. `read.agents` is the
-  one a plugin can use today; the others can be asked for and are checked
-  later. `keys`, `petitions.answer`, `home.raw`, `process.run`, `sandbox.off`
+- A capability the manifest does not name cannot be used. `read.agents` and
+  `read.papers` are the ones a plugin can use today; the others can be asked
+  for and are checked later. `keys`, `petitions.answer`, `home.raw`, `process.run`, `sandbox.off`
   and `storage.other` are never granted, and a manifest that asks for one is
   turned down.
 - A gated call that is not allowed returns an error. Show a line that says
   so; do not fail.
-- Every button, checkbox and text field needs an id (`.id("go")`). Siblings
-  may not share one.
+- Every button, checkbox, text field and text area needs an id (`.id("go")`).
+  Siblings may not share one.
 - A call is held to a short time and a small memory (`docs/wasm.md`, Limits). A
-  plugin that traps or is too slow is stopped. There is no storage yet: what
-  the plugin knows is lost when it reloads.
+  plugin that traps or is too slow is stopped. A plugin has no variables that
+  outlive a call: keep what the panel shows with `hamlet_guest::State`, which
+  survives a reload, and what the user made with `hamlet_guest::storage`, which
+  survives a restart (`docs/authoring.md`).
 
 ## What goes wrong
 

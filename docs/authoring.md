@@ -26,6 +26,7 @@ plugin is enough.
 | `crates/hamlet_harness` | The harness that runs a plugin headlessly: a `Harness` to drive in Rust, and a script runner |
 | `examples/plugin_check` | The harness as a command |
 | `crates/hamlet_home/starters/write-a-plugin` | The starter skill that teaches an agent this page's steps |
+| `guests/notes/` | A plugin to read after the template: `model.rs` (what it keeps), `storage.rs` (the notes on disk), `update.rs` (what an event does), `view.rs` (the panel), and its `steps.toml` |
 
 The template plugin has a panel, a button that counts in its state and one read
 behind a capability (`read.agents`). It asks to use the capability with
@@ -123,6 +124,7 @@ plugin tide_table
       heading "TIDE TABLE"
       row
         button "Look" #look
+      note "Looked 0 times." #looks
       note "Waiting for the chief to answer." #count
 step 1: tick 1
 step 2: expect main shows "Waiting for the chief"
@@ -136,10 +138,19 @@ step 5: grant read.agents
       heading "TIDE TABLE"
       row
         button "Look" #look
+      note "Looked 0 times." #looks
       note "2 agents live here." #count
 step 6: expect main shows "2 agents live here"
 step 7: click main/look
-step 8: render main to allowed.png
+  panel main
+    column
+      heading "TIDE TABLE"
+      row
+        button "Look" #look
+      note "Looked 1 times." #looks
+      note "2 agents live here." #count
+step 8: expect main shows "Looked 1 times"
+step 9: render main to allowed.png
 wrote /tmp/tide_table/pictures/allowed.png
 ```
 

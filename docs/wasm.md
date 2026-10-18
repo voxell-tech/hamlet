@@ -15,11 +15,12 @@ The host is behind the `wasm` feature of the binary:
 |---|---|
 | `crates/hamlet_wasm` | The host. The engine is wasmtime, pinned in the root `Cargo.toml`, and no other crate names a wasmtime type |
 | `crates/hamlet_wasm/wit/hamlet-plugin.wit` | The interface, the one description of what a plugin imports and exports |
-| `crates/hamlet_guest` | What a plugin is written with: the bindings, the `Plugin` trait, the `ui` tree builder and the `export!` macro |
+| `crates/hamlet_guest` | What a plugin is written with: the bindings, the `Plugin` trait, the `ui` tree builder, `State<T>` and `storage` (kept with `postcard`) and the `export!` macro |
 | `crates/hamlet_harness` | Runs a plugin headlessly against made-up state, reads its panels as text and draws them to pictures. See [`authoring.md`](authoring.md) |
 | `templates/` | The plugin to start from, of code and of a panel |
 | `guests/hello` | A plugin that logs on every tick. A workspace of its own, since it is built for `wasm32-wasip2` |
 | `guests/roster` | A plugin with a panel that lists the agents, behind the grant `read.agents` |
+| `guests/notes` | Notes: a search, a list of notes and a text area or markdown view of the open one, kept in the plugin's storage; a button copies the selected agent's notes, behind the grant `read.papers` |
 | `assets/wasm.toml` | The limits, and how often the plugins' files are looked at |
 
 In `hamlet_wasm/src/`, a file for each part:
