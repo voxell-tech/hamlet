@@ -306,7 +306,9 @@ fn moved() -> impl View {
 #[cfg(test)]
 mod tests {
     use bevy::app::App;
-    use bevy::text::{EditableText, TextEdit};
+    use bevy::text::{
+        EditableText, FontSize, FontSource, TextEdit, TextFont,
+    };
     use hamlet_client::outbox::Outbox;
     use hamlet_protocol::v0;
 
@@ -414,6 +416,31 @@ mod tests {
             !words(&mut app)
                 .iter()
                 .any(|shown| shown.contains(token))
+        );
+        // The stars are in the hidden text's own monospace face,
+        // where the caret lands on them.
+        let mono = bevy::asset::uuid_handle!(
+            "6f1c1d3e-0b7a-4c55-9a43-2d0f7a1c9e21"
+        );
+        app.insert_resource(crate::platform::Mono(mono.clone()));
+        let field = control::<EditableText>(&mut app, "Access token");
+        app.world_mut()
+            .get_mut::<TextFont>(field)
+            .unwrap()
+            .font_size = FontSize::Px(17.0);
+        settle(&mut app);
+        let hidden =
+            app.world().get::<TextFont>(field).unwrap().clone();
+        assert_eq!(hidden.font, FontSource::Handle(mono));
+        let stars = "*".repeat(token.len());
+        let world = app.world_mut();
+        assert!(
+            world
+                .query::<(&bevy::ui::widget::Text, &TextFont)>()
+                .iter(world)
+                .any(
+                    |(text, face)| text.0 == stars && *face == hidden
+                )
         );
         // The token is pasted in but never copied or cut out.
         assert_eq!(
