@@ -1,0 +1,76 @@
+# Run from the Hamlet checkout, after building Notes and Clipper into
+# folders of their own:
+#   guests/notes/build.sh <dir>/notes
+#   guests/clipper/build.sh <dir>/clipper
+#   cargo run --example plugin_check --features wasm -- \
+#     <dir>/notes <dir>/clipper --script guests/clipper/steps.toml \
+#     --out <pictures>
+#
+# Both plugins are installed in one home, with none of their asks
+# answered, as a chief would who let them in.
+
+[[step]]
+tick = 2
+
+[[step]]
+plugin = "clipper"
+
+[[step]]
+expect = { panel = "main", text = "No agent is selected." }
+
+# The host tells of the selected agent once the chief allows read.agents.
+[[step]]
+grant = "read.agents"
+
+[[step]]
+set-selected = "Juniper"
+
+[[step]]
+expect = { panel = "main", text = "Selected: Juniper" }
+
+# The first use of Notes raises a petition, and the call is answered
+# with an error.
+[[step]]
+click = { panel = "main", node = "send" }
+
+[[step]]
+expect = { panel = "main", text = "plugin.use not granted" }
+
+[[step]]
+render = { panel = "main", file = "denied.png" }
+
+# The chief allows it, and the command runs in Notes.
+[[step]]
+grant = "plugin.use:notes"
+
+[[step]]
+click = { panel = "main", node = "send" }
+
+[[step]]
+expect = { panel = "main", text = "Notes saved it as note" }
+
+[[step]]
+expect = { panel = "main", text = "Notes saved: 1" }
+
+# The collection is read once the chief allows it.
+[[step]]
+expect = { panel = "main", text = "collections.read not granted" }
+
+[[step]]
+grant = "collections.read:notes/notes"
+
+[[step]]
+expect = { panel = "main", text = "Juniper" }
+
+[[step]]
+render = { panel = "main", file = "clipper.png" }
+
+# The note is in Notes too.
+[[step]]
+plugin = "notes"
+
+[[step]]
+expect = { panel = "main", text = "Juniper" }
+
+[[step]]
+render = { panel = "main", file = "notes.png" }

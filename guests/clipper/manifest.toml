@@ -1,0 +1,34 @@
+id = "clipper"
+name = "Clipper"
+version = "0.1.0"
+interface = "0.4.0"
+
+# It does not start unless Notes is installed and running.
+[[needs]]
+id = "notes"
+range = ">=0.1, <1"
+
+# What it uses of Notes and of the host. Nothing outside these lists
+# is reachable.
+[imports]
+commands = ["notes/add"]
+events = [
+    "notes/note-saved",
+    "notes/collection-changed",
+    "host/selection-changed",
+]
+collections = ["notes/notes"]
+
+[[asks]]
+capability = "plugin.use"
+reason = "To send what it clips to Notes and hear when a note is saved."
+scope = ["notes"]
+
+[[asks]]
+capability = "collections.read"
+reason = "To list the titles of the notes."
+scope = ["notes/notes"]
+
+[[asks]]
+capability = "read.agents"
+reason = "To know which agent is selected."
