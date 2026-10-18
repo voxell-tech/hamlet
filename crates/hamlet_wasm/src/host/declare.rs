@@ -3,6 +3,7 @@
 use hamlet_sdk::icons::Glyph;
 
 use super::State;
+use crate::glyph;
 use crate::interface::hamlet::plugin::host::Level;
 
 /// A panel a plugin declared.
@@ -26,10 +27,8 @@ impl State {
         {
             return;
         }
-        let glyph = Glyph::ALL
-            .into_iter()
-            .find(|g| format!("{g:?}").eq_ignore_ascii_case(&icon));
-        if glyph.is_none() {
+        let named = glyph::named(&icon);
+        if named.is_none() {
             self.write(
                 Level::Warn,
                 format!("no icon named `{icon}`"),
@@ -38,7 +37,7 @@ impl State {
         self.declared.push(Declared {
             id,
             title,
-            icon: glyph.unwrap_or(Glyph::Menu),
+            icon: named.unwrap_or(glyph::UNKNOWN),
         });
     }
 }

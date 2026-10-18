@@ -27,6 +27,10 @@ pub struct Limits {
     pub log_bytes: usize,
     /// The panels one plugin may declare. The rest are dropped.
     pub panels: usize,
+    /// The nodes a panel's tree may hold.
+    pub tree_nodes: usize,
+    /// The levels a panel's tree may nest.
+    pub tree_depth: usize,
 }
 
 impl Limits {

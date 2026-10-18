@@ -9,3 +9,5 @@ table_elements = 10000
 log_lines = 32
 log_bytes = 1024
 panels = 8
+tree_nodes = 400
+tree_depth = 16

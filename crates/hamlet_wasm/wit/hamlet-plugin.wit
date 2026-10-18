@@ -17,15 +17,60 @@ interface plugin {
 
   variant intent {
     log-line(string),
+    // Draw the panel again, though no event reached it.
+    redraw(string),
   }
 
   record outgoing {
     intents: list<intent>,
   }
 
+  // What one node of a panel is. `heading` and `note` are text in the
+  // panels' heading and dim small looks. A `button`, `checkbox` and
+  // `text-field` need an id, which names them in events.
+  variant widget {
+    column,
+    row,
+    scroll,
+    label(string),
+    heading(string),
+    note(string),
+    // The name of a glyph of the panels' icon family.
+    icon(string),
+    // The label.
+    button(string),
+    checkbox(checkbox),
+    // The text.
+    text-field(string),
+    divider,
+  }
+
+  record checkbox {
+    label: string,
+    checked: bool,
+  }
+
+  // The id is stable across redraws, so that a node is matched with
+  // the same node of the last tree among its siblings. A node without
+  // one is matched by its place.
+  record node {
+    id: option<string>,
+    widget: widget,
+    // The number of its children, which follow it.
+    children: u32,
+  }
+
+  // A panel's tree, each node followed by its children and theirs, the
+  // root first. A node cannot hold a node in this interface.
+  record tree {
+    nodes: list<node>,
+  }
+
   entry: func();
 
   step: func(inbox: list<incoming>) -> outgoing;
+
+  panel-view: func(panel: string) -> tree;
 }
 
 world hamlet {

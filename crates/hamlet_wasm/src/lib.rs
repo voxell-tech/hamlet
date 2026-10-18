@@ -6,12 +6,15 @@ use hamlet_assets::TuningPlugin;
 
 use self::engine::Host;
 use self::limits::{Limits, WasmTuning};
+use self::trees::PluginTrees;
 
 pub mod approved;
 pub mod call;
+pub mod draw;
 pub mod enable;
 pub mod engine;
 pub mod fault;
+pub mod glyph;
 pub mod host;
 pub mod inbox;
 pub mod install;
@@ -23,6 +26,8 @@ pub mod manifest;
 pub mod panel;
 pub mod run;
 pub mod start;
+pub mod tree;
+pub mod trees;
 pub mod view;
 
 #[cfg(test)]
@@ -30,16 +35,23 @@ mod fixture;
 #[cfg(test)]
 mod tests;
 
-/// Loads the approved installed plugins and steps the ones that have
-/// mail. Add it after the core.
+/// Loads the approved installed plugins, steps the ones that have
+/// mail and draws their panels. Add it after the core.
 pub fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<WasmTuning>::default())
         .init_resource::<Limits>()
+        .init_resource::<PluginTrees>()
         .add_message::<run::Done>()
         .add_observer(enable::restart)
+        .add_observer(trees::forget)
         .configure_sets(
             Update,
-            (PluginSet::Collect, PluginSet::Step, PluginSet::Apply)
+            (
+                PluginSet::Collect,
+                PluginSet::Step,
+                PluginSet::Apply,
+                PluginSet::Draw,
+            )
                 .chain(),
         )
         .add_systems(Startup, load::installed)
@@ -53,6 +65,7 @@ pub fn plugin(app: &mut App) {
                 run::apply
                     .in_set(PluginSet::Apply)
                     .run_if(on_message::<run::Done>),
+                draw::draw.in_set(PluginSet::Draw).run_if(draw::due),
             ),
         );
     match Host::new(&Limits::default()) {
@@ -63,7 +76,7 @@ pub fn plugin(app: &mut App) {
     }
 }
 
-/// The three parts of a frame of the installed plugins, in order.
+/// The parts of a frame of the installed plugins, in order.
 #[derive(SystemSet, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum PluginSet {
     /// What happened is put in the inboxes.
@@ -72,4 +85,6 @@ pub enum PluginSet {
     Step,
     /// What the plugins asked for is carried out.
     Apply,
+    /// The panels that are due are drawn.
+    Draw,
 }

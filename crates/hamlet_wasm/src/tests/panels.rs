@@ -24,6 +24,7 @@ fn a_declared_panel_lives_as_long_as_its_plugin_is_enabled() {
             wasm: fixture::component(&fixture::declaring()),
         }],
     );
+    app.update();
     assert!(listed(&app, "probe/notes"));
     assert!(listed(&app, "probe/again"));
     // The same id twice is one panel.

@@ -4,12 +4,14 @@
 use bevy::prelude::*;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 
+use crate::draw::Dirty;
 use crate::host::Logged;
 use crate::inbox::Inbox;
 use crate::instance::Instance;
 use crate::interface::exports::hamlet::plugin::plugin::Intent;
 use crate::interface::hamlet::plugin::host::Level;
 use crate::limits::Limits;
+use crate::panel;
 
 /// What one plugin's `step` asked for.
 #[derive(Message)]
@@ -60,17 +62,21 @@ pub fn step(
 /// Carries out the intents of the plugins that were stepped.
 pub fn apply(
     mut done: MessageReader<Done>,
-    plugins: Query<&PluginInfo>,
+    mut plugins: Query<(&PluginInfo, Option<&mut Dirty>)>,
 ) {
     for Done { plugin, intents } in done.read() {
-        let Ok(info) = plugins.get(*plugin) else {
+        let Ok((info, mut dirty)) = plugins.get_mut(*plugin) else {
             continue;
         };
         for intent in intents {
-            match intent {
-                Intent::LogLine(text) => {
+            match (intent, dirty.as_mut()) {
+                (Intent::LogLine(text), _) => {
                     info!("plugin {}: {text}", info.id)
                 }
+                (Intent::Redraw(panel), Some(dirty)) => {
+                    dirty.mark(&panel::dock_id(&info.id, panel))
+                }
+                (Intent::Redraw(_), None) => {}
             }
         }
     }

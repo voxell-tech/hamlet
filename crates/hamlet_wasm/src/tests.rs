@@ -1,4 +1,5 @@
 mod panels;
+mod tree;
 
 use wasmtime::component::Component;
 

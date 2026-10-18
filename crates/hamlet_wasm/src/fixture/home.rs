@@ -4,8 +4,12 @@
 use std::path::PathBuf;
 
 use bevy::prelude::*;
+use bevy::time::TimePlugin;
+use bevy_fynix::FynixPlugin;
+use hamlet_assets::Tuning;
 use hamlet_core::core::HomeDir;
 use hamlet_home::Home;
+use hamlet_sdk::theme::{HamletTheme, insert_theme};
 
 /// A folder that is removed when it goes.
 pub struct Scratch(PathBuf);
@@ -33,8 +37,7 @@ pub struct Plugin {
     pub wasm: Vec<u8>,
 }
 
-/// An app with `home` holding `plugins`, all approved, and the host
-/// started once.
+/// An app with `home` holding `plugins`, all approved.
 pub fn app(home: &Scratch, plugins: &[Plugin]) -> App {
     let folder = home.0.join("plugins");
     for plugin in plugins {
@@ -72,6 +75,14 @@ pub fn app(home: &Scratch, plugins: &[Plugin]) -> App {
         hamlet_sdk::plugin::plugin,
         crate::plugin,
     ));
-    app.update();
     app
+}
+
+/// What the panels' views need to be built in `app`.
+pub fn views(app: &mut App) {
+    app.add_plugins((
+        TimePlugin,
+        FynixPlugin::<HamletTheme>::default(),
+    ));
+    insert_theme(app.world_mut(), HamletTheme::designed());
 }

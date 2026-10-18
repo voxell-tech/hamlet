@@ -12,8 +12,10 @@ pub mod bindings {
     });
 }
 
+pub mod ui;
+
 pub use self::bindings::exports::hamlet::plugin::plugin::{
-    Incoming, Intent, Outgoing,
+    Incoming, Intent, Outgoing, Tree,
 };
 pub use self::bindings::hamlet::plugin::host::Level;
 
@@ -25,6 +27,13 @@ pub trait Plugin {
     /// Runs with what happened since the last call, and answers with
     /// what the plugin wants done.
     fn step(inbox: Vec<Incoming>) -> Vec<Intent>;
+
+    /// The panel `panel`, as it is now. The host asks again only
+    /// after an event reached the panel or the plugin asked for a
+    /// redraw.
+    fn panel_view(_panel: &str) -> ui::Node {
+        ui::column([])
+    }
 }
 
 /// Writes a line to the host's log.
@@ -56,6 +65,11 @@ macro_rules! export {
                     $crate::Outgoing {
                         intents: <$plugin as $crate::Plugin>::step(inbox),
                     }
+                }
+
+                fn panel_view(panel: String) -> $crate::Tree {
+                    <$plugin as $crate::Plugin>::panel_view(&panel)
+                        .into_tree()
                 }
             }
 

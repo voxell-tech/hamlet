@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use bevy::prelude::*;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 
+use crate::draw::Dirty;
 use crate::engine::Host;
 use crate::inbox::Inbox;
 use crate::instance::Instance;
@@ -39,11 +40,13 @@ pub fn bring_up(
         });
     match started {
         Ok((instance, declared)) => {
-            panel::spawn(plugin, &info.id, &declared, commands);
+            let shown =
+                panel::spawn(plugin, &info.id, &declared, commands);
             commands.entity(plugin).insert((
                 instance,
                 Status::Running,
                 Inbox::default(),
+                Dirty::of(shown),
             ));
         }
         Err(fault) => {
