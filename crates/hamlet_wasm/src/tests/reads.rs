@@ -22,7 +22,7 @@ fn agent(name: &str, hamlet: &str) -> Agent {
 
 #[test]
 fn a_read_needs_its_grant_and_a_change_of_grant_applies_at_once() {
-    let limits = Limits::default();
+    let limits = Limits::default().patient();
     let mut plugin = super::load(&fixture::reading()).unwrap();
     let agents =
         AgentList(vec![agent("ada", "home"), agent("bo", "home")]);
@@ -55,7 +55,7 @@ fn a_read_needs_its_grant_and_a_change_of_grant_applies_at_once() {
 
 #[test]
 fn the_papers_are_read_with_their_own_grant_and_only_as_a_copy() {
-    let limits = Limits::default();
+    let limits = Limits::default().patient();
     let mut plugin = super::load(&fixture::reading_papers()).unwrap();
     let papers = Papers {
         notes: "tide table".into(),

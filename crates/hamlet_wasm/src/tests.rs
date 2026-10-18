@@ -27,7 +27,7 @@ use crate::interface::hamlet::plugin::host::Level;
 use crate::limits::Limits;
 
 fn load(module: &str) -> Result<Instance, Fault> {
-    let limits = Limits::default();
+    let limits = Limits::default().patient();
     let host = Host::new(&limits).unwrap();
     let component =
         Component::new(&host.0, fixture::component(module))
@@ -37,7 +37,7 @@ fn load(module: &str) -> Result<Instance, Fault> {
 
 #[test]
 fn step_answers_from_its_inbox_and_log_reaches_the_host() {
-    let limits = Limits::default();
+    let limits = Limits::default().patient();
     let mut plugin = load(&fixture::echo()).unwrap();
     plugin.entry(&limits).unwrap();
     let inbox =
@@ -67,7 +67,7 @@ fn a_call_that_never_returns_runs_out_of_time() {
 
 #[test]
 fn memory_that_grows_without_end_is_stopped() {
-    let limits = Limits::default();
+    let limits = Limits::default().patient();
     let mut plugin = load(&fixture::grow()).unwrap();
     let fault = plugin.step(&limits, &[]).map(drop).unwrap_err();
     assert!(matches!(fault, Fault::OutOfMemory(_)), "{fault}");

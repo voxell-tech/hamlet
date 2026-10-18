@@ -56,7 +56,20 @@ pub struct Limits {
     pub state_bytes: usize,
 }
 
+/// The time one call may take, in milliseconds, for runs on a busy
+/// machine: the tests and the harness.
+pub const PATIENT_MS: u64 = 10_000;
+
 impl Limits {
+    /// These limits with a call time that a busy machine does not
+    /// pass.
+    pub fn patient(self) -> Self {
+        Self {
+            call_ms: PATIENT_MS,
+            ..self
+        }
+    }
+
     pub fn tick(&self) -> Duration {
         Duration::from_millis(self.tick_ms)
     }

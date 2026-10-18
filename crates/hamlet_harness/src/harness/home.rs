@@ -10,6 +10,7 @@ use hamlet_core::core::HomeDir;
 use hamlet_home::Home;
 use hamlet_sdk::capability::{Choice, Choices, Record, Store};
 use hamlet_wasm::install::{self, FILES};
+use hamlet_wasm::limits::Limits;
 use hamlet_wasm::manifest::Manifest;
 
 /// The time one frame of the app lasts.
@@ -86,7 +87,7 @@ pub fn install(
 }
 
 /// An app that loads the home as it is. Each frame lasts [`FRAME`] by
-/// its clock.
+/// its clock, and a call may last long enough for a busy machine.
 pub fn app(home: &Scratch) -> App {
     let mut app = App::new();
     app.insert_resource(HomeDir(Home {
@@ -103,5 +104,6 @@ pub fn app(home: &Scratch) -> App {
         hamlet_sdk::tree::plugin,
         hamlet_wasm::plugin,
     ));
+    app.insert_resource(Limits::default().patient());
     app
 }

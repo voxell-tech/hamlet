@@ -11,10 +11,7 @@ use crate::limits::Limits;
 use crate::storage::{Caps, Storage};
 
 fn kept(folder: &Path) -> usize {
-    let limits = Limits {
-        call_ms: 10_000,
-        ..Limits::default()
-    };
+    let limits = Limits::default().patient();
     let host = Host::new(&limits).unwrap();
     let component = Component::new(
         &host.0,

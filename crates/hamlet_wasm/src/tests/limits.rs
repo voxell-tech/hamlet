@@ -40,7 +40,7 @@ fn a_tree_with_too_much_text_fails() {
 fn intents_over_the_limit_are_dropped_with_a_warning() {
     let limits = Limits {
         intents_per_call: 0,
-        ..Limits::default()
+        ..Limits::default().patient()
     };
     let mut plugin = super::load(&fixture::echo()).unwrap();
 

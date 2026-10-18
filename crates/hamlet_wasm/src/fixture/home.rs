@@ -203,7 +203,7 @@ pub fn open(home: &Scratch) -> App {
     ));
     // Tests run side by side, and a plugin must not fail for being
     // slow on a busy machine.
-    app.world_mut().resource_mut::<Limits>().call_ms = 10_000;
+    app.insert_resource(Limits::default().patient());
     app
 }
 

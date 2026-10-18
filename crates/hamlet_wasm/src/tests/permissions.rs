@@ -171,7 +171,7 @@ fn asks(capabilities: &[Capability]) -> Asks {
 #[test]
 fn a_request_is_answered_by_the_choice_and_only_a_named_capability_can_be_asked_for()
  {
-    let limits = Limits::default();
+    let limits = Limits::default().patient();
     let mut plugin =
         super::load(&fixture::requesting("read.agents")).unwrap();
     let mut asked = |asks: &Asks, choices: &Choices| {
