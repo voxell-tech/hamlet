@@ -48,16 +48,28 @@ The picture above shows the earlier Rust runtime's realm.
 
 ## Running
 
-Use Rust and the Node version in `server/.nvmrc`. From the repository root:
+Use Rust, git and the Node version in `server/.nvmrc`. From the repository
+root, install the `hamlet` command and its window, and start Hamlet on your
+home, `~/.hamlet`:
 
 ```sh
-git submodule update --init vendor/fynix
-npm ci --prefix server
-HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
+make install
+hamlet
 ```
 
-The Rust CLI builds the local window, starts a separate TypeScript server
-on a free port, and opens the window. No `npm link` is needed.
+`make install` fetches the vendored fynix, installs the server's packages
+and puts `hamlet` and `hamlet-app` in `~/.cargo/bin`. The installed `hamlet`
+runs the server from this checkout, so keep the checkout and run
+`make install` again after pulling. `make` alone builds without installing,
+`make uninstall` removes both commands, and `make dev` tries the checkout on
+a scratch home without installing:
+
+```sh
+HAMLET_HOME=/tmp/hamlet-try make dev
+```
+
+`dev` builds the local window, starts a separate TypeScript server on a
+free port, and opens the window. No `npm link` is needed.
 The home is kept between runs; the window's files go in `<home>/window`.
 The welcome offers API keys, Continue with ChatGPT, OpenRouter sign-in or
 a local model endpoint on the server's machine. Credentials stay on the
@@ -65,8 +77,7 @@ server. Tools need Seatbelt on macOS or bubblewrap on Linux; the server
 cannot start on Windows, and there is no `--insecure` mode.
 
 Closing the window leaves `hamlet dev` serving; Ctrl-C stops it. Use
-`cargo run -p hamlet_cli -- <command>` without installing, or install the
-CLI once with `cargo install --path crates/hamlet_cli`. If you previously
+`cargo run -p hamlet_cli -- <command>` without installing. If you previously
 linked the npm command, remove it with `npm unlink -g hamlet-server` so it
 cannot shadow the Rust command. To keep a server separate from the window
 after installing, use two terminals:

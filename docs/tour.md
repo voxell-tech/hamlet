@@ -282,8 +282,8 @@ HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
 ```
 
 `npm ci --prefix server` installs the server's dependencies; use its
-`.nvmrc` Node version. `cargo install --path crates/hamlet_cli` optionally
-installs `hamlet` on PATH. `hamlet dev` sets
+`.nvmrc` Node version. `make install` does that too and installs `hamlet`
+and `hamlet-app` on PATH; the `Makefile` lists its other targets. `hamlet dev` sets
 `HAMLET_VIEW=<home>/window`; when opening a window yourself, set a scratch
 `HAMLET_VIEW` too. A server can outlive any number of windows; Ctrl-C in
 the `hamlet dev` terminal stops the server.

@@ -37,8 +37,8 @@ HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
 
 `dev` builds the checkout's window before starting the server. `HAMLET_APP`
 selects an existing window and skips that build. Use `cargo run -p hamlet_cli
--- <command>` for other commands, or install with `cargo install --path
-crates/hamlet_cli`. An installed CLI still needs the server package and Node;
+-- <command>` for other commands, or install the CLI and the window with
+`make install`. An installed CLI still needs the server package and Node;
 `HAMLET_SERVER_DIR` overrides the package path and `HAMLET_NODE` selects Node.
 
 Bare `hamlet` uses `~/.hamlet` by default and leaves a server running in
@@ -57,7 +57,8 @@ window ends only its process; agents keep working on the server. Stop
 ## Checks
 
 All four must be clean before a commit. Formatting needs nightly, because
-`rustfmt.toml` uses unstable options.
+`rustfmt.toml` uses unstable options. `make check` runs these and the
+server's two checks below in order, and `make fmt` formats both.
 
 ```sh
 cargo +nightly fmt
