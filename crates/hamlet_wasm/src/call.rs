@@ -1,6 +1,7 @@
 //! Calling a plugin: `entry` once, `step` for each inbox and
 //! `panel-view` for each panel to draw, each under the time limit.
 
+use hamlet_sdk::tree::node::Node;
 use wasmtime::Store;
 
 use crate::fault::Fault;
@@ -11,7 +12,7 @@ use crate::interface::exports::hamlet::plugin::plugin::{
     Incoming, Intent,
 };
 use crate::limits::Limits;
-use crate::tree::{Node, wire};
+use crate::wire;
 
 /// What a finished call left.
 #[derive(Default, Debug, PartialEq)]

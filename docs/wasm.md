@@ -28,9 +28,10 @@ In `hamlet_wasm/src/`, a file for each part:
 | What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels), `host/read.rs` (the reads), `grant.rs`, `agents.rs` |
 | The install folder | `manifest.rs`, `install.rs`, `approved.rs` |
 | Bringing up and the frame | `load.rs`, `start.rs`, `enable.rs`, `inbox.rs`, `run.rs`, `stop.rs` |
-| The panels | `panel.rs`, `tree.rs` and `tree/wire.rs`, `trees.rs`, `draw.rs`, `event.rs`, `view.rs` and `view/` |
+| The panels | `panel.rs`, `wire.rs` (a returned tree made into nodes), `draw.rs`, `event.rs` |
 
-`lib.rs` has the plugin.
+`lib.rs` has the plugin. The node model, the read-model of what each panel
+shows and the view built from it are in `hamlet_sdk::tree`.
 
 ## The interface
 
@@ -94,7 +95,7 @@ under way goes on.
    and a panel named by a `redraw` intent. The `Draw` set calls `panel-view`
    once for each and keeps the tree in `PluginTrees`, a resource keyed by
    the panel's id in the dock, only when it differs.
-3. The panel's view is `view::panel`, built from its id (`Body::ById` in
+3. The panel's view is `hamlet_sdk::tree::view::panel`, built from its id (`Body::ById` in
    `hamlet_sdk::dock`). It reads `PluginTrees` through signals: the shape of
    the panel (nothing yet, a tree, stopped), and for each node its text, its
    state and its children, found by the ids from the root. Each container
@@ -278,7 +279,7 @@ they need no target. `fixture.rs` makes the modules, `fixture/tree.rs` lays a
 tree out in a module's memory, and `fixture/home.rs` makes a scratch home and
 an app that loads it.
 
-`cargo run --example ui_gallery --features wasm -- --scene plugin-roster
+`cargo run --example ui_gallery -- --scene plugin-roster
 --out <dir>` draws the roster's panel in the dock, from the tree the roster
 returns and a list of agents made up for the scene.
 

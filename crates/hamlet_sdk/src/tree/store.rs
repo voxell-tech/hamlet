@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use hamlet_sdk::dock::Panel;
 
-use crate::tree::{Key, Node, Tag};
+use super::node::{Key, Node, Tag};
+use crate::dock::Panel;
 
 /// What a plugin panel shows now.
 #[derive(Clone, PartialEq, Debug)]

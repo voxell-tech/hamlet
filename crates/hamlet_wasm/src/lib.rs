@@ -7,7 +7,6 @@ use hamlet_assets::TuningPlugin;
 use self::agents::AgentList;
 use self::engine::Host;
 use self::limits::{Limits, WasmTuning};
-use self::trees::PluginTrees;
 
 pub mod agents;
 pub mod approved;
@@ -17,7 +16,6 @@ pub mod enable;
 pub mod engine;
 pub mod event;
 pub mod fault;
-pub mod glyph;
 pub mod grant;
 pub mod host;
 pub mod inbox;
@@ -31,9 +29,7 @@ pub mod panel;
 pub mod run;
 pub mod start;
 pub mod stop;
-pub mod tree;
-pub mod trees;
-pub mod view;
+pub mod wire;
 
 #[cfg(test)]
 mod fixture;
@@ -41,17 +37,15 @@ mod fixture;
 mod tests;
 
 /// Loads the approved installed plugins, steps the ones that have
-/// mail and draws their panels. Add it after the core.
+/// mail and draws their panels. Add it after the core and the SDK.
 pub fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<WasmTuning>::default())
         .init_resource::<Limits>()
-        .init_resource::<PluginTrees>()
         .init_resource::<AgentList>()
         .add_message::<run::Done>()
         .add_observer(enable::restart)
         .add_observer(event::deliver)
         .add_observer(stop::stopped)
-        .add_observer(trees::forget)
         .configure_sets(
             Update,
             (

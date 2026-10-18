@@ -6,17 +6,17 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row, scroll, text_field,
 };
 use bevy_fynix::{Each, ScopedExt, ViewExt, each};
-use hamlet_sdk::feel::Mood;
-use hamlet_sdk::looks::{
-    Fills, ICON, brass, hairline, lettered, note, tick, well,
-};
-use hamlet_sdk::platform::{DisplayText, Wraps};
-use hamlet_sdk::theme::HamletTheme;
-use hamlet_sdk::{AnyView, Cx, icons};
 
 use super::bind::At;
-use crate::event::Act;
-use crate::tree::{Key, Tag};
+use crate::feel::Mood;
+use crate::looks::{
+    Fills, ICON, brass, hairline, lettered, note, tick, well,
+};
+use crate::platform::{DisplayText, Wraps};
+use crate::theme::HamletTheme;
+use crate::tree::event::Act;
+use crate::tree::node::{Key, Tag};
+use crate::{AnyView, Cx, icons};
 
 /// The space between the children of a column or a row.
 const GAP: f32 = 8.0;

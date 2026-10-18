@@ -13,6 +13,7 @@ pub mod papers;
 pub mod platform;
 pub mod plugin;
 pub mod theme;
+pub mod tree;
 
 use bevy::app::{App, Plugin};
 use bevy_fynix::Bevy;
@@ -28,6 +29,7 @@ impl Plugin for SdkPlugin {
             dock::plugin,
             papers::plugin,
             plugin::plugin,
+            tree::plugin,
         ));
     }
 }

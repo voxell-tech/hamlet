@@ -1,10 +1,10 @@
 use bevy::app::App;
+use hamlet_sdk::tree::event::{Act, Interaction};
+use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 
 use super::tree::{PANEL, items, tree};
-use crate::event::{Act, Interaction};
 use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
-use crate::trees::{Drawn, PluginTrees};
 
 #[test]
 fn a_click_reaches_the_plugin_and_its_answer_changes_the_panel() {

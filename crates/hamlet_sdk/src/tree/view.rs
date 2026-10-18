@@ -3,14 +3,16 @@
 mod bind;
 mod node;
 mod stopped;
+#[cfg(test)]
+mod tests;
 
 use bevy_fynix::views::column;
 use bevy_fynix::{ViewExt, keyed, resource};
-use hamlet_sdk::looks::bare;
-use hamlet_sdk::{AnyView, dock};
 
 use self::bind::At;
-use crate::trees::{PluginTrees, Shape};
+use super::store::{PluginTrees, Shape};
+use crate::looks::bare;
+use crate::{AnyView, dock};
 
 /// The contents of the plugin panel of this dock id.
 pub fn panel(id: &str) -> AnyView {

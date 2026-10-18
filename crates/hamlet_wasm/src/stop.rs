@@ -3,9 +3,9 @@
 use bevy::prelude::*;
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::plugin::{Contributions, Status};
+use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 
 use crate::fault::Fault;
-use crate::trees::{Drawn, PluginTrees};
 
 /// On the entity of a failed plugin: why it failed.
 #[derive(Component, Clone, PartialEq, Debug)]

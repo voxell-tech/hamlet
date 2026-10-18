@@ -3,13 +3,14 @@
 
 use bevy::prelude::*;
 use hamlet_sdk::plugin::{PluginInfo, Status};
+use hamlet_sdk::tree::id::local_id;
+use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 
 use crate::agents::AgentList;
 use crate::grant::Granted;
 use crate::instance::Instance;
 use crate::limits::Limits;
-use crate::trees::{Drawn, PluginTrees};
-use crate::{panel, run, stop};
+use crate::{run, stop};
 
 /// On the entity of an installed plugin: the panels, by their id in
 /// the dock, that are to be drawn again.
@@ -65,7 +66,7 @@ pub fn draw(
         }
         instance.see(granted, &agents);
         for dock in dirty.take() {
-            let Some(local) = panel::local_id(&info.id, &dock) else {
+            let Some(local) = local_id(&info.id, &dock) else {
                 continue;
             };
             match instance.panel_view(&limits, local) {

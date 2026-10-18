@@ -4,8 +4,8 @@
 //! Every still: `cargo run --example ui_gallery`
 //! Into a folder: `cargo run --example ui_gallery -- --out <dir>`
 //! One scene: `cargo run --example ui_gallery -- --scene controls`
-//! A plugin's panel: `cargo run --example ui_gallery --features wasm
-//! -- --scene plugin-roster`
+//! A plugin's panel: `cargo run --example ui_gallery -- --scene
+//! plugin-roster`
 //! Sooner, to catch what fades: the same with `--strike 12`
 //! Another size, or another picture of the world, shown whole:
 //! `--size 1600x900 --world <png>`
@@ -42,7 +42,7 @@ struct Shot {
     scale: f32,
 }
 
-static SHOTS: [Shot; 32] = [
+static SHOTS: [Shot; 33] = [
     Shot {
         name: "menu",
         scene: Scene::Menu,
@@ -235,23 +235,13 @@ static SHOTS: [Shot; 32] = [
         size: UVec2::new(1180, 680),
         scale: 1.0,
     },
+    Shot {
+        name: "plugin-roster",
+        scene: Scene::PluginRoster,
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
 ];
-
-/// The stills of the installed plugins' panels, which need the host.
-#[cfg(feature = "wasm")]
-static WASM_SHOTS: [Shot; 1] = [Shot {
-    name: "plugin-roster",
-    scene: Scene::PluginRoster,
-    size: UVec2::new(1440, 860),
-    scale: 1.0,
-}];
-
-#[cfg(not(feature = "wasm"))]
-static WASM_SHOTS: [Shot; 0] = [];
-
-fn shots() -> impl Iterator<Item = &'static Shot> {
-    SHOTS.iter().chain(WASM_SHOTS.iter())
-}
 
 /// The update the done buttons are pressed on unless `--strike` says,
 /// the updates after it the still is taken, and the updates its file
@@ -272,7 +262,7 @@ fn main() {
     let Some(scene) = word("--scene") else {
         // A scene to a process: each starts from nothing.
         let me = std::env::current_exe().expect("this program");
-        for shot in shots() {
+        for shot in &SHOTS {
             let status = Command::new(&me)
                 .args(["--scene", shot.name, "--out"])
                 .arg(&out)
@@ -282,7 +272,8 @@ fn main() {
         }
         return;
     };
-    let shot = shots()
+    let shot = SHOTS
+        .iter()
         .find(|shot| shot.name == scene)
         .expect("a scene named in SHOTS");
     draw(shot, out.join(format!("{}.png", shot.name)));

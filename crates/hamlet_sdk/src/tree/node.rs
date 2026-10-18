@@ -1,8 +1,6 @@
 //! A panel's tree as the host holds it.
 
-pub mod wire;
-
-use hamlet_sdk::icons::Glyph;
+use crate::icons::Glyph;
 
 /// One node of a panel: what it is, the id it is matched by among its
 /// siblings, and its children.

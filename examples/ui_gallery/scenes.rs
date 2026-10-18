@@ -1,7 +1,6 @@
 //! Scenes of the panels and their controls held in fixed states.
 
 mod dock;
-#[cfg(feature = "wasm")]
 mod roster;
 mod sample;
 mod sheets;
@@ -159,9 +158,7 @@ pub enum Scene {
     Charter,
     /// The Settings panel at its Plugins page.
     Plugins,
-    /// The panel of the roster plugin, drawn from its tree. Needs
-    /// `--features wasm`.
-    #[cfg(feature = "wasm")]
+    /// The panel of the roster plugin, drawn from its tree.
     PluginRoster,
     /// Every icon, at each size it is drawn for.
     Icons,

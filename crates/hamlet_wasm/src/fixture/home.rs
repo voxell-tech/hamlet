@@ -120,6 +120,7 @@ pub fn app(home: &Scratch, plugins: &[Plugin]) -> App {
     .add_plugins((
         hamlet_sdk::dock::plugin,
         hamlet_sdk::plugin::plugin,
+        hamlet_sdk::tree::plugin,
         crate::plugin,
     ));
     app

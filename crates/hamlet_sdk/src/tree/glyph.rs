@@ -1,6 +1,6 @@
 //! The icons of the panels, by the names a plugin gives them.
 
-use hamlet_sdk::icons::Glyph;
+use crate::icons::Glyph;
 
 /// The icon of this name, in any case.
 pub fn named(name: &str) -> Option<Glyph> {

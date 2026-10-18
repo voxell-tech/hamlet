@@ -2,8 +2,9 @@
 
 use std::vec::IntoIter;
 
-use super::{Kind, Node};
-use crate::glyph;
+use hamlet_sdk::tree::glyph;
+use hamlet_sdk::tree::node::{Kind, Node};
+
 use crate::interface::exports::hamlet::plugin::plugin::{
     Node as Wire, Tree, Widget,
 };

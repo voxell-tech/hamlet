@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 use hamlet_sdk::plugin::{PluginInfo, Status};
+use hamlet_sdk::tree::id::dock_id;
 
 use crate::agents::AgentList;
 use crate::draw::Dirty;
@@ -13,7 +14,7 @@ use crate::instance::Instance;
 use crate::interface::exports::hamlet::plugin::plugin::Intent;
 use crate::interface::hamlet::plugin::host::Level;
 use crate::limits::Limits;
-use crate::{event, panel, stop};
+use crate::{event, stop};
 
 /// What one plugin's `step` asked for.
 #[derive(Message)]
@@ -62,7 +63,7 @@ pub fn step(
                     .for_each(|line| say(&info.id, line));
                 // A panel that was written to may look different now.
                 for local in mail.iter().filter_map(event::panel_of) {
-                    dirty.mark(&panel::dock_id(&info.id, local));
+                    dirty.mark(&dock_id(&info.id, local));
                 }
                 done.write(Done {
                     plugin,
@@ -91,7 +92,7 @@ pub fn apply(
                     info!("plugin {}: {text}", info.id)
                 }
                 (Intent::Redraw(panel), Some(dirty)) => {
-                    dirty.mark(&panel::dock_id(&info.id, panel))
+                    dirty.mark(&dock_id(&info.id, panel))
                 }
                 (Intent::Redraw(_), None) => {}
             }

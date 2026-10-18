@@ -2,12 +2,13 @@ use bevy::prelude::*;
 use bevy_fynix::mount;
 use hamlet_sdk::plugin::{Enable, Status};
 use hamlet_sdk::theme::HamletTheme;
+use hamlet_sdk::tree::event::{Act, Interaction};
+use hamlet_sdk::tree::store::{PluginTrees, Shape};
+use hamlet_sdk::tree::view;
 
 use super::tree::{PANEL, items};
-use crate::event::{Act, Interaction};
+use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
-use crate::trees::{PluginTrees, Shape};
-use crate::{fixture, view};
 
 fn says(app: &mut App, said: &str) -> bool {
     let world = app.world_mut();

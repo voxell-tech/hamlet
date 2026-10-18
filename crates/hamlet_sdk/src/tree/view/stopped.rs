@@ -3,17 +3,17 @@
 use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column};
-use hamlet_sdk::AnyView;
-use hamlet_sdk::icons::Glyph;
-use hamlet_sdk::looks::{action, note, stated};
-use hamlet_sdk::plugin::Enable;
 
-use crate::panel;
+use crate::AnyView;
+use crate::icons::Glyph;
+use crate::looks::{action, note, stated};
+use crate::plugin::Enable;
+use crate::tree::id;
 
 /// A word that the plugin stopped, why, and the press that starts it
 /// again.
 pub(super) fn view(id: &str, why: &str) -> AnyView {
-    let plugin = panel::plugin_of(id).to_string();
+    let plugin = id::plugin_of(id).to_string();
     column((
         stated(
             Glyph::Stop,

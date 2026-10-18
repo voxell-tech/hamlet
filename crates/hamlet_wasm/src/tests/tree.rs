@@ -1,16 +1,9 @@
-use bevy::input_focus::{FocusCause, InputFocus};
-use bevy::prelude::*;
-use bevy::text::EditableText;
-use bevy::ui::widget::Text;
-use bevy_fynix::mount;
 use hamlet_sdk::icons::Glyph;
-use hamlet_sdk::theme::HamletTheme;
+use hamlet_sdk::tree::node::{Kind, Node};
+use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 
 use crate::fixture::home::{self, Plugin, Scratch};
 use crate::fixture::{self, Item, Widget};
-use crate::tree::{Kind, Node};
-use crate::trees::{Drawn, PluginTrees};
-use crate::view;
 
 pub(super) const PANEL: &str = "probe/main";
 
@@ -54,25 +47,8 @@ pub(super) fn tree(count: &str, hint: bool) -> Node {
     Node::new(Kind::Column).of(children)
 }
 
-fn text_entity(app: &mut App, said: &str) -> Option<Entity> {
-    let world = app.world_mut();
-    world
-        .query::<(Entity, &Text)>()
-        .iter(world)
-        .find(|(_, text)| text.0 == said)
-        .map(|(entity, _)| entity)
-}
-
-fn field(app: &mut App) -> Entity {
-    let world = app.world_mut();
-    world
-        .query_filtered::<Entity, With<EditableText>>()
-        .single(world)
-        .expect("one text field")
-}
-
 #[test]
-fn a_returned_tree_is_drawn_and_a_redraw_keeps_a_typed_text() {
+fn a_returned_tree_is_kept_for_its_panel() {
     let scratch = Scratch::new("tree");
     let mut app = home::app(
         &scratch,
@@ -84,7 +60,6 @@ fn a_returned_tree_is_drawn_and_a_redraw_keeps_a_typed_text() {
             )),
         )],
     );
-    home::views(&mut app);
     app.update();
     assert!(
         app.world()
@@ -93,42 +68,4 @@ fn a_returned_tree_is_drawn_and_a_redraw_keeps_a_typed_text() {
         "{:?}",
         app.world().resource::<PluginTrees>()
     );
-
-    mount::<HamletTheme>(app.world_mut(), view::panel(PANEL));
-    app.update();
-    app.update();
-    let field_before = field(&mut app);
-    let button_before = text_entity(&mut app, "Refresh").unwrap();
-    let count_before = text_entity(&mut app, "0 refreshes").unwrap();
-    // The user types in the field.
-    app.world_mut().insert_resource(InputFocus::default());
-    app.world_mut()
-        .resource_mut::<InputFocus>()
-        .set(field_before, FocusCause::Pressed);
-    app.world_mut()
-        .get_mut::<EditableText>(field_before)
-        .unwrap()
-        .editor_mut()
-        .set_text("Adam");
-
-    // The plugin draws again: a new count and a new line.
-    app.world_mut()
-        .resource_mut::<PluginTrees>()
-        .set(PANEL, Drawn::Tree(tree("1 refresh", true)));
-    app.update();
-
-    assert_eq!(field(&mut app), field_before);
-    let typed = app
-        .world()
-        .get::<EditableText>(field_before)
-        .unwrap()
-        .value()
-        .to_string();
-    assert_eq!(typed, "Adam");
-    assert_eq!(text_entity(&mut app, "Refresh"), Some(button_before));
-    assert_eq!(
-        text_entity(&mut app, "1 refresh"),
-        Some(count_before)
-    );
-    assert!(text_entity(&mut app, "A hint.").is_some());
 }

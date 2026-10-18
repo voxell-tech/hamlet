@@ -1,9 +1,9 @@
 //! What a plugin declares during `entry`.
 
 use hamlet_sdk::icons::Glyph;
+use hamlet_sdk::tree::glyph;
 
 use super::State;
-use crate::glyph;
 use crate::interface::hamlet::plugin::host::Level;
 
 /// A panel a plugin declared.

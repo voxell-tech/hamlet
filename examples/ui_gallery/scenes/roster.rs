@@ -4,10 +4,10 @@
 use bevy::ecs::world::World;
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::icons::Glyph;
-use hamlet_wasm::panel::dock_id;
-use hamlet_wasm::tree::{Kind, Node};
-use hamlet_wasm::trees::{Drawn, PluginTrees};
-use hamlet_wasm::view;
+use hamlet_sdk::tree::id::dock_id;
+use hamlet_sdk::tree::node::{Kind, Node};
+use hamlet_sdk::tree::store::{Drawn, PluginTrees};
+use hamlet_sdk::tree::view;
 
 /// The id of the panel in the dock.
 pub(super) fn id() -> String {

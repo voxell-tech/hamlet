@@ -133,9 +133,9 @@ Paths are under `crates/`.
 | The Skills panel | `plugins/skills/src/` |
 | What an installed plugin may call, and its limits | `hamlet_wasm/wit/hamlet-plugin.wit`, `hamlet_wasm/src/host.rs` and `host/`, `assets/wasm.toml`; [`wasm.md`](wasm.md) |
 | Which installed plugins load, and what each is granted | `hamlet_wasm/src/install.rs`, `approved.rs`, `grant.rs`, `load.rs`; [`wasm.md`](wasm.md) |
-| What a plugin's panel is drawn as | `hamlet_wasm/src/view/node.rs` (a node as a view), `tree.rs`, `trees.rs`, `draw.rs`; [`wasm.md`](wasm.md) |
-| What a plugin's panel shows when it stopped | `hamlet_wasm/src/view/stopped.rs`, `stop.rs`; [`wasm.md`](wasm.md) |
-| How a click or typing reaches a plugin | `hamlet_wasm/src/event.rs`; [`wasm.md`](wasm.md) |
+| What a plugin's panel is drawn as | `hamlet_sdk/src/tree/view/node.rs` (a node as a view), `tree/node.rs`, `tree/store.rs`; `hamlet_wasm/src/wire.rs` and `draw.rs` for a WASM plugin's; [`wasm.md`](wasm.md) |
+| What a plugin's panel shows when it stopped | `hamlet_sdk/src/tree/view/stopped.rs`, `hamlet_wasm/src/stop.rs`; [`wasm.md`](wasm.md) |
+| How a click or typing reaches a plugin | `hamlet_sdk/src/tree/event.rs`, `hamlet_wasm/src/event.rs`; [`wasm.md`](wasm.md) |
 | Writing a WASM plugin | `hamlet_guest/src/lib.rs` and `ui.rs`, `guests/hello/`, `guests/roster/`; [`wasm.md`](wasm.md) |
 | The Plugins page of Settings | `hamlet_ui/src/screens/settings/plugins.rs` |
 | A colour in the world | `assets/palette.toml` |
@@ -171,7 +171,7 @@ These draw to files and open nothing:
 
 | Command | Shows |
 |---|---|
-| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes. `plugin-roster`, an installed plugin's panel, needs `--features wasm` |
+| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes. `plugin-roster` is an installed plugin's panel drawn from a tree |
 | `cargo run --release --example far_lands -- --out <dir>` | The land, many towns, a town being moved; `--bench` times it |
 | `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library |
 | `cargo run --example cursor_sheet` | Every cursor |

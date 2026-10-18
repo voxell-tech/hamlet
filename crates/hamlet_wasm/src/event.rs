@@ -3,45 +3,13 @@
 use bevy::prelude::*;
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::plugin::{ContributedBy, PluginInfo, Status};
+use hamlet_sdk::tree::event::{Act, Interaction};
+use hamlet_sdk::tree::id;
 
 use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::{
     Incoming, Press, Toggle, Typed,
 };
-use crate::panel;
-
-/// Something the user did to a node of a plugin panel.
-#[derive(Event)]
-pub struct Interaction {
-    /// The panel's id in the dock.
-    pub panel: String,
-    /// The node's id.
-    pub node: String,
-    pub act: Act,
-}
-
-/// What was done.
-pub enum Act {
-    Click,
-    Toggled(bool),
-    Typed(String),
-}
-
-impl Interaction {
-    /// Tells the plugin of the panel that this was done.
-    pub fn send(
-        world: &mut World,
-        panel: &str,
-        node: &str,
-        act: Act,
-    ) {
-        world.trigger(Self {
-            panel: panel.into(),
-            node: node.into(),
-            act,
-        });
-    }
-}
 
 /// Puts the interaction in the inbox of the running plugin whose
 /// panel it was done in.
@@ -58,7 +26,7 @@ pub fn deliver(
     let Ok((info, status, mut inbox)) = plugins.get_mut(by.0) else {
         return;
     };
-    let Some(local) = panel::local_id(&info.id, &event.panel) else {
+    let Some(local) = id::local_id(&info.id, &event.panel) else {
         return;
     };
     if *status != Status::Running {

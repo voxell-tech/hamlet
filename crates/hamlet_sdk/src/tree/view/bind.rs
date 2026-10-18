@@ -3,9 +3,9 @@
 use bevy::ecs::world::World;
 use bevy_fynix::{Signal, resource};
 
-use crate::event::{Act, Interaction};
-use crate::tree::Key;
-use crate::trees::PluginTrees;
+use crate::tree::event::{Act, Interaction};
+use crate::tree::node::Key;
+use crate::tree::store::PluginTrees;
 
 /// A node of one panel, found by the keys from the root.
 #[derive(Clone)]
