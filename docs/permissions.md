@@ -22,10 +22,12 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 `hamlet_sdk::capability::Capability`: `read.agents`, `read.chat`,
 `read.activity`, `read.papers`, `chat.send`, `commands.run`, `ui.menu`, `ui.keys`,
 `ui.context`, `ui.inspector`, `ui.settings`, `net`, `fs.pick`, `fs.folder`,
-`model.call`, `plugin.use`, `collections.read` and `collections.write`.
+`model.call`, `plugin.use`, `collections.read`, `collections.write`,
+`files.read` and `files.write`.
 `read.agents`, `read.papers`, `ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`,
-`ui.settings` and the three below are checked so far; the others can be asked for,
-shown and chosen.
+`ui.settings`, `chat.send`, `commands.run`, `net`, `files.read`, `files.write` and
+the three below are checked so far; the others can be asked for, shown and
+chosen.
 
 `plugin.use`, `collections.read` and `collections.write` are **scoped**: the
 chief chooses for each target, not once for all. The target of `plugin.use` is a
@@ -68,6 +70,69 @@ every target.
   back. The panel a tab or a page shows is the plugin's own and needs nothing, and
   neither does the `open-panel` intent that brings one of its own panels forward.
 
+## Acts as the chief
+
+`chat.send` and `commands.run` let a plugin do what the chief does, so each use
+is labeled with the plugin and held to a limit. They are intents a plugin returns
+from `step` (`send-chat`, `run-as-chief`), carried out by `hamlet_wasm::acts`.
+
+- Installing a plugin leaves both at Ask next time, as for a scoped capability:
+  the first use raises the petition, which says what the plugin tried ("send to
+  scout: Hello..." or "run notes/new"), and that act is dropped. The answer
+  reaches the plugin as `granted` or `denied`, and it tries again. Allow in the
+  petition keeps the choice for good.
+- The ask's `scope` limits them: the agents `chat.send` may write to, the
+  command ids `commands.run` may run (`scope = ["notes/new"]`). Anything outside
+  is dropped with a warning and nobody is asked. No scope is no limit.
+- A message reaches the agent as `[sent by plugin <id>] <text>`, so it is told
+  from the chief's own words and a text that starts with `/` is never read as a
+  chief's command. A notice in the open chat tells the chief of each act, with
+  the plugin's name and id: "Herald (herald) sent to scout: Hello..." or "Herald
+  (herald) ran notes/new". A command goes the way a menu line does, so it runs
+  with no arguments.
+- `acts_per_minute` and `act_text_bytes` in `assets/wasm.toml` limit them; the
+  acts over the limit are dropped with a warning.
+- Settings says on both views that the capability acts as the chief and each use
+  is marked, and shows the scope of an ask as "Limited to".
+
+## Files
+
+`files.read` lets a plugin list and read the files of its own folder, and
+`files.write` write and delete them (see [`wasm.md`](wasm.md)). The folder is
+`plugins/<id>/files/`, kept beside `data/` when a plugin is removed with its
+data kept. A path is relative, of names of letters, digits, `.`, `_`, `-` and
+spaces joined by `/`, none starting with `.`. A path with `..`, an absolute
+path, an empty name or any other character is refused, and so is a path that goes
+through a symbolic link, so nothing outside the folder is reachable. The host
+caps the files, their bytes and the length of a path.
+
+There is no `files.pick`: no file dialog exists in the app yet (the one dialog
+chooses a folder for a hamlet), so a plugin cannot ask the chief for a file. The
+`fs.pick` and `fs.folder` capabilities can be asked for and chosen and nothing
+checks them.
+
+## The web
+
+`net` lets a plugin fetch with the `fetch` intent (see [`wasm.md`](wasm.md)). The
+hosts it may reach are the `scope` of its ask, each shown in the install petition
+("net - To fetch its page [api.example.com]") and in Settings: `api.example.com`,
+or `host:port` for a port other than 443. An ask with no hosts reaches none.
+
+- Only https addresses; an address with a user, another scheme or a host not
+  listed is answered with an error and nobody is asked. A host is matched whole,
+  so `api.example.com` is not `evil.api.example.com`.
+- It follows no redirect, since one could lead off the listed hosts, and sends no
+  header but the content type of a POST.
+- `fetch_ms`, `fetch_request_bytes`, `fetch_response_bytes`, `fetches_in_flight`
+  and `fetches_per_minute` in `assets/wasm.toml` limit it. A fetch over a limit is
+  answered at once with an error.
+- It is not asked at its first use: the install petition is the question, with the
+  hosts in it. Where the choice is Ask next time or unanswered, the fetch is
+  answered with `net is yet to be decided` and the chief is asked.
+
+The test of the host never goes to the internet: the address check is tested on its
+own, and the transfer against a server on the loopback.
+
 `ui.keys` is not `keys`. `keys` in the list of what is never granted below means
 keys and model credentials; `ui.keys` is the keyboard shortcuts of a plugin.
 
@@ -90,9 +155,10 @@ compiled and its panel is not read until the chief says yes.
 
 - A plugin the chief was never asked about, or that changed since it was
   declined, raises one petition: "Install Roster 0.1.0?", with what it asks
-  for, each capability with its reason, and the plugins it needs that are not
-  installed. **Allow** installs it with every ask allowed, except that a
-  scoped capability is left for its first use to be asked for each target, and
+  for, each capability with its reason and its scope, and the plugins it needs
+  that are not installed. **Allow** installs it with every ask allowed, except
+  that a scoped capability is left for its first use to be asked for each
+  target, `chat.send` and `commands.run` are left for their first use, and
   brings it up at once if the plugins it needs are running. **Don't allow**
   records it as declined, so
   it is not asked about again until its version or its asks change.
@@ -122,7 +188,7 @@ The petition names the plugins that need the plugin and go off with it. A
 petition to install lists the plugins it needs that are not installed.
 
 - **Remove, keep data** removes the plugin and leaves its `data/` folder, the
-  storage it kept (see [`wasm.md`](wasm.md)).
+  storage it kept, and its `files/` folder (see [`wasm.md`](wasm.md)).
 - **Remove with data** removes the plugin's folder whole.
 - **Cancel** does nothing.
 

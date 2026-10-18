@@ -27,6 +27,7 @@ plugin is enough.
 | `examples/plugin_check` | The harness as a command |
 | `crates/hamlet_home/starters/write-a-plugin` | The starter skill that teaches an agent this page's steps |
 | `guests/notes/` | A plugin to read after the template: `model.rs` (what it keeps), `storage.rs` (the notes on disk), `update.rs` (what an event does, and the commands it answers), its menu line, shortcut, settings page and inspector tab in `lib.rs`, `view.rs` (the panels), and its `steps.toml` |
+| `guests/herald/` | A plugin to read for what a plugin may do outside its panel: `lib.rs` sends a message and runs a command as the chief (`hamlet_guest::send_chat`, `run_as_chief`), keeps a draft in its folder of files (`hamlet_guest::files`) and fetches a page (`hamlet_guest::net`); its `manifest.toml` lists the hosts and commands in the `scope` of its asks, and its `steps.toml` answers each ask |
 | `guests/clipper/` | A plugin that uses Notes: its `manifest.toml` (what it needs, imports and asks), `update.rs` (the call, the reply, the events and the command a context menu item runs) and `steps.toml`, a script for the two plugins together |
 
 The template plugin has a panel, a button that counts in its state and one read
@@ -284,6 +285,7 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 | `section = { title = "NOTES", file = "tab.png" }` | Draws the inspector's page of the selected agent turned to the plugin's tab of that title. It fails while the plugin does not hold `ui.inspector` |
 | `page = { title = "NOTES", file = "page.png" }` | Draws the plugin's page of that title in the Settings. It fails while the plugin does not hold `ui.settings` |
 | `expect = { panel = "main", text = "2 agents" }` | Fails unless a node of the panel shows the text |
+| `expect-told = "ran notes/new"` | Fails unless a notice the chief was given in the chat holds the text, such as the one that tells of an act done as the chief. The harness has no chat and no network, so a message ends in "sent nothing" and a fetch to a listed host in "there is no network" |
 
 `panel` is the id the plugin gave the panel (`main`), and `node` the id it gave
 the node. A click on a node that is not there fails and lists the ids that are.
@@ -488,6 +490,53 @@ page = { title = "NOTES", file = "settings-page.png" }
 
 At the width the inspector has by default a tab of a plugin, with the four of its
 own, does not fit, and the strip folds into a list beside the tab that is open.
+
+## Acting for the chief, keeping files and fetching
+
+Four more things a plugin may do are behind a grant, each asked for in the
+manifest with a reason (`guests/herald` does all four):
+
+```toml
+[[asks]]
+capability = "chat.send"            # a message to an agent, as the chief
+reason = "To say hello to the agent you name."
+
+[[asks]]
+capability = "commands.run"         # a registered command, as the chief
+reason = "To open a new note for you."
+scope = ["notes/new"]               # the commands it may run
+
+[[asks]]
+capability = "files.write"          # and files.read: its own folder only
+reason = "To keep a draft."
+
+[[asks]]
+capability = "net"
+reason = "To fetch its greeting page."
+scope = ["api.example.com"]         # the hosts, over https
+```
+
+```rust
+// Returned from `step`. The first use asks the chief and is dropped; the
+// answer arrives as `Incoming::Granted`/`Denied`, and the plugin tries again.
+out.push(hamlet_guest::send_chat("scout", "Hello"));
+out.push(hamlet_guest::run_as_chief("notes/new"));
+out.push(hamlet_guest::net::get(1, "https://api.example.com/hello"));
+
+// The answer to the fetch, in a later `step`.
+if let Some((1, outcome)) = hamlet_guest::net::answer(&incoming) { /* .. */ }
+
+hamlet_guest::files::write("drafts/a.txt", b"hello")?;
+let bytes = hamlet_guest::files::read("drafts/a.txt")?;
+```
+
+A message and a command are noted in the chat as the plugin's, and a message
+reaches the agent as `[sent by plugin <id>] ...`. Each is limited to a number a
+minute. A path of the folder of files that has `..`, is absolute or goes through a
+link is an error. A fetch to a host that is not in the `scope`, or over http, is
+answered with an error. The limits are in `assets/wasm.toml`; the rules are in
+[`permissions.md`](permissions.md) and [`wasm.md`](wasm.md). In a script, `grant`
+answers an ask and `expect-told` checks the notice that tells of an act.
 
 ## Two plugins working together
 

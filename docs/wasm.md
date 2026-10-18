@@ -21,6 +21,7 @@ The host is behind the `wasm` feature of the binary:
 | `guests/hello` | A plugin that logs on every tick. A workspace of its own, since it is built for `wasm32-wasip2` |
 | `guests/roster` | A plugin with a panel that lists the agents, behind the grant `read.agents` |
 | `guests/notes` | Notes: a search, a list of notes and a text area or markdown view of the open one, kept in the plugin's storage; a button copies the selected agent's notes, behind the grant `read.papers`. It exports the commands `add` and `new`, the event `note-saved` and the collection `notes`, and has a HAMLET menu line and the shortcut Cmd+Shift+N for `new`, a page NOTES in the Settings with the checkbox "Open notes in preview", and a NOTES tab of the inspector's page of an agent that lists the notes that mention it |
+| `guests/herald` | Herald: a panel with buttons that send a message to an agent (`chat.send`), run `notes/new` (`commands.run`), keep, read and try to escape a draft in its folder (`files.write`, `files.read`) and fetch a page (`net`, limited to one host). Its `steps.toml` checks each, with the harness's `expect-told` step |
 | `guests/clipper` | Clipper: sends the selected agent's name to Notes with its command, lists the titles of the notes it reads from Notes' collection and counts the `note-saved` events. Its command `clip` sends the name of the agent whose menu item "Clip name to Notes" was chosen. It needs Notes. The pair is the example of [`authoring.md`](authoring.md#two-plugins-working-together) |
 | `assets/wasm.toml` | The limits, and how often the plugins' files are looked at |
 
@@ -29,7 +30,7 @@ In `hamlet_wasm/src/`, a file for each part:
 | Part | Files |
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
-| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
+| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `host/folder.rs` and `files.rs` (the folder of files), `acts.rs` (a message or a command as the chief), `net.rs` (fetches), `rate.rs` (a count a minute), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
 | The install folder | `manifest.rs`, `install.rs` (which also turns down plugins whose needs go in a circle), `cache.rs` (the compiled components kept beside a plugin) |
 | Plugins working together | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `chief.rs` (a command the chief runs), `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `mail.rs`. Also `command.rs` (a plugin's commands, menu lines, context items, inspector tabs, settings pages and keys as entities), `reach.rs` and `host/collections.rs` (the shared collections) |
 | Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
@@ -83,6 +84,9 @@ shows and the view built from it are in `hamlet_sdk::tree`.
 - `storage-get(key)`, `storage-set(key, value)`, `storage-delete(key)` and
   `storage-keys(prefix)`, the plugin's own store (see Storage below). They
   need no capability.
+- `files-list()`, `files-read(path)`, `files-write(path, data)` and
+  `files-delete(path)`, the plugin's own folder of files (see Files below).
+  They need `files.read` (the first two) or `files.write`.
 - `collection-list(plugin, name, after, limit)`, `collection-get(plugin,
   name, key)`, `collection-put(plugin, name, key, value)` and
   `collection-delete(plugin, name, key)`, the collections other plugins share
@@ -106,7 +110,9 @@ The plugin exports:
   panel, an `open-panel` of the plugin's own that brings it to the front of the
   dock (opening it if it is closed, with no capability, and dropped with a
   warning for a panel the plugin did not declare), and between plugins
-  `run-command`, `reply` and `publish`.
+  `run-command`, `reply` and `publish`. Three more go out of the host: `send-chat`
+  and `run-as-chief` (see Acts as the chief below) and `fetch` (see The web
+  below), the answer to which reaches a later `step` as `fetched(id, outcome)`.
 - `panel-view(panel) -> view`, which returns the panel as it is now: a
   `tree`, or `lang`, a program in Hamlet's panel language that the host
   draws (see [`panels.md`](panels.md)).
@@ -208,6 +214,49 @@ order.
 What a plugin passes to `log` is written to the log the same way, labelled
 with the id. A headless run (`--headless`) installs the log only with the
 `wasm` feature on.
+
+## Files
+
+A plugin has a folder of files of its own, `plugins/<id>/files/`, beside its
+`data/`. `files-list` gives the paths, `files-read` the bytes of one, and
+`files-write` and `files-delete` change them, each needing `files.read` or
+`files.write` ([`permissions.md`](permissions.md)). A path is relative, of names
+of letters, digits, `.`, `_`, `-` and spaces joined by `/`, none starting with
+`.`; the folders on the way are made. `..`, an absolute path, an empty name and a
+path through a symbolic link are refused, so no path leaves the folder. The caps
+`files_bytes`, `files_count`, `file_bytes` and `file_path_bytes` of
+`assets/wasm.toml` bound it. A file is written beside its place and renamed over
+it. `hamlet_guest::files` has the four calls.
+
+## Acts as the chief
+
+`send-chat(agent, text)` sends a message to the agent as the chief would from the
+chat box, and `run-as-chief(command)` runs a registered command by its id as a
+click on a menu line does. They are intents, carried out by `acts.rs` in `Apply`,
+and need `chat.send` and `commands.run`, which are left at Ask next time when the
+chief lets a plugin in. Each act is limited to what the ask's `scope` lists,
+counted against `acts_per_minute`, and noted in the open chat with the plugin's
+name; a message reaches the agent as `[sent by plugin <id>] <text>`
+([`permissions.md`](permissions.md)). `hamlet_guest::send_chat` and
+`run_as_chief` make the intents. `hamlet_sdk::convo::send_as_chief` is the
+function behind a message.
+
+## The web
+
+`fetch(id, method, url, content-type, body)` is an intent for a GET or POST over
+https, and the answer is `fetched(id, outcome)` in a later `step`: the status, the
+content type and the body of the answer, whatever its status, or the reason there
+is none. It needs `net`, and goes only to a host in the ask's `scope`. The
+address is checked first, then the grant and the limits, and a refusal is
+answered at once. The transfer runs on the app's Tokio runtime with `reqwest`
+(the client the model calls use), follows no redirect and is held to
+`fetch_ms`, `fetch_request_bytes`, `fetch_response_bytes`, `fetches_in_flight` and
+`fetches_per_minute`. `net.rs` has the address check (`allowed`), the transfer
+(`transfer`) and the systems. `hamlet_guest::net` makes the intents and reads the
+answer.
+
+The hosts are not resolved to a public address: a listed host that points to a
+private address is reached.
 
 ## Plugins working together
 
