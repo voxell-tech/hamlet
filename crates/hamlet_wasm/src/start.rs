@@ -11,6 +11,7 @@ use crate::engine::Host;
 use crate::inbox::Inbox;
 use crate::instance::Instance;
 use crate::limits::Limits;
+use crate::stop::{self, Failure};
 use crate::{panel, run};
 
 /// On the entity of an installed plugin: the file of its component.
@@ -42,16 +43,16 @@ pub fn bring_up(
         Ok((instance, declared)) => {
             let shown =
                 panel::spawn(plugin, &info.id, &declared, commands);
-            commands.entity(plugin).insert((
-                instance,
-                Status::Running,
-                Inbox::default(),
-                Dirty::of(shown),
-            ));
+            commands
+                .entity(plugin)
+                .insert((
+                    instance,
+                    Status::Running,
+                    Inbox::default(),
+                    Dirty::of(shown),
+                ))
+                .remove::<Failure>();
         }
-        Err(fault) => {
-            warn!("plugin {}: {fault}", info.id);
-            commands.entity(plugin).insert(Status::Failed);
-        }
+        Err(fault) => stop::fail(commands, plugin, &info.id, &fault),
     }
 }

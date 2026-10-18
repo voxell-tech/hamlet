@@ -2,6 +2,7 @@
 
 mod bind;
 mod node;
+mod stopped;
 
 use bevy_fynix::views::column;
 use bevy_fynix::{ViewExt, keyed, resource};
@@ -22,7 +23,7 @@ pub fn panel(id: &str) -> AnyView {
         keyed(shape, move |shape| match shape {
             Shape::Waiting => column(()).boxed(),
             Shape::Tree(tag) => node::view(&At::root(&id), *tag),
-            Shape::Stopped(_) => column(()).boxed(),
+            Shape::Stopped(why) => stopped::view(&id, why),
         })
         .within(bare()),
     )

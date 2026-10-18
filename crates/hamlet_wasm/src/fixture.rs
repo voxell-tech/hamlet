@@ -44,9 +44,26 @@ const NO_VIEW: &str = r#"(func (export "hamlet:plugin/plugin@0.1.0#panel-view")
 const QUIET: &str =
     r#"(func (export "hamlet:plugin/plugin@0.1.0#entry"))"#;
 
+/// What a `step` does when the first thing in its inbox is a click.
+const ON_CLICK: &str = "(global.set $clicked (i32.const 1))";
+
 /// Declares the panel "main", draws `before` until a click reaches
 /// its `step`, and `after` from then on.
 pub fn drawing(before: &[Item], after: &[Item]) -> String {
+    panelled(ON_CLICK, before, after)
+}
+
+/// Declares the panel "main" and draws `tree`. A click that reaches
+/// its `step` traps it.
+pub fn failing(tree: &[Item]) -> String {
+    panelled("unreachable", tree, tree)
+}
+
+fn panelled(
+    on_click: &str,
+    before: &[Item],
+    after: &[Item],
+) -> String {
     let before = tree::data(256, before);
     let after = tree::data(1536, after);
     format!(
@@ -64,7 +81,7 @@ pub fn drawing(before: &[Item], after: &[Item]) -> String {
     (if (i32.gt_u (local.get 1) (i32.const 0))
       (then
         (if (i32.eq (i32.load8_u (local.get 0)) (i32.const 1))
-          (then (global.set $clicked (i32.const 1))))))
+          (then {on_click}))))
     (i32.const 0))
   (func (export "hamlet:plugin/plugin@0.1.0#panel-view")
     (param i32 i32) (result i32)

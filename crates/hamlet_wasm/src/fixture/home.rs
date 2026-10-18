@@ -2,9 +2,10 @@
 //! them.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use bevy::prelude::*;
-use bevy::time::TimePlugin;
+use bevy::time::{TimePlugin, TimeUpdateStrategy};
 use bevy_fynix::FynixPlugin;
 use hamlet_assets::Tuning;
 use hamlet_core::core::HomeDir;
@@ -85,4 +86,7 @@ pub fn views(app: &mut App) {
         FynixPlugin::<HamletTheme>::default(),
     ));
     insert_theme(app.world_mut(), HamletTheme::designed());
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(
+        Duration::from_millis(50),
+    ));
 }

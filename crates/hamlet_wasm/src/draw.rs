@@ -7,7 +7,7 @@ use hamlet_sdk::plugin::{PluginInfo, Status};
 use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::trees::{Drawn, PluginTrees};
-use crate::{panel, run};
+use crate::{panel, run, stop};
 
 /// On the entity of an installed plugin: the panels, by their id in
 /// the dock, that are to be drawn again.
@@ -75,8 +75,12 @@ pub fn draw(
                     }
                 }
                 Err(fault) => {
-                    warn!("plugin {}: {fault}", info.id);
-                    commands.entity(plugin).insert(Status::Failed);
+                    stop::fail(
+                        &mut commands,
+                        plugin,
+                        &info.id,
+                        &fault,
+                    );
                     break;
                 }
             }

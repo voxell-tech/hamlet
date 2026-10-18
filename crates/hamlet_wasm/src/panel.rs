@@ -20,6 +20,13 @@ pub fn local_id<'a>(
     dock_id.strip_prefix(plugin)?.strip_prefix('/')
 }
 
+/// The id of the plugin a panel of the dock belongs to.
+pub fn plugin_of(dock_id: &str) -> &str {
+    dock_id
+        .split_once('/')
+        .map_or(dock_id, |(plugin, _)| plugin)
+}
+
 /// Spawns the panels `declared` as contributions of `plugin`, and
 /// returns their ids in the dock.
 pub fn spawn(

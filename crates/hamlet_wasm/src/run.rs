@@ -11,7 +11,7 @@ use crate::instance::Instance;
 use crate::interface::exports::hamlet::plugin::plugin::Intent;
 use crate::interface::hamlet::plugin::host::Level;
 use crate::limits::Limits;
-use crate::{event, panel};
+use crate::{event, panel, stop};
 
 /// What one plugin's `step` asked for.
 #[derive(Message)]
@@ -58,8 +58,7 @@ pub fn step(
                 });
             }
             Err(fault) => {
-                warn!("plugin {}: {fault}", info.id);
-                commands.entity(plugin).insert(Status::Failed);
+                stop::fail(&mut commands, plugin, &info.id, &fault)
             }
         }
     }

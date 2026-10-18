@@ -1,5 +1,6 @@
 mod events;
 mod panels;
+mod stopped;
 mod tree;
 
 use wasmtime::component::Component;

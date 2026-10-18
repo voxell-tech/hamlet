@@ -27,6 +27,7 @@ pub mod manifest;
 pub mod panel;
 pub mod run;
 pub mod start;
+pub mod stop;
 pub mod tree;
 pub mod trees;
 pub mod view;
@@ -45,6 +46,7 @@ pub fn plugin(app: &mut App) {
         .add_message::<run::Done>()
         .add_observer(enable::restart)
         .add_observer(event::deliver)
+        .add_observer(stop::stopped)
         .add_observer(trees::forget)
         .configure_sets(
             Update,
