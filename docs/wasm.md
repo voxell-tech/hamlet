@@ -20,8 +20,8 @@ The host is behind the `wasm` feature of the binary:
 | `templates/` | The plugin to start from, of code and of a panel |
 | `guests/hello` | A plugin that logs on every tick. A workspace of its own, since it is built for `wasm32-wasip2` |
 | `guests/roster` | A plugin with a panel that lists the agents, behind the grant `read.agents` |
-| `guests/notes` | Notes: a search, a list of notes and a text area or markdown view of the open one, kept in the plugin's storage; a button copies the selected agent's notes, behind the grant `read.papers`. It exports the commands `add` and `new`, the event `note-saved` and the collection `notes`, and has a HAMLET menu line and the shortcut Cmd+Shift+N for `new` |
-| `guests/clipper` | Clipper: sends the selected agent's name to Notes with its command, lists the titles of the notes it reads from Notes' collection and counts the `note-saved` events. It needs Notes. The pair is the example of [`authoring.md`](authoring.md#two-plugins-working-together) |
+| `guests/notes` | Notes: a search, a list of notes and a text area or markdown view of the open one, kept in the plugin's storage; a button copies the selected agent's notes, behind the grant `read.papers`. It exports the commands `add` and `new`, the event `note-saved` and the collection `notes`, and has a HAMLET menu line and the shortcut Cmd+Shift+N for `new`, a page NOTES in the Settings with the checkbox "Open notes in preview", and a NOTES tab of the inspector's page of an agent that lists the notes that mention it |
+| `guests/clipper` | Clipper: sends the selected agent's name to Notes with its command, lists the titles of the notes it reads from Notes' collection and counts the `note-saved` events. Its command `clip` sends the name of the agent whose menu item "Clip name to Notes" was chosen. It needs Notes. The pair is the example of [`authoring.md`](authoring.md#two-plugins-working-together) |
 | `assets/wasm.toml` | The limits, and how often the plugins' files are looked at |
 
 In `hamlet_wasm/src/`, a file for each part:
@@ -29,9 +29,9 @@ In `hamlet_wasm/src/`, a file for each part:
 | Part | Files |
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
-| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
+| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
 | The install folder | `manifest.rs`, `install.rs` (which also turns down plugins whose needs go in a circle), `cache.rs` (the compiled components kept beside a plugin) |
-| Plugins working together | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `chief.rs` (a command the chief runs), `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `mail.rs`. Also `command.rs` (a plugin's commands, menu lines and keys as entities), `reach.rs` and `host/collections.rs` (the shared collections) |
+| Plugins working together | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `chief.rs` (a command the chief runs), `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `mail.rs`. Also `command.rs` (a plugin's commands, menu lines, context items, inspector tabs, settings pages and keys as entities), `reach.rs` and `host/collections.rs` (the shared collections) |
 | Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
 | Bringing up and the frame | `load.rs`, `admit.rs` (a plugin the chief just let in), `start.rs`, `enable.rs`, `inbox.rs`, `reply.rs` (an answer to a request), `run.rs`, `stop.rs` |
 | The panels | `panel.rs`, `wire.rs` (a returned tree made into nodes), `draw.rs`, `event.rs` |
@@ -59,6 +59,19 @@ shows and the view built from it are in `hamlet_sdk::tree`.
   plugin's own commands. `Cmd` is the command key of a Mac and Control
   elsewhere. A chord that is not one, or names Escape or Enter, is dropped with
   a warning. It needs the capability `ui.keys`.
+- `context-item(target, section, label, command)`, which adds an item to the
+  menu a right click opens on a thing of the kind `target` (`agent`, `house`,
+  `mayor`, `ruin`, `hamlet`, `chief`, `hearth`, `library` or `ground`; another
+  is dropped with a warning) that runs `command`, one of the plugin's own, on
+  the thing. Items are ordered by `section`, then by label, and `label` may hold
+  `{name}`, the thing's name. It needs the capability `ui.context`.
+- `inspector-section(target, title, panel)`, which adds a tab to the
+  inspector's page of the things of the kind `target`, which is `agent` for now,
+  whose page is the plugin's own panel `panel`. The tab takes the panel's icon.
+  It needs the capability `ui.inspector`.
+- `settings-page(title, icon, panel)`, which adds a door to the Settings panel,
+  with the icon `icon` as for `panel`, to a page that is the plugin's own panel
+  `panel`. It needs the capability `ui.settings`.
 - `agents() -> result<list<agent>, string>`, which needs the grant
   `read.agents`.
 - `papers() -> result<agent-papers, string>`, which needs the grant
@@ -87,15 +100,18 @@ The plugin exports:
   `granted(capability)` or `denied(capability)` (for a capability chosen for
   each plugin or collection, the name is `capability:target`, as in
   `plugin.use:notes`), or, between plugins, a `command` another plugin runs (or
-  the chief, from a menu line or a key, with the sender `chief`), the
-  `reply` to a command this one ran, and an `event`. The intents it returns are
-  carried out by the host: a `log-line`, a `redraw` of a panel, and between
-  plugins `run-command`, `reply` and `publish`.
+  the chief, from a menu line, a key or an item of a context menu, with the
+  sender `chief`), the `reply` to a command this one ran, and an `event`. The
+  intents it returns are carried out by the host: a `log-line`, a `redraw` of a
+  panel, an `open-panel` of the plugin's own that brings it to the front of the
+  dock (opening it if it is closed, with no capability, and dropped with a
+  warning for a panel the plugin did not declare), and between plugins
+  `run-command`, `reply` and `publish`.
 - `panel-view(panel) -> view`, which returns the panel as it is now: a
   `tree`, or `lang`, a program in Hamlet's panel language that the host
   draws (see [`panels.md`](panels.md)).
 
-`interface::VERSION` is the package version, now `0.5.0`; it changes
+`interface::VERSION` is the package version, now `0.6.0`; it changes
 whenever the WIT file does. A manifest that names another one is turned
 down by the scan, and a component whose imports or exports are of another
 version of the package fails to load, both with "built for interface X,
@@ -278,32 +294,46 @@ notes/add`, `plugin clipper: notes/add refused: ...`.
 A command a plugin declares with `command` during `entry` and lists under
 `exports.commands` is spawned as a `hamlet_sdk::command::Command` entity (an id, a
 title and an icon) that is `ContributedBy` the plugin, so it goes with it. The
-menu lines and keys it declares are spawned beside it, and point at it by its name;
-one that names a command the plugin did not declare, or did not list, is dropped
-with a warning. They are `MenuEntry` and `Key` entities, and what they need to
-show is in Menu lines and keys below.
+menu lines, context menu items and keys it declares are spawned beside it, and point
+at it by its name; one that names a command the plugin did not declare, or did not
+list, is dropped with a warning. They are `MenuEntry`, `ContextItem` and `Key`
+entities, and what they need to show is in Menu lines, items and keys below. The
+inspector tabs and settings pages it declares are `InspectorSection` and
+`SettingsPage` entities that name a panel of the plugin by its id in the dock
+(`plugin/panel`, so that no plugin can fill a page with another's panel).
 
 ### The chief's commands
 
-The chief runs a command of an installed plugin from a menu line or a key
-(`hamlet_sdk::command::RunCommand`, see [`sdk.md`](sdk.md)). The SDK finds the
-command; for one an installed plugin carries out, `Forward` reaches
-`interop/chief.rs`, which puts `command(call-id, sender, command, args)` in the
-plugin's inbox with the sender `chief` and no arguments. It needs no `plugin.use`:
-the chief is not a plugin. The plugin answers with `reply` like any command. An
-`err` reply, a plugin that is not running, and one that does not answer within
-`call_frames` frames are put in the open chat as a notice: `` `notes/new` failed:
-...``. An `ok` reply says nothing.
+The chief runs a command of an installed plugin from a menu line, a key or an
+item of a context menu (`hamlet_sdk::command::RunCommand`, see
+[`sdk.md`](sdk.md)). The SDK finds the command; for one an installed plugin carries
+out, `Forward` reaches `interop/chief.rs`, which puts `command(call-id, sender,
+command, args)` in the plugin's inbox with the sender `chief`. The arguments are
+none from a menu line or a key, and from a context item the thing it was chosen
+on: a `Subject`, written with `postcard` (`hamlet_guest::subject::of` reads it).
+It needs no `plugin.use`: the chief is not a plugin. The plugin answers with
+`reply` like any command. An `err` reply, a plugin that is not running, and one
+that does not answer within `call_frames` frames are put in the open chat as a
+notice: `` `notes/new` failed: ...``. An `ok` reply says nothing.
 
-### Menu lines and keys
+### Menu lines, items and keys
 
-A line and a key of an installed plugin are held until the chief allows `ui.menu`
-and `ui.keys` ([`permissions.md`](permissions.md)). The first `menu-item` or `key`
-call while the chief is yet to decide raises the petition, as for any gated call;
-Allow shows them, Don't allow shows nothing, and a choice taken back in Settings
-takes them off at once. A chord a built-in shortcut has never runs the plugin's
-command, and one that two plugins both bind runs neither; the Plugins page
-says so.
+A line, an item of a context menu and a key of an installed plugin are held until
+the chief allows `ui.menu`, `ui.context` and `ui.keys`
+([`permissions.md`](permissions.md)), and an inspector tab and a settings page
+until the chief allows `ui.inspector` and `ui.settings`. The first `menu-item`,
+`context-item`, `inspector-section`, `settings-page` or `key` call while the chief
+is yet to decide raises the petition, as for any gated call; Allow shows them,
+Don't allow shows nothing, and a choice taken back in Settings takes them off at
+once. A chord a built-in shortcut has never runs the plugin's command, and one that
+two plugins both bind runs neither; the Plugins page says so.
+
+A tab and a page show a panel of the plugin: the panel is declared with `panel` and
+drawn as any panel of the plugin is, from its tree or its program, and answers its
+own clicks. The panel is also a window of the dock, which a chief can open from a
+tab bar's plus. A tab learns which agent is selected from the host event
+`host/selection-changed`, and a plugin that wants it asks for `read.agents` and
+imports the event.
 
 ### Events
 
@@ -420,7 +450,9 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **State.** At most `state_bytes` in the blob. A `state-set` over it returns
   an error.
 - **Commands.** At most `commands` declared in `entry`; the rest are dropped.
-  So are menu lines past `menu_items` and keys past `keys`.
+  So are menu lines past `menu_items`, context menu items past `context_items`,
+  inspector tabs past `inspector_sections`, settings pages past `settings_pages`
+  and keys past `keys`.
 - **Calls.** At most `calls_in_flight` waiting for a plugin, `call_depth`
   plugins deep, `call_bytes` in the arguments of a call, in a reply and in the
   payload of an event, and a wait of `call_frames` frames before the caller is

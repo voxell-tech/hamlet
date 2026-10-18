@@ -21,9 +21,11 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 
 `hamlet_sdk::capability::Capability`: `read.agents`, `read.chat`,
 `read.activity`, `read.papers`, `chat.send`, `commands.run`, `ui.menu`, `ui.keys`,
-`net`, `fs.pick`, `fs.folder`, `model.call`, `plugin.use`, `collections.read` and
-`collections.write`. `read.agents`, `read.papers`, `ui.menu`, `ui.keys` and the
-three below are checked so far; the others can be asked for, shown and chosen.
+`ui.context`, `ui.inspector`, `ui.settings`, `net`, `fs.pick`, `fs.folder`,
+`model.call`, `plugin.use`, `collections.read` and `collections.write`.
+`read.agents`, `read.papers`, `ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`,
+`ui.settings` and the three below are checked so far; the others can be asked for,
+shown and chosen.
 
 `plugin.use`, `collections.read` and `collections.write` are **scoped**: the
 chief chooses for each target, not once for all. The target of `plugin.use` is a
@@ -57,6 +59,14 @@ every target.
   plugin needs neither. Two plugins that bind the same chord both lose it, and a
   chord a built-in shortcut uses is never the plugin's; Settings says so under the
   plugin.
+
+- `ui.context` lets a plugin's items of the menu of a thing in the world
+  (`context-item`) show, `ui.inspector` its tabs of the inspector's page of an agent
+  (`inspector-section`) and `ui.settings` its pages of the Settings
+  (`settings-page`). They are gated as `ui.menu` is: held where they are read,
+  asked for at the first declaration, taken off at once when the choice is taken
+  back. The panel a tab or a page shows is the plugin's own and needs nothing, and
+  neither does the `open-panel` intent that brings one of its own panels forward.
 
 `ui.keys` is not `keys`. `keys` in the list of what is never granted below means
 keys and model credentials; `ui.keys` is the keyboard shortcuts of a plugin.
@@ -161,7 +171,8 @@ allowed, for this run too: the next use asks.
 ## Settings
 
 The Plugins page of Settings (`hamlet_ui/src/screens/settings/plugins.rs`
-and its folder) shows it two ways, on two tabs:
+and its folder, a page the plugin `window` adds as any plugin adds one) shows it
+two ways, on two tabs:
 
 - **By plugin.** Each plugin with its version and status, its switch, the
   plugins it needs and the plugins that need it, why it is held back where it
@@ -172,9 +183,10 @@ and its folder) shows it two ways, on two tabs:
   the plugin imports, under its name. A plugin that is not installed has an
   INSTALL button, which puts the install petition again. A plugin that is not
   built in has an UNINSTALL button, which puts the removal petition (see
-  Removing). Under its name the page lists the commands, menu lines and shortcuts
-  the plugin adds, with a note on those that wait for `ui.menu` or `ui.keys` and a
-  line in the colour of an error on a chord that does not run.
+  Removing). Under its name the page lists the commands, menu lines, context menu
+  items, inspector tabs, settings pages and shortcuts the plugin adds, with a note
+  on those that wait for `ui.menu`, `ui.context`, `ui.inspector`, `ui.settings` or
+  `ui.keys` and a line in the colour of an error on a chord that does not run.
 - **By capability.** Each capability that some plugin asks for, with the
   plugins that ask for it, each with the same control, or one for each target
   of a scoped capability.

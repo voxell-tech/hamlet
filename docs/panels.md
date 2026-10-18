@@ -8,6 +8,10 @@ tree of nodes drawn with the looks of the native panels:
   `openui-rs`), which a WASM plugin returns as text or a data plugin keeps in
   a file.
 
+A plugin panel is a window of the dock. It also fills the page of a tab the plugin
+added to the inspector, or a page it added to the Settings (see
+[`sdk.md`](sdk.md)), drawn the same way without the dock's frame.
+
 ## Where it is
 
 | Where | What it is |

@@ -59,7 +59,7 @@ table. The binary and the examples are the root package.
 | `hamlet_offscreen` | An app that draws into an image with no window and saves a still. The examples and the plugin harness draw with it |
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
 | `hamlet_realm` | The 3D world, drawn from the core's entities |
-| `hamlet_sdk` | What a plugin is built with: the plugin types, commands, menu lines and keys, the theme, looks and icons, the dock's panels |
+| `hamlet_sdk` | What a plugin is built with: the plugin types, commands, menu lines, context menu items, inspector tabs, settings pages and keys, the theme, looks and icons, the dock's panels |
 | `hamlet_ui` | The window: panels, menus, chat and pointer around the world |
 | `hamlet_wasm` | The host of the installed WASM plugins, behind the binary's `wasm` feature. See [`wasm.md`](wasm.md) |
 | `hamlet_openui` | Panels written in Hamlet's panel language: the components, the evaluation into a panel tree, state, actions and the data plugin. See [`panels.md`](panels.md) |
@@ -128,7 +128,7 @@ Paths are under `crates/`.
 | Founding, naming, moving, closing a hamlet | `hamlet_rules/src/realm.rs` |
 | A starter skill | `hamlet_home/starters/<name>/SKILL.md` |
 | A panel | Its file in `hamlet_ui/src/screens/`, or in `hamlet_ui/src/` |
-| The right-click menu | `hamlet_ui/src/world_menu/items.rs` |
+| The right-click menu | The items are contributions: `hamlet_ui/src/world_menu/contribute.rs` and `acts.rs`, and `items.rs` for the lines that depend on two agents that are chosen |
 | A colour in the panels | `assets/theme.toml`, its fields in `hamlet_sdk/src/theme.rs` |
 | How a control looks or feels | `hamlet_sdk/src/looks.rs`, `hamlet_ui/src/widgets/feel/`; [`ui-warmth.md`](ui-warmth.md) |
 | An icon | `hamlet_sdk/src/icons.rs`; [`icons.md`](icons.md) |
@@ -150,15 +150,19 @@ Paths are under `crates/`.
 | Plugins running each other's commands, hearing each other's events and reading each other's collections | `hamlet_wasm/src/interop.rs` and `interop/`, `reach.rs`, `host/collections.rs`, `assets/wasm.toml`; for a guest `hamlet_guest/src/calls.rs`, `events.rs` and `collection.rs`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
 | What a plugin exports and imports, and the version of a plugin it needs | `hamlet_sdk/src/plugin/offers.rs`, `version.rs`, `needs.rs`, `blocked.rs`, `hamlet_wasm/src/manifest.rs`, `install.rs`, `enable.rs`; [`wasm.md`](wasm.md) |
 | The host's events a plugin may hear (selection, agents) | `hamlet_sdk/src/events.rs`, `agents.rs`, `hamlet_wasm/src/interop/hosted.rs`; [`wasm.md`](wasm.md) |
-| A command, running one by its id, and what a plugin's commands are as entities | `hamlet_sdk/src/command.rs` and `command/` (`spec.rs`, `run.rs`, `handler.rs`, `list.rs`, `notice.rs`), `plugin/entry.rs`, `hamlet_wasm/src/command.rs`; the chief running an installed plugin's command, `hamlet_wasm/src/interop/chief.rs`; [`sdk.md`](sdk.md) |
+| A command, running one by its id, and what a plugin's commands are as entities | `hamlet_sdk/src/command.rs` and `command/` (`spec.rs`, `run.rs`, `handler.rs`, `list.rs`, `notice.rs`, `subject.rs`), `plugin/entry.rs`, `hamlet_wasm/src/command.rs`; the chief running an installed plugin's command, `hamlet_wasm/src/interop/chief.rs`; [`sdk.md`](sdk.md) |
+| An item of the menu of a thing in the world (the right click) | Its `ContextItem` in the plugin's `entry` (`Entry::context_item`); the window's own items and the commands they run in `hamlet_ui/src/world_menu/contribute.rs` and `acts.rs`; how a thing is a `Subject`, `world_menu/subject.rs`; how the menu is built from the items, `world_menu/items.rs`; what the SDK keeps of them, `hamlet_sdk/src/context/`; [`sdk.md`](sdk.md) |
+| A tab of the inspector's page of an agent | Its `InspectorSection` in the plugin's `entry` (`Entry::inspector_section`); the tabs the page has itself, and how it lists the others, in `hamlet_ui/src/screens/inspector/agent.rs`; the Skills tab, `plugins/skills/src/lib.rs`; what the SDK keeps of them, `hamlet_sdk/src/inspector/`, `page.rs`; [`sdk.md`](sdk.md) |
+| A page of the Settings panel | Its `SettingsPage` in the plugin's `entry` (`Entry::settings_page`); the pages the panel has itself, and how it lists the others, in `hamlet_ui/src/screens/settings.rs`, which adds the Plugins page as any plugin adds one; what the SDK keeps of them, `hamlet_sdk/src/settings/`; [`sdk.md`](sdk.md) |
+| A plugin opening its own panel | The `open-panel` intent: `hamlet_wasm/src/run.rs`; for a guest `hamlet_guest::open_panel`; [`wasm.md`](wasm.md) |
 | A line in the HAMLET or VIEW menu | Its `MenuEntry` in the plugin's `entry` (`Entry::menu_item`); the window's own lines in `hamlet_ui/src/menu/window.rs`; how a menu lists them, `hamlet_sdk/src/menu/`; how the bar draws them, `hamlet_ui/src/menu.rs`; [`sdk.md`](sdk.md) |
 | A keyboard shortcut | Its `Key` in the plugin's `entry` (`Entry::key`); reading a chord, who wins a chord and a press, `hamlet_sdk/src/keys/`; [`sdk.md`](sdk.md) |
 | The Clipper plugin, which uses Notes | `guests/clipper/`; its panel in the gallery, `examples/ui_gallery/scenes/clipper.rs` |
 | Starting a plugin, its templates and the script that copies them | `templates/plugin/`, `templates/data-plugin/`, `scripts/new-plugin.sh`; [`authoring.md`](authoring.md) |
-| Testing a plugin headlessly: the harness, its script and its pictures | `hamlet_harness/src/harness.rs`, `script.rs`, `run.rs`, `render.rs`, `examples/plugin_check/`; [`authoring.md`](authoring.md) |
+| Testing a plugin headlessly: the harness, its script and its pictures | `hamlet_harness/src/harness.rs` and `harness/surfaces.rs`, `script.rs`, `run.rs`, `render.rs` and `render/host.rs`, `examples/plugin_check/`; [`authoring.md`](authoring.md) |
 | What an agent is taught about writing a plugin | `hamlet_home/starters/write-a-plugin/SKILL.md` |
 | Building a plugin from an agent's sandbox | `scripts/vendor-plugin-deps.sh`; [`authoring.md`](authoring.md) |
-| The Plugins page of Settings, and the permissions views | `hamlet_ui/src/screens/settings/plugins.rs` and `plugins/` (`list.rs`, `permissions.rs`, `capabilities.rs`, `control.rs`, `links.rs`, `adds.rs`); [`permissions.md`](permissions.md) |
+| The Plugins page of Settings, and the permissions views | `hamlet_ui/src/screens/settings/plugins.rs` and `plugins/` (`list.rs`, `permissions.rs`, `capabilities.rs`, `control.rs`, `links.rs`, `adds.rs`, which lists what each plugin adds); the page is added by the `window` plugin with `settings::contribute`; [`permissions.md`](permissions.md) |
 | A colour in the world | `assets/palette.toml` |
 | A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`, `wasm.toml`, `panel_lang.toml`. What each value means is beside its field in the code |
 | The height something stands at | `LandData::surface`: the ground as it is drawn, never the smooth `height` |
@@ -192,7 +196,7 @@ These draw to files and open nothing:
 
 | Command | Shows |
 |---|---|
-| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes. `plugin-roster` is an installed plugin's panel drawn from a tree, `plugin-notes` and `plugin-notes-preview` the Notes panel editing a note and showing it as markdown, `plugin-clipper` the Clipper panel after it sent a name to Notes, `plugin-petition` the petitions of plugins, `plugin-permissions` and `plugin-capabilities` their Settings views, with a control for each plugin one imports, `plugin-adds` the Plugins page with the commands, menu lines and shortcuts each plugin adds and a chord that two plugins both want, `menu` and `view-menu` the menus open, the second with a line an installed plugin added, `plugin-reload` the Plugins page after reloads, with what a plugin needs and who needs it |
+| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes. `plugin-roster` is an installed plugin's panel drawn from a tree, `plugin-notes` and `plugin-notes-preview` the Notes panel editing a note and showing it as markdown, `plugin-clipper` the Clipper panel after it sent a name to Notes, `plugin-petition` the petitions of plugins, `plugin-permissions` and `plugin-capabilities` their Settings views, with a control for each plugin one imports, `plugin-adds` the Plugins page with the commands, menu lines and shortcuts each plugin adds and a chord that two plugins both want, `menu` and `view-menu` the menus open, the second with a line an installed plugin added, `plugin-reload` the Plugins page after reloads, with what a plugin needs and who needs it, `world-menu-agent` (and `-mayor`, `-hamlet`, `-ruin`, `-chief`, `-library`, `-ground`) the menu of a thing in the world, `plugin-context` that of an agent with an item an installed plugin added, `skills-tab` and `plugin-inspector-tab` the inspector at a tab added to the page of an agent, and `plugin-settings-page` the Settings at a page an installed plugin added |
 | `cargo run --example plugin_check --features wasm -- <plugin dir>... [--script steps.toml] [--out <dir>]` | The panels of one plugin, or of several opened in one home, as text after each step of a script, and a picture of each: see [`authoring.md`](authoring.md) |
 | `cargo run --release --example far_lands -- --out <dir>` | The land, many towns, a town being moved; `--bench` times it |
 | `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library |

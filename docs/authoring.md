@@ -26,8 +26,8 @@ plugin is enough.
 | `crates/hamlet_harness` | The harness that runs a plugin headlessly: a `Harness` to drive in Rust, and a script runner |
 | `examples/plugin_check` | The harness as a command |
 | `crates/hamlet_home/starters/write-a-plugin` | The starter skill that teaches an agent this page's steps |
-| `guests/notes/` | A plugin to read after the template: `model.rs` (what it keeps), `storage.rs` (the notes on disk), `update.rs` (what an event does, and the commands it answers), its menu line and shortcut in `lib.rs`, `view.rs` (the panel), and its `steps.toml` |
-| `guests/clipper/` | A plugin that uses Notes: its `manifest.toml` (what it needs, imports and asks), `update.rs` (the call, the reply and the events) and `steps.toml`, a script for the two plugins together |
+| `guests/notes/` | A plugin to read after the template: `model.rs` (what it keeps), `storage.rs` (the notes on disk), `update.rs` (what an event does, and the commands it answers), its menu line, shortcut, settings page and inspector tab in `lib.rs`, `view.rs` (the panels), and its `steps.toml` |
+| `guests/clipper/` | A plugin that uses Notes: its `manifest.toml` (what it needs, imports and asks), `update.rs` (the call, the reply, the events and the command a context menu item runs) and `steps.toml`, a script for the two plugins together |
 
 The template plugin has a panel, a button that counts in its state and one read
 behind a capability (`read.agents`). It asks to use the capability with
@@ -83,7 +83,7 @@ scripts/new-plugin.sh wasm tide_table /tmp/tide_table
 ```
 
 ```
-/tmp/tide_table is ready: wasm plugin tide_table, interface 0.5.0
+/tmp/tide_table is ready: wasm plugin tide_table, interface 0.6.0
 build:  /tmp/tide_table/build.sh /tmp/tide_table/build/tide_table
 check:  cd <the source folder> && cargo run --example plugin_check \
           --features wasm -- /tmp/tide_table/build/tide_table --script /tmp/tide_table/steps.toml
@@ -217,7 +217,7 @@ shows them.
 id = "tide_table"
 name = "Tide Table"
 version = "0.1.0"
-interface = "0.5.0"
+interface = "0.6.0"
 
 [[asks]]
 capability = "read.agents"
@@ -280,6 +280,9 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 | `grant = "read.agents"` | The chief allows a capability the manifest asks for. For a scoped capability, `plugin.use:notes` or `collections.read:notes/notes` |
 | `deny = "read.agents"` | The chief refuses it |
 | `render = { panel = "main", file = "after.png" }` | Draws the panel in a dock, as the window does, to a PNG under `--out` |
+| `context = { subject = "agent:Juniper", item = "Clip name to Notes", file = "menu.png" }` | Chooses the item of the menu of that thing, `kind:name`, as the chief does: the plugin's command runs on the thing. `item` is the item's label, or what it says of the thing. `file` is optional: a picture of the menu, drawn before. It fails while the plugin does not hold `ui.context` |
+| `section = { title = "NOTES", file = "tab.png" }` | Draws the inspector's page of the selected agent turned to the plugin's tab of that title. It fails while the plugin does not hold `ui.inspector` |
+| `page = { title = "NOTES", file = "page.png" }` | Draws the plugin's page of that title in the Settings. It fails while the plugin does not hold `ui.settings` |
 | `expect = { panel = "main", text = "2 agents" }` | Fails unless a node of the panel shows the text |
 
 `panel` is the id the plugin gave the panel (`main`), and `node` the id it gave
@@ -297,8 +300,8 @@ starts with its plugin. With no script it runs two frames and draws every panel
 of each plugin. The exit code
 is 0 when every step worked, 1 when one failed and 2 for bad arguments or a
 folder that does not load. Pictures are drawn offscreen and need a GPU;
-without one a `render` step fails with that reason, and `--no-pictures` leaves
-them out.
+without one a `render`, `section` or `page` step fails with that reason, and
+`--no-pictures` leaves them out, and the picture of a `context` step.
 
 ### In Rust
 
@@ -313,6 +316,9 @@ on:
 | `tick()` | Runs one frame |
 | `click(panel, node)`, `type_text(panel, node, text)`, `toggle(panel, node)` | Do what a person does to a node; an error says what is not there |
 | `run_command(id)`, `run_menu(label)`, `press(chord)` | Do what the chief does: run a command (`plugin/command`, or the name alone for the plugin in front), choose a menu line, press a chord |
+| `run_context(subject, item)` | Chooses an item of the menu of a thing, `kind:name`, which runs the plugin's command on it |
+| `sections()`, `pages()` | The titles of the tabs and pages the plugin in front added that show |
+| `render_context(subject, path)`, `render_section(title, path)`, `render_page(title, path)` | Draw the menu of a thing with the plugin's items, the inspector's page of the selected agent turned to the plugin's tab, or the plugin's page in the Settings, to a PNG |
 | `set_agents(&[(hamlet, name)])` | Makes up the agents |
 | `set_papers(notes, character, &skills)` | Makes up the papers of the selected agent |
 | `set_selected(name)` | Makes up the agent selected in the world |
@@ -353,7 +359,8 @@ fn entry() {
 }
 
 // in step, for each Incoming::Command(call): the chief is `call.sender`
-"new" => open_new(session, index, "", out),
+"new" => open_new(session, index, "", out)
+    .inspect(|_| out.push(hamlet_guest::open_panel("main"))),
 ```
 
 `menu` is `hamlet` or `view`. Lines are grouped by `section` and a hairline stands
@@ -381,6 +388,106 @@ press = "Cmd+Shift+N"
 
 A chord that another plugin has too runs neither, and one that Hamlet uses is not
 the plugin's; the Plugins page of Settings says so.
+
+## An item of a context menu
+
+A right click on a thing of the world opens a menu, and a plugin adds an item to the
+menu of one kind of thing (`agent`, `house`, `mayor`, `ruin`, `hamlet`, `chief`,
+`hearth`, `library` or `ground`, see [`sdk.md`](sdk.md#a-subject)). The item runs a
+command of the plugin, which is given the thing. Clipper adds "Clip name to Notes"
+to the menu of an agent, and its command sends the name to Notes:
+
+```toml
+[exports]
+commands = ["clip"]
+
+[[asks]]
+capability = "ui.context"
+reason = "To put Clip name to Notes in the menu of an agent."
+```
+
+```rust
+fn entry() {
+    hamlet_guest::command("clip", "Clip name to Notes", None);
+    hamlet_guest::context_item("agent", 200, "Clip name to Notes", "clip");
+}
+
+// in step, for each Incoming::Command(call) with call.command == "clip"
+let thing = hamlet_guest::subject::of(&call)?;   // kind, id, name
+```
+
+Items are ordered by `section`, then by label; Hamlet's own items use the sections 10
+to 120, so 200 comes after them. `label` may hold `{name}`, the thing's name. The
+command is answered with `reply`, as every command is. The item is held until the
+chief allows `ui.context`; a script grants it, draws the menu and chooses the item:
+
+```toml
+[[step]]
+grant = "ui.context"
+
+[[step]]
+context = { subject = "agent:Hazel", item = "Clip name to Notes", file = "context.png" }
+```
+
+## A tab of the inspector and a page of the settings
+
+A tab and a page show a panel of the plugin, so the plugin declares the panel first
+and draws it as it draws any other. Notes has both:
+
+```toml
+[imports]
+events = ["host/selection-changed"]
+
+[[asks]]
+capability = "read.agents"
+reason = "To know which agent is selected, for its tab in the Inspector."
+
+[[asks]]
+capability = "ui.settings"
+reason = "To put its page, NOTES, in the Settings."
+
+[[asks]]
+capability = "ui.inspector"
+reason = "To put a NOTES tab in the Inspector's page of an agent."
+```
+
+```rust
+fn entry() {
+    hamlet_guest::panel("settings", "NOTES SETTINGS", "sliders");
+    hamlet_guest::panel("mentions", "NOTES OF AN AGENT", "book");
+    hamlet_guest::settings_page("NOTES", "notes", "settings");
+    hamlet_guest::inspector_section("agent", "NOTES", "mentions");
+}
+
+// in panel_view: "settings" has the checkbox "Open notes in preview", and
+// "mentions" lists the notes that mention the selected agent
+```
+
+The tab takes the icon of its panel. The plugin learns which agent is selected from
+the event `host/selection-changed` (its payload is the name, empty for none) and
+draws the panel again with a `redraw` intent. A choice made on the page, such as the
+checkbox, arrives as `toggled` of the panel `settings`, and Notes keeps it in its
+storage and reads it when it opens a note. The command `new` of Notes brings its
+panel forward with `open_panel("main")`, an intent returned from `step` that needs no
+capability and works only for the plugin's own panels. A script grants the
+capabilities and draws both pages:
+
+```toml
+[[step]]
+grant = "ui.inspector"
+
+[[step]]
+section = { title = "NOTES", file = "agent-tab.png" }
+
+[[step]]
+grant = "ui.settings"
+
+[[step]]
+page = { title = "NOTES", file = "settings-page.png" }
+```
+
+At the width the inspector has by default a tab of a plugin, with the four of its
+own, does not fit, and the strip folds into a list beside the tab that is open.
 
 ## Two plugins working together
 
@@ -543,7 +650,14 @@ loads, and one that prints or reads the clock traps: log with
 - A `menu_item` or a `key` for a command that `entry` did not declare, or the
   manifest did not list under `exports.commands`: it is dropped with a warning.
 - A menu line or a shortcut with no `ui.menu` or `ui.keys` in the manifest: it
-  never shows, and the chief is not asked.
+  never shows, and the chief is not asked. The same for a context menu item with
+  no `ui.context`, a tab with no `ui.inspector` and a page with no `ui.settings`.
+- A context item for a kind of thing that there is not (the list is in
+  [`sdk.md`](sdk.md#a-subject)), or a tab for a page that has no tabs (only
+  `agent`): it is dropped with a warning.
+- A tab or a page for a panel that `entry` did not declare: it shows nothing.
+- Reading `args` of a command a context item runs as anything but a
+  `hamlet_guest::Subject`: it is what the chief sent.
 - Putting a call's state in a variable: the answer comes in a later `step`, so
   keep it in `State`, as `hamlet_guest::Calls` does.
 
