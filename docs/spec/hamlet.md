@@ -173,7 +173,6 @@ catalogue rates or the chief's assigned price. An unpriced model is charged
 $0.10 per million tokens on this machine, $1 per million elsewhere.
 Subscription models are charged at catalogue rates even when the chief
 pays no per-token bill. Spending follows the server's local day.
-Summaries' model time is not yet charged (C31).
 
 Before every model call the hamlet's budget and the task's caps are checked,
 and a turn that has run out stops, saying what ran out and who can change

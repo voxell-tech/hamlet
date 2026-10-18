@@ -1,43 +1,48 @@
 # The home
 
-Everything Hamlet keeps is in one folder, `~/.hamlet`. `HAMLET_HOME` moves
-it elsewhere.
+Everything the server keeps is in one folder, `~/.hamlet`. `HAMLET_HOME`
+moves it elsewhere; development uses a scratch home. The server opens a
+fresh home and does not import a home of the retained Rust runtime
+([`core.md`](core.md#the-retained-runtimes-home)). The layout is
+`server/src/home/layout.ts`.
 
-```
-~/.hamlet/
-  config.toml     settings and endpoints (keys are in the keychain, or in api_key.<endpoint>)
-  models.toml     the models you allow, with what each costs
-  library/        the skills every agent shares, one folder each
-  library.jsonl   what was shelved there, refused and taken out
-  charter.md      your own charter, the words every agent's prompt opens with; absent until you edit it
-  CHARACTER.md    the mayor's character, if you gave it one; no tool of its own can write it
-  workspace/      the only place the mayor's tools can write, besides a folder its hamlet works on
-    NOTES.md      its memory, shown to it every turn
-    skills/       its skills, one folder each with a SKILL.md
-  tools/          tools added by hand; read-only to the agent
-  sessions/       the mayor's logs, one JSONL file per session
-  hamlet.jsonl    the record of the hamlet: agents, roads, mayors, votes
-  realm.jsonl     the record between hamlets: founding, chiefs, roads
-  limits.toml     the chief's limits on agents, roads, spending and tools
-  oversight.jsonl what waited for the chief and how it was answered
-  agents/<name>/  an agent's house, laid out like the home itself: workspace/, sessions/, CHARACTER.md
-  archive/<id>/   the house of an agent that was removed or merged
-```
+| Path under the home | Holds |
+|---|---|
+| `home.sqlite` | pi-durable's storage: conversations, characters, the hamlet's record, oversight, spend, limits, settings and the catalogue |
+| `credentials.json` | The installation ID, connection token and model credentials |
+| `models.json` | pi-ai's stored model lists |
+| `server.json` | The running server's URL, process ID and start time, with no token |
+| `server.log` | A background server's output |
+| `houses/<hamlet>/<number>/` | The agent's writable files: `NOTES.md`, `skills/` and `inbox/` |
+| `library/` | Shared skills, starting with the starters, readable by agents |
+| `librarian/` | The librarian's own notes |
+| `tools/` | Tools added by hand, readable by agents |
+| `.gifts/`, `.erasing/` | Private staging for gifts, and houses being erased |
 
-The records are append-only and are the source of truth: the app rebuilds
-what it shows from them. [`core.md`](core.md) follows them from the files
-to the entities.
+The first hamlet is `home`. Its founder is agent number 0, named `founder`,
+with house `houses/home/0/`; `mayor` addresses the office it holds.
+Character and conversations are in storage, not writable files in the
+house.
 
-## Settings
+One process holds the home's claim: a local socket named from the home's
+path, as the Rust app names it, for both the path as given and its
+canonical form (`server/src/home/lock.ts`). A second server on the same
+home, by any spelling of its path, is refused (S2).
 
-The endpoints, their API keys and the default model are set in Settings and
-stored in `config.toml`, the keys in the OS keychain. Any server that
-speaks the OpenAI chat protocol is an endpoint, and a model is named
-`endpoint::model`.
+## Credentials
+
+`credentials.json` has mode 0600 and is replaced whole through a temporary
+file and a rename. It holds `installationId`, `connection: {token}` and
+`models: {provider: credential}`, and the remote workspace's token when one
+is chosen. pi-ai receives no ambient credentials; `HAMLET_API_KEY` is held
+in memory only. ChatGPT uses its own `chatgpt` provider and credential,
+beside an `openai` key, with Hamlet's installation ID and name. ChatGPT and
+OpenRouter are the offered sign-ins; other providers use keys.
+
+Tool results, protocol messages and the oversight record are scrubbed of
+known credentials.
 
 ## Starter skills
 
-`crates/hamlet_home/starters/` holds the starter skills: web search, page
-reading, weather, API calls, system info, and guidance on writing skills
-and notes. They are copied into a workspace the first time it is opened and
-belong to the agent after that.
+`server/assets/starters/` holds the starter skills. The library starts
+with them, and a chief gives one to an agent through `give`.

@@ -1,9 +1,10 @@
 # The core: the hamlet as entities
 
-The Rust runtime the TypeScript server replaces: how its records on disk
-become Bevy entities, who writes them and who reads them. `hamlet_core` and
-its runtime dependencies remain compiled and tested as a porting reference
-until [step 7](proposals/agent-server.md#order-of-work).
+The Rust runtime that the server in `server/` replaced: how its records on
+disk become Bevy entities, who writes them and who reads them. `hamlet_core`
+and its runtime dependencies remain compiled and tested as a porting
+reference until the Rust server replaces `server/`
+([step 7](proposals/rust-server.md#order-of-work)).
 
 The window uses `hamlet_client`, not this runtime. It fills its components
 from protocol v0's `state`, `change`, `transcript` and `turn` messages and
@@ -149,3 +150,37 @@ a `dyn` trait need.
 Settings are owned by each job, so a changed setting reaches a worker with
 its next job. The network switch is the exception: it is read for every
 tool call and applies at once.
+
+## The retained runtime's home
+
+The retained runtime keeps everything in one folder, `~/.hamlet`, which
+`HAMLET_HOME` moves elsewhere. The server neither reads nor imports it.
+
+```
+~/.hamlet/
+  config.toml     settings and endpoints (keys are in the keychain, or in api_key.<endpoint>)
+  models.toml     the models you allow, with what each costs
+  library/        the skills every agent shares, one folder each
+  library.jsonl   what was shelved there, refused and taken out
+  charter.md      your own charter, the words every agent's prompt opens with; absent until you edit it
+  CHARACTER.md    the mayor's character, if you gave it one; no tool of its own can write it
+  workspace/      the only place the mayor's tools can write, besides a folder its hamlet works on
+    NOTES.md      its memory, shown to it every turn
+    skills/       its skills, one folder each with a SKILL.md
+  tools/          tools added by hand; read-only to the agent
+  sessions/       the mayor's logs, one JSONL file per session
+  hamlet.jsonl    the record of the hamlet: agents, roads, mayors, votes
+  realm.jsonl     the record between hamlets: founding, chiefs, roads
+  limits.toml     the chief's limits on agents, roads, spending and tools
+  oversight.jsonl what waited for the chief and how it was answered
+  agents/<name>/  an agent's house, laid out like the home itself: workspace/, sessions/, CHARACTER.md
+  archive/<id>/   the house of an agent that was removed or merged
+```
+
+The records are append-only and are the source of truth: the runtime
+rebuilds what it shows from them, as above. The endpoints, their API keys
+and the default model are stored in `config.toml`, the keys in the OS
+keychain. Any server that speaks the OpenAI chat protocol is an endpoint,
+and a model is named `endpoint::model`. `crates/hamlet_home/starters/`
+holds its starter skills, copied into a workspace the first time it is
+opened.

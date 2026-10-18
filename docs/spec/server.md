@@ -1,16 +1,18 @@
 # The server: where agents run
 
 Agents run on a server and keep working whether or not a window is open; the
-window is how chiefs see and steer them. These requirements are new with the
-rebuild. The decisions behind them are in [`docs/adr/`](../adr/).
+window is how chiefs see and steer them. The decisions behind these
+requirements are in [`docs/adr/`](../adr/).
 
 ## The server and the window
 
 **S1.** Agents run on a server, apart from the window. Closing every window
 stops no agent; stopping the server stops them all.
 
-**S2.** One server keeps one home, and only one process opens a home at a
-time.
+**S2.** One server keeps one home, and a home is claimed by one server at a
+time. The harnesses a server runs are part of its claim: each opens only
+its own store, only while that server runs, and none goes on working after
+its server stops.
 
 **S3.** Nothing an agent does is shown before it is kept. A server that
 stops mid-turn, in an orderly way or not, carries the work on from where it
@@ -44,9 +46,10 @@ reached through a symbolic link.
 ## Credentials
 
 **S7.** The server keeps its credentials (model keys, subscription logins,
-the connection token, the remote workspace's token) in one file of the home that only its owner can read,
-written whole on each change. No credential the server keeps is ever in the
-home's storage, in a conversation (C32), or in a sandbox. The chief's own
+the connection token, the remote workspace's token) in one file of the
+home that only its owner can read, written whole on each change. No
+credential the server keeps is ever in a store of the home, in a
+conversation (C32), or in a sandbox. The chief's own
 credentials on the machine are covered by S16.
 
 **S8.** A chief can reach any model provider pi-ai supports with an API key.
@@ -54,14 +57,6 @@ A chief can also sign in with a subscription where the provider offers that
 to open-source apps: "Sign in with ChatGPT". Hamlet signs in as itself, under
 its own name and an installation ID of its own, and the server refreshes the
 login on its own.
-
-## The clone and proxy
-
-**S9. Dropped.** The folder is the chief's own, not a clone Hamlet keeps (ADR 0008).
-
-**S10. Dropped.** Agents use the chief's own git and credentials, not a proxy (ADR 0008).
-
-**S11. Dropped.** Reaching a git host needs the network (ADR 0008).
 
 ## Where tools run
 
@@ -73,7 +68,7 @@ macOS.
 ## Harnesses
 
 An agent's conversations run in a harness, apart from the server that
-keeps the rules (ADR 0009).
+keeps the rules (ADR 0001).
 
 **S17.** An agent has a harness for its new conversations. A conversation
 stays with the harness, and the version of it, it began in, for as long as
@@ -93,10 +88,6 @@ result. The same call asked for again with different arguments is refused.
 **S20.** A model call's usage is charged once, however often its harness
 reports it. Work that the budget decides does not go on while usage a
 harness recorded is not yet charged.
-
-**S21.** The harnesses a server runs are part of its claim on the home
-(S2): each opens only its own store, only while that server runs, and none
-goes on working after its server stops.
 
 **S22.** A harness that fails stops only the conversations it runs. The
 rest of the realm goes on, and work waiting on an answer from those
@@ -125,8 +116,7 @@ opened.
 run with `cargo run -p hamlet_cli -- <command>` or installed with
 `cargo install --path crates/hamlet_cli`. It manages the server and window
 as separate processes and uses protocol v0 for terminal operations.
-The server still requires the Node version in `server/.nvmrc` and its npm
-dependencies. `HAMLET_HOME` names the home; development uses a scratch folder.
+The server needs Node for the pi harness. `HAMLET_HOME` names the home; development uses a scratch folder.
 The window's executable is `hamlet-app`; the app is called Hamlet.
 Bare `hamlet` serves the home in the background, or reuses its running
 server, and opens a window. Closing the window or terminal stops no agent.
@@ -155,4 +145,4 @@ credentials the chief's machine has, which their commands can read.
 Reaching a git host needs the network like any other command (C19, H11).
 Agents may write hooks and config, including in nested repositories; the
 chief accepts that these may run under the chief's own git later (C18,
-ADR 0008).
+ADR 0007).

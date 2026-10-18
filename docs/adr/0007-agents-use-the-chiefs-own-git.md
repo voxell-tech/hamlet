@@ -11,22 +11,22 @@ only with the network, like any other command (C19, H11). Agents may write
 hooks and config, including in nested repositories; the chief accepts that
 these may run under the chief's own git later.
 
-This supersedes [ADR 0007](0007-agents-push-through-a-git-proxy-in-the-server.md).
-
 ## Considered options
 
-- ADR 0007's clone and proxy. Rejected on the chief's machine: more machinery
-  than one chief's local tool needs, and the chief's git already has the
-  credentials.
+- A clone Hamlet keeps, whose `origin` is a git proxy in the server that
+  holds the real token and adds it to each push. Rejected on the chief's
+  machine: more machinery than one chief's local tool needs, and the
+  chief's git already has the credentials.
 - Pass the SSH agent into the sandbox and hide `~/.ssh`, so commands can use
-  the key but not copy it. Not taken: the key stays readable, as it was
-  under the Rust runtime.
-- Restore the Rust runtime's lock on `.git/hooks` and `.git/config`. Not taken: the
-  lock prevents `git init`, cloning into the folder, `git config` and
-  `git remote add`. Under bubblewrap it needs a scan before every command
-  and still misses a repository made during one.
-- Git on a remote machine. Left for deployment: either a proxy like
-  ADR 0007's or a short-lived GitHub App token inside the remote machine.
+  the key but not copy it. Not taken: the key stays readable.
+- A lock on `.git/hooks` and `.git/config`. Not taken: the lock prevents
+  `git init`, cloning into the folder, `git config` and `git remote add`.
+  Under bubblewrap it needs a scan before every command and still misses a
+  repository made during one.
+- Git on a remote machine. Left for deployment: either a proxy or a
+  short-lived GitHub App token inside the remote machine.
+  [`docs/proposals/research/git-credentials-in-agent-sandboxes.md`](../proposals/research/git-credentials-in-agent-sandboxes.md)
+  is how other products do this.
 
 ## Consequences
 

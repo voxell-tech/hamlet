@@ -38,12 +38,13 @@ and a robot. Free and open-source forever.
 - **Any model**: Any OpenAI-compatible endpoint, a local
   [Ollama](https://ollama.com) by default.
 
-**Status:** early and moving fast. The agents are being rebuilt as a
-server on pi-durable that the window connects to. Agents, roads, letters,
-votes, the shared library and several hamlets work through it, alongside
-approvals, budgets, models and logins. The window reads the server's state
-and can watch agents' conversations read-only. The clone and git proxy are
-[next](docs/proposals/agent-server.md#order-of-work).
+**Status:** early and moving fast. Agents run on a server on pi-durable
+that the window connects to. Agents, roads, letters, votes, the shared
+library and several hamlets work through it, alongside approvals, budgets,
+models and logins. The window reads the server's state and can watch
+agents' conversations read-only. Next, the server moves to Rust, with
+conversations in harnesses beside it
+([the plan](docs/proposals/rust-server.md#order-of-work)).
 The picture above shows the earlier Rust runtime's realm.
 
 ## Running

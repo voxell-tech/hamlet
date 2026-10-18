@@ -27,8 +27,9 @@ Then read the page for the part you are about to touch.
 
 | Page | What it explains |
 |---|---|
-| [`core.md`](core.md) | The Rust runtime the server replaces, retained as a porting reference until step 7; the window's client core is mapped in `tour.md` |
-| [`home.md`](home.md) | The retained Rust runtime's home layout; the server's home is described in [`agent-server.md`](proposals/agent-server.md#the-home-on-disk) |
+| [`core.md`](core.md) | The retained Rust runtime and its home, kept as a porting reference; the window's client core is mapped in `tour.md` |
+| [`home.md`](home.md) | The server's home on disk: its storage, credentials, houses and claim |
+| [`cli.md`](cli.md) | The `hamlet` command: serving, stopping, chatting, editing, signing in, and finding the server and the window |
 | [`sandbox.md`](sandbox.md) | What an agent's tools can reach: the sandbox, the network, a folder a hamlet works on, manual and auto |
 | [`prompt.md`](prompt.md) | What an agent is told every turn: the charter, its character, its notes, and how the chief reads and edits them |
 | [`endless-world.md`](endless-world.md) | The land with no edge, the ground everything stands on, founding and moving a town |

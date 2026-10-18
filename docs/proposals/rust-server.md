@@ -2,11 +2,12 @@
 
 Rebuild the server in Rust, as the crate `hamlet-server`, and run agents'
 conversations in harnesses apart from it. The decision is
-[ADR 0009](../adr/0009-the-server-is-rust-and-harnesses-run-the-conversations.md).
+[ADR 0001](../adr/0001-agents-run-on-a-rust-server-and-harnesses-run-their-conversations.md).
 The concepts and rules stay as [`docs/spec/`](../spec/README.md) states
-them; the TypeScript server in `server/`, described in
-[`agent-server.md`](agent-server.md), is the reference for how they
-behave until the Rust server replaces it.
+them. Today's server is TypeScript, in `server/`, with Hamlet's rules and
+pi-durable in one Node process
+([below](#todays-server)). It is the reference for how Hamlet behaves until
+the Rust server replaces it.
 
 ## The end
 
@@ -78,8 +79,8 @@ Credentials stay out of both stores (S7).
 |---|---|
 | `realm.sqlite` | The server's store: hamlets' records, the realm, waits and approvals, spend, the library's record, the chief's documents, the bindings between conversations and harnesses, and markers. Not conversations, and not files such as notes and skills |
 | `harnesses/<instance>/` | One runtime's store, opened only by that runtime |
-| `credentials.json`, `models.json`, `server.json` | As in `agent-server.md` |
-| `houses/`, `library/`, `tools/`, `librarian/` | As in `agent-server.md` |
+| `credentials.json`, `models.json`, `server.json`, `server.log` | As in [`home.md`](../home.md) |
+| `houses/`, `library/`, `tools/`, `librarian/`, `.gifts/`, `.erasing/` | As in [`home.md`](../home.md) |
 
 The server's store is not called `home.sqlite` because that is the
 TypeScript server's pi-durable storage. Reusing the name would let the old
@@ -333,6 +334,47 @@ Development uses scratch homes only. For a home the TypeScript server made:
 
 No home is switched until moving and moving back are tested.
 
+## Today's server
+
+`server/` holds Hamlet's rules as pi-durable extensions in one Node
+process over one pi-durable storage, `home.sqlite`
+([`home.md`](../home.md)); [`tour.md`](../tour.md#the-server) maps its
+modules. Each concept below has to keep its behaviour when it moves.
+
+| Hamlet (spec) | In today's server, on pi-durable |
+|---|---|
+| A conversation (C22) | A conversation; the chief's, the letters' and the questions' each one |
+| The prompt's parts (C11) | Sections of Hamlet's extensions, rendered before each request; the budget section reads words fixed at the turn's start |
+| Tools by role (H35), a ballot's one tool | `configure()` of the conversation's tools; applies from the next request |
+| Read, write, edit, bash, search, find (C16) | pi-durable's `read`, `write` and `edit` on Hamlet's environment; Hamlet's `bash` wraps pi's with the network flag, timeout and scrubbed output; `search` and `find` are Hamlet's own |
+| Tools added by hand (C17) | Tools registered by a loader extension from the home's tools folder |
+| The gate (C7, H11) | A `beforeTool` hook in the oversight extension |
+| The hamlet's record, the realm, oversight, the library's record, limits, settings | Session-scoped documents; a tool commits a change with a marker of its result, so a repeated call returns that result |
+| A task and its caps (H12) | A document of the task's counts, read by the gate and the budget check |
+| Spend (H8) | pi-durable's kept responses and aggregate summary usage, charged in integer micro-dollars to Hamlet's ledger by hamlet and local day, agent and task; roads are `road` ledger lines |
+| Letters (H30) | A submission to the receiver's conversation with the sender; its answer is submitted back to the sender's conversation |
+| Questions (H30) | A tool that submits to the receiver's conversation and waits for it, as pi-durable's subagent example does, so it survives a restart |
+| Votes (H13) | One durable task per vote, with hearing, ballot and settling phases; each model call is an errand |
+| Errands | Durable one-off conversations, deduplicated by request id and charged like other model work; ballots and the mayor's answer keep their own prompt, while library calls, merged notes and review use supplied instructions |
+| Reflection (C5) | A queued server input with its own task and a reserved ordinal, kept across a restart; zero allows only reflection a chief asks for; with a nonzero count, an orderly close waits up to 120 s for owed reflections able to run |
+| Summarising (C28) | pi-durable's compaction, set to C28's thresholds |
+| Taking a conversation back (C27) | A fork from the entry before the message, with the conversation pointed at the fork (ADR 0002) |
+| What the window watches (S5) | `watchEvents()` per open conversation, and the documents' changes for the realm's state |
+
+Its tests in `server/test/` include offline proofs against pi-durable 1.2.0
+with a fake provider: sections and `configure()` reaching the next request,
+a budget check ending a run cleanly, a `beforeTool` wait surviving a
+restart, a question surviving a restart on either side, the sandbox passing
+`registerEnvConformance`, and a record change committed with its marker.
+
+What it does not yet meet, and the Rust server must:
+
+- C31: first-token timing is not recorded for every call; raw provider
+  usage and each summarising call's timing, billed charge and end reason
+  are not recorded. Summaries' model time is not charged (H8).
+- C32: an assistant's own messages keep their text, reasoning and
+  tool-call arguments unscrubbed in pi's storage.
+
 ## Order of work
 
 1. **Foundation.** The crate, claiming the home, `realm.sqlite`, and
@@ -361,9 +403,8 @@ No home is switched until moving and moving back are tested.
    deleted, and the old Rust runtime crates are removed. The pi harness
    package stays, in its own folder.
 
-Steps 6 and 7 are one step in the order first agreed. They are split here
-because no home may switch before moving back is tested, and the suite's
-whole pass is its own gate.
+Steps 6 and 7 are apart because no home may switch before moving back is
+tested, and the suite's whole pass is its own gate.
 
 ## The prototype
 
@@ -420,6 +461,10 @@ It did not show:
 - A migrated home has no `home.sqlite`. Nothing yet stops the TypeScript
   server, run later on that home, from founding a fresh one beside it.
 - The server still needs Node and the pi harness package installed.
+- `node:sqlite` is marked experimental in Node 24.
+- OpenAI's login listens on port 1455, which the Codex CLI uses too; a clash
+  fails the login with a clear error.
+- Windows has no sandbox, and there is no `--insecure` mode.
 - The acceptance suite is only as good as what it drives. Behaviour it
   does not reach can differ between the two servers unnoticed.
 
@@ -451,6 +496,9 @@ It did not show:
   link beside the acceptance suite.
 - Where the acceptance suite and the recorded frames live, and how the
   suite selects the server it starts.
+- Whether to import homes of the retained Rust runtime
+  ([`core.md`](../core.md#the-retained-runtimes-home)), decided before
+  step 7.
 
 ## Left for later
 
@@ -458,4 +506,7 @@ Moving a conversation to another harness; a second harness in use; loading
 harnesses from outside the repository; one process per agent as a rule;
 upgrading a runtime in place without a check; shell commands or outside
 effects that happen exactly once; several servers on one home; where the
-server is deployed.
+server is deployed and where tools run then; git on a remote machine, with
+a proxy or a short-lived GitHub App token inside it (ADR 0007); several
+chiefs on one home; several folders per hamlet; syncing a folder from the
+chief's machine; a window that starts its own server.

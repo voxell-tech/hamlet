@@ -1,26 +1,25 @@
 # Remote workspaces behind existing tools
 
-This proposal supersedes the agent-facing Substrate sandbox prototype. It
-describes work to build, not an available backend. ADR 0003 and S12 already
-place tool execution behind ExecutionEnv; the remote backend must preserve
-the applicable C18-C21, S3 and S7 contracts.
+What remains to build and prove for remote workspaces. What works now,
+locally, is in [`sandbox.md`](../sandbox.md#a-remote-workspace); nothing
+has run on GKE yet. ADR 0003 and S12 place tool execution behind one
+interface; the remote backend must preserve the applicable C18-C21, S3 and
+S7 contracts.
 
 ## Outcome
 
 Agents use the existing bash, read, write, edit, find and search tools. File
 and process operations reach the same remote filesystem. Agents never see
-Substrate, actor identities, or lifecycle tools. Hamlet's TypeScript server
-has no Substrate lifecycle client or Kubernetes credentials.
+Substrate, actor identities, or lifecycle tools. Hamlet's server has no
+Substrate lifecycle client or Kubernetes credentials.
 
-A separate Rust workspace service manages the actor. Start with one crate,
-provisionally hamlet_workspace, containing the service and an in-actor worker.
+A separate Rust workspace service manages the actor. One crate,
+`hamlet_workspace`, contains the service and an in-actor worker.
 The worker performs file/process operations; it is not another control-plane
 service. Keep the local backend as the default.
 
-The chief asked to build a thin working path and test that implementation
-end to end, rather than make another standalone live probe deployment a
-prerequisite. Local feasibility evidence informs the implementation; live
-validation remains required before accepting its isolation guarantees.
+Local evidence informs the implementation; live validation is required
+before its isolation guarantees are accepted.
 
 ## Ownership
 
@@ -34,7 +33,7 @@ validation remains required before accepting its isolation guarantees.
   permission grant.
 - Substrate owns placement and checkpoint/restore mechanics.
 
-The TypeScript ExecutionEnv adapter is infrastructure plumbing. It must not
+The server's ExecutionEnv adapter is infrastructure plumbing. It must not
 expose a second set of agent tools or silently fall back to host file access.
 
 ## Initial workspace model

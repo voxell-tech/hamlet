@@ -12,7 +12,9 @@ in houses. The Rust window is a client: `hamlet_client` fills Bevy entities
 from [protocol v0](protocol.md) over one authenticated WebSocket. The world
 and panels read those entities and send the chief's deeds back to the server. The
 server owns the rules and the truth; the window keeps only its own view
-files, and closing it stops no agent.
+files, and closing it stops no agent. The server is moving to Rust, with
+conversations in harnesses beside it:
+[`proposals/rust-server.md`](proposals/rust-server.md).
 
 ## How a change travels
 
@@ -57,7 +59,9 @@ root package, `hamlet`. The window's crates are:
 | `hamlet_testing` | Scratch folders and protocol-value builders for offline tests |
 | `hamlet_workspace` | The remote workspace's manager and the worker in each actor, one Linux binary |
 
-The Rust runtime crates remain compiled and tested until step 7. No window
+The Rust runtime crates remain compiled and tested until the Rust server
+replaces `server/`
+([step 7](proposals/rust-server.md#order-of-work)). No window
 crate depends on them; `tests/window_is_a_client.rs` guards that boundary.
 They are porting references, described in [`core.md`](core.md):
 
@@ -205,7 +209,7 @@ repository root.
 | Membership, names, road or office invariants | `server/src/record.ts`, `record/membership.ts`, `record/names.ts`, `record/roads.ts`, `record/office.ts` |
 | Chief-facing failure wording and reply kinds | `server/src/server/envelope.ts` chooses the owner's renderer and scrubs the envelope |
 | Notes, skill readers or gifts | `server/src/house.ts`, `house/skills.ts`, `house/gifts.ts`, `house/trees.ts`; readers belong to `Home.houses` |
-| The command or terminal clients | `crates/hamlet_cli/src/main.rs`, `process.rs`, `client.rs`, `chat.rs`, `terminal.rs`; Node startup is `server/src/runtime.ts` |
+| The command or terminal clients | `crates/hamlet_cli/src/main.rs`, `process.rs`, `client.rs`, `chat.rs`, `terminal.rs`; Node startup is `server/src/runtime.ts`; [`cli.md`](cli.md) |
 | What needs the chief's approval | `server/src/gate.ts`, `gate/call.ts`, `gate/rule.ts`, `gate/standing.ts`; waits and queries in `oversight.ts` |
 | What an agent's commands may touch | `server/src/environment.ts` builds confinement; `sandbox.ts`, `sandbox/` run it; [`sandbox.md`](sandbox.md) describes the reach policy |
 | The folder a hamlet works on | `server/src/environment.ts`, `environment/work.ts`; the panel is `hamlet_ui/src/folder.rs` |

@@ -99,12 +99,12 @@ are readable and never writable.
 
 In a folder of the chief's own, agents may write git's files, including
 hooks or config that the chief's git later runs, including in nested
-repositories. The chief accepts that risk permanently (ADR 0008).
+repositories. The chief accepts that risk permanently (ADR 0007).
 
 A tool added by hand has the filesystem reach its manifest grants, rather
 than the shell's reach: its readable and writable paths, with its own
 folder kept read-only. Its manifest also sets its environment and limits.
-`--insecure` is not offered yet; a server without a sandbox cannot start.
+A server without a sandbox does not start.
 
 **C19.** Tools have no network unless a chief turns it on for every agent or
 grants it to one (H11). A command that needs the network says so, and is
@@ -220,20 +220,15 @@ be followed, such as after erasure, is the writer shown as `hamlet#number`.
 They are shown as agents' words, never as a chief's words that can be taken
 back.
 
-**C31. Not yet met.** Every model call, including each summarising call,
+**C31.** Every model call, including each summarising call,
 records the model, where it was served, the input, cached, output and
 reasoning tokens, the provider's own charge when available, the time to the
 first token, the whole time, and why it ended. Failed and aborted attempts
 are recorded too. Charges follow H8 and belong to the hamlet, the agent and
 the task, even after a rewind.
 
-Time to the first token is not yet recorded for every call. The provider's
-raw usage is not yet recorded. Summaries have aggregate usage and cost,
-without each summarising call's timing, billed charge or end reason.
-
-**C32. Not yet met.** No credential appears in a conversation as it is kept
+**C32.** No credential appears in a conversation as it is kept
 or shown. Known credentials are scrubbed from chief inputs, tool results
 (including structured output), streamed and spilled command output,
-protocol messages and the oversight record. An assistant's own messages
-keep their text, reasoning and tool-call arguments unscrubbed, so the stored
-conversation is not yet covered whole.
+protocol messages, the oversight record, and an assistant's own text,
+reasoning and tool-call arguments.

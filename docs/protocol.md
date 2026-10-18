@@ -246,6 +246,43 @@ messages: activity, saying, spend and busy state. A full `state` also carries
 these summaries. Fetch history with `read`, then open the numbered chat to
 read its items. Past chief conversations are read-only until resumed.
 
+## Ordering and notices
+
+An empty notice `reply` to a `say` acknowledges that its submission
+settled, not that all work in the conversation ended. A `rewound` reply
+gives the removed chief words back to the input field. A request's reply is
+not ordered against a chat's `turn` and `transcript` messages. A reset and
+its replacement transcript are sent together, with no message between them.
+Reflections and retries show as notices, as does a compaction.
+
+An approval wait requires its `danger`; fault, question and objection waits
+carry `danger: null`. A refused `edit` changes nothing and replies with an
+error. `check` replies in words and changes the connection status in
+settings; a model check waits at most 90 s.
+
+## The society in state
+
+The society and realm add optional fields only:
+
+- `Agent.left`, `consulting` and `conversations` describe departures,
+  library work and incoming peer conversations.
+- `Hamlet.roads`, `votes` and `at` carry resolved road ends and traffic,
+  ready-made vote reports and the town's position.
+- `State.library` and `closed` carry the shared shelf and removed hamlets.
+- `Limits.votes` is per hamlet. `Limits.hamlets` is governed by `home`.
+- `State.houses` names the houses folder on the server's machine so local
+  links and pictures can exclude it, including through symlinks.
+
+Archived agents remain in state with `left` until erased. Office road ends
+are resolved to the current mayor. Peer turns contribute to activity and
+spend even when no chief watches their conversation.
+
+`hamlet_client` reconciles state and changes into entities, keeping the
+entities of hamlets and agents still present. When reconnecting it sends
+`hello` with its last epoch and revision, retains unsent requests in its
+Outbox and opens its watched chats again. A lost connection retries; a
+refused token stops retries and shows the server's words.
+
 ## Errors
 
 Errors come two ways: `reply` with kind `error`, and `fault`. Both carry
