@@ -40,10 +40,11 @@ pub enum Capability {
     CollectionsWrite,
     FilesRead,
     FilesWrite,
+    Db,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 20] = [
+    pub const ALL: [Capability; 21] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -64,6 +65,7 @@ impl Capability {
         Capability::CollectionsWrite,
         Capability::FilesRead,
         Capability::FilesWrite,
+        Capability::Db,
     ];
 
     /// The name a manifest and the grants file know it by.
@@ -89,6 +91,7 @@ impl Capability {
             Capability::CollectionsWrite => "collections.write",
             Capability::FilesRead => "files.read",
             Capability::FilesWrite => "files.write",
+            Capability::Db => "db",
         }
     }
 
@@ -159,6 +162,7 @@ impl Capability {
             Capability::FilesWrite => {
                 "Write the files in its own folder"
             }
+            Capability::Db => "Keep records in a database of its own",
         }
     }
 
