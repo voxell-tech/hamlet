@@ -15,9 +15,9 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
 use hamlet_core::agents::{LivesIn, Works};
+use hamlet_realm::pick::{Selected, Thing};
 use hamlet_rules::review::highlight::Highlighting;
 use hamlet_rules::review::{Comparison, Diff, File, Mark, Review};
-use hamlet_world::pick::{Selected, Thing};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
