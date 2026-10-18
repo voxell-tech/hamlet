@@ -173,6 +173,7 @@ fn main() -> Result<()> {
             app.add_plugins((
                 hamlet_sdk::tree::plugin,
                 hamlet_sdk::agents::plugin,
+                hamlet_sdk::capability::plugin,
             ));
             app.add_plugins((tick, TerminalPlugin)).run();
         }
@@ -182,6 +183,7 @@ fn main() -> Result<()> {
             app.add_plugins((
                 hamlet_sdk::tree::plugin,
                 hamlet_sdk::agents::plugin,
+                hamlet_sdk::capability::plugin,
             ));
             // The plugins' log lines have nowhere to go without it.
             #[cfg(feature = "wasm")]
