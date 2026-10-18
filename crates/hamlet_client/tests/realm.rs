@@ -29,9 +29,14 @@ fn app() -> App {
 fn recorded_hello_fills_the_realm_and_the_servers_words() {
     let mut app = app();
     let world = app.world_mut();
-    for message in frames(include_str!(
+    let recorded = frames(include_str!(
         "../../hamlet_protocol/frames/hello.jsonl"
-    )) {
+    ));
+    let v0::ServerMessage::State(state) = &recorded[0] else {
+        panic!("hello receives a whole state");
+    };
+    let sandbox = state.sandbox.clone();
+    for message in recorded {
         receive(world, message);
     }
     let (home, settlement, shown, works, bylaws, treasury) = world.query::<(Entity, &Settlement, &Name, &Works, &Bylaws, &Treasury)>().single(world).unwrap();
@@ -53,7 +58,7 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     assert_eq!(activity.doing, Doing::Unknown);
     assert_eq!(world.get::<Lived>(agent).unwrap().until, None);
     assert_eq!(world.resource::<Chief>().0, "chief");
-    assert_eq!(world.resource::<Sandbox>().0, "seatbelt");
+    assert_eq!(world.resource::<Sandbox>().0, sandbox);
     assert_eq!(world.resource::<Settings>().0.model, "faux::faux-1");
     assert_eq!(world.resource::<Providers>().0[0].name, "faux");
     assert!(world.resource::<Grants>().0.is_empty());
@@ -301,7 +306,13 @@ fn recorded_fault_marks_the_agent_and_keeps_the_fault_in_its_needs() {
         "../../hamlet_protocol/frames/fault.jsonl"
     )) {
         receive(world, message);
-        if world.query::<&Waiting>().iter(world).next().is_some() {
+        let faulted = named(world, "founder").is_some_and(|agent| {
+            world.get::<Faulted>(agent).is_some()
+                && world.get::<Busy>(agent).is_none()
+        });
+        if faulted
+            && world.query::<&Waiting>().iter(world).next().is_some()
+        {
             break;
         }
     }

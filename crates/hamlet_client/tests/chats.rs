@@ -159,9 +159,12 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     );
     assert!(!said.answering());
     assert!(!world.get::<Status>(chat).unwrap().working());
+    let v0::ServerMessage::Transcript(page) = &read_back else {
+        panic!("the recording ends with a read-back transcript");
+    };
     assert_eq!(
         world.get::<Usage>(chat).unwrap().summary(),
-        "11.3k tok, 1s model time"
+        page.usage.summary
     );
     assert_eq!(world.resource::<Observed>().output, expected_ops);
     assert_eq!(world.resource::<Observed>().finished, vec![chat]);
@@ -210,9 +213,10 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
         .items()
         .to_vec();
     assert_eq!(later.len(), 40);
+    assert!(pages[0].earlier.is_some());
     assert_eq!(
         app.world().get::<Transcript>(chat).unwrap().earlier(),
-        Some("48:0")
+        pages[0].earlier.as_deref()
     );
     earlier(app.world_mut(), chat);
     earlier(app.world_mut(), chat);
@@ -303,28 +307,59 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
     app.update();
     requests(&mut app);
     let mut before = Vec::new();
-    for mut message in frames(include_str!(
-        "../../hamlet_protocol/frames/rewind.jsonl"
-    )) {
+    let mut pending = None::<v0::Rewind>;
+    for line in
+        include_str!("../../hamlet_protocol/frames/rewind.jsonl")
+            .lines()
+    {
+        let frame =
+            serde_json::from_str::<serde_json::Value>(line).unwrap();
+        if frame["from"] == "client" {
+            if let v0::ClientMessage::Rewind(recorded) =
+                serde_json::from_value::<v0::ClientMessage>(
+                    frame["message"].clone(),
+                )
+                .unwrap()
+            {
+                before = app
+                    .world()
+                    .get::<Transcript>(chat)
+                    .unwrap()
+                    .items()
+                    .to_vec();
+                assert_eq!(before.len(), 4);
+                assert!(
+                    before
+                        .iter()
+                        .any(|item| item.id == recorded.item)
+                );
+                app.world_mut().trigger(Rewind {
+                    chat,
+                    item: recorded.item.clone(),
+                });
+                let sent = requests(&mut app);
+                let [v0::ClientMessage::Rewind(rewind)] = &sent[..]
+                else {
+                    panic!("one rewind request: {sent:?}");
+                };
+                assert_eq!(rewind.item, recorded.item);
+                pending = Some(rewind.clone());
+            }
+            continue;
+        }
+        let mut message =
+            serde_json::from_value::<v0::ServerMessage>(
+                frame["message"].clone(),
+            )
+            .unwrap();
         if let v0::ServerMessage::Reply(reply) = &mut message
             && reply.kind == v0::ReplyKind::Rewound
         {
-            before = app
-                .world()
-                .get::<Transcript>(chat)
-                .unwrap()
-                .items()
-                .to_vec();
-            app.world_mut().trigger(Rewind {
-                chat,
-                item: "38:0".into(),
-            });
-            let sent = requests(&mut app);
-            let [v0::ClientMessage::Rewind(rewind)] = &sent[..]
-            else {
-                panic!("rewind request");
-            };
-            reply.to = rewind.id.clone();
+            reply.to = pending
+                .as_ref()
+                .expect("the rewind request precedes its reply")
+                .id
+                .clone();
         }
         let reset = matches!(&message, v0::ServerMessage::Turn(turn) if turn.ops.iter().any(|op| matches!(op, v0::Op::Reset {})));
         receive(app.world_mut(), message);
@@ -346,7 +381,7 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
             before.iter().find(|old| old.id == item.id)
         );
     }
-    assert!(said.item("38:0").is_none());
+    assert!(said.item(&pending.unwrap().item).is_none());
     assert_eq!(
         app.world().resource::<RemovedWords>().0,
         vec![(chat, "Take back this line.".into())]
@@ -355,10 +390,10 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
 
 #[test]
 fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
-    for (recording, id, code, failure) in [
+    for (recording, summary, code, failure) in [
         (
             include_str!("../../hamlet_protocol/frames/tool.jsonl"),
-            "34:1",
+            "exit 7",
             7,
             Some("broken"),
         ),
@@ -366,12 +401,30 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
             include_str!(
                 "../../hamlet_protocol/frames/approval.jsonl"
             ),
-            "34:1",
+            "reviewed",
             0,
             None,
         ),
     ] {
         let recorded = frames(recording);
+        let id = recorded
+            .iter()
+            .filter_map(|message| match message {
+                v0::ServerMessage::Turn(turn) => Some(&turn.ops),
+                _ => None,
+            })
+            .flatten()
+            .find_map(|op| match op {
+                v0::Op::Add { item, .. }
+                    if item.tool.as_ref().is_some_and(|tool| {
+                        tool.summary.contains(summary)
+                    }) =>
+                {
+                    Some(item.id.clone())
+                }
+                _ => None,
+            })
+            .expect("the recorded tool to inspect");
         let ms = recorded
             .iter()
             .filter_map(|message| match message {
@@ -380,7 +433,7 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
             })
             .flatten()
             .find_map(|op| match op {
-                v0::Op::Close { item, ms, .. } if item == id => *ms,
+                v0::Op::Close { item, ms, .. } if item == &id => *ms,
                 _ => None,
             })
             .expect("the recorded tool close carries its duration");
@@ -393,7 +446,7 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
             .world()
             .get::<Transcript>(chat)
             .unwrap()
-            .item(id)
+            .item(&id)
             .unwrap();
         let Entry::Tool {
             exit,
