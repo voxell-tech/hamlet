@@ -1,0 +1,16 @@
+[package]
+name = "hamlet_openui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Panels written in Hamlet's panel language: the library of components, the evaluation into a panel tree, state and actions"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_assets.workspace = true
+hamlet_sdk.workspace = true
+bevy.workspace = true
+openui-lang.workspace = true
+serde.workspace = true

@@ -10,7 +10,7 @@ use crate::engine::Host;
 use crate::fault::Fault;
 use crate::fixture;
 use crate::host::Logged;
-use crate::install::{self, Why};
+use crate::install::{self, Body, Why};
 use crate::instance::Instance;
 use crate::interface::exports::hamlet::plugin::plugin::{
     Incoming, Intent,
@@ -105,6 +105,22 @@ fn a_folder_that_is_not_a_plugin_is_turned_down() {
     put("garbled", Some("id = ".into()));
     put("renamed", Some(manifest("other", "0.1.0")));
     put("old", Some(manifest("old", "0.0.1")));
+    let data = |folder: &str, kind: &str| {
+        let dir = plugins.join(folder);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("panel.ui"), b"root = Column([])")
+            .unwrap();
+        std::fs::write(
+            dir.join("manifest.toml"),
+            format!(
+                "id = \"{folder}\"\nname = \"X\"\nversion = \
+                 \"0.1.0\"\nkind = \"{kind}\"\n"
+            ),
+        )
+        .unwrap();
+    };
+    data("greeter", "data");
+    data("odd", "script");
 
     let found = install::scan(&plugins);
 
@@ -115,7 +131,16 @@ fn a_folder_that_is_not_a_plugin_is_turned_down() {
             .find(|r| r.folder == folder)
             .map(|r| &r.why)
     };
-    assert_eq!(found.iter().filter(|r| r.is_ok()).count(), 1);
+    let accepted = found
+        .iter()
+        .filter_map(|r| r.as_ref().ok())
+        .map(|plugin| (plugin.manifest.id.as_str(), &plugin.body))
+        .collect::<Vec<_>>();
+    assert!(matches!(
+        accepted[..],
+        [("good", Body::Wasm(_)), ("greeter", Body::Data(_))]
+    ));
+    assert!(matches!(why("odd"), Some(Why::BadManifest(_))));
     assert_eq!(why("bare"), Some(&Why::Missing("manifest.toml")));
     assert!(matches!(why("garbled"), Some(Why::BadManifest(_))));
     assert!(matches!(why("renamed"), Some(Why::WrongFolder { .. })));

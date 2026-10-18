@@ -1,6 +1,7 @@
 //! What the user does in a plugin panel, on its way to the plugin.
 
 use bevy::prelude::*;
+use hamlet_openui::source::Compiled;
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::plugin::{ContributedBy, PluginInfo, Status};
 use hamlet_sdk::tree::event::{Act, Interaction};
@@ -12,10 +13,11 @@ use crate::interface::exports::hamlet::plugin::plugin::{
 };
 
 /// Puts the interaction in the inbox of the running plugin whose
-/// panel it was done in.
+/// panel it was done in. A panel drawn from the language answers for
+/// itself.
 pub fn deliver(
     event: On<Interaction>,
-    panels: Query<(&Panel, &ContributedBy)>,
+    panels: Query<(&Panel, &ContributedBy), Without<Compiled>>,
     mut plugins: Query<(&PluginInfo, &Status, &mut Inbox)>,
 ) {
     let Some((_, by)) =

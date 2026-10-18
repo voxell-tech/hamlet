@@ -29,6 +29,7 @@ hamlet_sdk = { version = "0.1.0", path = "crates/hamlet_sdk" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
 hamlet_wasm = { version = "0.1.0", path = "crates/hamlet_wasm" }
+hamlet_openui = { version = "0.1.0", path = "crates/hamlet_openui" }
 hamlet_guest = { version = "0.1.0", path = "crates/hamlet_guest" }
 hamlet_plugins = { version = "0.1.0", path = "plugins/all" }
 plugin_skills = { version = "0.1.0", path = "plugins/skills" }

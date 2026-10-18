@@ -1,21 +1,30 @@
-//! The install folder: `plugins/<id>/manifest.toml` and `plugin.wasm`
-//! in the home.
+//! The install folder: `plugins/<id>/manifest.toml` and the plugin's
+//! `plugin.wasm`, or its `panel.ui`, in the home.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::interface::VERSION;
-use crate::manifest::Manifest;
+use crate::manifest::{Kind, Manifest};
 
 const MANIFEST: &str = "manifest.toml";
 const WASM: &str = "plugin.wasm";
+const PANEL: &str = "panel.ui";
 
 /// A plugin whose folder passed the scan.
 #[derive(Debug)]
 pub struct Installed {
     pub manifest: Manifest,
+    pub body: Body,
+}
+
+/// The file a plugin is made of.
+#[derive(Debug)]
+pub enum Body {
     /// The component's file.
-    pub wasm: PathBuf,
+    Wasm(PathBuf),
+    /// The panel's file.
+    Data(PathBuf),
 }
 
 /// Why a folder is not a plugin the host can load.
@@ -75,22 +84,32 @@ pub fn read(folder: &Path) -> Result<Installed, Rejected> {
     };
     let text = std::fs::read_to_string(folder.join(MANIFEST))
         .map_err(|_| rejected(Why::Missing(MANIFEST)))?;
-    let wasm = folder.join(WASM);
-    if !wasm.is_file() {
-        return Err(rejected(Why::Missing(WASM)));
-    }
     let manifest = Manifest::parse(&text).map_err(|e| {
         rejected(Why::BadManifest(e.message().into()))
     })?;
+    let file = |file: &'static str| {
+        let path = folder.join(file);
+        path.is_file()
+            .then_some(path)
+            .ok_or_else(|| rejected(Why::Missing(file)))
+    };
+    let body = match manifest.kind {
+        Kind::Wasm => Body::Wasm(file(WASM)?),
+        Kind::Data => Body::Data(file(PANEL)?),
+    };
     if manifest.id != name {
         return Err(rejected(Why::WrongFolder { id: manifest.id }));
     }
-    if manifest.interface != VERSION {
+    if manifest.kind == Kind::Wasm
+        && manifest.interface.as_deref() != Some(VERSION)
+    {
         return Err(rejected(Why::Interface {
-            found: manifest.interface,
+            found: manifest
+                .interface
+                .unwrap_or_else(|| "none".into()),
         }));
     }
-    Ok(Installed { manifest, wasm })
+    Ok(Installed { manifest, body })
 }
 
 /// Every folder of the install folder `plugins`, read. A missing

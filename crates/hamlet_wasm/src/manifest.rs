@@ -10,6 +10,19 @@ pub struct Ask {
     pub reason: String,
 }
 
+/// What an installed plugin is made of.
+#[derive(
+    Clone, Copy, PartialEq, Eq, Default, Debug, serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    /// A WASM component, `plugin.wasm`.
+    #[default]
+    Wasm,
+    /// A panel written in the language, `panel.ui`, and no code.
+    Data,
+}
+
 /// The contents of a plugin's `manifest.toml`.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -17,8 +30,13 @@ pub struct Manifest {
     pub id: String,
     pub name: String,
     pub version: String,
-    /// The version of the WIT package the plugin was built for.
-    pub interface: String,
+    #[serde(default)]
+    pub kind: Kind,
+    /// The version of the WIT package the plugin was built for. A
+    /// WASM plugin needs it.
+    pub interface: Option<String>,
+    /// The icon of a data plugin's panel, by the name of a `Glyph`.
+    pub icon: Option<String>,
     #[serde(default)]
     pub needs: Vec<Need>,
     #[serde(default)]

@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 use hamlet_assets::TuningPlugin;
+use hamlet_openui::Drawing;
 use hamlet_sdk::agents::Kept;
 
 use self::engine::Host;
@@ -37,37 +38,44 @@ mod tests;
 /// Loads the approved installed plugins, steps the ones that have
 /// mail and draws their panels. Add it after the core and the SDK.
 pub fn plugin(app: &mut App) {
-    app.add_plugins(TuningPlugin::<WasmTuning>::default())
-        .init_resource::<Limits>()
-        .add_message::<run::Done>()
-        .add_observer(enable::restart)
-        .add_observer(event::deliver)
-        .add_observer(stop::stopped)
-        .configure_sets(
-            Update,
-            (
-                PluginSet::Collect,
-                PluginSet::Step,
-                PluginSet::Apply,
-                PluginSet::Draw,
-            )
-                .chain(),
+    app.add_plugins((
+        TuningPlugin::<WasmTuning>::default(),
+        hamlet_openui::plugin,
+    ))
+    .init_resource::<Limits>()
+    .add_message::<run::Done>()
+    .add_observer(enable::restart)
+    .add_observer(event::deliver)
+    .add_observer(stop::stopped)
+    .configure_sets(
+        Update,
+        (
+            PluginSet::Collect,
+            PluginSet::Step,
+            PluginSet::Apply,
+            PluginSet::Draw,
         )
-        .configure_sets(Update, Kept.before(PluginSet::Step))
-        .add_systems(Startup, load::installed)
-        .add_systems(
-            Update,
-            (
-                inbox::tick.in_set(PluginSet::Collect),
-                run::step
-                    .in_set(PluginSet::Step)
-                    .run_if(inbox::has_mail),
-                run::apply
-                    .in_set(PluginSet::Apply)
-                    .run_if(on_message::<run::Done>),
-                draw::draw.in_set(PluginSet::Draw).run_if(draw::due),
-            ),
-        );
+            .chain(),
+    )
+    .configure_sets(
+        Update,
+        (
+            Kept.before(PluginSet::Step),
+            Drawing.after(PluginSet::Draw),
+        ),
+    )
+    .add_systems(Startup, load::installed)
+    .add_systems(
+        Update,
+        (
+            inbox::tick.in_set(PluginSet::Collect),
+            run::step.in_set(PluginSet::Step).run_if(inbox::has_mail),
+            run::apply
+                .in_set(PluginSet::Apply)
+                .run_if(on_message::<run::Done>),
+            draw::draw.in_set(PluginSet::Draw).run_if(draw::due),
+        ),
+    );
     match Host::new(&Limits::default()) {
         Ok(host) => {
             app.insert_resource(host);

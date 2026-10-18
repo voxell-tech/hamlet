@@ -44,6 +44,8 @@ pub const PALETTE: File = file!("palette.toml");
 pub const VFX: File = file!("vfx.toml");
 /// The limits on an installed plugin's calls.
 pub const WASM: File = file!("wasm.toml");
+/// The limits on a panel written in Hamlet's panel language.
+pub const PANEL_LANG: File = file!("panel_lang.toml");
 /// The panels' answers to the hand.
 pub const UI: File = file!("ui.toml");
 /// The panels' theme.

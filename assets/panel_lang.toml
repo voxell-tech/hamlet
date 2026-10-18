@@ -1,0 +1,11 @@
+# The limits on a panel written in Hamlet's panel language. What each
+# value means is written beside its field in
+# crates/hamlet_openui/src/limits.rs.
+
+[limits]
+max_depth = 32
+max_nodes = 2000
+max_steps = 100000
+max_string_bytes = 262144
+tree_nodes = 400
+tree_depth = 16
