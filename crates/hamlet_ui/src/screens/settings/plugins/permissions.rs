@@ -19,6 +19,7 @@ use hamlet_sdk::plugin::{
 };
 
 use super::control::{Target, control, state, target, targets};
+use super::links::{self, Everyone, Links};
 use super::{Open, moved, switch};
 use crate::icons::Glyph;
 use crate::looks::{
@@ -54,6 +55,8 @@ pub(super) struct Detail {
     pub status: Status,
     pub installed: bool,
     pub rows: Vec<Row>,
+    /// The plugins it needs and the plugins that need it.
+    pub links: Links,
 }
 
 /// Every plugin that asks for something.
@@ -69,6 +72,7 @@ fn keep(
         Has<Uninstalled>,
         Option<&Manifest>,
     )>,
+    everyone: Everyone,
     mut details: ResMut<Details>,
 ) {
     let mut now = plugins
@@ -96,6 +100,7 @@ fn keep(
                             ),
                         })
                         .collect(),
+                    links: links::of(&info.id, &everyone),
                 }
             },
         )
@@ -182,6 +187,7 @@ fn page(detail: &Detail) -> AnyView {
     .gap(12.0)
     .align(AlignItems::Center);
     let mut rows = vec![head.boxed()];
+    rows.extend(links::lines(&detail.links));
     rows.push(with_cx(|cx| hairline(cx.theme().palette.brass_6)));
     if detail.rows.is_empty() {
         rows.push(note("It asks for nothing.").boxed());

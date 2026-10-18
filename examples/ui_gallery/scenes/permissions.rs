@@ -79,8 +79,15 @@ pub(super) fn put(world: &mut World, scene: Scene) {
             events: vec!["notes/note-saved".into()],
             ..Imports::default()
         },
-        ..Manifest::built_in("clipper")
+        ..Manifest::built_in("clipper").needs("notes", ">=0.1, <1")
     };
+    world.spawn((
+        info("notes", "Notes", "0.1.0"),
+        Manifest::built_in("notes"),
+        asks(&[(ReadPapers, "To copy the selected agent's notes.")]),
+        Choices::default().decided(ReadPapers, Choice::Allow, false),
+        Status::Running,
+    ));
     world.spawn((
         info("clipper", "Clipper", "0.1.0"),
         clipper,

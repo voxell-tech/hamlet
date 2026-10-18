@@ -19,6 +19,7 @@ use hamlet_sdk::plugin::{
 };
 use hamlet_sdk::reload::{Reload, Rollback};
 
+use super::links::{self, Everyone, Links};
 use super::{Open, moved, switch};
 use crate::icons::Glyph;
 use crate::looks::{Fills, action, bare, buttons, good_action, note};
@@ -46,6 +47,8 @@ struct Line {
     notes: Vec<String>,
     /// Whether it has a last good version to go back to.
     rollback: bool,
+    /// The plugins it needs and the plugins that need it.
+    links: Links,
 }
 
 /// Every plugin, by name.
@@ -61,6 +64,7 @@ fn list(
         Option<&Reload>,
         Option<&Blocked>,
     )>,
+    everyone: Everyone,
     mut listed: ResMut<Listed>,
 ) {
     let mut lines = plugins
@@ -81,6 +85,7 @@ fn list(
                     .collect(),
                 rollback: reload
                     .is_some_and(|reload| reload.rollback),
+                links: links::of(&info.id, &everyone),
             }
         })
         .collect::<Vec<_>>();
@@ -111,6 +116,7 @@ fn line(line: &Line) -> AnyView {
             .boxed(),
         note(format!("{} - {kind} - {status}", line.version)).boxed(),
     ];
+    words.extend(links::lines(&line.links));
     for why in &line.notes {
         words.push(note(why.clone()).boxed());
     }

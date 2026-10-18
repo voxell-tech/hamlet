@@ -4,6 +4,7 @@
 
 mod capabilities;
 mod control;
+mod links;
 mod list;
 mod permissions;
 
