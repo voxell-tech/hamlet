@@ -180,18 +180,28 @@ export function scriptedProvider(
             return faux.stream(model, context, options);
         };
     // A call takes its step as it is made, so concurrent calls take successive steps in the order they were made.
+    // A call the server refuses reaches no model, so its step goes back for the next.
     const stream: StreamFunction<string, SimpleStreamOptions> = (
         model,
         context,
         options,
     ) => {
-        const step = (queues.get(caller(options)) ?? shared).shift();
-        const once = priced(answered(step ?? exhausted));
-        return guard({ stream: once, streamSimple: once }).stream(
+        const queue = queues.get(caller(options)) ?? shared;
+        const step = queue.shift();
+        let made = false;
+        const once = priced((model, context, options) => {
+            made = true;
+            return answered(step ?? exhausted)(model, context, options);
+        });
+        const out = guard({ stream: once, streamSimple: once }).stream(
             model,
             context,
             options,
         );
+        void out.result().then(() => {
+            if (!made && step !== undefined) queue.unshift(step);
+        });
+        return out;
     };
     return createProvider({
         id: faux.provider,
