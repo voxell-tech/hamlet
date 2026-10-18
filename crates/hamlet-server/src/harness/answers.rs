@@ -45,7 +45,7 @@ enum Gate {
 }
 
 const PENDING_WORDS: &str = "This call waits for a chief's answer.";
-const STOPPED_WORDS: &str =
+pub(crate) const STOPPED_WORDS: &str =
     "The turn this call belongs to was stopped.";
 const REVOKED_WORDS: &str = "A chief refused this call.";
 
@@ -167,20 +167,34 @@ fn gate(
         )
         .optional()?;
     let Some((kept, state, words)) = kept else {
-        let pending = asks(tool);
+        // A call first heard of while its turn's cancel is owed
+        // belongs to the stopped turn (H34).
+        let stopped = store.cancelling(binding.id)?;
+        let pending = !stopped && asks(tool);
+        let state = if stopped {
+            "refused"
+        } else if pending {
+            "pending"
+        } else {
+            "allowed"
+        };
         store.db.execute(
             "INSERT INTO harness_wait (runtime, key, binding, tool, \
-             digest, state) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             digest, state, words) VALUES (?1, ?2, ?3, ?4, ?5, ?6, \
+             ?7)",
             params![
                 binding.runtime.as_str(),
                 key,
                 binding.id.0,
                 tool,
                 digest,
-                if pending { "pending" } else { "allowed" }
+                state,
+                stopped.then_some(STOPPED_WORDS)
             ],
         )?;
-        return Ok(if pending {
+        return Ok(if stopped {
+            (Gate::Refused(STOPPED_WORDS.into()), false)
+        } else if pending {
             (Gate::Pending, true)
         } else {
             (Gate::Allowed, false)
@@ -262,24 +276,6 @@ impl Store {
         } else {
             Decided::Unchanged
         })
-    }
-
-    /// Lapses every pending wait of `binding`; returns their runtime
-    /// and keys.
-    pub(crate) fn lapse_waits(
-        &mut self,
-        binding: &Binding,
-    ) -> Result<Vec<String>> {
-        let mut query = self.db.prepare(
-            "UPDATE harness_wait SET state = 'refused', words = ?2 \
-             WHERE binding = ?1 AND state = 'pending' RETURNING key",
-        )?;
-        let keys = query
-            .query_map(params![binding.id.0, STOPPED_WORDS], |row| {
-                row.get::<_, String>(0)
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(keys)
     }
 }
 

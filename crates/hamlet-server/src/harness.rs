@@ -390,8 +390,7 @@ impl Harnesses {
         binding: BindingId,
     ) -> Result<()> {
         let bound = self.bound(store, binding)?;
-        store.begin_cancel(binding)?;
-        let lapsed = store.lapse_waits(&bound)?;
+        let lapsed = store.begin_cancel(binding)?;
         let Some(index) = self.index(&bound.runtime) else {
             return Ok(());
         };

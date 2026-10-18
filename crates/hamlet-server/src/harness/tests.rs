@@ -584,3 +584,37 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
         "home"
     );
 }
+
+#[test]
+fn cancelling_refuses_the_turn_s_calls_not_yet_carried_out() {
+    let scratch = Scratch::new("harness-cancel-calls");
+    let (mut store, binding) = bound(&scratch, 0);
+    // Allowed early with no chief to ask, then kept by pi as begun.
+    let asked = answers::allow(
+        &mut store,
+        &binding,
+        "begun",
+        "build_road",
+        &road(),
+        never,
+    )
+    .unwrap();
+    assert_eq!(asked.answer, Answer::Allowed);
+    assert!(store.begin_cancel(binding.id).unwrap().is_empty());
+    // Carried out after the turn was stopped, it lays nothing, and
+    // nor does a call of the stopped turn never asked about early.
+    for key in ["begun", "unasked"] {
+        let answer = run(&mut store, &binding, key, &road());
+        assert!(
+            matches!(answer, Answer::Refused(_)),
+            "{key}: {answer:?}"
+        );
+    }
+    assert_eq!(roads(&store), 0);
+    // The runtime confirms the cancel; the next turn's calls run.
+    store.cancelled(binding.id).unwrap();
+    assert_eq!(
+        run(&mut store, &binding, "next", &road()),
+        result(LAID, false)
+    );
+}
