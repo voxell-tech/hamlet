@@ -1,3 +1,4 @@
+import type { HomeBase } from "../home.ts";
 import type { State } from "../protocol.ts";
 import { type Settings, SettingsDoc, settingsOf } from "../settings.ts";
 import type { View } from "../state.ts";
@@ -31,6 +32,7 @@ export const modelView: View<
                 workspace: {
                     url: home.credentials.workspace?.url ?? null,
                     running: home.workspace?.url ?? null,
+                    ...movedTo(home, home.credentials.workspace?.url ?? null),
                 },
             },
             providers: await home.modelHome.providers(),
@@ -38,3 +40,11 @@ export const modelView: View<
         };
     },
 };
+
+/** The latest move of the houses, while it is about the workspace now chosen. */
+function movedTo(home: Pick<HomeBase, "moving">, chosen: string | null) {
+    const status = home.moving.status;
+    if (status === undefined || status.to !== chosen) return {};
+    const { to: _, ...move } = status;
+    return { move };
+}

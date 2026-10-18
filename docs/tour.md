@@ -241,7 +241,7 @@ repository root.
 | The window's saved layout, size and look | `hamlet_ui/src/remember.rs`, `window.rs`, `hamlet_world/src/chief/look.rs`; files under `HAMLET_VIEW` |
 | Final editor saves and closing the window | `hamlet_desktop/src/editor.rs`, `hamlet_ui/src/saving.rs`, `window.rs` |
 | The server's settings or chief documents | `server/src/settings.ts`, `server/src/server/reads.ts`, `server/src/server/edits.ts`; the panels send protocol requests |
-| The local or remote workspace agents' tools run in | `server/src/workspace.ts`, `house/remote.ts`; the choice in `settings.ts` and `home/credentials.ts`; its page in `hamlet_ui/src/settings/workspace.rs`; the manager in `hamlet_workspace/`; [`sandbox.md`](sandbox.md) |
+| The local or remote workspace agents' tools run in | `server/src/workspace.ts`, `house/remote.ts`; the choice in `settings.ts` and `home/credentials.ts`; moving the houses in `house/move.ts`; its page in `hamlet_ui/src/settings/workspace.rs`; the manager in `hamlet_workspace/`; [`sandbox.md`](sandbox.md) |
 
 ## Tuning while the app runs
 

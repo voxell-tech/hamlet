@@ -27,6 +27,7 @@ import { type Layout, layOut } from "./home/layout.ts";
 import { claim } from "./home/lock.ts";
 import { PARTS, REMOTE_PARTS } from "./home/parts.ts";
 import { Houses } from "./house/skills.ts";
+import type { MoveStatus } from "./house.ts";
 import { PeerStatistics } from "./letters.ts";
 import { LimitsDoc } from "./limits/rules.ts";
 import { ModelHome } from "./models.ts";
@@ -74,6 +75,8 @@ export type HomeBase = {
     readonly credentials: Credentials;
     /** The remote workspace agents' tools run in, or null for the local one; fixed while the home is open. */
     readonly workspace: WorkspaceConnection | null;
+    /** The latest move of the houses to the workspace chosen in Settings while this home is open. */
+    readonly moving: { status?: MoveStatus };
     /** Scrubs with current credentials before storage or display. */
     readonly secrets: Secrets;
     now(): number;
@@ -135,6 +138,7 @@ export async function openHome(
             overrides,
             credentials,
             workspace,
+            moving: {},
             secrets: secretsFrom(
                 credentials,
                 overrides.workspace === undefined

@@ -2,7 +2,16 @@ import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
-import { readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+    lstat,
+    mkdir,
+    readdir,
+    readFile,
+    rm,
+    stat,
+    symlink,
+    writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:http";
 import { createServer as createGrpcServer } from "node:http2";
 import { join, resolve } from "node:path";
@@ -19,10 +28,11 @@ import { expect, it, vi } from "vitest";
 import { WorkDoc } from "../src/environment.ts";
 import { answer } from "../src/gate.ts";
 import { houseOf } from "../src/home/layout.ts";
-import { giftSkill } from "../src/house.ts";
+import { giftSkill, MERGE_CAPS, moveHouses } from "../src/house.ts";
 import { PeersDoc } from "../src/letters.ts";
 import { LibraryDoc } from "../src/library.ts";
 import { LimitsDoc } from "../src/limits.ts";
+import { modelView } from "../src/models.ts";
 import { RecordDoc, VotesDoc } from "../src/record.ts";
 import { say as chiefSay } from "../src/say.ts";
 import { edit as editForChief } from "../src/server/edits.ts";
@@ -34,6 +44,7 @@ import {
     closeAfter,
     context,
     fauxModels,
+    MAYOR,
     mayorChat,
     openWaits,
     say,
@@ -57,6 +68,15 @@ it("keeps the workspace chosen in Settings with the credentials and opens the ho
             .filter((change) => change.type === "settings")
             .at(-1);
     expect(run.state.settings.workspace).toEqual({ url: null, running: null });
+    expect(
+        await request(run.connection, run.messages, {
+            type: "move-houses",
+            id: randomUUID(),
+        }),
+    ).toMatchObject({
+        kind: "error",
+        text: "Hamlet already works in the workspace chosen in Settings, so there are no houses to move.",
+    });
     expect(
         await choose({ url: "http://workspace.example", token }),
     ).toMatchObject({
@@ -112,188 +132,21 @@ it.skipIf(binary === undefined)(
     async () => {
         if (binary === undefined) throw new Error("Set HAMLET_WORKSPACE_BIN");
         const executable = resolve(binary);
-        const root = scratch();
-        const key = join(root, "manager.key");
-        const generated = await promisify(execFile)(executable, [
-            "keygen",
-            key,
-        ]);
-        const publicKey = generated.stdout.trim();
-        const actorUid = "11111111-1111-4111-8111-111111111111";
-        const actorUidFile = join(root, "actor-uid");
-        await writeFile(actorUidFile, actorUid);
-        const { url: worker } = await service(executable, "worker", {
-            listen: "127.0.0.1:0",
-            root: join(root, "remote"),
-            public_key: publicKey,
-            actor_uid_file: actorUidFile,
-        });
-        const control = createGrpcServer();
-        const actors = new Map<string, Buffer>();
-        const lifecycle: string[] = [];
-        const controlTokenFile = join(root, "control-token");
-        let controlToken = "control-before-rotation";
-        await writeFile(controlTokenFile, controlToken);
-        control.on("stream", (stream, headers) => {
-            const chunks: Buffer[] = [];
-            stream.on("data", (chunk: Buffer) => chunks.push(chunk));
-            stream.on("end", () => {
-                if (headers.authorization !== `Bearer ${controlToken}`) {
-                    stream.respond({
-                        ":status": 200,
-                        "content-type": "application/grpc",
-                        "grpc-status": "16",
-                    });
-                    stream.end();
-                    return;
-                }
-                const request = Buffer.concat(chunks).subarray(5);
-                const object = field(request, 1);
-                const verb = String(headers[":path"]).split("/").at(-1);
-                if (
-                    verb === undefined ||
-                    ![
-                        "GetActor",
-                        "CreateActor",
-                        "ResumeActor",
-                        "SuspendActor",
-                    ].includes(verb)
-                )
-                    throw new Error("Unexpected control RPC");
-                lifecycle.push(verb);
-                const creating =
-                    headers[":path"] === "/ateapi.Control/CreateActor";
-                const metadata = creating ? field(object, 1) : object;
-                const name = field(metadata, 2).toString();
-                const existing = actors.get(name);
-                let actor =
-                    existing ??
-                    Buffer.concat([
-                        bytes(
-                            1,
-                            Buffer.concat([
-                                bytes(1, Buffer.from("trial")),
-                                bytes(2, Buffer.from(name)),
-                                bytes(
-                                    3,
-                                    Buffer.from(
-                                        "11111111-1111-4111-8111-111111111111",
-                                    ),
-                                ),
-                            ]),
-                        ),
-                        bytes(
-                            4,
-                            Buffer.concat([
-                                bytes(1, Buffer.from("trial")),
-                                bytes(2, Buffer.from("workspace")),
-                            ]),
-                        ),
-                        bytes(7, Buffer.from([8, 4])),
-                    ]);
-                const status = creating
-                    ? existing
-                        ? "6"
-                        : "0"
-                    : existing
-                      ? "0"
-                      : "5";
-                if (creating && !existing) actors.set(name, actor);
-                if (
-                    (verb === "ResumeActor" || verb === "SuspendActor") &&
-                    existing
-                ) {
-                    actor = Buffer.concat([
-                        actor,
-                        bytes(
-                            7,
-                            Buffer.from([8, verb === "ResumeActor" ? 2 : 4]),
-                        ),
-                    ]);
-                    actors.set(name, actor);
-                }
-                if (verb === "ResumeActor" || verb === "SuspendActor")
-                    actor = bytes(1, actor);
-                stream.respond(
-                    { ":status": 200, "content-type": "application/grpc" },
-                    { waitForTrailers: true },
-                );
-                stream.on("wantTrailers", () =>
-                    stream.sendTrailers({ "grpc-status": status }),
-                );
-                const frame = Buffer.alloc(5);
-                frame.writeUInt32BE(actor.length, 1);
-                stream.end(
-                    status === "0" ? Buffer.concat([frame, actor]) : undefined,
-                );
-            });
-        });
-        control.listen(0, "127.0.0.1");
-        await once(control, "listening");
-        closeAfter(
-            () => new Promise<void>((done) => control.close(() => done())),
-        );
-        const controlAddress = control.address();
-        if (controlAddress === null || typeof controlAddress === "string")
-            throw new Error("Missing control address");
-        let loseReply = false;
-        const router = createServer(async (request, response) => {
-            const target = request.headers["ate-target-actor"];
-            if (
-                typeof target !== "string" ||
-                !target.startsWith("trial/") ||
-                !actors.has(target.slice(6))
-            ) {
-                response.writeHead(404).end();
-                return;
-            }
-            const chunks: Buffer[] = [];
-            for await (const chunk of request) chunks.push(Buffer.from(chunk));
-            const headers = new Headers();
-            for (const [key, value] of Object.entries(request.headers))
-                if (typeof value === "string" && key.startsWith("x-workspace-"))
-                    headers.set(key, value);
-            const routed = await fetch(`${worker}${request.url}`, {
-                method: request.method ?? "POST",
-                headers,
-                body: Buffer.concat(chunks),
-            });
-            const body = Buffer.from(await routed.arrayBuffer());
-            if (loseReply) {
-                loseReply = false;
-                response.destroy();
-                return;
-            }
-            response.writeHead(routed.status, {
-                "content-type": "application/json",
-            });
-            response.end(body);
-        });
-        router.listen(0, "127.0.0.1");
-        await once(router, "listening");
-        closeAfter(
-            () => new Promise<void>((done) => router.close(() => done())),
-        );
-        const routeAddress = router.address();
-        if (routeAddress === null || typeof routeAddress === "string")
-            throw new Error("Missing router address");
-        const configuration = {
-            listen: "127.0.0.1:0",
-            state: join(root, "state"),
-            homes: { "offline-home": "offline-test-token" },
-            signing_key: key,
-            control: `http://127.0.0.1:${controlAddress.port}`,
-            control_token_file: controlTokenFile,
-            router: `http://127.0.0.1:${routeAddress.port}`,
-            atespace: "trial",
-            template: "workspace",
-        };
-        const { url: manager, stop: stopManager } = await service(
-            executable,
-            "manager",
+        const {
+            root,
+            worker,
+            actorUid,
+            actorUidFile,
+            router: routeAddress,
+            actors,
+            lifecycle,
+            controlTokenFile,
+            doubles,
             configuration,
-        );
-        const connection = { url: manager, token: "offline-test-token" };
+            manager,
+            stopManager,
+            connection,
+        } = await realWorkspace(executable);
         const send = async (
             message: unknown,
             token = connection.token,
@@ -344,7 +197,7 @@ it.skipIf(binary === undefined)(
         expect(
             binaryFile.ok && Buffer.from(binaryFile.value).toString("hex"),
         ).toBe("00fffe800a");
-        controlToken = "control-after-rotation";
+        doubles.controlToken = "control-after-rotation";
         expect(
             (await fixtureEnv.readTextFile("greeting.txt", context)).ok,
         ).toBe(false);
@@ -352,7 +205,7 @@ it.skipIf(binary === undefined)(
         expect(
             (await fixtureEnv.readTextFile("greeting.txt", context)).ok,
         ).toBe(false);
-        await writeFile(controlTokenFile, `${controlToken}\n`);
+        await writeFile(controlTokenFile, `${doubles.controlToken}\n`);
         expect(await fixtureEnv.readTextFile("greeting.txt", context)).toEqual({
             ok: true,
             value: "héllo, wörld ✓\n",
@@ -1144,7 +997,7 @@ it.skipIf(binary === undefined)(
                 },
             },
         };
-        loseReply = true;
+        doubles.loseReply = true;
         expect(await send(interrupted)).toMatchObject({
             kind: "error",
             uncertain: true,
@@ -1190,6 +1043,292 @@ it.skipIf(binary === undefined)(
     },
     60_000,
 );
+
+it.skipIf(binary === undefined)(
+    "moves every house to the workspace chosen in Settings and back, replacing the houses there",
+    async () => {
+        if (binary === undefined) throw new Error("Set HAMLET_WORKSPACE_BIN");
+        const { connection } = await realWorkspace(resolve(binary));
+        const env = { HAMLET_REFLECT_EVERY: "0" };
+        const dir = scratch();
+        const here = await testHome(dir, { env });
+        const house = houseOf(here.layout, MAYOR);
+        await mkdir(join(house, "plans"));
+        await writeFile(join(house, "plans/today.md"), "local plan");
+        await writeFile(join(house, "NOTES.md"), "# Local notes\n");
+        await writeFile(join(house, "run.sh"), "echo hi\n", { mode: 0o755 });
+        await symlink("/etc/passwd", join(house, "passwd"));
+        const remote = new WorkspaceEnv(connection, {
+            workspace: MAYOR.hamlet,
+            agent: MAYOR.number,
+            project: false,
+            network: false,
+        });
+        closeAfter(() => remote.cleanup(context));
+        // An earlier visit left an older copy there.
+        expect((await remote.initialize(context)).ok).toBe(true);
+        await remote.writeFile("NOTES.md", "# Old remote notes\n", context);
+        await remote.writeFile("stale.txt", "older", context);
+        expect(await moveHouses(here, () => {}, context)).toEqual({
+            ok: false,
+            error: { kind: "move-nothing" },
+        });
+
+        await here.credentials.chooseWorkspace(connection);
+        const steps: (string | undefined)[] = [];
+        const moved = await moveHouses(
+            here,
+            () => steps.push(here.moving.status?.state),
+            context,
+        );
+        expect(moved).toEqual({
+            ok: true,
+            value: "Moved 1 house to the remote server. Restart Hamlet to work there; what agents change before then stays behind. Links and special files are not moved: home/0/passwd.",
+        });
+        expect(steps.at(-1)).toBe("moved");
+        expect(steps).toContain("moving");
+        expect(
+            (await modelView.build(here, context, undefined)).settings.workspace
+                ?.move,
+        ).toMatchObject({ state: "moved", done: 1, of: 1 });
+        const listed = await remote.tree("/house", MERGE_CAPS, context);
+        if (!listed.ok) throw new Error(listed.error.message);
+        expect(listed.value.map((entry) => entry.path).sort()).toEqual([
+            ".",
+            "NOTES.md",
+            "inbox",
+            "plans",
+            "plans/today.md",
+            "run.sh",
+            "skills",
+        ]);
+        expect(
+            (listed.value.find((entry) => entry.path === "run.sh")?.mode ?? 0) &
+                0o777,
+        ).toBe(0o755);
+        expect(await remote.readTextFile("NOTES.md", context)).toEqual({
+            ok: true,
+            value: "# Local notes\n",
+        });
+        // The houses stay where they were until the restart.
+        expect((await lstat(join(house, "passwd"))).isSymbolicLink()).toBe(
+            true,
+        );
+
+        await here.close(context);
+        const there = await testHome(dir, { env });
+        expect(there.workspace).toEqual(connection);
+        await remote.writeFile("plans/today.md", "remote plan", context);
+        await there.credentials.chooseWorkspace(null);
+        expect(await moveHouses(there, () => {}, context)).toMatchObject({
+            ok: true,
+            value: expect.stringContaining("Moved 1 house to this computer."),
+        });
+        expect(await readFile(join(house, "plans/today.md"), "utf8")).toBe(
+            "remote plan",
+        );
+        expect((await stat(join(house, "run.sh"))).mode & 0o777).toBe(0o755);
+        await expect(lstat(join(house, "passwd"))).rejects.toThrow();
+        expect(await readdir(there.layout.erasing)).toEqual([]);
+        expect(await readdir(there.layout.gifts)).toEqual([]);
+    },
+    60_000,
+);
+
+/**
+ * The real manager and confined worker, with the Substrate control plane and router doubled. `doubles` changes the
+ * control token they accept and loses the next routed reply.
+ */
+async function realWorkspace(executable: string) {
+    const root = scratch();
+    const key = join(root, "manager.key");
+    const generated = await promisify(execFile)(executable, ["keygen", key]);
+    const publicKey = generated.stdout.trim();
+    const actorUid = "11111111-1111-4111-8111-111111111111";
+    const actorUidFile = join(root, "actor-uid");
+    await writeFile(actorUidFile, actorUid);
+    const { url: worker } = await service(executable, "worker", {
+        listen: "127.0.0.1:0",
+        root: join(root, "remote"),
+        public_key: publicKey,
+        actor_uid_file: actorUidFile,
+    });
+    const control = createGrpcServer();
+    const actors = new Map<string, Buffer>();
+    const lifecycle: string[] = [];
+    const controlTokenFile = join(root, "control-token");
+    const doubles = {
+        controlToken: "control-before-rotation",
+        loseReply: false,
+    };
+    await writeFile(controlTokenFile, doubles.controlToken);
+    control.on("stream", (stream, headers) => {
+        const chunks: Buffer[] = [];
+        stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+        stream.on("end", () => {
+            if (headers.authorization !== `Bearer ${doubles.controlToken}`) {
+                stream.respond({
+                    ":status": 200,
+                    "content-type": "application/grpc",
+                    "grpc-status": "16",
+                });
+                stream.end();
+                return;
+            }
+            const request = Buffer.concat(chunks).subarray(5);
+            const object = field(request, 1);
+            const verb = String(headers[":path"]).split("/").at(-1);
+            if (
+                verb === undefined ||
+                ![
+                    "GetActor",
+                    "CreateActor",
+                    "ResumeActor",
+                    "SuspendActor",
+                ].includes(verb)
+            )
+                throw new Error("Unexpected control RPC");
+            lifecycle.push(verb);
+            const creating = headers[":path"] === "/ateapi.Control/CreateActor";
+            const metadata = creating ? field(object, 1) : object;
+            const name = field(metadata, 2).toString();
+            const existing = actors.get(name);
+            let actor =
+                existing ??
+                Buffer.concat([
+                    bytes(
+                        1,
+                        Buffer.concat([
+                            bytes(1, Buffer.from("trial")),
+                            bytes(2, Buffer.from(name)),
+                            bytes(
+                                3,
+                                Buffer.from(
+                                    "11111111-1111-4111-8111-111111111111",
+                                ),
+                            ),
+                        ]),
+                    ),
+                    bytes(
+                        4,
+                        Buffer.concat([
+                            bytes(1, Buffer.from("trial")),
+                            bytes(2, Buffer.from("workspace")),
+                        ]),
+                    ),
+                    bytes(7, Buffer.from([8, 4])),
+                ]);
+            const status = creating
+                ? existing
+                    ? "6"
+                    : "0"
+                : existing
+                  ? "0"
+                  : "5";
+            if (creating && !existing) actors.set(name, actor);
+            if (
+                (verb === "ResumeActor" || verb === "SuspendActor") &&
+                existing
+            ) {
+                actor = Buffer.concat([
+                    actor,
+                    bytes(7, Buffer.from([8, verb === "ResumeActor" ? 2 : 4])),
+                ]);
+                actors.set(name, actor);
+            }
+            if (verb === "ResumeActor" || verb === "SuspendActor")
+                actor = bytes(1, actor);
+            stream.respond(
+                { ":status": 200, "content-type": "application/grpc" },
+                { waitForTrailers: true },
+            );
+            stream.on("wantTrailers", () =>
+                stream.sendTrailers({ "grpc-status": status }),
+            );
+            const frame = Buffer.alloc(5);
+            frame.writeUInt32BE(actor.length, 1);
+            stream.end(
+                status === "0" ? Buffer.concat([frame, actor]) : undefined,
+            );
+        });
+    });
+    control.listen(0, "127.0.0.1");
+    await once(control, "listening");
+    closeAfter(() => new Promise<void>((done) => control.close(() => done())));
+    const controlAddress = control.address();
+    if (controlAddress === null || typeof controlAddress === "string")
+        throw new Error("Missing control address");
+    const router = createServer(async (request, response) => {
+        const target = request.headers["ate-target-actor"];
+        if (
+            typeof target !== "string" ||
+            !target.startsWith("trial/") ||
+            !actors.has(target.slice(6))
+        ) {
+            response.writeHead(404).end();
+            return;
+        }
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) chunks.push(Buffer.from(chunk));
+        const headers = new Headers();
+        for (const [key, value] of Object.entries(request.headers))
+            if (typeof value === "string" && key.startsWith("x-workspace-"))
+                headers.set(key, value);
+        const routed = await fetch(`${worker}${request.url}`, {
+            method: request.method ?? "POST",
+            headers,
+            body: Buffer.concat(chunks),
+        });
+        const body = Buffer.from(await routed.arrayBuffer());
+        if (doubles.loseReply) {
+            doubles.loseReply = false;
+            response.destroy();
+            return;
+        }
+        response.writeHead(routed.status, {
+            "content-type": "application/json",
+        });
+        response.end(body);
+    });
+    router.listen(0, "127.0.0.1");
+    await once(router, "listening");
+    closeAfter(() => new Promise<void>((done) => router.close(() => done())));
+    const routeAddress = router.address();
+    if (routeAddress === null || typeof routeAddress === "string")
+        throw new Error("Missing router address");
+    const configuration = {
+        listen: "127.0.0.1:0",
+        state: join(root, "state"),
+        homes: { "offline-home": "offline-test-token" },
+        signing_key: key,
+        control: `http://127.0.0.1:${controlAddress.port}`,
+        control_token_file: controlTokenFile,
+        router: `http://127.0.0.1:${routeAddress.port}`,
+        atespace: "trial",
+        template: "workspace",
+    };
+    const { url: manager, stop: stopManager } = await service(
+        executable,
+        "manager",
+        configuration,
+    );
+    const connection = { url: manager, token: "offline-test-token" };
+    return {
+        root,
+        worker,
+        actorUid,
+        actorUidFile,
+        router: routeAddress,
+        actors,
+        lifecycle,
+        controlTokenFile,
+        doubles,
+        configuration,
+        manager,
+        stopManager,
+        connection,
+    };
+}
 
 async function service(
     executable: string,

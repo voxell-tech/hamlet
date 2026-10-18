@@ -396,6 +396,10 @@ export const Read = Type.Union([
 ]);
 export type Read = Static<typeof Read>;
 
+/** Copies every agent's house to the workspace chosen in Settings, ahead of the restart that applies it. */
+export const MoveHouses = request("move-houses", {});
+export type MoveHouses = Static<typeof MoveHouses>;
+
 const FROM_CLIENT = {
     hello: Hello,
     say: Say,
@@ -413,6 +417,7 @@ const FROM_CLIENT = {
     login: Login,
     check: Check,
     read: Read,
+    "move-houses": MoveHouses,
 };
 
 /** A message a client sends. */
@@ -637,6 +642,18 @@ export const SettingsView = object({
             url: nullable(Type.String()),
             /** The remote workspace the server works in until it restarts, or null for the local one. */
             running: nullable(Type.String()),
+            /** The latest move of the houses to the chosen workspace since the server started. */
+            move: Type.Optional(
+                object({
+                    state: Type.Enum(["moving", "moved", "failed"]),
+                    /** Houses moved so far. */
+                    done: Type.Integer(),
+                    /** Houses to move. */
+                    of: Type.Integer(),
+                    /** The outcome in words, empty while moving. */
+                    text: Type.String(),
+                }),
+            ),
         }),
     ),
 });

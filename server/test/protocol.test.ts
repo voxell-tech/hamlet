@@ -280,6 +280,7 @@ const fromClient: Examples<ClientMessage> = {
         { type: "read", id: ID, what: "papers", agent: mayor },
         { type: "read", id: ID, what: "charter" },
     ],
+    "move-houses": [{ type: "move-houses", id: ID }],
 };
 
 const fromServer: Examples<ServerMessage> = {

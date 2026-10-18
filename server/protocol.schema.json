@@ -1535,6 +1535,20 @@
                 },
                 {
                     "$ref": "#/$defs/Read"
+                },
+                {
+                    "type": "object",
+                    "required": ["type", "id"],
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "move-houses"
+                        },
+                        "id": {
+                            "$ref": "#/$defs/RequestId"
+                        }
+                    },
+                    "additionalProperties": false
                 }
             ]
         },
@@ -2229,6 +2243,25 @@
                                     "type": "null"
                                 }
                             ]
+                        },
+                        "move": {
+                            "type": "object",
+                            "required": ["state", "done", "of", "text"],
+                            "properties": {
+                                "state": {
+                                    "enum": ["moving", "moved", "failed"]
+                                },
+                                "done": {
+                                    "type": "integer"
+                                },
+                                "of": {
+                                    "type": "integer"
+                                },
+                                "text": {
+                                    "type": "string"
+                                }
+                            },
+                            "additionalProperties": false
                         }
                     },
                     "additionalProperties": false

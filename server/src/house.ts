@@ -1,6 +1,12 @@
 export { type GiftRefusal, giftRefusalText } from "./house/gift-rules.ts";
 export { clearStagedGifts, giftSkill, give, uploads } from "./house/gifts.ts";
 export {
+    type MoveRefusal,
+    type MoveStatus,
+    moveHouses,
+    moveRefusalText,
+} from "./house/move.ts";
+export {
     type HousePlace,
     REMOTE_FILE_BYTES,
     type RemoteHouse,

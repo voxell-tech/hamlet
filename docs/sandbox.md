@@ -52,12 +52,17 @@ They never see Substrate,
 actors or lifecycle verbs.
 
 The chief chooses a local or a remote workspace under Workspace in
-Settings. A remote one is the address of a workspace manager and the
-token its operator gave this home. One manager serves many homes, and the
-token tells it which home calls, so homes never share a house even when
-their hamlets have the same names. The server keeps both with its credentials (S7) and reads
-them when it starts, so a change applies from its next start. Houses do not
-move between workspaces: agents find the houses already in the one chosen.
+Settings. A remote one is the address of a workspace manager and the token
+its operator gave this home. One manager serves many homes, and the token
+tells it which home calls, so homes never share a house even when their
+hamlets have the same names. The server keeps both with its credentials
+(S7) and reads them when it starts, so a change applies from its next
+start. Until then, **Move houses** on the same page copies every agent's
+house from the workspace the server works in to the chosen one, making each
+house there an exact copy and checking it file by file. Links and special
+files stay behind, and a remote workspace takes files of at most 4 MiB. The
+houses stay where they were, so what agents change between the move and the
+restart is not moved.
 
 The address must be HTTPS, or plain HTTP on `127.0.0.1`, `[::1]` or
 `localhost`, with no credentials or query in it, and the token at least 16

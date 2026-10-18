@@ -200,6 +200,10 @@ pub enum ClientMessage {
     Check(Check),
     #[serde(rename = "read")]
     Read(Read),
+    #[serde(rename = "move-houses")]
+    MoveHouses {
+        id: RequestId,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1064,8 +1068,29 @@ pub struct SettingsViewEndpoints {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SettingsViewWorkspace {
+    #[serde(rename = "move")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub move_: Option<SettingsViewWorkspaceMove>,
     pub running: Option<String>,
     pub url: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SettingsViewWorkspaceMove {
+    pub done: i64,
+    pub of: i64,
+    pub state: SettingsViewWorkspaceMoveState,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SettingsViewWorkspaceMoveState {
+    #[serde(rename = "moving")]
+    Moving,
+    #[serde(rename = "moved")]
+    Moved,
+    #[serde(rename = "failed")]
+    Failed,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

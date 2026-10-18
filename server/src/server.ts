@@ -17,7 +17,13 @@ import {
 } from "./connection.ts";
 import { answerWords } from "./gate.ts";
 import type { Home } from "./home.ts";
-import { clearStagedGifts, giftRefusalText, give, uploads } from "./house.ts";
+import {
+    clearStagedGifts,
+    giftRefusalText,
+    give,
+    moveHouses,
+    uploads,
+} from "./house.ts";
 import type { Address, ServerMessage } from "./protocol.ts";
 import { chiefAccess } from "./realm/access.ts";
 import { livingAgent } from "./realm/roads.ts";
@@ -203,6 +209,25 @@ export async function serveHome(
                                   message.model,
                                   context,
                               ),
+                    );
+                    if (!client.signal.aborted)
+                        client.send(
+                            replyFor(message.id, outcome, home.secrets),
+                        );
+                })().catch((error: unknown) => {
+                    if (!client.signal.aborted) client.fail(error, message.id);
+                });
+                return undefined;
+            },
+            "move-houses": (message, client) => {
+                // Moving takes as long as the houses take to copy; the settings view shows each step.
+                void (async () => {
+                    const outcome = await changed(
+                        await moveHouses(
+                            home,
+                            () => void state.refresh(),
+                            context,
+                        ),
                     );
                     if (!client.signal.aborted)
                         client.send(

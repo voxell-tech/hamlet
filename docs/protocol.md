@@ -112,6 +112,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `check` (`Check`) | `what: "model"`, `model?: string` | Check that model, or the selected model; `reply`. |
 | `check` (`Check`) | `what: "connection"` | Check the configured model connection; `reply`. Connection state also changes through `change`. |
 | `read` (`Read`) | `what` and fields below | Fetch one document or list; `read` with `to`, or failure `reply`. |
+| `move-houses` (`MoveHouses`) | none | Copy every agent's house from the workspace the server works in to the one chosen in Settings, replacing the houses there; `reply` once done. Progress also changes through `change`. |
 
 `/new` and `/resume <number>` also exist as typed commands sent through
 `say`. They perform the same conversation changes as the `new` and `resume`
@@ -181,9 +182,11 @@ fault flags, activity, short saying and spend. Optional fields include
 skills, departure, consultation and peer conversation summaries. It contains
 no transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
 are the complete views defined in `protocol.ts`. `SettingsView`'s optional
-`workspace` is `{url, running}`: the remote workspace chosen and the one the
-server works in until it restarts, each `null` for the local one. It never
-holds the token.
+`workspace` is `{url, running, move?}`: the remote workspace chosen and the
+one the server works in until it restarts, each `null` for the local one. It
+never holds the token. `move` is the latest move of the houses to the chosen
+workspace since the server started: `state` (`moving`, `moved` or `failed`),
+houses `done` of `of`, and its outcome as `text`.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
 `chief`, `author`, `rewindable` and `tool`. Its kind is `user`, `assistant`,

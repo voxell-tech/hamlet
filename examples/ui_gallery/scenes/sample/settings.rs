@@ -36,6 +36,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             Some(v0::SettingsViewWorkspace {
                 url: Some("https://workspace.example".into()),
                 running: None,
+                move_: None,
             });
         world.insert_resource(settings::Pane::Workspace);
     }

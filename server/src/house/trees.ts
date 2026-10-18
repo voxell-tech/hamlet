@@ -280,14 +280,18 @@ function validCaps(
     return ok(undefined);
 }
 
-/** A no-follow copy into a separate empty host stage, keeping regular bytes and modes; a remote house source is read through its workspace. */
+/**
+ * A no-follow copy into a separate empty host stage, keeping regular bytes and modes; a remote house source is read
+ * through its workspace. Links and special files refuse the copy, or with `unsafe` of `skip` are left out and returned.
+ */
 export async function stage(
     home: Home,
     source: { root: string; rel: string },
     staged: string,
     caps: Readonly<TreeCaps>,
     context: Context,
-): Promise<Result<void, TreeFailure>> {
+    unsafe: "refuse" | "skip" = "refuse",
+): Promise<Result<TreeListing["skipped"], TreeFailure>> {
     const operation = "stage-tree";
     const from = place(home, source.root, operation);
     if (!from.ok) return from;
@@ -300,7 +304,14 @@ export async function stage(
         if (!path.ok) return path;
         const valid = validCaps(caps, operation);
         if (!valid.ok) return valid;
-        return remoteStage(from.value.house, source.rel, staged, caps, context);
+        return remoteStage(
+            from.value.house,
+            source.rel,
+            staged,
+            caps,
+            context,
+            unsafe,
+        );
     }
     source = { ...source, root: resolve(source.root) };
     staged = resolve(staged);
@@ -351,18 +362,19 @@ export async function stage(
                 operation,
                 retrySafe: false,
             });
-        if (report.skipped.length)
+        if (report.skipped.length && unsafe === "refuse")
             return err({
                 kind: "unsafe-entry",
                 skipped: report.skipped,
                 operation,
                 retrySafe: false,
             });
-        return checkTree(
+        const checked = await checkTree(
             source.rel === "." ? staged : join(staged, basename(source.rel)),
             operation,
             caps,
         );
+        return checked.ok ? ok(report.skipped) : checked;
     } catch {
         return failure(operation, "refused");
     }
@@ -857,7 +869,8 @@ async function remoteStage(
     staged: string,
     caps: Readonly<TreeCaps>,
     context: Context,
-): Promise<Result<void, TreeFailure>> {
+    unsafe: "refuse" | "skip",
+): Promise<Result<TreeListing["skipped"], TreeFailure>> {
     const operation = "stage-tree";
     staged = resolve(staged);
     try {
@@ -870,12 +883,12 @@ async function remoteStage(
         return failure(operation, "refused");
     }
     const dest = rel === "." ? staged : join(staged, posix.basename(rel));
+    const skipped: TreeListing["skipped"] = [];
     const env = house.open();
     try {
         const listed = await remoteTree(env, house, rel, operation, context);
         if (!listed.ok) return listed;
         let bytes = 0;
-        const skipped: TreeListing["skipped"] = [];
         for (const [index, entry] of listed.value.entries()) {
             if (index + 1 > caps.entries)
                 return err({
@@ -899,7 +912,7 @@ async function remoteStage(
                     kind: skippedKind(entry.kind),
                 });
         }
-        if (skipped.length)
+        if (skipped.length && unsafe === "refuse")
             return err({
                 kind: "unsafe-entry",
                 skipped,
@@ -933,6 +946,8 @@ async function remoteStage(
                 folders.push({ path: to, mode });
                 continue;
             }
+            // Only skipped links and special files are neither.
+            if (entry.kind !== "file") continue;
             const from =
                 entry.path === "." ? source : posix.join(source, entry.path);
             const content = await remoteBytes(env, from, entry, context);
@@ -952,7 +967,8 @@ async function remoteStage(
     } finally {
         await env.cleanup(context);
     }
-    return checkTree(dest, operation, caps);
+    const checked = await checkTree(dest, operation, caps);
+    return checked.ok ? ok(skipped) : checked;
 }
 
 /** Regular files and digests of a remote house tree, with links and special files left unread. */
@@ -1020,7 +1036,8 @@ async function remoteRemove(
     }
 }
 
-type StagedEntry = {
+/** A folder or regular file of a host stage. */
+export type StagedEntry = {
     /** Relative to the delivered top-level entry; `.` is the entry itself. */
     rel: string;
     kind: "file" | "directory";
@@ -1031,7 +1048,7 @@ type StagedEntry = {
 };
 
 /** A host stage entry's folders and regular files in pre-order; links were refused by `checkTree`. */
-async function stagedEntries(root: string): Promise<StagedEntry[]> {
+export async function stagedEntries(root: string): Promise<StagedEntry[]> {
     const entries: StagedEntry[] = [];
     const walk = async (path: string, rel: string): Promise<void> => {
         const info = await lstat(path);
@@ -1052,7 +1069,10 @@ async function stagedEntries(root: string): Promise<StagedEntry[]> {
 }
 
 /** A staged regular file's bytes, opened without following links and matched to its listed size. */
-async function stagedBytes(path: string, size: number): Promise<Uint8Array> {
+export async function stagedBytes(
+    path: string,
+    size: number,
+): Promise<Uint8Array> {
     const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
         const bytes = await file.readFile();

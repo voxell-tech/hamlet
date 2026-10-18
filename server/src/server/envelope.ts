@@ -10,6 +10,8 @@ import { type NotesFailure, notesFailureText } from "../house/skills.ts";
 import {
     type GiftRefusal,
     giftRefusalText,
+    type MoveRefusal,
+    moveRefusalText,
     type TreeFailure,
     treeFailureText,
 } from "../house.ts";
@@ -64,6 +66,7 @@ export type ChiefFailure =
     | ModelFailure
     | TreeFailure
     | GiftRefusal
+    | MoveRefusal
     | WorkFailure
     | NotesFailure
     | WatchFailure
@@ -262,6 +265,11 @@ function rendered(
         case "skill-tree":
         case "gift-tree":
             return { text: giftRefusalText(failure), kind: "error" };
+        case "move-nothing":
+        case "move-overridden":
+        case "move-busy":
+        case "move-stopped":
+            return { text: moveRefusalText(failure), kind: "error" };
 
         case "folder-not-absolute":
         case "folder-not-remote":

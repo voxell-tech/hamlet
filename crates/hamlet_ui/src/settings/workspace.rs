@@ -43,6 +43,8 @@ struct Draft {
     token: String,
     saving: Option<String>,
     saved: bool,
+    /// The move of the houses asked for and not yet answered.
+    moving: Option<String>,
     refusal: String,
 }
 
@@ -93,7 +95,33 @@ fn save(world: &mut World) {
     draft.refusal.clear();
 }
 
+/// Asks the server to copy the houses to the saved workspace. The
+/// settings it sends show how far it has come.
+fn move_houses(world: &mut World) {
+    let id = world
+        .resource_mut::<Outbox>()
+        .send(|id| v0::ClientMessage::MoveHouses { id });
+    let mut draft = world.resource_mut::<Draft>();
+    draft.moving = Some(id);
+    draft.refusal.clear();
+}
+
 fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
+    if draft.moving.as_ref() == Some(&response.to) {
+        draft.moving = None;
+        match &response.message {
+            v0::ServerMessage::Reply(reply)
+                if reply.kind == v0::ReplyKind::Error =>
+            {
+                draft.refusal.clone_from(&reply.text);
+            }
+            v0::ServerMessage::Fault(fault) => {
+                draft.refusal.clone_from(&fault.text);
+            }
+            _ => {}
+        }
+        return;
+    }
     if draft.saving.as_ref() != Some(&response.to) {
         return;
     }
@@ -116,13 +144,78 @@ fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
 }
 
 /// Whether the saved choice waits for a restart.
+fn waiting(settings: &Settings) -> bool {
+    matches!(
+        &settings.0.workspace,
+        Some(workspace) if workspace.url != workspace.running
+    )
+}
+
 fn pending(settings: &Settings) -> String {
-    match &settings.0.workspace {
-        Some(workspace) if workspace.url != workspace.running => {
-            "Takes effect when Hamlet restarts.".into()
-        }
-        _ => String::new(),
+    if waiting(settings) {
+        "Takes effect when Hamlet restarts.".into()
+    } else {
+        String::new()
     }
+}
+
+/// The latest move of the houses, as the server tells it.
+fn move_of(
+    settings: &Settings,
+) -> Option<&v0::SettingsViewWorkspaceMove> {
+    settings.0.workspace.as_ref()?.move_.as_ref()
+}
+
+/// What moving the houses does, how far it has come or how it ended.
+/// A failure is the refusal's to tell.
+fn progress(settings: &Settings) -> String {
+    use v0::SettingsViewWorkspaceMoveState as State;
+    if !waiting(settings) {
+        return String::new();
+    }
+    match move_of(settings) {
+        Some(move_) if move_.state == State::Moving => {
+            format!("Moving houses: {} of {}.", move_.done, move_.of)
+        }
+        Some(move_) if move_.state == State::Moved => {
+            move_.text.clone()
+        }
+        _ => {
+            let to = match &settings.0.workspace {
+                Some(workspace) if workspace.url.is_some() => {
+                    "the remote server"
+                }
+                _ => "this computer",
+            };
+            format!(
+                "Copies every agent's house to {to}, replacing the \
+                 houses there."
+            )
+        }
+    }
+}
+
+/// The button that moves the houses to the saved workspace, while it
+/// waits for a restart and no move runs.
+fn moving() -> AnyView {
+    keyed(
+        resource::<Settings, _>(|settings| {
+            waiting(settings)
+                && move_of(settings).is_none_or(|move_| {
+                    move_.state
+                        != v0::SettingsViewWorkspaceMoveState::Moving
+                })
+        }),
+        |offered| {
+            if *offered {
+                action(Glyph::Move, "MOVE HOUSES", move_houses)
+            } else {
+                frame().boxed()
+            }
+        },
+    )
+    .within(bare())
+    .boxed()
 }
 
 /// The address and token of a remote workspace, while one is chosen.
@@ -194,12 +287,20 @@ pub(super) fn page() -> impl View {
         ))
         .gap(12.0)
         .align(AlignItems::Center),
+        note(resource::<Settings, _>(pending)),
+        moved(),
         label(resource::<Draft, _>(|draft| draft.refusal.clone()))
             .size(12.0)
             .tone(Tone::Critical),
-        note(resource::<Settings, _>(pending)),
     ))
     .gap(12.0)
+}
+
+/// Moving the houses, once a saved workspace waits for a restart.
+fn moved() -> impl View {
+    row((moving(), note(resource::<Settings, _>(progress))))
+        .gap(12.0)
+        .align(AlignItems::Center)
 }
 
 #[cfg(test)]
@@ -221,10 +322,21 @@ mod tests {
         url: Option<&str>,
         running: Option<&str>,
     ) {
+        received_moving(app, revision, url, running, None);
+    }
+
+    fn received_moving(
+        app: &mut App,
+        revision: i64,
+        url: Option<&str>,
+        running: Option<&str>,
+        move_: Option<v0::SettingsViewWorkspaceMove>,
+    ) {
         let mut settings = hamlet_testing::realm::state().settings;
         settings.workspace = Some(v0::SettingsViewWorkspace {
             url: url.map(Into::into),
             running: running.map(Into::into),
+            move_,
         });
         hamlet_client::receive(
             app.world_mut(),
@@ -338,5 +450,88 @@ mod tests {
                 "type": "edit", "doc": "settings", "set": {"workspace": null}
             })]
         );
+    }
+
+    #[test]
+    fn houses_move_to_the_saved_workspace_with_their_progress_and_refusal_shown()
+     {
+        use v0::SettingsViewWorkspaceMoveState as State;
+        let url = Some("https://workspace.example");
+        let mut app = page(Pane::Front);
+        received(&mut app, 2, None, None);
+        *app.world_mut().resource_mut::<Pane>() = Pane::Workspace;
+        settle(&mut app);
+        let said = |app: &mut App, text: &str| {
+            words(app).iter().any(|shown| shown == text)
+        };
+        // Nothing waits for a restart, so nothing moves.
+        assert!(!said(&mut app, "MOVE HOUSES"));
+        received(&mut app, 3, url, None);
+        assert!(said(
+            &mut app,
+            "Copies every agent's house to the remote server, \
+             replacing the houses there."
+        ));
+        requests(&mut app);
+        press(&mut app, "MOVE HOUSES");
+        let Some(v0::ClientMessage::MoveHouses { id }) =
+            app.world().resource::<Outbox>().iter().next().cloned()
+        else {
+            panic!("no move was sent");
+        };
+        assert_eq!(
+            requests(&mut app),
+            [serde_json::json!({"type": "move-houses"})]
+        );
+        let moving = |done, state, text: &str| {
+            Some(v0::SettingsViewWorkspaceMove {
+                state,
+                done,
+                of: 2,
+                text: text.into(),
+            })
+        };
+        received_moving(
+            &mut app,
+            4,
+            url,
+            None,
+            moving(1, State::Moving, ""),
+        );
+        assert!(said(&mut app, "Moving houses: 1 of 2."));
+        let stopped = "The house of agent 1 in home was not moved.";
+        received_moving(
+            &mut app,
+            5,
+            url,
+            None,
+            moving(1, State::Failed, stopped),
+        );
+        hamlet_client::receive(
+            app.world_mut(),
+            v0::ServerMessage::Reply(v0::Reply {
+                to: id,
+                kind: v0::ReplyKind::Error,
+                text: stopped.into(),
+                upload: None,
+            }),
+        );
+        settle(&mut app);
+        assert_eq!(
+            words(&mut app)
+                .iter()
+                .filter(|shown| *shown == stopped)
+                .count(),
+            1
+        );
+        let moved = "Moved 2 houses to the remote server.";
+        received_moving(
+            &mut app,
+            6,
+            url,
+            None,
+            moving(2, State::Moved, moved),
+        );
+        assert!(said(&mut app, moved));
     }
 }
