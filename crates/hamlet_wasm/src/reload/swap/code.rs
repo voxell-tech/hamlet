@@ -38,7 +38,7 @@ pub(super) fn swap(
     let Built {
         mut instance,
         panels,
-        commands: offered,
+        offers,
         wants,
         logs,
     } = start::build(&info, &source, &granted, setting, case.state)
@@ -63,7 +63,7 @@ pub(super) fn swap(
         &info.id,
         &installed.manifest.exports,
         &case.offered,
-        &offered,
+        &offers,
         commands,
     );
     renew(commands, case.plugin, installed, case.choices.clone());

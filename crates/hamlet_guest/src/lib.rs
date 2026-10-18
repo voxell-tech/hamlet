@@ -57,11 +57,34 @@ pub fn panel(id: &str, title: &str, icon: &str) {
     bindings::hamlet::plugin::host::panel(id, title, icon);
 }
 
-/// Declares a command the plugin exports, which other plugins run by
-/// `id` once the manifest lists it under `exports.commands`. Only
-/// `entry` may call it. `title` is what a menu or a key shows.
-pub fn command(id: &str, title: &str) {
-    bindings::hamlet::plugin::host::command(id, title);
+/// Declares a command the plugin exports, which other plugins and the
+/// chief run by `id` once the manifest lists it under
+/// `exports.commands`. Only `entry` may call it. `title` is what a
+/// menu or a key shows, and `icon` optionally names one of the
+/// panels' icons.
+pub fn command(id: &str, title: &str, icon: Option<&str>) {
+    bindings::hamlet::plugin::host::command(id, title, icon);
+}
+
+/// Adds a line to a menu of the top bar, `hamlet` or `view`, that
+/// runs the plugin's command `command`. It needs the capability
+/// `ui.menu`. Only `entry` may call it.
+pub fn menu_item(
+    menu: &str,
+    section: u32,
+    label: &str,
+    command: &str,
+) {
+    bindings::hamlet::plugin::host::menu_item(
+        menu, section, label, command,
+    );
+}
+
+/// Binds a shortcut such as `Cmd+Shift+N` to the plugin's command
+/// `command`. It needs the capability `ui.keys`. Only `entry` may
+/// call it.
+pub fn key(chord: &str, command: &str) {
+    bindings::hamlet::plugin::host::key(chord, command);
 }
 
 /// The living agents, each with its hamlet. It needs the capability

@@ -1,4 +1,4 @@
-package hamlet:plugin@0.4.0;
+package hamlet:plugin@0.5.0;
 
 interface host {
   enum level { info, warn, error }
@@ -34,10 +34,30 @@ interface host {
   papers: func() -> result<agent-papers, string>;
 
   // Declares a command the plugin exports, which other plugins may run
-  // by `id` once its manifest lists it under `exports.commands`. Only
-  // `entry` declares; a call at any other time is dropped. `title` is
-  // what a menu or a key shows for it.
-  command: func(id: string, title: string);
+  // by `id` once its manifest lists it under `exports.commands`, and
+  // the chief runs from a menu or a key. Only `entry` declares; a call
+  // at any other time is dropped. `title` is what a menu or a key
+  // shows for it, and `icon` optionally names a glyph of the panels'
+  // icon family.
+  command: func(id: string, title: string, icon: option<string>);
+
+  // Adds a line to a menu of the top bar that runs `command`, one of
+  // the commands this plugin declared. `menu` is `hamlet` or `view`.
+  // Lines are grouped by `section`, in order, with a line between
+  // groups, and within a section ordered by label. It needs the
+  // capability `ui.menu`: the line shows only while the chief allows
+  // it, and the chief is asked where that is yet to be decided. Only
+  // `entry` declares.
+  menu-item: func(menu: string, section: u32, label: string, command: string);
+
+  // Binds a shortcut such as `Cmd+Shift+N` to `command`, one of the
+  // commands this plugin declared. `Cmd` is the command key of a Mac
+  // and Control elsewhere. It needs the capability `ui.keys`, and is
+  // gated as `menu-item` is. A chord that a built-in shortcut uses
+  // never runs this plugin's command, and one that another plugin uses
+  // too runs neither. Escape and Enter are not shortcut keys. Only
+  // `entry` declares.
+  key: func(chord: string, command: string);
 
   // The standing answer to a `request`.
   enum request-result {
@@ -133,8 +153,9 @@ interface plugin {
     granted(string),
     // The chief did not.
     denied(string),
-    // Another plugin runs a command this plugin exports. It answers
-    // with a `reply` intent that names `call-id`.
+    // Another plugin, or the chief from a menu or a key, runs a
+    // command this plugin declared. It answers with a `reply` intent
+    // that names `call-id`.
     command(command-call),
     // The answer to a command this plugin ran.
     reply(call-answer),
@@ -154,7 +175,8 @@ interface plugin {
   record command-call {
     // The host's number for the call, which the reply gives back.
     call-id: u64,
-    // The id of the plugin that runs the command.
+    // The id of the plugin that runs the command, or `chief` where the
+    // chief ran it, with no arguments.
     sender: string,
     command: string,
     // A copy of the arguments, in a format the two plugins agree on.

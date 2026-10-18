@@ -5,12 +5,17 @@ mod home;
 use std::path::Path;
 
 use bevy::ecs::message::{MessageCursor, Messages};
+use bevy::input::ButtonInput;
+use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
 use hamlet_sdk::agents::{Agent, AgentList, SelectedAgent};
 use hamlet_sdk::capability::{
     Asks, Capability, Choice, Decide, Replied,
 };
+use hamlet_sdk::command::{Commands as Registry, RunCommand};
 use hamlet_sdk::dock::Panel;
+use hamlet_sdk::keys::chord;
+use hamlet_sdk::menu::Menus;
 use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::PluginInfo;
 use hamlet_sdk::tree::event::{Act, Interaction};
@@ -225,6 +230,59 @@ impl Harness {
         self.tree_of(id, panel)
             .map(|root| outline::lines(&root))
             .unwrap_or_default()
+    }
+
+    /// Runs the command `id` as the chief does from a menu or a key:
+    /// `plugin/command`, or the name alone for a command of the
+    /// plugin in front.
+    pub fn run_command(&mut self, id: &str) -> Result<(), String> {
+        let id = match id.contains('/') {
+            true => id.to_string(),
+            false => format!("{}/{id}", self.id),
+        };
+        let known = &self.app.world().resource::<Registry>().0;
+        if !known.iter().any(|command| command.id == id) {
+            return Err(format!(
+                "no command `{id}`; there are {:?}",
+                known.iter().map(|c| &c.id).collect::<Vec<_>>()
+            ));
+        }
+        self.app.world_mut().trigger(RunCommand { id });
+        self.app.world_mut().flush();
+        self.frames(SETTLE);
+        Ok(())
+    }
+
+    /// Chooses the line of a menu with this label, as the chief does,
+    /// which runs its command. A line shows only while the plugin
+    /// holds `ui.menu`.
+    pub fn run_menu(&mut self, label: &str) -> Result<(), String> {
+        let lines = &self.app.world().resource::<Menus>().0;
+        let Some(line) =
+            lines.iter().find(|line| line.label == label)
+        else {
+            return Err(format!(
+                "no menu line `{label}`; there are {:?}",
+                lines.iter().map(|l| &l.label).collect::<Vec<_>>()
+            ));
+        };
+        let command = line.command.clone();
+        self.run_command(&command)
+    }
+
+    /// Presses a chord such as `Cmd+Shift+N`, as the chief does. It
+    /// runs a command only while the plugin holds `ui.keys` and no
+    /// other plugin has the chord.
+    pub fn press(&mut self, chord: &str) -> Result<(), String> {
+        let input = chord::pressed(&chord::parse(chord)?);
+        let world = self.app.world_mut();
+        *world.resource_mut::<ButtonInput<KeyCode>>() = input;
+        self.frames(1);
+        let world = self.app.world_mut();
+        *world.resource_mut::<ButtonInput<KeyCode>>() =
+            ButtonInput::default();
+        self.frames(SETTLE);
+        Ok(())
     }
 
     /// Makes `name`, or none, the agent selected in the world, which

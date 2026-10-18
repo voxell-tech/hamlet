@@ -18,7 +18,7 @@ struct Notes;
 impl Plugin for Notes {
     fn entry() {
         hamlet_guest::panel(PANEL, "NOTES", "notes");
-        hamlet_guest::command(update::ADD, "Add a note");
+        hamlet_guest::command(update::ADD, "Add a note", None);
     }
 
     fn step(inbox: Vec<Incoming>) -> Vec<Intent> {

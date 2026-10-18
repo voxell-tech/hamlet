@@ -12,7 +12,7 @@ use hamlet_sdk::plugin::{Exports, PluginInfo, Status};
 use crate::draw::Dirty;
 use crate::engine::Host;
 use crate::fault::Fault;
-use crate::host::{Declared, Logged, Offered, Want};
+use crate::host::{Declared, Logged, Offers, Want};
 use crate::inbox::Inbox;
 use crate::instance::Instance;
 use crate::limits::Limits;
@@ -38,7 +38,7 @@ pub struct Setting<'a> {
 pub struct Built {
     pub instance: Instance,
     pub panels: Vec<Declared>,
-    pub commands: Vec<Offered>,
+    pub offers: Offers,
     pub wants: Vec<Want>,
     /// What `entry` logged.
     pub logs: Vec<Logged>,
@@ -70,7 +70,7 @@ pub fn build(
     Ok(Built {
         instance,
         panels: output.panels,
-        commands: output.commands,
+        offers: output.offers,
         wants: output.wants,
         logs: output.logs,
     })
@@ -94,7 +94,7 @@ pub fn bring_up(
         Ok(Built {
             instance,
             panels: declared,
-            commands: offered,
+            offers,
             wants,
             logs,
         }) => {
@@ -104,7 +104,7 @@ pub fn bring_up(
             let shown =
                 panel::spawn(plugin, &info.id, &declared, commands);
             command::spawn(
-                plugin, &info.id, exports, &offered, commands,
+                plugin, &info.id, exports, &offers, commands,
             );
             commands
                 .entity(plugin)

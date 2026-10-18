@@ -12,7 +12,6 @@ use hamlet_sdk::capability::{
     AskForMore, Capability, Choices, Record, Standing, Store,
     Uninstalled, standing,
 };
-use hamlet_sdk::command::Command;
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{
@@ -54,7 +53,8 @@ struct Case<'a> {
     choices: Choices,
     /// The panels the running version has.
     held: Vec<(Entity, &'a Panel)>,
-    /// The commands the running version has.
+    /// The commands, menu lines and shortcuts the running version
+    /// has.
     offered: Vec<Entity>,
 }
 
@@ -77,7 +77,7 @@ pub fn reload(
         Without<Uninstalled>,
     >,
     panels: Query<(Entity, &Panel)>,
-    offered: Query<(), With<Command>>,
+    offered: Query<(), command::Contributed>,
     host: Option<Res<Host>>,
     limits: Res<Limits>,
     agents: Res<AgentList>,
@@ -170,7 +170,7 @@ fn case<'a>(
     held: Option<&Contributions>,
     state: &'a [u8],
     panels: &'a Query<(Entity, &Panel)>,
-    offered: &Query<(), With<Command>>,
+    offered: &Query<(), command::Contributed>,
 ) -> Case<'a> {
     let held_by = || held.into_iter().flat_map(|held| held.iter());
     Case {

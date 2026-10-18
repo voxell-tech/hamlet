@@ -1,5 +1,6 @@
 //! Chords as text: `Cmd+Shift+N`, `Ctrl+K`, `F5`.
 
+use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy_fynix::shortcut::{Chord, Mods};
 
@@ -101,6 +102,31 @@ pub fn parse(text: &str) -> Result<Chord, String> {
         key: key_named(key)?,
         mods,
     })
+}
+
+/// The keyboard as it is the frame `chord` goes down: its modifiers
+/// held and its key just pressed.
+pub fn pressed(chord: &Chord) -> ButtonInput<KeyCode> {
+    let mut input = ButtonInput::default();
+    let mods = chord.mods;
+    let command = if MAC {
+        KeyCode::SuperLeft
+    } else {
+        KeyCode::ControlLeft
+    };
+    for (code, held) in [
+        (command, mods.primary),
+        (KeyCode::ControlLeft, mods.ctrl),
+        (KeyCode::SuperLeft, mods.meta),
+        (KeyCode::ShiftLeft, mods.shift),
+        (KeyCode::AltLeft, mods.alt),
+    ] {
+        if held {
+            input.press(code);
+        }
+    }
+    input.press(chord.key);
+    input
 }
 
 fn modifier(name: &str) -> Result<Mods, String> {

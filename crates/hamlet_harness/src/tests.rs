@@ -113,3 +113,54 @@ fn several_plugins_run_in_one_home_and_the_one_in_front_takes_the_clicks()
     let _ = std::fs::remove_dir_all(&first);
     let _ = std::fs::remove_dir_all(&second);
 }
+
+#[test]
+fn a_menu_line_and_a_chord_run_a_command_once_the_chief_allows_them()
+{
+    let folder = std::env::temp_dir()
+        .join(format!("hamlet_harness_menu_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("plugin.wasm"),
+        fixture::component(&fixture::contributing()),
+    )
+    .unwrap();
+    std::fs::write(
+        folder.join("manifest.toml"),
+        format!(
+            "id = \"far\"\nname = \"Far\"\nversion = \
+             \"0.1.0\"\ninterface = \
+             \"{VERSION}\"\n[exports]\ncommands = [\"go\"]\n{}",
+            ["ui.menu", "ui.keys"]
+                .map(|ask| format!(
+                    "[[asks]]\ncapability = \"{ask}\"\nreason = \"a \
+                     test\"\n"
+                ))
+                .concat()
+        ),
+    )
+    .unwrap();
+    let mut harness = Harness::open(&folder).unwrap();
+    let ran = |harness: &Harness| {
+        harness
+            .logs()
+            .iter()
+            .filter(|line| line.contains("hello world"))
+            .count()
+    };
+
+    assert!(harness.run_menu("Go").is_err());
+    harness.press("Cmd+G").unwrap();
+    assert_eq!(ran(&harness), 0);
+
+    harness.grant("ui.menu").unwrap();
+    harness.grant("ui.keys").unwrap();
+    harness.run_menu("Go").unwrap();
+    assert_eq!(ran(&harness), 1);
+    harness.press("Cmd+G").unwrap();
+    assert_eq!(ran(&harness), 2);
+    assert!(harness.run_menu("Nope").is_err());
+    assert!(harness.run_command("far/nope").is_err());
+    let _ = std::fs::remove_dir_all(&folder);
+}

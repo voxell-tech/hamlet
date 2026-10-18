@@ -13,7 +13,7 @@ use hamlet_sdk::papers::Papers;
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 
 pub use self::collections::{Reach, Shared};
-pub use self::declare::{Declared, Offered};
+pub use self::declare::{Chorded, Declared, Offered, Offers, Placed};
 pub use self::request::Want;
 use crate::fault::Fault;
 use crate::interface::hamlet::plugin::host::{
@@ -41,8 +41,10 @@ pub struct State {
     pub(crate) bytes: usize,
     pub(crate) declared: Vec<Declared>,
     pub(crate) panel_room: usize,
-    pub(crate) offered: Vec<Offered>,
+    pub(crate) offered: Offers,
     pub(crate) command_room: usize,
+    pub(crate) menu_room: usize,
+    pub(crate) key_room: usize,
     /// The id of the plugin this store belongs to.
     pub(crate) plugin: String,
     pub(crate) granted: Granted,
@@ -77,8 +79,10 @@ impl State {
             bytes: limits.log_bytes,
             declared: Vec::new(),
             panel_room: limits.panels,
-            offered: Vec::new(),
+            offered: Offers::default(),
             command_room: limits.commands,
+            menu_room: limits.menu_items,
+            key_room: limits.keys,
             plugin: String::new(),
             granted: Granted::default(),
             wants: Vec::new(),
@@ -116,8 +120,27 @@ impl Host for State {
         self.declare(id, title, icon);
     }
 
-    fn command(&mut self, id: String, title: String) {
-        self.offer(id, title);
+    fn command(
+        &mut self,
+        id: String,
+        title: String,
+        icon: Option<String>,
+    ) {
+        self.offer(id, title, icon);
+    }
+
+    fn menu_item(
+        &mut self,
+        menu: String,
+        section: u32,
+        label: String,
+        command: String,
+    ) {
+        self.place(menu, section, label, command);
+    }
+
+    fn key(&mut self, chord: String, command: String) {
+        self.bind(chord, command);
     }
 
     fn agents(&mut self) -> Result<Vec<host::Agent>, String> {

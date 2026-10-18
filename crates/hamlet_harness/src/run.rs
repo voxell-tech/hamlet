@@ -81,6 +81,8 @@ fn describe(step: &Step) -> String {
             format!("type {}/{} {:?}", t.panel, t.node, t.text)
         }
         Step::Toggle(t) => format!("toggle {}/{}", t.panel, t.node),
+        Step::RunMenu(label) => format!("run-menu {label:?}"),
+        Step::Press(chord) => format!("press {chord}"),
         Step::SetAgents(agents) => {
             format!("set-agents ({} agents)", agents.len())
         }
@@ -119,6 +121,8 @@ fn apply(
             harness.type_text(&t.panel, &t.node, &t.text)
         }
         Step::Toggle(t) => harness.toggle(&t.panel, &t.node),
+        Step::RunMenu(label) => harness.run_menu(label),
+        Step::Press(chord) => harness.press(chord),
         Step::SetAgents(agents) => {
             let agents = agents
                 .iter()

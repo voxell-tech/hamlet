@@ -4,6 +4,8 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use bevy::input::ButtonInput;
+use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
 use bevy::time::{TimePlugin, TimeUpdateStrategy};
 use hamlet_core::core::HomeDir;
@@ -99,11 +101,15 @@ pub fn app(home: &Scratch) -> App {
         TimePlugin,
         hamlet_sdk::agents::plugin,
         hamlet_sdk::capability::plugin,
+        hamlet_sdk::command::plugin,
         hamlet_sdk::dock::plugin,
+        hamlet_sdk::keys::plugin,
+        hamlet_sdk::menu::plugin,
         hamlet_sdk::plugin::plugin,
         hamlet_sdk::tree::plugin,
         hamlet_wasm::plugin,
-    ));
+    ))
+    .init_resource::<ButtonInput<KeyCode>>();
     app.insert_resource(Limits::default().patient());
     app
 }

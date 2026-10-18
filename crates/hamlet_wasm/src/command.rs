@@ -1,25 +1,39 @@
-//! The commands of an installed plugin, as entities linked to it.
+//! The commands, menu lines and shortcuts of an installed plugin, as
+//! entities linked to it.
 
 use bevy::prelude::*;
 use hamlet_sdk::command::Command;
+use hamlet_sdk::keys::Key;
+use hamlet_sdk::menu::MenuEntry;
 use hamlet_sdk::plugin::{Entry, Exports};
 
-use crate::host::Offered;
+use crate::host::Offers;
 
-/// Spawns the commands `declared` that the plugin `id` lists in its
-/// `exports`, as contributions of `plugin`. The others are dropped
-/// with a warning, since nothing outside the lists is reachable.
+/// What a plugin adds that this module spawns.
+pub type Contributed =
+    Or<(With<Command>, With<MenuEntry>, With<Key>)>;
+
+/// Spawns the commands `offers` declares that the plugin `id` lists
+/// in its `exports`, and the menu lines and shortcuts that run them,
+/// as contributions of `plugin`. The others are dropped with a
+/// warning, since nothing outside the lists is reachable.
 pub fn spawn(
     plugin: Entity,
     id: &str,
     exports: &Exports,
-    declared: &[Offered],
+    offers: &Offers,
     commands: &mut Commands,
 ) {
     let mut entry = Entry::default();
-    for offered in declared {
+    let mut kept = Vec::new();
+    for offered in &offers.commands {
         if exports.commands.contains(&offered.id) {
-            entry.forwarded(&offered.id, &offered.title, None);
+            entry.forwarded(
+                &offered.id,
+                &offered.title,
+                offered.icon,
+            );
+            kept.push(offered.id.as_str());
         } else {
             warn!(
                 "plugin {id}: the command `{}` is not in its \
@@ -28,32 +42,60 @@ pub fn spawn(
             );
         }
     }
+    let known = |command: &str, what: &str| {
+        let known = kept.contains(&command);
+        if !known {
+            warn!(
+                "plugin {id}: the {what} runs `{command}`, which it \
+                 did not declare, dropped"
+            );
+        }
+        known
+    };
+    for placed in &offers.menus {
+        if known(&placed.command, "menu line") {
+            entry.menu_item(
+                placed.menu,
+                placed.section,
+                &placed.label,
+                &placed.command,
+                None,
+            );
+        }
+    }
+    for chorded in &offers.keys {
+        if known(&chorded.command, "shortcut") {
+            entry.key(chorded.chord, &chorded.command);
+        }
+    }
     entry.spawn(plugin, commands);
 }
 
-/// Makes the commands of `plugin` the ones `declared` that it lists
-/// in its `exports`, given the `held` ones it has.
+/// Makes what `plugin` contributes the commands, menu lines and
+/// shortcuts of `offers` that it lists in its `exports`, given the
+/// `held` ones it has.
 pub fn replace(
     plugin: Entity,
     id: &str,
     exports: &Exports,
     held: &[Entity],
-    declared: &[Offered],
+    offers: &Offers,
     commands: &mut Commands,
 ) {
     for entity in held {
         commands.entity(*entity).despawn();
     }
-    spawn(plugin, id, exports, declared, commands);
+    spawn(plugin, id, exports, offers, commands);
 }
 
-/// The commands among `contributions`, from `commands`.
+/// The commands, menu lines and shortcuts among `contributions`,
+/// from `query`.
 pub fn held(
     contributions: impl IntoIterator<Item = Entity>,
-    commands: &Query<(), With<Command>>,
+    query: &Query<(), Contributed>,
 ) -> Vec<Entity> {
     contributions
         .into_iter()
-        .filter(|entity| commands.contains(*entity))
+        .filter(|entity| query.contains(*entity))
         .collect()
 }

@@ -56,6 +56,10 @@ pub struct Limits {
     pub state_bytes: usize,
     /// The commands one plugin may declare. The rest are dropped.
     pub commands: usize,
+    /// The menu lines one plugin may declare. The rest are dropped.
+    pub menu_items: usize,
+    /// The shortcuts one plugin may declare. The rest are dropped.
+    pub keys: usize,
     /// The plugins a call may cross, one running a command whose
     /// handler runs another. A call over it is answered with an
     /// error.

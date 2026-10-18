@@ -4,7 +4,7 @@
 use wasmtime::Store;
 
 use crate::fault::Fault;
-use crate::host::{Declared, Logged, Offered, State, Want};
+use crate::host::{Declared, Logged, Offers, State, Want};
 use crate::instance::Instance;
 use crate::interface::Hamlet;
 use crate::interface::exports::hamlet::plugin::plugin::{
@@ -21,8 +21,9 @@ pub struct Output {
     pub logs: Vec<Logged>,
     /// The panels the call declared. Only `entry` may.
     pub panels: Vec<Declared>,
-    /// The commands the call declared. Only `entry` may.
-    pub commands: Vec<Offered>,
+    /// The commands, menu lines and shortcuts the call declared.
+    /// Only `entry` may.
+    pub offers: Offers,
     /// The collections that changed in the call, each as the plugin
     /// that shares it and its name.
     pub changes: Vec<(String, String)>,
@@ -77,7 +78,7 @@ impl Instance {
             });
         }
         output.panels.clear();
-        output.commands.clear();
+        output.offers = Offers::default();
         Ok(output)
     }
 
@@ -114,7 +115,7 @@ impl Instance {
     ) -> Result<(T, Output), Fault> {
         self.store.data_mut().logs.clear();
         self.store.data_mut().declared.clear();
-        self.store.data_mut().offered.clear();
+        self.store.data_mut().offered = Offers::default();
         self.store.data_mut().changes.clear();
         self.store.data_mut().wants.clear();
         self.store.set_epoch_deadline(limits.call_ticks());
@@ -125,7 +126,7 @@ impl Instance {
             intents: Vec::new(),
             logs: std::mem::take(&mut state.logs),
             panels: std::mem::take(&mut state.declared),
-            commands: std::mem::take(&mut state.offered),
+            offers: std::mem::take(&mut state.offered),
             changes: std::mem::take(&mut state.changes),
             wants: std::mem::take(&mut state.wants),
         };

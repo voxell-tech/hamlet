@@ -36,6 +36,10 @@ pub enum Step {
     Type(Typing),
     /// Flips a checkbox.
     Toggle(Target),
+    /// Chooses the menu line of this label.
+    RunMenu(String),
+    /// Presses this chord, such as `Cmd+Shift+N`.
+    Press(String),
     /// Replaces the agents the plugin may read.
     SetAgents(Vec<Agent>),
     /// Replaces the papers of the selected agent, which a plugin that

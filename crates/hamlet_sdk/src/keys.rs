@@ -90,25 +90,7 @@ mod tests {
 
     /// Presses `chord` for one frame and returns what ran.
     fn press(app: &mut App, chord: &str) -> Vec<String> {
-        let chord = chord::parse(chord).unwrap();
-        let mut input = ButtonInput::<KeyCode>::default();
-        let mut held = |code, on| {
-            if on {
-                input.press(code)
-            }
-        };
-        let mods = chord.mods;
-        let command = if cfg!(target_os = "macos") {
-            KeyCode::SuperLeft
-        } else {
-            KeyCode::ControlLeft
-        };
-        held(command, mods.primary);
-        held(KeyCode::ControlLeft, mods.ctrl);
-        held(KeyCode::SuperLeft, mods.meta);
-        held(KeyCode::ShiftLeft, mods.shift);
-        held(KeyCode::AltLeft, mods.alt);
-        input.press(chord.key);
+        let input = chord::pressed(&chord::parse(chord).unwrap());
         *app.world_mut().resource_mut::<ButtonInput<KeyCode>>() =
             input;
         app.world_mut().resource_mut::<Ran>().0.clear();
