@@ -15,6 +15,7 @@ use hamlet_sdk::capability::{
 };
 use hamlet_sdk::theme::{HamletTheme, insert_theme};
 
+use crate::interface::VERSION;
 use crate::limits::Limits;
 
 /// A folder that is removed when it goes.
@@ -111,8 +112,8 @@ impl Plugin {
 
     fn manifest(&self) -> String {
         let kind = match self.program {
-            Some(_) => "kind = \"data\"",
-            None => "interface = \"0.1.0\"",
+            Some(_) => "kind = \"data\"".to_string(),
+            None => format!("interface = \"{VERSION}\""),
         };
         let mut text = format!(
             "id = \"{0}\"\nname = \"{0}\"\nversion = \

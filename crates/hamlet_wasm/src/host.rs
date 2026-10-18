@@ -15,6 +15,7 @@ use crate::fault::Fault;
 use crate::interface::hamlet::plugin::host::{
     self, Host, Level, RequestResult,
 };
+use crate::interface::{VERSION, built_for};
 use crate::limits::{Limiter, Limits};
 
 /// The name of the imported interface the linker defines.
@@ -104,13 +105,24 @@ pub fn linker(
     engine: &wasmtime::Engine,
     component: &Compiled,
 ) -> Result<Linker<State>, Fault> {
+    let shape = component.component_type();
+    let old = shape
+        .imports(engine)
+        .map(|(name, _)| name)
+        .chain(shape.exports(engine).map(|(name, _)| name))
+        .find_map(built_for);
+    if let Some(version) = old {
+        return Err(Fault::Load(format!(
+            "built for interface {version}, this Hamlet speaks \
+             {VERSION}"
+        )));
+    }
     let mut linker = Linker::new(engine);
     host::add_to_linker::<State, HasSelf<State>>(
         &mut linker,
         |state| state,
     )
     .map_err(Fault::load)?;
-    let shape = component.component_type();
     let unknown =
         shape.imports(engine).map(|(name, _)| name).find(|name| {
             !name.starts_with("wasi:") && !name.starts_with(HOST)

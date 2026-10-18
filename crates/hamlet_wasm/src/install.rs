@@ -72,7 +72,7 @@ impl fmt::Display for Rejected {
             }
             Why::Interface { found } => write!(
                 f,
-                "built for interface {found}, the host speaks \
+                "built for interface {found}, this Hamlet speaks \
                  {VERSION}"
             ),
             Why::Asks(refusal) => write!(f, "{refusal}"),

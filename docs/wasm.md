@@ -58,8 +58,11 @@ The plugin exports:
   `tree`, or `lang`, a program in Hamlet's panel language that the host
   draws (see [`panels.md`](panels.md)).
 
-`interface::VERSION` is the package version. A manifest that names another
-one is turned down.
+`interface::VERSION` is the package version, now `0.2.0`; it changes
+whenever the WIT file does. A manifest that names another one is turned
+down by the scan, and a component whose imports or exports are of another
+version of the package fails to load, both with "built for interface X,
+this Hamlet speaks Y". A plugin is built again for the new version.
 
 ## The tree of a panel
 

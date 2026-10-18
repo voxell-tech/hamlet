@@ -14,6 +14,7 @@ use crate::fixture;
 use crate::host::Logged;
 use crate::install::{self, Body, Why};
 use crate::instance::Instance;
+use crate::interface::VERSION;
 use crate::interface::exports::hamlet::plugin::plugin::{
     Incoming, Intent,
 };
@@ -82,6 +83,23 @@ fn an_import_the_host_does_not_provide_fails_to_load() {
 }
 
 #[test]
+fn a_build_for_another_interface_says_which() {
+    let limits = Limits::default();
+    let host = Host::new(&limits).unwrap();
+    let component =
+        Component::new(&host.0, fixture::outdated()).unwrap();
+    let Err(Fault::Load(why)) =
+        Instance::new(&host.0, &component, &limits).map(drop)
+    else {
+        panic!("it loaded");
+    };
+    assert_eq!(
+        why,
+        "built for interface 0.1.0, this Hamlet speaks 0.2.0"
+    );
+}
+
+#[test]
 fn a_folder_that_is_not_a_plugin_is_turned_down() {
     let plugins = std::env::temp_dir().join(format!(
         "hamlet_wasm_install_scan_{}",
@@ -102,10 +120,10 @@ fn a_folder_that_is_not_a_plugin_is_turned_down() {
             std::fs::write(dir.join("manifest.toml"), text).unwrap();
         }
     };
-    put("good", Some(manifest("good", "0.1.0")));
+    put("good", Some(manifest("good", VERSION)));
     put("bare", None);
     put("garbled", Some("id = ".into()));
-    put("renamed", Some(manifest("other", "0.1.0")));
+    put("renamed", Some(manifest("other", VERSION)));
     put("old", Some(manifest("old", "0.0.1")));
     let data = |folder: &str, kind: &str| {
         let dir = plugins.join(folder);
