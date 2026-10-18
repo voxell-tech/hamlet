@@ -2,6 +2,7 @@
 //! realm database and the operations harnesses ask of it, each made
 //! once.
 
+mod change;
 mod claim;
 mod credentials;
 mod documents;
@@ -16,6 +17,7 @@ mod prompt;
 pub mod protocol;
 pub mod record;
 pub mod runtime;
+mod scrub;
 pub mod service;
 mod settings;
 pub mod spend;
