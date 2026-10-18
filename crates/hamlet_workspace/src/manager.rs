@@ -1,5 +1,7 @@
 //! Authenticated workspace requests routed through manager-owned
-//! actor bindings, with idle suspension and restart recovery.
+//! actor bindings, with idle suspension and restart recovery. One
+//! manager serves many homes; each home's token names it, and its
+//! actors, worker files and operation records are its own.
 
 #[cfg(test)]
 mod tests;
@@ -17,6 +19,7 @@ use base64::engine::general_purpose::STANDARD;
 use ring::signature::Ed25519KeyPair;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
@@ -37,8 +40,8 @@ const IDLE: Duration = Duration::from_secs(300);
 pub struct Configuration {
     listen: String,
     state: PathBuf,
-    home: String,
-    token: String,
+    /// Each home's name and the bearer token its Hamlet sends.
+    homes: HashMap<String, String>,
     signing_key: PathBuf,
     control: String,
     control_token: Option<String>,
@@ -54,11 +57,8 @@ pub struct Configuration {
 }
 
 pub async fn run(config: Configuration) -> Result<()> {
-    if !valid_name(&config.home)
-        || config.token.len() < 16
-        || config.idle_seconds == Some(0)
-    {
-        bail!("Invalid manager home, token or idle interval");
+    if config.idle_seconds == Some(0) {
+        bail!("Invalid idle interval");
     }
     control::safe_url(&config.router)?;
     let _lock = lock(&config.state)?;
@@ -78,7 +78,6 @@ pub async fn run(config: Configuration) -> Result<()> {
     let router = Atenet {
         client: client.build()?,
         url: format!("{}/v1", config.router.trim_end_matches('/')),
-        home: config.home.clone(),
         key: crate::signing_key(&config.signing_key)?,
     };
     let actors = Control::new(
@@ -115,16 +114,44 @@ pub async fn run(config: Configuration) -> Result<()> {
     Ok(())
 }
 
-/// Deletes a workspace's actor only while it still has
+/// Each home by the digest of the authorization header its Hamlet
+/// sends, so a token is never compared byte by byte.
+fn tokens(
+    homes: &HashMap<String, String>,
+) -> Result<HashMap<[u8; 32], String>> {
+    if homes.is_empty() {
+        bail!("The manager serves no home");
+    }
+    let mut tokens = HashMap::new();
+    for (home, token) in homes {
+        if !valid_name(home) || token.len() < 16 {
+            bail!("Invalid name or token of home {home:?}");
+        }
+        if tokens
+            .insert(bearer(&format!("Bearer {token}")), home.clone())
+            .is_some()
+        {
+            bail!("Two homes share a token");
+        }
+    }
+    Ok(tokens)
+}
+
+fn bearer(authorization: &str) -> [u8; 32] {
+    Sha256::digest(authorization).into()
+}
+
+/// Deletes a home's workspace actor only while it still has
 /// `expected_uid`, leaving a tombstone that prevents recreating it.
 /// Fails while a manager holds the same state.
 pub async fn delete(
     config: &Configuration,
+    home: &str,
     workspace: &str,
     expected_uid: &str,
 ) -> Result<()> {
-    if !valid_name(workspace) {
-        bail!("Invalid workspace name");
+    if !valid_name(home) || !valid_name(workspace) {
+        bail!("Invalid home or workspace name");
     }
     let _lock = lock(&config.state)?;
     let mut actors = Control::new(
@@ -138,7 +165,7 @@ pub async fn delete(
     remove(
         &mut actors,
         &config.state,
-        &control::key(&config.home, workspace),
+        &control::key(home, workspace),
         expected_uid,
     )
     .await
@@ -211,12 +238,13 @@ enum Record {
     },
 }
 
-/// Signs and forwards messages to an actor's worker.
+/// Signs and forwards a home's messages to an actor's worker.
 pub trait Router {
     fn forward(
         &self,
         route: String,
         actor_name: String,
+        home: String,
         message: Message,
     ) -> impl Future<Output = Result<Reply>> + Send + 'static;
 }
@@ -225,7 +253,6 @@ pub trait Router {
 struct Atenet {
     client: reqwest::Client,
     url: String,
-    home: String,
     key: Ed25519KeyPair,
 }
 
@@ -234,13 +261,14 @@ impl Router for Atenet {
         &self,
         route: String,
         actor_name: String,
+        home: String,
         message: Message,
     ) -> impl Future<Output = Result<Reply>> + Send + 'static {
         let signed = route
             .split_once('/')
             .context("Invalid actor route")
             .and_then(|(atespace, uid)| {
-                self.sign(uid, message).map(|signed| {
+                self.sign(home, uid, message).map(|signed| {
                     (format!("{atespace}/{actor_name}"), signed)
                 })
             });
@@ -273,11 +301,12 @@ impl Router for Atenet {
 impl Atenet {
     fn sign(
         &self,
+        home: String,
         actor_uid: &str,
         message: Message,
     ) -> Result<(String, String, Vec<u8>)> {
         let body = serde_json::to_vec(&Envelope {
-            home: self.home.clone(),
+            home,
             actor_uid: actor_uid.to_owned(),
             message,
         })?;
@@ -299,9 +328,16 @@ enum Purpose {
     Cancel,
 }
 
+/// An operation id, which is unique only within its home.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct Ticket {
+    home: String,
+    id: String,
+}
+
 /// A finished forward, handed back to the event loop.
 struct Completion {
-    id: String,
+    ticket: Ticket,
     route: String,
     purpose: Purpose,
     result: Result<Reply>,
@@ -369,16 +405,16 @@ impl Refusal {
 /// State owned by the manager's single event loop.
 struct Manager<A, R> {
     state: PathBuf,
-    home: String,
-    token: String,
+    /// Each home by [`bearer`] of its authorization.
+    homes: HashMap<[u8; 32], String>,
     atespace: String,
     template: String,
     idle: Duration,
     actors: A,
     router: R,
     workspaces: HashMap<String, Workspace>,
-    /// Operation ids with unknown outcomes, by route.
-    pending: HashMap<String, String>,
+    /// Routes of operations with unknown outcomes.
+    pending: HashMap<Ticket, String>,
     /// Forwards in flight, by route.
     inflight: HashMap<String, usize>,
 }
@@ -394,8 +430,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
         let now = Instant::now();
         let mut manager = Self {
             state: config.state.clone(),
-            home: config.home.clone(),
-            token: config.token.clone(),
+            homes: tokens(&config.homes)?,
             atespace: config.atespace.clone(),
             template: config.template.clone(),
             idle: config
@@ -423,7 +458,41 @@ impl<A: Actors, R: Router> Manager<A, R> {
                     key.to_owned(),
                     Workspace { binding, last: now },
                 );
-            } else if let Some(id) = name
+            } else if name.starts_with("request-") {
+                bail!(
+                    "Operation record {name} of a single-home \
+                     manager belongs in homes/<its home>/; refusing \
+                     to start"
+                );
+            }
+        }
+        for home in config.homes.keys() {
+            fs::create_dir_all(manager.records(home))?;
+        }
+        for folder in fs::read_dir(config.state.join("homes"))? {
+            let folder = folder?.path();
+            let home = folder
+                .file_name()
+                .and_then(|name| name.to_str())
+                .filter(|home| valid_name(home))
+                .with_context(|| {
+                    format!("Unexpected {}", folder.display())
+                })?
+                .to_owned();
+            manager.load(&home, &folder)?;
+        }
+        Ok(manager)
+    }
+
+    /// Takes the unknown outcomes of one home's operation records.
+    fn load(&mut self, home: &str, folder: &Path) -> Result<()> {
+        for entry in fs::read_dir(folder)? {
+            let path = entry?.path();
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            if let Some(id) = name
                 .strip_prefix("request-")
                 .and_then(|name| name.strip_suffix(".json"))
             {
@@ -450,16 +519,22 @@ impl<A: Actors, R: Router> Manager<A, R> {
                          refusing to start"
                     ),
                 };
-                if !manager.routable(&route) {
+                if !self.routable(&route) {
                     bail!(
                         "Operation record {name} has a foreign \
                          route; refusing to start"
                     );
                 }
-                manager.pending.insert(id.to_owned(), route);
+                self.pending.insert(
+                    Ticket {
+                        home: home.to_owned(),
+                        id: id.to_owned(),
+                    },
+                    route,
+                );
             }
         }
-        Ok(manager)
+        Ok(())
     }
 
     fn routable(&self, route: &str) -> bool {
@@ -481,8 +556,13 @@ impl<A: Actors, R: Router> Manager<A, R> {
             .map(|uid| format!("{}/{uid}", self.atespace))
     }
 
-    fn record(&self, id: &str) -> PathBuf {
-        self.state.join(format!("request-{id}.json"))
+    fn records(&self, home: &str) -> PathBuf {
+        self.state.join("homes").join(home)
+    }
+
+    fn record(&self, ticket: &Ticket) -> PathBuf {
+        self.records(&ticket.home)
+            .join(format!("request-{}.json", ticket.id))
     }
 
     async fn call(
@@ -491,7 +571,9 @@ impl<A: Actors, R: Router> Manager<A, R> {
         tasks: &mut JoinSet<Completion>,
         now: Instant,
     ) {
-        if call.authorization != format!("Bearer {}", self.token) {
+        let Some(home) =
+            self.homes.get(&bearer(&call.authorization)).cloned()
+        else {
             let _ = call.reply.send(Reply::error(
                 "permission_denied",
                 "Workspace authentication failed. Ask the chief to \
@@ -499,7 +581,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
                 false,
             ));
             return;
-        }
+        };
         let message =
             match serde_json::from_slice::<Message>(&call.body) {
                 Ok(message) if valid_id(message.id()) => message,
@@ -512,8 +594,11 @@ impl<A: Actors, R: Router> Manager<A, R> {
                     return;
                 }
             };
-        let id = message.id().to_owned();
-        let path = self.record(&id);
+        let ticket = Ticket {
+            home,
+            id: message.id().to_owned(),
+        };
+        let path = self.record(&ticket);
         let purpose = match &message {
             Message::Execute { request } => {
                 if request.version != 1
@@ -527,7 +612,8 @@ impl<A: Actors, R: Router> Manager<A, R> {
                     ));
                     return;
                 }
-                if self.pending.contains_key(&id) || path.exists() {
+                if self.pending.contains_key(&ticket) || path.exists()
+                {
                     let cancelled =
                         fs::read(&path).ok().is_some_and(|bytes| {
                             matches!(
@@ -545,7 +631,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
                     return;
                 }
                 let key =
-                    control::key(&self.home, &request.workspace);
+                    control::key(&ticket.home, &request.workspace);
                 let route = match self.resolve(&key, now).await {
                     Ok(route) => route,
                     Err(refusal) => {
@@ -561,13 +647,13 @@ impl<A: Actors, R: Router> Manager<A, R> {
                     let _ = call.reply.send(Reply::uncertain());
                     return;
                 }
-                self.pending.insert(id.clone(), route);
+                self.pending.insert(ticket.clone(), route);
                 Purpose::Execute
             }
             Message::Status { .. } => Purpose::Status,
             Message::Cancel { .. } => Purpose::Cancel,
         };
-        let Some(route) = self.pending.get(&id).cloned() else {
+        let Some(route) = self.pending.get(&ticket).cloned() else {
             let reply = match fs::read(&path) {
                 Ok(bytes) => {
                     match serde_json::from_slice::<Record>(&bytes) {
@@ -618,7 +704,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
         self.touch(&route, now);
         self.forward(
             tasks,
-            id,
+            ticket,
             route,
             message,
             purpose,
@@ -745,7 +831,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
     fn forward(
         &mut self,
         tasks: &mut JoinSet<Completion>,
-        id: String,
+        ticket: Ticket,
         route: String,
         message: Message,
         purpose: Purpose,
@@ -765,11 +851,15 @@ impl<A: Actors, R: Router> Manager<A, R> {
         };
         let actor_name = workspace.binding.name.clone();
         *self.inflight.entry(route.clone()).or_default() += 1;
-        let result =
-            self.router.forward(route.clone(), actor_name, message);
+        let result = self.router.forward(
+            route.clone(),
+            actor_name,
+            ticket.home.clone(),
+            message,
+        );
         tasks.spawn(async move {
             Completion {
-                id,
+                ticket,
                 route,
                 purpose,
                 result: result.await,
@@ -789,15 +879,16 @@ impl<A: Actors, R: Router> Manager<A, R> {
         let reply =
             done.result.unwrap_or_else(|_| Reply::uncertain());
         if settles(done.purpose, &reply)
-            && self.pending.contains_key(&done.id)
+            && self.pending.contains_key(&done.ticket)
         {
             let record = Record::Operation {
                 route: done.route.clone(),
                 reply: Some(reply.clone()),
             };
-            if control::save(&self.record(&done.id), &record).is_ok()
+            if control::save(&self.record(&done.ticket), &record)
+                .is_ok()
             {
-                self.pending.remove(&done.id);
+                self.pending.remove(&done.ticket);
             }
         }
         if let Some(sender) = done.reply {
@@ -823,13 +914,15 @@ impl<A: Actors, R: Router> Manager<A, R> {
                         only == route.as_str() || !self.bound(route)
                     })
             })
-            .map(|(id, route)| (id.clone(), route.clone()))
+            .map(|(ticket, route)| (ticket.clone(), route.clone()))
             .collect::<Vec<_>>();
-        for (id, route) in targets {
-            let message = Message::Status { id: id.clone() };
+        for (ticket, route) in targets {
+            let message = Message::Status {
+                id: ticket.id.clone(),
+            };
             self.forward(
                 tasks,
-                id,
+                ticket,
                 route,
                 message,
                 Purpose::Status,

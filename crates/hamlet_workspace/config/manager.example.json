@@ -1,8 +1,9 @@
 {
   "listen": "127.0.0.1:7420",
   "state": "/var/lib/hamlet-workspace",
-  "home": "REPLACE_WITH_STABLE_HAMLET_NAME",
-  "token": "REPLACE_WITH_AT_LEAST_16_RANDOM_CHARACTERS",
+  "homes": {
+    "REPLACE_WITH_STABLE_HOME_NAME": "REPLACE_WITH_AT_LEAST_16_RANDOM_CHARACTERS"
+  },
   "signing_key": "/run/secrets/hamlet-workspace/signing-key",
   "control": "https://REPLACE_WITH_SUBSTRATE_CONTROL_HOST:443",
   "control_token": null,

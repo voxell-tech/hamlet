@@ -16,6 +16,7 @@ use crate::wire::{Operation, Request};
 const ATESPACE: &str = "space";
 const TEMPLATE: &str = "template";
 const TOKEN: &str = "0123456789abcdef";
+const OTHER: &str = "fedcba9876543210";
 
 /// Control plane fake. `lose` applies the named call and then
 /// reports a lost reply.
@@ -117,7 +118,10 @@ impl Actors for Fake {
     }
 }
 
-type Forwarded = (String, Message, oneshot::Sender<Result<Reply>>);
+/// The home and route a message was signed for, the message and its
+/// answer.
+type Forwarded =
+    ((String, String), Message, oneshot::Sender<Result<Reply>>);
 
 struct Fabric(mpsc::UnboundedSender<Forwarded>);
 
@@ -126,13 +130,14 @@ impl Router for Fabric {
         &self,
         route: String,
         _actor_name: String,
+        home: String,
         message: Message,
     ) -> impl Future<Output = Result<Reply>> + Send + 'static {
         let sender = self.0.clone();
         async move {
             let (reply, answer) = oneshot::channel();
             sender
-                .send((route, message, reply))
+                .send(((home, route), message, reply))
                 .map_err(|_| anyhow!("router closed"))?;
             answer.await.map_err(|_| anyhow!("dropped"))?
         }
@@ -164,8 +169,10 @@ fn config(state: &Path) -> Configuration {
     Configuration {
         listen: "127.0.0.1:0".into(),
         state: state.into(),
-        home: "home".into(),
-        token: TOKEN.into(),
+        homes: HashMap::from([
+            ("home".into(), TOKEN.into()),
+            ("other".into(), OTHER.into()),
+        ]),
         signing_key: PathBuf::new(),
         control: "http://127.0.0.1:1".into(),
         control_token: None,
@@ -217,6 +224,13 @@ fn key() -> String {
     control::key("home", "work")
 }
 
+fn ticket(id: &str) -> Ticket {
+    Ticket {
+        home: "home".into(),
+        id: id.into(),
+    }
+}
+
 fn name() -> String {
     Binding::new(&key()).name
 }
@@ -234,9 +248,17 @@ impl Harness {
         &mut self,
         message: Message,
     ) -> oneshot::Receiver<Reply> {
+        self.send_as(TOKEN, message).await
+    }
+
+    async fn send_as(
+        &mut self,
+        token: &str,
+        message: Message,
+    ) -> oneshot::Receiver<Reply> {
         let (reply, answer) = oneshot::channel();
         let call = Call {
-            authorization: format!("Bearer {TOKEN}"),
+            authorization: format!("Bearer {token}"),
             signature: String::new(),
             timestamp: String::new(),
             body: serde_json::to_vec(&message).expect("json"),
@@ -248,9 +270,7 @@ impl Harness {
         answer
     }
 
-    async fn worker(
-        &mut self,
-    ) -> (String, Message, oneshot::Sender<Result<Reply>>) {
+    async fn worker(&mut self) -> Forwarded {
         tokio::time::timeout(
             Duration::from_secs(5),
             self.router.recv(),
@@ -478,7 +498,7 @@ async fn restart_reconciles_by_status_and_never_replays() {
     fake.create(&name()).await.expect("actor");
     fake.set(&name(), ActorState::Running);
     let mut h = open(&dir.0, fake);
-    assert!(h.manager.pending.contains_key(&operation));
+    assert!(h.manager.pending.contains_key(&ticket(&operation)));
     h.manager.reconcile(&mut h.tasks, None);
 
     let (_, message, worker) = h.worker().await;
@@ -543,7 +563,7 @@ async fn untrusted_status_answers_keep_the_operation_unknown() {
         assert!(worker.send(Ok(reply)).is_ok());
         h.settle().await;
         answer.await.expect("answer");
-        assert!(h.manager.pending.contains_key(&operation));
+        assert!(h.manager.pending.contains_key(&ticket(&operation)));
     }
     h.idle(later(60)).await;
     assert!(!h.manager.actors.log.contains(&"suspend"));
@@ -559,15 +579,18 @@ async fn staged_route_records_are_kept_and_foreign_ones_refused() {
         binding.to_string(),
     )
     .expect("binding");
-    let path = dir.0.join(format!("request-{operation}.json"));
+    let path =
+        dir.0.join(format!("homes/home/request-{operation}.json"));
+    fs::create_dir_all(path.parent().expect("folder"))
+        .expect("folder");
     fs::write(&path, json!("space/uid-1").to_string())
         .expect("record");
 
     let mut h = open(&dir.0, Fake::default());
-    assert_eq!(h.manager.pending[&operation], "space/uid-1");
+    assert_eq!(h.manager.pending[&ticket(&operation)], "space/uid-1");
     h.idle(later(60)).await;
     let (route, message, _) = h.worker().await;
-    assert_eq!(route, "space/uid-1");
+    assert_eq!(route, ("home".into(), "space/uid-1".into()));
     assert!(matches!(message, Message::Status { .. }));
     assert!(h.manager.actors.log.is_empty());
     drop(h);
@@ -579,6 +602,63 @@ async fn staged_route_records_are_kept_and_foreign_ones_refused() {
         Manager::open(&config(&dir.0), Fake::default(), Fabric(send))
             .is_err()
     );
+
+    // A single-home manager's record names no home.
+    fs::remove_file(&path).expect("record");
+    fs::write(
+        dir.0.join(format!("request-{operation}.json")),
+        json!("space/uid-1").to_string(),
+    )
+    .expect("record");
+    let (send, _router) = mpsc::unbounded_channel();
+    assert!(
+        Manager::open(&config(&dir.0), Fake::default(), Fabric(send))
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn each_home_has_its_own_actors_and_operations() {
+    let dir = scratch();
+    let mut h = open(&dir.0, Fake::default());
+    let operation = id();
+    let answer = h.send(execute(&operation)).await;
+    let ((home, mine), _, worker) = h.worker().await;
+    assert_eq!(home, "home");
+    assert!(worker.send(Ok(Reply::ok(json!({})))).is_ok());
+    h.settle().await;
+    assert_eq!(code(&answer.await.expect("answer")), "ok");
+
+    // The same workspace name and operation id, from another home.
+    let answer = h
+        .send_as(
+            OTHER,
+            Message::Status {
+                id: operation.clone(),
+            },
+        )
+        .await;
+    assert_eq!(code(&answer.await.expect("status")), "not_found");
+    let answer = h.send_as(OTHER, execute(&operation)).await;
+    let ((home, theirs), _, worker) = h.worker().await;
+    assert_eq!(home, "other");
+    assert_ne!(mine, theirs);
+    assert!(
+        worker.send(Ok(Reply::error("io", "failed", false))).is_ok()
+    );
+    h.settle().await;
+    assert_eq!(code(&answer.await.expect("answer")), "io");
+    assert_eq!(h.manager.actors.actors.len(), 2);
+
+    let answer = h.send(Message::Status { id: operation }).await;
+    assert_eq!(code(&answer.await.expect("status")), "ok");
+    let answer =
+        h.send_as("not-a-home-token-at-all", execute(&id())).await;
+    assert_eq!(
+        code(&answer.await.expect("refusal")),
+        "permission_denied"
+    );
+    assert!(h.router.try_recv().is_err());
 }
 
 #[tokio::test]

@@ -60,7 +60,7 @@ mod cli {
     use crate::{files, manager, signing_key, supervise, worker};
 
     const USAGE: &str = "usage: hamlet-workspace manager|worker \
-                         CONFIG; delete CONFIG WORKSPACE \
+                         CONFIG; delete CONFIG HOME WORKSPACE \
                          EXPECTED_UID; keygen NEW_KEY_FILE";
 
     pub fn run() -> Result<()> {
@@ -83,7 +83,7 @@ mod cli {
                 block_on(worker::run(config))
             }
             Some("delete") => {
-                let [_, _, _, workspace, expected_uid] =
+                let [_, _, _, home, workspace, expected_uid] =
                     args.as_slice()
                 else {
                     bail!("{USAGE}");
@@ -92,11 +92,13 @@ mod cli {
                     configuration::<manager::Configuration>(&args)?;
                 block_on(manager::delete(
                     &config,
+                    home,
                     workspace,
                     expected_uid,
                 ))?;
                 println!(
-                    "Deleted the actor of workspace {workspace}."
+                    "Deleted the actor of {home}'s workspace \
+                     {workspace}."
                 );
                 Ok(())
             }

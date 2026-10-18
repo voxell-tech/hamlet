@@ -13,7 +13,7 @@ One binary, `hamlet-workspace`, with two long-running roles:
 `keygen NEW_KEY_FILE` writes a new Ed25519 private key (mode 0600,
 refuses to overwrite) and prints its base64 public key.
 
-`delete CONFIG WORKSPACE EXPECTED_UID` is the administrative deletion
+`delete CONFIG HOME WORKSPACE EXPECTED_UID` is the administrative deletion
 described under [Deleting a workspace](#deleting-a-workspace).
 
 Every role is Linux-only. Built for another system, the binary only
@@ -94,15 +94,18 @@ into the worker configuration. It is not a secret.
 
 ## Manager
 
-The manager holds every credential and all durable state. See
+The manager holds every credential and all durable state. One manager
+serves any number of Hamlet homes. Each home has its own token, and the
+token alone tells the manager which home is calling: two homes never
+share an actor, a file or an operation record, even when their hamlets
+have the same names. See
 [`config/manager.example.json`](config/manager.example.json).
 
 | Field | Meaning |
 |---|---|
 | `listen` | Plain HTTP address for `POST /v1`. |
 | `state` | Durable state directory, created with mode 0700. |
-| `home` | Stable name of this hamlet: letters, digits, `-`, `_`, at most 128. |
-| `token` | Bearer token Hamlet sends; at least 16 characters. |
+| `homes` | Each home's stable name (letters, digits, `-`, `_`, at most 128) and the bearer token its Hamlet sends: at least 16 characters, different for every home. |
 | `signing_key` | Path to the PKCS#8 Ed25519 key from `keygen`. |
 | `control` | Substrate control gRPC endpoint. |
 | `control_token` | Optional bearer token for the control API, or `null`. |
@@ -114,7 +117,14 @@ The manager holds every credential and all durable state. See
 | `template` | Actor template every new workspace actor uses. |
 | `idle_seconds` | Optional seconds without operations before a workspace's actor is suspended; default 300, never 0. |
 
-Secrets. `token` and `control_token` sit in the configuration file, so
+Homes. To add a home, give it a name and a new random token in `homes`
+and restart the manager, then give its chief the manager's address and
+that token for Workspace in Hamlet's Settings. A home's name must never
+change: its actors are found by it. A home taken out of `homes` is
+refused from the next start; its actors and files stay until an operator
+deletes them.
+
+Secrets. The homes' tokens and `control_token` sit in the configuration file, so
 mount the whole file from a secret store, read-only. Mount
 `signing_key` as a separate secret file. None of these go into an
 actor, an image, or Hamlet beyond the manager's address and token,
@@ -122,8 +132,11 @@ which Hamlet keeps with its credentials.
 
 Durable state. `state` holds a lock, actor bindings (name, immutable
 UID, last lifecycle intent and any deletion tombstone per workspace)
-and a record per operation id: its route, written before forwarding,
-and its settled reply once known. Put it on a
+and, under `homes/<home>/`, a record per operation id: its route,
+written before forwarding, and its settled reply once known. A manager
+from before `homes` kept its operation records at the top of `state`;
+it refuses to start until they are moved into `homes/<the home it
+served>/`. Its bindings stay valid under the same home name. Put it on a
 dedicated persistent volume. Run exactly one manager: it takes an
 exclusive `flock` on `state/lock` and exits if another manager holds it,
 but that only works when both see the same local filesystem. Use a
@@ -206,11 +219,12 @@ Hamlet never deletes a workspace. The operator does, with the manager
 stopped:
 
 ```sh
-hamlet-workspace delete /etc/hamlet-workspace/manager.json WORKSPACE EXPECTED_UID
+hamlet-workspace delete /etc/hamlet-workspace/manager.json HOME WORKSPACE EXPECTED_UID
 ```
 
-`WORKSPACE` is the hamlet's workspace name and `EXPECTED_UID` the actor
-UID recorded in its binding, a `state/actor-*.json` file. The command
+`HOME` is the home's name in `homes`, `WORKSPACE` the hamlet's workspace
+name and `EXPECTED_UID` the actor UID recorded in its binding, a
+`state/actor-*.json` file. The command
 takes the same `state/lock` as the manager, so it fails while a manager
 runs on that state. It refuses unless the binding holds that UID, writes
 a tombstone, asks Substrate to delete the actor with the UID as a
@@ -391,9 +405,8 @@ races, uncertain creation/suspension and UID-checked deletion.
 
 After deployment approval, `server/test/workspace.live.test.ts` can
 exercise the real service with no control double or live model. Set
-`HAMLET_WORKSPACE_GKE` to the same JSON connection shape as
-`HAMLET_WORKSPACE`, pointing only at a dedicated disposable manager
-home/state, and run `npx vitest --run --mode live test/workspace.live.test.ts`.
+`HAMLET_WORKSPACE_GKE_URL` and `HAMLET_WORKSPACE_GKE_TOKEN` to the
+address and token of a dedicated disposable home, and run `npx vitest --run --mode live test/workspace.live.test.ts`.
 It provisions through the manager and leaves the test actor and files
 for operator inspection. Cluster network and snapshot/recovery tests
 still require the operator's separate acceptance matrix. Never run

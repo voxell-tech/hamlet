@@ -52,8 +52,10 @@ They never see Substrate,
 actors or lifecycle verbs.
 
 The chief chooses a local or a remote workspace under Workspace in
-Settings. A remote one is the address and token of a separate workspace
-manager. The server keeps both with its credentials (S7) and reads
+Settings. A remote one is the address of a workspace manager and the
+token its operator gave this home. One manager serves many homes, and the
+token tells it which home calls, so homes never share a house even when
+their hamlets have the same names. The server keeps both with its credentials (S7) and reads
 them when it starts, so a change applies from its next start. Houses do not
 move between workspaces: agents find the houses already in the one chosen.
 

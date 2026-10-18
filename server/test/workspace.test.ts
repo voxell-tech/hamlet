@@ -280,8 +280,7 @@ it.skipIf(binary === undefined)(
         const configuration = {
             listen: "127.0.0.1:0",
             state: join(root, "state"),
-            home: "offline-home",
-            token: "offline-test-token",
+            homes: { "offline-home": "offline-test-token" },
             signing_key: key,
             control: `http://127.0.0.1:${controlAddress.port}`,
             control_token_file: controlTokenFile,
