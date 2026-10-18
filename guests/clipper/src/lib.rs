@@ -18,6 +18,17 @@ struct Clipper;
 impl Plugin for Clipper {
     fn entry() {
         hamlet_guest::panel(PANEL, "CLIPPER", "notes");
+        hamlet_guest::command(
+            update::CLIP,
+            "Clip name to Notes",
+            None,
+        );
+        hamlet_guest::context_item(
+            "agent",
+            200,
+            "Clip name to Notes",
+            update::CLIP,
+        );
     }
 
     fn step(inbox: Vec<Incoming>) -> Vec<Intent> {

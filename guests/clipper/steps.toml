@@ -65,12 +65,26 @@ expect = { panel = "main", text = "Juniper" }
 [[step]]
 render = { panel = "main", file = "clipper.png" }
 
-# The note is in Notes too.
+# The menu of an agent in the world has an item of Clipper once the
+# chief allows ui.context, and it clips the name of that agent.
+[[step]]
+grant = "ui.context"
+
+[[step]]
+context = { subject = "agent:Hazel", item = "Clip name to Notes", file = "context.png" }
+
+[[step]]
+expect = { panel = "main", text = "Notes saved: 2" }
+
+# The notes are in Notes too.
 [[step]]
 plugin = "notes"
 
 [[step]]
 expect = { panel = "main", text = "Juniper" }
+
+[[step]]
+expect = { panel = "main", text = "Hazel" }
 
 [[step]]
 render = { panel = "main", file = "notes.png" }

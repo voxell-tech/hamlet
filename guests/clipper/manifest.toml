@@ -8,6 +8,10 @@ interface = "0.6.0"
 id = "notes"
 range = ">=0.1, <1"
 
+# What it offers: the command a context menu item runs.
+[exports]
+commands = ["clip"]
+
 # What it uses of Notes and of the host. Nothing outside these lists
 # is reachable.
 [imports]
@@ -32,3 +36,7 @@ scope = ["notes/notes"]
 [[asks]]
 capability = "read.agents"
 reason = "To know which agent is selected."
+
+[[asks]]
+capability = "ui.context"
+reason = "To put Clip name to Notes in the menu of an agent."
