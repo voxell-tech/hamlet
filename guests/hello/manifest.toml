@@ -1,4 +1,4 @@
 id = "hello"
 name = "Hello"
 version = "0.1.0"
-interface = "0.5.0"
+interface = "0.6.0"

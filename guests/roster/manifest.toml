@@ -1,7 +1,7 @@
 id = "roster"
 name = "Roster"
 version = "0.1.0"
-interface = "0.5.0"
+interface = "0.6.0"
 
 [[asks]]
 capability = "read.agents"

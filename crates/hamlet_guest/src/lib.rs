@@ -17,6 +17,7 @@ pub mod collection;
 pub mod events;
 pub mod state;
 pub mod storage;
+pub mod subject;
 pub mod ui;
 
 pub use self::bindings::exports::hamlet::plugin::plugin::{
@@ -28,6 +29,7 @@ pub use self::bindings::hamlet::plugin::host::{
 };
 pub use self::calls::Calls;
 pub use self::state::State;
+pub use self::subject::Subject;
 
 /// What the host calls on a plugin.
 pub trait Plugin {
@@ -78,6 +80,38 @@ pub fn menu_item(
     bindings::hamlet::plugin::host::menu_item(
         menu, section, label, command,
     );
+}
+
+/// Adds an item to the menu a right click opens on a thing of the
+/// world of kind `target` (see [`Subject`]), that runs the plugin's
+/// command `command` on the thing: the command reads it with
+/// [`subject::of`]. `label` may hold `{name}`, the thing's name. It
+/// needs the capability `ui.context`. Only `entry` may call it.
+pub fn context_item(
+    target: &str,
+    section: u32,
+    label: &str,
+    command: &str,
+) {
+    bindings::hamlet::plugin::host::context_item(
+        target, section, label, command,
+    );
+}
+
+/// Adds a tab to the Inspector's page of an agent (`target` is
+/// `agent`), whose page is the plugin's panel `panel`. It needs the
+/// capability `ui.inspector`. Only `entry` may call it.
+pub fn inspector_section(target: &str, title: &str, panel: &str) {
+    bindings::hamlet::plugin::host::inspector_section(
+        target, title, panel,
+    );
+}
+
+/// Adds a door to the Settings panel, whose page is the plugin's
+/// panel `panel`. `icon` is the name of one of the panels' icons. It
+/// needs the capability `ui.settings`. Only `entry` may call it.
+pub fn settings_page(title: &str, icon: &str, panel: &str) {
+    bindings::hamlet::plugin::host::settings_page(title, icon, panel);
 }
 
 /// Binds a shortcut such as `Cmd+Shift+N` to the plugin's command
