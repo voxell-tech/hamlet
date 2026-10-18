@@ -119,7 +119,13 @@ pub(super) fn setup(world: &mut World) {
     });
     world.init_resource::<Also>();
     world.insert_resource(Selected(Some(Thing::Resident(agent))));
-    if matches!(scene, Scene::Settings | Scene::Charter) {
+    if scene == Scene::Plugins {
+        world.insert_resource(hamlet_ui::settings::Pane::Plugins);
+    }
+    if matches!(
+        scene,
+        Scene::Settings | Scene::Charter | Scene::Plugins
+    ) {
         let mut config = hamlet_model::config::Config::default();
         config.endpoints.push(hamlet_model::config::Endpoint {
             name: "far".into(),

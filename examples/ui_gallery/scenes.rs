@@ -155,6 +155,8 @@ pub enum Scene {
     Settings,
     /// The Settings panel at its Charter page.
     Charter,
+    /// The Settings panel at its Plugins page.
+    Plugins,
     /// Every icon, at each size it is drawn for.
     Icons,
     /// The panels with the HAMLET menu open.

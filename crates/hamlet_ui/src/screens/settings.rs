@@ -1,6 +1,8 @@
 //! The settings screen: a front page of its parts, each on a page
 //! of its own.
 
+mod plugins;
+
 use std::path::Path;
 
 use bevy::app::{App, Update};
@@ -43,6 +45,7 @@ pub fn plugin(app: &mut App) {
         Glyph::Sliders,
         || panel(screen()),
     ))
+    .add_plugins(plugins::plugin)
     .init_resource::<Pane>()
     .init_resource::<Charter>()
     .add_systems(
@@ -100,16 +103,19 @@ pub enum Pane {
     /// The rules that hold for every hamlet.
     Realm,
     Senses,
+    /// Every plugin, with its switch.
+    Plugins,
 }
 
 impl Pane {
-    const PAGES: [Pane; 6] = [
+    const PAGES: [Pane; 7] = [
         Pane::Endpoints,
         Pane::Models,
         Pane::Agents,
         Pane::Charter,
         Pane::Realm,
         Pane::Senses,
+        Pane::Plugins,
     ];
 
     fn title(self) -> &'static str {
@@ -121,6 +127,7 @@ impl Pane {
             Pane::Charter => "CHARTER",
             Pane::Realm => "REALM",
             Pane::Senses => "SOUND AND SIGHT",
+            Pane::Plugins => "PLUGINS",
         }
     }
 
@@ -133,6 +140,7 @@ impl Pane {
             Pane::Charter => Glyph::Notes,
             Pane::Realm => Glyph::Signpost,
             Pane::Senses => Glyph::Sun,
+            Pane::Plugins => Glyph::Power,
         }
     }
 
@@ -152,6 +160,9 @@ impl Pane {
             Pane::Charter => "What every agent is told.",
             Pane::Realm => "Rules that apply to every hamlet.",
             Pane::Senses => "Sound, music and how much is drawn.",
+            Pane::Plugins => {
+                "What is added to Hamlet, each on or off."
+            }
         }
     }
 }
@@ -479,6 +490,7 @@ pub fn screen() -> AnyView {
             Pane::Agents => agents().boxed(),
             Pane::Charter => with_cx(charter_page),
             Pane::Realm => crate::rules::realm().boxed(),
+            Pane::Plugins => plugins::page().boxed(),
             Pane::Front | Pane::Senses => senses().boxed(),
         };
         column((
