@@ -11,7 +11,6 @@ use hamlet_sdk::capability::{
     Asks, Capability, Choice, Decide, Replied,
 };
 use hamlet_sdk::dock::Panel;
-use hamlet_sdk::plugin::Status;
 use hamlet_sdk::tree::event::{Act, Interaction};
 use hamlet_sdk::tree::id::{dock_id, local_id};
 use hamlet_sdk::tree::node::{Kind, Node};
@@ -302,12 +301,5 @@ impl Harness {
             };
             self.logs.push(format!("{level}: {}", said.text));
         }
-    }
-
-    /// Whether the plugin is running.
-    pub fn running(&mut self) -> bool {
-        let world = self.app.world_mut();
-        let mut status = world.query::<&Status>();
-        status.iter(world).all(|status| *status == Status::Running)
     }
 }

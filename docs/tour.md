@@ -64,6 +64,7 @@ table. The binary and the examples are the root package.
 | `hamlet_wasm` | The host of the installed WASM plugins, behind the binary's `wasm` feature. See [`wasm.md`](wasm.md) |
 | `hamlet_openui` | Panels written in Hamlet's panel language: the components, the evaluation into a panel tree, state, actions and the data plugin. See [`panels.md`](panels.md) |
 | `hamlet_guest` | What a WASM plugin is written with: the interface bindings, the `Plugin` trait and the tree builder |
+| `hamlet_harness` | Runs a plugin headlessly against made-up state: clicks, typed text, grants, the tree of each panel as text and a picture of it. Behind its `wasm` feature. See [`authoring.md`](authoring.md) |
 
 The plugins are under `plugins/`: `plugins/all` is `hamlet_plugins`, which
 lists them, and each other folder is one plugin crate. See
@@ -142,7 +143,11 @@ Paths are under `crates/`.
 | How a click or typing reaches a plugin | `hamlet_sdk/src/tree/event.rs`, `hamlet_wasm/src/event.rs`; [`wasm.md`](wasm.md) |
 | A panel written in the panel language, its components, actions and limits | `hamlet_openui/src/components.rs`, `action.rs`, `evaluate.rs`, `assets/panel_lang.toml`; [`panels.md`](panels.md) |
 | A plugin that is a panel and no code | `hamlet_openui/src/data.rs`, `hamlet_wasm/src/install.rs`, `load.rs`; `guests/greeter_ui/`; [`panels.md`](panels.md) |
-| Writing a WASM plugin | `hamlet_guest/src/lib.rs` and `ui.rs`, `guests/hello/`, `guests/roster/`; [`wasm.md`](wasm.md) |
+| Writing a WASM plugin | `hamlet_guest/src/lib.rs` and `ui.rs`, `guests/hello/`, `guests/roster/`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
+| Starting a plugin, its templates and the script that copies them | `templates/plugin/`, `templates/data-plugin/`, `scripts/new-plugin.sh`; [`authoring.md`](authoring.md) |
+| Testing a plugin headlessly: the harness, its script and its pictures | `hamlet_harness/src/harness.rs`, `script.rs`, `run.rs`, `render.rs`, `examples/plugin_check/`; [`authoring.md`](authoring.md) |
+| What an agent is taught about writing a plugin | `hamlet_home/starters/write-a-plugin/SKILL.md` |
+| Building a plugin from an agent's sandbox | `scripts/vendor-plugin-deps.sh`; [`authoring.md`](authoring.md) |
 | The Plugins page of Settings, and the permissions views | `hamlet_ui/src/screens/settings/plugins.rs` and `plugins/`; [`permissions.md`](permissions.md) |
 | A colour in the world | `assets/palette.toml` |
 | A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`, `wasm.toml`, `panel_lang.toml`. What each value means is beside its field in the code |
@@ -178,6 +183,7 @@ These draw to files and open nothing:
 | Command | Shows |
 |---|---|
 | `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes. `plugin-roster` is an installed plugin's panel drawn from a tree, `plugin-petition` the petitions of plugins, `plugin-permissions` and `plugin-capabilities` their Settings views, `plugin-reload` the Plugins page after reloads |
+| `cargo run --example plugin_check --features wasm -- <plugin dir> [--script steps.toml] [--out <dir>]` | A plugin's panels as text after each step of a script, and a picture of each: see [`authoring.md`](authoring.md) |
 | `cargo run --release --example far_lands -- --out <dir>` | The land, many towns, a town being moved; `--bench` times it |
 | `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library |
 | `cargo run --example cursor_sheet` | Every cursor |

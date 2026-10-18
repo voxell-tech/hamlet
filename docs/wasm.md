@@ -16,6 +16,8 @@ The host is behind the `wasm` feature of the binary:
 | `crates/hamlet_wasm` | The host. The engine is wasmtime, pinned in the root `Cargo.toml`, and no other crate names a wasmtime type |
 | `crates/hamlet_wasm/wit/hamlet-plugin.wit` | The interface, the one description of what a plugin imports and exports |
 | `crates/hamlet_guest` | What a plugin is written with: the bindings, the `Plugin` trait, the `ui` tree builder and the `export!` macro |
+| `crates/hamlet_harness` | Runs a plugin headlessly against made-up state, reads its panels as text and draws them to pictures. See [`authoring.md`](authoring.md) |
+| `templates/` | The plugin to start from, of code and of a panel |
 | `guests/hello` | A plugin that logs on every tick. A workspace of its own, since it is built for `wasm32-wasip2` |
 | `guests/roster` | A plugin with a panel that lists the agents, behind the grant `read.agents` |
 | `assets/wasm.toml` | The limits, and how often the plugins' files are looked at |
@@ -309,7 +311,9 @@ there.
 
 ## Building a plugin
 
-A plugin is a `cdylib` for `wasm32-wasip2` that depends on `hamlet_guest`:
+[`authoring.md`](authoring.md) is the way to start: a template, a build, a
+check with pictures, and the reload. A plugin is a `cdylib` for
+`wasm32-wasip2` that depends on `hamlet_guest`:
 
 ```rust
 use hamlet_guest::ui::{Node, button, column, label};
@@ -359,7 +363,10 @@ the network.
 The tests make their plugins from core modules in text and the WIT file, so
 they need no target. `fixture.rs` makes the modules, `fixture/tree.rs` lays a
 tree out in a module's memory, and `fixture/home.rs` makes a scratch home and
-an app that loads it.
+an app that loads it. The `fixture` feature makes `fixture.rs` public for a
+crate that tests its own code against the host, as `hamlet_harness` does. What
+a plugin logs is also written as a `run::Said` message, which the harness
+reads.
 
 `cargo run --example ui_gallery -- --scene plugin-roster
 --out <dir>` draws the roster's panel in the dock, from the tree the roster
