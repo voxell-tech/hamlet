@@ -77,6 +77,25 @@ pub struct Limits {
     pub file_bytes: usize,
     /// The bytes of the path of one file.
     pub file_path_bytes: usize,
+    /// The bytes of all the tables one plugin keeps in its database.
+    pub db_bytes: u64,
+    /// The tables one plugin may keep in its database.
+    pub db_tables: usize,
+    /// The records one table may hold.
+    pub db_records: usize,
+    /// The bytes of one record: its id, its bytes and its fields.
+    pub db_record_bytes: usize,
+    /// The indexed fields of one record.
+    pub db_fields: usize,
+    /// The bytes of the name of a table, and of a field.
+    pub db_name_bytes: usize,
+    /// The bytes of the id of a record, and of the value of a field.
+    pub db_text_bytes: usize,
+    /// The records of one page of a list or a find.
+    pub db_page_records: usize,
+    /// The bytes of the records of one page. A page holds at least
+    /// one record, whatever its size.
+    pub db_page_bytes: usize,
     /// The bytes of the state the host holds for one plugin.
     pub state_bytes: usize,
     /// The commands one plugin may declare. The rest are dropped.

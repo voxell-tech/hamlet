@@ -15,6 +15,7 @@ pub mod admit;
 pub mod cache;
 pub mod call;
 pub mod command;
+pub mod db;
 pub mod draw;
 pub mod enable;
 pub mod engine;

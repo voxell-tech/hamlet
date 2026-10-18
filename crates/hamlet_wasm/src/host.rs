@@ -2,6 +2,7 @@
 //! defines, and the state they work on.
 
 mod collections;
+mod database;
 mod declare;
 mod folder;
 mod keeping;
@@ -19,6 +20,7 @@ pub use self::declare::{
     Targeted,
 };
 pub use self::request::Want;
+use crate::db::Db;
 use crate::fault::Fault;
 use crate::files::Files;
 use crate::interface::hamlet::plugin::host::{
@@ -67,6 +69,8 @@ pub struct State {
     pub(crate) storage: Option<Storage>,
     /// The plugin's folder of files, once it has a folder.
     pub(crate) files: Option<Files>,
+    /// The plugin's database, once it has a folder.
+    pub(crate) db: Option<Db>,
     /// The blob the plugin keeps with the host.
     pub(crate) state: Vec<u8>,
     pub(crate) state_room: usize,
@@ -103,6 +107,7 @@ impl State {
             papers: Papers::default(),
             storage: None,
             files: None,
+            db: None,
             state: Vec::new(),
             state_room: limits.state_bytes,
             reach: Reach::default(),
@@ -242,6 +247,58 @@ impl Host for State {
 
     fn files_delete(&mut self, path: String) -> Result<(), String> {
         self.delete_file(&path)
+    }
+
+    fn db_put(
+        &mut self,
+        table: String,
+        id: String,
+        bytes: Vec<u8>,
+        fields: Vec<host::DbField>,
+    ) -> Result<(), String> {
+        self.db_set(&table, id, bytes, fields)
+    }
+
+    fn db_get(
+        &mut self,
+        table: String,
+        id: String,
+    ) -> Result<Option<host::DbRecord>, String> {
+        self.db_record(&table, &id)
+    }
+
+    fn db_delete(
+        &mut self,
+        table: String,
+        id: String,
+    ) -> Result<(), String> {
+        self.db_remove(&table, &id)
+    }
+
+    fn db_list(
+        &mut self,
+        table: String,
+        after: Option<String>,
+        limit: u32,
+    ) -> Result<host::DbPage, String> {
+        self.db_page(&table, after.as_deref(), limit)
+    }
+
+    fn db_find(
+        &mut self,
+        table: String,
+        field: String,
+        value: String,
+        after: Option<String>,
+        limit: u32,
+    ) -> Result<host::DbPage, String> {
+        self.db_search(
+            &table,
+            &field,
+            &value,
+            after.as_deref(),
+            limit,
+        )
     }
 
     fn collection_list(

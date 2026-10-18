@@ -9,6 +9,7 @@ use hamlet_sdk::capability::Granted;
 use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{Exports, PluginInfo, Status};
 
+use crate::db::DB;
 use crate::draw::Dirty;
 use crate::engine::Host;
 use crate::fault::Fault;
@@ -66,6 +67,7 @@ pub fn build(
         .named(&info.id)
         .stored(folder.join(DATA), limits)
         .filed(folder.join(FILES), limits)
+        .tabled(folder.join(DB), limits)
         .holding(state);
     instance.see(granted, agents, papers);
     let output = instance.entry(limits)?;

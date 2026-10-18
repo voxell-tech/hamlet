@@ -3800,6 +3800,7 @@ dependencies = [
  "hamlet_openui",
  "hamlet_rules",
  "hamlet_sdk",
+ "postcard",
  "reqwest",
  "serde",
  "sha2 0.10.9",

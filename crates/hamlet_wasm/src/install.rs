@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use hamlet_sdk::capability::{Asks, Refusal};
 use hamlet_sdk::plugin::needs;
 
+use crate::db::DB;
 use crate::files::FILES as KEPT;
 use crate::interface::VERSION;
 use crate::manifest::{Kind, Manifest};
@@ -164,7 +165,9 @@ fn only_data(folder: &Path) -> bool {
             .filter_map(|entry| Some(entry.ok()?.file_name()))
             .peekable();
         names.peek().is_some()
-            && names.all(|name| name == DATA || name == KEPT)
+            && names.all(|name| {
+                name == DATA || name == KEPT || name == DB
+            })
     })
 }
 

@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use hamlet_sdk::capability::{Removed, Store};
 use hamlet_sdk::plugin::PluginInfo;
 
+use crate::db::DB;
 use crate::files::FILES;
 use crate::reload::Watch;
 use crate::storage::DATA;
@@ -59,10 +60,9 @@ fn clear(folder: &Path, keep_data: bool) -> std::io::Result<()> {
     }
     for entry in std::fs::read_dir(folder)? {
         let path = entry?.path();
-        if path
-            .file_name()
-            .is_some_and(|name| name == DATA || name == FILES)
-        {
+        if path.file_name().is_some_and(|name| {
+            name == DATA || name == FILES || name == DB
+        }) {
             continue;
         }
         match path.is_dir() {

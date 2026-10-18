@@ -1,7 +1,7 @@
 //! The host side of `wit/hamlet-plugin.wit`, generated.
 
 /// The version of the package in the WIT file.
-pub const VERSION: &str = "0.7.0";
+pub const VERSION: &str = "0.8.0";
 
 /// The package of the interface, which a component names in the
 /// interfaces it imports and exports.

@@ -25,6 +25,9 @@ fn removed(scratch: &Scratch, choice: Answer) -> App {
     let data = scratch.plugins().join("probe/data");
     std::fs::create_dir_all(&data).unwrap();
     std::fs::write(data.join("key-note"), b"kept").unwrap();
+    let db = scratch.plugins().join("probe/db");
+    std::fs::create_dir_all(&db).unwrap();
+    std::fs::write(db.join("items.tbl"), b"kept").unwrap();
 
     app.world_mut().trigger(AskToRemove {
         plugin: "probe".into(),
@@ -54,11 +57,12 @@ fn removing_a_plugin_and_keeping_its_data_leaves_the_data_to_be_found_again()
 
     assert_eq!(plugins(&mut app), 0);
     let folder = scratch.plugins().join("probe");
-    let left = std::fs::read_dir(&folder)
+    let mut left = std::fs::read_dir(&folder)
         .unwrap()
         .map(|entry| entry.unwrap().file_name())
         .collect::<Vec<_>>();
-    assert_eq!(left, ["data"]);
+    left.sort();
+    assert_eq!(left, ["data", "db"]);
     assert!(Store::open(&scratch.plugins()).get("probe").is_none());
 
     // A folder of nothing but data is not a plugin, and installing
@@ -73,6 +77,10 @@ fn removing_a_plugin_and_keeping_its_data_leaves_the_data_to_be_found_again()
     assert_eq!(running.iter(again.world()).count(), 1);
     assert_eq!(
         std::fs::read(folder.join("data/key-note")).unwrap(),
+        b"kept"
+    );
+    assert_eq!(
+        std::fs::read(folder.join("db/items.tbl")).unwrap(),
         b"kept"
     );
 }

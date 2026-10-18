@@ -1,4 +1,4 @@
-package hamlet:plugin@0.7.0;
+package hamlet:plugin@0.8.0;
 
 interface host {
   enum level { info, warn, error }
@@ -143,6 +143,53 @@ interface host {
   // Removes the file at `path`, if it is there. It needs
   // `files.write`.
   files-delete: func(path: string) -> result<_, string>;
+
+  // The plugin's own database, which the host keeps for it and no
+  // other plugin can reach. It holds named tables of records. A table
+  // is 1 to a few dozen characters of a-z, 0-9, `_` and `-`, and is
+  // there once it holds a record. A record is an id, bytes the host
+  // does not read and a few fields, each a name and a value, that
+  // `db-find` looks records up by. Records are in the order of their
+  // ids. The host caps the tables, the records of a table, the bytes
+  // of a record, the fields, the bytes of the whole database and the
+  // records of a page. The calls need the capability `db`, are gated
+  // as `agents` is, and fail with `db not granted` or why a name or a
+  // cap does not allow it. A plugin shares records with another
+  // through a collection, not through the database.
+  record db-field {
+    name: string,
+    value: string,
+  }
+
+  record db-record {
+    id: string,
+    bytes: list<u8>,
+    fields: list<db-field>,
+  }
+
+  record db-page {
+    records: list<db-record>,
+    // The id to give as `after` for the next page, when there is one.
+    next: option<string>,
+  }
+
+  // Sets the record `id` of `table`, replacing it.
+  db-put: func(table: string, id: string, bytes: list<u8>, fields: list<db-field>) -> result<_, string>;
+
+  // The record `id` of `table`, if it is there.
+  db-get: func(table: string, id: string) -> result<option<db-record>, string>;
+
+  // Removes the record `id` of `table`, if it is there.
+  db-delete: func(table: string, id: string) -> result<_, string>;
+
+  // A page of `table`, from the first id after `after`. The host caps
+  // the records and the bytes of a page, and `limit` may lower the
+  // records.
+  db-list: func(table: string, after: option<string>, limit: u32) -> result<db-page, string>;
+
+  // A page of the records of `table` whose field `field` is `value`,
+  // as `db-list` pages.
+  db-find: func(table: string, field: string, value: string, after: option<string>, limit: u32) -> result<db-page, string>;
 
   // A collection another plugin shares: the keys of its storage that
   // start with a prefix its manifest names under `exports.collections`.

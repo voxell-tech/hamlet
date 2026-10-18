@@ -11,6 +11,7 @@ use wasmtime::component::Component as Compiled;
 use wasmtime::{Engine, Store};
 
 use crate::cache;
+use crate::db::{self, Db};
 use crate::fault::Fault;
 use crate::files::{self, Files};
 use crate::host::{self, Reach, State};
@@ -67,6 +68,17 @@ impl Instance {
     pub fn filed(mut self, folder: PathBuf, limits: &Limits) -> Self {
         self.store.data_mut().files =
             Some(Files::new(folder, files::Caps::of(limits)));
+        self
+    }
+
+    /// This, with its database in `folder`.
+    pub fn tabled(
+        mut self,
+        folder: PathBuf,
+        limits: &Limits,
+    ) -> Self {
+        self.store.data_mut().db =
+            Some(Db::new(folder, db::Caps::of(limits)));
         self
     }
 
