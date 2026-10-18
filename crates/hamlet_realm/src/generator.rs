@@ -31,6 +31,7 @@ mod work;
 pub mod yard;
 
 use bevy::prelude::*;
+use hamlet_vfx::magic::MagicSettings;
 pub(crate) use hamlet_vfx::magic::glow;
 use hamlet_vfx::{Density, Now, Tints, VfxPlugin, VfxSystems};
 
@@ -39,9 +40,7 @@ use self::house::HouseSettings;
 use self::kit::{Kit, setup, state_index};
 use self::land::{Land, LandSettings};
 use self::layout::TownSettings;
-use self::lights::{
-    light_lanterns, light_roads, light_spills, show_lamp, show_spill,
-};
+use self::lights::{light_lanterns, light_roads, light_spills};
 pub use self::loading::{Ground, Loading};
 use self::loading::{Lanes, clear_lanes, finish_loading, stream};
 pub use self::magic::Thought;
@@ -49,10 +48,6 @@ use self::road::RoadSettings;
 pub use self::shift::HouseMotion;
 use self::shift::shift_houses;
 use self::society::{AgentId, Pair, RoadLevel, Society, TownId};
-use self::sounds::{
-    Lives, house_cues, life_cues, muse_cues, robot_cues, state_cues,
-    traffic_cues, vote_cues,
-};
 use self::sync::{Drawn, reshaped, sync, tell_states};
 use self::traffic::run_traffic;
 pub use self::traffic::{Traffic, Trip};
@@ -65,18 +60,19 @@ use self::work::{pass, work_robots};
 use self::yard::YardSettings;
 use super::debug::shown;
 use super::palette::Palette;
-use super::sound::Cues;
-use super::{Clock, Sky, Step, base};
+use super::{Clock, Sky, Step};
 use crate::sky::{Quality, SkySettings};
 
-/// Draws whatever [`Society`] holds, and draws again only what a
-/// change touches. It needs Bevy's default plugins.
-pub struct GenPlugin {
+/// What the land is grown from. Insert it before [`plugin`] to choose
+/// the seed; without it the land grows from seed 7 and the settings
+/// in the file.
+#[derive(Resource, Clone)]
+pub struct Origin {
     pub seed: u64,
     pub settings: GenSettings,
 }
 
-impl Default for GenPlugin {
+impl Default for Origin {
     fn default() -> Self {
         Self {
             seed: 7,
@@ -85,117 +81,98 @@ impl Default for GenPlugin {
     }
 }
 
-impl Plugin for GenPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_plugins(base);
-        let pal = app.world().resource::<Palette>().clone();
-        app.add_plugins(VfxPlugin {
+/// Draws whatever [`Society`] holds, and draws again only what a
+/// change touches. Add it after `palette::plugin`, `sound::plugin`,
+/// `debug::plugin`, `sky::plugin`, `stage::plugin`, `keeper::plugin`
+/// and `stock::plugin`; the app needs Bevy's default plugins.
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Origin>()
+        .init_resource::<DetailSettings>()
+        .init_resource::<HouseMotion>()
+        .init_resource::<MagicSettings>();
+    let pal = app.world().resource::<Palette>().clone();
+    let origin = app.world().resource::<Origin>().clone();
+    app.add_plugins((
+        VfxPlugin {
             tints: Tints {
                 ember: pal.ember,
                 firefly: pal.firefly,
                 rune: pal.rune,
                 wind: pal.wind,
             },
-        })
-        // An effect a house is given plays the frame it is given.
-        .configure_sets(
-            Update,
-            VfxSystems
+        },
+        lights::plugin,
+        sounds::plugin,
+    ))
+    // An effect a house is given plays the frame it is given.
+    .configure_sets(
+        Update,
+        VfxSystems
+            .in_set(Step::Scene)
+            .after(magic::charm)
+            .before(run_traffic),
+    )
+    .add_systems(
+        Update,
+        (
+            (tell_effects, thin_effects, wind::gusts)
                 .in_set(Step::Scene)
-                .after(magic::charm)
-                .before(run_traffic),
-        )
-        .add_systems(
-            Update,
-            (
-                (tell_effects, thin_effects, wind::gusts)
-                    .in_set(Step::Scene)
-                    .before(VfxSystems),
-                fireflies::keep.after(VfxSystems),
+                .before(VfxSystems),
+            fireflies::keep.after(VfxSystems),
+        ),
+    )
+    .init_resource::<Society>()
+    .init_resource::<Traffic>()
+    .init_resource::<Drawn>()
+    .init_resource::<GenView>()
+    .init_resource::<Ahead>()
+    .init_resource::<GenOptions>()
+    .init_resource::<Rehearsal>()
+    .init_resource::<Voting>()
+    .init_state::<Phase>()
+    .init_resource::<Objecting>()
+    .init_resource::<Loading>()
+    .init_resource::<Lanes>()
+    .insert_resource(Land::new(origin.seed, origin.settings, pal))
+    .add_systems(Startup, setup)
+    .add_systems(
+        Update,
+        (
+            finish_loading,
+            sync.run_if(
+                reshaped
+                    .or_eager(resource_changed::<Land>)
+                    .or_eager(resource_changed::<GenOptions>),
             ),
-        );
-        app.init_resource::<Society>()
-            .init_resource::<Traffic>()
-            .init_resource::<Drawn>()
-            .init_resource::<GenView>()
-            .init_resource::<Ahead>()
-            .init_resource::<GenOptions>()
-            .init_resource::<Rehearsal>()
-            .init_resource::<Voting>()
-            .init_state::<Phase>()
-            .init_resource::<Objecting>()
-            .init_resource::<Lives>()
-            .init_resource::<Loading>()
-            .init_resource::<Lanes>()
-            .insert_resource(Land::new(
-                self.seed,
-                self.settings.clone(),
-                pal,
-            ))
-            .add_observer(show_lamp)
-            .add_observer(show_spill)
-            .add_systems(Startup, setup)
-            .add_systems(
-                Update,
-                (
-                    finish_loading,
-                    sync.run_if(
-                        reshaped
-                            .or_eager(resource_changed::<Land>)
-                            .or_eager(resource_changed::<GenOptions>),
-                    ),
-                    tell_states.run_if(resource_changed::<Society>),
-                    shift_houses,
-                    magic::charm,
-                    run_traffic,
-                    (
-                        light_roads,
-                        light_lanterns,
-                        light_spills.run_if(
-                            resource_changed::<Sky>.or_else(
-                                resource_changed::<SkySettings>,
-                            ),
-                        ),
-                        town_detail,
-                        robot_detail,
-                        aim,
-                    ),
-                    (
-                        clear_lanes.run_if(resource_changed::<Drawn>),
-                        stream,
-                    )
-                        .chain(),
-                    pass,
-                    work_robots,
-                    traffic::carts,
-                    magic::muse,
-                )
-                    .chain()
-                    .in_set(Step::Scene),
-            )
-            .add_systems(
-                Update,
-                (
-                    (robot_cues, traffic_cues).in_set(Cues),
-                    (
-                        (state_cues, life_cues)
-                            .run_if(resource_changed::<Society>),
-                        house_cues,
-                        vote_cues,
-                        muse_cues,
-                    )
-                        .chain()
-                        .after(Step::Scene)
-                        .before(Cues),
+            tell_states.run_if(resource_changed::<Society>),
+            shift_houses,
+            magic::charm,
+            run_traffic,
+            (
+                light_roads,
+                light_lanterns,
+                light_spills.run_if(
+                    resource_changed::<Sky>
+                        .or_else(resource_changed::<SkySettings>),
                 ),
-            )
-            .add_systems(
-                PostUpdate,
-                debug::draw
-                    .run_if(shown)
-                    .after(TransformSystems::Propagate),
-            );
-    }
+                town_detail,
+                robot_detail,
+                aim,
+            ),
+            (clear_lanes.run_if(resource_changed::<Drawn>), stream)
+                .chain(),
+            pass,
+            work_robots,
+            traffic::carts,
+            magic::muse,
+        )
+            .chain()
+            .in_set(Step::Scene),
+    )
+    .add_systems(
+        PostUpdate,
+        debug::draw.run_if(shown).after(TransformSystems::Propagate),
+    );
 }
 
 /// Everything the generated world is shaped by. The land keeps the

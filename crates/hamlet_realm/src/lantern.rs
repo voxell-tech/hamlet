@@ -7,6 +7,11 @@ use bevy::prelude::*;
 
 use super::meshes::Mb;
 
+/// Lanterns burn as the day goes.
+pub(crate) fn plugin(app: &mut App) {
+    app.add_systems(Update, burn);
+}
+
 /// A light that burns after dark and is out by day, with the light
 /// it throws at its brightest.
 #[derive(Component, Clone, Copy, Debug)]

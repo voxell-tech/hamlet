@@ -5,6 +5,33 @@ use bevy::prelude::*;
 use crate::keeper::Kit;
 use crate::palette::Palette;
 
+/// Builds the shared materials and the robots' kit from the world's
+/// palette. Add it after `palette::plugin`.
+pub fn plugin(app: &mut App) {
+    stock(app.world_mut());
+}
+
+/// Builds the shared materials and the kit in `world`.
+pub(crate) fn stock(world: &mut World) {
+    let pal = world.get_resource_or_init::<Palette>().clone();
+    let stock = Stock::new(
+        &mut world.resource_mut::<Assets<StandardMaterial>>(),
+        &pal,
+    );
+    let kit = world.resource_scope(
+        |world, mut meshes: Mut<Assets<Mesh>>| {
+            Kit::new(
+                &mut meshes,
+                &mut world.resource_mut::<Assets<StandardMaterial>>(),
+                &stock,
+                &pal,
+            )
+        },
+    );
+    world.insert_resource(stock);
+    world.insert_resource(kit);
+}
+
 /// The materials nearly everything is drawn with. The colour of
 /// matte and brass things is in their vertices.
 #[derive(Resource, Clone)]
@@ -38,26 +65,4 @@ impl Stock {
             }),
         }
     }
-}
-
-/// Builds the shared materials and the robots' kit from the world's
-/// palette.
-pub(crate) fn stock(world: &mut World) {
-    let pal = world.get_resource_or_init::<Palette>().clone();
-    let stock = Stock::new(
-        &mut world.resource_mut::<Assets<StandardMaterial>>(),
-        &pal,
-    );
-    let kit = world.resource_scope(
-        |world, mut meshes: Mut<Assets<Mesh>>| {
-            Kit::new(
-                &mut meshes,
-                &mut world.resource_mut::<Assets<StandardMaterial>>(),
-                &stock,
-                &pal,
-            )
-        },
-    );
-    world.insert_resource(stock);
-    world.insert_resource(kit);
 }

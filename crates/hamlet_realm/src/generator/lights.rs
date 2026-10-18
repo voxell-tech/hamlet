@@ -18,6 +18,11 @@ use crate::palette::Palette;
 use crate::sky::{Looks, SkySettings};
 use crate::{Clock, Sky};
 
+/// Lights the lamps and spills that are added.
+pub(super) fn plugin(app: &mut App) {
+    app.add_observer(show_lamp).add_observer(show_spill);
+}
+
 /// Lights the grooves that have something to show: a mote under a
 /// walking robot, orange at the door of an agent that waits, red
 /// where one has faulted. Every other groove shares one unlit

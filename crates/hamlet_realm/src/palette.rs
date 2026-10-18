@@ -2,7 +2,13 @@
 //! `assets/palette.toml`.
 
 use bevy::prelude::*;
-use hamlet_assets::{File, Tuning, follow, tint};
+use hamlet_assets::{File, Tuning, TuningPlugin, follow, tint};
+
+/// The palette, kept in step with its file.
+pub fn plugin(app: &mut App) {
+    app.add_plugins(TuningPlugin::<Palette>::default())
+        .init_resource::<Palette>();
+}
 
 /// The roof colours a town's houses share, and its banner.
 #[derive(Clone, Copy, PartialEq, Debug, serde::Deserialize)]

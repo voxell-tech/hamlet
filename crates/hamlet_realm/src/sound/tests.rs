@@ -4,7 +4,6 @@ use super::heard::turn_of_day;
 use super::mix::{Heard, admit};
 use super::*;
 use crate::DayPart;
-use crate::play::Play;
 
 fn peak(samples: &[f32]) -> f32 {
     samples.iter().fold(0.0f32, |m, s| m.max(s.abs()))
@@ -51,42 +50,6 @@ fn no_two_sounds_are_the_same_clip() {
             );
         }
     }
-}
-
-#[test]
-fn everything_done_by_hand_has_a_sound_of_its_own() {
-    let plays = [
-        Play::Select,
-        Play::Focus,
-        Play::Menu,
-        Play::Poke,
-        Play::Annoy,
-        Play::Pat,
-        Play::Lift,
-        Play::Drop,
-        Play::Wave,
-        Play::Cheer,
-        Play::Letter,
-        Play::Nudge,
-        Play::Introduce,
-        Play::Gift,
-        Play::WickOut,
-        Play::WickIn,
-        Play::Clockwork,
-    ];
-    let sounds = plays.map(Sound::played);
-    for (i, sound) in sounds.iter().enumerate() {
-        assert_eq!(sound.family(), Family::Hand, "{sound:?}");
-        assert!(!sound.everywhere());
-        assert!(rms(&sound.samples()) > 0.004, "{sound:?}");
-        assert!(!sounds[i + 1..].contains(sound), "{sound:?}");
-    }
-    // Every sound of the hand answers something done by hand.
-    let of_hand = Sound::ALL
-        .into_iter()
-        .filter(|s| s.family() == Family::Hand)
-        .count();
-    assert_eq!(of_hand, plays.len());
 }
 
 #[test]

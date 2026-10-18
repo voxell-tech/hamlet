@@ -141,7 +141,7 @@ fn app() -> (App, Entity) {
         .init_resource::<Motion>()
         .add_systems(Update, animate);
     let world = app.world_mut();
-    crate::stock(world);
+    crate::stock::stock(world);
     let id =
         world
             .run_system_once(
