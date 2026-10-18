@@ -171,6 +171,9 @@ fn main() -> Result<()> {
         }
         Mode::Headless => {
             eprintln!("hamlet: running headless; Ctrl-C stops");
+            // The plugins' log lines have nowhere to go without it.
+            #[cfg(feature = "wasm")]
+            app.add_plugins(bevy::log::LogPlugin::default());
             app.add_plugins((tick, TerminalCtrlCHandlerPlugin)).run();
         }
         Mode::Window => {
