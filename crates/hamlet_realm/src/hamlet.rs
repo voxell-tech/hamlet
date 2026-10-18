@@ -15,35 +15,14 @@ use hamlet_core::agents::{LivesIn, Settlement};
 use hamlet_rules::hamlet::HOME;
 
 use crate::chief::Settling;
-use crate::generator::GenPlugin;
 use crate::generator::land::Land;
 use crate::generator::society::{AgentId, Pair, Society, TownId};
 use crate::sky::CameraSettings;
-use crate::{
-    WorldSystems, bubble, chief, hand, lantern, library, moving,
-    needs, orders, pick, works,
-};
+use crate::{WorldSystems, library, pick};
 
-/// Draws the hamlets' agents and roads as a generated world. Add it
-/// after Bevy's default plugins, in place of the style test's
-/// plugin.
-pub struct RealmPlugin;
-
-impl Plugin for RealmPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_plugins((
-            GenPlugin::default(),
-            pick::plugin,
-            needs::plugin,
-            bubble::plugin,
-            hand::plugin,
-            orders::plugin,
-            chief::plugin,
-            library::plugin,
-            moving::plugin,
-            pointing::plugin,
-            works::plugin,
-        ))
+/// Draws the core's hamlets, agents and roads in the generated world.
+pub(crate) fn plugin(app: &mut App) {
+    app.add_plugins(pointing::plugin)
         // A chief takes its site before any town is founded, and
         // the library takes one after the chiefs.
         .configure_sets(
@@ -52,7 +31,6 @@ impl Plugin for RealmPlugin {
                 .chain()
                 .before(housing::house),
         )
-        .add_systems(Update, lantern::burn)
         .add_observer(housing::leave)
         .add_observer(housing::come_back)
         .add_observer(housing::move_out)
@@ -83,7 +61,6 @@ impl Plugin for RealmPlugin {
                 .chain()
                 .before(WorldSystems),
         );
-    }
 }
 
 /// The hamlet whose town `town` is.

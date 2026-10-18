@@ -23,7 +23,7 @@ pub use self::synth::RATE;
 use crate::{Step, WorldCamera, WorldSystems};
 
 /// Sound for a world. Does nothing where the app has no audio.
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<SoundSettings>()
         .add_message::<Cue>()
         .add_observer(heard::hear_answer)

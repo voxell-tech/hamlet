@@ -26,6 +26,12 @@ pub use self::trip::{Step, Stride, Trip};
 pub use self::who::{Emblem, Hat, Paint, Who};
 use crate::sound::Sound;
 
+/// The robots' walk, and their poses each frame.
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Motion>()
+        .add_systems(Update, animate.in_set(crate::Step::Robots));
+}
+
 /// A robot's walk.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -19,7 +19,7 @@ use hamlet_home::instance::{self, Instance};
 use hamlet_home::{Home, limits};
 use hamlet_model::config::Config;
 use hamlet_model::log;
-use hamlet_realm::hamlet::RealmPlugin;
+use hamlet_realm::RealmPlugin;
 use hamlet_sandbox as sandbox;
 use hamlet_ui::{ShowRequests, UiPlugin, window_plugin};
 

@@ -24,7 +24,7 @@ pub(crate) fn land(seed: u64) -> Land {
 /// Gives a world with nothing to draw on the shared materials and a
 /// kit of empty meshes.
 pub(super) fn kit(world: &mut World) {
-    crate::stock(world);
+    crate::stock::stock(world);
     let stock = world.resource::<Stock>().clone();
     world.insert_resource(Kit {
         matte: stock.matte,
@@ -68,7 +68,7 @@ pub(crate) fn rehearse(app: &mut App) {
                 .chain()
                 .in_set(crate::WorldSystems),
         );
-    crate::stock(app.world_mut());
+    crate::stock::stock(app.world_mut());
 }
 
 /// Stands the robot of `agent` at its porch on plot `number` of the

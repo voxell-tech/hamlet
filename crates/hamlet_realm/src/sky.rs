@@ -15,10 +15,51 @@ use bevy::prelude::*;
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use chrono::Timelike;
 use hamlet_assets::tint;
-use hamlet_vfx::inlay::{self, EMBER};
+use hamlet_vfx::inlay::{self, EMBER, InlayPlugin};
 
 use super::palette::Palette;
-use super::{Clock, Stage, Stock};
+use super::{Clock, Stage, Step, Stock};
+
+/// The camera, its lights and the look of the hour. Add it after
+/// `settings::plugin` and `palette::plugin`.
+pub fn plugin(app: &mut App) {
+    app.add_plugins(InlayPlugin)
+        .init_resource::<Looks>()
+        .init_resource::<CameraSettings>()
+        .init_resource::<Quality>()
+        .init_resource::<SkySettings>()
+        .init_resource::<Hour>()
+        .init_state::<DayPart>()
+        .add_computed_state::<Dark>()
+        .add_computed_state::<LowSun>()
+        .add_systems(Startup, spawn)
+        .add_systems(OnEnter(LowSun), raise_haze)
+        .add_systems(OnExit(LowSun), clear_haze)
+        .add_systems(
+            Update,
+            (
+                tell.in_set(Step::Clock),
+                (
+                    (light, light_windows)
+                        .run_if(resource_changed::<Sky>),
+                    (occlude, sky_dome)
+                        .run_if(resource_changed::<SkySettings>),
+                    spend.run_if(resource_changed::<Quality>),
+                    lay_haze.run_if(in_state(LowSun)),
+                )
+                    .in_set(Step::Scene),
+            ),
+        );
+    let world = app.world_mut();
+    let sky = Sky::at(
+        world.resource::<Looks>(),
+        world.resource::<SkySettings>(),
+        world.resource::<SkySettings>().held(false),
+    );
+    world.insert_resource(sky);
+    let size = world.resource::<CameraSettings>().shadow_map;
+    world.insert_resource(DirectionalLightShadowMap { size });
+}
 
 /// One time of day: lights, sky and how strongly the fittings burn.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]

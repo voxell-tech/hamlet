@@ -68,6 +68,12 @@ the same name, and each file opens with a line saying what it holds. Read
 (land, towns, houses, roads and traffic from a seed), `keeper/` (the
 robots), `chief/` (the wizard and its Hearth), `hand/` (what the chief does
 by hand), `pick/` (pointing, selecting and the camera) and `sound/`.
+`RealmPlugin` in its `lib.rs` is the one thing the app adds: a flat list of
+the `plugin` of each module, scene first (settings, palette, play, sound,
+debug, sky, stage, keeper, stock), then the generator, then what the chief does in it, then
+`hamlet.rs`. An app that wants only the scene adds the first group itself,
+as the style test does; the town generator adds it with `generator::plugin`
+and an `Origin` for its seed.
 `hamlet_ui` has `screens/` for the panels that draw from the core's state
 alone, one file or folder each, and `widgets/` for what every panel is built
 from: `feel/`, `icons.rs`, `tabs.rs`, `platform.rs` and `tuning.rs`. The

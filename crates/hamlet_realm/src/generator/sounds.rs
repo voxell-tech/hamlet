@@ -15,9 +15,29 @@ use super::sync::Drawn;
 use super::traffic::Traffic;
 use super::work::{Robot, Voting};
 use super::{House, HouseMotion};
-use crate::Clock;
 use crate::keeper::{KState, Keeper};
-use crate::sound::{Cue, Ears, Sound, SoundSettings};
+use crate::sound::{Cue, Cues, Ears, Sound, SoundSettings};
+use crate::{Clock, Step};
+
+/// Tells the sound what the generated world is doing.
+pub(super) fn plugin(app: &mut App) {
+    app.init_resource::<Lives>().add_systems(
+        Update,
+        (
+            (robot_cues, traffic_cues).in_set(Cues),
+            (
+                (state_cues, life_cues)
+                    .run_if(resource_changed::<Society>),
+                house_cues,
+                vote_cues,
+                muse_cues,
+            )
+                .chain()
+                .after(Step::Scene)
+                .before(Cues),
+        ),
+    );
+}
 
 /// The sound each robot in earshot was last making, and its count.
 #[derive(Default)]

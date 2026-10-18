@@ -2,7 +2,7 @@
 //! module, whose `Default` is the file's value.
 
 use bevy::prelude::*;
-use hamlet_assets::{File, Tuning, designed, follow};
+use hamlet_assets::{File, Tuning, TuningPlugin, designed, follow};
 
 use crate::bubble::BubbleSettings;
 use crate::chief::ChiefSettings;
@@ -21,6 +21,12 @@ use crate::pick::PickSettings;
 use crate::sky::{CameraSettings, Looks, SkySettings};
 use crate::sound::SoundSettings;
 use crate::works::WorksSettings;
+
+/// Keeps the settings in step with `assets/world.toml`. Add it before
+/// the plugins that own them.
+pub fn plugin(app: &mut App) {
+    app.add_plugins(TuningPlugin::<WorldTuning>::default());
+}
 
 /// Every tuning value of the world, as `assets/world.toml` has them.
 #[derive(Asset, TypePath, Clone, Debug, serde::Deserialize)]

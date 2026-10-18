@@ -25,11 +25,13 @@ use hamlet_realm::chief::{
     Mascot, Phase, Place, Settled,
 };
 use hamlet_realm::generator::{Loading, Robot};
-use hamlet_realm::hamlet::{Housed, RealmPlugin};
+use hamlet_realm::hamlet::Housed;
 use hamlet_realm::library::{Librarian, Library, Stood};
 use hamlet_realm::pick::{Centre, Glide, Orbit};
 use hamlet_realm::sky::{CameraSettings, SkySettings};
-use hamlet_realm::{Clock, Hour, Stage, WorldCamera, WorldSystems};
+use hamlet_realm::{
+    Clock, Hour, RealmPlugin, Stage, WorldCamera, WorldSystems,
+};
 use hamlet_rules::budget::{Amount, Report, Standing};
 use hamlet_rules::hamlet::HOME;
 

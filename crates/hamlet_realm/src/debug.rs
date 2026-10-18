@@ -15,7 +15,7 @@ use hamlet_assets::tint;
 use super::pick::{Hovered, Selected, Thing};
 use super::{WorldCamera, WorldSystems};
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<DebugSettings>()
         .init_resource::<Hovered>()
         .init_resource::<Selected>()
