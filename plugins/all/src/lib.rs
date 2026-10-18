@@ -3,27 +3,30 @@
 
 use bevy_app::{PluginGroup, PluginGroupBuilder};
 
-/// Every plugin whose feature is on: the layers, then the panels.
-/// Add it to the app after the SDK.
+/// Every plugin whose feature is on: the layers from the base up,
+/// then the panels. Add it to the app after the SDK.
 pub struct Builtin;
 
 impl PluginGroup for Builtin {
     fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add_group(Layers)
-            .add_group(Panels)
+        let group =
+            PluginGroupBuilder::start::<Self>().add_group(Base);
+        // The realm draws into a window, so only an app with one
+        // adds it.
+        #[cfg(feature = "realm")]
+        let group = group.add(plugin_realm::plugin);
+        group.add_group(Panels)
     }
 }
 
-/// The layers a window is drawn from. The realm draws into a window,
-/// so it is left out of an app with none.
-pub struct Layers;
+/// The layers that run with no window, the lowest first.
+pub struct Base;
 
-impl PluginGroup for Layers {
+impl PluginGroup for Base {
     fn build(self) -> PluginGroupBuilder {
         let group = PluginGroupBuilder::start::<Self>();
-        #[cfg(feature = "realm")]
-        let group = group.add(plugin_realm::plugin);
+        #[cfg(feature = "hamlets")]
+        let group = group.add(plugin_hamlets::plugin);
         group
     }
 }

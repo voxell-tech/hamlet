@@ -36,6 +36,7 @@ hamlet_guest = { version = "0.1.0", path = "crates/hamlet_guest" }
 hamlet_offscreen = { version = "0.1.0", path = "crates/hamlet_offscreen" }
 hamlet_harness = { version = "0.1.0", path = "crates/hamlet_harness" }
 hamlet_plugins = { version = "0.1.0", path = "plugins/all" }
+plugin_hamlets = { version = "0.1.0", path = "plugins/hamlets" }
 plugin_realm = { version = "0.1.0", path = "plugins/realm" }
 plugin_skills = { version = "0.1.0", path = "plugins/skills" }
 plugin_inspector = { version = "0.1.0", path = "plugins/inspector" }

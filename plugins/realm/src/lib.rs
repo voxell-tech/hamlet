@@ -18,7 +18,10 @@ pub struct RealmLayer;
 
 impl HamletPlugin for RealmLayer {
     fn manifest() -> Manifest {
-        Manifest::built_in("realm").named("Realm").essential()
+        Manifest::built_in("realm")
+            .named("Realm")
+            .needs("hamlets", ">=0.1, <1")
+            .essential()
     }
 
     fn entry(_: &mut Entry) {}

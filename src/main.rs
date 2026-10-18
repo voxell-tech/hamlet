@@ -11,7 +11,7 @@ use bevy_app::{
 };
 use hamlet_core::agents::WatchEvery;
 use hamlet_core::core::CorePlugin;
-use hamlet_core::oversight::{OversightPlugin, Unreviewed};
+use hamlet_core::oversight::Unreviewed;
 use hamlet_core::session::SessionPlugin;
 use hamlet_core::terminal::TerminalPlugin;
 use hamlet_desktop::DesktopPlugin;
@@ -19,7 +19,7 @@ use hamlet_home::instance::{self, Instance};
 use hamlet_home::{Home, limits};
 use hamlet_model::config::Config;
 use hamlet_model::log;
-use hamlet_plugins::Builtin;
+use hamlet_plugins::{Base, Builtin};
 use hamlet_sandbox as sandbox;
 use hamlet_ui::{ShowRequests, UiPlugin, window_plugin};
 
@@ -151,7 +151,6 @@ fn main() -> Result<()> {
             home,
         },
         SessionPlugin,
-        OversightPlugin,
         DesktopPlugin {
             window: mode == Mode::Window,
         },
@@ -166,6 +165,7 @@ fn main() -> Result<()> {
     let tick = ScheduleRunnerPlugin::run_loop(TICK);
     match mode {
         Mode::Repl => {
+            app.add_plugins((hamlet_sdk::plugin::plugin, Base));
             // The window's SDK is not there to keep what the
             // plugins read and draw.
             #[cfg(feature = "wasm")]
@@ -178,6 +178,7 @@ fn main() -> Result<()> {
         }
         Mode::Headless => {
             eprintln!("hamlet: running headless; Ctrl-C stops");
+            app.add_plugins((hamlet_sdk::plugin::plugin, Base));
             #[cfg(feature = "wasm")]
             app.add_plugins((
                 hamlet_sdk::tree::plugin,
