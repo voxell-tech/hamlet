@@ -104,7 +104,12 @@ pub fn apply(
                 }
                 (Intent::Redraw(_), None) => {}
                 // Between plugins: `interop` carries these out.
-                (Intent::RunCommand(_) | Intent::Reply(_), _) => {}
+                (
+                    Intent::RunCommand(_)
+                    | Intent::Reply(_)
+                    | Intent::Publish(_),
+                    _,
+                ) => {}
             }
         }
     }

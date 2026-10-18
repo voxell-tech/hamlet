@@ -344,6 +344,53 @@ pub fn answering() -> String {
     )
 }
 
+/// Publishes the event `topic` with `payload` in its first `step`.
+pub fn publishing(topic: &str, payload: &str) -> String {
+    let (topic_len, payload_len) = (topic.len(), payload.len());
+    format!(
+        r#"(module {COMMON} {QUIET} {NO_VIEW}
+  (data (i32.const 600) "{topic}")
+  (data (i32.const 680) "{payload}")
+  (global $sent (mut i32) (i32.const 0))
+  (func (export "hamlet:plugin/plugin@0.4.0#step")
+    (param i32 i32) (result i32)
+    (if (global.get $sent) (then {NOTHING} return))
+    (global.set $sent (i32.const 1))
+    (i32.store (i32.const 512) (i32.const 528))
+    (i32.store (i32.const 516) (i32.const 1))
+    (i32.store8 (i32.const 528) (i32.const 4))
+    (i32.store (i32.const 536) (i32.const 600))
+    (i32.store (i32.const 540) (i32.const {topic_len}))
+    (i32.store (i32.const 544) (i32.const 680))
+    (i32.store (i32.const 548) (i32.const {payload_len}))
+    (i32.const 512)))"#
+    )
+}
+
+/// Logs the payload of each event it is given, at info.
+pub fn listening() -> String {
+    format!(
+        r#"(module {COMMON} {QUIET} {NO_VIEW}
+  (func (export "hamlet:plugin/plugin@0.4.0#step")
+    (param i32 i32) (result i32)
+    (local $at i32) (local $end i32)
+    (local.set $at (local.get 0))
+    (local.set $end
+      (i32.add (local.get 0) (i32.mul (local.get 1) (i32.const 40))))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $at) (local.get $end)))
+        (if (i32.eq (i32.load8_u (local.get $at)) (i32.const 8))
+          (then
+            (call $log (i32.const 0)
+              (i32.load (i32.add (local.get $at) (i32.const 24)))
+              (i32.load (i32.add (local.get $at) (i32.const 28))))))
+        (local.set $at (i32.add (local.get $at) (i32.const 40)))
+        (br $each)))
+    {NOTHING}))"#
+    )
+}
+
 /// Does nothing in `step`, and never answers a command.
 pub fn quiet() -> String {
     format!(

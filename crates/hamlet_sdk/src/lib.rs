@@ -8,6 +8,7 @@ pub mod cards;
 pub mod confirm;
 pub mod convo;
 pub mod dock;
+pub mod events;
 pub mod feel;
 pub mod icons;
 pub mod looks;

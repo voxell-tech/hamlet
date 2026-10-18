@@ -101,6 +101,17 @@ interface plugin {
     command(command-call),
     // The answer to a command this plugin ran.
     reply(call-answer),
+    // An event a plugin published, or the host, that this plugin
+    // imports under `imports.events` and may use.
+    event(published),
+  }
+
+  record published {
+    topic: string,
+    // The id of the plugin that published it, or `host`.
+    sender: string,
+    // A copy of the payload, in a format the publisher documents.
+    payload: list<u8>,
   }
 
   record command-call {
@@ -151,6 +162,14 @@ interface plugin {
     run-command(call-request),
     // Answers a `command` the plugin was given.
     reply(call-answer),
+    // Publishes an event the manifest lists under `exports.events`, to
+    // every plugin that imports it and holds `plugin.use` for this one.
+    publish(publication),
+  }
+
+  record publication {
+    topic: string,
+    payload: list<u8>,
   }
 
   record call-request {

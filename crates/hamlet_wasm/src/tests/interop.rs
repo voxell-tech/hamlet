@@ -1,5 +1,6 @@
 use bevy::ecs::message::Messages;
 use bevy::prelude::*;
+use hamlet_sdk::agents::SelectedAgent;
 use hamlet_sdk::capability::{Capability, Subject};
 use hamlet_sdk::plugin::{Command, Disable};
 
@@ -93,6 +94,70 @@ fn a_command_is_refused_without_the_grant_and_the_chief_is_asked() {
             } if target == "target"
         )
     }));
+}
+
+const TICKS: &str = "[exports]\nevents = [\"ticked\"]\n";
+const LISTENS: &str = "[imports]\nevents = [\"clock/ticked\"]\n";
+
+fn listener(id: &'static str) -> Plugin {
+    Plugin::new(id, fixture::component(&fixture::listening()))
+        .saying(LISTENS)
+}
+
+#[test]
+fn an_event_goes_to_each_subscriber_that_may_use_the_publisher() {
+    let scratch = Scratch::new("interop_events");
+    let module = fixture::publishing("ticked", "noon");
+    let mut app = home::app(
+        &scratch,
+        &[
+            Plugin::new("clock", fixture::component(&module))
+                .saying(TICKS),
+            listener("first").allowed_for(&[("plugin.use", "clock")]),
+            listener("second")
+                .allowed_for(&[("plugin.use", "clock")]),
+            listener("third").asking(&["plugin.use"]),
+        ],
+    );
+
+    let lines = said(&mut app, 6);
+
+    assert!(lines.contains(&line("first", "noon")), "{lines:?}");
+    assert!(lines.contains(&line("second", "noon")), "{lines:?}");
+    assert!(!lines.iter().any(|(plugin, _)| plugin == "third"));
+    assert!(petitions(&mut app).iter().any(|(_, subject)| matches!(
+        subject,
+        Subject::Use { plugin, target: Some(target), .. }
+            if plugin == "third" && target == "clock"
+    )));
+}
+
+#[test]
+fn an_event_of_the_host_reaches_the_subscriber_that_holds_its_capability()
+ {
+    let scratch = Scratch::new("interop_host");
+    let hears = |id: &'static str| {
+        Plugin::new(id, fixture::component(&fixture::listening()))
+            .saying(
+                "[imports]\nevents = [\"host/selection-changed\"]\n",
+            )
+            .asking(&["read.agents"])
+    };
+    let mut app = home::app(
+        &scratch,
+        &[
+            hears("granted").granted(&["read.agents"]),
+            hears("refused"),
+        ],
+    );
+    app.update();
+    app.world_mut().resource_mut::<SelectedAgent>().0 =
+        Some("Juniper".into());
+
+    let lines = said(&mut app, 4);
+
+    assert!(lines.contains(&line("granted", "Juniper")), "{lines:?}");
+    assert!(!lines.iter().any(|(plugin, _)| plugin == "refused"));
 }
 
 #[test]

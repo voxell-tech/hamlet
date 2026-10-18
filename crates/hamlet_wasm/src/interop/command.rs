@@ -2,33 +2,16 @@
 //! the checks, the command in the target's inbox and the answer back.
 
 use bevy::prelude::*;
-use hamlet_sdk::capability::{
-    Capability, Granted, Uninstalled, Verdict, Wanted,
-};
-use hamlet_sdk::plugin::{Manifest, PluginInfo, Status};
+use hamlet_sdk::capability::{Capability, Verdict, Wanted};
+use hamlet_sdk::plugin::Status;
 
 use super::calls::Calls;
-use super::mail::send;
+use super::mail::{Who, send};
 use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::{
-    CallAnswer, CallRequest, CommandCall, Incoming, Intent,
+    CallAnswer, CallRequest, CommandCall, Incoming,
 };
 use crate::limits::Limits;
-use crate::run::Done;
-
-/// What the plugins of a frame may be asked about each other.
-type Who<'w, 's> = Query<
-    'w,
-    's,
-    (
-        Entity,
-        &'static PluginInfo,
-        &'static Manifest,
-        &'static Status,
-        &'static Granted,
-    ),
-    Without<Uninstalled>,
->;
 
 /// Why a command is not run, and whether the chief is to be asked.
 struct Refused {
@@ -45,45 +28,9 @@ impl Refused {
     }
 }
 
-/// Carries out the `run-command` and `reply` intents of the plugins
-/// that were stepped.
-pub(super) fn route(
-    mut done: MessageReader<Done>,
-    who: Who,
-    mut inboxes: Query<(&Status, &mut Inbox)>,
-    mut calls: ResMut<Calls>,
-    limits: Res<Limits>,
-    mut commands: Commands,
-) {
-    for Done { plugin, intents } in done.read() {
-        for intent in intents {
-            match intent {
-                Intent::RunCommand(request) => {
-                    run(
-                        *plugin,
-                        request,
-                        &who,
-                        &mut inboxes,
-                        &mut calls,
-                        &limits,
-                        &mut commands,
-                    );
-                }
-                Intent::Reply(answer) => reply(
-                    *plugin,
-                    answer,
-                    &who,
-                    &mut inboxes,
-                    &mut calls,
-                    &limits,
-                ),
-                Intent::LogLine(_) | Intent::Redraw(_) => {}
-            }
-        }
-    }
-}
-
-fn run(
+/// Starts the command `request` of `caller`, or answers `caller` with
+/// why it is not run.
+pub(super) fn run(
     caller: Entity,
     request: &CallRequest,
     who: &Who,
@@ -226,7 +173,8 @@ pub(super) fn idle(status: Status) -> &'static str {
     }
 }
 
-fn reply(
+/// Gives the caller the answer `by` made to a command.
+pub(super) fn reply(
     by: Entity,
     answer: &CallAnswer,
     who: &Who,

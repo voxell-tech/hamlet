@@ -26,7 +26,7 @@ pub use self::entry::{Entry, EntryPoint};
 pub use self::info::PluginInfo;
 pub use self::manifest::{Manifest, Need};
 pub use self::offers::{
-    Collection, Exports, Imports, link, unlink, valid,
+    Collection, Exports, HOST, Imports, link, unlink, valid,
 };
 pub use self::status::Status;
 pub use self::version::{Range, Version};

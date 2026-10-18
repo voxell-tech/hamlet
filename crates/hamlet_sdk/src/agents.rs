@@ -5,10 +5,24 @@ use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::prelude::*;
 use hamlet_core::agents::{Citizen, Left, LivesIn, Settlement};
 
-/// Keeps [`AgentList`] in step with the core's agents.
+use crate::convo::{AgentSelected, Me};
+
+/// Keeps [`AgentList`] in step with the core's agents, and
+/// [`SelectedAgent`] with the selection.
 pub fn plugin(app: &mut App) {
     app.init_resource::<AgentList>()
-        .add_systems(Update, keep.in_set(Kept).run_if(moved));
+        .init_resource::<AgentSelected>()
+        .init_resource::<SelectedAgent>()
+        .add_systems(
+            Update,
+            (
+                keep.in_set(Kept).run_if(moved),
+                keep_selected.in_set(Kept).run_if(
+                    resource_changed::<AgentSelected>
+                        .or_eager(resource_exists_and_changed::<Me>),
+                ),
+            ),
+        );
 }
 
 /// The system that writes [`AgentList`].
@@ -25,6 +39,30 @@ pub struct Agent {
 /// The living agents, by name, each with its hamlet.
 #[derive(Resource, Default, PartialEq, Clone, Debug)]
 pub struct AgentList(pub Vec<Agent>);
+
+/// The name of the agent selected in the world, if one is.
+#[derive(Resource, Default, PartialEq, Clone, Debug)]
+pub struct SelectedAgent(pub Option<String>);
+
+/// Writes the selected agent's name when it differs.
+fn keep_selected(
+    selected: Res<AgentSelected>,
+    me: Option<Res<Me>>,
+    names: Query<&Name>,
+    mut agent: ResMut<SelectedAgent>,
+) {
+    let now = match (selected.0, me) {
+        (true, Some(me)) => names
+            .get(me.agent)
+            .ok()
+            .map(ToString::to_string)
+            .or_else(|| me.with.clone()),
+        _ => None,
+    };
+    if agent.0 != now {
+        agent.0 = now;
+    }
+}
 
 /// Whether an agent came, went, was renamed or moved.
 fn moved(

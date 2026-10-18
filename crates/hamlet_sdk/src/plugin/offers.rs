@@ -1,6 +1,10 @@
 //! What a plugin offers the others (`exports`) and what it uses of
 //! theirs (`imports`). Nothing outside these lists is reachable.
 
+/// The name the host publishes its events under, which no plugin
+/// may take.
+pub const HOST: &str = "host";
+
 /// A collection a plugin offers: the keys of its storage that start
 /// with `prefix`.
 #[derive(Clone, PartialEq, Eq, Debug, serde::Deserialize)]
@@ -114,7 +118,8 @@ impl Imports {
             })
     }
 
-    /// The plugins any import is of, once each, in order.
+    /// The plugins any import is of, once each, in order. The host is
+    /// not a plugin.
     pub fn plugins(&self) -> Vec<&str> {
         let mut plugins = Vec::new();
         for import in self
@@ -124,6 +129,7 @@ impl Imports {
             .chain(&self.collections)
         {
             if let Some((plugin, _)) = unlink(import)
+                && plugin != HOST
                 && !plugins.contains(&plugin)
             {
                 plugins.push(plugin);

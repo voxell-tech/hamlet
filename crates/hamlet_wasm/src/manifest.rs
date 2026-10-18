@@ -1,11 +1,7 @@
 //! `manifest.toml`: what an installed plugin says about itself.
 
 use hamlet_sdk::capability::{Asked, Asks, Refusal};
-use hamlet_sdk::plugin::{Exports, Imports, Need, Range};
-
-/// The name the host publishes its events under, which no plugin
-/// may take.
-pub const HOST: &str = "host";
+use hamlet_sdk::plugin::{Exports, HOST, Imports, Need, Range};
 
 /// A capability a plugin asks for, and why.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]

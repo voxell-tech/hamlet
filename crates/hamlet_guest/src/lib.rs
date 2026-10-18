@@ -13,13 +13,14 @@ pub mod bindings {
 }
 
 pub mod calls;
+pub mod events;
 pub mod state;
 pub mod storage;
 pub mod ui;
 
 pub use self::bindings::exports::hamlet::plugin::plugin::{
     CallAnswer, CallRequest, CommandCall, Incoming, Intent, Outgoing,
-    Tree, View as Wired,
+    Publication, Published, Tree, View as Wired,
 };
 pub use self::bindings::hamlet::plugin::host::{
     Agent, AgentPapers, Level, RequestResult,
