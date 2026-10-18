@@ -311,7 +311,9 @@ of the plugin: `.cache/`, `.last-good/` and the plugin's `data/`.
 
 The host looks at the folder of each installed plugin every `poll_ms` (in
 `assets/wasm.toml`, `[reload]`) and compares the modification time and size
-of `manifest.toml`, `plugin.wasm` and `panel.ui`. A change reloads that plugin:
+of `manifest.toml`, `plugin.wasm` and `panel.ui`. Where those moved, a hash of
+the three files is compared with the one last looked at, and a file saved again
+with the same contents is not a change. A change reloads that plugin:
 
 1. The folder is read again as the scan reads it. A folder the scan turns
    down, or one that changed from code to a panel or back, is a failed reload.

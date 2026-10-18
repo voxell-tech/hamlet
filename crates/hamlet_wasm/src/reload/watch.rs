@@ -5,6 +5,7 @@ use std::time::{Instant, SystemTime};
 
 use bevy::prelude::*;
 use hamlet_sdk::capability::Uninstalled;
+use sha2::{Digest as _, Sha256};
 
 use super::Polling;
 use crate::install::FILES;
@@ -28,18 +29,42 @@ impl Stamp {
     }
 }
 
+/// A hash of the names and contents of the files of a plugin's
+/// folder. The default is that of no folder.
+#[derive(Clone, PartialEq, Eq, Default, Debug)]
+pub struct Digest(Vec<u8>);
+
+impl Digest {
+    pub fn of(folder: &Path) -> Self {
+        let mut hash = Sha256::new();
+        for file in FILES {
+            hash.update(file.as_bytes());
+            if let Ok(bytes) = std::fs::read(folder.join(file)) {
+                hash.update(bytes);
+            }
+        }
+        Self(hash.finalize().to_vec())
+    }
+}
+
 /// On the entity of an installed plugin: its folder, and how its
 /// files looked when they were last looked at.
 #[derive(Component, Debug)]
 pub struct Watch {
     pub folder: PathBuf,
     pub stamp: Stamp,
+    pub digest: Digest,
 }
 
 impl Watch {
     pub fn new(folder: PathBuf) -> Self {
         let stamp = Stamp::of(&folder);
-        Self { folder, stamp }
+        let digest = Digest::of(&folder);
+        Self {
+            folder,
+            stamp,
+            digest,
+        }
     }
 }
 
@@ -63,8 +88,15 @@ pub fn poll(
     *last = Some(now);
     for (plugin, mut watch) in &mut plugins {
         let stamp = Stamp::of(&watch.folder);
-        if watch.stamp != stamp {
-            watch.stamp = stamp;
+        if watch.stamp == stamp {
+            continue;
+        }
+        watch.stamp = stamp;
+        // A file saved again with the same contents is not a new
+        // version.
+        let digest = Digest::of(&watch.folder);
+        if watch.digest != digest {
+            watch.digest = digest;
             modified.write(Modified(plugin));
         }
     }

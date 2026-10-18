@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use hamlet_sdk::plugin::PluginInfo;
 use hamlet_sdk::reload::{Reload, Rollback};
 
+use super::watch::Digest;
 use super::{Stamp, Watch};
 use crate::install::{FILES, MANIFEST};
 
@@ -73,6 +74,7 @@ pub fn rollback(
                     info.id
                 );
                 watch.stamp = Stamp::default();
+                watch.digest = Digest::default();
             }
             Err(why) => {
                 warn!("plugin {}: no roll back: {why}", info.id)

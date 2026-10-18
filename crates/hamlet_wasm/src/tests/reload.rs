@@ -1,3 +1,4 @@
+use bevy::ecs::message::Messages;
 use bevy::prelude::*;
 use hamlet_rules::chief::rulings::Choice as Answer;
 use hamlet_sdk::capability::{Capability, Subject};
@@ -10,7 +11,7 @@ use super::tree::{PANEL, items, tree};
 use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
 use crate::interface::VERSION;
-use crate::reload::Polling;
+use crate::reload::{Modified, Polling};
 
 fn component(count: &'static str) -> Vec<u8> {
     fixture::component(&fixture::drawing(
@@ -78,6 +79,30 @@ fn a_reload_takes_a_good_version_and_keeps_the_old_one_when_the_new_does_not_sta
     assert_eq!(std::fs::read(&file).unwrap(), component("second"));
     assert!(shows(&app, "second"));
     assert_eq!(reload(&mut app), Reload::default());
+}
+
+#[test]
+fn a_file_saved_again_with_the_same_contents_is_not_reloaded() {
+    let scratch = Scratch::new("reload_same");
+    let file = scratch.plugins().join("probe/plugin.wasm");
+    let mut app =
+        opened(&scratch, Plugin::new("probe", component("first")));
+    let mut cursor = app
+        .world()
+        .resource::<Messages<Modified>>()
+        .get_cursor_current();
+    let mut looked = |app: &mut App| {
+        settle(app);
+        let messages = app.world().resource::<Messages<Modified>>();
+        cursor.read(messages).count()
+    };
+
+    std::fs::write(&file, component("first")).unwrap();
+    assert_eq!(looked(&mut app), 0);
+
+    std::fs::write(&file, component("second")).unwrap();
+    assert_eq!(looked(&mut app), 1);
+    assert!(shows(&app, "second"));
 }
 
 #[test]
