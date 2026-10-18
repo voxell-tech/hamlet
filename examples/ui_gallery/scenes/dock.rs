@@ -115,6 +115,10 @@ pub(super) fn seed_dock(world: &mut World) {
         if matches!(scene, Scene::Skills | Scene::SkillsAlone) {
             tree.add_tab(side, "skills");
         }
+        #[cfg(feature = "wasm")]
+        if scene == Scene::PluginRoster {
+            tree.add_tab(side, super::roster::id());
+        }
     }
 }
 

@@ -122,6 +122,10 @@ pub(super) fn setup(world: &mut World) {
     if scene == Scene::Plugins {
         world.insert_resource(hamlet_ui::settings::Pane::Plugins);
     }
+    #[cfg(feature = "wasm")]
+    if scene == Scene::PluginRoster {
+        super::roster::put(world);
+    }
     if matches!(
         scene,
         Scene::Settings | Scene::Charter | Scene::Plugins
