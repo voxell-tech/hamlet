@@ -239,7 +239,7 @@ takes words. A call of the older form, `{"question": "..."}`, is one
 question that takes words. `hamlet_rules/src/chief/asking.rs` reads and
 checks a call, and a call it refuses tells the agent why.
 
-**Where it is answered.** One card, `hamlet_ui/src/asking.rs`, is shown
+**Where it is answered.** One card, `hamlet_sdk/src/asking.rs`, is shown
 in Needs You and over the field of the chat with the agent that asked,
 and both read the same answers, so what is begun in one stands in the
 other. The card shows one question at a time, with "1 of 3" and the way

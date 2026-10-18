@@ -21,6 +21,9 @@ A plugin crate depends on `hamlet_sdk` and the engine crates, never on
 | `feel` | `Mood` and `Lit`, the marks a view puts on a node for the feel in `hamlet_ui` to read |
 | `cards` | The card of a list row and the heading over a part of a panel |
 | `convo` | `Me`, the chat's session and the agent it is with. `AgentSelected`, whether the world has an agent selected. `of_agent`, a page about the agent the chat is with |
+| `asking` | The card of the questions an agent asks the chief, which Needs You and the chat both show, so an answer begun in one stands in the other |
+| `change` | `DrawChange`, set by the window to the function that draws the edit an approval holds as the chat draws it, so a plugin shows an edit the same way |
+| `waits` | `Waits`, how many things wait for the chief, for the status bar and any plugin |
 | `papers` | `Papers`, a read-model of the selected agent's notes, character and skills. Empty while no agent is selected |
 | `confirm` | `Confirm`, an observer event that asks the chief a question before a command is run |
 | `command` | `Command`, the one action; `RunCommand`, which runs one by its id, on a `Subject` where it has one; `Handler`, `HandlerWith` and `Opens`, what a built-in one does; `Forward`, a command the plugin carries out itself; `Notice`; and `Commands`, a read-model of every command |
@@ -264,6 +267,7 @@ feature of its name, all on by default. The binary and the gallery add
 
 | Plugin | What it adds |
 |---|---|
+| `plugin_needs` | The Needs You panel, titled PETITIONS: everything that waits for the chief, oldest first, with the answers each takes and a field for the reason or reply. It needs the window's `UiPlugin` (the chat's `Me` and `DrawChange`) |
 | `plugin_skills` | The Skills panel: the selected agent's own skills over the library, a VIEW line that opens it, and a SKILLS tab of the inspector's page of an agent that has skills of its own. TAKE OUT asks through `Confirm` and then runs `/unshelve` as the chief |
 
 Settings has a Plugins page that lists every `PluginInfo` with a switch

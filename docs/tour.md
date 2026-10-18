@@ -111,7 +111,7 @@ Paths are under `crates/`.
 |---|---|
 | What an agent is told every turn | [`prompt.md`](prompt.md); the charter is `assets/charter.md` |
 | The tools an agent has | `hamlet_core/src/tools/`; the hamlet's own in `hamlet_core/src/agent/hamlet_tools.rs` |
-| The questions an agent asks the chief | `hamlet_rules/src/chief/asking.rs`; their card, in Needs You and the chat, in `hamlet_ui/src/asking.rs` |
+| The questions an agent asks the chief | `hamlet_rules/src/chief/asking.rs`; their card, in Needs You and the chat, in `hamlet_sdk/src/asking.rs` |
 | Selecting and copying text in the panels | `hamlet_ui/src/select.rs`; [`chat.md`](chat.md) |
 | A chief's slash command | The table `ALL` in `hamlet_rules/src/commands.rs`, which names who carries it out. It is not a `Command` entity: see [`sdk.md`](sdk.md) |
 | What needs the chief's approval | `hamlet_core/src/oversight/danger.rs` |
@@ -127,7 +127,7 @@ Paths are under `crates/`.
 | Removing, merging, restoring an agent | `hamlet_rules/src/lifecycle.rs` |
 | Founding, naming, moving, closing a hamlet | `hamlet_rules/src/realm.rs` |
 | A starter skill | `hamlet_home/starters/<name>/SKILL.md` |
-| A panel | Its file in `hamlet_ui/src/screens/`, or in `hamlet_ui/src/` |
+| A panel | Its folder in `plugins/` where it is a plugin (Needs You, Skills), or its file in `hamlet_ui/src/screens/` or `hamlet_ui/src/` |
 | The right-click menu | The items are contributions: `hamlet_ui/src/world_menu/contribute.rs` and `acts.rs`, and `items.rs` for the lines that depend on two agents that are chosen |
 | A colour in the panels | `assets/theme.toml`, its fields in `hamlet_sdk/src/theme.rs` |
 | How a control looks or feels | `hamlet_sdk/src/looks.rs`, `hamlet_ui/src/widgets/feel/`; [`ui-warmth.md`](ui-warmth.md) |
@@ -135,6 +135,7 @@ Paths are under `crates/`.
 | A plugin, or what a plugin may add | `plugins/<name>/`, `hamlet_sdk/src/plugin/`; [`sdk.md`](sdk.md) |
 | Which plugins are built in | `plugins/all/Cargo.toml` and `src/lib.rs` |
 | The Skills panel | `plugins/skills/src/` |
+| The Needs You panel (the queue of what waits for the chief) | `plugins/needs/src/lib.rs`; the count in the status bar is `hamlet_sdk/src/waits.rs`; how it draws an edit, `hamlet_sdk/src/change.rs` |
 | What an installed plugin may call, and its limits | `hamlet_wasm/wit/hamlet-plugin.wit`, `hamlet_wasm/src/host.rs` and `host/`, `assets/wasm.toml`; [`wasm.md`](wasm.md) |
 | Which installed plugins load, and what each is granted | `hamlet_wasm/src/install.rs`, `load.rs`, `hamlet_sdk/src/capability/`; [`permissions.md`](permissions.md), [`wasm.md`](wasm.md) |
 | Reloading a plugin when its files change, its last good version, the compiled cache | `hamlet_wasm/src/reload.rs` and `reload/`, `cache.rs`, `hamlet_sdk/src/reload.rs`, `assets/wasm.toml`; [`wasm.md`](wasm.md) |
