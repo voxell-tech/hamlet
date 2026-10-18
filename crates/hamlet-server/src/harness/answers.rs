@@ -10,9 +10,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::bindings::Binding;
-use super::link::{
-    Credential, CredentialType, ModelRef, Section, Usage,
-};
+use super::link::{ModelRef, Section, Usage};
 use super::tools;
 use crate::operation::canonical;
 use crate::{OperationId, RuntimeInstance, Store};
@@ -285,33 +283,67 @@ impl Store {
     }
 }
 
-/// Allows the model call `key` of `binding`, with the credential it
-/// needs. Asking again with the same key allows the same call.
+/// Admits an attempt with its task and price, or returns the cap that
+/// stopped it.
 pub(crate) fn attempt(
     store: &mut Store,
     binding: &Binding,
     key: &str,
     model: &ModelRef,
-    credential: impl FnOnce(&str) -> Option<String>,
+    task: Option<&str>,
+    price: Option<&Value>,
     at: i64,
-) -> Result<Option<Credential>> {
+) -> Result<Option<String>> {
+    let old = store
+        .db
+        .query_row(
+            "SELECT binding, provider, model, task FROM \
+             harness_attempt WHERE runtime=?1 AND key=?2",
+            params![binding.runtime.as_str(), key],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+    if let Some((id, provider, name, previous_task)) = old {
+        return Ok((id != binding.id.0
+            || provider != model.provider
+            || name != model.id
+            || previous_task.as_deref() != task)
+            .then(|| {
+                "This attempt key already names another model call."
+                    .into()
+            }));
+    }
+    if let Some(words) = crate::spend::can_spend(
+        store.connection(),
+        &binding.agent.hamlet,
+        task,
+        at,
+    )? {
+        return Ok(Some(words));
+    }
     store.db.execute(
         "INSERT INTO harness_attempt (runtime, key, binding, \
-         provider, model, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON \
-         CONFLICT DO NOTHING",
+         provider, model, at, task, price) VALUES (?1, ?2, ?3, ?4, \
+         ?5, ?6, ?7, ?8) ON CONFLICT DO NOTHING",
         params![
             binding.runtime.as_str(),
             key,
             binding.id.0,
             model.provider,
             model.id,
-            at
+            at,
+            task,
+            price.map(Value::to_string)
         ],
     )?;
-    Ok(credential(&model.provider).map(|key| Credential {
-        key,
-        type_: CredentialType::ApiKey,
-    }))
+    Ok(None)
 }
 
 /// Charges `usage` to the attempt `key` of `runtime` once, however
@@ -326,21 +358,25 @@ pub(crate) fn charge(
     let allowed = store
         .db
         .query_row(
-            "SELECT 1 FROM harness_attempt WHERE runtime = ?1 AND \
-             key = ?2",
+            "SELECT price FROM harness_attempt WHERE runtime = ?1 \
+             AND key = ?2",
             params![runtime.as_str(), key],
-            |_| Ok(()),
+            |r| r.get::<_, Option<String>>(0),
         )
         .optional()?;
-    if allowed.is_none() {
+    let Some(price) = allowed else {
         return Ok(None);
-    }
-    // Integer micro-dollars, as the spend ledger keeps them.
-    let micros = (usage.cost * 1_000_000.0).round().max(0.0) as i64;
+    };
+    let price = price
+        .map(|p| serde_json::from_str::<serde_json::Value>(&p))
+        .transpose()?;
+    let amount = crate::spend::amount(usage, price.as_ref());
     store.db.execute(
         "INSERT INTO harness_usage (runtime, key, input, output, \
-         cache_read, cache_write, micros, at) VALUES (?1, ?2, ?3, \
-         ?4, ?5, ?6, ?7, ?8) ON CONFLICT DO NOTHING",
+         cache_read, cache_write, micros, at, ms, estimated, \
+         detail, ordinal) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, \
+         ?9, ?10, ?11, (SELECT COALESCE(MAX(ordinal),0)+1 FROM \
+         harness_usage)) ON CONFLICT DO NOTHING",
         params![
             runtime.as_str(),
             key,
@@ -348,8 +384,15 @@ pub(crate) fn charge(
             usage.output,
             usage.cache_read,
             usage.cache_write,
-            micros,
-            at
+            amount.micros,
+            at,
+            amount.ms,
+            amount.tokens
+                - usage.input
+                - usage.output
+                - usage.cache_read
+                - usage.cache_write,
+            serde_json::to_string(usage)?
         ],
     )?;
     Ok(Some(()))

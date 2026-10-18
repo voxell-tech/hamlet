@@ -35,6 +35,8 @@ const MIGRATIONS: &[&str] = &[
     ) STRICT, WITHOUT ROWID;",
     // 5. Harness runtimes, bindings, inputs, waits and model usage.
     include_str!("harness/schema.sql"),
+    // 6. Task attribution, model time and append-only budget resets.
+    include_str!("spend.sql"),
 ];
 
 /// A home's realm database, open in this process alone.

@@ -46,6 +46,7 @@ impl Process {
     ) -> Result<Self> {
         let mut command = Command::new(launch.node);
         command
+            .env_remove("HAMLET_API_KEY")
             .arg("--disable-warning=ExperimentalWarning")
             .arg(launch.entry)
             .arg("--runtime")

@@ -23,6 +23,7 @@ pub struct Service {
     pub(crate) limits: Rules,
     pub(crate) houses: Houses,
     pub(crate) overrides: Overrides,
+    pub(crate) models: crate::models::Models,
 }
 
 impl Service {
@@ -85,6 +86,7 @@ impl Service {
             houses,
             limits: Rules::new()?,
             overrides: Overrides::from_env(faux)?,
+            models: crate::models::Models::open(&root, faux)?,
         })
     }
 

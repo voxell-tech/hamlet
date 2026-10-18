@@ -5,7 +5,11 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Context } from "@earendil-works/chord/context";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Message } from "@earendil-works/pi-ai";
-import { createModels, type MutableModels } from "@earendil-works/pi-ai/models";
+import {
+    createModels,
+    type MutableModels,
+    type Provider,
+} from "@earendil-works/pi-ai/models";
 import {
     type Conversation,
     type ConversationId,
@@ -37,7 +41,8 @@ import {
     type ToolSpec,
     type Usage,
 } from "./link.ts";
-import { allowedStreams, endpointProvider, type Gate } from "./models.ts";
+import { allowedStreams, type Gate, modelProvider } from "./models.ts";
+import { providerWork } from "./providers.ts";
 
 /** The adapter's name and version, which the server keeps in each binding. */
 export const ADAPTER = "hamlet-pi 0.1.0";
@@ -181,6 +186,7 @@ class Runtime {
     /** Cursors of history pages this process handed out. */
     readonly #cursors = new Map<string, Cursor>();
     readonly #gate: Gate;
+    #providerFaux: Provider | undefined;
 
     constructor(
         harness: Harness,
@@ -204,17 +210,31 @@ class Runtime {
                         words: "This model call belongs to no conversation the server bound.",
                     };
                 const key = randomUUID();
+                const live = await harness.snapshot(
+                    LiveDoc,
+                    known.conversation,
+                    BACKGROUND_CONTEXT,
+                );
+                const input = live?.run?.inputs[0];
                 const answer = await channel.request({
                     type: "attempt",
                     conversation: String(known.conversation),
                     key,
                     model,
+                    ...(input === undefined ? {} : { task: String(input) }),
                 });
                 switch (answer.type) {
                     case "allowance":
-                        return answer.credential === undefined
-                            ? { ok: true, key }
-                            : { ok: true, key, apiKey: answer.credential.key };
+                        return {
+                            ok: true,
+                            key,
+                            ...("model" in answer
+                                ? { model: answer.model }
+                                : {}),
+                            ...(answer.credential === undefined
+                                ? {}
+                                : { apiKey: answer.credential.key }),
+                        };
                     case "stopped":
                         return { ok: false, words: answer.words };
                     default:
@@ -240,6 +260,11 @@ class Runtime {
     ): Promise<void> {
         if (faux !== undefined) {
             const script = await readScript(faux);
+            this.#providerFaux = scriptedProvider(
+                script,
+                () => "",
+                (streams) => streams,
+            );
             this.#models.setProvider(
                 scriptedProvider(
                     script,
@@ -328,7 +353,7 @@ class Runtime {
             bound.model.provider !== FAUX.provider &&
             this.#models.getProvider(bound.model.provider) === undefined
         )
-            this.#models.setProvider(endpointProvider(bound.model, this.#gate));
+            this.#models.setProvider(modelProvider(bound.model, this.#gate));
         return known;
     }
 
@@ -459,11 +484,13 @@ class Runtime {
     /** Handles `request` after the earlier requests of its conversation. */
     #serve(request: ServerRequest): void {
         const line =
-            request.type === "create"
-                ? `create:${request.key}`
-                : "conversation" in request
-                  ? request.conversation
-                  : "";
+            request.type === "provider_request"
+                ? request.id
+                : request.type === "create"
+                  ? `create:${request.key}`
+                  : "conversation" in request
+                    ? request.conversation
+                    : "";
         const previous = this.#lines.get(line) ?? Promise.resolve();
         const next = previous.then(() =>
             this.#answer(request).catch((error: unknown) => {
@@ -477,12 +504,20 @@ class Runtime {
             }),
         );
         this.#lines.set(line, next);
+        void next.finally(() => {
+            if (this.#lines.get(line) === next) this.#lines.delete(line);
+        });
     }
 
     async #answer(request: ServerRequest): Promise<void> {
         const context = BACKGROUND_CONTEXT;
         const re = request.id;
         switch (request.type) {
+            case "provider_request": {
+                const result = await providerWork(request, this.#providerFaux);
+                this.#channel.send({ type: "provider_result", re, ...result });
+                return;
+            }
             case "create": {
                 const known = await this.#create(request, context);
                 this.#channel.send({

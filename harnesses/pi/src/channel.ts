@@ -15,6 +15,7 @@ export type Outgoing = RuntimeMessage extends infer M
     : never;
 
 type RequestType =
+    | "provider_request"
     | "create"
     | "submit"
     | "cancel"
@@ -107,6 +108,7 @@ function sort(
     message: ServerMessage,
 ): { request: ServerRequest } | { reply: ServerReply } {
     switch (message.type) {
+        case "provider_request":
         case "create":
         case "submit":
         case "cancel":

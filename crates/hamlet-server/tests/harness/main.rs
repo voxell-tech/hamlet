@@ -749,6 +749,17 @@ fn a_real_endpoint_gets_the_credential_the_server_hands_over_and_nothing_keeps_i
     let mut endpoint =
         tokio.block_on(hamlet_acceptance::openai::Endpoint::start());
     let realm = Realm::new("endpoint");
+    endpoint.enqueue([
+        hamlet_acceptance::openai::Response {
+            status: 503,
+            text: "Busy".into(),
+            ..Default::default()
+        },
+        hamlet_acceptance::openai::Response {
+            text: "Hello sk-held.".into(),
+            ..Default::default()
+        },
+    ]);
     let credentials = json!({"models": {"endpoint": {"type": "api_key", "key": "sk-held"}}});
     std::fs::write(
         realm.home.join("credentials.json"),
@@ -762,7 +773,7 @@ fn a_real_endpoint_gets_the_credential_the_server_hands_over_and_nothing_keeps_i
     let mut driver = Driver::start_on(&realm, None, &env);
     let (binding, runtime) = driver.bind(0);
     driver.submit(binding, "chief:1", "Hello?");
-    driver.answer(binding, "Hello.");
+    driver.answer(binding, "Hello [REDACTED].");
     driver.stop();
     let completions = endpoint
         .requests()
@@ -770,7 +781,7 @@ fn a_real_endpoint_gets_the_credential_the_server_hands_over_and_nothing_keeps_i
         .filter(|request| request.path.ends_with("/chat/completions"))
         .cloned()
         .collect::<Vec<_>>();
-    assert_eq!(completions.len(), 1, "{completions:#?}");
+    assert_eq!(completions.len(), 2, "{completions:#?}");
     assert_eq!(
         completions[0].authorization.as_deref(),
         Some("Bearer sk-held")
@@ -779,10 +790,27 @@ fn a_real_endpoint_gets_the_credential_the_server_hands_over_and_nothing_keeps_i
         completions[0].body.as_ref().unwrap()["model"],
         "org/large"
     );
+    assert_eq!(completions[0].body, completions[1].body);
+    assert_eq!(
+        completions[0].authorization,
+        completions[1].authorization
+    );
     let look = realm.look();
-    assert_eq!((look.attempts, look.usage), (1, 1), "{look:?}");
+    assert_eq!((look.attempts, look.usage), (2, 2), "{look:?}");
     // The endpoint's bill, charged once, in micro-dollars.
     assert_eq!(look.micros, 1_500, "{look:?}");
+    let db =
+        rusqlite::Connection::open(realm.home.join("realm.sqlite"))
+            .unwrap();
+    let usage = hamlet_server::spend::usage(
+        &db,
+        hamlet_server::harness::BindingId(binding),
+    )
+    .unwrap();
+    assert_eq!(
+        (usage.input, usage.output, usage.micros),
+        (100, 20, 1500)
+    );
     // pi was handed the key for the call and stored it nowhere.
     for file in
         std::fs::read_dir(realm.home.join("harnesses").join(&runtime))

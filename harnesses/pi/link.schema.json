@@ -10,6 +10,114 @@
         }
     ],
     "$defs": {
+        "ProviderRequest": {
+            "type": "object",
+            "required": ["type", "v", "id", "action", "provider", "models"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "provider_request"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "action": {
+                    "enum": ["describe", "refresh", "hello", "key"]
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "baseUrl": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "patternProperties": {
+                            "^.*$": {}
+                        }
+                    }
+                },
+                "credential": {
+                    "$ref": "#/$defs/Credential"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "ProviderResult": {
+            "type": "object",
+            "required": ["type", "v", "id", "re"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "provider_result"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "re": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "patternProperties": {
+                            "^.*$": {}
+                        }
+                    }
+                },
+                "providers": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["id", "name", "key"],
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "name": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "boolean"
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "credential": {
+                    "$ref": "#/$defs/Credential"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
         "Capability": {
             "enum": [
                 "operations",
@@ -77,6 +185,29 @@
                 "cost": {
                     "type": "number",
                     "minimum": 0
+                },
+                "ms": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "estimatedTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "billed": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "firstTokenMs": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "reasoning": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "stop": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -897,6 +1028,9 @@
                 },
                 "model": {
                     "$ref": "#/$defs/ModelRef"
+                },
+                "task": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -924,6 +1058,12 @@
                 },
                 "credential": {
                     "$ref": "#/$defs/Credential"
+                },
+                "model": {
+                    "type": "object",
+                    "patternProperties": {
+                        "^.*$": {}
+                    }
                 }
             },
             "additionalProperties": false
@@ -1117,6 +1257,9 @@
         "ServerMessage": {
             "anyOf": [
                 {
+                    "$ref": "#/$defs/ProviderRequest"
+                },
+                {
                     "$ref": "#/$defs/Welcome"
                 },
                 {
@@ -1171,6 +1314,9 @@
         },
         "RuntimeMessage": {
             "anyOf": [
+                {
+                    "$ref": "#/$defs/ProviderResult"
+                },
                 {
                     "$ref": "#/$defs/Hello"
                 },

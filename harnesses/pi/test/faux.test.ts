@@ -10,6 +10,8 @@ import {
 } from "@earendil-works/pi-ai";
 import { afterEach, expect, test } from "vitest";
 import { readScript, type Script, scriptedProvider } from "../src/faux.ts";
+import type { Usage } from "../src/link.ts";
+import { allowedStreams } from "../src/models.ts";
 
 const folders: string[] = [];
 
@@ -89,4 +91,50 @@ test("takes each list's steps in the order calls are made, whenever the server a
     // A list that ran out fails, and never falls back to `responses`.
     expect(await ask("home:0")).toBe("No more faux responses queued");
     expect(await ask("home:2")).toEqual([{ type: "text", text: "fallback" }]);
+});
+
+test("charges before returning an answer and scrubs credentials from kept text, thinking, arguments and failures", async () => {
+    const key = 'sk-test-"private';
+    const charged: Usage[] = [];
+    const faux = scriptedProvider(
+        {
+            responses: [
+                {
+                    text: `Text ${key}`,
+                    thinking: `Thought ${key}`,
+                    calls: [{ name: "read", arguments: { path: key } }],
+                },
+                { error: `Failure ${key}` },
+            ],
+        },
+        () => "",
+        (streams) =>
+            allowedStreams(streams, {
+                attempt: async () => ({
+                    ok: true,
+                    key: "attempt",
+                    apiKey: key,
+                }),
+                charge: async (_id, usage) => {
+                    charged.push(usage);
+                },
+            }),
+    );
+    const [model] = faux.getModels();
+    if (model === undefined) throw new Error("No faux model");
+    const answer = await faux
+        .streamSimple(model, PROMPT, { sessionId: "s" })
+        .result();
+    expect(charged).toHaveLength(1);
+    expect(answer.content).toMatchObject([
+        { type: "thinking", thinking: "Thought [REDACTED]" },
+        { type: "text", text: "Text [REDACTED]" },
+        { type: "toolCall", arguments: { path: "[REDACTED]" } },
+    ]);
+    const failed = await faux
+        .streamSimple(model, PROMPT, { sessionId: "s" })
+        .result();
+    expect(charged).toHaveLength(2);
+    expect(failed.errorMessage).toBe("Failure [REDACTED]");
+    expect(charged[1]?.estimatedTokens).toBe(0);
 });

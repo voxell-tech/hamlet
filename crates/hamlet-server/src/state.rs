@@ -35,32 +35,16 @@ pub(crate) fn state(
         })).collect::<Vec<_>>();
         let period =
             limits["budget"]["period"].as_str().unwrap_or("day");
-        let period_words = if period == "month" {
-            "this month"
-        } else {
-            "today"
-        };
-        let cost = limits["budget"]["cost"].as_f64();
-        let minutes = limits["budget"]["minutes"].as_u64();
-        let remains = cost
-            .map(|c| format!("${c:.2}"))
-            .or_else(|| minutes.map(|m| format!("{m}m model time")));
-        let summary = format!(
-            "Hamlet {period_words}: {}",
-            remains.as_ref().map_or("$0.00".into(), |cap| format!(
-                "{} of {cap}",
-                if cost.is_some() {
-                    "$0.00"
-                } else {
-                    "0s model time"
-                }
-            ))
-        );
+        let books = crate::spend::books(
+            service.home.store().connection(),
+            &record.id,
+            period,
+            None,
+            chrono::Utc::now().timestamp_millis(),
+        )?;
         hamlets.push(json!({"id":record.id, "name":record.id, "at":null, "roads":roads, "votes":[],
             "folder":work["folder"], "before":work["before"], "mode":work["mode"], "modeWords":mode_words(work["mode"].as_str().unwrap_or("manual")), "limits":limits,
-            "budget":{"period":period,"periodWords":period_words,"gone":0,"spent":{"tokens":0,"micros":0,"ms":0},
-                "caps":{"micros":cost.map(|c| (c * 1_000_000.0).round() as u64),"ms":minutes.map(|m|m.saturating_mul(60_000))},
-                "summary":summary,"lines":[],"left":remains.as_ref().map(|_|1),"remains":remains}}));
+            "budget":service.budget(&record.id)?}));
         for agent in record.agents.iter().chain(
             record
                 .archive
@@ -87,6 +71,14 @@ pub(crate) fn state(
             let mut view = json!({"ref":reference(agent.number), "name":agent.name,"purpose":agent.purpose,"since":agent.since,"mayor":mayor,
                 "model":model(agent,&limits,&settings,mayor),"busy":false,"faulted":false,"activity":{"doing":"rest","doingWords":"Resting","step":0,"failures":0},
                 "saying":{"text":"","thought":false},"spent":{"tokens":0,"micros":0,"ms":0,"cost":"$0.00"},"skills":[],"consulting":false,"conversations":[]});
+            let spent = books
+                .agents
+                .get(&agent.number)
+                .copied()
+                .unwrap_or_default();
+            view["spent"] = serde_json::to_value(spent)?;
+            view["spent"]["cost"] =
+                crate::spend::money(spent.micros).into();
             if let Some(left) = left {
                 view["left"] = json!({"how":if left.merge.is_some(){"merged"}else{"removed"}, "into":left.merge.as_ref().map(|m|reference(m.kept.number)), "at":left.at,"by":by_words(&left.by),"reason":left.reason,"words":record.farewell(left)});
             }
@@ -110,9 +102,9 @@ pub(crate) fn state(
         }
     }
     let mut view = json!({"epoch":epoch,"revision":revision,"chief":service.chief,"sandbox":"unavailable", "houses":service.home.layout().root().join("houses"),
-        "hamlets":hamlets,"agents":agents,"grants":grants,"waits":[],"providers":[],"library":[],"closed":[],"starters":[],"deeds":["folder","mode","queue"],
+        "hamlets":hamlets,"agents":agents,"grants":grants,"waits":[],"providers":service.provider_views()?,"library":[],"closed":[],"starters":[],"deeds":["folder","mode","queue"],
         "settings":{"model":settings["model"],"reflectEvery":settings["reflectEvery"],"allowNet":settings["allowNet"],"unset":settings["saved"] != true,"link":settings["link"],
-            "endpoints":settings["endpoints"].as_array().into_iter().flatten().map(|e|json!({"name":e["name"],"baseUrl":e["baseUrl"],"key":false})).collect::<Vec<_>>(),
+            "endpoints":settings["endpoints"].as_array().into_iter().flatten().map(|e|json!({"name":e["name"],"baseUrl":e["baseUrl"],"key":service.credentials.configured(e["name"].as_str().unwrap_or_default())})).collect::<Vec<_>>(),
             "workspace":{"url":service.credentials.workspace_url(),"running":null}}});
     service.credentials.scrub(&mut view);
     Ok(serde_json::from_value(view)?)
@@ -188,6 +180,11 @@ pub(crate) fn changed(
     if before.grants != after.grants {
         changes.push(Update::Grants {
             grants: after.grants.clone(),
+        });
+    }
+    if before.providers != after.providers {
+        changes.push(Update::Providers {
+            providers: after.providers.clone(),
         });
     }
     let whole = before

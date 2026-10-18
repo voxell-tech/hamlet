@@ -98,6 +98,53 @@ impl Credentials {
         self.stored.workspace.as_ref().map(|w| w.url.as_str())
     }
 
+    pub fn model(
+        &self,
+        provider: &str,
+        serving: &str,
+    ) -> Option<Value> {
+        if provider == serving
+            && let Some(key) = &self.api_key
+        {
+            return Some(
+                serde_json::json!({"type":"api_key", "key":key}),
+            );
+        }
+        self.stored.models.get(provider).cloned()
+    }
+
+    pub fn configured(&self, provider: &str) -> bool {
+        self.stored.models.contains_key(provider)
+    }
+
+    pub fn save_model(
+        &mut self,
+        provider: &str,
+        credential: Option<Value>,
+    ) -> Result<()> {
+        let previous = self.stored.models.get(provider).cloned();
+        match credential {
+            Some(value) => {
+                self.stored.models.insert(provider.into(), value);
+            }
+            None => {
+                self.stored.models.remove(provider);
+            }
+        }
+        if let Err(error) = self.write() {
+            match previous {
+                Some(value) => {
+                    self.stored.models.insert(provider.into(), value);
+                }
+                None => {
+                    self.stored.models.remove(provider);
+                }
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
     pub fn choose_workspace(
         &mut self,
         workspace: Option<Workspace>,

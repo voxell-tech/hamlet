@@ -123,6 +123,7 @@ impl Config {
 /// Something that happened that the host may show or act on.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Notice {
+    Provider(link::ProviderResult),
     Started {
         runtime: RuntimeInstance,
         pid: u32,
@@ -228,6 +229,7 @@ pub struct Harnesses {
     receiver: UnboundedReceiver<Received>,
     next: u64,
     pending: HashMap<String, (usize, Pending)>,
+    provider_requests: HashMap<usize, Vec<link::ProviderRequest>>,
 }
 
 impl Harnesses {
@@ -248,6 +250,7 @@ impl Harnesses {
             receiver,
             next: 1,
             pending: HashMap::new(),
+            provider_requests: HashMap::new(),
         };
         let mut notices = Vec::new();
         for row in store.runtimes()? {
@@ -257,6 +260,28 @@ impl Harnesses {
             }
         }
         Ok((harnesses, notices))
+    }
+
+    /// Queues provider work in memory, starting the pi runtime if
+    /// necessary.
+    pub async fn provider(
+        &mut self,
+        store: &mut Store,
+        request: link::ProviderRequest,
+    ) -> Result<()> {
+        let runtime = store.runtime_for(DEFAULT_HARNESS)?;
+        let index =
+            self.index(&runtime).unwrap_or_else(|| self.add(runtime));
+        self.provider_requests
+            .entry(index)
+            .or_default()
+            .push(request);
+        if self.runtimes[index].phase == Phase::Down
+            && self.runtimes[index].restart_at.is_none()
+        {
+            self.launch(store, index)?;
+        }
+        self.flush(store, index).await
     }
 
     /// The next event to handle.
@@ -693,6 +718,9 @@ impl Harnesses {
                 })
             }
             RuntimeMessage::Statuses(_) => Ok(Vec::new()),
+            RuntimeMessage::ProviderResult(result) => {
+                Ok(vec![Notice::Provider(result)])
+            }
             RuntimeMessage::Allow(allow) => {
                 let Some(binding) = self
                     .conversation(
@@ -762,18 +790,63 @@ impl Harnesses {
                 else {
                     return Ok(Vec::new());
                 };
-                let credential = answers::attempt(
+                let task = attempt.task.as_ref().map(|t| {
+                    format!("{}:{t}", binding.runtime.as_str())
+                });
+                let selected = crate::models::choice(
+                    store,
+                    self.layout.root(),
+                    &binding,
+                    self.config.faux.is_some(),
+                )?;
+                let selected_ref = ModelRef {
+                    provider: selected["provider"]
+                        .as_str()
+                        .unwrap_or(&attempt.model.provider)
+                        .into(),
+                    id: selected["id"]
+                        .as_str()
+                        .unwrap_or(&attempt.model.id)
+                        .into(),
+                    base_url: selected["baseUrl"]
+                        .as_str()
+                        .map(String::from),
+                };
+                if let Some(words) = answers::attempt(
                     store,
                     &binding,
                     &attempt.key,
-                    &attempt.model,
-                    |provider| self.credential(provider),
+                    &selected_ref,
+                    task.as_deref(),
+                    selected.get("cost"),
                     now(),
-                )?;
+                )? {
+                    let re = attempt.id;
+                    self.send(index, |v, id| {
+                        ServerMessage::Stopped(link::Stopped {
+                            v,
+                            id,
+                            re,
+                            words,
+                        })
+                    })
+                    .await;
+                    return Ok(Vec::new());
+                }
+                let credential = self
+                    .credential(&selected_ref.provider)
+                    .map(|key| link::Credential {
+                        key,
+                        type_: link::CredentialType::ApiKey,
+                    });
+                let model = selected
+                    .as_object()
+                    .map(|m| m.clone().into_iter().collect());
                 let re = attempt.id;
                 self.send(index, |v, id| {
                     ServerMessage::Allowance(link::Allowance {
                         credential,
+                        model,
                         id,
                         re,
                         v,
@@ -950,6 +1023,19 @@ impl Harnesses {
     ) -> Result<()> {
         if self.runtimes[index].phase != Phase::Ready {
             return Ok(());
+        }
+        for request in
+            self.provider_requests.remove(&index).unwrap_or_default()
+        {
+            if let Some(process) =
+                self.runtimes[index].process.as_mut()
+            {
+                process
+                    .write(&serde_json::to_string(
+                        &ServerMessage::ProviderRequest(request),
+                    )?)
+                    .await;
+            }
         }
         let runtime_id = self.runtimes[index].id.clone();
         for binding in store.bindings_of(&runtime_id)? {
@@ -1135,7 +1221,13 @@ impl Harnesses {
         if provider == "faux" {
             return None;
         }
-        if let Some(key) = &self.config.api_key {
+        if let Some(key) = &self.config.api_key
+            && self
+                .config
+                .model
+                .as_ref()
+                .is_some_and(|m| m.provider == provider)
+        {
             return Some(key.clone());
         }
         let text = std::fs::read_to_string(self.layout.credentials())
@@ -1283,6 +1375,7 @@ fn same_fields(a: &Value, b: &Value) -> bool {
 
 fn id_of(message: &RuntimeMessage) -> String {
     match message {
+        RuntimeMessage::ProviderResult(m) => m.id.clone(),
         RuntimeMessage::Hello(m) => m.id.clone(),
         RuntimeMessage::Created(m) => m.id.clone(),
         RuntimeMessage::Admitted(m) => m.id.clone(),

@@ -60,6 +60,38 @@ export const Credential = object({
 });
 export type Credential = Static<typeof Credential>;
 
+/** Provider work requested by the server, with no provider state written by the runtime. */
+export const ProviderRequest = message("provider_request", {
+    action: Type.Enum(["describe", "refresh", "hello", "key"]),
+    provider: Type.String(),
+    baseUrl: Type.Optional(Type.String()),
+    model: Type.Optional(Type.String()),
+    models: Type.Array(Type.Record(Type.String(), Type.Unknown())),
+    credential: Type.Optional(Credential),
+    value: Type.Optional(Type.String()),
+});
+export type ProviderRequest = Static<typeof ProviderRequest>;
+
+/** Provider results go only to the server; a returned credential is never recorded here. */
+export const ProviderResult = reply("provider_result", {
+    models: Type.Optional(
+        Type.Array(Type.Record(Type.String(), Type.Unknown())),
+    ),
+    providers: Type.Optional(
+        Type.Array(
+            object({
+                id: Type.String(),
+                name: Type.String(),
+                key: Type.Boolean(),
+            }),
+        ),
+    ),
+    credential: Type.Optional(Credential),
+    text: Type.Optional(Type.String()),
+    error: Type.Optional(Type.String()),
+});
+export type ProviderResult = Static<typeof ProviderResult>;
+
 /** Tokens of one model call and its cost in dollars. */
 export const Usage = object({
     input: Type.Integer({ minimum: 0 }),
@@ -67,6 +99,12 @@ export const Usage = object({
     cacheRead: Type.Integer({ minimum: 0 }),
     cacheWrite: Type.Integer({ minimum: 0 }),
     cost: Type.Number({ minimum: 0 }),
+    ms: Type.Optional(Type.Integer({ minimum: 0 })),
+    estimatedTokens: Type.Optional(Type.Integer({ minimum: 0 })),
+    billed: Type.Optional(Type.Number({ minimum: 0 })),
+    firstTokenMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    reasoning: Type.Optional(Type.Integer({ minimum: 0 })),
+    stop: Type.Optional(Type.String()),
 });
 export type Usage = Static<typeof Usage>;
 
@@ -263,12 +301,14 @@ export const Attempt = message("attempt", {
     conversation: ConversationId,
     key: Type.String({ minLength: 1 }),
     model: ModelRef,
+    task: Type.Optional(Type.String()),
 });
 export type Attempt = Static<typeof Attempt>;
 
 /** The call may be made, with the credential it needs. */
 export const Allowance = reply("allowance", {
     credential: Type.Optional(Credential),
+    model: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 });
 export type Allowance = Static<typeof Allowance>;
 
@@ -310,6 +350,7 @@ export type Running = Static<typeof Running>;
 
 /** Every message the server sends a runtime. */
 export const ServerMessage = Type.Union([
+    ProviderRequest,
     Welcome,
     Refused,
     Create,
@@ -332,6 +373,7 @@ export type ServerMessage = Static<typeof ServerMessage>;
 
 /** Every message a runtime sends the server. */
 export const RuntimeMessage = Type.Union([
+    ProviderResult,
     Hello,
     Created,
     Admitted,
@@ -351,6 +393,8 @@ export type RuntimeMessage = Static<typeof RuntimeMessage>;
 
 /** The named definitions of the link, in the order the schema lists them. */
 const DEFINITIONS: Record<string, TSchema> = {
+    ProviderRequest,
+    ProviderResult,
     Capability,
     ModelRef,
     Credential,

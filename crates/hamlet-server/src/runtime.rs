@@ -116,6 +116,24 @@ pub async fn serve(options: Options) -> Result<()> {
         harness::Config::from_env(options.faux.clone())?,
     )?;
     report(&notices);
+    service.start_models()?;
+    flush_models(&mut service, &mut harnesses).await?;
+    let started = async {
+        while service.models.starting() {
+            let event = harnesses.next().await;
+            for notice in
+                harnesses.handle(service.home.store(), event).await?
+            {
+                if let Notice::Provider(result) = notice {
+                    service.provider_result(result)?;
+                }
+            }
+        }
+        Ok::<_, anyhow::Error>(())
+    };
+    tokio::time::timeout(Duration::from_secs(15), started)
+        .await
+        .context("starting model providers")??;
     let protocol = Protocol::new()?;
     let listener = TcpListener::bind((
         std::net::Ipv4Addr::LOCALHOST,
@@ -158,7 +176,7 @@ pub async fn serve(options: Options) -> Result<()> {
                 }
                 Some(event) = incoming.recv() => {
                     match event {
-                        Event::Gone(id) => { clients.remove(&id); }
+                        Event::Gone(id) => { clients.remove(&id); service.models.disconnect(id); }
                         Event::Late(id) => {
                             if let Some(client) = clients.get_mut(&id) && !client.welcomed && !client.refused { refuse(client, BEGIN, 1008)?; }
                         }
@@ -184,6 +202,12 @@ pub async fn serve(options: Options) -> Result<()> {
                                 continue;
                             }
                             let request = serde_json::to_value(&message)?;
+                            if let Some(answers) = service.model_request(id, &message)? {
+                                for answer in answers { send(client, &service, answer)?; }
+                                refresh(&mut service, &mut state, &mut clients)?;
+                                flush_models(&mut service, &mut harnesses).await?;
+                                continue;
+                            }
                             match service.handle(message) {
                                 Ok(Some(answer)) => send(client, &service, answer)?,
                                 Ok(None) => {},
@@ -198,9 +222,25 @@ pub async fn serve(options: Options) -> Result<()> {
                         }
                     }
                 }
-                _ = tick.tick() => refresh(&mut service, &mut state, &mut clients)?,
+                _ = tick.tick() => {
+                    for result in service.models.expired() {
+                        for (id, answer) in service.provider_result(result)? {
+                            if let Some(client) = clients.get_mut(&id) { send(client, &service, answer)?; }
+                        }
+                    }
+                    refresh(&mut service, &mut state, &mut clients)?;
+                },
                 event = harnesses.next() => {
-                    report(&harnesses.handle(service.home.store(), event).await?);
+                    let notices = harnesses.handle(service.home.store(), event).await?;
+                    report(&notices);
+                    for notice in notices {
+                        if let Notice::Provider(result) = notice {
+                            for (id, answer) in service.provider_result(result)? {
+                                if let Some(client) = clients.get_mut(&id) { send(client, &service, answer)?; }
+                            }
+                        }
+                    }
+                    refresh(&mut service, &mut state, &mut clients)?;
                 }
                 Some(_) = tasks.join_next() => {},
             }
@@ -221,6 +261,16 @@ pub async fn serve(options: Options) -> Result<()> {
     drop(published);
     service.home.close()?;
     result
+}
+
+async fn flush_models(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+) -> Result<()> {
+    for request in std::mem::take(&mut service.models.outgoing) {
+        harnesses.provider(service.home.store(), request).await?;
+    }
+    Ok(())
 }
 
 /// Logs what a chief must hear of the runtimes until protocol v0

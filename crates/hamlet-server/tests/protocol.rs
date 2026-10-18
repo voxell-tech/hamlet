@@ -334,3 +334,72 @@ fn unsupported_owners_refuse_without_changing_the_realm() {
         assert_eq!(service.state(1, 0).unwrap(), before);
     }
 }
+
+#[test]
+fn budget_commands_reset_the_report_without_erasing_spend() {
+    let dir = Scratch::new("protocol-budget");
+    let mut service = open(&dir);
+    for (section, value) in [("budget", 2.0), ("road", 0.125)] {
+        assert_eq!(
+            request(
+                &mut service,
+                json!({"type":"edit","doc":"limits","hamlet":"home","set":{"section":section,"key":"cost","value":value}})
+            )["kind"],
+            "notice"
+        );
+    }
+    assert!(change(&mut service, admit("ana")));
+    assert!(change(&mut service, admit("bo")));
+    let chief = service.state(1, 0).unwrap().chief;
+    let laid = service
+        .home
+        .store()
+        .run(
+            &OperationId {
+                runtime: RuntimeInstance::new("budget-test").unwrap(),
+                key: "road".into(),
+            },
+            &RecordOperation {
+                hamlet: "home".into(),
+                actor: Actor::Chief(chief),
+                at: chrono::Local::now().timestamp_millis(),
+                reason: "Trade".into(),
+                task: Some("trade".into()),
+                change: Change::LayRoad {
+                    a: "ana".into(),
+                    b: "bo".into(),
+                },
+            },
+        )
+        .unwrap();
+    assert!(matches!(laid, Reply::Outcome(Outcome::Done(_))));
+    assert_eq!(
+        service.state(1, 0).unwrap().hamlets[0].budget.spent.micros,
+        125000
+    );
+    let report = request(
+        &mut service,
+        json!({"type":"say","to":mayor(),"text":"/budget"}),
+    );
+    assert!(report["text"].as_str().unwrap().starts_with(
+        "Hamlet today: $0.13 of $2.00\n- mayor: faux::faux-1, $0.13"
+    ));
+    let reset = request(
+        &mut service,
+        json!({"type":"say","to":mayor(),"text":"/reset-budget"}),
+    );
+    assert_eq!(
+        reset["text"],
+        "The budget starts again from here. What was spent before \
+         is kept in the ledger."
+    );
+    service.home.close().unwrap();
+    let mut service = open(&dir);
+    assert_eq!(
+        service.state(1, 0).unwrap().hamlets[0].budget.spent.micros,
+        0
+    );
+    let charges = service.home.store().road_charges("home").unwrap();
+    assert_eq!(charges.len(), 1);
+    assert_eq!(charges[0].amount.micros, 125000);
+}

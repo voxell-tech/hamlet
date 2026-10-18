@@ -250,6 +250,12 @@ fn usage_is_charged_once_and_only_to_an_allowed_attempt() {
         cache_read: 0,
         cache_write: 0,
         cost,
+        ms: None,
+        estimated_tokens: None,
+        billed: None,
+        first_token_ms: None,
+        reasoning: None,
+        stop: None,
     };
     let runtime = binding.runtime.clone();
     assert!(
@@ -262,7 +268,8 @@ fn usage_is_charged_once_and_only_to_an_allowed_attempt() {
         &binding,
         "a",
         &binding.model,
-        |_| None,
+        None,
+        None,
         2,
     )
     .unwrap();
@@ -280,4 +287,300 @@ fn usage_is_charged_once_and_only_to_an_allowed_attempt() {
         .unwrap();
     // The first report stands; the cost is kept in micro-dollars.
     assert_eq!(charged, (1, 250));
+}
+
+#[test]
+fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
+ {
+    use chrono::{Local, TimeZone};
+
+    use crate::service::save;
+    use crate::spend;
+    let scratch = Scratch::new("spend-caps");
+    let (mut store, binding) = bound(&scratch, 0);
+    let at = Local
+        .with_ymd_and_hms(2026, 5, 15, 12, 0, 0)
+        .single()
+        .unwrap()
+        .timestamp_millis();
+    let mut limits =
+        spend::limits(store.connection(), "home").unwrap();
+    limits["budget"] =
+        json!({"cost":0.001,"minutes":null,"period":"day"});
+    limits["task"]["cost"] = json!(0.0005);
+    save(store.connection(), "limits", "home", &limits).unwrap();
+    let price = json!({"input":2,"output":3});
+    assert!(
+        answers::attempt(
+            &mut store,
+            &binding,
+            "first",
+            &binding.model,
+            Some("task-a"),
+            Some(&price),
+            at
+        )
+        .unwrap()
+        .is_none()
+    );
+    let usage = serde_json::from_value::<Usage>(json!({"input":100,"output":200,"cacheRead":0,"cacheWrite":0,"cost":0,"ms":60001})).unwrap();
+    answers::charge(
+        &mut store,
+        &binding.runtime,
+        "first",
+        &usage,
+        at,
+    )
+    .unwrap();
+    answers::charge(
+        &mut store,
+        &binding.runtime,
+        "first",
+        &usage,
+        at,
+    )
+    .unwrap();
+    assert_eq!(
+        spend::usage(store.connection(), binding.id).unwrap().micros,
+        800
+    );
+    assert!(
+        answers::attempt(
+            &mut store,
+            &binding,
+            "second",
+            &binding.model,
+            Some("task-a"),
+            Some(&price),
+            at
+        )
+        .unwrap()
+        .unwrap()
+        .starts_with("This task")
+    );
+    // A reset and a later charge in the same millisecond are ordered
+    // by the ledger.
+    store
+        .db
+        .execute(
+            "INSERT INTO spend_reset(hamlet,at,by,models,roads) \
+             VALUES ('home',?1,'chief',1,0)",
+            [at],
+        )
+        .unwrap();
+    assert_eq!(
+        spend::books(
+            store.connection(),
+            "home",
+            "day",
+            Some("task-a"),
+            at
+        )
+        .unwrap()
+        .hamlet
+        .micros,
+        0
+    );
+    assert!(
+        spend::can_spend(
+            store.connection(),
+            "home",
+            Some("task-a"),
+            at
+        )
+        .unwrap()
+        .unwrap()
+        .starts_with("This task")
+    );
+    assert!(
+        answers::attempt(
+            &mut store,
+            &binding,
+            "new",
+            &binding.model,
+            Some("task-b"),
+            Some(&price),
+            at
+        )
+        .unwrap()
+        .is_none()
+    );
+    answers::charge(&mut store, &binding.runtime, "new", &usage, at)
+        .unwrap();
+    assert_eq!(
+        spend::books(store.connection(), "home", "day", None, at)
+            .unwrap()
+            .hamlet
+            .micros,
+        800
+    );
+    limits["budget"]["minutes"] = json!(1);
+    save(store.connection(), "limits", "home", &limits).unwrap();
+    assert!(
+        spend::can_spend(store.connection(), "home", None, at)
+            .unwrap()
+            .unwrap()
+            .contains("model time")
+    );
+    let tomorrow = Local
+        .with_ymd_and_hms(2026, 5, 16, 0, 0, 0)
+        .single()
+        .unwrap()
+        .timestamp_millis();
+    assert!(
+        spend::can_spend(store.connection(), "home", None, tomorrow)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        spend::can_spend(
+            store.connection(),
+            "home",
+            Some("task-a"),
+            tomorrow
+        )
+        .unwrap()
+        .unwrap()
+        .starts_with("This task")
+    );
+    limits["budget"]["period"] = "month".into();
+    save(store.connection(), "limits", "home", &limits).unwrap();
+    assert!(
+        spend::can_spend(store.connection(), "home", None, tomorrow)
+            .unwrap()
+            .unwrap()
+            .contains("this month")
+    );
+    store.close().unwrap();
+    let store = Store::open(&scratch.join("realm.sqlite")).unwrap();
+    assert_eq!(
+        spend::usage(store.connection(), binding.id).unwrap().calls,
+        2
+    );
+}
+
+#[test]
+fn billed_zero_beats_prices_and_unreported_success_counts_estimates()
+{
+    let scratch = Scratch::new("spend-billed");
+    let (mut store, binding) = bound(&scratch, 0);
+    let price = json!({"input":10,"output":20});
+    for (key, usage) in [
+        (
+            "reported",
+            json!({"input":17000,"output":1240,"cacheRead":7,"cacheWrite":11,"cost":1,"billed":0.4249,"reasoning":9}),
+        ),
+        (
+            "free",
+            json!({"input":100,"output":20,"cacheRead":0,"cacheWrite":0,"cost":12,"billed":0}),
+        ),
+        (
+            "estimated",
+            json!({"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cost":0,"estimatedTokens":2350}),
+        ),
+        (
+            "failed",
+            json!({"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cost":0,"stop":"error"}),
+        ),
+    ] {
+        assert!(
+            answers::attempt(
+                &mut store,
+                &binding,
+                key,
+                &binding.model,
+                None,
+                Some(&price),
+                0
+            )
+            .unwrap()
+            .is_none()
+        );
+        answers::charge(
+            &mut store,
+            &binding.runtime,
+            key,
+            &serde_json::from_value(usage).unwrap(),
+            0,
+        )
+        .unwrap();
+    }
+    let view =
+        crate::spend::usage(store.connection(), binding.id).unwrap();
+    assert_eq!(
+        (
+            view.calls,
+            view.input,
+            view.output,
+            view.micros,
+            view.unreported
+        ),
+        (4, 17118, 1260, 448400, 2)
+    );
+    assert_eq!(
+        (view.cached, view.reasoning, view.last_input),
+        (7, 9, 100)
+    );
+    assert_eq!(view.summary, "18.4k tok, $0.45");
+    let books = crate::spend::books(
+        store.connection(),
+        "home",
+        "day",
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(books.hamlet.tokens, 20728);
+}
+
+#[test]
+fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
+    use crate::service::save;
+    let scratch = Scratch::new("model-choice");
+    let (store, binding) = bound(&scratch, 0);
+    std::fs::write(scratch.join("models.json"), r#"{"endpoint":[{"provider":"endpoint","id":"pinned","cost":{"input":8,"output":9}}]}"#).unwrap();
+    let mut settings = crate::settings::defaults();
+    settings["model"] = "endpoint::home".into();
+    save(store.connection(), "settings", "home", &settings).unwrap();
+    let mut limits =
+        crate::spend::limits(store.connection(), "home").unwrap();
+    limits["model"] = "endpoint::hamlet".into();
+    limits["pinned"] = json!({"mayor":"endpoint::pinned"});
+    save(store.connection(), "limits", "home", &limits).unwrap();
+    save(
+        store.connection(),
+        "catalogue",
+        "home",
+        &json!({"endpoint::pinned":{"price":{"input":0,"output":2}}}),
+    )
+    .unwrap();
+    let chosen =
+        crate::models::choice(&store, &scratch, &binding, false)
+            .unwrap();
+    assert_eq!(chosen["id"], "pinned");
+    assert_eq!(
+        chosen["cost"],
+        json!({"input":0,"output":2,"cacheRead":0,"cacheWrite":0})
+    );
+    store.close().unwrap();
+    let store = Store::open(&scratch.join("realm.sqlite")).unwrap();
+    assert_eq!(
+        crate::models::choice(&store, &scratch, &binding, false)
+            .unwrap()["id"],
+        "pinned"
+    );
+    limits["pinned"] = json!({});
+    save(store.connection(), "limits", "home", &limits).unwrap();
+    assert_eq!(
+        crate::models::choice(&store, &scratch, &binding, false)
+            .unwrap()["id"],
+        "hamlet"
+    );
+    limits["model"] = Value::Null;
+    save(store.connection(), "limits", "home", &limits).unwrap();
+    assert_eq!(
+        crate::models::choice(&store, &scratch, &binding, false)
+            .unwrap()["id"],
+        "home"
+    );
 }

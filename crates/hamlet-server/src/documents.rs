@@ -108,6 +108,7 @@ impl Service {
                 tx.commit()?;
             }
             Edit::Settings { set, .. } => {
+                let previous = self.settings()?;
                 let workspace = match crate::settings::validate(&set)
                 {
                     Ok(workspace) => workspace,
@@ -147,11 +148,25 @@ impl Service {
                 if let Some(workspace) = workspace {
                     self.credentials.choose_workspace(workspace)?;
                 }
+                if let Some(endpoints) = set.endpoints {
+                    for old in previous["endpoints"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                    {
+                        if let Some(name) = old["name"].as_str()
+                            && !endpoints
+                                .iter()
+                                .any(|e| e.name == name)
+                        {
+                            self.credentials
+                                .save_model(name, None)?;
+                        }
+                    }
+                }
             }
-            Edit::Catalogue { .. } => {
-                return Ok(Err(Refusal::Unsupported(
-                    "the model catalogue",
-                )));
+            Edit::Catalogue { model, set, .. } => {
+                return self.edit_catalogue(&model, set);
             }
         }
         Ok(Ok("Saved.".into()))
@@ -248,6 +263,26 @@ impl Service {
         let tail = trim(tail);
         let mut work = self.work(&address.hamlet)?;
         match command {
+            "/budget" => {
+                let report = self.budget(&address.hamlet)?;
+                let mut lines = vec![
+                    report["summary"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                ];
+                lines.extend(
+                    report["lines"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|v| v.as_str().map(String::from)),
+                );
+                return Ok(Ok(lines.join("\n")));
+            }
+            "/reset-budget" => {
+                return Ok(Ok(self.reset_budget(&address.hamlet)?));
+            }
             "/queue" => {
                 return Ok(Ok("Nothing waits for you.".into()));
             }
@@ -382,10 +417,7 @@ pub(crate) fn read(
             )?);
         }
         Read::Models { id, .. } => {
-            return Ok(reply(
-                &id,
-                Err(Refusal::Unsupported("the model catalogue")),
-            ));
+            return service.catalogue_read(&id);
         }
         Read::History { agent, id } => {
             let error = service

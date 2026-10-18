@@ -40,6 +40,8 @@ pub struct Allowance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential: Option<Credential>,
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<std::collections::BTreeMap<String, serde_json::Value>>,
     pub re: String,
     pub v: i64,
 }
@@ -64,6 +66,8 @@ pub struct Attempt {
     pub id: String,
     pub key: String,
     pub model: ModelRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
     pub v: i64,
 }
 
@@ -275,6 +279,60 @@ pub struct Prompt {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRequest {
+    pub action: ProviderRequestAction,
+    #[serde(rename = "baseUrl")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<Credential>,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub models: Vec<std::collections::BTreeMap<String, serde_json::Value>>,
+    pub provider: String,
+    pub v: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ProviderRequestAction {
+    #[serde(rename = "describe")]
+    Describe,
+    #[serde(rename = "refresh")]
+    Refresh,
+    #[serde(rename = "hello")]
+    Hello,
+    #[serde(rename = "key")]
+    Key,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProviderResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<Credential>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<Vec<std::collections::BTreeMap<String, serde_json::Value>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub providers: Option<Vec<ProviderResultProviders>>,
+    pub re: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    pub v: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProviderResultProviders {
+    pub id: String,
+    pub key: bool,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Refusal {
     pub id: String,
     pub re: String,
@@ -310,6 +368,8 @@ pub struct Running {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum RuntimeMessage {
+    #[serde(rename = "provider_result")]
+    ProviderResult(ProviderResult),
     #[serde(rename = "hello")]
     Hello(Hello),
     #[serde(rename = "created")]
@@ -357,6 +417,8 @@ pub struct Sections {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ServerMessage {
+    #[serde(rename = "provider_request")]
+    ProviderRequest(ProviderRequest),
     #[serde(rename = "welcome")]
     Welcome(Welcome),
     #[serde(rename = "refused")]
@@ -449,13 +511,27 @@ pub enum ToolSpecReplay {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub billed: Option<f64>,
     #[serde(rename = "cacheRead")]
     pub cache_read: i64,
     #[serde(rename = "cacheWrite")]
     pub cache_write: i64,
     pub cost: f64,
+    #[serde(rename = "estimatedTokens")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_tokens: Option<i64>,
+    #[serde(rename = "firstTokenMs")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_token_ms: Option<i64>,
     pub input: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<i64>,
     pub output: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

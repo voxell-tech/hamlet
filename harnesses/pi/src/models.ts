@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
+import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ModelRef, Usage } from "./link.ts";
 
 /** The context an endpoint that lists no window size is given. */
@@ -16,7 +17,12 @@ const DEFAULT_WINDOW = 32_768;
 
 /** The server's answer to a model call it was asked about. */
 export type Permit =
-    | { readonly ok: true; readonly key: string; readonly apiKey?: string }
+    | {
+          readonly ok: true;
+          readonly key: string;
+          readonly apiKey?: string;
+          readonly model?: Record<string, unknown>;
+      }
     | { readonly ok: false; readonly words: string };
 
 /** The server's say over model calls: each is allowed first, and its usage charged before its answer is kept. */
@@ -44,6 +50,7 @@ function allowed<O extends StreamOptions>(
 ): StreamFunction<Api, O> {
     return (model, context, options) => {
         const out = createAssistantMessageEventStream();
+        let secret: string | undefined;
         void (async () => {
             const permit = await gate.attempt(options?.sessionId, {
                 provider: model.provider,
@@ -53,6 +60,10 @@ function allowed<O extends StreamOptions>(
                 fail(out, model, permit.words);
                 return;
             }
+            secret = permit.apiKey;
+            const selected = { ...model, ...permit.model } as Model<Api>;
+            const started = Date.now();
+            let firstTokenMs: number | undefined;
             // What the endpoint says it billed, which stands over pi-ai's own price.
             let billed: number | undefined;
             const previous = options?.onProviderStreamEvent;
@@ -73,27 +84,84 @@ function allowed<O extends StreamOptions>(
                               await previous?.(event, called);
                           },
                       };
-            const source = stream(model, context, made);
-            for await (const event of source) {
+            const source = stream(selected, context, made);
+            for await (const raw of source) {
+                const event = scrub(raw, secret);
+                if (
+                    event.type === "text_delta" ||
+                    event.type === "thinking_delta" ||
+                    event.type === "toolcall_delta"
+                )
+                    firstTokenMs ??= Date.now() - started;
                 if (event.type === "done" || event.type === "error") {
                     const message =
                         event.type === "done" ? event.message : event.error;
                     if (billed !== undefined) message.usage.cost.total = billed;
-                    await gate.charge(permit.key, usageOf(message));
+                    const failed =
+                        message.stopReason === "error" ||
+                        message.stopReason === "aborted";
+                    const estimatedTokens =
+                        failed || message.usage.totalTokens > 0
+                            ? 0
+                            : Math.floor(
+                                  [...context.messages, message].reduce(
+                                      (sum, value) =>
+                                          sum +
+                                          Buffer.byteLength(
+                                              JSON.stringify(value),
+                                          ),
+                                      0,
+                                  ) / 4,
+                              );
+                    await gate.charge(permit.key, {
+                        ...usageOf(message),
+                        ms: Date.now() - started,
+                        estimatedTokens,
+                        ...(billed === undefined ? {} : { billed }),
+                        ...(firstTokenMs === undefined ? {} : { firstTokenMs }),
+                        reasoning: message.usage.reasoning ?? 0,
+                        stop: message.rawStopReason ?? message.stopReason,
+                    });
                 }
                 out.push(event);
             }
-            out.end(await source.result());
+            out.end(scrub(await source.result(), secret));
         })().catch((error: unknown) => {
             // The answer is not kept, so the call is made again under a new attempt.
             fail(
                 out,
                 model,
-                `The server did not allow or charge this call: ${error instanceof Error ? error.message : String(error)}`,
+                scrub(
+                    `The server did not allow or charge this call: ${error instanceof Error ? error.message : String(error)}`,
+                    secret,
+                ),
             );
         });
         return out;
     };
+}
+
+/** Provider output stripped of this attempt's credential before pi can keep it (C32). */
+function scrub<T>(value: T, secret: string | undefined): T {
+    if (!secret) return value;
+    return JSON.parse(
+        JSON.stringify(value, (_key, item: unknown) => {
+            if (typeof item === "string")
+                return item.split(secret).join("[REDACTED]");
+            if (
+                typeof item === "object" &&
+                item !== null &&
+                !Array.isArray(item)
+            )
+                return Object.fromEntries(
+                    Object.entries(item).map(([key, value]) => [
+                        key.split(secret).join("[REDACTED]"),
+                        value,
+                    ]),
+                );
+            return item;
+        }),
+    ) as T;
 }
 
 function fail(
@@ -156,9 +224,11 @@ function refusedMessage(model: Model<Api>, words: string): AssistantMessage {
     };
 }
 
-/** An OpenAI-compatible provider for the model `ref` at `ref.baseUrl`, keyless unless the server hands a key over. */
-export function endpointProvider(ref: ModelRef, gate: Gate): Provider {
+/** A provider whose calls use only the server's per-attempt model and credential. */
+export function modelProvider(ref: ModelRef, gate: Gate): Provider {
     const baseUrl = ref.baseUrl ?? "";
+    const builtins = builtinProviders();
+    const compatible = openAICompletionsApi();
     const model: Model<"openai-completions"> = {
         id: ref.id,
         name: ref.id,
@@ -183,11 +253,36 @@ export function endpointProvider(ref: ModelRef, gate: Gate): Provider {
             apiKey: {
                 name: `${ref.provider} key`,
                 resolve: async () => ({
-                    auth: { apiKey: "hamlet-keyless", baseUrl },
+                    auth: { apiKey: "hamlet-keyless" },
                 }),
             },
         },
-        models: [model],
-        api: allowedStreams(openAICompletionsApi(), gate),
+        models: [
+            builtins
+                .find((p) => p.id === ref.provider)
+                ?.getModels()
+                .find((m) => m.id === ref.id) ?? model,
+        ],
+        api: allowedStreams(
+            {
+                stream: (selected, context, options) => {
+                    const provider = builtins.find(
+                        (p) => p.id === selected.provider,
+                    );
+                    return provider === undefined
+                        ? compatible.stream(selected, context, options)
+                        : provider.stream(selected, context, options);
+                },
+                streamSimple: (selected, context, options) => {
+                    const provider = builtins.find(
+                        (p) => p.id === selected.provider,
+                    );
+                    return provider === undefined
+                        ? compatible.streamSimple(selected, context, options)
+                        : provider.streamSimple(selected, context, options);
+                },
+            },
+            gate,
+        ),
     });
 }

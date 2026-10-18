@@ -165,6 +165,7 @@ fn print(notices: &[Notice]) {
 
 fn notice_json(notice: &Notice) -> Value {
     match notice {
+        Notice::Provider(_) => json!({"kind":"provider"}),
         Notice::Started { runtime, pid } => {
             json!({"kind": "started", "runtime": runtime.as_str(), "pid": pid})
         }

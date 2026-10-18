@@ -9,6 +9,7 @@ mod fault;
 pub mod harness;
 mod home;
 mod limits;
+mod models;
 mod operation;
 mod papers;
 pub mod protocol;
@@ -16,6 +17,7 @@ pub mod record;
 pub mod runtime;
 pub mod service;
 mod settings;
+pub mod spend;
 mod state;
 mod store;
 
