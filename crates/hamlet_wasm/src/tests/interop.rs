@@ -24,7 +24,10 @@ fn target(module: String) -> Plugin {
 
 /// What the plugins logged in `frames` frames, each as the plugin and
 /// the line.
-fn said(app: &mut App, frames: usize) -> Vec<(String, String)> {
+pub(super) fn said(
+    app: &mut App,
+    frames: usize,
+) -> Vec<(String, String)> {
     let mut cursor =
         app.world().resource::<Messages<Said>>().get_cursor();
     let mut lines = Vec::new();

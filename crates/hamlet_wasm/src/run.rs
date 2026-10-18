@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{Granted, Wanted};
 use hamlet_sdk::papers::Papers;
-use hamlet_sdk::plugin::{PluginInfo, Status};
+use hamlet_sdk::plugin::{Manifest, PluginInfo, Status};
 use hamlet_sdk::tree::id::dock_id;
 
 use crate::draw::Dirty;
@@ -15,6 +15,7 @@ use crate::instance::Instance;
 use crate::interface::exports::hamlet::plugin::plugin::Intent;
 use crate::interface::hamlet::plugin::host::Level;
 use crate::limits::Limits;
+use crate::reach::{self, Sharing};
 use crate::{event, stop};
 
 /// What one plugin's `step` asked for.
@@ -22,6 +23,9 @@ use crate::{event, stop};
 pub struct Done {
     pub plugin: Entity,
     pub intents: Vec<Intent>,
+    /// The collections that changed in the call, each as the plugin
+    /// that shares it and its name.
+    pub changes: Vec<(String, String)>,
 }
 
 /// Calls `step` on each running plugin that has mail, once. A plugin
@@ -33,18 +37,21 @@ pub fn step(
     mut plugins: Query<(
         Entity,
         &PluginInfo,
+        &Manifest,
         &Status,
         &Granted,
         &mut Inbox,
         &mut Instance,
         &mut Dirty,
     )>,
+    sharing: Sharing,
     mut done: MessageWriter<Done>,
     mut commands: Commands,
 ) {
     for (
         plugin,
         info,
+        manifest,
         status,
         granted,
         mut inbox,
@@ -56,6 +63,7 @@ pub fn step(
             continue;
         }
         instance.see(granted, &agents, &papers);
+        instance.reach(reach::of(manifest, &sharing, &limits));
         let mail = inbox.take();
         match instance.step(&limits, &mail) {
             Ok(output) => {
@@ -70,6 +78,7 @@ pub fn step(
                 done.write(Done {
                     plugin,
                     intents: output.intents,
+                    changes: output.changes,
                 });
             }
             Err(fault) => {
@@ -85,7 +94,10 @@ pub fn apply(
     mut plugins: Query<(&PluginInfo, Option<&mut Dirty>)>,
     mut said: MessageWriter<Said>,
 ) {
-    for Done { plugin, intents } in done.read() {
+    for Done {
+        plugin, intents, ..
+    } in done.read()
+    {
         let Ok((info, mut dirty)) = plugins.get_mut(*plugin) else {
             continue;
         };

@@ -74,6 +74,43 @@ interface host {
   // The keys that start with `prefix`, in order.
   storage-keys: func(prefix: string) -> list<string>;
 
+  // A collection another plugin shares: the keys of its storage that
+  // start with a prefix its manifest names under `exports.collections`.
+  // The manifest of this plugin lists it under `imports.collections`
+  // as `plugin/name`, and the capability `collections.read` or
+  // `collections.write` is chosen for that. Every call returns copies,
+  // and a failure is `plugin/name is not in the manifest's imports`,
+  // `collections.read not granted` (the chief is asked where the
+  // choice is yet to be made), `plugin/name is not there`, or, for a
+  // write, `plugin/name is read-only`. Keys are those of the
+  // collection, without the prefix.
+  record collection-item {
+    key: string,
+    value: list<u8>,
+  }
+
+  record collection-page {
+    items: list<collection-item>,
+    // The key to give as `after` for the next page, when there is one.
+    next: option<string>,
+  }
+
+  // A page of the collection, in the order of the keys, from the
+  // first key after `after`. The host caps the items and the bytes of
+  // a page, and `limit` may lower the items.
+  collection-list: func(plugin: string, name: string, after: option<string>, limit: u32) -> result<collection-page, string>;
+
+  // The value of `key`, if it is there.
+  collection-get: func(plugin: string, name: string, key: string) -> result<option<list<u8>>, string>;
+
+  // Sets `key`, which needs `collections.write` and a collection that
+  // is `writable`. The plugin that shares it is told that the
+  // collection changed.
+  collection-put: func(plugin: string, name: string, key: string, value: list<u8>) -> result<_, string>;
+
+  // Removes `key`, under the same conditions as `collection-put`.
+  collection-delete: func(plugin: string, name: string, key: string) -> result<_, string>;
+
   // A blob the host holds for the plugin in memory. It is kept
   // across a reload and across a disable and enable, and is empty
   // after the host restarts.

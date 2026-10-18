@@ -1,4 +1,5 @@
 mod cache;
+mod collections;
 mod events;
 mod interop;
 mod limits;

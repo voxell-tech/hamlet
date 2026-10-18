@@ -1,6 +1,7 @@
 //! What a plugin may call in the host: the functions the linker
 //! defines, and the state they work on.
 
+mod collections;
 mod declare;
 mod keeping;
 mod read;
@@ -11,6 +12,7 @@ use hamlet_sdk::capability::Granted;
 use hamlet_sdk::papers::Papers;
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 
+pub use self::collections::{Reach, Shared};
 pub use self::declare::{Declared, Offered};
 pub use self::request::Want;
 use crate::fault::Fault;
@@ -56,6 +58,14 @@ pub struct State {
     /// The blob the plugin keeps with the host.
     pub(crate) state: Vec<u8>,
     pub(crate) state_room: usize,
+    /// The collections the plugin shares, and those of others that
+    /// it may reach.
+    pub(crate) reach: Reach,
+    /// The collections, by the plugin that shares each and its name,
+    /// that changed in the call.
+    pub(crate) changes: Vec<(String, String)>,
+    pub(crate) page_items: usize,
+    pub(crate) page_bytes: usize,
 }
 
 impl State {
@@ -77,6 +87,10 @@ impl State {
             storage: None,
             state: Vec::new(),
             state_room: limits.state_bytes,
+            reach: Reach::default(),
+            changes: Vec::new(),
+            page_items: limits.collection_page_items,
+            page_bytes: limits.collection_page_bytes,
         }
     }
 
@@ -140,6 +154,44 @@ impl Host for State {
 
     fn storage_keys(&mut self, prefix: String) -> Vec<String> {
         self.stored_keys(&prefix)
+    }
+
+    fn collection_list(
+        &mut self,
+        plugin: String,
+        name: String,
+        after: Option<String>,
+        limit: u32,
+    ) -> Result<host::CollectionPage, String> {
+        self.collection_page(&plugin, &name, after, limit)
+    }
+
+    fn collection_get(
+        &mut self,
+        plugin: String,
+        name: String,
+        key: String,
+    ) -> Result<Option<Vec<u8>>, String> {
+        self.collection_value(&plugin, &name, &key)
+    }
+
+    fn collection_put(
+        &mut self,
+        plugin: String,
+        name: String,
+        key: String,
+        value: Vec<u8>,
+    ) -> Result<(), String> {
+        self.collection_set(&plugin, &name, &key, &value)
+    }
+
+    fn collection_delete(
+        &mut self,
+        plugin: String,
+        name: String,
+        key: String,
+    ) -> Result<(), String> {
+        self.collection_remove(&plugin, &name, &key)
     }
 
     fn state_get(&mut self) -> Vec<u8> {

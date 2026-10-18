@@ -12,7 +12,7 @@ use wasmtime::{Engine, Store};
 
 use crate::cache;
 use crate::fault::Fault;
-use crate::host::{self, State};
+use crate::host::{self, Reach, State};
 use crate::interface::Hamlet;
 use crate::limits::Limits;
 use crate::storage::{Caps, Storage};
@@ -66,6 +66,15 @@ impl Instance {
     pub fn holding(mut self, state: &[u8]) -> Self {
         self.store.data_mut().state = state.to_vec();
         self
+    }
+
+    /// Gives the store what its collection functions reach, when it
+    /// differs. Called before each call into the plugin.
+    pub fn reach(&mut self, reach: Reach) {
+        let state = self.store.data_mut();
+        if state.reach != reach {
+            state.reach = reach;
+        }
     }
 
     /// The blob the host holds for the plugin.

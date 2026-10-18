@@ -9,18 +9,21 @@ impl State {
     }
 
     pub(super) fn store(
-        &self,
+        &mut self,
         key: &str,
         value: &[u8],
     ) -> Result<(), String> {
         let storage =
             self.storage.as_ref().ok_or("there is no storage")?;
-        storage.set(key, value)
+        storage.set(key, value)?;
+        self.wrote(key);
+        Ok(())
     }
 
-    pub(super) fn unstore(&self, key: &str) {
+    pub(super) fn unstore(&mut self, key: &str) {
         if let Some(storage) = &self.storage {
             storage.delete(key);
+            self.wrote(key);
         }
     }
 

@@ -13,6 +13,7 @@ pub mod bindings {
 }
 
 pub mod calls;
+pub mod collection;
 pub mod events;
 pub mod state;
 pub mod storage;

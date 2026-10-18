@@ -22,7 +22,21 @@ pub(super) fn route(
     limits: Res<Limits>,
     mut commands: Commands,
 ) {
-    for Done { plugin, intents } in done.read() {
+    for Done {
+        plugin,
+        intents,
+        changes,
+    } in done.read()
+    {
+        for (owner, name) in changes {
+            publish::changed(
+                owner,
+                name,
+                &who,
+                &mut inboxes,
+                &mut commands,
+            );
+        }
         for intent in intents {
             match intent {
                 Intent::RunCommand(request) => command::run(

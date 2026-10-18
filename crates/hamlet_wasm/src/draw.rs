@@ -8,12 +8,13 @@ use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::Granted;
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::papers::Papers;
-use hamlet_sdk::plugin::{PluginInfo, Status};
+use hamlet_sdk::plugin::{Manifest, PluginInfo, Status};
 use hamlet_sdk::tree::id::local_id;
 use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 
 use crate::instance::Instance;
 use crate::limits::Limits;
+use crate::reach::{self, Sharing};
 use crate::wire::Shown;
 use crate::{run, stop};
 
@@ -57,22 +58,32 @@ pub fn draw(
     mut plugins: Query<(
         Entity,
         &PluginInfo,
+        &Manifest,
         &Status,
         &Granted,
         &mut Dirty,
         &mut Instance,
     )>,
+    sharing: Sharing,
     panels: Query<(Entity, &Panel, Option<&Source>)>,
     mut trees: ResMut<PluginTrees>,
     mut commands: Commands,
 ) {
-    for (plugin, info, status, granted, mut dirty, mut instance) in
-        &mut plugins
+    for (
+        plugin,
+        info,
+        manifest,
+        status,
+        granted,
+        mut dirty,
+        mut instance,
+    ) in &mut plugins
     {
         if *status != Status::Running || dirty.is_empty() {
             continue;
         }
         instance.see(granted, &agents, &papers);
+        instance.reach(reach::of(manifest, &sharing, &limits));
         for dock in dirty.take() {
             let Some(local) = local_id(&info.id, &dock) else {
                 continue;

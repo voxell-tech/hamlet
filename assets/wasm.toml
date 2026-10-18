@@ -25,6 +25,8 @@ call_depth = 4
 calls_in_flight = 8
 call_frames = 300
 call_bytes = 65536
+collection_page_items = 32
+collection_page_bytes = 65536
 
 [reload]
 poll_ms = 500

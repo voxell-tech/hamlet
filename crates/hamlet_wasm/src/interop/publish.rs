@@ -54,6 +54,35 @@ pub(super) fn publish(
     );
 }
 
+/// The topic of the event that tells a collection changed. Its
+/// payload is the collection's name.
+const CHANGED: &str = "collection-changed";
+
+/// Tells the plugins that import it that the collection `name` of the
+/// plugin `owner` changed.
+pub(super) fn changed(
+    owner: &str,
+    name: &str,
+    who: &Who,
+    inboxes: &mut Query<(&Status, &mut Inbox)>,
+    commands: &mut Commands,
+) {
+    let found = who.iter().find(|(_, info, manifest, ..)| {
+        info.id == owner
+            && manifest.exports.collection(name).is_some()
+    });
+    if let Some((publisher, ..)) = found {
+        fan_out(
+            publisher,
+            CHANGED,
+            name.as_bytes(),
+            who,
+            inboxes,
+            commands,
+        );
+    }
+}
+
 /// Gives a copy of the event `topic` of `publisher` with `payload` to
 /// each plugin that imports it and holds `plugin.use` for the
 /// publisher. A plugin the chief is yet to decide for is asked, and

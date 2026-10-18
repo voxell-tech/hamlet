@@ -31,10 +31,12 @@ pub enum Capability {
     FsFolder,
     ModelCall,
     PluginUse,
+    CollectionsRead,
+    CollectionsWrite,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 12] = [
+    pub const ALL: [Capability; 14] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -47,6 +49,8 @@ impl Capability {
         Capability::FsFolder,
         Capability::ModelCall,
         Capability::PluginUse,
+        Capability::CollectionsRead,
+        Capability::CollectionsWrite,
     ];
 
     /// The name a manifest and the grants file know it by.
@@ -64,13 +68,20 @@ impl Capability {
             Capability::FsFolder => "fs.folder",
             Capability::ModelCall => "model.call",
             Capability::PluginUse => "plugin.use",
+            Capability::CollectionsRead => "collections.read",
+            Capability::CollectionsWrite => "collections.write",
         }
     }
 
     /// Whether the chief chooses for it once for each thing it names,
     /// such as each plugin, and not once for all.
     pub fn scoped(self) -> bool {
-        matches!(self, Capability::PluginUse)
+        matches!(
+            self,
+            Capability::PluginUse
+                | Capability::CollectionsRead
+                | Capability::CollectionsWrite
+        )
     }
 
     /// What holding it lets a plugin do, in a few words.
@@ -96,6 +107,12 @@ impl Capability {
             Capability::FsFolder => "Work in a hamlet's folder",
             Capability::ModelCall => "Call a model, on the budget",
             Capability::PluginUse => "Use another plugin",
+            Capability::CollectionsRead => {
+                "Read a collection another plugin shares"
+            }
+            Capability::CollectionsWrite => {
+                "Change a collection another plugin shares"
+            }
         }
     }
 

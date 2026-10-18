@@ -67,6 +67,11 @@ pub struct Limits {
     pub call_frames: u64,
     /// The bytes of the arguments of a call, and of a reply.
     pub call_bytes: usize,
+    /// The items of one page of a collection another plugin shares.
+    pub collection_page_items: usize,
+    /// The bytes of the values of one page. A page holds at least
+    /// one item, whatever its size.
+    pub collection_page_bytes: usize,
 }
 
 /// The time one call may take, in milliseconds, for runs on a busy

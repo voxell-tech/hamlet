@@ -67,8 +67,9 @@ impl Manifest {
     }
 
     /// What `capability` is chosen for one by one: the plugins this
-    /// one imports from for `plugin.use`. Empty for a capability that
-    /// is not scoped.
+    /// one imports from for `plugin.use`, the collections it imports
+    /// for `collections.read` and `collections.write`. Empty for a
+    /// capability that is not scoped.
     pub fn targets(&self, capability: Capability) -> Vec<String> {
         match capability {
             Capability::PluginUse => self
@@ -77,6 +78,10 @@ impl Manifest {
                 .into_iter()
                 .map(str::to_string)
                 .collect(),
+            Capability::CollectionsRead
+            | Capability::CollectionsWrite => {
+                self.imports.collections.clone()
+            }
             _ => Vec::new(),
         }
     }

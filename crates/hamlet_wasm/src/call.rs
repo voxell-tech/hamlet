@@ -23,6 +23,9 @@ pub struct Output {
     pub panels: Vec<Declared>,
     /// The commands the call declared. Only `entry` may.
     pub commands: Vec<Offered>,
+    /// The collections that changed in the call, each as the plugin
+    /// that shares it and its name.
+    pub changes: Vec<(String, String)>,
     /// What the call tried to use that the chief is yet to decide.
     pub wants: Vec<Want>,
 }
@@ -112,6 +115,7 @@ impl Instance {
         self.store.data_mut().logs.clear();
         self.store.data_mut().declared.clear();
         self.store.data_mut().offered.clear();
+        self.store.data_mut().changes.clear();
         self.store.data_mut().wants.clear();
         self.store.set_epoch_deadline(limits.call_ticks());
         let returned = call(&self.exports, &mut self.store)
@@ -122,6 +126,7 @@ impl Instance {
             logs: std::mem::take(&mut state.logs),
             panels: std::mem::take(&mut state.declared),
             commands: std::mem::take(&mut state.offered),
+            changes: std::mem::take(&mut state.changes),
             wants: std::mem::take(&mut state.wants),
         };
         Ok((returned, output))
