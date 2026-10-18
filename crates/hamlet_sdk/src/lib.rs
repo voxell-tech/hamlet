@@ -11,6 +11,7 @@ pub mod icons;
 pub mod looks;
 pub mod papers;
 pub mod platform;
+pub mod plugin;
 pub mod theme;
 
 use bevy::app::{App, Plugin};
@@ -23,7 +24,11 @@ pub struct SdkPlugin;
 
 impl Plugin for SdkPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((dock::plugin, papers::plugin));
+        app.add_plugins((
+            dock::plugin,
+            papers::plugin,
+            plugin::plugin,
+        ));
     }
 }
 
