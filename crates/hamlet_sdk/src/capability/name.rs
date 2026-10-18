@@ -38,10 +38,12 @@ pub enum Capability {
     PluginUse,
     CollectionsRead,
     CollectionsWrite,
+    FilesRead,
+    FilesWrite,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 18] = [
+    pub const ALL: [Capability; 20] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -60,6 +62,8 @@ impl Capability {
         Capability::PluginUse,
         Capability::CollectionsRead,
         Capability::CollectionsWrite,
+        Capability::FilesRead,
+        Capability::FilesWrite,
     ];
 
     /// The name a manifest and the grants file know it by.
@@ -83,6 +87,8 @@ impl Capability {
             Capability::PluginUse => "plugin.use",
             Capability::CollectionsRead => "collections.read",
             Capability::CollectionsWrite => "collections.write",
+            Capability::FilesRead => "files.read",
+            Capability::FilesWrite => "files.write",
         }
     }
 
@@ -95,6 +101,17 @@ impl Capability {
                 | Capability::CollectionsRead
                 | Capability::CollectionsWrite
         )
+    }
+
+    /// Whether letting a plugin in leaves the choice at Ask next
+    /// time, so that the chief is asked at its first use: the ones
+    /// that are scoped, and the acts done as the chief.
+    pub fn asked_at_use(self) -> bool {
+        self.scoped()
+            || matches!(
+                self,
+                Capability::ChatSend | Capability::CommandsRun
+            )
     }
 
     /// What holding it lets a plugin do, in a few words.
@@ -110,7 +127,9 @@ impl Capability {
             Capability::ReadPapers => {
                 "Read an agent's notes, character and skills"
             }
-            Capability::ChatSend => "Send messages as the chief",
+            Capability::ChatSend => {
+                "Send messages to agents as the chief"
+            }
             Capability::CommandsRun => "Run commands as the chief",
             Capability::UiMenu => "Add entries to the menus",
             Capability::UiKeys => "Add keyboard shortcuts",
@@ -121,7 +140,7 @@ impl Capability {
                 "Add tabs to the Inspector's page of an agent"
             }
             Capability::UiSettings => "Add pages to the Settings",
-            Capability::Net => "Reach the network",
+            Capability::Net => "Fetch from the web hosts it lists",
             Capability::FsPick => {
                 "Ask for a file with the file dialog"
             }
@@ -134,6 +153,28 @@ impl Capability {
             Capability::CollectionsWrite => {
                 "Change a collection another plugin shares"
             }
+            Capability::FilesRead => {
+                "Read the files in its own folder"
+            }
+            Capability::FilesWrite => {
+                "Write the files in its own folder"
+            }
+        }
+    }
+
+    /// A line for the chief on what makes the capability weigh more
+    /// than its name says, where it does.
+    pub fn caution(self) -> Option<&'static str> {
+        match self {
+            Capability::ChatSend | Capability::CommandsRun => Some(
+                "Acts as the chief. Each use is marked with the \
+                 plugin's name and the number of uses is limited.",
+            ),
+            Capability::Net => Some(
+                "Reaches only the hosts listed, over https, within \
+                 a size and time limit.",
+            ),
+            _ => None,
         }
     }
 

@@ -218,6 +218,20 @@ mod tests {
     }
 
     #[test]
+    fn letting_a_plugin_in_leaves_the_acts_as_the_chief_to_be_asked()
+    {
+        use Capability::{ChatSend, CommandsRun, Net, ReadAgents};
+
+        let all = [ReadAgents, Net, ChatSend, CommandsRun];
+        let granted =
+            Granted::of(&asking(&all), &Choices::allowing(&all));
+        assert!(granted.holds(ReadAgents));
+        assert!(granted.holds(Net));
+        assert_eq!(granted.verdict(ChatSend), Some(Verdict::Ask));
+        assert_eq!(granted.verdict(CommandsRun), Some(Verdict::Ask));
+    }
+
+    #[test]
     fn a_scoped_capability_is_chosen_for_each_target_and_kept_in_the_record()
      {
         use Capability::PluginUse;

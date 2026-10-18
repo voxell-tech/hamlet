@@ -124,17 +124,20 @@ fn group(group: &Group) -> AnyView {
             column((name, state)).gap(4.0).boxed()
         })
         .collect::<Vec<_>>();
-    column((
+    let mut parts = vec![
         row((label(group.capability.name())
             .size(13.0)
             .bold(true)
             .tagged(DisplayText),))
-        .fills_width(),
-        note(group.capability.words()),
-        column(holders).gap(8.0),
-    ))
-    .gap(4.0)
-    .boxed()
+        .fills_width()
+        .boxed(),
+        note(group.capability.words()).boxed(),
+    ];
+    if let Some(caution) = group.capability.caution() {
+        parts.push(note(caution).boxed());
+    }
+    parts.push(column(holders).gap(8.0).boxed());
+    column(parts).gap(4.0).boxed()
 }
 
 /// The capabilities, each over the plugins that ask for it.

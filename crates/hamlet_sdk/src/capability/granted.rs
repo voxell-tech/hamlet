@@ -35,10 +35,10 @@ pub struct Choices {
 impl Choices {
     /// The choices of a chief who allowed all of `capabilities`, and
     /// left it to the first use to ask for each target of the scoped
-    /// ones.
+    /// ones and for the acts done as the chief.
     pub fn allowing(capabilities: &[Capability]) -> Self {
         capabilities.iter().fold(Self::default(), |choices, c| {
-            let choice = match c.scoped() {
+            let choice = match c.asked_at_use() {
                 true => Choice::AskNextTime,
                 false => Choice::Allow,
             };
@@ -295,6 +295,15 @@ impl Granted {
                 })
                 .map_or(Verdict::Ask, |(.., verdict)| *verdict),
         )
+    }
+
+    /// What the ask for `capability` is limited to, such as hosts or
+    /// agents. Empty where it names nothing or is not asked.
+    pub fn scope(&self, capability: Capability) -> &[String] {
+        self.scopes
+            .iter()
+            .find(|(held, _)| *held == capability)
+            .map_or(&[], |(_, scope)| scope.as_slice())
     }
 
     pub fn holds(&self, capability: Capability) -> bool {

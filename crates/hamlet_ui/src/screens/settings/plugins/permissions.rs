@@ -38,6 +38,8 @@ pub(super) fn plugin(app: &mut App) {
 pub(super) struct Row {
     pub capability: Capability,
     pub reason: String,
+    /// The hosts, agents or commands the ask is limited to.
+    pub scope: Vec<String>,
     /// The chief's choice, if it was answered.
     pub choice: Option<Choice>,
     /// Allowed for this run only.
@@ -91,6 +93,7 @@ fn keep(
                         .map(|ask| Row {
                             capability: ask.capability,
                             reason: ask.reason.clone(),
+                            scope: ask.scope.0.clone(),
                             choice: choices.choice(ask.capability),
                             lent: choices.lent(ask.capability),
                             targets: targets(
@@ -121,6 +124,15 @@ fn row_of(detail: &Detail, row: &Row) -> AnyView {
         note(row.capability.words()).boxed(),
         note(format!("Why: {}", row.reason)).boxed(),
     ];
+    if let Some(caution) = row.capability.caution() {
+        parts.push(note(caution).boxed());
+    }
+    if !row.scope.is_empty() {
+        parts.push(
+            note(format!("Limited to: {}", row.scope.join(", ")))
+                .boxed(),
+        );
+    }
     if detail.installed && row.capability.scoped() {
         if row.targets.is_empty() {
             parts.push(

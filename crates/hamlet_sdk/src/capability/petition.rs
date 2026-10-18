@@ -109,6 +109,10 @@ pub(super) fn using(
     );
     if let Some(ask) = asks.of(capability) {
         text += &format!("\nWhy: {}", ask.reason);
+        if !ask.scope.0.is_empty() {
+            text +=
+                &format!("\nLimited to: {}", ask.scope.0.join(", "));
+        }
     }
     let said = said.trim();
     if !said.is_empty() {
@@ -132,7 +136,10 @@ fn listing(head: &str, asks: &[Asked]) -> String {
     for ask in asks {
         text +=
             &format!("\n{} - {}", ask.capability.name(), ask.reason);
-        if ask.capability.scoped() {
+        if !ask.scope.0.is_empty() {
+            text += &format!(" [{}]", ask.scope.0.join(", "));
+        }
+        if ask.capability.asked_at_use() {
             text += " (each is asked at its first use)";
         }
     }
@@ -250,7 +257,8 @@ fn apply(world: &mut World, subject: Subject, answer: Answer) {
             capabilities,
         } => {
             for capability in capabilities {
-                let choice = match (allow, capability.scoped()) {
+                let choice = match (allow, capability.asked_at_use())
+                {
                     (true, false) => Choice::Allow,
                     (true, true) => Choice::AskNextTime,
                     (false, _) => Choice::Deny,
