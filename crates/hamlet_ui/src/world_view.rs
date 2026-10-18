@@ -29,7 +29,6 @@ use bevy::ui::{Display, Node, Overflow, UiSystems, px};
 use bevy::window::{PrimaryWindow, Window};
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_fynix::ViewExt;
-use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, frame};
 use chrono::Timelike;
 use hamlet_core::agents::Busy;
@@ -43,9 +42,9 @@ use hamlet_realm::pick::{NameTag, Sign, WorldSurface};
 use hamlet_realm::sky::SkySettings;
 use hamlet_realm::{Hour, Stage, WorldCamera, WorldSystems};
 
-use crate::dock::PanelAppExt;
+use crate::dock::{Panel, PanelAppExt};
 use crate::icons::Glyph;
-use crate::looks::{Fills, ICON};
+use crate::looks::Fills;
 use crate::me::Me;
 use crate::window::WorldShown;
 use crate::{AnyView, Cx};
@@ -58,17 +57,13 @@ type WorldCameras<'w, 's> = Query<
 >;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_panel(
-        "world",
-        DockWindowKind::new("REALM", || {
-            column((view(),))
-                .fills_width()
-                .min_height(px(0.0))
-                .gap(0.0)
-                .boxed()
-        })
-        .icon(Glyph::Globe.image(ICON)),
-    )
+    app.add_panel(Panel::new("world", "REALM", Glyph::Globe, || {
+        column((view(),))
+            .fills_width()
+            .min_height(px(0.0))
+            .gap(0.0)
+            .boxed()
+    }))
     .init_resource::<TimeOfDay>()
     .insert_resource(hamlet_realm::pick::NoNameTag)
     .add_systems(

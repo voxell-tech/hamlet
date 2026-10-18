@@ -4,6 +4,7 @@
 
 pub mod cards;
 pub mod convo;
+pub mod dock;
 pub mod feel;
 pub mod icons;
 pub mod looks;
@@ -21,7 +22,7 @@ pub struct SdkPlugin;
 
 impl Plugin for SdkPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(papers::plugin);
+        app.add_plugins((dock::plugin, papers::plugin));
     }
 }
 

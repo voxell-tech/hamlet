@@ -35,6 +35,7 @@ use bevy::state::state::OnEnter;
 use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
 use hamlet_realm::pick::Selected;
+pub use hamlet_sdk::dock::{lit_panel, panel};
 pub use hamlet_sdk::looks::{
     ICON, brass, grim, lamp, marked, retrace, well,
 };
@@ -42,7 +43,6 @@ pub use hamlet_sdk::{
     AnyView, Cx, SdkPlugin, View, looks, theme, with_cx,
 };
 
-pub use self::dock::{lit_panel, panel};
 pub use self::me::Me;
 pub use self::roll::Roll;
 pub use self::root::toolbar;

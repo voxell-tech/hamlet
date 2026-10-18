@@ -14,7 +14,6 @@ use bevy::ecs::schedule::common_conditions::{
 };
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
-use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_core::agents::Left;
 use hamlet_realm::pick::{Selected, Thing};
@@ -26,17 +25,19 @@ pub use self::agent::{Briefing, Section};
 pub(crate) use self::agent::{now, show_prompt};
 pub(crate) use self::gone::skills_screen;
 pub(crate) use self::house::house;
-use crate::dock::{PanelAppExt, lit_panel, panel, show_tab};
+use crate::dock::{Panel, PanelAppExt, lit_panel, panel, show_tab};
 use crate::feel::Lit;
 use crate::icons::Glyph;
-use crate::looks::{ICON, filling};
+use crate::looks::filling;
 use crate::me::{Me, talk_to};
 use crate::{View, overview, tabs};
 
 pub fn plugin(app: &mut App) {
-    app.add_panel(
+    app.add_panel(Panel::new(
         "agent",
-        DockWindowKind::new("INSPECTOR", || {
+        "INSPECTOR",
+        Glyph::Lens,
+        || {
             lit_panel(
                 screen(),
                 Lit {
@@ -44,15 +45,12 @@ pub fn plugin(app: &mut App) {
                     flash: true,
                 },
             )
-        })
-        .icon(Glyph::Lens.image(ICON)),
-    )
+        },
+    ))
     // Closed until asked for from the View menu or a tab bar's plus.
-    .add_panel(
-        "skills",
-        DockWindowKind::new("SKILLS", || panel(skills_screen()))
-            .icon(Glyph::Book.image(ICON)),
-    )
+    .add_panel(Panel::new("skills", "SKILLS", Glyph::Book, || {
+        panel(skills_screen())
+    }))
     .init_resource::<Section>()
     .init_resource::<Briefing>()
     .add_systems(

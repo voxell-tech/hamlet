@@ -12,7 +12,6 @@ use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use bevy::ui::{AlignItems, UiRect, px};
-use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, row, scroll,
@@ -28,11 +27,11 @@ use hamlet_core::tools::Change;
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_rules::chief::rulings::Choice;
 
-use crate::dock::{PanelAppExt, lit_panel, show_tab};
+use crate::dock::{Panel, PanelAppExt, lit_panel, show_tab};
 use crate::feel::{Lit, Mood};
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, ICON, bad_action, brass, grim, lamp, marked, note, well,
+    Fills, bad_action, brass, grim, lamp, marked, note, well,
 };
 use crate::me::Me;
 use crate::platform::{DisplayText, MonoText, Wraps};
@@ -45,9 +44,11 @@ const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
 const TICK: f32 = 10.0;
 
 pub fn plugin(app: &mut App) {
-    app.add_panel(
+    app.add_panel(Panel::new(
         "needs",
-        DockWindowKind::new("PETITIONS", || {
+        "PETITIONS",
+        Glyph::Bell,
+        || {
             lit_panel(
                 screen(),
                 Lit {
@@ -55,9 +56,8 @@ pub fn plugin(app: &mut App) {
                     flash: false,
                 },
             )
-        })
-        .icon(Glyph::Bell.image(ICON)),
-    )
+        },
+    ))
     .init_resource::<Reason>()
     .init_resource::<Queue>()
     .add_observer(tag_answered)

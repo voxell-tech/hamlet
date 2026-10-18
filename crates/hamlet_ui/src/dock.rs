@@ -4,20 +4,20 @@
 use std::collections::HashMap;
 
 use bevy::app::{App, Update};
-use bevy::ecs::system::{Query, ResMut};
+use bevy::ecs::observer::On;
+use bevy::ecs::system::{Commands, Query, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{ComputedNode, Overflow, UiRect, px};
+use bevy::ui::ComputedNode;
 use bevy_fynix::dock::{
-    DockArea, DockAreaStyle, DockLeaf, DockNode, DockRegistry,
-    DockTree, DockWindowKind, Edge, NodeId, SplitAxis,
+    DockArea, DockAreaStyle, DockLeaf, DockNode, DockTree, Edge,
+    NodeId, SplitAxis,
 };
-use bevy_fynix::views::{BehaviorExt, FrameProps, column};
+use hamlet_core::core::RefreshLists;
+pub(crate) use hamlet_sdk::dock::{
+    Panel, PanelAppExt, TabShown, lit_panel, panel, show_tab,
+};
 
-use crate::feel::Lit;
-use crate::looks::Fills;
-use crate::platform::{ClipInside, Glow};
-use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, View, remember};
+use crate::remember;
 
 /// The least width a panel keeps, in logical pixels.
 const LEAST: f32 = 300.0;
@@ -26,56 +26,15 @@ const LEAST: f32 = 300.0;
 pub(crate) const NEEDS_SHARE: f32 = 0.2;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Update, keep_wide);
+    app.add_observer(refresh_on_agent)
+        .add_systems(Update, keep_wide);
 }
 
-/// Registers a panel's dock window from its own plugin.
-pub(crate) trait PanelAppExt {
-    fn add_panel(
-        &mut self,
-        id: &str,
-        kind: DockWindowKind<HamletTheme>,
-    ) -> &mut Self;
-}
-
-impl PanelAppExt for App {
-    fn add_panel(
-        &mut self,
-        id: &str,
-        kind: DockWindowKind<HamletTheme>,
-    ) -> &mut Self {
-        self.init_resource::<DockRegistry<HamletTheme>>();
-        self.world_mut()
-            .resource_mut::<DockRegistry<HamletTheme>>()
-            .register(id, kind);
-        self
+/// The Inspector coming to the front reads the lists again.
+fn refresh_on_agent(shown: On<TabShown>, mut commands: Commands) {
+    if shown.0 == "agent" {
+        commands.trigger(RefreshLists);
     }
-}
-
-/// A dock panel's contents.
-pub fn panel(view: impl View) -> AnyView {
-    lit_panel(view, Lit::default())
-}
-
-/// A panel that light falls into as things happen in the hamlet.
-pub fn lit_panel(view: impl View, lit: Lit) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
-        let fill = cx.theme().palette.black;
-        // The dock frames the area; this is what fills it.
-        cx.build(
-            column((view,))
-                .fills_width()
-                .min_height(px(0.0))
-                .padding(UiRect::all(px(16.0)))
-                .gap(0.0)
-                .fill(fill)
-                // Overflow is cut at the padding.
-                .overflow(Overflow::clip())
-                .tagged(ClipInside)
-                .tagged(Glow)
-                .tagged(lit),
-        )
-    })
 }
 
 /// The width `node` needs for every panel in it to keep [`LEAST`],
@@ -172,25 +131,6 @@ pub(crate) fn seed(world: &mut World) {
         if let Some(parent) = tree.parent_of(side) {
             tree.set_fraction(parent, 0.64);
         }
-    }
-}
-
-/// Brings a panel's tab to the front.
-pub(crate) fn show_tab(world: &mut World, id: &str) {
-    let mut tree = world.resource_mut::<DockTree>();
-    let Some(leaf) = tree.find_leaf_with_window(id) else {
-        return;
-    };
-    let tab = tree.leaf(leaf).and_then(|l| {
-        l.tabs()
-            .find(|(window, _)| *window == id)
-            .map(|(_, tab)| tab)
-    });
-    if let Some(tab) = tab {
-        tree.set_active(leaf, tab);
-    }
-    if id == "agent" {
-        world.trigger(hamlet_core::core::RefreshLists);
     }
 }
 
