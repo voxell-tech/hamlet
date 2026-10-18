@@ -2,11 +2,13 @@
 //! crate depends on this and on the engine crates, never on
 //! `hamlet_ui`.
 
+pub mod agents;
 pub mod cards;
 pub mod confirm;
 pub mod convo;
 pub mod dock;
 pub mod feel;
+pub mod grant;
 pub mod icons;
 pub mod looks;
 pub mod papers;
@@ -26,6 +28,7 @@ pub struct SdkPlugin;
 impl Plugin for SdkPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
+            agents::plugin,
             dock::plugin,
             papers::plugin,
             plugin::plugin,

@@ -2,14 +2,14 @@ use std::path::PathBuf;
 
 use bevy::prelude::*;
 use hamlet_core::agents::{Citizen, Left, LivesIn, Settlement};
+use hamlet_sdk::agents::{Agent, AgentList};
+use hamlet_sdk::grant::{Granted, READ_AGENTS};
 
-use crate::agents::AgentList;
 use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
-use crate::grant::{Granted, READ_AGENTS};
 use crate::host::Logged;
 use crate::interface::exports::hamlet::plugin::plugin::Intent;
-use crate::interface::hamlet::plugin::host::{Agent, Level};
+use crate::interface::hamlet::plugin::host::Level;
 use crate::limits::Limits;
 
 fn agent(name: &str, hamlet: &str) -> Agent {

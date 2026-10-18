@@ -22,6 +22,7 @@ A plugin crate depends on `hamlet_sdk` and the engine crates, never on
 | `papers` | `Papers`, a read-model of the selected agent's notes, character and skills. Empty while no agent is selected |
 | `confirm` | `Confirm`, an observer event that asks the chief a question before a command is run |
 | `dock` | `Panel`, `add_panel`, `panel` and `lit_panel`, `show_tab` and `TabShown` |
+| `grant`, `agents` | `Granted`, the capabilities of an installed plugin, and `AgentList`, a read-model of the living agents and their hamlets that a system keeps |
 | `tree` | The tree of a plugin's panel: `Node`, the `PluginTrees` read-model of what each panel shows, the view built from it with the looks of the panels, and the `Interaction` event of a click or typing in it |
 | `plugin` | The plugin types below |
 

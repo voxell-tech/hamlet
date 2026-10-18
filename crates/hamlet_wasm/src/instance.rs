@@ -4,15 +4,14 @@
 use std::path::Path;
 
 use bevy::ecs::component::Component;
+use hamlet_sdk::agents::{Agent, AgentList};
+use hamlet_sdk::grant::{Granted, READ_AGENTS};
 use wasmtime::component::Component as Compiled;
 use wasmtime::{Engine, Store};
 
-use crate::agents::AgentList;
 use crate::fault::Fault;
-use crate::grant::{Granted, READ_AGENTS};
 use crate::host::{self, State};
 use crate::interface::Hamlet;
-use crate::interface::hamlet::plugin::host::Agent;
 use crate::limits::Limits;
 
 /// On the entity of an installed plugin: its store and the exports

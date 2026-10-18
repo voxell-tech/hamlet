@@ -118,6 +118,7 @@ pub fn app(home: &Scratch, plugins: &[Plugin]) -> App {
         workspace: home.0.join("workspace"),
     }))
     .add_plugins((
+        hamlet_sdk::agents::plugin,
         hamlet_sdk::dock::plugin,
         hamlet_sdk::plugin::plugin,
         hamlet_sdk::tree::plugin,

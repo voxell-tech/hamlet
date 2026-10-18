@@ -25,7 +25,7 @@ In `hamlet_wasm/src/`, a file for each part:
 | Part | Files |
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
-| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels), `host/read.rs` (the reads), `grant.rs`, `agents.rs` |
+| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels), `host/read.rs` (the reads). `Granted` and `AgentList` are in `hamlet_sdk::grant` and `agents` |
 | The install folder | `manifest.rs`, `install.rs`, `approved.rs` |
 | Bringing up and the frame | `load.rs`, `start.rs`, `enable.rs`, `inbox.rs`, `run.rs`, `stop.rs` |
 | The panels | `panel.rs`, `wire.rs` (a returned tree made into nodes), `draw.rs`, `event.rs` |

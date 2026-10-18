@@ -1,11 +1,11 @@
 //! Starting an installed plugin again when it is enabled.
 
 use bevy::prelude::*;
+use hamlet_sdk::agents::AgentList;
+use hamlet_sdk::grant::Granted;
 use hamlet_sdk::plugin::{Contributions, Enable, PluginInfo, Status};
 
-use crate::agents::AgentList;
 use crate::engine::Host;
-use crate::grant::Granted;
 use crate::limits::Limits;
 use crate::start::{self, Setting, Source};
 

@@ -2,12 +2,12 @@
 //! they return.
 
 use bevy::prelude::*;
+use hamlet_sdk::agents::AgentList;
+use hamlet_sdk::grant::Granted;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 use hamlet_sdk::tree::id::local_id;
 use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 
-use crate::agents::AgentList;
-use crate::grant::Granted;
 use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::{run, stop};

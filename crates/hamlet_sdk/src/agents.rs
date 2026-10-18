@@ -5,15 +5,29 @@ use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::prelude::*;
 use hamlet_core::agents::{Citizen, Left, LivesIn, Settlement};
 
-use crate::interface::hamlet::plugin::host::Agent;
+/// Keeps [`AgentList`] in step with the core's agents.
+pub fn plugin(app: &mut App) {
+    app.init_resource::<AgentList>()
+        .add_systems(Update, keep.in_set(Kept).run_if(moved));
+}
 
-/// The living agents, by name, each with its hamlet. A copy of it is
-/// what `agents()` returns.
+/// The system that writes [`AgentList`].
+#[derive(SystemSet, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct Kept;
+
+/// A living agent and the name of its hamlet.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Agent {
+    pub name: String,
+    pub hamlet: String,
+}
+
+/// The living agents, by name, each with its hamlet.
 #[derive(Resource, Default, PartialEq, Clone, Debug)]
 pub struct AgentList(pub Vec<Agent>);
 
 /// Whether an agent came, went, was renamed or moved.
-pub fn moved(
+fn moved(
     changed: Query<
         (),
         Or<(
@@ -32,7 +46,7 @@ pub fn moved(
 }
 
 /// Writes the list when it differs from the agents there are.
-pub fn keep(
+fn keep(
     living: Query<(&Name, &LivesIn), (With<Citizen>, Without<Left>)>,
     hamlets: Query<&Name, With<Settlement>>,
     mut list: ResMut<AgentList>,

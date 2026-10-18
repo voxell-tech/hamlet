@@ -4,13 +4,12 @@
 mod declare;
 mod read;
 
+use hamlet_sdk::agents::Agent;
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 
 pub use self::declare::Declared;
 use crate::fault::Fault;
-use crate::interface::hamlet::plugin::host::{
-    self, Agent, Host, Level,
-};
+use crate::interface::hamlet::plugin::host::{self, Host, Level};
 use crate::limits::{Limiter, Limits};
 
 /// The name of the imported interface the linker defines.
@@ -75,7 +74,7 @@ impl Host for State {
         self.declare(id, title, icon);
     }
 
-    fn agents(&mut self) -> Result<Vec<Agent>, String> {
+    fn agents(&mut self) -> Result<Vec<host::Agent>, String> {
         self.read_agents()
     }
 }

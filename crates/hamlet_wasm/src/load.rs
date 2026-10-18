@@ -2,12 +2,12 @@
 
 use bevy::prelude::*;
 use hamlet_core::core::HomeDir;
+use hamlet_sdk::agents::AgentList;
+use hamlet_sdk::grant::Granted;
 use hamlet_sdk::plugin::{self as sdk, PluginInfo, Status};
 
-use crate::agents::AgentList;
 use crate::approved::{self, Approval};
 use crate::engine::Host;
-use crate::grant::Granted;
 use crate::install::{self, Installed};
 use crate::limits::Limits;
 use crate::start::{self, Setting, Source};
@@ -61,7 +61,12 @@ fn spawn(
     let granted = Granted::within(
         &info.id,
         &approval.grants,
-        &installed.manifest.asks,
+        &installed
+            .manifest
+            .asks
+            .iter()
+            .map(|ask| ask.capability.as_str())
+            .collect::<Vec<_>>(),
     );
     let source = Source(installed.wasm);
     let plugin = commands

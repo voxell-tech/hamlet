@@ -2,12 +2,12 @@
 //! ask.
 
 use bevy::prelude::*;
+use hamlet_sdk::agents::AgentList;
+use hamlet_sdk::grant::Granted;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 use hamlet_sdk::tree::id::dock_id;
 
-use crate::agents::AgentList;
 use crate::draw::Dirty;
-use crate::grant::Granted;
 use crate::host::Logged;
 use crate::inbox::Inbox;
 use crate::instance::Instance;

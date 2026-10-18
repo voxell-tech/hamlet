@@ -4,12 +4,12 @@
 use std::path::PathBuf;
 
 use bevy::prelude::*;
+use hamlet_sdk::agents::AgentList;
+use hamlet_sdk::grant::Granted;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 
-use crate::agents::AgentList;
 use crate::draw::Dirty;
 use crate::engine::Host;
-use crate::grant::Granted;
 use crate::inbox::Inbox;
 use crate::instance::Instance;
 use crate::limits::Limits;
