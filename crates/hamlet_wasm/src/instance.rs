@@ -28,7 +28,7 @@ impl Instance {
         component: &Compiled,
         limits: &Limits,
     ) -> Result<Self, Fault> {
-        let linker = host::linker(engine).map_err(Fault::load)?;
+        let linker = host::linker(engine, component)?;
         let mut store = Store::new(engine, State::new(limits));
         store.limiter(|state| &mut state.limiter);
         store.epoch_deadline_trap();
