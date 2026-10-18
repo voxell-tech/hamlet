@@ -8,19 +8,40 @@ use crate::interface::exports::hamlet::plugin::plugin::Incoming;
 /// On the entity of an installed plugin: what happened since its last
 /// `step`.
 #[derive(Component, Default)]
-pub struct Inbox(Vec<Incoming>);
+pub struct Inbox {
+    mail: Vec<Incoming>,
+    /// The second, by the app's clock, that the count of events
+    /// began.
+    since: f32,
+    events: u32,
+}
 
 impl Inbox {
     pub fn push(&mut self, incoming: Incoming) {
-        self.0.push(incoming);
+        self.mail.push(incoming);
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.mail.is_empty()
     }
 
     pub fn take(&mut self) -> Vec<Incoming> {
-        std::mem::take(&mut self.0)
+        std::mem::take(&mut self.mail)
+    }
+
+    /// Whether one more event may be given to the plugin at `now`,
+    /// seconds by the app's clock, when it may have `per_second` in
+    /// each second. An event it may not have is counted out.
+    pub fn admit(&mut self, now: f32, per_second: u32) -> bool {
+        if now - self.since >= 1.0 || now < self.since {
+            self.since = now;
+            self.events = 0;
+        }
+        if self.events >= per_second {
+            return false;
+        }
+        self.events += 1;
+        true
     }
 }
 

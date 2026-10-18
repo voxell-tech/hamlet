@@ -191,6 +191,14 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **Log lines.** A call keeps at most `log_lines` lines of `log_bytes` each.
 - **Panels and trees.** A plugin declares at most `panels` panels, and a
   tree holds at most `tree_nodes` nodes nested `tree_depth` deep.
+- **Text.** One text of a node (its words or its id) is at most `text_bytes`,
+  and all the text of a tree, or the program a panel returns, at most
+  `tree_text_bytes`. A tree over either fails the call like any bad tree: it
+  is dropped and the plugin is marked failed.
+- **Events.** At most `events_per_second` events from the panels are given to
+  a plugin in a second. The rest are dropped, each with a warning in the log.
+- **Intents.** At most `intents_per_call` intents of one `step` are carried
+  out. The rest are dropped, with one warning for the call.
 
 A saved change to the file reaches `Limits` while the app runs, and the next
 call takes the new `call_ms`. The engine keeps the tick and the pool it was

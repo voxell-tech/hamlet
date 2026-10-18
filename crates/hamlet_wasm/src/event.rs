@@ -11,6 +11,7 @@ use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::{
     Incoming, Press, Toggle, Typed,
 };
+use crate::limits::Limits;
 
 /// Puts the interaction in the inbox of the running plugin whose
 /// panel it was done in. A panel drawn from the language answers for
@@ -19,6 +20,8 @@ pub fn deliver(
     event: On<Interaction>,
     panels: Query<(&Panel, &ContributedBy), Without<Compiled>>,
     mut plugins: Query<(&PluginInfo, &Status, &mut Inbox)>,
+    limits: Res<Limits>,
+    time: Option<Res<Time>>,
 ) {
     let Some((_, by)) =
         panels.iter().find(|(panel, _)| panel.id == event.panel)
@@ -32,6 +35,14 @@ pub fn deliver(
         return;
     };
     if *status != Status::Running {
+        return;
+    }
+    let now = time.map_or(0.0, |time| time.elapsed_secs());
+    if !inbox.admit(now, limits.events_per_second) {
+        warn!(
+            "plugin {}: over {} events a second, one dropped",
+            info.id, limits.events_per_second
+        );
         return;
     }
     let (panel, id) = (local.to_string(), event.node.clone());

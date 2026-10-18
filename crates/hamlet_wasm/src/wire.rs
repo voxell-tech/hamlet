@@ -22,7 +22,54 @@ pub enum Shown {
 pub fn shown(view: View, limits: &Limits) -> Result<Shown, String> {
     match view {
         View::Tree(tree) => node(tree, limits).map(Shown::Tree),
+        View::Lang(text) if text.len() > limits.tree_text_bytes => {
+            Err(format!(
+                "the program has {} bytes, the most is {}",
+                text.len(),
+                limits.tree_text_bytes
+            ))
+        }
         View::Lang(text) => Ok(Shown::Lang(text)),
+    }
+}
+
+/// Counts `text` against the limits of a tree.
+fn spend(
+    text: &str,
+    limits: &Limits,
+    spent: &mut usize,
+) -> Result<(), String> {
+    if text.len() > limits.text_bytes {
+        return Err(format!(
+            "a text has {} bytes, the most is {}",
+            text.len(),
+            limits.text_bytes
+        ));
+    }
+    *spent += text.len();
+    if *spent > limits.tree_text_bytes {
+        return Err(format!(
+            "the tree has more than {} bytes of text",
+            limits.tree_text_bytes
+        ));
+    }
+    Ok(())
+}
+
+/// The text a widget holds.
+fn text_of(widget: &Widget) -> &str {
+    match widget {
+        Widget::Label(text)
+        | Widget::Heading(text)
+        | Widget::Note(text)
+        | Widget::Icon(text)
+        | Widget::Button(text)
+        | Widget::TextField(text) => text,
+        Widget::Checkbox(checkbox) => &checkbox.label,
+        Widget::Column
+        | Widget::Row
+        | Widget::Scroll
+        | Widget::Divider => "",
     }
 }
 
@@ -36,7 +83,7 @@ pub fn node(tree: Tree, limits: &Limits) -> Result<Node, String> {
         ));
     }
     let mut nodes = tree.nodes.into_iter();
-    let root = read(&mut nodes, 0, limits)?;
+    let root = read(&mut nodes, 0, limits, &mut 0)?;
     match nodes.len() {
         0 => Ok(root),
         _ => Err("the tree has more than one root".into()),
@@ -47,11 +94,14 @@ fn read(
     nodes: &mut IntoIter<Wire>,
     depth: usize,
     limits: &Limits,
+    spent: &mut usize,
 ) -> Result<Node, String> {
     let wire = nodes.next().ok_or("the tree ends too soon")?;
     if depth >= limits.tree_depth {
         return Err("the tree nests too deep".into());
     }
+    spend(text_of(&wire.widget), limits, spent)?;
+    spend(wire.id.as_deref().unwrap_or(""), limits, spent)?;
     let kind = kind(wire.widget);
     let needs_id = matches!(
         kind,
@@ -62,7 +112,7 @@ fn read(
     }
     let mut children = Vec::new();
     for _ in 0..wire.children {
-        children.push(read(nodes, depth + 1, limits)?);
+        children.push(read(nodes, depth + 1, limits, spent)?);
     }
     let node = Node {
         id: wire.id,

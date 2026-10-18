@@ -11,3 +11,7 @@ log_bytes = 1024
 panels = 8
 tree_nodes = 400
 tree_depth = 16
+text_bytes = 4096
+tree_text_bytes = 65536
+events_per_second = 100
+intents_per_call = 64

@@ -10,6 +10,7 @@ use crate::interface::Hamlet;
 use crate::interface::exports::hamlet::plugin::plugin::{
     Incoming, Intent,
 };
+use crate::interface::hamlet::plugin::host::Level;
 use crate::limits::Limits;
 use crate::wire::{self, Shown};
 
@@ -55,6 +56,21 @@ impl Instance {
                 exports.hamlet_plugin_plugin().call_step(store, inbox)
             })?;
         output.intents = outgoing.intents;
+        let over = output
+            .intents
+            .len()
+            .saturating_sub(limits.intents_per_call);
+        if over > 0 {
+            output.intents.truncate(limits.intents_per_call);
+            output.logs.push(Logged {
+                level: Level::Warn,
+                message: format!(
+                    "{over} intents over the limit of {} were \
+                     dropped",
+                    limits.intents_per_call
+                ),
+            });
+        }
         output.panels.clear();
         Ok(output)
     }

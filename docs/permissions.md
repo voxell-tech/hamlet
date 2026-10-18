@@ -131,6 +131,13 @@ asks = ["read.agents"]       # the capabilities the chief was asked about
 `Decide` (an event of `hamlet_sdk::capability`) sets one choice, replaces the
 plugin's `Choices` and writes the record.
 
+## Limits no grant changes
+
+`assets/wasm.toml` bounds every plugin alike, whatever it is allowed: the time
+and memory of a call, the log, the panels, the nodes, depth and text of a
+tree, the events it is given in a second and the intents it returns from a
+call. What each does when passed is in [`wasm.md`](wasm.md).
+
 ## Never grantable
 
 `NEVER` in `hamlet_sdk::capability`: `keys` (keys and model credentials),

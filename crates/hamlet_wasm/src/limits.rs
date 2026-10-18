@@ -31,6 +31,17 @@ pub struct Limits {
     pub tree_nodes: usize,
     /// The levels a panel's tree may nest.
     pub tree_depth: usize,
+    /// The bytes of one text in a panel's tree: a node's text, label
+    /// or id. A tree with a longer one fails the call.
+    pub text_bytes: usize,
+    /// The bytes of all the text in a panel's tree, or of the
+    /// program a panel returns. A tree with more fails the call.
+    pub tree_text_bytes: usize,
+    /// The events from the panels that one plugin is given in a
+    /// second. The rest are dropped.
+    pub events_per_second: u32,
+    /// The intents one `step` may return. The rest are dropped.
+    pub intents_per_call: usize,
 }
 
 impl Limits {
