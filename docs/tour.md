@@ -48,6 +48,7 @@ root package, `hamlet`. The window's crates are:
 | Crate | What it is |
 |---|---|
 | `hamlet_cli` | The `hamlet` command: process management and terminal clients, without Bevy |
+| `hamlet-server` | The Rust server: claims a home as the TypeScript server does, keeps its realm database `realm.sqlite`, and runs operations once each with the marker of their outcome |
 | `hamlet_protocol_gen` | Generates Rust protocol types from `server/protocol.schema.json`; run with `cargo run -p hamlet_protocol_gen` |
 | `hamlet_protocol` | Checked-in protocol v0 types in `src/v0.rs`, with a test that catches schema drift |
 | `hamlet_client` | The client core: the connection, Outbox, received realm, waits and watched chats. Bevy app/ECS, no rendering |

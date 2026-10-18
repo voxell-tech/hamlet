@@ -23,7 +23,9 @@ pub enum Instance {
     Secondary,
 }
 
-fn name(home: &Path) -> Result<Name<'static>> {
+/// The local socket `home` is claimed with, by every process that may
+/// open it.
+pub fn socket_name(home: &Path) -> Result<Name<'static>> {
     if GenericNamespaced::is_supported() {
         let digest =
             Sha256::digest(home.to_string_lossy().as_bytes());
@@ -46,7 +48,7 @@ fn name(home: &Path) -> Result<Name<'static>> {
 /// Claims `home` for this process, or asks the hamlet that runs there
 /// to show itself.
 pub fn claim(home: &Path) -> Result<Instance> {
-    let name = name(home)?;
+    let name = socket_name(home)?;
     if let Ok(mut stream) = Stream::connect(name.clone()) {
         stream.write_all(b"show\n")?;
         return Ok(Instance::Secondary);
@@ -124,7 +126,7 @@ mod tests {
         // A listener that is gone without cleaning up, like a process
         // that exited.
         let stale = ListenerOptions::new()
-            .name(name(&home).unwrap())
+            .name(socket_name(&home).unwrap())
             .reclaim_name(false)
             .create_sync()
             .unwrap();
