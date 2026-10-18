@@ -2,27 +2,42 @@
 //! and how it is switched on and off while the app runs.
 
 mod add;
+mod blocked;
 mod contribution;
 mod enable;
 mod entry;
 mod info;
 mod manifest;
+pub mod needs;
+mod offers;
 mod status;
+mod version;
 
-use bevy::app::App;
+use bevy::app::{App, Update};
+use bevy::ecs::schedule::IntoScheduleConfigs;
 
 pub use self::add::AppPluginExt;
+pub use self::blocked::{Blocked, present};
 pub use self::contribution::{ContributedBy, Contributions};
 pub use self::enable::{Disable, Enable};
 pub use self::entry::{Entry, EntryPoint};
 pub use self::info::PluginInfo;
 pub use self::manifest::{Manifest, Need};
+pub use self::offers::{
+    Collection, Exports, Imports, link, unlink, valid,
+};
 pub use self::status::Status;
+pub use self::version::{Range, Version};
 
-/// Switches plugins on and off by their id.
+/// Switches plugins on and off by their id, and off and on again as
+/// the plugins they need go and come.
 pub fn plugin(app: &mut App) {
     app.add_observer(enable::enable)
-        .add_observer(enable::disable);
+        .add_observer(enable::disable)
+        .add_systems(
+            Update,
+            blocked::reconcile.run_if(blocked::moved),
+        );
 }
 
 /// A unit of function the app is made of. Built-in plugins are

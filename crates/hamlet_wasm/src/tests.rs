@@ -1,6 +1,7 @@
 mod cache;
 mod events;
 mod limits;
+mod needs;
 mod panels;
 mod permissions;
 mod reads;

@@ -1,7 +1,11 @@
 //! `manifest.toml`: what an installed plugin says about itself.
 
 use hamlet_sdk::capability::{Asked, Asks, Refusal};
-use hamlet_sdk::plugin::Need;
+use hamlet_sdk::plugin::{Exports, Imports, Need, Range};
+
+/// The name the host publishes its events under, which no plugin
+/// may take.
+pub const HOST: &str = "host";
 
 /// A capability a plugin asks for, and why.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
@@ -41,12 +45,17 @@ pub struct Manifest {
     pub interface: Option<String>,
     /// The icon of a data plugin's panel, by the name of a `Glyph`.
     pub icon: Option<String>,
+    /// Plugins that must be installed and running, or this one does
+    /// not start.
     #[serde(default)]
     pub needs: Vec<Need>,
+    /// Plugins this one uses when they are there.
     #[serde(default)]
-    pub exports: Vec<String>,
+    pub wants: Vec<Need>,
     #[serde(default)]
-    pub imports: Vec<String>,
+    pub exports: Exports,
+    #[serde(default)]
+    pub imports: Imports,
     #[serde(default)]
     pub asks: Vec<Ask>,
 }
@@ -54,6 +63,25 @@ pub struct Manifest {
 impl Manifest {
     pub fn parse(text: &str) -> Result<Self, toml::de::Error> {
         toml::from_str(text)
+    }
+
+    /// Why the manifest cannot be, where it says what it cannot: a
+    /// range that is not one, or a name that is not a name.
+    pub fn problem(&self) -> Option<String> {
+        let ranges =
+            self.needs.iter().chain(&self.wants).find_map(|need| {
+                Range::parse(&need.range).err().map(|why| {
+                    format!("the range for `{}`: {why}", need.id)
+                })
+            });
+        ranges
+            .or_else(|| self.exports.problem())
+            .or_else(|| self.imports.problem())
+            .or_else(|| {
+                (self.id == HOST).then(|| {
+                    format!("`{HOST}` is the name of the host")
+                })
+            })
     }
 
     /// What the manifest asks for, or the first ask that cannot be
@@ -88,6 +116,9 @@ impl From<&Manifest> for hamlet_sdk::plugin::Manifest {
             name: manifest.name.clone(),
             version: manifest.version.clone(),
             needs: manifest.needs.clone(),
+            wants: manifest.wants.clone(),
+            exports: manifest.exports.clone(),
+            imports: manifest.imports.clone(),
             builtin: false,
         }
     }

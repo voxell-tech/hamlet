@@ -54,6 +54,8 @@ pub struct Plugin {
     asks: &'static [&'static str],
     grants: &'static [&'static str],
     later: &'static [&'static str],
+    /// The plugins it needs, each an id and a range.
+    needs: &'static [(&'static str, &'static str)],
     /// Whether the chief installed it, as far as the store says.
     installed: bool,
 }
@@ -67,8 +69,18 @@ impl Plugin {
             asks: &[],
             grants: &[],
             later: &[],
+            needs: &[],
             installed: true,
         }
+    }
+
+    /// This, needing these plugins, each an id and a range.
+    pub fn needing(
+        mut self,
+        needs: &'static [(&'static str, &'static str)],
+    ) -> Self {
+        self.needs = needs;
+        self
     }
 
     /// This, in the install folder and not in the store: the chief is
@@ -120,6 +132,11 @@ impl Plugin {
              \"0.1.0\"\n{kind}\n",
             self.id
         );
+        for (id, range) in self.needs {
+            text += &format!(
+                "[[needs]]\nid = \"{id}\"\nrange = \"{range}\"\n"
+            );
+        }
         for ask in self.asks {
             text += &format!(
                 "[[asks]]\ncapability = \"{ask}\"\nreason = \"a \

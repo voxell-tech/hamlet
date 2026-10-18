@@ -2,15 +2,19 @@
 
 use bevy::ecs::component::Component;
 
+use super::offers::{Exports, Imports};
+
 /// A plugin that must be present, and the versions of it that do.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
 pub struct Need {
     pub id: String,
-    /// A version range such as `>=0.2` or `0.3`.
+    /// A version range such as `>=0.2` or `0.3`, as
+    /// [`Range`](super::Range) reads it.
     pub range: String,
 }
 
-/// A plugin's id, name, version and the plugins it needs.
+/// A plugin's id, name, version, the plugins it needs and what it
+/// offers and uses.
 #[derive(Component, Clone, PartialEq, Debug)]
 #[component(immutable)]
 pub struct Manifest {
@@ -18,6 +22,10 @@ pub struct Manifest {
     pub name: String,
     pub version: String,
     pub needs: Vec<Need>,
+    /// Plugins that make it better and that it works without.
+    pub wants: Vec<Need>,
+    pub exports: Exports,
+    pub imports: Imports,
     /// Compiled into the app, with everything granted.
     pub builtin: bool,
 }
@@ -31,6 +39,9 @@ impl Manifest {
             name: id.into(),
             version: env!("CARGO_PKG_VERSION").into(),
             needs: Vec::new(),
+            wants: Vec::new(),
+            exports: Exports::default(),
+            imports: Imports::default(),
             builtin: true,
         }
     }

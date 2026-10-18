@@ -5,6 +5,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use hamlet_sdk::capability::{Asks, Refusal};
+use hamlet_sdk::plugin::needs;
 
 use crate::interface::VERSION;
 use crate::manifest::{Kind, Manifest};
@@ -63,6 +64,9 @@ pub enum Why {
     },
     /// The manifest asks for what cannot be granted.
     Asks(Refusal),
+    /// The plugin needs a plugin that needs it, through the plugins
+    /// of this path.
+    Cycle(Vec<String>),
 }
 
 /// A folder of the install folder that was turned down.
@@ -92,6 +96,11 @@ impl fmt::Display for Rejected {
                  {VERSION}"
             ),
             Why::Asks(refusal) => write!(f, "{refusal}"),
+            Why::Cycle(path) => write!(
+                f,
+                "its needs go in a circle: {}",
+                path.join(" -> ")
+            ),
         }
     }
 }
@@ -133,6 +142,9 @@ pub fn read(folder: &Path) -> Result<Installed, Rejected> {
                 .unwrap_or_else(|| "none".into()),
         }));
     }
+    if let Some(why) = manifest.problem() {
+        return Err(rejected(Why::BadManifest(why)));
+    }
     let asks = manifest
         .asked()
         .map_err(|refusal| rejected(Why::Asks(refusal)))?;
@@ -154,8 +166,9 @@ fn only_data(folder: &Path) -> bool {
     })
 }
 
-/// Every folder of the install folder `plugins`, read. A missing
-/// install folder holds no plugins.
+/// Every folder of the install folder `plugins`, read, the plugins
+/// whose needs go in a circle turned down. A missing install folder
+/// holds no plugins.
 pub fn scan(plugins: &Path) -> Vec<Result<Installed, Rejected>> {
     let Ok(entries) = std::fs::read_dir(plugins) else {
         return Vec::new();
@@ -166,5 +179,43 @@ pub fn scan(plugins: &Path) -> Vec<Result<Installed, Rejected>> {
         .filter(|path| path.is_dir() && !only_data(path))
         .collect::<Vec<_>>();
     folders.sort();
-    folders.iter().map(|folder| read(folder)).collect()
+    let found = folders.iter().map(|folder| read(folder));
+    turn_down_circles(found.collect())
+}
+
+/// `found`, with each plugin that needs itself through the others
+/// turned down.
+fn turn_down_circles(
+    found: Vec<Result<Installed, Rejected>>,
+) -> Vec<Result<Installed, Rejected>> {
+    let circles = {
+        let edges = found
+            .iter()
+            .filter_map(|found| found.as_ref().ok())
+            .map(|plugin| {
+                (
+                    plugin.manifest.id.as_str(),
+                    plugin.manifest.needs.as_slice(),
+                )
+            })
+            .collect::<Vec<_>>();
+        found
+            .iter()
+            .map(|found| {
+                let plugin = found.as_ref().ok()?;
+                needs::cycle_through(&plugin.manifest.id, &edges)
+            })
+            .collect::<Vec<_>>()
+    };
+    found
+        .into_iter()
+        .zip(circles)
+        .map(|(found, circle)| match (found, circle) {
+            (Ok(plugin), Some(path)) => Err(Rejected {
+                folder: plugin.manifest.id,
+                why: Why::Cycle(path),
+            }),
+            (found, _) => found,
+        })
+        .collect()
 }

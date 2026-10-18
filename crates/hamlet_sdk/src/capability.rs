@@ -5,6 +5,7 @@
 mod ask;
 mod choice;
 mod decide;
+mod dependency;
 mod granted;
 mod install;
 mod name;

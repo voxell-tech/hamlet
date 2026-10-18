@@ -4,7 +4,10 @@ use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{Granted, Uninstalled};
 use hamlet_sdk::papers::Papers;
-use hamlet_sdk::plugin::{Contributions, Enable, PluginInfo, Status};
+use hamlet_sdk::plugin::{
+    Blocked, Contributions, Enable, Manifest, PluginInfo, Status,
+    needs, present,
+};
 
 use crate::engine::Host;
 use crate::instance::Instance;
@@ -12,13 +15,15 @@ use crate::limits::Limits;
 use crate::start::{self, Setting, Source};
 
 /// Brings up again the disabled or failed plugin of this id, from
-/// its file, with a store of its own.
+/// its file, with a store of its own, unless a plugin it needs is not
+/// there or not running.
 pub fn restart(
     enable: On<Enable>,
     plugins: Query<
         (
             Entity,
             &PluginInfo,
+            &Manifest,
             &Status,
             &Source,
             &Granted,
@@ -26,6 +31,7 @@ pub fn restart(
         ),
         Without<Uninstalled>,
     >,
+    everyone: Query<(&PluginInfo, &Status, Has<Uninstalled>)>,
     host: Option<Res<Host>>,
     limits: Res<Limits>,
     agents: Res<AgentList>,
@@ -41,17 +47,27 @@ pub fn restart(
         agents: &agents,
         papers: &papers,
     };
-    for (plugin, info, status, source, granted, instance) in &plugins
+    let present = present(everyone.iter().map(
+        |(info, status, uninstalled)| (info, *status, uninstalled),
+    ));
+    for (plugin, info, manifest, status, source, granted, instance) in
+        &plugins
     {
         if info.id != enable.0
             || !matches!(status, Status::Disabled | Status::Failed)
         {
             continue;
         }
+        if let Some(why) = needs::unmet(&manifest.needs, &present) {
+            warn!("plugin {}: not started, {why}", info.id);
+            commands.entity(plugin).insert(Blocked(why.to_string()));
+            continue;
+        }
         commands
             .entity(plugin)
             .despawn_related::<Contributions>()
-            .insert(Status::Starting);
+            .insert(Status::Starting)
+            .remove::<Blocked>();
         start::bring_up(
             plugin,
             info,

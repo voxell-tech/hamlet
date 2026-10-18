@@ -13,6 +13,7 @@ use hamlet_rules::chief::rulings::Choice as Answer;
 use super::ask::{Asked, Asks};
 use super::choice::Choice;
 use super::decide::Decide;
+use super::dependency::{needed, needing};
 use super::install::{self, Removed, Uninstalled};
 use super::name::Capability;
 use super::subject::Subject;
@@ -31,7 +32,7 @@ pub(super) fn install(world: &mut World, plugin: Entity) {
         plugin: info.id.clone(),
     };
     let head = format!("Install {} {}?", info.name, info.version);
-    let text = listing(&head, &asks.0);
+    let text = listing(&head, &asks.0) + &needing(world, plugin);
     raise(
         world,
         &info,
@@ -52,8 +53,9 @@ pub(super) fn remove(world: &mut World, plugin: Entity) {
     };
     let text = format!(
         "Remove {}?\nRemoving it keeps what it saved, for when it \
-         is installed again, or deletes that too.",
-        info.name
+         is installed again, or deletes that too.{}",
+        info.name,
+        needed(world, plugin)
     );
     raise(
         world,

@@ -9,7 +9,9 @@ use hamlet_sdk::capability::{
     Asks, Choices, Granted, Installed, Uninstalled,
 };
 use hamlet_sdk::papers::Papers;
-use hamlet_sdk::plugin::{PluginInfo, Status};
+use hamlet_sdk::plugin::{
+    Blocked, Manifest, PluginInfo, Status, needs, present,
+};
 
 use crate::engine::Host;
 use crate::limits::Limits;
@@ -17,13 +19,15 @@ use crate::reload::keep;
 use crate::start::{self, Setting, Source};
 
 /// Brings up the plugin of this id from its files, with a store of
-/// its own if it is code.
+/// its own if it is code, unless a plugin it needs is not there or
+/// not running.
 pub fn admit(
     installed: On<Installed>,
     plugins: Query<
         (
             Entity,
             &PluginInfo,
+            &Manifest,
             &Asks,
             &Choices,
             Option<&Source>,
@@ -31,14 +35,29 @@ pub fn admit(
         ),
         Without<Uninstalled>,
     >,
+    everyone: Query<(&PluginInfo, &Status, Has<Uninstalled>)>,
     host: Option<Res<Host>>,
     limits: Res<Limits>,
     agents: Res<AgentList>,
     papers: Res<Papers>,
     mut commands: Commands,
 ) {
-    for (plugin, info, asks, choices, source, panel) in &plugins {
+    let present = present(everyone.iter().map(
+        |(info, status, uninstalled)| (info, *status, uninstalled),
+    ));
+    for (plugin, info, manifest, asks, choices, source, panel) in
+        &plugins
+    {
         if info.id != installed.plugin {
+            continue;
+        }
+        if source.is_some()
+            && let Some(why) = needs::unmet(&manifest.needs, &present)
+        {
+            warn!("plugin {}: not started, {why}", info.id);
+            commands
+                .entity(plugin)
+                .insert((Status::Disabled, Blocked(why.to_string())));
             continue;
         }
         commands.entity(plugin).insert(Status::Starting);

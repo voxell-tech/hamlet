@@ -12,7 +12,9 @@ use hamlet_sdk::capability::{
 };
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::papers::Papers;
-use hamlet_sdk::plugin::{self as sdk, PluginInfo, Status};
+use hamlet_sdk::plugin::{
+    self as sdk, Blocked, PluginInfo, Status, needs,
+};
 use hamlet_sdk::tree::glyph;
 
 use crate::engine::Host;
@@ -45,30 +47,50 @@ pub fn installed(
     });
     let folder = home.0.plugins();
     let mut store = Store::open(&folder);
-    for found in install::scan(&folder) {
-        let installed = match found {
-            Ok(installed) => installed,
-            Err(rejected) => {
-                warn!("{rejected}");
-                continue;
+    let mut found = Vec::new();
+    for scanned in install::scan(&folder) {
+        match scanned {
+            Ok(installed) => {
+                let id = &installed.manifest.id;
+                let standing = standing(
+                    store.get(id),
+                    &installed.manifest.version,
+                    &installed.asks,
+                );
+                found.push((installed, standing));
             }
-        };
+            Err(rejected) => warn!("{rejected}"),
+        }
+    }
+    let held = unmet(&found);
+    for (installed, standing) in found {
         let id = installed.manifest.id.clone();
         let version = &installed.manifest.version;
-        match standing(store.get(&id), version, &installed.asks) {
+        match standing {
             Standing::Installed { choices, fresh } => {
                 store.set(&id, Record::installed(version, &choices));
-                match (&installed.body, &setting) {
-                    (Body::Wasm(_), Some(setting)) => spawn(
+                let because =
+                    held.iter().find(|(held, _)| *held == id);
+                match (&installed.body, &setting, because) {
+                    (Body::Wasm(_), _, Some((_, why))) => {
+                        warn!("plugin {id}: not started, {why}");
+                        keep_off(
+                            installed,
+                            choices,
+                            why,
+                            &mut commands,
+                        )
+                    }
+                    (Body::Wasm(_), Some(setting), None) => spawn(
                         setting,
                         installed,
                         choices,
                         &mut commands,
                     ),
-                    (Body::Wasm(_), None) => {
+                    (Body::Wasm(_), None, None) => {
                         warn!("plugin {id}: no engine, not loaded")
                     }
-                    (Body::Data(_), _) => {
+                    (Body::Data(_), ..) => {
                         spawn_data(installed, choices, &mut commands)
                     }
                 }
@@ -91,6 +113,46 @@ pub fn installed(
         }
     }
     commands.insert_resource(store);
+}
+
+/// The installed plugins of code that cannot start, each with the
+/// need it lacks, given that those that can are the ones that do.
+fn unmet(found: &[(Installed, Standing)]) -> Vec<(String, String)> {
+    let listed = found
+        .iter()
+        .map(|(plugin, standing)| needs::Listed {
+            id: &plugin.manifest.id,
+            version: &plugin.manifest.version,
+            needs: match plugin.body {
+                Body::Wasm(_) => &plugin.manifest.needs,
+                Body::Data(_) => &[],
+            },
+            installed: matches!(standing, Standing::Installed { .. }),
+        })
+        .collect::<Vec<_>>();
+    needs::blocked(&listed)
+        .into_iter()
+        .map(|(id, why)| (id, why.to_string()))
+        .collect()
+}
+
+/// Spawns the plugin entity of an installed plugin of code that is
+/// held back, switched off for what it needs.
+fn keep_off(
+    installed: Installed,
+    choices: Choices,
+    why: &str,
+    commands: &mut Commands,
+) {
+    let Body::Wasm(file) = &installed.body else {
+        return;
+    };
+    let (plugin, ..) = plugin(&installed, choices, commands);
+    commands.entity(plugin).insert((
+        Status::Disabled,
+        Source(file.clone()),
+        Blocked(why.into()),
+    ));
 }
 
 /// Spawns the plugin entity with what both kinds of plugin have.
