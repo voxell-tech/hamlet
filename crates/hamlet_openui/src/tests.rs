@@ -3,6 +3,7 @@ use hamlet_sdk::agents::{Agent, AgentList};
 use hamlet_sdk::capability::{Capability, Granted};
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::icons::Glyph;
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::tree::event::{Act, Interaction};
 use hamlet_sdk::tree::node::{Kind, Node};
 use hamlet_sdk::tree::store::PluginTrees;
@@ -19,13 +20,30 @@ fn run(
     agents: &AgentList,
     granted: &Granted,
 ) -> Evaluated {
+    run_with(text, agents, &Papers::default(), granted)
+}
+
+fn run_with(
+    text: &str,
+    agents: &AgentList,
+    papers: &Papers,
+    granted: &Granted,
+) -> Evaluated {
     let limits = PanelLimits::default();
     let document = openui_lang::parse_with_limits(
         &PanelLibrary::default().0,
         text,
         limits.runtime(),
     );
-    evaluate(&document, &Inputs::new(), agents, granted, &limits, &[])
+    evaluate(
+        &document,
+        &Inputs::new(),
+        agents,
+        papers,
+        granted,
+        &limits,
+        &[],
+    )
 }
 
 fn drawn(content: Vec<Node>) -> Node {
@@ -155,6 +173,36 @@ fn the_agents_query_needs_its_grant() {
         drawn(vec![
             Node::new(Kind::Column)
                 .of(vec![Node::new(Kind::Label("ada".into()))])
+        ])
+    );
+}
+
+#[test]
+fn the_papers_query_needs_its_own_grant() {
+    let program = "root = Column([shown])\nshown = papers.error ? \
+                   Note(papers.error) : Column(@Each(papers.rows, \
+                   \"p\", Label(p.notes)))\npapers = \
+                   Query(\"papers\", {}, {rows: [], error: null})";
+    let papers = Papers {
+        notes: "tide table".into(),
+        ..Papers::default()
+    };
+    let none = AgentList::default();
+    let ran = |granted: &Granted| {
+        run_with(program, &none, &papers, granted)
+    };
+
+    let denied = ran(&Granted::allowing(&[Capability::ReadAgents]));
+    let allowed = ran(&Granted::allowing(&[Capability::ReadPapers]));
+
+    assert_eq!(denied.problems, ["read.papers not granted"]);
+    assert!(allowed.problems.is_empty(), "{:?}", allowed.problems);
+    assert_eq!(
+        allowed.root,
+        drawn(vec![
+            Node::new(Kind::Column).of(vec![Node::new(Kind::Label(
+                "tide table".into()
+            ))])
         ])
     );
 }

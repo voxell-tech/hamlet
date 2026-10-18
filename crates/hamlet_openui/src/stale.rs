@@ -3,6 +3,7 @@
 use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::Granted;
+use hamlet_sdk::papers::Papers;
 
 use crate::source::Compiled;
 
@@ -18,9 +19,10 @@ pub(crate) fn due(panels: Query<(), With<Stale>>) -> bool {
 /// Whether what a query answers from has changed.
 pub(crate) fn reads_moved(
     agents: Res<AgentList>,
+    papers: Res<Papers>,
     granted: Query<(), Changed<Granted>>,
 ) -> bool {
-    agents.is_changed() || !granted.is_empty()
+    agents.is_changed() || papers.is_changed() || !granted.is_empty()
 }
 
 /// Has every panel drawn again.

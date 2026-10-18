@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{Granted, Wanted};
 use hamlet_sdk::dock::Panel;
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{ContributedBy, PluginInfo};
 use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 
@@ -19,6 +20,7 @@ use crate::wire::Wires;
 pub(crate) fn draw(
     limits: Res<PanelLimits>,
     agents: Res<AgentList>,
+    papers: Res<Papers>,
     mut panels: Query<
         (
             Entity,
@@ -45,6 +47,7 @@ pub(crate) fn draw(
             &compiled.0,
             &state.0,
             &agents,
+            &papers,
             granted,
             &limits,
             &raised.0,

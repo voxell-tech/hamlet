@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::Granted;
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 
 use crate::draw::Dirty;
@@ -30,6 +31,7 @@ pub struct Setting<'a> {
     pub host: &'a Host,
     pub limits: &'a Limits,
     pub agents: &'a AgentList,
+    pub papers: &'a Papers,
 }
 
 /// A plugin that has run its `entry`.
@@ -54,6 +56,7 @@ pub fn build(
         host,
         limits,
         agents,
+        papers,
     } = setting;
     let instance = Instance::from_file(&host.0, &source.0, limits)?;
     let folder = source.0.parent().unwrap_or(Path::new(""));
@@ -61,7 +64,7 @@ pub fn build(
         .named(&info.id)
         .stored(folder.join(DATA), limits)
         .holding(state);
-    instance.see(granted, agents);
+    instance.see(granted, agents, papers);
     let output = instance.entry(limits)?;
     Ok(Built {
         instance,

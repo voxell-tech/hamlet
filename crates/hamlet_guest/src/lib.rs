@@ -20,7 +20,7 @@ pub use self::bindings::exports::hamlet::plugin::plugin::{
     Incoming, Intent, Outgoing, Tree, View as Wired,
 };
 pub use self::bindings::hamlet::plugin::host::{
-    Agent, Level, RequestResult,
+    Agent, AgentPapers, Level, RequestResult,
 };
 pub use self::state::State;
 
@@ -56,6 +56,13 @@ pub fn panel(id: &str, title: &str, icon: &str) {
 /// `read.agents`, and is an error without it.
 pub fn agents() -> Result<Vec<Agent>, String> {
     bindings::hamlet::plugin::host::agents()
+}
+
+/// The selected agent's notes, character and the names of its
+/// skills, empty while no agent is selected. It needs the capability
+/// `read.papers`, and is an error without it.
+pub fn papers() -> Result<AgentPapers, String> {
+    bindings::hamlet::plugin::host::papers()
 }
 
 /// Asks to use a capability the manifest names, with a reason. On

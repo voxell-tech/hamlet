@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use hamlet_assets::TuningPlugin;
 use hamlet_openui::Drawing;
 use hamlet_sdk::agents::Kept;
+use hamlet_sdk::papers::Papers;
 
 use self::engine::Host;
 use self::limits::{Limits, WasmTuning};
@@ -48,6 +49,7 @@ pub fn plugin(app: &mut App) {
         reload::plugin,
     ))
     .init_resource::<Limits>()
+    .init_resource::<Papers>()
     .add_message::<run::Done>()
     .add_message::<run::Said>()
     .add_observer(admit::admit)

@@ -21,9 +21,18 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 
 `hamlet_sdk::capability::Capability`: `read.agents`, `read.chat`,
 `read.activity`, `read.papers`, `chat.send`, `commands.run`, `ui.menu`, `net`,
-`fs.pick`, `fs.folder`, `model.call` and `plugin.use`. Only `read.agents` is
-checked by a host function so far; the others can be asked for, shown and
-chosen.
+`fs.pick`, `fs.folder`, `model.call` and `plugin.use`. Only `read.agents` and
+`read.papers` are checked by a host function so far; the others can be asked
+for, shown and chosen.
+
+`read.papers` lets a plugin read the selected agent's notes, its character and
+the names of its skills (`papers()`, or `Query("papers")` of a panel), as they
+stand when the plugin is called, as a copy. They are empty while no agent is
+selected. It is gated as `read.agents` is.
+
+Storage needs no capability: every plugin may keep a capped store of its own
+(see [`wasm.md`](wasm.md)), and no capability reaches another plugin's, which is
+`storage.other` of the never-granted ones.
 
 ## Installing
 

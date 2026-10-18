@@ -3,6 +3,7 @@
 
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{Capability, Granted, Verdict};
+use hamlet_sdk::papers::Papers;
 use openui_lang::{ToolRequest, Value};
 
 /// What a query came to.
@@ -21,24 +22,35 @@ pub(crate) struct Answered {
 pub(crate) fn answer(
     request: &ToolRequest,
     agents: &AgentList,
+    papers: &Papers,
     granted: &Granted,
 ) -> Answered {
-    let (failed, wants) = match request.tool() {
-        "agents" if granted.holds(Capability::ReadAgents) => {
-            return Answered {
-                result: rows(agents_rows(agents), Value::Null),
-                problem: None,
-                wants: None,
-            };
-        }
-        "agents" => (
-            format!("{} not granted", Capability::ReadAgents.name()),
-            (granted.verdict(Capability::ReadAgents)
-                == Some(Verdict::Ask))
-            .then_some(Capability::ReadAgents),
-        ),
-        other => (format!("no query named `{other}`"), None),
-    };
+    let (needs, rows_of): (_, fn(&AgentList, &Papers) -> Vec<Value>) =
+        match request.tool() {
+            "agents" => (Capability::ReadAgents, agents_rows),
+            "papers" => (Capability::ReadPapers, papers_rows),
+            other => {
+                return refused(
+                    format!("no query named `{other}`"),
+                    None,
+                );
+            }
+        };
+    if granted.holds(needs) {
+        return Answered {
+            result: rows(rows_of(agents, papers), Value::Null),
+            problem: None,
+            wants: None,
+        };
+    }
+    refused(
+        format!("{} not granted", needs.name()),
+        (granted.verdict(needs) == Some(Verdict::Ask))
+            .then_some(needs),
+    )
+}
+
+fn refused(failed: String, wants: Option<Capability>) -> Answered {
     Answered {
         result: rows(Vec::new(), Value::from(failed.as_str())),
         problem: Some(failed),
@@ -50,7 +62,7 @@ fn rows(rows: Vec<Value>, error: Value) -> Value {
     Value::object([("rows", Value::from(rows)), ("error", error)])
 }
 
-fn agents_rows(agents: &AgentList) -> Vec<Value> {
+fn agents_rows(agents: &AgentList, _: &Papers) -> Vec<Value> {
     agents
         .0
         .iter()
@@ -61,4 +73,19 @@ fn agents_rows(agents: &AgentList) -> Vec<Value> {
             ])
         })
         .collect()
+}
+
+/// One row, of the selected agent's notes, character and the names
+/// of its skills.
+fn papers_rows(_: &AgentList, papers: &Papers) -> Vec<Value> {
+    let skills = papers
+        .skills
+        .iter()
+        .map(|(name, _)| Value::from(name.as_str()))
+        .collect::<Vec<_>>();
+    vec![Value::object([
+        ("notes", Value::from(papers.notes.as_str())),
+        ("character", Value::from(papers.character.as_str())),
+        ("skills", Value::from(skills)),
+    ])]
 }

@@ -83,9 +83,12 @@ and validation are not implemented.
 agents. It is answered from `AgentList` and needs the grant `read.agents`
 (`Granted` of the plugin that owns the panel). The result always has `rows`,
 each with `name` and `hamlet`, and `error`: without the grant `rows` is empty
-and `error` reads `read.agents not granted`. A query of any other name is
-answered the same way with an error. The panel is drawn again when the agents or
-the grants change.
+and `error` reads `read.agents not granted`. `Query("papers", {}, {rows: [],
+error: null})` is the same for the selected agent's papers, answered from
+`Papers` and needing `read.papers`: one row with `notes`, `character` and
+`skills`, a list of names. A query of any other name is answered the same way
+with an error. The panel is drawn again when the agents, the papers or the
+grants change.
 
 ### Problems
 

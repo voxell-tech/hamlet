@@ -34,7 +34,7 @@ pub fn plugin(app: &mut App) {
 /// The notes, the character and the skills the selected agent keeps
 /// in its house, as its pages show them. Empty while no agent is
 /// selected.
-#[derive(Resource, Default, PartialEq, Debug)]
+#[derive(Resource, Clone, Default, PartialEq, Debug)]
 pub struct Papers {
     pub notes: String,
     pub character: String,

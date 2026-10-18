@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{Capability, Granted};
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::tree::node::{Kind, Node};
 use openui_lang::{Document, Inputs};
 
@@ -31,12 +32,13 @@ pub struct Evaluated {
 }
 
 /// The program `document` with `state`, answering its queries from
-/// `agents` as far as `granted` allows. `raised` are problems from
-/// before the draw, which are shown with it.
+/// `agents` and `papers` as far as `granted` allows. `raised` are
+/// problems from before the draw, which are shown with it.
 pub fn evaluate(
     document: &Document,
     state: &Inputs,
     agents: &AgentList,
+    papers: &Papers,
     granted: &Granted,
     limits: &PanelLimits,
     raised: &[String],
@@ -51,7 +53,8 @@ pub fn evaluate(
     if !evaluation.queries().is_empty() {
         let mut inputs = state.clone();
         for request in evaluation.queries() {
-            let answered = read::answer(request, agents, granted);
+            let answered =
+                read::answer(request, agents, papers, granted);
             inputs.set_query_result(
                 request.statement(),
                 answered.result,

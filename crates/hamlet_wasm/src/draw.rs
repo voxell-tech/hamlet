@@ -7,6 +7,7 @@ use hamlet_openui::source::Program;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::Granted;
 use hamlet_sdk::dock::Panel;
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 use hamlet_sdk::tree::id::local_id;
 use hamlet_sdk::tree::store::{Drawn, PluginTrees};
@@ -52,6 +53,7 @@ pub fn due(plugins: Query<&Dirty>) -> bool {
 pub fn draw(
     limits: Res<Limits>,
     agents: Res<AgentList>,
+    papers: Res<Papers>,
     mut plugins: Query<(
         Entity,
         &PluginInfo,
@@ -70,7 +72,7 @@ pub fn draw(
         if *status != Status::Running || dirty.is_empty() {
             continue;
         }
-        instance.see(granted, &agents);
+        instance.see(granted, &agents, &papers);
         for dock in dirty.take() {
             let Some(local) = local_id(&info.id, &dock) else {
                 continue;

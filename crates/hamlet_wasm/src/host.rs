@@ -8,6 +8,7 @@ mod request;
 
 use hamlet_sdk::agents::Agent;
 use hamlet_sdk::capability::Granted;
+use hamlet_sdk::papers::Papers;
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 
 pub use self::declare::Declared;
@@ -46,6 +47,8 @@ pub struct State {
     pub(crate) wants: Vec<Want>,
     /// The agents, when the plugin may read them.
     pub(crate) agents: Vec<Agent>,
+    /// The selected agent's papers, when the plugin may read them.
+    pub(crate) papers: Papers,
     /// The plugin's storage, once it has a folder.
     pub(crate) storage: Option<Storage>,
     /// The blob the plugin keeps with the host.
@@ -66,6 +69,7 @@ impl State {
             granted: Granted::default(),
             wants: Vec::new(),
             agents: Vec::new(),
+            papers: Papers::default(),
             storage: None,
             state: Vec::new(),
             state_room: limits.state_bytes,
@@ -96,6 +100,10 @@ impl Host for State {
 
     fn agents(&mut self) -> Result<Vec<host::Agent>, String> {
         self.read_agents()
+    }
+
+    fn papers(&mut self) -> Result<host::AgentPapers, String> {
+        self.read_papers()
     }
 
     fn request(

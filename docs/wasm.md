@@ -45,6 +45,9 @@ shows and the view built from it are in `hamlet_sdk::tree`.
   `icon` is the name of a `Glyph` of `hamlet_sdk::icons`, in any case.
 - `agents() -> result<list<agent>, string>`, which needs the grant
   `read.agents`.
+- `papers() -> result<agent-papers, string>`, which needs the grant
+  `read.papers`: the selected agent's notes, character and the names of its
+  skills.
 - `request(capability, reason) -> request-result`, which asks to use a
   capability the manifest names: `granted`, `denied` or `pending` (see
   [`permissions.md`](permissions.md)).
@@ -186,10 +189,13 @@ after the call (`run::want`). `Granted` is replaced by inserting it again,
 and the next call sees it.
 
 The host puts what a function answers from into the plugin's store before a
-call: the grant, and a copy of the agents only when `read.agents` is held.
-The agents are `AgentList`, a resource that a system writes when the core's
-agents change, so a host function never touches the world. `agents()` returns
-a copy: the name of each living agent and the name of its hamlet.
+call: the grant, a copy of the agents only when `read.agents` is held, and a
+copy of the papers only when `read.papers` is. The agents are `AgentList`, a
+resource that a system writes when the core's agents change, and the papers are
+`hamlet_sdk::papers::Papers`, so a host function never touches the world.
+`agents()` returns a copy: the name of each living agent and the name of its
+hamlet. `papers()` returns the selected agent's notes and character as the SDK
+cut them for its pages, and the names of its skills.
 
 ### The install record
 

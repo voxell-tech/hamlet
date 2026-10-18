@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use hamlet_core::agents::{Citizen, Left, LivesIn, Settlement};
 use hamlet_sdk::agents::{Agent, AgentList};
 use hamlet_sdk::capability::{Capability, Granted, Verdict};
+use hamlet_sdk::papers::Papers;
 
 use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
@@ -38,17 +39,51 @@ fn a_read_needs_its_grant_and_a_change_of_grant_applies_at_once() {
         }],
     );
 
-    plugin.see(&Granted::default(), &agents);
+    let papers = Papers::default();
+    plugin.see(&Granted::default(), &agents, &papers);
     assert_eq!(lines(&mut plugin), denied);
 
-    plugin.see(&granted, &agents);
+    plugin.see(&granted, &agents, &papers);
     assert_eq!(
         lines(&mut plugin),
         (vec![Intent::LogLine("he".into())], Vec::new())
     );
 
-    plugin.see(&Granted::default(), &agents);
+    plugin.see(&Granted::default(), &agents, &papers);
     assert_eq!(lines(&mut plugin), denied);
+}
+
+#[test]
+fn the_papers_are_read_with_their_own_grant_and_only_as_a_copy() {
+    let limits = Limits::default();
+    let mut plugin = super::load(&fixture::reading_papers()).unwrap();
+    let papers = Papers {
+        notes: "tide table".into(),
+        ..Papers::default()
+    };
+    let agents = AgentList::default();
+
+    plugin.see(
+        &Granted::allowing(&[Capability::ReadAgents]),
+        &agents,
+        &papers,
+    );
+    let out = plugin.step(&limits, &[]).unwrap();
+    assert_eq!(
+        out.logs,
+        [Logged {
+            level: Level::Error,
+            message: "read.papers not granted".into(),
+        }]
+    );
+
+    plugin.see(
+        &Granted::allowing(&[Capability::ReadPapers]),
+        &agents,
+        &papers,
+    );
+    let out = plugin.step(&limits, &[]).unwrap();
+    assert_eq!(out.intents, [Intent::LogLine("hello worl".into())]);
 }
 
 #[test]

@@ -3,6 +3,7 @@
 use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{Granted, Uninstalled};
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{Contributions, Enable, PluginInfo, Status};
 
 use crate::engine::Host;
@@ -28,6 +29,7 @@ pub fn restart(
     host: Option<Res<Host>>,
     limits: Res<Limits>,
     agents: Res<AgentList>,
+    papers: Res<Papers>,
     mut commands: Commands,
 ) {
     let Some(host) = host else {
@@ -37,6 +39,7 @@ pub fn restart(
         host: &host,
         limits: &limits,
         agents: &agents,
+        papers: &papers,
     };
     for (plugin, info, status, source, granted, instance) in &plugins
     {

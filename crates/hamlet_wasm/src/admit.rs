@@ -8,6 +8,7 @@ use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{
     Asks, Choices, Granted, Installed, Uninstalled,
 };
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 
 use crate::engine::Host;
@@ -33,6 +34,7 @@ pub fn admit(
     host: Option<Res<Host>>,
     limits: Res<Limits>,
     agents: Res<AgentList>,
+    papers: Res<Papers>,
     mut commands: Commands,
 ) {
     for (plugin, info, asks, choices, source, panel) in &plugins {
@@ -50,6 +52,7 @@ pub fn admit(
                     host,
                     limits: &limits,
                     agents: &agents,
+                    papers: &papers,
                 },
                 &[],
                 &mut commands,

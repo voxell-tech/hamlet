@@ -5,7 +5,7 @@ use bevy::log::warn;
 use hamlet_sdk::capability::{Capability, Verdict};
 
 use super::State;
-use crate::interface::hamlet::plugin::host::Agent;
+use crate::interface::hamlet::plugin::host::{Agent, AgentPapers};
 
 impl State {
     pub(super) fn read_agents(
@@ -20,6 +20,22 @@ impl State {
                 hamlet: agent.hamlet.clone(),
             })
             .collect())
+    }
+
+    pub(super) fn read_papers(
+        &mut self,
+    ) -> Result<AgentPapers, String> {
+        self.require(Capability::ReadPapers)?;
+        Ok(AgentPapers {
+            notes: self.papers.notes.clone(),
+            character: self.papers.character.clone(),
+            skills: self
+                .papers
+                .skills
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect(),
+        })
     }
 
     /// Whether the plugin holds `capability`. A refusal is logged

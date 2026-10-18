@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{Granted, Wanted};
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 use hamlet_sdk::tree::id::dock_id;
 
@@ -28,6 +29,7 @@ pub struct Done {
 pub fn step(
     limits: Res<Limits>,
     agents: Res<AgentList>,
+    papers: Res<Papers>,
     mut plugins: Query<(
         Entity,
         &PluginInfo,
@@ -53,7 +55,7 @@ pub fn step(
         if *status != Status::Running || inbox.is_empty() {
             continue;
         }
-        instance.see(granted, &agents);
+        instance.see(granted, &agents, &papers);
         let mail = inbox.take();
         match instance.step(&limits, &mail) {
             Ok(output) => {

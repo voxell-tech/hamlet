@@ -13,6 +13,7 @@ use hamlet_sdk::capability::{
     Uninstalled, standing,
 };
 use hamlet_sdk::dock::Panel;
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{
     self as sdk, Contributions, PluginInfo, Status,
 };
@@ -75,6 +76,7 @@ pub fn reload(
     host: Option<Res<Host>>,
     limits: Res<Limits>,
     agents: Res<AgentList>,
+    papers: Res<Papers>,
     store: Option<ResMut<Store>>,
     mut commands: Commands,
 ) {
@@ -85,6 +87,7 @@ pub fn reload(
         host,
         limits: &limits,
         agents: &agents,
+        papers: &papers,
     });
     for Modified(plugin) in modified.read() {
         let Ok((

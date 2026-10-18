@@ -11,6 +11,7 @@ use hamlet_sdk::capability::{
     Store, Uninstalled, standing,
 };
 use hamlet_sdk::icons::Glyph;
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{self as sdk, PluginInfo, Status};
 use hamlet_sdk::tree::glyph;
 
@@ -33,12 +34,14 @@ pub fn installed(
     host: Option<Res<Host>>,
     limits: Res<Limits>,
     agents: Res<AgentList>,
+    papers: Res<Papers>,
     mut commands: Commands,
 ) {
     let setting = host.as_deref().map(|host| Setting {
         host,
         limits: &limits,
         agents: &agents,
+        papers: &papers,
     });
     let folder = home.0.plugins();
     let mut store = Store::open(&folder);

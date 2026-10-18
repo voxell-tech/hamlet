@@ -23,6 +23,7 @@ mod tests;
 use bevy::prelude::*;
 use hamlet_assets::TuningPlugin;
 use hamlet_sdk::agents::AgentList;
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::tree::store::PluginTrees;
 
 pub use self::library::PanelLibrary;
@@ -35,6 +36,7 @@ pub use self::source::Source;
 pub fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<LangTuning>::default())
         .init_resource::<AgentList>()
+        .init_resource::<Papers>()
         .init_resource::<PluginTrees>()
         .init_resource::<PanelLimits>()
         .init_resource::<PanelLibrary>()

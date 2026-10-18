@@ -21,6 +21,18 @@ interface host {
   // applies to the next call.
   agents: func() -> result<list<agent>, string>;
 
+  // What the selected agent keeps: its notes, its character and the
+  // names of its skills. All are empty while no agent is selected.
+  record agent-papers {
+    notes: string,
+    character: string,
+    skills: list<string>,
+  }
+
+  // The selected agent's papers: a copy. It needs the capability
+  // `read.papers`, and is gated as `agents` is.
+  papers: func() -> result<agent-papers, string>;
+
   // The standing answer to a `request`.
   enum request-result {
     // The plugin may use the capability.

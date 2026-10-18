@@ -7,6 +7,7 @@ use hamlet_sdk::capability::{
     Asked, Asks, Capability, Choice, Choices, Granted, Installation,
     Scope, Store, Subject, Verdict,
 };
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::Status;
 use hamlet_sdk::theme::HamletTheme;
 
@@ -174,8 +175,11 @@ fn a_request_is_answered_by_the_choice_and_only_a_named_capability_can_be_asked_
     let mut plugin =
         super::load(&fixture::requesting("read.agents")).unwrap();
     let mut asked = |asks: &Asks, choices: &Choices| {
-        plugin
-            .see(&Granted::of(asks, choices), &AgentList::default());
+        plugin.see(
+            &Granted::of(asks, choices),
+            &AgentList::default(),
+            &Papers::default(),
+        );
         let out = plugin.step(&limits, &[]).unwrap();
         (out.intents, out.wants)
     };

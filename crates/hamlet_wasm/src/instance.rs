@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use bevy::ecs::component::Component;
 use hamlet_sdk::agents::{Agent, AgentList};
 use hamlet_sdk::capability::{Capability, Granted};
+use hamlet_sdk::papers::Papers;
 use wasmtime::component::Component as Compiled;
 use wasmtime::{Engine, Store};
 
@@ -73,10 +74,15 @@ impl Instance {
     }
 
     /// Gives the store what its host functions answer from: the
-    /// capabilities the plugin holds, and a copy of the agents when
-    /// it may read them. Called before each call into the plugin, so
-    /// a grant that changed is seen by the next.
-    pub fn see(&mut self, granted: &Granted, agents: &AgentList) {
+    /// capabilities the plugin holds, and a copy of the agents and of
+    /// the papers when it may read them. Called before each call into
+    /// the plugin, so a grant that changed is seen by the next.
+    pub fn see(
+        &mut self,
+        granted: &Granted,
+        agents: &AgentList,
+        papers: &Papers,
+    ) {
         let state = self.store.data_mut();
         if state.granted != *granted {
             state.granted.clone_from(granted);
@@ -88,6 +94,14 @@ impl Instance {
             };
         if state.agents != readable {
             state.agents = readable.to_vec();
+        }
+        let none = Papers::default();
+        let readable = match granted.holds(Capability::ReadPapers) {
+            true => papers,
+            false => &none,
+        };
+        if state.papers != *readable {
+            state.papers.clone_from(readable);
         }
     }
 

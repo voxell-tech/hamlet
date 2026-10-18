@@ -20,6 +20,7 @@ const COMMON: &str = r#"
   (import "hamlet:plugin/host@0.3.0" "panel"
     (func $panel (param i32 i32 i32 i32 i32 i32)))
   (import "hamlet:plugin/host@0.3.0" "agents" (func $agents (param i32)))
+  (import "hamlet:plugin/host@0.3.0" "papers" (func $papers (param i32)))
   (import "hamlet:plugin/host@0.3.0" "request"
     (func $request (param i32 i32 i32 i32) (result i32)))
   (import "hamlet:plugin/host@0.3.0" "storage-get"
@@ -156,6 +157,24 @@ pub fn reading() -> String {
   (func (export "hamlet:plugin/plugin@0.3.0#step")
     (param i32 i32) (result i32)
     (call $agents (i32.const 96))
+    (if (i32.eqz (i32.load8_u (i32.const 96)))
+      (then (i32.store (i32.const 24) (i32.load (i32.const 104))))
+      (else
+        (call $log (i32.const 2) (i32.load (i32.const 100))
+          (i32.load (i32.const 104)))
+        (i32.store (i32.const 24) (i32.const 0))))
+    (i32.const 0)))"#
+    )
+}
+
+/// Reads the papers in `step`. It answers with a line as long as the
+/// notes are, or logs the error it got as an error.
+pub fn reading_papers() -> String {
+    format!(
+        r#"(module {COMMON} {QUIET} {NO_VIEW}
+  (func (export "hamlet:plugin/plugin@0.3.0#step")
+    (param i32 i32) (result i32)
+    (call $papers (i32.const 96))
     (if (i32.eqz (i32.load8_u (i32.const 96)))
       (then (i32.store (i32.const 24) (i32.load (i32.const 104))))
       (else
