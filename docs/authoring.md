@@ -26,7 +26,7 @@ plugin is enough.
 | `crates/hamlet_harness` | The harness that runs a plugin headlessly: a `Harness` to drive in Rust, and a script runner |
 | `examples/plugin_check` | The harness as a command |
 | `crates/hamlet_home/starters/write-a-plugin` | The starter skill that teaches an agent this page's steps |
-| `guests/notes/` | A plugin to read after the template: `model.rs` (what it keeps), `storage.rs` (the notes on disk), `update.rs` (what an event does, and the command it answers), `view.rs` (the panel), and its `steps.toml` |
+| `guests/notes/` | A plugin to read after the template: `model.rs` (what it keeps), `storage.rs` (the notes on disk), `update.rs` (what an event does, and the commands it answers), its menu line and shortcut in `lib.rs`, `view.rs` (the panel), and its `steps.toml` |
 | `guests/clipper/` | A plugin that uses Notes: its `manifest.toml` (what it needs, imports and asks), `update.rs` (the call, the reply and the events) and `steps.toml`, a script for the two plugins together |
 
 The template plugin has a panel, a button that counts in its state and one read
@@ -271,6 +271,8 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 | `click = { panel = "main", node = "look" }` | Presses a button |
 | `type = { panel = "main", node = "name", text = "Ada" }` | Commits a text in a text field or a text area |
 | `toggle = { panel = "main", node = "hint" }` | Flips a checkbox |
+| `run-menu = "New note"` | Chooses the menu line of that label, as the chief does. It fails while the plugin does not hold `ui.menu` |
+| `press = "Cmd+Shift+N"` | Presses a chord. A plugin that does not hold `ui.keys` does not hear of it |
 | `set-agents = [{ name = "Juniper", hamlet = "Pear Tree Hollow" }]` | Replaces the agents a plugin that may read them sees |
 | `set-papers = { notes = "..", character = "..", skills = ["a"] }` | Replaces the notes, character and skill names of the selected agent that a plugin that may read them sees |
 | `set-selected = "Juniper"` | Selects the agent of that name in the world, or none for `""`; a plugin that imports `host/selection-changed` and may read the agents hears of it |
@@ -310,6 +312,7 @@ on:
 | `sized(size)` | The size of the pictures, in pixels |
 | `tick()` | Runs one frame |
 | `click(panel, node)`, `type_text(panel, node, text)`, `toggle(panel, node)` | Do what a person does to a node; an error says what is not there |
+| `run_command(id)`, `run_menu(label)`, `press(chord)` | Do what the chief does: run a command (`plugin/command`, or the name alone for the plugin in front), choose a menu line, press a chord |
 | `set_agents(&[(hamlet, name)])` | Makes up the agents |
 | `set_papers(notes, character, &skills)` | Makes up the papers of the selected agent |
 | `set_selected(name)` | Makes up the agent selected in the world |
@@ -320,6 +323,64 @@ on:
 
 `hamlet_wasm`'s `fixture` feature makes test plugins from text, as the host's
 own tests do.
+
+## A menu line and a shortcut
+
+A plugin puts a line in a menu and binds a key by naming a command of its own. The
+command is what runs; the line and the key only point at it. Notes does both for
+`new`, which adds an empty note and opens it. Its `manifest.toml` lists the command,
+and asks for the two capabilities with a reason each:
+
+```toml
+[exports]
+commands = ["add", "new"]
+
+[[asks]]
+capability = "ui.menu"
+reason = "To put New note in the HAMLET menu."
+
+[[asks]]
+capability = "ui.keys"
+reason = "To start a new note with Cmd+Shift+N."
+```
+
+```rust
+fn entry() {
+    hamlet_guest::panel("main", "NOTES", "notes");
+    hamlet_guest::command("new", "New note", Some("plus"));
+    hamlet_guest::menu_item("hamlet", 1, "New note", "new");
+    hamlet_guest::key("Cmd+Shift+N", "new");
+}
+
+// in step, for each Incoming::Command(call): the chief is `call.sender`
+"new" => open_new(session, index, "", out),
+```
+
+`menu` is `hamlet` or `view`. Lines are grouped by `section` and a hairline stands
+between groups. `Cmd` is the command key of a Mac and Control elsewhere. A key
+needs Cmd, Ctrl or Super to work while a text field has the focus, so a shortcut
+never takes what is typed. Every command is answered with `reply`, the chief's too:
+an error is shown to the chief as a notice.
+
+The line and the key are held until the chief allows `ui.menu` and `ui.keys`
+([`permissions.md`](permissions.md)). A script grants them and uses both:
+
+```toml
+[[step]]
+grant = "ui.menu"
+
+[[step]]
+grant = "ui.keys"
+
+[[step]]
+run-menu = "New note"
+
+[[step]]
+press = "Cmd+Shift+N"
+```
+
+A chord that another plugin has too runs neither, and one that Hamlet uses is not
+the plugin's; the Plugins page of Settings says so.
 
 ## Two plugins working together
 
@@ -479,6 +540,10 @@ loads, and one that prints or reads the clock traps: log with
   frames), or giving a `call-id` that is still waiting.
 - Using another plugin without `needs` for it: the call fails when it is not
   running, where `needs` would have kept this plugin from starting.
+- A `menu_item` or a `key` for a command that `entry` did not declare, or the
+  manifest did not list under `exports.commands`: it is dropped with a warning.
+- A menu line or a shortcut with no `ui.menu` or `ui.keys` in the manifest: it
+  never shows, and the chief is not asked.
 - Putting a call's state in a variable: the answer comes in a later `step`, so
   keep it in `State`, as `hamlet_guest::Calls` does.
 

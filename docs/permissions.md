@@ -20,10 +20,10 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 ## Capabilities
 
 `hamlet_sdk::capability::Capability`: `read.agents`, `read.chat`,
-`read.activity`, `read.papers`, `chat.send`, `commands.run`, `ui.menu`, `net`,
-`fs.pick`, `fs.folder`, `model.call`, `plugin.use`, `collections.read` and
-`collections.write`. `read.agents`, `read.papers` and the three below are checked
-by a host function so far; the others can be asked for, shown and chosen.
+`read.activity`, `read.papers`, `chat.send`, `commands.run`, `ui.menu`, `ui.keys`,
+`net`, `fs.pick`, `fs.folder`, `model.call`, `plugin.use`, `collections.read` and
+`collections.write`. `read.agents`, `read.papers`, `ui.menu`, `ui.keys` and the
+three below are checked so far; the others can be asked for, shown and chosen.
 
 `plugin.use`, `collections.read` and `collections.write` are **scoped**: the
 chief chooses for each target, not once for all. The target of `plugin.use` is a
@@ -46,6 +46,20 @@ every target.
 - `collections.read` lets a plugin read a collection another plugin shares, and
   `collections.write` change it, which the sharing plugin must also say it is
   `writable`.
+
+- `ui.menu` lets a plugin's menu lines (`menu-item`) show, and `ui.keys` its
+  shortcuts (`key`). They are not checked at the call but where the lines and keys
+  are read: the plugin declares them in `entry`, they are held, and they take effect
+  only while the choice is Allow. The first declaration while the chief is yet to
+  decide raises the petition ("Notes asks to use ui.menu. Allow it?"); Don't allow
+  shows nothing; setting it to Ask next time or Don't allow in Settings takes the
+  lines and keys off at once, and Allow brings them back with no restart. A built-in
+  plugin needs neither. Two plugins that bind the same chord both lose it, and a
+  chord a built-in shortcut uses is never the plugin's; Settings says so under the
+  plugin.
+
+`ui.keys` is not `keys`. `keys` in the list of what is never granted below means
+keys and model credentials; `ui.keys` is the keyboard shortcuts of a plugin.
 
 `read.papers` lets a plugin read the selected agent's notes, its character and
 the names of its skills (`papers()`, or `Query("papers")` of a panel), as they
@@ -158,7 +172,9 @@ and its folder) shows it two ways, on two tabs:
   the plugin imports, under its name. A plugin that is not installed has an
   INSTALL button, which puts the install petition again. A plugin that is not
   built in has an UNINSTALL button, which puts the removal petition (see
-  Removing).
+  Removing). Under its name the page lists the commands, menu lines and shortcuts
+  the plugin adds, with a note on those that wait for `ui.menu` or `ui.keys` and a
+  line in the colour of an error on a chord that does not run.
 - **By capability.** Each capability that some plugin asks for, with the
   plugins that ask for it, each with the same control, or one for each target
   of a scoped capability.
