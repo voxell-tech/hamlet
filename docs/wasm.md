@@ -548,9 +548,21 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **Storage.** At most `storage_keys` keys, `storage_key_bytes` in a key,
   `storage_value_bytes` in a value and `storage_bytes` in all the values.
   A write over one returns an error to the plugin.
-- **Database.** The tables, records, bytes and fields it may hold, and the
-  size of a page, are the `db_` values (see Database above). A write over one
-  returns an error to the plugin.
+- **Acts.** At most `acts_per_minute` acts as the chief (a message or a
+  command) in a minute, and `act_text_bytes` in a message. The rest are dropped
+  with a warning.
+- **Fetches.** A fetch takes at most `fetch_ms` milliseconds, sends at most
+  `fetch_request_bytes` and reads at most `fetch_response_bytes`. A plugin has
+  at most `fetches_in_flight` waiting and starts at most `fetches_per_minute`.
+  A fetch over one is answered at once with an error.
+- **Files.** At most `files_count` files in the plugin's folder of files,
+  `files_bytes` in all, `file_bytes` in one and `file_path_bytes` in a path. A
+  write over one returns an error to the plugin.
+- **Database.** At most `db_tables` tables, `db_records` records in a table,
+  `db_record_bytes` in a record, `db_fields` fields, `db_name_bytes` in a name,
+  `db_text_bytes` in an id or a field value, `db_bytes` in all, and a page of
+  `db_page_records` records and `db_page_bytes` bytes (see Database above). A
+  write over one returns an error to the plugin.
 - **State.** At most `state_bytes` in the blob. A `state-set` over it returns
   an error.
 - **Commands.** At most `commands` declared in `entry`; the rest are dropped.
