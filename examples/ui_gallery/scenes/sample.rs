@@ -147,6 +147,9 @@ pub(super) fn setup(world: &mut World) {
     {
         super::notes::put(world, scene == Scene::PluginNotesPreview);
     }
+    if scene == Scene::PluginClipper {
+        super::clipper::put(world);
+    }
     if scene == Scene::PluginPetition {
         super::petitions::put(world);
     }

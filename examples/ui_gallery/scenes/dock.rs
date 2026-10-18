@@ -132,6 +132,9 @@ pub(super) fn seed_dock(world: &mut World) {
         ) {
             tree.add_tab(side, super::notes::id());
         }
+        if scene == Scene::PluginClipper {
+            tree.add_tab(side, super::clipper::id());
+        }
     }
 }
 

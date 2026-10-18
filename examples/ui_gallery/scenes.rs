@@ -1,5 +1,6 @@
 //! Scenes of the panels and their controls held in fixed states.
 
+mod clipper;
 mod dock;
 mod greeter;
 mod notes;
@@ -177,6 +178,9 @@ pub enum Scene {
     PluginNotes,
     /// The panel of the Notes plugin, with its open note as markdown.
     PluginNotesPreview,
+    /// The panel of the Clipper plugin, after it sent a name to
+    /// Notes.
+    PluginClipper,
     /// The panels while plugins wait to be installed or to be let
     /// use more.
     PluginPetition,
