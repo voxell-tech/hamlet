@@ -509,6 +509,8 @@ pub enum ServerMessage {
     ProviderRequest(ProviderRequest),
     #[serde(rename = "welcome")]
     Welcome(Welcome),
+    #[serde(rename = "tools")]
+    Tools(Tools),
     #[serde(rename = "refused")]
     Refused(Refused),
     #[serde(rename = "create")]
@@ -628,6 +630,13 @@ pub enum ToolSpecReplay {
     Safe,
     #[serde(rename = "unsafe")]
     Unsafe,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Tools {
+    pub id: String,
+    pub tools: Vec<ToolSpec>,
+    pub v: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

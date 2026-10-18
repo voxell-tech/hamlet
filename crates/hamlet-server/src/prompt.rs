@@ -228,9 +228,15 @@ fn machine(
         .model
         .map(|m| format!(" Model: {m}."))
         .unwrap_or_default();
+    let faults = crate::hand::load(service.home.layout().root()).1;
+    let failed = if faults.is_empty() {
+        String::new()
+    } else {
+        format!("\nTools that failed to load:\n{}", faults.join("\n"))
+    };
     Ok(format!(
         "# Environment\nSandbox: {}. Network for tools: \
-         {net}.{model}\n{SYSTEM}\nWorkspace: {}",
+         {net}.{model}{failed}\n{SYSTEM}\nWorkspace: {}",
         subject.sandbox,
         house.display()
     ))

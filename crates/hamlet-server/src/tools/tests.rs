@@ -35,6 +35,51 @@ async fn call(
 }
 
 #[tokio::test]
+async fn hand_tools_keep_declared_limits_environment_and_private_scratch()
+ {
+    let scratch = Scratch::new("hand-policy");
+    let place = house(&scratch);
+    let dir = scratch.join("tools/check");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("data"), "declared\n").unwrap();
+    let manifest = |command: &str| {
+        json!({
+            "name":"check", "exec":["bash", "-c", command],
+            "sandbox":{"env":{"CHOICE":"kept", "IGNORED":42},"limits":{"wall_secs":1,"cpu_secs":2}}
+        })
+    };
+    fs::write(
+        dir.join("manifest.json"),
+        manifest(
+            "cat data; echo \"$CHOICE:$IGNORED\"; ulimit -t; printf \
+             sk-test-; sleep 0.1; printf 'secret-42\\n'; echo \
+             \"$TMPDIR\"",
+        )
+        .to_string(),
+    )
+    .unwrap();
+    let (a, b) = tokio::join!(
+        call(&place, false, "check", json!({})),
+        call(&place, false, "check", json!({}))
+    );
+    assert!(!a.error && !b.error, "{a:?} {b:?}");
+    let prefix = "declared\nkept:\n2\n[REDACTED]\n";
+    let a_tmp = a.text.strip_prefix(prefix).unwrap().trim();
+    let b_tmp = b.text.strip_prefix(prefix).unwrap().trim();
+    assert_ne!(a_tmp, b_tmp);
+    assert!(!std::path::Path::new(a_tmp).exists());
+    assert!(!std::path::Path::new(b_tmp).exists());
+    fs::write(
+        dir.join("manifest.json"),
+        manifest("sleep 3; echo should-not-run").to_string(),
+    )
+    .unwrap();
+    let timed = call(&place, false, "check", json!({})).await;
+    assert!(timed.error);
+    assert_eq!(timed.text, "\n[timed out after 1s]");
+}
+
+#[tokio::test]
 async fn a_command_writes_only_in_its_house_and_reaches_the_network_only_with_leave()
  {
     let scratch = Scratch::new("tools-confined");

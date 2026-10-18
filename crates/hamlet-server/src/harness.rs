@@ -320,6 +320,7 @@ struct Runtime {
 /// The runtimes of one home and their link to this server.
 pub struct Harnesses {
     config: Config,
+    hand_tools: Vec<ToolSpec>,
     layout: Layout,
     runtimes: Vec<Runtime>,
     sender: UnboundedSender<Received>,
@@ -343,6 +344,11 @@ impl Harnesses {
         let (sender, receiver) = mpsc::unbounded_channel();
         let mut harnesses = Self {
             config,
+            hand_tools: crate::hand::load(layout.root())
+                .0
+                .into_iter()
+                .map(|tool| tool.spec)
+                .collect(),
             layout: layout.clone(),
             runtimes: Vec::new(),
             sender,
@@ -360,6 +366,36 @@ impl Harnesses {
             }
         }
         Ok((harnesses, notices))
+    }
+
+    /// Reloads hand-added definitions for the runtimes' next model
+    /// request.
+    pub async fn refresh_tools(&mut self) {
+        let tools = crate::hand::load(self.layout.root())
+            .0
+            .into_iter()
+            .map(|tool| tool.spec)
+            .collect::<Vec<_>>();
+        if tools == self.hand_tools {
+            return;
+        }
+        self.hand_tools = tools;
+        for index in 0..self.runtimes.len() {
+            if self.runtimes[index].phase != Phase::Ready {
+                continue;
+            }
+            let tools = self
+                .config
+                .tools
+                .iter()
+                .chain(&self.hand_tools)
+                .cloned()
+                .collect();
+            self.send(index, |v, id| {
+                ServerMessage::Tools(link::Tools { v, id, tools })
+            })
+            .await;
+        }
     }
 
     /// Queues provider work in memory, starting the pi runtime if
@@ -1306,7 +1342,13 @@ impl Harnesses {
             return Ok(vec![Notice::Refused { runtime: id, words }]);
         }
         store.runtime_began(&id, &hello.adapter, &hello.harness)?;
-        let tools = self.config.tools.clone();
+        let tools = self
+            .config
+            .tools
+            .iter()
+            .chain(&self.hand_tools)
+            .cloned()
+            .collect();
         self.send(index, |v, id| {
             ServerMessage::Welcome(link::Welcome {
                 id,

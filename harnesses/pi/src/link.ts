@@ -226,6 +226,10 @@ export const Welcome = reply("welcome", {
 });
 export type Welcome = Static<typeof Welcome>;
 
+/** Replaces the runtime's tool definitions before its next request. */
+export const Tools = message("tools", { tools: Type.Array(ToolSpec) });
+export type Tools = Static<typeof Tools>;
+
 /** The server will not take the runtime on, in words for a chief; the runtime exits. */
 export const Refused = reply("refused", { words: Type.String() });
 export type Refused = Static<typeof Refused>;
@@ -456,6 +460,7 @@ export type Verdict = Static<typeof Verdict>;
 export const ServerMessage = Type.Union([
     ProviderRequest,
     Welcome,
+    Tools,
     Refused,
     Create,
     Submit,
@@ -520,6 +525,7 @@ const DEFINITIONS: Record<string, TSchema> = {
     LinkError,
     Hello,
     Welcome,
+    Tools,
     Refused,
     Create,
     Created,

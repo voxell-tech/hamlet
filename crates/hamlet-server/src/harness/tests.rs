@@ -694,6 +694,7 @@ async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
             api_key: None,
             tools: vec![],
         },
+        hand_tools: vec![],
         layout: home.layout().clone(),
         runtimes: vec![],
         sender,

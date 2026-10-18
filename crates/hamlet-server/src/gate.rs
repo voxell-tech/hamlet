@@ -32,10 +32,15 @@ pub(crate) enum Call {
         name: String,
         args: Value,
     },
+    Hand {
+        name: String,
+        args: Value,
+        net: bool,
+    },
 }
 
 /// The society tools the server answers itself.
-const SOCIETY: &[&str] = &[
+pub(crate) const SOCIETY: &[&str] = &[
     "create_agent",
     "build_road",
     "set_model",
@@ -135,7 +140,9 @@ pub(crate) fn call_text(call: &Call) -> String {
                 )
             }
         }
-        Call::Society { name, args } | Call::Other { name, args } => {
+        Call::Society { name, args }
+        | Call::Other { name, args }
+        | Call::Hand { name, args, .. } => {
             format!("{name} {args}")
         }
         Call::Read => String::new(),
@@ -256,8 +263,11 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
                 Verdict::Run { net: false }
             }
         }
-        Call::Shell { command, net } => {
-            if !standing.net && (*net || networked(command)) {
+        Call::Shell { net, .. } | Call::Hand { net, .. } => {
+            if !standing.net
+                && (*net
+                    || matches!(call, Call::Shell {command, ..} if networked(command)))
+            {
                 Verdict::Ask("network")
             } else if standing.asks_commands {
                 Verdict::Ask("command")

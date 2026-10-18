@@ -554,6 +554,32 @@
             },
             "additionalProperties": false
         },
+        "Tools": {
+            "type": "object",
+            "required": ["type", "v", "id", "tools"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "tools"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/ToolSpec"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
         "Refused": {
             "type": "object",
             "required": ["type", "v", "id", "re", "words"],
@@ -1606,6 +1632,9 @@
                 },
                 {
                     "$ref": "#/$defs/Welcome"
+                },
+                {
+                    "$ref": "#/$defs/Tools"
                 },
                 {
                     "$ref": "#/$defs/Refused"

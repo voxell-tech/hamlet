@@ -70,7 +70,10 @@ impl Outcome {
     }
 
     /// A call that threw, as pi gives it: no text and one error.
-    fn thrown(code: &str, message: impl Into<String>) -> Self {
+    pub(crate) fn thrown(
+        code: &str,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             diagnostics: vec![diagnostic(
                 DiagnosticSeverity::Error,
@@ -316,10 +319,17 @@ pub async fn run(
                 Outcome::thrown("tool_error", error.to_string())
             })
         }
-        _ => Outcome::thrown(
-            "tool_error",
-            format!("Tool \"{tool}\" not found"),
-        ),
+        _ => {
+            crate::hand::run(
+                sandbox,
+                &place.home,
+                net,
+                secrets,
+                tool,
+                arguments,
+            )
+            .await
+        }
     };
     scrub(secrets, &mut outcome);
     outcome

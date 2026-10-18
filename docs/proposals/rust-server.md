@@ -409,6 +409,16 @@ A closing home asks for the reflections it owes and waits up to two
 minutes for them. Then it closes each runtime in order and kills a tool
 still running. A second signal exits at once with 130.
 
+Hand-added tools (C17) are loaded by Rust from `tools/*/manifest.json`,
+in folder order. Reserved or duplicate names, invalid schemas and
+invalid limits are reported in the machine prompt. The link replaces the
+runtime's definitions when manifests change; execution reads the current
+manifest. Programs receive JSON on stdin, run from their manifest folder,
+and get only their declared reach, limits and environment. Each call has
+private scratch space, removed when it ends. The tool folder and the
+home's gifts and erasure staging stay read-only even when declared
+writable. Hand tools keep the same unsafe begun marker as shell commands.
+
 Deliberate differences from TypeScript:
 - A tool call's summary lists its arguments in key order.
 - The model of each conversation is the configured one. Choosing a model

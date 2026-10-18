@@ -49,7 +49,6 @@ pub(crate) struct Ran {
 pub(super) struct Running {
     res: Vec<Re>,
     binding: BindingId,
-    tool: String,
     abort: AbortHandle,
 }
 
@@ -201,6 +200,18 @@ fn decide(
     let place = conversation.place;
     let args = Value::Object(arguments.clone().into_iter().collect());
     let mut call = gate::call_of(tool, &args);
+    if let Some(manifest) =
+        crate::hand::load(service.home.layout().root())
+            .0
+            .into_iter()
+            .find(|manifest| manifest.spec.name == tool)
+    {
+        call = gate::Call::Hand {
+            name: tool.into(),
+            args: args.clone(),
+            net: manifest.net(),
+        };
+    }
     let at = places(service, &place.agent)?;
     if let gate::Call::Edit {
         write: true,
@@ -619,7 +630,12 @@ fn operation(
         )
         .optional()?
         .flatten();
-    if UNSAFE.contains(&tool) {
+    if UNSAFE.contains(&tool)
+        || crate::hand::load(service.home.layout().root())
+            .0
+            .iter()
+            .any(|manifest| manifest.spec.name == tool)
+    {
         service.home.store().connection().execute(
             "INSERT INTO marker (runtime, key, kind, digest, \
              outcome) VALUES (?1, ?2, 'tool', ?3, '') ON CONFLICT \
@@ -658,7 +674,6 @@ fn operation(
         Running {
             res: vec![re.clone()],
             binding,
-            tool: tool.into(),
             abort,
         },
     );
@@ -685,13 +700,11 @@ pub(crate) async fn ran(
         "details": ran.outcome.details,
         "diagnostics": ran.outcome.diagnostics,
     });
-    if UNSAFE.contains(&running.tool.as_str()) {
-        service.home.store().connection().execute(
-            "UPDATE marker SET outcome = ?3 WHERE runtime = ?1 AND \
-             key = ?2 AND kind = 'tool'",
-            params![ran.runtime, ran.key, outcome.to_string()],
-        )?;
-    }
+    service.home.store().connection().execute(
+        "UPDATE marker SET outcome = ?3 WHERE runtime = ?1 AND key \
+         = ?2 AND kind = 'tool'",
+        params![ran.runtime, ran.key, outcome.to_string()],
+    )?;
     let _ = running.binding;
     for re in running.res {
         harnesses.answer(re, result(outcome.clone())).await;

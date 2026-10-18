@@ -728,6 +728,9 @@ class Runtime {
         const context = BACKGROUND_CONTEXT;
         const re = request.id;
         switch (request.type) {
+            case "tools":
+                this.#registry.install(this.#extension(request.tools));
+                return;
             case "provider_request": {
                 const result = await providerWork(request, this.#providerFaux);
                 this.#channel.send({ type: "provider_result", re, ...result });

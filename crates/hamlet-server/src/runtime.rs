@@ -256,6 +256,7 @@ pub async fn serve(options: Options) -> Result<()> {
                     }
                 }
                 _ = tick.tick() => {
+                    harnesses.refresh_tools().await;
                     for result in service.models.expired() {
                         for (id, answer) in service.provider_result(result)? {
                             if let Some(client) = clients.get_mut(&id) { send(client, &service, answer)?; }

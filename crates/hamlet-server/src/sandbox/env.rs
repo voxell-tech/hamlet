@@ -38,6 +38,7 @@ pub(crate) struct Env {
     tmp: String,
     output: String,
     roots: Vec<Root>,
+    private: bool,
 }
 
 /// A root of the policy as it was when the environment was made.
@@ -113,12 +114,35 @@ impl Env {
         policy: Policy,
         sandbox: Sandbox,
     ) -> Result<Self, String> {
+        Self::open(cwd, policy, sandbox, false)
+    }
+
+    /// An environment with a separate scratch folder removed when the
+    /// call ends.
+    pub(crate) fn private(
+        cwd: &str,
+        policy: Policy,
+        sandbox: Sandbox,
+    ) -> Result<Self, String> {
+        Self::open(cwd, policy, sandbox, true)
+    }
+
+    fn open(
+        cwd: &str,
+        policy: Policy,
+        sandbox: Sandbox,
+        private: bool,
+    ) -> Result<Self, String> {
         for each in &policy.rw {
             directory_root(&text(each))?;
         }
         policy.check_limits()?;
         let hash = policy_hash(&policy, sandbox.name());
-        let tmp = private_tmp(&policy)?;
+        let mut tmp = private_tmp(&policy)?;
+        if private {
+            tmp =
+                path::join(&[tmp, uuid::Uuid::new_v4().to_string()]);
+        }
         let output = path::join(&[tmp.as_str(), "tmp-files"]);
         directory_root(&output)?;
         let mut builder = fs::DirBuilder::new();
@@ -141,6 +165,7 @@ impl Env {
             tmp,
             output,
             roots,
+            private,
         })
     }
 
@@ -366,7 +391,9 @@ impl Env {
     }
 
     /// A new empty file for spilled output.
-    fn create_temp_file(&self) -> Result<String, FileError> {
+    pub(crate) fn create_temp_file(
+        &self,
+    ) -> Result<String, FileError> {
         let path = path::join(&[
             self.output.as_str(),
             &format!("pi-output-{}.log", uuid::Uuid::new_v4()),
@@ -710,6 +737,14 @@ impl Spill {
         match self.error {
             Some(error) => Err(error),
             None => Ok(self.path),
+        }
+    }
+}
+
+impl Drop for Env {
+    fn drop(&mut self) {
+        if self.private {
+            let _ = fs::remove_dir_all(&self.tmp);
         }
     }
 }
