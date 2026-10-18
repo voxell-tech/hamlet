@@ -2,6 +2,7 @@
 //! limits, one store each.
 
 pub mod instance;
+pub mod interface;
 
 use bevy::app::App;
 

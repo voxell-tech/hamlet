@@ -1,0 +1,30 @@
+package hamlet:plugin@0.1.0;
+
+interface host {
+  enum level { info, warn, error }
+
+  log: func(level: level, message: string);
+}
+
+interface plugin {
+  variant incoming {
+    tick(u64),
+  }
+
+  variant intent {
+    log-line(string),
+  }
+
+  record outgoing {
+    intents: list<intent>,
+  }
+
+  entry: func();
+
+  step: func(inbox: list<incoming>) -> outgoing;
+}
+
+world hamlet {
+  import host;
+  export plugin;
+}
