@@ -306,7 +306,7 @@ fn moved() -> impl View {
 #[cfg(test)]
 mod tests {
     use bevy::app::App;
-    use bevy::text::EditableText;
+    use bevy::text::{EditableText, TextEdit};
     use hamlet_client::outbox::Outbox;
     use hamlet_protocol::v0;
 
@@ -365,6 +365,26 @@ mod tests {
         settle(app);
     }
 
+    /// The edits left to apply after selecting all, copying, cutting
+    /// and pasting in the field.
+    fn kept_edits(app: &mut App, name: &str) -> Vec<TextEdit> {
+        let field = control::<EditableText>(app, name);
+        let mut text =
+            app.world_mut().get_mut::<EditableText>(field).unwrap();
+        for edit in [
+            TextEdit::SelectAll,
+            TextEdit::Copy,
+            TextEdit::Cut,
+            TextEdit::Paste,
+        ] {
+            text.queue_edit(edit);
+        }
+        settle(app);
+        let mut text =
+            app.world_mut().get_mut::<EditableText>(field).unwrap();
+        std::mem::take(&mut text.pending_edits)
+    }
+
     #[test]
     fn a_remote_workspace_is_saved_with_its_token_out_of_sight_and_applies_after_a_restart()
      {
@@ -394,6 +414,20 @@ mod tests {
             !words(&mut app)
                 .iter()
                 .any(|shown| shown.contains(token))
+        );
+        // The token is pasted in but never copied or cut out.
+        assert_eq!(
+            kept_edits(&mut app, "Access token"),
+            [TextEdit::SelectAll, TextEdit::Paste]
+        );
+        assert_eq!(
+            kept_edits(&mut app, "Server address"),
+            [
+                TextEdit::SelectAll,
+                TextEdit::Copy,
+                TextEdit::Cut,
+                TextEdit::Paste
+            ]
         );
         requests(&mut app);
         press(&mut app, "SAVE");

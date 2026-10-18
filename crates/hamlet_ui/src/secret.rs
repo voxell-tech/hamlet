@@ -1,14 +1,18 @@
-//! Text fields whose text is drawn as stars.
+//! Text fields whose text is drawn as stars and kept off the
+//! clipboard.
 
 use bevy::app::{App, PostUpdate};
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::query::With;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::Query;
 use bevy::ecs::world::World;
 use bevy::picking::Pickable;
-use bevy::text::{EditableText, TextColor};
+use bevy::text::{
+    EditableText, EditableTextSystems, TextColor, TextEdit,
+};
 use bevy::ui::AlignItems;
 use bevy::ui::widget::Text;
 use bevy_fynix::views::{
@@ -20,10 +24,14 @@ use crate::View;
 use crate::looks::{pad, well};
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(PostUpdate, mask);
+    app.add_systems(
+        PostUpdate,
+        (unshared.before(EditableTextSystems), mask),
+    );
 }
 
-/// A [`text_field`] for a key or a token, drawn as stars.
+/// A [`text_field`] for a key or a token, drawn as stars. It takes a
+/// paste but does not copy or cut.
 pub(crate) fn secret_field(
     value: impl Into<Prop<String>>,
     on_commit: impl Fn(&mut World, String) + Send + Sync + 'static,
@@ -47,6 +55,26 @@ struct Secret;
 /// The stars over a [`Secret`] field.
 #[derive(Component)]
 struct Stars;
+
+/// Drops copying and cutting from [`Secret`] fields before they
+/// apply, so a key never reaches the system's clipboard.
+fn unshared(
+    fields: Query<&Children, With<Secret>>,
+    mut inputs: Query<&mut EditableText>,
+) {
+    let shares = |edit: &TextEdit| {
+        matches!(edit, TextEdit::Copy | TextEdit::Cut)
+    };
+    for inside in &fields {
+        for &child in inside {
+            if let Ok(mut text) = inputs.get_mut(child)
+                && text.pending_edits.iter().any(shares)
+            {
+                text.pending_edits.retain(|edit| !shares(edit));
+            }
+        }
+    }
+}
 
 fn mask(
     fields: Query<(&Children, &ChildOf), With<Secret>>,
