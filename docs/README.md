@@ -31,9 +31,9 @@ Then read the page for the part you are about to touch.
 | [`ui-warmth.md`](ui-warmth.md) | How the panels glow and answer the hand |
 | [`chat.md`](chat.md) | What an agent's chat holds, in what order, and how it is drawn as a group chat |
 | [`sdk.md`](sdk.md) | What a plugin is built with: the plugin types, `hamlet_sdk`, the `plugins/` folder and the `Builtin` group |
-| [`wasm.md`](wasm.md) | The host of the installed plugins: the interface, the panel tree and events, storage and state, grants, the limits, the install folder and how to build a plugin |
-| [`authoring.md`](authoring.md) | How to write a plugin: the templates, the build, keeping state and data, the check with pictures, installing it and seeing an edit reload, the manifest, the permissions flow, the limits, common mistakes and whether an agent can build in its sandbox |
-| [`permissions.md`](permissions.md) | What an installed plugin may be allowed to do: the capabilities, the choices, the petitions, removing a plugin and its data, where the choices are kept, what is never granted and the limits |
+| [`wasm.md`](wasm.md) | The host of the installed plugins: the interface, the panel tree and events, storage and state, plugins working together (needs, commands, events and shared collections), grants, the limits, the install folder and how to build a plugin |
+| [`authoring.md`](authoring.md) | How to write a plugin: the templates, the build, keeping state and data, the check with pictures, installing it and seeing an edit reload, the manifest, the permissions flow, a worked example of two plugins working together, the limits, common mistakes and whether an agent can build in its sandbox |
+| [`permissions.md`](permissions.md) | What an installed plugin may be allowed to do: the capabilities, the ones chosen for each plugin or collection, the choices, the petitions, removing a plugin and its data, where the choices are kept, what is never granted and the limits |
 | [`panels.md`](panels.md) | How a plugin's panel is described: the tree and its nodes (text area and markdown among them), Hamlet's panel language and its components, state, actions and reads, the data plugin kind and the example |
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
 | [`cursors.md`](cursors.md) | The pointer and its modes |

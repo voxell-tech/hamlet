@@ -26,7 +26,8 @@ plugin is enough.
 | `crates/hamlet_harness` | The harness that runs a plugin headlessly: a `Harness` to drive in Rust, and a script runner |
 | `examples/plugin_check` | The harness as a command |
 | `crates/hamlet_home/starters/write-a-plugin` | The starter skill that teaches an agent this page's steps |
-| `guests/notes/` | A plugin to read after the template: `model.rs` (what it keeps), `storage.rs` (the notes on disk), `update.rs` (what an event does), `view.rs` (the panel), and its `steps.toml` |
+| `guests/notes/` | A plugin to read after the template: `model.rs` (what it keeps), `storage.rs` (the notes on disk), `update.rs` (what an event does, and the command it answers), `view.rs` (the panel), and its `steps.toml` |
+| `guests/clipper/` | A plugin that uses Notes: its `manifest.toml` (what it needs, imports and asks), `update.rs` (the call, the reply and the events) and `steps.toml`, a script for the two plugins together |
 
 The template plugin has a panel, a button that counts in its state and one read
 behind a capability (`read.agents`). It asks to use the capability with
@@ -82,7 +83,7 @@ scripts/new-plugin.sh wasm tide_table /tmp/tide_table
 ```
 
 ```
-/tmp/tide_table is ready: wasm plugin tide_table, interface 0.3.0
+/tmp/tide_table is ready: wasm plugin tide_table, interface 0.4.0
 build:  /tmp/tide_table/build.sh /tmp/tide_table/build/tide_table
 check:  cd <the source folder> && cargo run --example plugin_check \
           --features wasm -- /tmp/tide_table/build/tide_table --script /tmp/tide_table/steps.toml
@@ -216,7 +217,7 @@ shows them.
 id = "tide_table"
 name = "Tide Table"
 version = "0.1.0"
-interface = "0.3.0"
+interface = "0.4.0"
 
 [[asks]]
 capability = "read.agents"
@@ -230,7 +231,11 @@ reason = "To count the agents the panel is about."
 - `[[asks]]` name the most the plugin may use, each with a `capability` and a
   `reason` the chief reads. A capability that is not named cannot be used or
   asked for. Name only what the plugin uses, with a reason that says what for.
-- `needs`, `exports` and `imports` are read, and nothing acts on them yet.
+- `needs` and `wants` name plugins this one depends on, each an `id` and a
+  version `range`; a plugin whose needs are not met does not start, and Settings
+  says why. `exports` and `imports` list the commands, events and collections the
+  plugin offers and uses; nothing outside them is reachable. See
+  [Two plugins working together](#two-plugins-working-together).
 
 A build for another interface version is not loaded, and the reason says "built
 for interface X, this Hamlet speaks Y". Build the plugin again from the
@@ -268,7 +273,9 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 | `toggle = { panel = "main", node = "hint" }` | Flips a checkbox |
 | `set-agents = [{ name = "Juniper", hamlet = "Pear Tree Hollow" }]` | Replaces the agents a plugin that may read them sees |
 | `set-papers = { notes = "..", character = "..", skills = ["a"] }` | Replaces the notes, character and skill names of the selected agent that a plugin that may read them sees |
-| `grant = "read.agents"` | The chief allows a capability the manifest asks for |
+| `set-selected = "Juniper"` | Selects the agent of that name in the world, or none for `""`; a plugin that imports `host/selection-changed` and may read the agents hears of it |
+| `plugin = "clipper"` | Puts a plugin in front, where several were opened: the steps after it are done to that one |
+| `grant = "read.agents"` | The chief allows a capability the manifest asks for. For a scoped capability, `plugin.use:notes` or `collections.read:notes/notes` |
 | `deny = "read.agents"` | The chief refuses it |
 | `render = { panel = "main", file = "after.png" }` | Draws the panel in a dock, as the window does, to a PNG under `--out` |
 | `expect = { panel = "main", text = "2 agents" }` | Fails unless a node of the panel shows the text |
@@ -280,8 +287,12 @@ panels drawn again. A panel is asked for its tree again only after an event
 reached it or the plugin asked for a redraw, so after `set-agents` click or
 redraw before looking at the agents.
 
-`plugin_check <plugin dir> [--script steps.toml] [--out dir] [--no-pictures]`
-runs it. With no script it runs two frames and draws every panel. The exit code
+`plugin_check <plugin dir>... [--script steps.toml] [--out dir] [--no-pictures]`
+runs it. Several folders are installed in one home, so that plugins that use each
+other can be checked together; the first is in front until a `plugin` step says
+another, a panel is then named `plugin/panel` in the transcript and a log line
+starts with its plugin. With no script it runs two frames and draws every panel
+of each plugin. The exit code
 is 0 when every step worked, 1 when one failed and 2 for bad arguments or a
 folder that does not load. Pictures are drawn offscreen and need a GPU;
 without one a `render` step fails with that reason, and `--no-pictures` leaves
@@ -295,24 +306,151 @@ on:
 | Call | Does |
 |---|---|
 | `Harness::open(folder)` | Installs the plugin folder in a scratch home that goes with the harness, and brings it up |
+| `Harness::open_all(&[folder, ..])`, `select(id)`, `ids()` | The same for several plugins in one home. What is done next is done to the one in front, the first until `select` says another |
 | `sized(size)` | The size of the pictures, in pixels |
 | `tick()` | Runs one frame |
 | `click(panel, node)`, `type_text(panel, node, text)`, `toggle(panel, node)` | Do what a person does to a node; an error says what is not there |
 | `set_agents(&[(hamlet, name)])` | Makes up the agents |
 | `set_papers(notes, character, &skills)` | Makes up the papers of the selected agent |
-| `grant(capability)`, `deny(capability)` | Answer as the chief |
+| `set_selected(name)` | Makes up the agent selected in the world |
+| `grant(capability)`, `deny(capability)` | Answer as the chief, for the plugin in front. A scoped capability is `plugin.use:notes` |
 | `tree(panel)`, `outline(panel)` | The tree a panel shows, as nodes and as lines |
-| `panels()`, `logs()`, `stopped()` | The panels the plugin declared, what it logged, why it stopped |
+| `panels()`, `logs()`, `stopped()` | The panels the plugin declared, what it logged, why it stopped (`tree_of`, `outline_of`, `panels_of` and `stopped_of` take a plugin id) |
 | `render(panel, path)` | Draws the panel to a PNG |
 
 `hamlet_wasm`'s `fixture` feature makes test plugins from text, as the host's
 own tests do.
 
+## Two plugins working together
+
+Plugins meet through the host only: a command, an event or a collection, each
+listed in the manifests of both and allowed by the chief
+([`wasm.md`](wasm.md) has the rules and the errors). `guests/notes` and
+`guests/clipper` are a pair: Clipper sends the selected agent's name to Notes,
+lists the titles of the notes it reads from Notes and counts the notes Notes
+saved.
+
+**The plugin that offers.** Notes lists what it offers in its `manifest.toml`,
+declares the command in `entry` and answers it in `step`:
+
+```toml
+[exports]
+commands = ["add"]
+events = ["note-saved"]
+
+[[exports.collections]]
+name = "notes"
+prefix = "note."       # the notes are the keys of its storage that start so
+```
+
+```rust
+fn entry() {
+    hamlet_guest::panel("main", "NOTES", "notes");
+    hamlet_guest::command("add", "Add a note");
+}
+
+// in step, for each Incoming::Command(call)
+let added = match call.command.as_str() {
+    "add" => calls::args::<String>(&call).and_then(|words| add(index, &words)),
+    other => Err(format!("no command `{other}`")),
+};
+out.push(calls::reply(&call, added.as_ref().map_err(String::clone)));
+// and after a note is saved
+if let Ok(intent) = events::publish("note-saved", &id) {
+    out.push(intent);
+}
+```
+
+`calls::args` reads the arguments the caller wrote and `calls::reply` writes the
+answer, both with `postcard`, so the two plugins use the same type. Every
+command is answered, with an error where it cannot be done.
+
+**The plugin that uses.** Clipper needs Notes, lists what it imports and asks for
+`plugin.use`, for the collection and for the agents:
+
+```toml
+[[needs]]
+id = "notes"
+range = ">=0.1, <1"
+
+[imports]
+commands = ["notes/add"]
+events = ["notes/note-saved", "notes/collection-changed", "host/selection-changed"]
+collections = ["notes/notes"]
+
+[[asks]]
+capability = "plugin.use"
+reason = "To send what it clips to Notes and hear when a note is saved."
+scope = ["notes"]
+
+[[asks]]
+capability = "collections.read"
+reason = "To list the titles of the notes."
+scope = ["notes/notes"]
+
+[[asks]]
+capability = "read.agents"
+reason = "To know which agent is selected."
+```
+
+A call starts in `step` and its answer comes in a later one, so what a call is for
+is kept in `State`, in `hamlet_guest::Calls`, with a tag of the plugin's own type:
+
+```rust
+#[derive(Default, Serialize, Deserialize)]
+struct Model { calls: Calls<Why>, selected: String, line: String, saved: u32 }
+
+// the button
+if let Ok((_pending, intent)) =
+    model.calls.call("notes", "add", &name, Why::AddNote)
+{
+    out.push(intent);
+}
+
+// each incoming, first
+if let Some((Why::AddNote, outcome)) = model.calls.route(&incoming) {
+    model.line = match calls::returned::<u64>(&outcome) {
+        Ok(id) => format!("Notes saved it as note {id}."),
+        Err(why) => format!("Notes did not take it: {why}."),
+    };
+}
+```
+
+`calls::returned` turns the outcome into the type Notes answered with, and an
+error, whether Notes refused, was off or did not answer, is shown, not
+unwrapped. An event arrives as `Incoming::Event(event)` with the plugin that
+published it in `event.sender` and, for the host, `events::text(&event)`. The
+titles in the panel are read in `panel_view` with
+`collection::list("notes", "notes", None, 8)`, and the error of a read that is
+not allowed is a line of the panel.
+
+**What the chief sees.** The first press raises "Clipper asks to use plugin.use for
+`notes`", and the plugin gets the error `plugin.use not granted`, which Clipper
+shows; the answer reaches it as `granted` of `plugin.use:notes` and Clipper says
+to press again. The collection and the agents are asked about the same way. In
+Settings each of them has a control of its own under Clipper. If Notes is
+switched off or removed, Clipper is switched off with the reason shown.
+
+**Checking the pair.** Build both into folders and run them in one home:
+
+```sh
+guests/notes/build.sh /tmp/pair/notes
+guests/clipper/build.sh /tmp/pair/clipper
+cargo run --example plugin_check --features wasm -- \
+  /tmp/pair/notes /tmp/pair/clipper \
+  --script guests/clipper/steps.toml --out /tmp/pair/pictures
+```
+
+The script grants what the chief would, presses the button before and after,
+and draws `denied.png`, `clipper.png` and `notes.png`. The gallery scene
+`plugin-clipper` draws Clipper's panel from a tree made up for it.
+
 ## Limits
 
 Every plugin is held to the limits of `assets/wasm.toml` whatever it is
 allowed: the time and memory of a call, log lines, panels, the nodes, depth and
-text of a tree, events a second and intents a call ([`wasm.md`](wasm.md)). A
+text of a tree, events a second, intents a call, the calls waiting and how deep
+they go, and the size of a page of a collection ([`wasm.md`](wasm.md)). A
 call that traps, runs out of time or returns a bad tree stops the plugin; its
 panels say so and have a RESTART button.
 
@@ -334,6 +472,15 @@ loads, and one that prints or reads the clock traps: log with
 - Changing the type of a state or a stored value and expecting the old bytes to
   read.
 - A folder whose manifest `id` is not the folder's name.
+- Running a command, hearing an event or reading a collection of a plugin that
+  the manifest does not list under `imports`: the call is answered with an
+  error. The same for a command the other plugin does not list under `exports`.
+- Not answering a command (the caller gets an error after `call_frames`
+  frames), or giving a `call-id` that is still waiting.
+- Using another plugin without `needs` for it: the call fails when it is not
+  running, where `needs` would have kept this plugin from starting.
+- Putting a call's state in a variable: the answer comes in a later `step`, so
+  keep it in `State`, as `hamlet_guest::Calls` does.
 
 ## Building from an agent's sandbox
 

@@ -23,7 +23,8 @@ A plugin crate depends on `hamlet_sdk` and the engine crates, never on
 | `confirm` | `Confirm`, an observer event that asks the chief a question before a command is run |
 | `dock` | `Panel`, `add_panel`, `panel` and `lit_panel`, `show_tab` and `TabShown` |
 | `capability` | `Capability`, the names a plugin can ask for and `NEVER`, the ones no plugin can; `Asks`, what a manifest asks for; `Choice` and `Choices`, what the chief chose; `Granted`, the verdict for each capability the manifest names. See [`permissions.md`](permissions.md) |
-| `agents` | `AgentList`, a read-model of the living agents and their hamlets that a system keeps |
+| `agents` | `AgentList`, a read-model of the living agents and their hamlets that a system keeps, and `SelectedAgent`, the name of the agent selected in the world |
+| `events` | The catalogue of the host's events a plugin may subscribe to: `selection-changed` and `agents-changed`, each behind `read.agents`. See [`wasm.md`](wasm.md) |
 | `tree` | The tree of a plugin's panel: `Node`, the `PluginTrees` read-model of what each panel shows, the view built from it with the looks of the panels, and the `Interaction` event of a click or typing in it |
 | `plugin` | The plugin types below |
 
@@ -51,13 +52,19 @@ pub trait HamletPlugin {
 }
 ```
 
-- `Manifest`: id, name, version, the plugins it needs (an id and a version
-  range) and whether it is built in. `Manifest::built_in("id")` starts one.
+- `Manifest`: id, name, version, the plugins it needs and wants (an id and a
+  version range each, read by `Range`), what it exports and imports (`Exports`
+  and `Imports`: commands, events and collections, see [`wasm.md`](wasm.md))
+  and whether it is built in. `Manifest::built_in("id")` starts one.
 - `Entry` is what `entry` declares into. It reaches neither the app nor the
-  world. For now it declares a panel, with `panel` or with `panel_by_id`.
-  A new kind of contribution is a variant of `Declared`, a method of
-  `Entry` and an arm of `Entry::spawn`, all in `plugin/entry.rs`. The WASM
-  host makes an `Entry` of what an installed plugin declared and spawns it.
+  world. It declares a panel, with `panel` or with `panel_by_id`, and a
+  command, with `command`. A new kind of contribution is a variant of
+  `Declared`, a method of `Entry` and an arm of `Entry::spawn`, all in
+  `plugin/entry.rs`. The WASM host makes an `Entry` of what an installed
+  plugin declared and spawns it.
+- `Command` is an entity with an id and a title, `ContributedBy` the plugin
+  that exports it. It is the command other plugins run through the host. Menu
+  entries, keys and the rest will point at it.
 - `app.add_hamlet_plugin::<P>()` spawns the plugin's entity with its
   `PluginInfo` (id, name, version, built in), its `Manifest`, its
   `EntryPoint` and its `Status`, then runs `entry`.
@@ -68,6 +75,10 @@ pub trait HamletPlugin {
   added goes with it.
 - The `Disable` event, by plugin id, despawns the contributions and sets
   `Status::Disabled`. `Enable` runs `entry` again.
+- `Blocked` holds why a plugin is held back or was switched off: a plugin it
+  needs is not there, not the right version or not running. A system of
+  `plugin::plugin` switches off the plugins whose needs stop being met and
+  switches them on again when they are (`plugin::needs` has the logic).
 
 ## plugins/
 

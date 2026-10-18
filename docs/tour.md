@@ -147,11 +147,16 @@ Paths are under `crates/`.
 | A plugin's own storage, its caps and the state the host holds for it | `hamlet_wasm/src/storage.rs`, `host/keeping.rs`, `instance.rs`, `assets/wasm.toml`; for a guest `hamlet_guest/src/storage.rs` and `state.rs`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
 | A text area or markdown in a plugin's panel | `hamlet_sdk/src/tree/view/area.rs`, `markdown.rs` and `markdown/parse.rs`; [`wasm.md`](wasm.md) |
 | The Notes plugin | `guests/notes/`; its panel in the gallery, `examples/ui_gallery/scenes/notes.rs` |
+| Plugins running each other's commands, hearing each other's events and reading each other's collections | `hamlet_wasm/src/interop.rs` and `interop/`, `reach.rs`, `host/collections.rs`, `assets/wasm.toml`; for a guest `hamlet_guest/src/calls.rs`, `events.rs` and `collection.rs`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
+| What a plugin exports and imports, and the version of a plugin it needs | `hamlet_sdk/src/plugin/offers.rs`, `version.rs`, `needs.rs`, `blocked.rs`, `hamlet_wasm/src/manifest.rs`, `install.rs`, `enable.rs`; [`wasm.md`](wasm.md) |
+| The host's events a plugin may hear (selection, agents) | `hamlet_sdk/src/events.rs`, `agents.rs`, `hamlet_wasm/src/interop/hosted.rs`; [`wasm.md`](wasm.md) |
+| A plugin's commands as entities | `hamlet_sdk/src/plugin/command.rs`, `entry.rs`, `hamlet_wasm/src/command.rs`; [`sdk.md`](sdk.md) |
+| The Clipper plugin, which uses Notes | `guests/clipper/`; its panel in the gallery, `examples/ui_gallery/scenes/clipper.rs` |
 | Starting a plugin, its templates and the script that copies them | `templates/plugin/`, `templates/data-plugin/`, `scripts/new-plugin.sh`; [`authoring.md`](authoring.md) |
 | Testing a plugin headlessly: the harness, its script and its pictures | `hamlet_harness/src/harness.rs`, `script.rs`, `run.rs`, `render.rs`, `examples/plugin_check/`; [`authoring.md`](authoring.md) |
 | What an agent is taught about writing a plugin | `hamlet_home/starters/write-a-plugin/SKILL.md` |
 | Building a plugin from an agent's sandbox | `scripts/vendor-plugin-deps.sh`; [`authoring.md`](authoring.md) |
-| The Plugins page of Settings, and the permissions views | `hamlet_ui/src/screens/settings/plugins.rs` and `plugins/`; [`permissions.md`](permissions.md) |
+| The Plugins page of Settings, and the permissions views | `hamlet_ui/src/screens/settings/plugins.rs` and `plugins/` (`list.rs`, `permissions.rs`, `capabilities.rs`, `control.rs`, `links.rs`); [`permissions.md`](permissions.md) |
 | A colour in the world | `assets/palette.toml` |
 | A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`, `wasm.toml`, `panel_lang.toml`. What each value means is beside its field in the code |
 | The height something stands at | `LandData::surface`: the ground as it is drawn, never the smooth `height` |
@@ -185,8 +190,8 @@ These draw to files and open nothing:
 
 | Command | Shows |
 |---|---|
-| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes. `plugin-roster` is an installed plugin's panel drawn from a tree, `plugin-notes` and `plugin-notes-preview` the Notes panel editing a note and showing it as markdown, `plugin-petition` the petitions of plugins, `plugin-permissions` and `plugin-capabilities` their Settings views, `plugin-reload` the Plugins page after reloads |
-| `cargo run --example plugin_check --features wasm -- <plugin dir> [--script steps.toml] [--out <dir>]` | A plugin's panels as text after each step of a script, and a picture of each: see [`authoring.md`](authoring.md) |
+| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes. `plugin-roster` is an installed plugin's panel drawn from a tree, `plugin-notes` and `plugin-notes-preview` the Notes panel editing a note and showing it as markdown, `plugin-clipper` the Clipper panel after it sent a name to Notes, `plugin-petition` the petitions of plugins, `plugin-permissions` and `plugin-capabilities` their Settings views, with a control for each plugin one imports, `plugin-reload` the Plugins page after reloads, with what a plugin needs and who needs it |
+| `cargo run --example plugin_check --features wasm -- <plugin dir>... [--script steps.toml] [--out <dir>]` | The panels of one plugin, or of several opened in one home, as text after each step of a script, and a picture of each: see [`authoring.md`](authoring.md) |
 | `cargo run --release --example far_lands -- --out <dir>` | The land, many towns, a town being moved; `--bench` times it |
 | `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library |
 | `cargo run --example cursor_sheet` | Every cursor |

@@ -20,7 +20,8 @@ The host is behind the `wasm` feature of the binary:
 | `templates/` | The plugin to start from, of code and of a panel |
 | `guests/hello` | A plugin that logs on every tick. A workspace of its own, since it is built for `wasm32-wasip2` |
 | `guests/roster` | A plugin with a panel that lists the agents, behind the grant `read.agents` |
-| `guests/notes` | Notes: a search, a list of notes and a text area or markdown view of the open one, kept in the plugin's storage; a button copies the selected agent's notes, behind the grant `read.papers` |
+| `guests/notes` | Notes: a search, a list of notes and a text area or markdown view of the open one, kept in the plugin's storage; a button copies the selected agent's notes, behind the grant `read.papers`. It exports the command `add`, the event `note-saved` and the collection `notes` |
+| `guests/clipper` | Clipper: sends the selected agent's name to Notes with its command, lists the titles of the notes it reads from Notes' collection and counts the `note-saved` events. It needs Notes. The pair is the example of [`authoring.md`](authoring.md#two-plugins-working-together) |
 | `assets/wasm.toml` | The limits, and how often the plugins' files are looked at |
 
 In `hamlet_wasm/src/`, a file for each part:
@@ -29,7 +30,8 @@ In `hamlet_wasm/src/`, a file for each part:
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
 | What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
-| The install folder | `manifest.rs`, `install.rs`, `cache.rs` (the compiled components kept beside a plugin) |
+| The install folder | `manifest.rs`, `install.rs` (which also turns down plugins whose needs go in a circle), `cache.rs` (the compiled components kept beside a plugin) |
+| Plugins working together | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `mail.rs`. Also `command.rs` (a plugin's commands as entities), `reach.rs` and `host/collections.rs` (the shared collections) |
 | Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
 | Bringing up and the frame | `load.rs`, `admit.rs` (a plugin the chief just let in), `start.rs`, `enable.rs`, `inbox.rs`, `reply.rs` (an answer to a request), `run.rs`, `stop.rs` |
 | The panels | `panel.rs`, `wire.rs` (a returned tree made into nodes), `draw.rs`, `event.rs` |
@@ -44,6 +46,9 @@ shows and the view built from it are in `hamlet_sdk::tree`.
 - `log(level, message)`.
 - `panel(id, title, icon)`, which declares a panel. Only `entry` declares.
   `icon` is the name of a `Glyph` of `hamlet_sdk::icons`, in any case.
+- `command(id, title)`, which declares a command the plugin exports. Only
+  `entry` declares, and only a command the manifest lists under
+  `exports.commands` is kept (see Plugins working together below).
 - `agents() -> result<list<agent>, string>`, which needs the grant
   `read.agents`.
 - `papers() -> result<agent-papers, string>`, which needs the grant
@@ -55,6 +60,11 @@ shows and the view built from it are in `hamlet_sdk::tree`.
 - `storage-get(key)`, `storage-set(key, value)`, `storage-delete(key)` and
   `storage-keys(prefix)`, the plugin's own store (see Storage below). They
   need no capability.
+- `collection-list(plugin, name, after, limit)`, `collection-get(plugin,
+  name, key)`, `collection-put(plugin, name, key, value)` and
+  `collection-delete(plugin, name, key)`, the collections other plugins share
+  (see Plugins working together below). They need `collections.read` or
+  `collections.write`, chosen for each collection.
 - `state-get()` and `state-set(state)`, a blob the host holds for the plugin
   in memory (see State below).
 
@@ -64,13 +74,17 @@ The plugin exports:
 - `step(inbox) -> outgoing`, which runs for each frame in which the plugin's
   `Inbox` holds something. An `incoming` is a `tick`, a `click`, a `toggled`,
   a `text-changed`, or the answer to a `request` that was `pending`:
-  `granted(capability)` or `denied(capability)`. The intents it returns are
-  carried out by the host: a `log-line`, and a `redraw` of a panel.
+  `granted(capability)` or `denied(capability)` (for a capability chosen for
+  each plugin or collection, the name is `capability:target`, as in
+  `plugin.use:notes`), or, between plugins, a `command` another plugin runs, the
+  `reply` to a command this one ran, and an `event`. The intents it returns are
+  carried out by the host: a `log-line`, a `redraw` of a panel, and between
+  plugins `run-command`, `reply` and `publish`.
 - `panel-view(panel) -> view`, which returns the panel as it is now: a
   `tree`, or `lang`, a program in Hamlet's panel language that the host
   draws (see [`panels.md`](panels.md)).
 
-`interface::VERSION` is the package version, now `0.3.0`; it changes
+`interface::VERSION` is the package version, now `0.4.0`; it changes
 whenever the WIT file does. A manifest that names another one is turned
 down by the scan, and a component whose imports or exports are of another
 version of the package fails to load, both with "built for interface X,
@@ -160,12 +174,150 @@ order.
    for each running plugin that has mail. A call that fails fails the plugin.
 3. `Apply` runs when a plugin was stepped and carries out its intents: a
    `log-line` is written to the app's log, labelled with the plugin's id, and
-   a `redraw` marks the panel due.
+   a `redraw` marks the panel due. A `run-command`, `reply` and `publish`
+   put a message in the inbox of another plugin (below).
 4. `Draw` runs when a panel is due and calls `panel-view`.
 
 What a plugin passes to `log` is written to the log the same way, labelled
 with the id. A headless run (`--headless`) installs the log only with the
 `wasm` feature on.
+
+## Plugins working together
+
+The host stands in the middle of every meeting between plugins. A plugin never
+holds another's pointer, memory or storage, and everything that crosses is a
+copy, checked by the host against the two manifests and the chief's grants.
+Using another plugin is the capability `plugin.use`, chosen for each plugin
+([`permissions.md`](permissions.md)).
+
+A plugin lists what it offers and what it uses in its manifest, and nothing
+outside the lists is reachable:
+
+```toml
+[exports]
+commands = ["add"]
+events = ["note-saved"]
+
+[[exports.collections]]
+name = "notes"
+prefix = "note."      # the keys of its storage that are in the collection
+writable = false      # the default
+
+[imports]             # plugin/name
+commands = ["notes/add"]
+events = ["notes/note-saved", "notes/collection-changed", "host/selection-changed"]
+collections = ["notes/notes"]
+```
+
+A name is 1 to 64 bytes of `a-z`, `0-9`, `.`, `_` and `-`. `host` is not a
+plugin's id: it is the sender of the events of the host.
+
+### Commands
+
+A call is a request and a reply, and each hop takes at most one frame.
+
+1. The caller's `step` returns `run-command(call-id, plugin, command, args)`.
+   The caller chooses `call-id`, which must differ from those of its calls still
+   waiting, and the reply names it. `args` is bytes; `hamlet_guest::calls` writes
+   them with `postcard`.
+2. `Apply` checks, in this order: the command is in the caller's
+   `imports.commands`; the caller holds `plugin.use` for the target plugin (if the
+   chief is yet to decide, the petition is raised); the arguments are within
+   `call_bytes`; the call id is not waiting; the caller has fewer than
+   `calls_in_flight` calls waiting; the call is no deeper than `call_depth`; the
+   target is installed, lists the command in its `exports.commands` and is
+   running.
+3. A call that passes goes to the target's inbox as `command(call-id, sender,
+   command, args)`, with a number of the host's own. The target answers in a
+   later `step` with `reply(call-id, outcome)`, where `outcome` is
+   `ok(bytes)` or `err(text)`.
+4. `Apply` gives the caller `reply(call-id, outcome)` under the caller's own
+   number. A reply over `call_bytes` becomes an error.
+
+A call that is refused or cannot be carried out is answered at once with
+`reply(err(..))`, and the caller handles it. The text is one of these, with the
+plugin and command filled in:
+
+```
+`notes/add` is not in the manifest's imports
+plugin.use not granted
+the arguments have 70000 bytes, the most is 65536
+call 7 is already waiting
+8 calls are waiting, the most is 8
+the call would cross 5 plugins, the most is 4
+no plugin `notes` is installed
+`notes` does not export `add`
+`notes` is switched off          (or: stopped, not started yet)
+```
+
+A call whose target is switched off or stopped while it waits, or removed, is
+answered with `` `notes` is switched off`` (or `stopped`, `was removed`), and one
+with no answer within `call_frames` frames with `` `notes` did not answer in 300
+frames``. A late reply is dropped with a warning.
+
+The depth of a call is the number of plugins it has crossed. A call a plugin
+runs while it is answering a call has the depth of the deepest call it is
+answering, plus one, so a handler that calls another command is one deeper, a
+cycle cannot loop, and a call over `call_depth` is answered with an error. A
+plugin that answers no call starts calls at depth 1.
+
+What a plugin does is attributed to it in the log: `plugin clipper: runs
+notes/add`, `plugin clipper: notes/add refused: ...`.
+
+A command a plugin declares with `command` during `entry` and lists under
+`exports.commands` is spawned as a `hamlet_sdk::plugin::Command` entity (an id and
+a title) that is `ContributedBy` the plugin, so it goes with it. Nothing points at
+it yet.
+
+### Events
+
+A plugin lists the events it publishes under `exports.events` and those it hears
+under `imports.events`. `publish(topic, payload)` is dropped, with a warning,
+unless the topic is in its exports. `Apply` gives a copy to every running plugin
+that imports `plugin/topic` and holds `plugin.use` for the publisher, as
+`event(topic, sender, payload)`; one the chief is yet to decide for is asked, and
+does not get that event. A payload is bytes, within `call_bytes`.
+
+A plugin that exports a collection publishes `collection-changed` for it too,
+with the collection's name as the payload, whenever a key under its prefix is
+written or removed, by the plugin or by another through `collection-put` and
+`collection-delete`. It is not listed under `exports.events`.
+
+The host's own events are kept by ordinary systems from the read models, and a
+plugin imports them as `host/<topic>`. The payload is text.
+
+| Event | Needs | Payload |
+|---|---|---|
+| `host/selection-changed` | `read.agents` | The selected agent's name, empty when none is selected |
+| `host/agents-changed` | `read.agents` | Empty: read the list with `agents()` |
+
+The catalogue is `hamlet_sdk::events`. An event is given when the model changes,
+and once when the app starts.
+
+### Collections
+
+A plugin exports a collection with a `name` and a key `prefix` of its own storage.
+Another plugin imports it as `plugin/name` and the chief chooses
+`collections.read` and `collections.write` for each `plugin/name`. The calls
+return copies, and the keys are those of the collection, without the prefix.
+
+- `collection-list(plugin, name, after, limit)` returns a page of the keys after
+  `after`, in order. A page holds at most `collection_page_items` items (and at
+  most `limit`) and `collection_page_bytes` bytes of values, and always at least
+  one item. `next` is the key to pass as `after` for the following page, or none.
+- `collection-get` returns the value of a key, if it is there.
+- `collection-put` and `collection-delete` need `collections.write` and a
+  collection with `writable = true`.
+
+A call fails with `` `p/n` is not in the manifest's imports``, `collections.read
+not granted` (the chief is asked where the choice is yet to be made), `` `p/n` is
+not there`` (the plugin is not running or does not export it) or, for a write,
+`` `p/n` is read-only``. The values are read from and written to the files of the
+sharing plugin's storage, under its caps.
+
+Exported typed interfaces, which one plugin implements and another imports as a
+component the host links, are not built. Commands, events and collections cover
+what plugins do together until they are.
 
 ## A plugin that stopped
 
@@ -231,6 +383,13 @@ each means. They apply to every plugin alike, whatever it is granted.
   A write over one returns an error to the plugin.
 - **State.** At most `state_bytes` in the blob. A `state-set` over it returns
   an error.
+- **Commands.** At most `commands` declared in `entry`; the rest are dropped.
+- **Calls.** At most `calls_in_flight` waiting for a plugin, `call_depth`
+  plugins deep, `call_bytes` in the arguments of a call, in a reply and in the
+  payload of an event, and a wait of `call_frames` frames before the caller is
+  answered with an error.
+- **Collections.** A page of at most `collection_page_items` items and
+  `collection_page_bytes` bytes of values.
 
 ## Storage
 
@@ -291,8 +450,11 @@ the load with the name of the import.
 ```
 
 `manifest.toml` has `id`, `name`, `version` and `interface`, and may have
-`needs` (an `id` and a `range` each), `exports`, `imports` and `asks` (a
-`capability`, a `reason` and optionally a `scope` each). It may also have
+`needs` and `wants` (an `id` and a `range` each), `exports`, `imports` (see
+Plugins working together) and `asks` (a `capability`, a `reason` and
+optionally a `scope` each; the scope of `plugin.use` is the plugin ids it may
+be chosen for, and of `collections.read` and `collections.write` the
+`plugin/name` of collections). It may also have
 `kind`: `wasm` (the default) or `data`, a plugin that is a `panel.ui` and no
 `plugin.wasm`, with an optional `icon` and no `interface` (see
 [`panels.md`](panels.md)). The scan turns a folder down when a file is
@@ -304,6 +466,36 @@ reason); the reason is logged.
 `grants.toml` records the plugins that may load. A plugin that is in the
 folder and not recorded as installed is never compiled, and a missing file
 installs nothing.
+
+### Needs
+
+`needs` are plugins that must be installed and running, in a version in the
+`range`, or the plugin does not start. A range is comparators that all hold,
+separated by spaces or commas: `>=`, `>`, `<=`, `<`, `=` and `^`, each with a
+version of one to three numbers (`>=0.2, <1`); a bare version is `^`, so `0.3`
+is `>=0.3.0, <0.4.0`; an empty range or `*` is any version
+(`hamlet_sdk::plugin::Range`). `wants` has the same shape for a plugin it uses
+when it is there and works without.
+
+- The scan turns down a plugin whose needs go in a circle, naming the path
+  (`plugins/a: its needs go in a circle: a -> b -> a`), and one whose range is
+  not one.
+- A plugin whose needs are not met at the start, or when it is let in or
+  enabled, is not started. It is `Disabled` with a `Blocked` component that holds
+  the reason, which the Plugins page shows under its name and the log gives:
+
+  ```
+  needs `notes`, which is not here          (or: not installed, switched off, stopped)
+  needs `notes` >=0.2, but 0.1.0 is installed
+  ```
+
+- When a plugin is disabled, fails or is removed, the plugins that need it are
+  disabled with the reason. When its needs are met again, one that was held back
+  is enabled again. A plugin the chief switched off is left as it is.
+- The petition to install a plugin lists the plugins it needs that are not
+  installed (and the ones it wants), and the petition to remove one lists the
+  plugins that need it and go off with it.
+- Data plugins have no code to call with, and their needs are not acted on.
 
 A plugin's folder also holds the folders the host writes, which are not part
 of the plugin: `.cache/`, `.last-good/` and the plugin's `data/`.
