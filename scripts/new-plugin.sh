@@ -11,7 +11,9 @@
 #   {{title}}      the name in words, as Settings shows it
 #   {{TITLE}}      the same in capitals, as a panel's title
 #   {{interface}}  the version of the interface this Hamlet speaks
-#   {{hamlet}}     the folder of this checkout (a plugin of code only)
+#   {{hamlet}}     the folder of this checkout, or $HAMLET_SRC where that
+#                  is set to another copy of `crates/hamlet_guest` and
+#                  `crates/hamlet_wasm/wit` (a plugin of code only)
 set -e
 
 usage() {
@@ -73,7 +75,7 @@ find "$dest" -type f | while read -r file; do
         -e "s|{{title}}|$(esc "$title")|g" \
         -e "s|{{TITLE}}|$(esc "$upper")|g" \
         -e "s|{{interface}}|$(esc "$interface")|g" \
-        -e "s|{{hamlet}}|$(esc "$root")|g" \
+        -e "s|{{hamlet}}|$(esc "${HAMLET_SRC:-$root}")|g" \
         "$file" > "$file.new"
     cat "$file.new" > "$file"
     rm "$file.new"
