@@ -52,6 +52,12 @@ pub struct Limits {
     pub storage_key_bytes: usize,
     /// The bytes of one storage value.
     pub storage_value_bytes: usize,
+    /// The acts as the chief, messages and commands together, that
+    /// one plugin may do in a minute. The rest are dropped.
+    pub acts_per_minute: u32,
+    /// The bytes of the text of one message a plugin sends as the
+    /// chief.
+    pub act_text_bytes: usize,
     /// The bytes of all the files one plugin keeps in its folder of
     /// files.
     pub files_bytes: u64,

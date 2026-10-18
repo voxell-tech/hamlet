@@ -10,6 +10,7 @@ use hamlet_sdk::papers::Papers;
 use self::engine::Host;
 use self::limits::{Limits, WasmTuning};
 
+pub mod acts;
 pub mod admit;
 pub mod cache;
 pub mod call;
@@ -56,6 +57,7 @@ pub fn plugin(app: &mut App) {
     ))
     .init_resource::<Limits>()
     .init_resource::<Papers>()
+    .init_resource::<acts::Acted>()
     .add_message::<run::Done>()
     .add_message::<run::Said>()
     .add_observer(admit::admit)
@@ -88,6 +90,9 @@ pub fn plugin(app: &mut App) {
             inbox::tick.in_set(PluginSet::Collect),
             run::step.in_set(PluginSet::Step).run_if(inbox::has_mail),
             run::apply
+                .in_set(PluginSet::Apply)
+                .run_if(on_message::<run::Done>),
+            acts::carry_out
                 .in_set(PluginSet::Apply)
                 .run_if(on_message::<run::Done>),
             draw::draw.in_set(PluginSet::Draw).run_if(draw::due),

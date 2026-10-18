@@ -61,6 +61,8 @@ pub struct Plugin {
     /// The targets of scoped capabilities it is allowed, each a
     /// capability and a target.
     targets: &'static [(&'static str, &'static str)],
+    /// What an ask is limited to, each a capability and its scope.
+    scopes: &'static [(&'static str, &'static [&'static str])],
     /// Whether the chief installed it, as far as the store says.
     installed: bool,
 }
@@ -77,6 +79,7 @@ impl Plugin {
             needs: &[],
             lines: "",
             targets: &[],
+            scopes: &[],
             installed: true,
         }
     }
@@ -94,6 +97,16 @@ impl Plugin {
         targets: &'static [(&'static str, &'static str)],
     ) -> Self {
         self.targets = targets;
+        self
+    }
+
+    /// This, with its asks limited to these scopes, each a capability
+    /// that it asks for and what it is limited to.
+    pub fn limited_to(
+        mut self,
+        scopes: &'static [(&'static str, &'static [&'static str])],
+    ) -> Self {
+        self.scopes = scopes;
         self
     }
 
@@ -168,6 +181,11 @@ impl Plugin {
                 "[[asks]]\ncapability = \"{ask}\"\nreason = \"a \
                  test\"\n"
             );
+            if let Some((_, scope)) =
+                self.scopes.iter().find(|(name, _)| name == ask)
+            {
+                text += &format!("scope = {scope:?}\n");
+            }
         }
         text
     }

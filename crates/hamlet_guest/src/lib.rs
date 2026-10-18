@@ -22,8 +22,8 @@ pub mod subject;
 pub mod ui;
 
 pub use self::bindings::exports::hamlet::plugin::plugin::{
-    CallAnswer, CallRequest, CommandCall, Incoming, Intent, Outgoing,
-    Publication, Published, Tree, View as Wired,
+    CallAnswer, CallRequest, ChatMessage, CommandCall, Incoming,
+    Intent, Outgoing, Publication, Published, Tree, View as Wired,
 };
 pub use self::bindings::hamlet::plugin::host::{
     Agent, AgentPapers, Level, RequestResult,
@@ -127,6 +127,27 @@ pub fn key(chord: &str, command: &str) {
 /// To be returned from `step`.
 pub fn open_panel(panel: &str) -> Intent {
     Intent::OpenPanel(panel.into())
+}
+
+/// The intent that sends `text` to the agent named `agent` as the
+/// chief. The agent is told `[sent by plugin <id>]` with it, and the
+/// chief sees a notice. It needs the capability `chat.send`, which
+/// the chief gives at its first use: the first one is dropped and the
+/// answer reaches a later `step` as `Incoming::Granted` or
+/// `Incoming::Denied`. To be returned from `step`.
+pub fn send_chat(agent: &str, text: &str) -> Intent {
+    Intent::SendChat(ChatMessage {
+        agent: agent.into(),
+        text: text.into(),
+    })
+}
+
+/// The intent that runs the registered command `command`
+/// (`plugin/name`) as the chief does from a menu. It needs the
+/// capability `commands.run`, gated and noted as [`send_chat`] is. To
+/// be returned from `step`.
+pub fn run_as_chief(command: &str) -> Intent {
+    Intent::RunAsChief(command.into())
 }
 
 /// The living agents, each with its hamlet. It needs the capability

@@ -2,12 +2,14 @@
 //! selected.
 
 mod page;
+mod send;
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use hamlet_core::session::SessionKey;
 
 pub use self::page::of_agent;
+pub use self::send::{address, send_as_chief};
 
 /// The chat session this window shows and sends to.
 #[derive(Resource)]

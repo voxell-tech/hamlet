@@ -10,8 +10,8 @@ use bevy::ecs::world::World;
 use hamlet_core::agents::{self, Citizen, Mayor};
 use hamlet_core::session::{self, SessionKey};
 use hamlet_realm::pick::{Selected, Thing, select};
-use hamlet_rules::hamlet::HOME;
 pub use hamlet_sdk::convo::Me;
+pub(crate) use hamlet_sdk::convo::address;
 
 use crate::dock::show_tab;
 
@@ -39,30 +39,6 @@ pub(crate) fn plugin(app: &mut App) {
         agent: mayor,
         with: None,
     });
-}
-
-/// The session a chat with `agent` is kept under, and the agent's
-/// name. `None` for the name of a mayor, and nothing at all for an
-/// agent that is not there.
-pub(crate) fn address(
-    world: &World,
-    agent: Entity,
-) -> Option<(SessionKey, Option<String>)> {
-    let name = world.get::<Name>(agent)?;
-    let with = world
-        .get::<Mayor>(agent)
-        .is_none()
-        .then(|| name.as_str().to_string());
-    let me = world.resource::<Me>();
-    let key = match &with {
-        Some(name) => SessionKey::with_agent("app", &me.user, name),
-        None => SessionKey::with_mayor(
-            "app",
-            &me.user,
-            agents::hamlet_of(world, agent).unwrap_or(HOME),
-        ),
-    };
-    Some((key, with))
 }
 
 /// Makes `agent` who the chat is with. False when it is not there.
@@ -191,7 +167,11 @@ impl MeOf for Me {
     ) -> Me {
         let key = match with {
             Some(name) => SessionKey::with_agent("app", user, name),
-            None => SessionKey::with_mayor("app", user, HOME),
+            None => SessionKey::with_mayor(
+                "app",
+                user,
+                hamlet_rules::hamlet::HOME,
+            ),
         };
         Me {
             session,
@@ -212,7 +192,7 @@ mod tests {
     use hamlet_core::agents::{AgentsPlugin, Settlement};
     use hamlet_core::core::HomeDir;
     use hamlet_core::session::UserMessage;
-    use hamlet_rules::hamlet::Hamlet;
+    use hamlet_rules::hamlet::{HOME, Hamlet};
     use hamlet_testing::Scratch;
 
     use super::*;
@@ -292,6 +272,31 @@ mod tests {
             SessionKey::with_mayor("app", "alice", "mill")
         );
         assert_eq!(said[0].1, "/remove carder");
+    }
+
+    #[test]
+    fn a_plugin_sends_to_an_agent_as_the_chief_marked_with_its_name()
+    {
+        use hamlet_sdk::convo::send_as_chief;
+
+        let (_dir, mut app, _) = app("sent");
+        let world = app.world_mut();
+        // A slash would make a command of the chief's.
+        send_as_chief(world, "scout", "clipper", "/remove librarian")
+            .unwrap();
+        assert!(
+            send_as_chief(world, "nobody", "clipper", "hi").is_err()
+        );
+        let said = &world.resource::<Heard>().0;
+        assert_eq!(said.len(), 1);
+        assert_eq!(
+            said[0].0,
+            SessionKey::with_agent("app", "alice", "scout")
+        );
+        assert_eq!(
+            said[0].1,
+            "[sent by plugin clipper] /remove librarian"
+        );
     }
 
     #[test]

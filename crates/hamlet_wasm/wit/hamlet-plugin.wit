@@ -279,6 +279,27 @@ interface plugin {
     // the front of the dock, opening it if it is closed. It needs no
     // capability. A panel the plugin did not declare is dropped.
     open-panel(string),
+    // Sends a message to an agent as the chief. It needs the
+    // capability `chat.send`, which is asked at its first use and
+    // may be limited to the agents the manifest lists. The message
+    // reaches the agent as `[sent by plugin <id>] <text>`, a notice
+    // in the open chat tells of it, and the host limits how many a
+    // minute. A refused act is dropped with a warning; where the
+    // chief is yet to decide, the chief is asked and the answer
+    // reaches a later `step` as `granted` or `denied`.
+    send-chat(chat-message),
+    // Runs the registered command of this id (`plugin/name`) as the
+    // chief would, from a menu. It needs the capability
+    // `commands.run`, gated, limited and noted in the chat as
+    // `send-chat` is, and may be limited to the commands the
+    // manifest lists.
+    run-as-chief(string),
+  }
+
+  record chat-message {
+    // The name of the agent.
+    agent: string,
+    text: string,
   }
 
   record publication {
