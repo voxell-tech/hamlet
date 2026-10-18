@@ -6,6 +6,7 @@ mod ask;
 mod choice;
 mod decide;
 mod dependency;
+mod gate;
 mod granted;
 mod install;
 mod name;
@@ -20,6 +21,7 @@ use bevy::app::App;
 pub use self::ask::{Asked, Asks, Scope};
 pub use self::choice::Choice;
 pub use self::decide::Decide;
+pub use self::gate::allowed;
 pub use self::granted::{Choices, Granted, Verdict};
 pub use self::install::{
     AskToInstall, AskToRemove, Installed, Removed, Uninstalled,

@@ -8,6 +8,7 @@ mod screen;
 
 use bevy::app::App;
 use hamlet_sdk::icons::Glyph;
+use hamlet_sdk::menu::Menu;
 use hamlet_sdk::plugin::{
     AppPluginExt, Entry, HamletPlugin, Manifest,
 };
@@ -28,5 +29,13 @@ impl HamletPlugin for SkillsPlugin {
     fn entry(entry: &mut Entry) {
         // Closed until asked for from a tab bar's plus.
         entry.panel("skills", "SKILLS", Glyph::Book, screen::screen);
+        entry.opens("open", "Skills", "skills");
+        entry.menu_item(
+            Menu::View,
+            1,
+            "Skills",
+            "open",
+            Some(Glyph::Book),
+        );
     }
 }

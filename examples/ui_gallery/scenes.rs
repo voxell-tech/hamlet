@@ -103,6 +103,7 @@ impl Plugin for GalleryPlugin {
             )
             .add_plugins((
                 hamlet_sdk::SdkPlugin,
+                menu::window::plugin,
                 hamlet_openui::plugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_ui::screens::plugin,

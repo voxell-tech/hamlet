@@ -9,6 +9,7 @@ use crate::AnyView;
 use crate::command::{Command, Handler, Opens};
 use crate::dock::Panel;
 use crate::icons::Glyph;
+use crate::menu::{Menu, MenuEntry};
 
 /// The declarations of one plugin. It reaches neither the app nor the
 /// world.
@@ -22,6 +23,7 @@ pub struct Entry {
 enum Declared {
     Panel(Panel),
     Command(Command, Does),
+    Menu(MenuEntry),
 }
 
 /// What a command does when it is run.
@@ -84,6 +86,26 @@ impl Entry {
         self.declare(id, title, icon, Does::Forwarded);
     }
 
+    /// Adds a line to `menu` that runs the plugin's command
+    /// `command`. Lines are grouped by `section`, in order, with a
+    /// line between groups.
+    pub fn menu_item(
+        &mut self,
+        menu: Menu,
+        section: u32,
+        label: &str,
+        command: &str,
+        icon: Option<Glyph>,
+    ) {
+        self.declared.push(Declared::Menu(MenuEntry {
+            menu,
+            section,
+            label: label.into(),
+            command: command.into(),
+            icon,
+        }));
+    }
+
     fn declare(
         &mut self,
         id: &str,
@@ -101,6 +123,9 @@ impl Entry {
             match declared {
                 Declared::Panel(panel) => {
                     commands.spawn((panel, ContributedBy(plugin)));
+                }
+                Declared::Menu(entry) => {
+                    commands.spawn((entry, ContributedBy(plugin)));
                 }
                 Declared::Command(command, does) => {
                     let mut command = commands

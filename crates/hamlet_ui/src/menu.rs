@@ -1,8 +1,10 @@
-//! The menus in the top bar.
+//! The menus in the top bar. What they list is the lines plugins
+//! contributed, read from `hamlet_sdk::menu::Menus`.
+
+pub mod window;
 
 use bevy::app::{App, First, Update};
 use bevy::color::Color;
-use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, Res, ResMut};
@@ -20,32 +22,29 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, POPUP, button, frame, label, menu_item,
     overlay, popup, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource, style};
-use hamlet_realm::pick::{Orbit, Taken};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, style};
+use hamlet_realm::pick::Taken;
+use hamlet_sdk::command::RunCommand;
+pub use hamlet_sdk::menu::Menu;
+use hamlet_sdk::menu::{Line, Menus};
 
 use crate::feel::FootLight;
-use crate::icons::{Glyph, glyph};
-use crate::looks::ICON;
+use crate::icons::glyph;
+use crate::looks::{ICON, hairline};
 use crate::platform::DisplayText;
+use crate::roll::{either, moved};
 use crate::theme::HamletTheme;
-use crate::world_view::TimeOfDay;
-use crate::{AnyView, Cx, View, window};
+use crate::{AnyView, Cx, View, with_cx};
 
 /// The height of the menu bar.
 const BAR: f32 = 34.0;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<OpenMenu>()
+    app.add_plugins(window::plugin)
+        .init_resource::<OpenMenu>()
         .add_systems(Update, light_titles)
         // Before the toolkit closes a popup on Escape this frame.
         .add_systems(First, hold_escape);
-}
-
-/// A menu of the top bar. On a title, the menu it opens.
-#[derive(Clone, Copy, PartialEq, Component)]
-pub enum Menu {
-    App,
-    View,
 }
 
 /// The open menu and the rect of its title, in the window's logical
@@ -187,62 +186,55 @@ pub fn titles() -> impl View {
         .align(AlignItems::Center)
 }
 
-fn item(
-    which: Glyph,
-    name: &'static str,
-    act: fn(&mut World),
-) -> AnyView {
+fn item(line: &Line) -> AnyView {
+    let id = line.command.clone();
+    let mark = match line.icon {
+        Some(which) => glyph(which, ICON).tone(Tone::Faint).boxed(),
+        None => frame().width(px(ICON)).boxed(),
+    };
     menu_item(
-        row((
-            glyph(which, ICON).tone(Tone::Faint),
-            label(name).wrap(false),
-        ))
-        .gap(10.0)
-        .align(AlignItems::Center),
+        row((mark, label(line.label.clone()).wrap(false)))
+            .gap(10.0)
+            .align(AlignItems::Center),
     )
     .on_activate(move |world| {
         world.resource_mut::<OpenMenu>().0 = None;
-        act(world);
+        world.trigger(RunCommand { id: id.clone() });
+        world.flush();
     })
     .boxed()
 }
 
-fn items(menu: Menu) -> Vec<AnyView> {
-    match menu {
-        Menu::App => vec![
-            item(
-                Glyph::Plus,
-                "Found a Hamlet...",
-                crate::world_menu::ask_found,
-            ),
-            item(
-                Glyph::Lower,
-                "Run in Background",
-                window::background,
-            ),
-            item(Glyph::Power, "Quit Hamlet", window::quit),
-        ],
-        Menu::View => vec![
-            item(Glyph::Aim, "Reset Camera", |w| {
-                *w.resource_mut::<Orbit>() = Orbit::default()
-            }),
-            item(Glyph::Clock, "Sky Follows the Clock", |w| {
-                *w.resource_mut::<TimeOfDay>() = TimeOfDay::Clock
-            }),
-            item(Glyph::Sun, "Sky at Day", |w| {
-                *w.resource_mut::<TimeOfDay>() = TimeOfDay::Day
-            }),
-            item(Glyph::Moon, "Sky at Night", |w| {
-                *w.resource_mut::<TimeOfDay>() = TimeOfDay::Night
-            }),
-        ],
+fn rule() -> AnyView {
+    with_cx(|cx| {
+        hairline(cx.theme().palette.brass_6)
+            .margin(UiRect::axes(px(0.0), px(4.0)))
+    })
+}
+
+/// The lines of `menu`, a hairline between its sections.
+fn items(menus: &Menus, menu: Menu) -> Vec<AnyView> {
+    let mut views = Vec::new();
+    for section in menus.sections(menu) {
+        if !views.is_empty() {
+            views.push(rule());
+        }
+        views.extend(section.into_iter().map(item));
     }
+    views
 }
 
 /// The open menu's list, or nothing while none is open.
 pub fn open_menu() -> impl View {
-    keyed(resource::<OpenMenu, _>(|m| m.0), |open| match open {
-        Some((menu, anchor)) => popup(*anchor, items(*menu))
+    let shown = derived(|world: &World| {
+        (
+            world.resource::<OpenMenu>().0,
+            world.resource::<Menus>().clone(),
+        )
+    })
+    .when(either(moved::<OpenMenu>(), moved::<Menus>()));
+    keyed(shown, |(open, menus)| match *open {
+        Some((menu, anchor)) => popup(anchor, items(menus, menu))
             .on_dismiss(|world, _| dismiss(world))
             .min_width(px(190.0))
             .boxed(),
