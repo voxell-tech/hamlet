@@ -46,7 +46,7 @@ pub use self::me::Me;
 pub use self::roll::Roll;
 pub use self::root::toolbar;
 pub use self::screens::{
-    chat, inspector, links, overview, petition, pictures, settings,
+    chat, inspector, links, overview, pictures, settings,
 };
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};

@@ -15,12 +15,12 @@ use hamlet_core::agents::{Settlement, Treasury};
 use hamlet_core::core::{Link, Sandboxing, Settings};
 use hamlet_core::session::{Status, Usage};
 use hamlet_rules::hamlet::HOME;
+use hamlet_sdk::waits::Waits;
 
 use crate::icons::{Glyph, glyph};
 use crate::links::Aimed;
 use crate::looks::{hairline, note};
 use crate::me::Me;
-use crate::petition::Queue;
 use crate::{AnyView, Cx, View};
 
 /// The side of an icon in the bar.
@@ -146,7 +146,7 @@ fn fact(
 /// The number that wait for the chief, behind a bell. Nothing while
 /// none does.
 fn waiting() -> impl View {
-    keyed(resource::<Queue, _>(Queue::len), |waiting| match waiting {
+    keyed(resource::<Waits, _>(|w| w.0), |waiting| match waiting {
         0 => frame().boxed(),
         n => pair(
             glyph(Glyph::Bell, MARK).tone(Tone::Accent),

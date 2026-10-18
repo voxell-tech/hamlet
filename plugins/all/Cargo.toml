@@ -10,9 +10,11 @@ workspace = true
 
 [dependencies]
 bevy_app.workspace = true
+plugin_needs = { workspace = true, optional = true }
 plugin_skills = { workspace = true, optional = true }
 
 [features]
 # A plugin is built in when the feature of its name is on.
-default = ["skills"]
+default = ["needs", "skills"]
+needs = ["dep:plugin_needs"]
 skills = ["dep:plugin_skills"]

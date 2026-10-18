@@ -4,7 +4,6 @@ pub mod chat;
 pub mod inspector;
 pub mod links;
 pub mod overview;
-pub mod petition;
 pub mod pictures;
 pub mod settings;
 
@@ -17,7 +16,6 @@ pub fn plugin(app: &mut App) {
         chat::plugin,
         links::plugin,
         pictures::plugin,
-        petition::plugin,
         settings::plugin,
     ));
 }

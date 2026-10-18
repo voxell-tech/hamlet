@@ -1,4 +1,4 @@
-//! The Needs You screen: everything that waits for the chief, oldest
+//! The Needs You panel: everything that waits for the chief, oldest
 //! first and in full, with the answers each one takes. Questions are
 //! answered on their `asking` card.
 
@@ -26,17 +26,17 @@ use hamlet_core::session::{Entry, Transcript};
 use hamlet_core::tools::Change;
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_rules::chief::rulings::Choice;
-use hamlet_sdk::asking;
-
-use crate::dock::{Panel, PanelAppExt, lit_panel, show_tab};
-use crate::feel::{Lit, Mood};
-use crate::icons::Glyph;
-use crate::looks::{
+use hamlet_sdk::change::DrawChange;
+use hamlet_sdk::convo::Me;
+use hamlet_sdk::dock::{lit_panel, show_tab};
+use hamlet_sdk::feel::{Lit, Mood};
+use hamlet_sdk::icons::Glyph;
+use hamlet_sdk::looks::{
     Fills, bad_action, brass, grim, lamp, marked, note, well,
 };
-use crate::me::Me;
-use crate::platform::{DisplayText, MonoText, Wraps};
-use crate::{AnyView, Cx, View, chat};
+use hamlet_sdk::platform::{DisplayText, MonoText, Wraps};
+use hamlet_sdk::plugin::{AppPluginExt, HamletPlugin, Manifest};
+use hamlet_sdk::{AnyView, Cx, View, asking};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
                      questions and faults come here, oldest first.";
@@ -44,12 +44,26 @@ const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
 /// Seconds between two looks at the time each has waited.
 const TICK: f32 = 10.0;
 
+/// Adds the Needs plugin.
 pub fn plugin(app: &mut App) {
-    app.add_panel(Panel::new(
-        "needs",
-        "PETITIONS",
-        Glyph::Bell,
-        || {
+    app.init_resource::<Reason>()
+        .init_resource::<Queue>()
+        .add_observer(tag_answered)
+        .add_observer(tag_opened)
+        .add_systems(Update, (show_new, keep_queue))
+        .add_hamlet_plugin::<NeedsPlugin>();
+}
+
+/// The plugin that adds the panel of what waits for the chief.
+pub struct NeedsPlugin;
+
+impl HamletPlugin for NeedsPlugin {
+    fn manifest() -> Manifest {
+        Manifest::built_in("needs").named("Needs You")
+    }
+
+    fn entry(entry: &mut hamlet_sdk::plugin::Entry) {
+        entry.panel("needs", "PETITIONS", Glyph::Bell, || {
             lit_panel(
                 screen(),
                 Lit {
@@ -57,13 +71,8 @@ pub fn plugin(app: &mut App) {
                     flash: false,
                 },
             )
-        },
-    ))
-    .init_resource::<Reason>()
-    .init_resource::<Queue>()
-    .add_observer(tag_answered)
-    .add_observer(tag_opened)
-    .add_systems(Update, (show_new, keep_queue));
+        });
+    }
 }
 
 /// The reason or reply the next answer carries.
@@ -263,7 +272,10 @@ fn strip(need: &Need) -> AnyView {
                 asking::card(need.entity, asked.clone())
             }
             (None, Some((session, id, change))) => {
-                chat::change_view(session, id, change)
+                match cx.world.get_resource::<DrawChange>() {
+                    Some(draw) => (draw.0)(session, id, change),
+                    None => note(need.about.clone()).boxed(),
+                }
             }
             // What a plugin asks under the question the line puts.
             (None, None) if need.kind == Kind::Plugin => {

@@ -1,0 +1,17 @@
+[package]
+name = "plugin_needs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Needs You panel: what waits for the chief, oldest first, with the answers each takes"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_core.workspace = true
+hamlet_realm.workspace = true
+hamlet_rules.workspace = true
+hamlet_sdk.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true
