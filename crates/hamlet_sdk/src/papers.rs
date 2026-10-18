@@ -4,7 +4,9 @@
 use bevy::app::{App, Update};
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::common_conditions::resource_changed;
+use bevy::ecs::schedule::common_conditions::{
+    resource_changed, resource_exists_and_changed,
+};
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Query, Res, ResMut};
 use hamlet_core::agents;
@@ -25,7 +27,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             keep_papers.run_if(
-                resource_changed::<Me>
+                resource_exists_and_changed::<Me>
                     .or_eager(resource_changed::<AgentSelected>),
             ),
         );
@@ -76,12 +78,20 @@ fn read_papers(
 /// Reads the selected agent's papers again.
 pub fn keep_papers(
     home: Option<Res<HomeDir>>,
-    me: Res<Me>,
+    me: Option<Res<Me>>,
     selected: Res<AgentSelected>,
     seats: Query<&Seat>,
     mut papers: ResMut<Papers>,
 ) {
-    read_papers(home.as_deref(), &me, *selected, &seats, &mut papers);
+    if let Some(me) = me {
+        read_papers(
+            home.as_deref(),
+            &me,
+            *selected,
+            &seats,
+            &mut papers,
+        );
+    }
 }
 
 /// Reads them again when a turn has ended, which is when an agent
@@ -89,10 +99,18 @@ pub fn keep_papers(
 fn papers_on_job(
     _: On<JobFinished>,
     home: Option<Res<HomeDir>>,
-    me: Res<Me>,
+    me: Option<Res<Me>>,
     selected: Res<AgentSelected>,
     seats: Query<&Seat>,
     mut papers: ResMut<Papers>,
 ) {
-    read_papers(home.as_deref(), &me, *selected, &seats, &mut papers);
+    if let Some(me) = me {
+        read_papers(
+            home.as_deref(),
+            &me,
+            *selected,
+            &seats,
+            &mut papers,
+        );
+    }
 }

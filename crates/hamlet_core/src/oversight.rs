@@ -21,7 +21,7 @@ use hamlet_home::limits::{Limits, Permission, Review};
 use hamlet_rules::chief::rulings::Hearing;
 use hamlet_rules::hamlet::Hamlet;
 
-pub use self::answer::{Answer, Answered};
+pub use self::answer::{Answer, Answered, TagAnswered, TagOpened};
 use self::answer::{settle, settle_picks};
 use self::danger::Words;
 use self::decide::{Asked, decide};

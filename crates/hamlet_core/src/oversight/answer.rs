@@ -24,6 +24,21 @@ pub struct Answer {
     pub chief: String,
 }
 
+/// The chief answered a tag in the world with its check or its
+/// cross.
+#[derive(Event, Clone, Copy, Debug)]
+pub struct TagAnswered {
+    pub item: Entity,
+    pub agree: bool,
+}
+
+/// The chief clicked a tag's paper in the world, to read it in
+/// full.
+#[derive(Event, Clone, Copy, Debug)]
+pub struct TagOpened {
+    pub item: Entity,
+}
+
 /// A chief's answer to each of the questions of something that
 /// waits, in their order.
 #[derive(EntityEvent, Clone, Debug)]

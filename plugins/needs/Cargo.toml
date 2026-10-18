@@ -10,7 +10,6 @@ workspace = true
 
 [dependencies]
 hamlet_core.workspace = true
-hamlet_realm.workspace = true
 hamlet_rules.workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true

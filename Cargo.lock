@@ -3687,7 +3687,9 @@ dependencies = [
 name = "hamlet_plugins"
 version = "0.1.0"
 dependencies = [
+ "bevy",
  "bevy_app",
+ "hamlet_sdk",
  "plugin_needs",
  "plugin_skills",
 ]
@@ -5596,7 +5598,6 @@ dependencies = [
  "bevy",
  "bevy_fynix",
  "hamlet_core",
- "hamlet_realm",
  "hamlet_rules",
  "hamlet_sdk",
 ]

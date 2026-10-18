@@ -17,3 +17,20 @@ impl PluginGroup for Builtin {
         group
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bevy::MinimalPlugins;
+    use bevy_app::App;
+    use hamlet_sdk::SdkPlugin;
+
+    use super::Builtin;
+
+    #[test]
+    fn the_plugins_run_with_no_window() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, SdkPlugin, Builtin));
+        app.update();
+        app.update();
+    }
+}

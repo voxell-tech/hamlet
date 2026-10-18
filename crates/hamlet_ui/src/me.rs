@@ -10,6 +10,7 @@ use bevy::ecs::world::World;
 use hamlet_core::agents::{self, Citizen, Mayor};
 use hamlet_core::session::{self, SessionKey};
 use hamlet_realm::pick::{Selected, Thing, select};
+use hamlet_sdk::convo::ChiefName;
 pub use hamlet_sdk::convo::Me;
 pub(crate) use hamlet_sdk::convo::address;
 
@@ -17,10 +18,7 @@ use crate::dock::show_tab;
 
 /// Opens the chat with the first mayor.
 pub(crate) fn plugin(app: &mut App) {
-    // The name of this window's chief: `HAMLET_USER`, then `USER`.
-    let user = std::env::var("HAMLET_USER")
-        .or_else(|_| std::env::var("USER"))
-        .unwrap_or_else(|_| "user".into());
+    let user = app.world().resource::<ChiefName>().0.clone();
 
     let key = SessionKey {
         channel: "app".into(),

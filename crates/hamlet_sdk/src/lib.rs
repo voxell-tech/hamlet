@@ -44,6 +44,7 @@ impl Plugin for SdkPlugin {
             capability::plugin,
             command::plugin,
             context::plugin,
+            convo::plugin,
             dock::plugin,
             inspector::plugin,
             keys::plugin,

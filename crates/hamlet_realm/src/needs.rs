@@ -9,7 +9,9 @@ use bevy::render::render_resource::{
 use bevy::ui::UiSystems;
 use hamlet_assets::tint;
 use hamlet_core::agents::Mayor;
-use hamlet_core::oversight::{RaisedBy, Waiting};
+use hamlet_core::oversight::{
+    RaisedBy, TagAnswered, TagOpened, Waiting,
+};
 use hamlet_rules::chief::rulings::Choice;
 
 use super::label::{self, Lens};
@@ -48,19 +50,6 @@ pub struct TagSettings {
     pub width: f32,
     /// Height a tag hangs above the roof, in pixels.
     pub lift: f32,
-}
-
-/// The chief answered a tag with its check or its cross.
-#[derive(Event, Clone, Copy, Debug)]
-pub struct TagAnswered {
-    pub item: Entity,
-    pub agree: bool,
-}
-
-/// The chief clicked a tag's paper, to read it in full.
-#[derive(Event, Clone, Copy, Debug)]
-pub struct TagOpened {
-    pub item: Entity,
 }
 
 /// The tag of the oldest thing that waits at one agent.

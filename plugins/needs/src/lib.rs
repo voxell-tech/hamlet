@@ -20,14 +20,13 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_core::oversight::danger::Danger;
 use hamlet_core::oversight::{
-    Answer, Asks, Kind, Need, Veto, Waiting,
+    Answer, Asks, Kind, Need, TagAnswered, TagOpened, Veto, Waiting,
 };
 use hamlet_core::session::{Entry, Transcript};
 use hamlet_core::tools::Change;
-use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_rules::chief::rulings::Choice;
 use hamlet_sdk::change::DrawChange;
-use hamlet_sdk::convo::Me;
+use hamlet_sdk::convo::ChiefName;
 use hamlet_sdk::dock::{lit_panel, show_tab};
 use hamlet_sdk::feel::{Lit, Mood};
 use hamlet_sdk::icons::Glyph;
@@ -131,7 +130,7 @@ fn answer(world: &mut World, entity: Entity, choice: Choice) {
     if choice == Choice::Reply && text.is_empty() {
         return;
     }
-    let chief = world.resource::<Me>().user.clone();
+    let chief = world.resource::<ChiefName>().0.clone();
     world.trigger(Answer {
         entity,
         choice,
@@ -147,7 +146,7 @@ fn answer(world: &mut World, entity: Entity, choice: Choice) {
 pub(crate) fn tag_answered(
     answered: On<TagAnswered>,
     waiting: Query<&Waiting>,
-    me: Res<Me>,
+    chief: Res<ChiefName>,
     mut commands: Commands,
 ) {
     let TagAnswered { item, agree } = *answered.event();
@@ -160,7 +159,7 @@ pub(crate) fn tag_answered(
             entity: item,
             choice,
             text: String::new(),
-            chief: me.user.clone(),
+            chief: chief.0.clone(),
         });
     }
 }
@@ -372,7 +371,7 @@ pub fn screen() -> impl View {
             column((note("Reason or reply, then answer"),))
                 .fills_width(),
             bad_action(Glyph::Stop, "STOP ALL", |world| {
-                let chief = world.resource::<Me>().user.clone();
+                let chief = world.resource::<ChiefName>().0.clone();
                 world.trigger(Veto { agent: None, chief });
                 world.flush();
             }),
