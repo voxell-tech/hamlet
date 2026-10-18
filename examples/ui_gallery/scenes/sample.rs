@@ -160,6 +160,45 @@ pub(super) fn setup(world: &mut World) {
     if scene == Scene::Character {
         world.insert_resource(inspector::Section::Character);
     }
+    if matches!(scene, Scene::Skills | Scene::SkillsAlone) {
+        let skill =
+            |name: &str, description: &str| hamlet_home::Skill {
+                name: name.into(),
+                description: description.into(),
+                usage: None,
+                path: PathBuf::new(),
+            };
+        if scene == Scene::Skills {
+            // No home here to read them from.
+            world.insert_resource(hamlet_sdk::convo::AgentSelected(
+                true,
+            ));
+            world.insert_resource(hamlet_sdk::papers::Papers {
+                skills: vec![
+                    (
+                        "press".into(),
+                        "Press the late fruit, rows 4, 7 and 9, \
+                         before dusk."
+                            .into(),
+                    ),
+                    (
+                        "frost-watch".into(),
+                        "Say which rows want straw when the night \
+                         turns cold."
+                            .into(),
+                    ),
+                ],
+                ..Default::default()
+            });
+        }
+        world.insert_resource(hamlet_core::core::Skills(vec![
+            skill("graft", "Graft a scion onto a named stock."),
+            skill(
+                "label-rows",
+                "Name each tree by its row and place.",
+            ),
+        ]));
+    }
     if scene == Scene::Prompt {
         let agent = world.resource::<Me>().agent;
         let text = world.resource::<HomeDir>().0.system_prompt(
@@ -177,8 +216,13 @@ pub(super) fn setup(world: &mut World) {
         world.insert_resource(inspector::Section::History);
         past_sessions(world, scene == Scene::Reading);
     }
-    if matches!(scene, Scene::Overview | Scene::Hamlet | Scene::Rules)
-    {
+    if matches!(
+        scene,
+        Scene::Overview
+            | Scene::Hamlet
+            | Scene::Rules
+            | Scene::SkillsAlone
+    ) {
         let places = [
             ("home", "Pear Tree Hollow", "founder", 3),
             ("mill", "mill", "miller", 2),
@@ -234,7 +278,7 @@ pub(super) fn setup(world: &mut World) {
             _ => None,
         };
         world.insert_resource(Selected(selected));
-        if scene == Scene::Overview {
+        if matches!(scene, Scene::Overview | Scene::SkillsAlone) {
             // An empty home: no hamlet was closed down.
             let root =
                 std::env::temp_dir().join("hamlet-gallery-overview");

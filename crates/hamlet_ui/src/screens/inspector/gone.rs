@@ -2,24 +2,22 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ui::AlignItems;
+use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, scroll,
 };
-use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_core::agents::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Selected, Thing, select};
-use hamlet_sdk::convo::of_agent;
-use hamlet_sdk::papers::Papers;
 
 use super::agent::dim;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, action, bad_action, bare, good_action, note, stated, title,
+    Fills, action, bad_action, good_action, stated, title,
 };
 use crate::platform::Wraps;
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View, lists, overview};
+use crate::{AnyView, Cx, View, lists};
 
 /// The page of an agent that is gone, with the way back.
 pub(super) fn ruin(agent: Entity) -> AnyView {
@@ -112,45 +110,4 @@ pub(super) fn library() -> impl View {
     ))
     .fills_height()
     .gap(10.0)
-}
-
-/// The skills the selected agent wrote and keeps in its own house,
-/// over those of the library, which every agent has.
-fn skills() -> AnyView {
-    let own = keyed(
-        resource::<Papers, _>(|p| p.skills.clone()),
-        |skills| {
-            if skills.is_empty() {
-                return note("None of its own yet.").boxed();
-            }
-            let rows = skills
-                .iter()
-                .map(|(name, does)| {
-                    lists::item(
-                        name.clone(),
-                        does.clone(),
-                        Tone::Body,
-                    )
-                })
-                .collect::<Vec<_>>();
-            column(rows).gap(8.0).boxed()
-        },
-    )
-    .within(bare());
-    // One scroll for both lists, so that a long one of its own
-    // does not push the library out of reach.
-    scroll((column((
-        own,
-        overview::heading(Glyph::Book, "THE LIBRARY, SHARED BY ALL"),
-        lists::skills(),
-    ))
-    .gap(12.0),))
-    .fills_height()
-    .boxed()
-}
-
-/// The Skills panel: the selected agent's own skills, and the
-/// library's.
-pub(crate) fn skills_screen() -> AnyView {
-    of_agent("ITS OWN SKILLS", skills).boxed()
 }

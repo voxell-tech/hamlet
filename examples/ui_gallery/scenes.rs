@@ -135,6 +135,10 @@ pub enum Scene {
     Character,
     /// The whole of an agent's prompt.
     Prompt,
+    /// The Skills panel: an agent's own skills over the library's.
+    Skills,
+    /// The Skills panel with no agent selected.
+    SkillsAlone,
     /// Every hamlet, with nothing selected.
     Overview,
     /// One hamlet and everyone in it.

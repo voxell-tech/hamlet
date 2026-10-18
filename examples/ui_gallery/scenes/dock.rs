@@ -109,6 +109,9 @@ pub(super) fn seed_dock(world: &mut World) {
         if matches!(scene, Scene::Settings | Scene::Charter) {
             tree.add_tab(side, "settings");
         }
+        if matches!(scene, Scene::Skills | Scene::SkillsAlone) {
+            tree.add_tab(side, "skills");
+        }
     }
 }
 

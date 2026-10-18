@@ -9,6 +9,9 @@ pub struct Builtin;
 
 impl PluginGroup for Builtin {
     fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
+        let group = PluginGroupBuilder::start::<Self>();
+        #[cfg(feature = "skills")]
+        let group = group.add(plugin_skills::plugin);
+        group
     }
 }
