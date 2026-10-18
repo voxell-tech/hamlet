@@ -23,7 +23,7 @@ use hamlet_offscreen::{self as offscreen, Target, word};
 use hamlet_ui::pictures::Pictures;
 use hamlet_ui::welcome::Step;
 
-use self::scenes::{GalleryPlugin, Scene, Stand, Strike};
+use self::scenes::{GalleryPlugin, Place, Scene, Stand, Strike};
 
 /// A still of the world, shown where the world is drawn.
 const WORLD: &str = concat!(
@@ -40,7 +40,49 @@ struct Shot {
     scale: f32,
 }
 
-static SHOTS: [Shot; 42] = [
+static SHOTS: [Shot; 49] = [
+    Shot {
+        name: "world-menu-agent",
+        scene: Scene::WorldMenu(Place::Agent),
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "world-menu-mayor",
+        scene: Scene::WorldMenu(Place::Mayor),
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "world-menu-hamlet",
+        scene: Scene::WorldMenu(Place::Hamlet),
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "world-menu-ruin",
+        scene: Scene::WorldMenu(Place::Ruin),
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "world-menu-chief",
+        scene: Scene::WorldMenu(Place::Chief),
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "world-menu-library",
+        scene: Scene::WorldMenu(Place::Library),
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "world-menu-ground",
+        scene: Scene::WorldMenu(Place::Ground),
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
     Shot {
         name: "menu",
         scene: Scene::Menu,

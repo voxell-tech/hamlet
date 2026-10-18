@@ -162,6 +162,16 @@ fn rewind_question() -> Ui {
     })
 }
 
+/// The menu of a thing in the world, in the scenes that show it.
+fn world_menu() -> Ui {
+    AnyView::new(|cx: &mut Cx| match *cx.world.resource::<Scene>() {
+        Scene::WorldMenu(_) => {
+            cx.build(hamlet_ui::world_menu::view())
+        }
+        _ => cx.build(frame()),
+    })
+}
+
 pub(super) fn panels() -> Ui {
     AnyView::new(|cx: &mut Cx| {
         let panels = shown(cx);
@@ -180,6 +190,7 @@ fn shown(cx: &Cx) -> impl View {
         status_bar(),
         menu::open_menu(),
         rewind_question(),
+        world_menu(),
     ))
     .width(percent(100.0))
     .height(percent(100.0))

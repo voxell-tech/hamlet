@@ -25,7 +25,7 @@ mod status;
 pub mod welcome;
 pub mod widgets;
 mod window;
-mod world_menu;
+pub mod world_menu;
 mod world_view;
 
 use bevy::app::{App, Plugin, Update};

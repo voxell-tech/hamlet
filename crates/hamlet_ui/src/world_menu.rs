@@ -149,6 +149,17 @@ pub(super) fn open_for(world: &mut World, thing: Thing) {
     *world.resource_mut::<Open>() = Open::Menu(thing, at);
 }
 
+/// Shows the menu of `thing` open at `at`, for a scene that draws it.
+pub fn show(world: &mut World, thing: Thing, at: Vec2) {
+    world.insert_resource(Open::Menu(thing, at));
+}
+
+/// Shows the menu of the bare ground open at `at`, for a scene that
+/// draws it.
+pub fn show_ground(world: &mut World, at: Vec2) {
+    world.insert_resource(Open::Ground(at));
+}
+
 /// Opens the form a hamlet is founded with, at the pointer.
 pub(super) fn ask_found(world: &mut World) {
     let at = pointer(world);

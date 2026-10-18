@@ -10,6 +10,7 @@ mod reload;
 mod roster;
 mod sample;
 mod sheets;
+mod world_menu;
 
 use bevy::app::{App, Plugin, PostStartup, Startup, Update};
 use bevy::asset::Handle;
@@ -33,6 +34,7 @@ use hamlet_ui::{Bar, Roll, asking, chrome, menu, select, welcome};
 use self::dock::{panels, seed_dock};
 use self::sample::{first_run, setup};
 use self::sheets::{controls, hold, hold_message, icon_sheet};
+pub use self::world_menu::Place;
 
 /// A view of the gallery, its type erased.
 type Ui = AnyView<Bevy, HamletTheme>;
@@ -200,6 +202,8 @@ pub enum Scene {
     Menu,
     /// The panels with the VIEW menu open.
     ViewMenu,
+    /// The panels with the menu of a thing in the world open.
+    WorldMenu(Place),
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
 }

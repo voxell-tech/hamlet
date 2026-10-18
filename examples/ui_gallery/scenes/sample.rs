@@ -159,6 +159,9 @@ pub(super) fn setup(world: &mut World) {
     if scene == Scene::PluginPetition {
         super::petitions::put(world);
     }
+    if let Scene::WorldMenu(place) = scene {
+        super::world_menu::put(world, place, agent);
+    }
     if matches!(
         scene,
         Scene::Settings
