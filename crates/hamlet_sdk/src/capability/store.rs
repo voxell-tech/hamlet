@@ -66,6 +66,13 @@ impl Store {
         self.save();
     }
 
+    /// Forgets the plugin `id` and writes the file.
+    pub fn remove(&mut self, id: &str) {
+        if self.records.remove(id).is_some() {
+            self.save();
+        }
+    }
+
     fn save(&self) {
         if self.locked {
             return;

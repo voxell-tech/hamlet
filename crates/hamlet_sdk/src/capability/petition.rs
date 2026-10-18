@@ -13,7 +13,7 @@ use hamlet_rules::chief::rulings::Choice as Answer;
 use super::ask::{Asked, Asks};
 use super::choice::Choice;
 use super::decide::Decide;
-use super::install::{self, Uninstalled};
+use super::install::{self, Removed, Uninstalled};
 use super::name::Capability;
 use super::subject::Subject;
 use crate::plugin::PluginInfo;
@@ -38,6 +38,29 @@ pub(super) fn install(world: &mut World, plugin: Entity) {
         subject,
         text,
         vec![Answer::Allow, Answer::Deny],
+    );
+}
+
+/// Puts the question whether to remove the plugin `plugin`, and what
+/// becomes of its data, in the queue, unless it is already there.
+pub(super) fn remove(world: &mut World, plugin: Entity) {
+    let Some(info) = world.get::<PluginInfo>(plugin).cloned() else {
+        return;
+    };
+    let subject = Subject::Remove {
+        plugin: info.id.clone(),
+    };
+    let text = format!(
+        "Remove {}?\nRemoving it keeps what it saved, for when it \
+         is installed again, or deletes that too.",
+        info.name
+    );
+    raise(
+        world,
+        &info,
+        subject,
+        text,
+        vec![Answer::KeepData, Answer::EraseData, Answer::Dismiss],
     );
 }
 
@@ -225,6 +248,16 @@ fn apply(world: &mut World, subject: Subject, answer: Answer) {
                 });
             }
             world.flush();
+        }
+        Subject::Remove { plugin } => {
+            if matches!(answer, Answer::KeepData | Answer::EraseData)
+            {
+                world.trigger(Removed {
+                    plugin,
+                    keep_data: answer == Answer::KeepData,
+                });
+                world.flush();
+            }
         }
         Subject::Use { plugin, capability } => {
             let (choice, this_run) = match answer {

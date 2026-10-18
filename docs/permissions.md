@@ -63,6 +63,25 @@ second queue. The chief's answer reaches `hamlet_sdk::capability` as the
 petition that is not answered when the app quits is raised again at the next
 start, from the same state.
 
+## Removing
+
+The UNINSTALL button of a plugin on the Plugins page of Settings (any plugin that
+is not built in) sends `AskToRemove`, and one petition is raised: "Remove
+Notes?". The chief answers:
+
+- **Remove, keep data** removes the plugin and leaves its `data/` folder, the
+  storage it kept (see [`wasm.md`](wasm.md)).
+- **Remove with data** removes the plugin's folder whole.
+- **Cancel** does nothing.
+
+A removal sends `Removed`. `hamlet_wasm::uninstall` despawns the plugin, so its
+panels go, deletes its files, and forgets its record in `grants.toml` so that it
+is not asked about again. A folder that holds nothing but `data/` is not read as
+a plugin at the next start, and says nothing. Putting the plugin back in
+`plugins/<id>/` is an install like any other, with its petition and its asks to
+answer again, and it finds the data it kept, since a plugin's storage is only
+that folder.
+
 ## First use
 
 Only a capability the manifest names can be used or asked for. A host
@@ -107,7 +126,8 @@ and its folder) shows it two ways, on two tabs:
   asks for, what the capability lets it do, its reason, and a control of
   three buttons (Allow, Ask next time, Don't allow) with the current choice
   lit. A plugin that is not installed has an INSTALL button, which puts the
-  install petition again.
+  install petition again. A plugin that is not built in has an UNINSTALL
+  button, which puts the removal petition (see Removing).
 - **By capability.** Each capability that some plugin asks for, with the
   plugins that ask for it, each with the same control.
 

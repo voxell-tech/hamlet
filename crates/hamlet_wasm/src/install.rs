@@ -8,6 +8,7 @@ use hamlet_sdk::capability::{Asks, Refusal};
 
 use crate::interface::VERSION;
 use crate::manifest::{Kind, Manifest};
+use crate::storage::DATA;
 
 pub const MANIFEST: &str = "manifest.toml";
 const WASM: &str = "plugin.wasm";
@@ -142,6 +143,17 @@ pub fn read(folder: &Path) -> Result<Installed, Rejected> {
     })
 }
 
+/// Whether `folder` holds nothing but the data of a plugin that was
+/// removed with its data kept.
+fn only_data(folder: &Path) -> bool {
+    std::fs::read_dir(folder).is_ok_and(|entries| {
+        let mut names =
+            entries.filter_map(|entry| Some(entry.ok()?.file_name()));
+        names.next().is_some_and(|name| name == DATA)
+            && names.next().is_none()
+    })
+}
+
 /// Every folder of the install folder `plugins`, read. A missing
 /// install folder holds no plugins.
 pub fn scan(plugins: &Path) -> Vec<Result<Installed, Rejected>> {
@@ -151,7 +163,7 @@ pub fn scan(plugins: &Path) -> Vec<Result<Installed, Rejected>> {
     let mut folders = entries
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
+        .filter(|path| path.is_dir() && !only_data(path))
         .collect::<Vec<_>>();
     folders.sort();
     folders.iter().map(|folder| read(folder)).collect()

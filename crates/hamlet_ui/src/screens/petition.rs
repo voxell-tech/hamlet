@@ -188,7 +188,7 @@ fn button(need: &Need, at: usize) -> AnyView {
         }
         _ => "ALWAYS ALLOW",
     };
-    use Glyph::{Check, CheckAll, Clock, Cross, Restore, Talk};
+    use Glyph::{Check, CheckAll, Clock, Cross, Gone, Restore, Talk};
     let plugin = need.kind == Kind::Plugin;
     let (which, text, rules, mood): (_, _, fn(&mut Cx), _) =
         match choice {
@@ -209,7 +209,16 @@ fn button(need: &Need, at: usize) -> AnyView {
                 (Restore, "WITHDRAW", grim, Mood::Bad)
             }
             Choice::Reply => (Talk, "REPLY", lamp, Mood::Good),
+            Choice::Dismiss if plugin => {
+                (Cross, "CANCEL", brass, Mood::Plain)
+            }
             Choice::Dismiss => (Cross, "DISMISS", brass, Mood::Plain),
+            Choice::KeepData => {
+                (Restore, "REMOVE, KEEP DATA", brass, Mood::Plain)
+            }
+            Choice::EraseData => {
+                (Gone, "REMOVE WITH DATA", grim, Mood::Bad)
+            }
         };
     marked(which, text)
         .rules(rules)

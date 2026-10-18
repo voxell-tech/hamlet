@@ -188,6 +188,10 @@ pub enum Choice {
     /// Answer in words.
     Reply,
     Dismiss,
+    /// Remove a plugin and keep the data it saved.
+    KeepData,
+    /// Remove a plugin and the data it saved.
+    EraseData,
 }
 
 impl Choice {
@@ -201,6 +205,8 @@ impl Choice {
             Choice::Withdraw => "withdraw",
             Choice::Reply => "reply",
             Choice::Dismiss => "dismiss",
+            Choice::KeepData => "keep-data",
+            Choice::EraseData => "erase-data",
         }
     }
 

@@ -11,7 +11,9 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
-use hamlet_sdk::capability::{AskToInstall, Asks, Uninstalled};
+use hamlet_sdk::capability::{
+    AskToInstall, AskToRemove, Asks, Uninstalled,
+};
 use hamlet_sdk::plugin::{Disable, Enable, PluginInfo, Status};
 use hamlet_sdk::reload::{Reload, Rollback};
 
@@ -123,6 +125,17 @@ fn line(line: &Line) -> AnyView {
             move |world| {
                 *world.resource_mut::<Open>() =
                     Open(Some(id.clone()));
+            },
+        ));
+    }
+    if !line.builtin {
+        let id = id.clone();
+        actions.push(action(
+            Glyph::Delete,
+            "UNINSTALL",
+            move |world| {
+                world.trigger(AskToRemove { plugin: id.clone() });
+                world.flush();
             },
         ));
     }

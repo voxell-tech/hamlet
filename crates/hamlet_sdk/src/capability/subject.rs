@@ -22,4 +22,6 @@ pub enum Subject {
         plugin: String,
         capability: Capability,
     },
+    /// Whether to remove the plugin of this id, and its data.
+    Remove { plugin: String },
 }

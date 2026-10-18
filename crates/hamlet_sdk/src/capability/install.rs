@@ -34,6 +34,37 @@ pub struct AskToInstall {
     pub plugin: String,
 }
 
+/// The chief wants to remove the plugin of this id, and is to be
+/// asked what becomes of its data.
+#[derive(Event, Clone, PartialEq, Eq, Debug)]
+pub struct AskToRemove {
+    pub plugin: String,
+}
+
+/// The chief removed the plugin of this id. Whoever holds its files
+/// takes the plugin away, and its data too unless `keep_data`.
+#[derive(Event, Clone, PartialEq, Eq, Debug)]
+pub struct Removed {
+    pub plugin: String,
+    pub keep_data: bool,
+}
+
+pub(super) fn ask_to_remove(
+    ask: On<AskToRemove>,
+    plugins: Query<(Entity, &PluginInfo)>,
+    mut commands: Commands,
+) {
+    let found = plugins
+        .iter()
+        .find(|(_, info)| info.id == ask.plugin && !info.builtin)
+        .map(|(entity, _)| entity);
+    if let Some(plugin) = found {
+        commands.queue(move |world: &mut World| {
+            petition::remove(world, plugin)
+        });
+    }
+}
+
 pub(super) fn ask(
     ask: On<AskToInstall>,
     plugins: Query<(Entity, &PluginInfo), With<Uninstalled>>,

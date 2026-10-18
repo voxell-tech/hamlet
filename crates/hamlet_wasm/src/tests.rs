@@ -9,6 +9,7 @@ mod state;
 mod stopped;
 mod storage;
 mod tree;
+mod uninstall;
 
 use wasmtime::component::Component;
 

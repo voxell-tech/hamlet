@@ -62,8 +62,10 @@ pub(super) fn hear_answer(
         | Choice::Always
         | Choice::AskNextTime
         | Choice::GoAhead => Sound::Allowed,
-        Choice::Deny | Choice::Withdraw => Sound::Denied,
-        Choice::Reply | Choice::Dismiss => return,
+        Choice::Deny | Choice::Withdraw | Choice::EraseData => {
+            Sound::Denied
+        }
+        Choice::Reply | Choice::Dismiss | Choice::KeepData => return,
     };
     cues.write(Cue {
         sound,

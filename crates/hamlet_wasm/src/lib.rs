@@ -33,6 +33,7 @@ pub mod run;
 pub mod start;
 pub mod stop;
 pub mod storage;
+pub mod uninstall;
 pub mod wire;
 
 #[cfg(any(test, feature = "fixture"))]
@@ -57,6 +58,7 @@ pub fn plugin(app: &mut App) {
     .add_observer(event::deliver)
     .add_observer(reply::reply)
     .add_observer(stop::stopped)
+    .add_observer(uninstall::removed)
     .configure_sets(
         Update,
         (
