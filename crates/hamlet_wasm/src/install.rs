@@ -9,9 +9,12 @@ use hamlet_sdk::capability::{Asks, Refusal};
 use crate::interface::VERSION;
 use crate::manifest::{Kind, Manifest};
 
-const MANIFEST: &str = "manifest.toml";
+pub const MANIFEST: &str = "manifest.toml";
 const WASM: &str = "plugin.wasm";
 const PANEL: &str = "panel.ui";
+
+/// The files of a plugin's folder that make up a version of it.
+pub const FILES: [&str; 3] = [MANIFEST, WASM, PANEL];
 
 /// A plugin whose folder passed the scan.
 #[derive(Debug)]
@@ -30,6 +33,18 @@ pub enum Body {
     Wasm(PathBuf),
     /// The panel's file.
     Data(PathBuf),
+}
+
+impl Body {
+    /// The plugin's folder.
+    pub fn folder(&self) -> PathBuf {
+        match self {
+            Body::Wasm(file) | Body::Data(file) => file
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default(),
+        }
+    }
 }
 
 /// Why a folder is not a plugin the host can load.

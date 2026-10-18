@@ -113,6 +113,7 @@ pub(super) fn seed_dock(world: &mut World) {
                 | Scene::Plugins
                 | Scene::PluginPermissions
                 | Scene::PluginCapabilities
+                | Scene::PluginReload
         ) {
             tree.add_tab(side, "settings");
         }

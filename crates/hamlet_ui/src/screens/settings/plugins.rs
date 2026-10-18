@@ -17,6 +17,7 @@ use bevy_fynix::views::{FrameProps, column};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_sdk::capability::{Asks, Choices, Uninstalled};
 use hamlet_sdk::plugin::{PluginInfo, Status};
+use hamlet_sdk::reload::Reload;
 
 use super::switch;
 use crate::icons::Glyph;
@@ -63,6 +64,7 @@ fn moved(
             Changed<Status>,
             Changed<Asks>,
             Changed<Choices>,
+            Changed<Reload>,
             Added<Uninstalled>,
         )>,
     >,

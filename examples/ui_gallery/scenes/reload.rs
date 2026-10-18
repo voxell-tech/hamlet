@@ -1,0 +1,48 @@
+//! Plugins as the Plugins page shows them after a reload: one whose
+//! new version did not start, one that waits for the chief's answer
+//! and one that reloaded.
+
+use bevy::ecs::world::World;
+use hamlet_sdk::plugin::{PluginInfo, Status};
+use hamlet_sdk::reload::Reload;
+
+fn info(id: &str, name: &str, version: &str) -> PluginInfo {
+    PluginInfo {
+        id: id.into(),
+        name: name.into(),
+        version: version.into(),
+        builtin: false,
+    }
+}
+
+pub(super) fn put(world: &mut World) {
+    world.spawn((
+        info("roster", "Roster", "0.2.0"),
+        Status::Running,
+        Reload {
+            note: Some(
+                "could not load: built for interface 0.1.0, this \
+                 Hamlet speaks 0.2.0"
+                    .into(),
+            ),
+            rollback: true,
+        },
+    ));
+    world.spawn((
+        info("almanac", "Almanac", "0.3.0"),
+        Status::Running,
+        Reload {
+            note: Some(
+                "The new version asks for more. It loads when you \
+                 answer."
+                    .into(),
+            ),
+            rollback: true,
+        },
+    ));
+    world.spawn((
+        info("tides", "Tides", "1.2.0"),
+        Status::Running,
+        Reload::default(),
+    ));
+}

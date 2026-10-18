@@ -15,3 +15,6 @@ text_bytes = 4096
 tree_text_bytes = 65536
 events_per_second = 100
 intents_per_call = 64
+
+[reload]
+poll_ms = 500

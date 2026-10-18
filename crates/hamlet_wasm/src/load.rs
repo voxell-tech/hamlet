@@ -17,6 +17,7 @@ use hamlet_sdk::tree::glyph;
 use crate::engine::Host;
 use crate::install::{self, Body, Installed};
 use crate::limits::Limits;
+use crate::reload::{Watch, keep};
 use crate::start::{self, Setting, Source};
 
 /// The icon of a data plugin's panel when its manifest names none.
@@ -105,6 +106,7 @@ fn plugin(
             installed.asks.clone(),
             choices,
             Status::Starting,
+            Watch::new(installed.body.folder()),
         ))
         .id();
     (plugin, info, granted)
@@ -131,7 +133,7 @@ fn hold(installed: Installed, commands: &mut Commands) {
 }
 
 /// The panel of a data plugin.
-fn panel(
+pub(crate) fn panel(
     manifest: &crate::manifest::Manifest,
     file: std::path::PathBuf,
 ) -> DataPanel {
@@ -176,5 +178,6 @@ fn spawn_data(
     let (plugin, info, _) = plugin(&installed, choices, commands);
     let panel = panel(&installed.manifest, file.clone());
     data::bring_up(plugin, &info.id, &panel, commands);
-    commands.entity(plugin).insert(panel);
+    let kept = keep::remember(&installed.body.folder());
+    commands.entity(plugin).insert((panel, kept));
 }

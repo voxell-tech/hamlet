@@ -32,8 +32,12 @@ impl fmt::Display for Fault {
 }
 
 impl Fault {
+    /// The error on one line, since it is shown in a row of Settings.
     pub(crate) fn load(error: wasmtime::Error) -> Self {
-        Fault::Load(format!("{error:#}"))
+        let text = format!("{error:#}");
+        Fault::Load(
+            text.split_whitespace().collect::<Vec<_>>().join(" "),
+        )
     }
 
     /// The fault a call's error stands for.

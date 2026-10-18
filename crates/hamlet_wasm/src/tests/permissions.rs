@@ -29,7 +29,7 @@ fn listed(app: &App, id: &str) -> bool {
 }
 
 /// What waits for the chief about a plugin, with what it is about.
-fn petitions(app: &mut App) -> Vec<(Entity, Subject)> {
+pub(super) fn petitions(app: &mut App) -> Vec<(Entity, Subject)> {
     app.world_mut()
         .query::<(Entity, &Waiting, &Subject)>()
         .iter(app.world())
@@ -45,12 +45,12 @@ fn settle(app: &mut App, entity: Entity, choice: Answer) {
     app.world_mut().despawn(entity);
 }
 
-fn answer(app: &mut App, entity: Entity, choice: Answer) {
+pub(super) fn answer(app: &mut App, entity: Entity, choice: Answer) {
     settle(app, entity, choice);
     app.update();
 }
 
-fn granted(app: &mut App) -> Granted {
+pub(super) fn granted(app: &mut App) -> Granted {
     let mut held = app.world_mut().query::<&Granted>();
     held.single(app.world()).unwrap().clone()
 }

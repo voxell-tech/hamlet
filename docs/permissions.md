@@ -43,6 +43,9 @@ compiled and its panel is not read until the chief says yes.
 - An installed plugin whose new version asks for more is brought up with what
   it had; the new asks are unanswered, and one petition ("asks for more")
   lists them. Allow allows them, Don't allow denies them.
+- A version that asks for more and arrives while the app runs (a reload, see
+  [`wasm.md`](wasm.md)) is not built until the petition is answered, so none of
+  it runs before.
 
 The petition is the one queue of Needs You: a `Waiting` of kind `Plugin`
 (`hamlet_core::oversight`), raised with `oversight::petition`, which adds no

@@ -3768,6 +3768,7 @@ dependencies = [
  "hamlet_rules",
  "hamlet_sdk",
  "serde",
+ "sha2 0.10.9",
  "toml",
  "wasmtime",
  "wat",

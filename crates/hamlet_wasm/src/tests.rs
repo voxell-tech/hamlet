@@ -1,8 +1,10 @@
+mod cache;
 mod events;
 mod limits;
 mod panels;
 mod permissions;
 mod reads;
+mod reload;
 mod stopped;
 mod tree;
 

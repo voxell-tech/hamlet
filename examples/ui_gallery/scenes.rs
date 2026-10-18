@@ -4,6 +4,7 @@ mod dock;
 mod greeter;
 mod permissions;
 mod petitions;
+mod reload;
 mod roster;
 mod sample;
 mod sheets;
@@ -178,6 +179,8 @@ pub enum Scene {
     PluginPermissions,
     /// The Settings panel at each capability and who asks for it.
     PluginCapabilities,
+    /// The Settings panel at its Plugins page, after reloads.
+    PluginReload,
     /// Every icon, at each size it is drawn for.
     Icons,
     /// The panels with the HAMLET menu open.

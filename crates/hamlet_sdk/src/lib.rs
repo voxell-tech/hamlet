@@ -14,6 +14,7 @@ pub mod looks;
 pub mod papers;
 pub mod platform;
 pub mod plugin;
+pub mod reload;
 pub mod theme;
 pub mod tree;
 

@@ -124,8 +124,12 @@ pub(super) fn setup(world: &mut World) {
         Scene::Plugins
             | Scene::PluginPermissions
             | Scene::PluginCapabilities
+            | Scene::PluginReload
     ) {
         world.insert_resource(hamlet_ui::settings::Pane::Plugins);
+    }
+    if scene == Scene::PluginReload {
+        super::reload::put(world);
     }
     if matches!(
         scene,
@@ -149,6 +153,7 @@ pub(super) fn setup(world: &mut World) {
             | Scene::Plugins
             | Scene::PluginPermissions
             | Scene::PluginCapabilities
+            | Scene::PluginReload
     ) {
         let mut config = hamlet_model::config::Config::default();
         config.endpoints.push(hamlet_model::config::Endpoint {

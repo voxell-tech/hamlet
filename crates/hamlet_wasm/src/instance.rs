@@ -9,6 +9,7 @@ use hamlet_sdk::capability::{Capability, Granted};
 use wasmtime::component::Component as Compiled;
 use wasmtime::{Engine, Store};
 
+use crate::cache;
 use crate::fault::Fault;
 use crate::host::{self, State};
 use crate::interface::Hamlet;
@@ -67,14 +68,14 @@ impl Instance {
         }
     }
 
-    /// Compiles the component in `file` and instantiates it.
+    /// Instantiates the component in `file`, compiled or from the
+    /// cache beside it.
     pub fn from_file(
         engine: &Engine,
         file: &Path,
         limits: &Limits,
     ) -> Result<Self, Fault> {
-        let component =
-            Compiled::from_file(engine, file).map_err(Fault::load)?;
+        let (component, _) = cache::component(engine, file)?;
         Self::new(engine, &component, limits)
     }
 }

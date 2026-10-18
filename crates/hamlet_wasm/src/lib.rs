@@ -10,6 +10,7 @@ use self::engine::Host;
 use self::limits::{Limits, WasmTuning};
 
 pub mod admit;
+pub mod cache;
 pub mod call;
 pub mod draw;
 pub mod enable;
@@ -25,6 +26,7 @@ pub mod limits;
 pub mod load;
 pub mod manifest;
 pub mod panel;
+pub mod reload;
 pub mod reply;
 pub mod run;
 pub mod start;
@@ -42,6 +44,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins((
         TuningPlugin::<WasmTuning>::default(),
         hamlet_openui::plugin,
+        reload::plugin,
     ))
     .init_resource::<Limits>()
     .add_message::<run::Done>()

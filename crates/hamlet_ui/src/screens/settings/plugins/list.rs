@@ -13,6 +13,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_sdk::capability::{AskToInstall, Asks, Uninstalled};
 use hamlet_sdk::plugin::{Disable, Enable, PluginInfo, Status};
+use hamlet_sdk::reload::{Reload, Rollback};
 
 use super::{Open, moved, switch};
 use crate::icons::Glyph;
@@ -36,6 +37,10 @@ struct Line {
     installed: bool,
     /// The capabilities its manifest asks for.
     asks: usize,
+    /// Why the files on disk are not what runs.
+    note: Option<String>,
+    /// Whether it has a last good version to go back to.
+    rollback: bool,
 }
 
 /// Every plugin, by name.
@@ -48,12 +53,13 @@ fn list(
         &Status,
         Option<&Asks>,
         Has<Uninstalled>,
+        Option<&Reload>,
     )>,
     mut listed: ResMut<Listed>,
 ) {
     let mut lines = plugins
         .iter()
-        .map(|(info, status, asks, uninstalled)| Line {
+        .map(|(info, status, asks, uninstalled, reload)| Line {
             id: info.id.clone(),
             name: info.name.clone(),
             version: info.version.clone(),
@@ -61,6 +67,8 @@ fn list(
             status: *status,
             installed: !uninstalled,
             asks: asks.map_or(0, |asks| asks.0.len()),
+            note: reload.and_then(|reload| reload.note.clone()),
+            rollback: reload.is_some_and(|reload| reload.rollback),
         })
         .collect::<Vec<_>>();
     lines.sort_by(|a, b| a.name.cmp(&b.name));
@@ -82,16 +90,31 @@ fn line(line: &Line) -> AnyView {
     } else {
         "Installed"
     };
-    let words = column((
+    let mut words = vec![
         label(line.name.clone())
             .size(13.0)
             .bold(true)
-            .tagged(DisplayText),
-        note(format!("{} - {kind} - {status}", line.version)),
-    ))
-    .gap(2.0);
+            .tagged(DisplayText)
+            .boxed(),
+        note(format!("{} - {kind} - {status}", line.version)).boxed(),
+    ];
+    if let Some(why) = &line.note {
+        words.push(note(why.clone()).boxed());
+    }
+    let words = column(words).gap(2.0);
     let (id, rows) = (line.id.clone(), line.asks);
     let mut actions = Vec::new();
+    if line.rollback {
+        let id = id.clone();
+        actions.push(action(
+            Glyph::Restore,
+            "ROLL BACK",
+            move |world| {
+                world.trigger(Rollback { plugin: id.clone() });
+                world.flush();
+            },
+        ));
+    }
     if rows > 0 {
         let id = id.clone();
         actions.push(action(

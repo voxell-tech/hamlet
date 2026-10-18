@@ -1,5 +1,7 @@
 //! Bringing up a plugin the chief has just let in.
 
+use std::path::Path;
+
 use bevy::prelude::*;
 use hamlet_openui::data::{self, DataPanel};
 use hamlet_sdk::agents::AgentList;
@@ -10,6 +12,7 @@ use hamlet_sdk::plugin::{PluginInfo, Status};
 
 use crate::engine::Host;
 use crate::limits::Limits;
+use crate::reload::keep;
 use crate::start::{self, Setting, Source};
 
 /// Brings up the plugin of this id from its files, with a store of
@@ -55,7 +58,17 @@ pub fn admit(
                 commands.entity(plugin).insert(Status::Failed);
             }
             (None, Some(panel), _) => {
-                data::bring_up(plugin, &info.id, panel, &mut commands)
+                data::bring_up(
+                    plugin,
+                    &info.id,
+                    panel,
+                    &mut commands,
+                );
+                let folder =
+                    panel.file.parent().unwrap_or(Path::new(""));
+                commands
+                    .entity(plugin)
+                    .insert(keep::remember(folder));
             }
             (None, None, _) => {}
         }

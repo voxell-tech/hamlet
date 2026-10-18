@@ -8,6 +8,8 @@ use bevy::prelude::*;
 use hamlet_assets::{File, Tuning, designed, follow};
 use wasmtime::ResourceLimiter;
 
+use crate::reload::Polling;
+
 /// The limits no grant changes.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -64,6 +66,7 @@ impl Limits {
 #[serde(deny_unknown_fields)]
 pub(crate) struct WasmTuning {
     pub limits: Limits,
+    pub reload: Polling,
 }
 
 impl Tuning for WasmTuning {
@@ -71,10 +74,11 @@ impl Tuning for WasmTuning {
 
     fn apply(&self, was: &Self, world: &mut World) {
         follow(world, &was.limits, &self.limits);
+        follow(world, &was.reload, &self.reload);
     }
 }
 
-designed!(WasmTuning { Limits => limits });
+designed!(WasmTuning { Limits => limits, Polling => reload });
 
 /// Why a plugin's memory or table could not grow.
 #[derive(Debug)]

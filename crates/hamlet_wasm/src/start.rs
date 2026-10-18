@@ -1,7 +1,7 @@
 //! Bringing a plugin up: instantiate it, run its `entry` and spawn
 //! the panels it declared.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
 use hamlet_sdk::agents::AgentList;
@@ -10,9 +10,12 @@ use hamlet_sdk::plugin::{PluginInfo, Status};
 
 use crate::draw::Dirty;
 use crate::engine::Host;
+use crate::fault::Fault;
+use crate::host::{Declared, Want};
 use crate::inbox::Inbox;
 use crate::instance::Instance;
 use crate::limits::Limits;
+use crate::reload::keep;
 use crate::stop::{self, Failure};
 use crate::{panel, run};
 
@@ -28,6 +31,37 @@ pub struct Setting<'a> {
     pub agents: &'a AgentList,
 }
 
+/// A plugin that has run its `entry`.
+pub struct Built {
+    pub instance: Instance,
+    pub panels: Vec<Declared>,
+    pub wants: Vec<Want>,
+}
+
+/// Instantiates the component in `source` and runs its `entry`.
+pub fn build(
+    info: &PluginInfo,
+    source: &Source,
+    granted: &Granted,
+    setting: &Setting,
+) -> Result<Built, Fault> {
+    let Setting {
+        host,
+        limits,
+        agents,
+    } = setting;
+    let instance = Instance::from_file(&host.0, &source.0, limits)?;
+    let mut instance = instance.named(&info.id);
+    instance.see(granted, agents);
+    let output = instance.entry(limits)?;
+    output.logs.iter().for_each(|line| run::say(&info.id, line));
+    Ok(Built {
+        instance,
+        panels: output.panels,
+        wants: output.wants,
+    })
+}
+
 /// Instantiates the component in `source` and runs its `entry`, for
 /// the plugin entity `plugin`. A plugin that does not start is
 /// marked failed.
@@ -39,24 +73,13 @@ pub fn bring_up(
     setting: &Setting,
     commands: &mut Commands,
 ) {
-    let Setting {
-        host,
-        limits,
-        agents,
-    } = setting;
-    let started = Instance::from_file(&host.0, &source.0, limits)
-        .and_then(|instance| {
-            let mut instance = instance.named(&info.id);
-            instance.see(granted, agents);
-            let output = instance.entry(limits)?;
-            output
-                .logs
-                .iter()
-                .for_each(|line| run::say(&info.id, line));
-            Ok((instance, output.panels, output.wants))
-        });
-    match started {
-        Ok((instance, declared, wants)) => {
+    let folder = source.0.parent().unwrap_or(Path::new(""));
+    match build(info, source, granted, setting) {
+        Ok(Built {
+            instance,
+            panels: declared,
+            wants,
+        }) => {
             run::want(commands, plugin, &wants);
             let shown =
                 panel::spawn(plugin, &info.id, &declared, commands);
@@ -67,9 +90,15 @@ pub fn bring_up(
                     Status::Running,
                     Inbox::default(),
                     Dirty::of(shown),
+                    keep::remember(folder),
                 ))
                 .remove::<Failure>();
         }
-        Err(fault) => stop::fail(commands, plugin, &info.id, &fault),
+        Err(fault) => {
+            commands
+                .entity(plugin)
+                .insert(keep::trouble(folder, fault.to_string()));
+            stop::fail(commands, plugin, &info.id, &fault)
+        }
     }
 }

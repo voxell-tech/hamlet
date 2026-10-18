@@ -118,8 +118,8 @@ A plugin with no code: a folder of the install folder with `manifest.toml` and
 A data plugin is scanned, installed (`grants.toml`) and switched with
 `Enable` and `Disable` as a WASM plugin is. It has one panel, `<id>/main`,
 titled with its name; its grants are the chief's choices for what its manifest
-asks for ([`permissions.md`](permissions.md)). The file is read when the plugin is brought up, and again on `Enable`; a
-saved change to it is not followed while the app runs. Like the other
+asks for ([`permissions.md`](permissions.md)). The file is read when the plugin is brought up, and again on `Enable` and
+when it is saved (see Reload in [`wasm.md`](wasm.md)). Like the other
 installed plugins it is loaded by the host behind `--features wasm`, though
 it needs no engine.
 

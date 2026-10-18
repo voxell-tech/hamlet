@@ -18,7 +18,7 @@ The host is behind the `wasm` feature of the binary:
 | `crates/hamlet_guest` | What a plugin is written with: the bindings, the `Plugin` trait, the `ui` tree builder and the `export!` macro |
 | `guests/hello` | A plugin that logs on every tick. A workspace of its own, since it is built for `wasm32-wasip2` |
 | `guests/roster` | A plugin with a panel that lists the agents, behind the grant `read.agents` |
-| `assets/wasm.toml` | The limits |
+| `assets/wasm.toml` | The limits, and how often the plugins' files are looked at |
 
 In `hamlet_wasm/src/`, a file for each part:
 
@@ -26,7 +26,8 @@ In `hamlet_wasm/src/`, a file for each part:
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
 | What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
-| The install folder | `manifest.rs`, `install.rs` |
+| The install folder | `manifest.rs`, `install.rs`, `cache.rs` (the compiled components kept beside a plugin) |
+| Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
 | Bringing up and the frame | `load.rs`, `admit.rs` (a plugin the chief just let in), `start.rs`, `enable.rs`, `inbox.rs`, `reply.rs` (an answer to a request), `run.rs`, `stop.rs` |
 | The panels | `panel.rs`, `wire.rs` (a returned tree made into nodes), `draw.rs`, `event.rs` |
 
@@ -241,6 +242,70 @@ reason); the reason is logged.
 `grants.toml` records the plugins that may load. A plugin that is in the
 folder and not recorded as installed is never compiled, and a missing file
 installs nothing.
+
+A plugin's folder also holds two folders the host writes, which are not part
+of the plugin: `.cache/` and `.last-good/`.
+
+## Reload
+
+The host looks at the folder of each installed plugin every `poll_ms` (in
+`assets/wasm.toml`, `[reload]`) and compares the modification time and size
+of `manifest.toml`, `plugin.wasm` and `panel.ui`. A change reloads that plugin:
+
+1. The folder is read again as the scan reads it. A folder the scan turns
+   down, or one that changed from code to a panel or back, is a failed reload.
+2. A manifest that asks for a capability the chief was never asked about does
+   not load yet. The running version stays, the new asks replace the old in the
+   plugin's entry, and the update petition of
+   [`permissions.md`](permissions.md) is raised. The new version is built when
+   the chief has answered every new ask (Allow or Don't allow), and nothing of
+   it runs before.
+3. A plugin of code is built beside the running one: the component is made
+   (see below), instantiated, its `entry` is run and `panel-view` is called
+   once for each panel it declares. Where any of it fails the reload failed.
+   Where all of it works, the new instance takes the place of the running one
+   (a new store, an empty inbox, `Status::Running`, and `Failure` taken off a
+   plugin that had stopped), a panel it still declares stays where it is in the
+   dock, a panel it no longer declares goes, a new one is added, and every panel
+   is drawn again. A plugin the chief switched off takes the new manifest and
+   nothing more.
+4. A plugin that is a panel reads `panel.ui` again and hands the program to its
+   panel, which keeps its state. A mistake in the program is the panel's own
+   problem line, as at the first load.
+
+A failed reload leaves the running version, its panels and their trees as
+they were. The reason is logged (`plugin <id>: reload failed: ...`) and shown
+as a dim line under the plugin's name on the Plugins page of Settings
+(`hamlet_sdk::reload::Reload` on the plugin's entity). A saved fix is tried
+again at the next look. A plugin that could not start at all, at launch or
+after Enable, shows the reason in the same place.
+
+State is lost on a reload: a new instance starts from its `entry`. A plugin's
+own storage will carry state across, when there is one.
+
+A plugin folder added while Hamlet runs is found at the next start.
+
+### The last good version
+
+When a version starts, at launch, on Enable or on a reload, its `manifest.toml`
+and `plugin.wasm` or `panel.ui` are copied into `.last-good/` in the plugin's
+folder. A reload that fails leaves it as it was, so it holds the version that
+is still running. The ROLL BACK button of the plugin on the Plugins page (shown
+where `.last-good/` differs from the files in the folder) sends
+`hamlet_sdk::reload::Rollback`: the copy is put back over the files, and the
+next look reloads them. The files that were there are overwritten.
+
+### The compiled cache
+
+A component is compiled once and kept in `.cache/<hash>-<engine>.cwasm` in the
+plugin's folder. `<hash>` is the SHA-256 of `plugin.wasm` and `<engine>` a
+hash of the engine's version and configuration, so a restart or a reload of
+an unchanged file does not compile again. An entry that cannot be read, or that
+the engine refuses, is ignored, removed and made again. Making a new entry
+removes the others in the folder. The cache can be deleted at any time. The
+engine trusts an entry it finds under the right name, so the home must not be
+writable by anything the chief does not trust; a plugin itself cannot write
+there.
 
 ## Building a plugin
 
