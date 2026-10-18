@@ -27,9 +27,9 @@ use crate::{
 /// Draws the hamlets' agents and roads as a generated world. Add it
 /// after Bevy's default plugins, in place of the style test's
 /// plugin.
-pub struct HamletPlugin;
+pub struct RealmPlugin;
 
-impl Plugin for HamletPlugin {
+impl Plugin for RealmPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             GenPlugin::default(),

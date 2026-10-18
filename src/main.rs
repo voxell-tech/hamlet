@@ -21,7 +21,7 @@ use hamlet_model::config::Config;
 use hamlet_model::log;
 use hamlet_sandbox as sandbox;
 use hamlet_ui::{ShowRequests, UiPlugin, window_plugin};
-use hamlet_world::hamlet::HamletPlugin;
+use hamlet_world::hamlet::RealmPlugin;
 
 const USAGE: &str = "\
 usage: hamlet [--headless | --repl] [--insecure] [--replay \
@@ -180,7 +180,7 @@ fn main() -> Result<()> {
                 )))
                 .add_plugins((
                     DefaultPlugins.set(window_plugin(&root)),
-                    HamletPlugin,
+                    RealmPlugin,
                     UiPlugin,
                 ))
                 .run();
