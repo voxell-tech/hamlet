@@ -20,8 +20,15 @@ pub struct Panel {
     pub id: String,
     pub title: String,
     pub icon: Glyph,
-    /// Builds the panel's contents.
-    pub view: fn() -> AnyView,
+    pub body: Body,
+}
+
+/// How a panel's contents are built.
+#[derive(Clone, Copy)]
+pub enum Body {
+    Fixed(fn() -> AnyView),
+    /// Built from the panel's id, for panels that share one function.
+    ById(fn(&str) -> AnyView),
 }
 
 impl Panel {
@@ -31,11 +38,30 @@ impl Panel {
         icon: Glyph,
         view: fn() -> AnyView,
     ) -> Self {
+        Self::with_body(id, title, icon, Body::Fixed(view))
+    }
+
+    /// A panel whose contents are built from its id.
+    pub fn by_id(
+        id: impl Into<String>,
+        title: impl Into<String>,
+        icon: Glyph,
+        view: fn(&str) -> AnyView,
+    ) -> Self {
+        Self::with_body(id, title, icon, Body::ById(view))
+    }
+
+    fn with_body(
+        id: impl Into<String>,
+        title: impl Into<String>,
+        icon: Glyph,
+        body: Body,
+    ) -> Self {
         Self {
             id: id.into(),
             title: title.into(),
             icon,
-            view,
+            body,
         }
     }
 }
@@ -61,10 +87,20 @@ pub(super) fn register(
     let Ok(panel) = panels.get(add.entity) else {
         return;
     };
+    let kind = match panel.body {
+        Body::Fixed(view) => {
+            DockWindowKind::new(panel.title.clone(), view)
+        }
+        Body::ById(view) => {
+            let id = panel.id.clone();
+            DockWindowKind::new(panel.title.clone(), move || {
+                view(&id)
+            })
+        }
+    };
     registry.register(
         panel.id.clone(),
-        DockWindowKind::new(panel.title.clone(), panel.view)
-            .icon(panel.icon.image(ICON)),
+        kind.icon(panel.icon.image(ICON)),
     );
 }
 

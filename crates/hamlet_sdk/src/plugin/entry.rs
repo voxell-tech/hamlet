@@ -35,8 +35,21 @@ impl Entry {
             .push(Declared::Panel(Panel::new(id, title, icon, view)));
     }
 
+    /// Adds a panel to the dock, built from its id.
+    pub fn panel_by_id(
+        &mut self,
+        id: &str,
+        title: &str,
+        icon: Glyph,
+        view: fn(&str) -> AnyView,
+    ) {
+        self.declared.push(Declared::Panel(Panel::by_id(
+            id, title, icon, view,
+        )));
+    }
+
     /// Spawns what was declared, each as an entity of `plugin`.
-    fn spawn(self, plugin: Entity, commands: &mut Commands) {
+    pub fn spawn(self, plugin: Entity, commands: &mut Commands) {
         for declared in self.declared {
             match declared {
                 Declared::Panel(panel) => {

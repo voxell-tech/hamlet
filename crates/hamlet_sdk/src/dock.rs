@@ -9,7 +9,7 @@ use bevy::app::App;
 use bevy_fynix::dock::DockRegistry;
 
 pub use self::fill::{lit_panel, panel};
-pub use self::panel::{Panel, PanelAppExt};
+pub use self::panel::{Body, Panel, PanelAppExt};
 pub use self::tab::{TabShown, show_tab};
 use crate::theme::HamletTheme;
 
