@@ -4,6 +4,8 @@
 
 mod chief;
 pub mod overlay;
+pub mod scene;
+pub mod shader;
 
 use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::asset::{Assets, RenderAssetUsages};
@@ -66,38 +68,38 @@ type WorldCameras<'w, 's> = Query<
 
 /// Adds the World View plugin. Add it after the realm's plugin.
 pub fn plugin(app: &mut App) {
-    app.add_plugins((chief::plugin, overlay::plugin))
-        .init_resource::<TimeOfDay>()
-        .init_resource::<Animating>()
-        .insert_resource(hamlet_realm::pick::NoNameTag)
-        .add_systems(
-            Update,
-            (
-                drive.before(WorldSystems),
-                pace,
-                adopt_tags,
-                follow_scale,
-                hold_sky.before(WorldSystems),
-            ),
-        )
-        .add_systems(
-            PreUpdate,
-            match_pointer_target
-                .after(bevy::picking::pointer::PointerInput::receive)
-                .before(
-                    bevy::picking::backend::ray::RayMap::repopulate,
-                ),
-        )
-        .add_systems(
-            PostUpdate,
-            cap_picture.after(UiSystems::PostLayout),
-        )
-        // The world panel shows the world's camera, which the world
-        // has spawned by now.
-        .add_systems(OnEnter(Look::Ready), attach.before(Mounting))
-        .add_systems(OnEnter(WorldShown), draw)
-        .add_systems(OnExit(WorldShown), rest)
-        .add_hamlet_plugin::<WorldViewPlugin>();
+    app.add_plugins((
+        chief::plugin,
+        overlay::plugin,
+        scene::plugin,
+        shader::plugin,
+    ))
+    .init_resource::<TimeOfDay>()
+    .init_resource::<Animating>()
+    .insert_resource(hamlet_realm::pick::NoNameTag)
+    .add_systems(
+        Update,
+        (
+            drive.before(WorldSystems),
+            pace,
+            adopt_tags,
+            follow_scale,
+            hold_sky.before(WorldSystems),
+        ),
+    )
+    .add_systems(
+        PreUpdate,
+        match_pointer_target
+            .after(bevy::picking::pointer::PointerInput::receive)
+            .before(bevy::picking::backend::ray::RayMap::repopulate),
+    )
+    .add_systems(PostUpdate, cap_picture.after(UiSystems::PostLayout))
+    // The world panel shows the world's camera, which the world
+    // has spawned by now.
+    .add_systems(OnEnter(Look::Ready), attach.before(Mounting))
+    .add_systems(OnEnter(WorldShown), draw)
+    .add_systems(OnExit(WorldShown), rest)
+    .add_hamlet_plugin::<WorldViewPlugin>();
 }
 
 /// The plugin that shows the world in a panel, with the VIEW lines of
@@ -342,6 +344,7 @@ pub(crate) fn adopt_tags(
             With<Readout>,
             With<overlay::Pinned>,
             With<overlay::Tag>,
+            With<scene::Named>,
         )>,
     >,
     mut away: Local<Option<Entity>>,

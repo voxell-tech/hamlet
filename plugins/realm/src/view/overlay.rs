@@ -1,6 +1,7 @@
 //! What plugins draw over the world: each mark of `Overlays` a node
 //! hung off the world's panel and kept where its anchor is seen, and
-//! a tag in the panel's corner that names the plugins that draw.
+//! a tag in the panel's corner that names the plugins that draw over
+//! it or build in it.
 
 use bevy::math::Rot2;
 use bevy::prelude::*;
@@ -11,15 +12,13 @@ use hamlet_realm::survey::Whereabouts;
 use hamlet_realm_api::overlay::{
     Anchor, Form, Mark, Overlays, Paint,
 };
+use hamlet_realm_api::scene::PluginScene;
 use hamlet_sdk::theme::{Palette, Themed};
 use hamlet_sdk::tree::canvas::Swatch;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Overlays>()
-        .add_systems(
-            Update,
-            show.run_if(resource_changed::<Overlays>),
-        )
+        .add_systems(Update, show)
         .add_systems(
             PostUpdate,
             place
@@ -38,22 +37,56 @@ pub struct Pinned(pub Mark);
 #[derive(Component)]
 pub struct Tag;
 
-/// Draws the marks again when a plugin changed what it draws.
+/// Draws the marks and the tag again when a plugin changed what it
+/// draws, or which plugins build in the world.
 fn show(
     mut commands: Commands,
     overlays: Res<Overlays>,
+    scenes: Query<&PluginScene>,
     theme: Themed,
     drawn: Query<Entity, Or<(With<Pinned>, With<Tag>)>>,
+    mut named: Local<Vec<String>>,
 ) {
+    let mut by = overlays
+        .0
+        .iter()
+        .map(|overlay| overlay.by.clone())
+        .collect::<Vec<_>>();
+    for scene in &scenes {
+        if !by.contains(&scene.by) {
+            by.push(scene.by.clone());
+        }
+    }
+    if !overlays.is_changed() && by == *named {
+        return;
+    }
     for entity in &drawn {
         commands.entity(entity).try_despawn();
     }
-    spawn(&mut commands, &overlays, &theme.palette);
+    marks(&mut commands, &overlays, &theme.palette);
+    tag(&mut commands, &by, &theme.palette);
+    *named = by;
 }
 
 /// Spawns a node for each mark of `overlays`, hidden until it is
 /// placed, and the tag that names the plugins that drew them.
 pub fn spawn(
+    commands: &mut Commands,
+    overlays: &Overlays,
+    palette: &Palette,
+) {
+    marks(commands, overlays, palette);
+    let by = overlays
+        .0
+        .iter()
+        .map(|overlay| overlay.by.clone())
+        .collect::<Vec<_>>();
+    tag(commands, &by, palette);
+}
+
+/// Spawns a node for each mark of `overlays`, hidden until it is
+/// placed.
+fn marks(
     commands: &mut Commands,
     overlays: &Overlays,
     palette: &Palette,
@@ -89,11 +122,11 @@ pub fn spawn(
             _ => drawn.insert(BackgroundColor(colour)),
         };
     }
-    let by = overlays
-        .0
-        .iter()
-        .map(|overlay| overlay.by.as_str())
-        .collect::<Vec<_>>();
+}
+
+/// Spawns the tag that names the plugins `by` in the corner of the
+/// world's panel, if there are any.
+fn tag(commands: &mut Commands, by: &[String], palette: &Palette) {
     if by.is_empty() {
         return;
     }
