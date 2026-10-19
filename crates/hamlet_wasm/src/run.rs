@@ -45,8 +45,8 @@ pub struct Done {
 /// frame has time, the one served longest ago first. A plugin that
 /// spent its time or fuel of this second keeps its mail for the next.
 /// A plugin whose call fails is marked failed, and where all its mail
-/// was one other plugin's commands and events, that plugin may not
-/// reach it until the chief starts it again.
+/// from plugins was one other plugin's commands and events, that
+/// plugin may not reach it until the chief starts it again.
 pub fn step(
     limits: Res<Limits>,
     agents: Res<AgentList>,
@@ -123,9 +123,23 @@ pub fn step(
                 });
             }
             Err(fault) => {
-                if let Some((sender, by)) =
-                    sender_of(&mail, plugin, &calls, &named)
-                {
+                let sender = sender_of(
+                    &mail,
+                    |call| calls.commander(call, plugin),
+                    |id| {
+                        named
+                            .iter()
+                            .find(|(_, info)| info.id == id)
+                            .map(|(sender, _)| sender)
+                    },
+                );
+                let named = sender.and_then(|sender| {
+                    named
+                        .get(sender)
+                        .ok()
+                        .map(|(_, info)| (sender, &info.name))
+                });
+                if let Some((sender, by)) = named {
                     calls.bar(sender, plugin);
                     commands.trigger(Notice(format!(
                         "A command or an event of {by} stopped {}: \
@@ -140,30 +154,39 @@ pub fn step(
     }
 }
 
-/// The one plugin, and its name, whose commands and events were all
-/// of `mail`, if there was one.
-fn sender_of<'a>(
+/// The one plugin whose commands and events were all the mail of
+/// `mail` that came from plugins, if there was one, given the plugin
+/// that sent each command and the plugin of each id.
+fn sender_of(
     mail: &[Incoming],
-    plugin: Entity,
-    calls: &Calls,
-    named: &'a Query<(Entity, &PluginInfo)>,
-) -> Option<(Entity, &'a str)> {
-    let mut senders = mail.iter().map(|incoming| match incoming {
-        Incoming::Command(call) => {
-            calls.commander(call.call_id, plugin)
-        }
-        Incoming::Event(event) => named
-            .iter()
-            .find(|(_, info)| info.id == event.sender)
-            .map(|(sender, _)| sender),
-        _ => None,
-    });
+    commander: impl Fn(u64) -> Option<Entity>,
+    plugin_of: impl Fn(&str) -> Option<Entity>,
+) -> Option<Entity> {
+    let mut senders =
+        mail.iter().filter_map(|incoming| match incoming {
+            Incoming::Command(call) => Some(commander(call.call_id)),
+            Incoming::Event(event) => Some(plugin_of(&event.sender)),
+            // An answer to a call of the plugin comes from a plugin
+            // the mail does not name.
+            Incoming::Reply(_)
+            | Incoming::Returned(_)
+            | Incoming::Invoked(_) => Some(None),
+            // The host's and the chief's own.
+            Incoming::Tick(_)
+            | Incoming::Granted(_)
+            | Incoming::Denied(_)
+            | Incoming::Fetched(_)
+            | Incoming::Picked(_)
+            | Incoming::FolderPicked(_)
+            | Incoming::FolderDone(_)
+            | Incoming::ModelAnswered(_)
+            | Incoming::Steer(_)
+            | Incoming::Click(_)
+            | Incoming::Toggled(_)
+            | Incoming::TextChanged(_) => None,
+        });
     let first = senders.next()??;
-    if !senders.all(|other| other == Some(first)) {
-        return None;
-    }
-    let (_, info) = named.get(first).ok()?;
-    Some((first, &info.name))
+    senders.all(|other| other == Some(first)).then_some(first)
 }
 
 /// Carries out the intents of the plugins that were stepped.
@@ -276,4 +299,53 @@ pub fn say(commands: &mut Commands, id: &str, line: &Logged) {
         level: line.level,
         text: text.clone(),
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::interface::exports::hamlet::plugin::plugin::{
+        CallAnswer, Published,
+    };
+
+    #[test]
+    fn the_plugin_whose_mail_stopped_another_is_found_past_ticks() {
+        let mut world = World::new();
+        let (clock, bell) =
+            (world.spawn_empty().id(), world.spawn_empty().id());
+        let event = |sender: &str| {
+            Incoming::Event(Published {
+                topic: "rang".into(),
+                sender: sender.into(),
+                payload: Vec::new(),
+            })
+        };
+        let reply = Incoming::Reply(CallAnswer {
+            call_id: 1,
+            outcome: Ok(Vec::new()),
+        });
+        let of = |mail: &[Incoming]| {
+            sender_of(
+                mail,
+                |_| None,
+                |id| match id {
+                    "clock" => Some(clock),
+                    "bell" => Some(bell),
+                    _ => None,
+                },
+            )
+        };
+
+        assert_eq!(
+            of(&[
+                Incoming::Tick(1),
+                event("clock"),
+                Incoming::Tick(2)
+            ]),
+            Some(clock)
+        );
+        assert_eq!(of(&[event("clock"), event("bell")]), None);
+        assert_eq!(of(&[event("clock"), reply]), None);
+        assert_eq!(of(&[Incoming::Tick(1)]), None);
+    }
 }

@@ -649,10 +649,12 @@ frames``. A late reply is dropped with a warning. A caller whose `plugin.use` fo
 the target is taken back while it waits is answered with `` plugin.use for
 `notes` was taken back``, and never given the reply.
 
-A `step` that fails when all its mail was the commands and events of one other
-plugin bars that plugin as a call of a typed interface does (see Typed
-interfaces below): its commands to it are refused, and its events not given to
-it, until the chief restarts it. Where the mail held anything else, nobody is
+A `step` that fails when all its mail from other plugins was the commands and
+events of one plugin bars that plugin as a call of a typed interface does (see
+Typed interfaces below): its commands to it are refused, and its events not
+given to it, until the chief restarts it. The mail of the host and the chief
+(ticks, answers of the host, the panels' events) does not count. Where the mail
+held another plugin's command or event, or an answer to a call, nobody is
 barred.
 
 The depth of a call is the number of plugins it has crossed. A call a plugin
