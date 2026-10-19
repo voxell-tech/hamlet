@@ -106,6 +106,11 @@ fn describe(step: &Step) -> String {
         Step::ModelReplies(replies) => {
             format!("model-replies ({} replies)", replies.len())
         }
+        Step::Answer(answer) => format!(
+            "answer {:?} {}",
+            answer.holds,
+            if answer.allow { "allow" } else { "deny" }
+        ),
         Step::SetWorld(world) => format!(
             "set-world ({} hamlets, {} agents)",
             world.hamlets.len(),
@@ -204,6 +209,9 @@ fn apply(
         Step::ModelReplies(replies) => {
             harness.set_model_replies(replies);
             Ok(())
+        }
+        Step::Answer(answer) => {
+            harness.answer_petition(&answer.holds, answer.allow)
         }
         Step::Grant(capability) => harness.grant(capability),
         Step::Deny(capability) => harness.deny(capability),

@@ -1,0 +1,112 @@
+# Run from the Hamlet checkout, after building Scribe into a folder:
+#   guests/scribe/build.sh <dir>/scribe
+#   cargo run --example plugin_check --features wasm -- \
+#     <dir>/scribe --script guests/scribe/steps.toml --out <pictures>
+#
+# The plugin is installed with none of its asks answered, as a chief
+# would who let it in. The model answers from the script, so no server
+# is reached. The folder chosen is guests/scribe/sample, and the
+# summary kept there is the one it already holds.
+
+[[step]]
+tick = 1
+
+# Nothing outside the plugin is reached before the chief chooses a
+# folder, and choosing it is the chief's answer.
+[[step]]
+click = { panel = "scribe", node = "read" }
+
+[[step]]
+expect = { panel = "scribe", text = "no folder was chosen" }
+
+[[step]]
+click = { panel = "scribe", node = "pick" }
+
+[[step]]
+choose-folder = "guests/scribe/sample"
+
+[[step]]
+expect = { panel = "scribe", text = "Works in sample" }
+
+[[step]]
+click = { panel = "scribe", node = "list" }
+
+[[step]]
+expect = { panel = "scribe", text = "tides.md" }
+
+[[step]]
+click = { panel = "scribe", node = "escape" }
+
+[[step]]
+expect = { panel = "scribe", text = "is not a path in the folder" }
+
+[[step]]
+click = { panel = "scribe", node = "read" }
+
+[[step]]
+expect = { panel = "scribe", text = "bytes of notes" }
+
+# A model call waits for the chief's choice, then answers from the
+# script.
+[[step]]
+model-replies = ["High water is at noon."]
+
+[[step]]
+click = { panel = "scribe", node = "ask" }
+
+[[step]]
+expect = { panel = "scribe", text = "model.call is yet to be decided" }
+
+[[step]]
+grant = "model.call"
+
+[[step]]
+click = { panel = "scribe", node = "ask" }
+
+[[step]]
+expect = { panel = "scribe", text = "Summary: High water is at noon." }
+
+# A write waits for the chief in Needs You, and is noted once done.
+[[step]]
+click = { panel = "scribe", node = "write" }
+
+[[step]]
+answer = { holds = "asks to write `summary.txt`", allow = false }
+
+[[step]]
+expect = { panel = "scribe", text = "the chief did not allow the write" }
+
+[[step]]
+click = { panel = "scribe", node = "write" }
+
+[[step]]
+answer = { holds = "asks to write `summary.txt`", allow = true }
+
+[[step]]
+expect = { panel = "scribe", text = "Kept summary.txt" }
+
+[[step]]
+expect-told = "Scribe (scribe) wrote in the folder sample"
+
+# Steering waits for the chief's choice too, reaches only the hamlets
+# the ask lists, and only adds a note or holds a call back.
+[[step]]
+steer = { expect = "none" }
+
+[[step]]
+grant = "agent.steer"
+
+[[step]]
+steer = { expect = "note", shows = "Keep replies short." }
+
+[[step]]
+steer = { tool = "bash", args = "{\"command\": \"rm -rf notes\"}", expect = "hold", shows = "deleted" }
+
+[[step]]
+steer = { tool = "bash", args = "{\"command\": \"ls\"}", expect = "none" }
+
+[[step]]
+steer = { hamlet = "Elsewhere", expect = "none" }
+
+[[step]]
+render = { panel = "scribe", file = "scribe.png" }

@@ -42,6 +42,7 @@ the chief answers one question for them, not "everything".
 | `crates/hamlet_home/starters/write-a-plugin` | The starter skill that teaches an agent this page's steps |
 | `guests/notes/` | A plugin to read after the template: `model.rs` (what it keeps), `storage.rs` (the notes on disk), `update.rs` (what an event does, and the commands it answers), its menu line, shortcut, settings page and inspector tab in `lib.rs`, `view.rs` (the panels), and its `steps.toml` |
 | `guests/pantry/` | A plugin to read for the database: `lib.rs` keeps records in a table (`hamlet_guest::db::Table`), finds them by a field and draws what the table holds; its `steps.toml` restarts the app to see they are kept |
+| `guests/scribe/` | A plugin to read for a folder the chief chooses (`hamlet_guest::folder`), a model call (`hamlet_guest::model`) and steering the agents' turns (`hamlet_guest::steer`); its `steps.toml` chooses its folder, answers the model and the chief in the script's place, and puts points of a turn to it |
 | `guests/herald/` | A plugin to read for what a plugin may do outside its panel: `lib.rs` sends a message and runs a command as the chief (`hamlet_guest::send_chat`, `run_as_chief`), keeps a draft in its folder of files (`hamlet_guest::files`) and fetches a page (`hamlet_guest::net`); its `manifest.toml` lists the hosts and commands in the `scope` of its asks, and its `steps.toml` answers each ask |
 | `guests/surveyor/` | A plugin to read for the world: `lib.rs` reads the realm (`hamlet_guest::world::view`), marks the agents at work over it (`hamlet_guest::overlay`) and brings the camera to one (`hamlet_guest::world::focus`); its `steps.toml` makes up a world with `set-world` |
 | `guests/clipper/` | A plugin that uses Notes: its `manifest.toml` (what it needs, imports and asks), `update.rs` (the call, the reply, the events and the command a context menu item runs) and `steps.toml`, a script for the two plugins together |
@@ -302,6 +303,7 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 | `choose-file = "tide.csv"` | Closes the file dialog a plugin opened with `pick-file` with this file chosen, a path from where the check runs, or with nothing for `""`. No dialog is shown; it fails where no plugin asked for a file |
 | `model-replies = ["noon"]` | Makes these the replies of the model, in order, to the plugins' `model-call`s. No server is reached, and until this step there is no model |
 | `choose-folder = "notes"` | Closes the folder dialog a plugin opened with `pick-folder` with this folder chosen, or with nothing for `""`, as `choose-file` does |
+| `answer = { holds = "asks to write", allow = true }` | Answers the question in Needs You whose words hold the text, as the chief does: a write in a folder the chief chose waits for it. It fails where no question holds it |
 | `plugin = "clipper"` | Puts a plugin in front, where several were opened: the steps after it are done to that one |
 | `grant = "read.agents"` | The chief allows a capability the manifest asks for. For a scoped capability, `plugin.use:notes` or `collections.read:notes/notes` |
 | `deny = "read.agents"` | The chief refuses it |

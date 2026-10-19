@@ -60,6 +60,9 @@ pub enum Step {
     /// calls of the plugins. No server is reached; until this step
     /// there is no model.
     ModelReplies(Vec<String>),
+    /// The chief answers the question in Needs You whose words hold
+    /// the text, such as a write a plugin asked to make.
+    Answer(Answering),
     /// The chief allows a capability the plugin asked for.
     Grant(String),
     /// The chief refuses one.
@@ -120,6 +123,16 @@ pub struct Steering {
     /// this.
     #[serde(default)]
     pub shows: String,
+}
+
+/// A question of a plugin's put to the chief, by its words, and the
+/// chief's answer to it.
+#[derive(Deserialize, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Answering {
+    pub holds: String,
+    /// True allows it, and false refuses it.
+    pub allow: bool,
 }
 
 fn an_agent() -> String {

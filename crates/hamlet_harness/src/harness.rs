@@ -10,6 +10,7 @@ use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
 use hamlet_agents_api::model::Model;
+use hamlet_agents_api::oversight::{self, Settled};
 use hamlet_agents_api::tools::{
     AgentTool, AgentToolCalled, Steered, Steering, TurnObserved,
 };
@@ -20,7 +21,7 @@ use hamlet_realm_api::overlay::{
 use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::{Agent, AgentList, SelectedAgent};
 use hamlet_sdk::capability::{
-    Asks, Capability, Choice, Decide, Replied,
+    Asks, Capability, Choice, Decide, Petition, Replied,
 };
 use hamlet_sdk::command::{Commands as Registry, RunCommand};
 use hamlet_sdk::dock::Panel;
@@ -278,6 +279,44 @@ impl Harness {
             .filter(|overlay| overlay.plugin == id)
             .flat_map(|overlay| overlay.marks.iter().map(marked))
             .collect()
+    }
+
+    /// The chief answers the question in Needs You whose words hold
+    /// `holds`, allowing it or refusing it, as the core's queue does.
+    pub fn answer_petition(
+        &mut self,
+        holds: &str,
+        allow: bool,
+    ) -> Result<(), String> {
+        let world = self.app.world_mut();
+        let mut open = world.query::<(Entity, &Petition)>();
+        let asked = open
+            .iter(world)
+            .map(|(entity, petition)| (entity, petition.text.clone()))
+            .collect::<Vec<_>>();
+        let Some((entity, _)) =
+            asked.iter().find(|(_, text)| text.contains(holds))
+        else {
+            return Err(format!(
+                "no question holds {holds:?}; there are {:?}",
+                asked
+                    .iter()
+                    .map(|(_, text)| text)
+                    .collect::<Vec<_>>()
+            ));
+        };
+        let choice = match allow {
+            true => oversight::Choice::Allow,
+            false => oversight::Choice::Deny,
+        };
+        world.trigger(Settled {
+            entity: *entity,
+            choice,
+        });
+        world.flush();
+        world.despawn(*entity);
+        self.frames(SETTLE);
+        Ok(())
     }
 
     /// The chief allows `capability`, which the manifest asks for.

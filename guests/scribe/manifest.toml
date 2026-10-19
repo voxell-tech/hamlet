@@ -1,0 +1,27 @@
+id = "scribe"
+name = "Scribe"
+version = "0.1.0"
+interface = "0.1.0"
+
+# It only answers what is sent to it, so it wants no ticks.
+ticks = false
+
+# The chief chooses the folder in a dialog. Reading it and writing in
+# it are chosen apart, and each write waits for the chief unless the
+# folder is a hamlet's set to auto.
+[[asks]]
+capability = "fs.folder"
+reason = "To read the notes in a folder you choose and keep a summary of them there."
+
+# Each call is charged to the first hamlet's budget.
+[[asks]]
+capability = "model.call"
+reason = "To summarise the notes it read."
+
+# The scope lists the hamlets whose agents it steers; with none, all
+# of them. A plugin that steers the agents cannot also ask for
+# chat.send, commands.run, world.act or plugin.use.
+[[asks]]
+capability = "agent.steer"
+reason = "To remind the agents of Home to keep replies short, and to hold back a command that deletes a folder."
+scope = ["Home"]
