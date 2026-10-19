@@ -23,9 +23,7 @@ use crate::{AnyView, Cx};
 /// The view of the canvas at `at`. It is built again when the plugin
 /// draws other shapes.
 pub(super) fn view(at: &At) -> AnyView {
-    keyed(at.canvas(), |canvas| surface(canvas))
-        .within(bare())
-        .boxed()
+    keyed(at.canvas(), surface).within(bare()).boxed()
 }
 
 fn surface(canvas: &Canvas) -> AnyView {
