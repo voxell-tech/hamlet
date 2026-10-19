@@ -17,9 +17,12 @@ plugin is enough.
 
 A third kind, a **native** plugin, is a Rust library that runs as Hamlet with
 no sandbox and no limits, for what the sandbox cannot do: add Bevy systems
-and observers, reach the app itself. It is built in the checkout's workspace,
-with the toolchain of the Hamlet that loads it, and the chief gives it full
-access or none. Make one with `scripts/new-native-plugin.sh <name>` and read
+and observers, reach the app itself. It is built with the compiler and the
+compiled engine of the Hamlet that loads it, and the chief gives it full
+access or none. Make one in the checkout's workspace with
+`scripts/new-native-plugin.sh <name>`, or in a folder of its own with
+`scripts/new-native-plugin.sh <name> <folder>`, built against an SDK kit that
+`scripts/make-native-sdk.sh <kit>` makes from that Hamlet's build, and read
 [`native.md`](native.md). Prefer a WASM or data plugin when either will do:
 the chief answers one question for them, not "everything".
 
@@ -30,7 +33,8 @@ the chief answers one question for them, not "everything".
 | `templates/plugin/` | A wasm plugin to copy: `Cargo.toml`, `manifest.toml`, `src/lib.rs`, `build.sh`, `steps.toml` |
 | `templates/data-plugin/` | A data plugin to copy: `manifest.toml`, `panel.ui`, `steps.toml` |
 | `scripts/new-plugin.sh` | Copies a template into a folder and fills in its placeholders |
-| `templates/native-plugin/`, `scripts/new-native-plugin.sh`, `native/spark/` | A native plugin to copy into `native/`, the script that does it, and a sample to read |
+| `templates/native-plugin/`, `scripts/new-native-plugin.sh`, `native/spark/` | A native plugin to copy into `native/` or a folder of its own, the script that does it, and a sample to read |
+| `scripts/make-native-sdk.sh` | Makes the SDK kit a native plugin outside the checkout is built with, from one build of Hamlet |
 | `scripts/vendor-plugin-deps.sh` | Copies the crates a wasm plugin builds from into it, for a build with no network |
 | `crates/hamlet_harness` | The harness that runs a plugin headlessly: a `Harness` to drive in Rust, and a script runner |
 | `examples/plugin_check` | The harness as a command |

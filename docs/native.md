@@ -101,7 +101,8 @@ symbols (the `hamlet_native::export!` macro writes them):
 
 1. the contract version;
 2. the Hamlet version (`CARGO_PKG_VERSION` of `hamlet_native`);
-3. the compiler (`rustc -vV`, on one line);
+3. the compiler (`rustc -vV`, on one line), the one `rust-toolchain.toml`
+   pins;
 4. the profile (`debug` or `release`);
 5. a fingerprint of the engine crates: a hash of the `Cargo.lock` entries of
    `bevy`, `bevy_internal`, `bevy_app`, `bevy_ecs`, `bevy_fynix` and
@@ -127,8 +128,21 @@ is possible; that is why only a library the chief let in is opened.
 
 ## Building one so that it passes
 
-The library has to be built **in the checkout's workspace**, with the
-toolchain and the settings the host was built with:
+A type is the same type to the host and to the library only when both use
+the same compiled crate. The compiler names a crate by its name and the
+metadata cargo hashes for it: where the package comes from, its version,
+its features, the profile, the compiler, and the same of each dependency.
+Where a path package comes from is its path from the workspace's root, or
+its whole path outside the workspace, so the same source built in another
+workspace is another crate. A plugin built in a folder of its own, with
+path dependencies on this checkout and a copy of its `Cargo.lock`, passes
+the fingerprint and is refused for its engine types. A build with fewer or
+more features of any crate under the engine is refused the same way.
+
+There are two builds that pass: in the checkout, and outside it with an SDK
+kit. The compiler is the one `rust-toolchain.toml` pins in both.
+
+### In the checkout
 
 - `scripts/new-native-plugin.sh <name>` makes `native/<name>` from
   `templates/native-plugin`. It is a member of the workspace, and its
@@ -142,16 +156,58 @@ toolchain and the settings the host was built with:
 
 The whole workspace is built, not the plugin alone, because the features of
 a crate are what everything built together asks for: a build of the plugin
-alone enables fewer, the crates are then not the host's crates, and the
-gate says so. The host is the app built by `cargo build` or `cargo run`,
-which asks for the same. Cargo gives a crate outside the workspace a
-different identity from the same crate inside it, so a library built in a
-workspace of its own is refused too. (A crate published to a registry has
-the same identity everywhere, and that is how a library built outside the
-checkout would pass; Hamlet's crates are built from the checkout.)
+alone enables fewer, and the gate says so. The host is the app built by
+`cargo build` or `cargo run`, which asks for the same.
 
 `native/` is in the workspace but not in the default members, so
 `cargo build`, `cargo test` and `cargo clippy` leave its libraries alone.
+
+### Outside, with an SDK kit
+
+A kit is the compiled crates of one build of Hamlet. The plugin is compiled
+against them, so it links the very engine and SDK that build has, and
+nothing of the engine is compiled again.
+
+- `scripts/make-native-sdk.sh <kit> [cargo build options]` runs the build of
+  the Hamlet that will load the plugins, with its options (none for
+  `cargo build`, `--release` for `cargo build --release`), and copies into
+  `<kit>`:
+  - `deps/`: every library the build compiled, and the procedural macros;
+  - `externs`: the crates a plugin names and their files: `bevy`, each
+    `bevy_*` (the engine's derives write paths such as `bevy_ecs::`),
+    `hamlet_sdk` and `hamlet_native`;
+  - `toolchain` and `target`: the compiler and the target of the build.
+- `scripts/new-native-plugin.sh <name> <folder>` makes the plugin in that
+  folder, a workspace of its own with no dependencies (the files of
+  `templates/native-plugin/outside` replace their namesakes).
+- `HAMLET_SDK=<kit> ./build.sh [folder] [release]` runs
+  `cargo +<toolchain> rustc --lib --target <target>` with
+  `-L dependency=<kit>/deps` and an `--extern` for each line of `externs`,
+  and puts the manifest and the library in the folder. It takes seconds.
+
+What must match:
+
+- The kit is of the build that loads the plugin. Make it again whenever
+  that Hamlet is built again; a kit of another build is refused by the gate
+  (a debug kit's plugin in a release Hamlet: its profile differs).
+- The compiler is the kit's. Another one refuses the kit's crates when the
+  plugin is compiled (`E0514`, compiled by an incompatible version of
+  rustc).
+- The plugin depends on neither the engine nor the SDK through cargo. A
+  crate of its own from a registry is another crate than any in the kit:
+  fine inside the plugin, never for a value it hands to Hamlet.
+
+What the plugin says to the gate is the kit's own `hamlet_native`, so its
+profile is the kit's whatever the plugin was built with. The gate cannot
+see the sources of a build: a kit made before an edit of the SDK, for a
+Hamlet built again with the same lock, features and compiler, passes and
+is wrong. Editors do not see the kit's crates, as the plugin's
+`Cargo.toml` names none. The kit holds every library of the build: on
+macOS 5.5 GB for a debug build of the app, 1.7 GB for a release one.
+
+For a release, the kit is made by the job that builds it, with the same
+options: `scripts/make-native-sdk.sh <kit> --release --locked -p hamlet
+--target <triple>`.
 
 ## Writing one
 
@@ -211,6 +267,7 @@ app's code.
 |---|---|
 | The contract: `Abi`, `export!`, `declare`, the type hash | `hamlet_native/src/abi.rs`, `build.rs` |
 | Comparing two builds | `hamlet_native/src/gate.rs` |
+| The compiler, and the kit a plugin outside the checkout builds with | `rust-toolchain.toml`, `scripts/make-native-sdk.sh`, `templates/native-plugin/outside/` |
 | Opening a library, and the private copy it is opened from | `hamlet_native/src/library.rs`, `cache.rs` |
 | The folder and its manifest | `hamlet_native/src/install.rs`, `manifest.rs` |
 | The scan at start, safe mode, loading the plugin just let in | `hamlet_native/src/load.rs`, `marker.rs`, `guard.rs`, `assets/native.toml` |

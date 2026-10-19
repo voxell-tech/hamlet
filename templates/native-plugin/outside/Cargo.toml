@@ -1,0 +1,16 @@
+[package]
+name = "{{name}}"
+version = "0.1.0"
+edition = "2024"
+description = "{{title}}, a native plugin for Hamlet"
+publish = false
+
+# A workspace of its own.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+# No dependencies: build.sh hands the compiler the engine and the SDK
+# from the kit, compiled as the Hamlet that loads the plugin compiled
+# them. A crate cargo built here would be another crate to Hamlet.
