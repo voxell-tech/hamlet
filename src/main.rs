@@ -158,13 +158,15 @@ fn main() -> Result<()> {
     }
     #[cfg(feature = "wasm")]
     app.add_plugins(hamlet_wasm::plugin);
+    #[cfg(feature = "native")]
+    app.add_plugins(hamlet_native::plugin);
     let tick = ScheduleRunnerPlugin::run_loop(TICK);
     match mode {
         Mode::Repl => {
             app.add_plugins((hamlet_sdk::plugin::plugin, Base));
             // The window's SDK is not there to keep what the
             // plugins read and draw.
-            #[cfg(feature = "wasm")]
+            #[cfg(any(feature = "wasm", feature = "native"))]
             app.add_plugins((
                 hamlet_sdk::tree::plugin,
                 hamlet_sdk::agents::plugin,
@@ -175,14 +177,14 @@ fn main() -> Result<()> {
         Mode::Headless => {
             eprintln!("hamlet: running headless; Ctrl-C stops");
             app.add_plugins((hamlet_sdk::plugin::plugin, Base));
-            #[cfg(feature = "wasm")]
+            #[cfg(any(feature = "wasm", feature = "native"))]
             app.add_plugins((
                 hamlet_sdk::tree::plugin,
                 hamlet_sdk::agents::plugin,
                 hamlet_sdk::capability::plugin,
             ));
             // The plugins' log lines have nowhere to go without it.
-            #[cfg(feature = "wasm")]
+            #[cfg(any(feature = "wasm", feature = "native"))]
             app.add_plugins(bevy::log::LogPlugin::default());
             app.add_plugins((tick, TerminalCtrlCHandlerPlugin)).run();
         }
