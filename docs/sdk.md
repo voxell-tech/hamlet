@@ -8,16 +8,39 @@ built in.
 
 ```
 hamlet (binary) -> hamlet_plugins -> plugins/<name> -> hamlet_limits, hamlet_chat -> hamlet_agents_api -> hamlet_sdk -> hamlet_base, hamlet_assets
-                 \-> hamlet_ui ----------------------/                                \-> hamlet_core, hamlet_rules
+                 |                                 \-> hamlet_realm_api ------------------------------> hamlet_core, hamlet_rules
+                 |                                      ^
+                 \-> hamlet_ui (the frame) ------------/   hamlet_realm -> hamlet_realm_api
 ```
 
 A plugin crate depends on `hamlet_sdk`, `hamlet_agents_api` where it reads
-the agents, the engine crates and the two crates that hold what plugins
-share, `hamlet_chat` and `hamlet_limits` (below), never on `hamlet_ui` or on
+the agents, `hamlet_realm_api` where it reads the world or asks something of
+it, the engine crates and the two crates that hold what plugins share,
+`hamlet_chat` and `hamlet_limits` (below), never on `hamlet_ui` or on
 another plugin. `plugin_needs` and `plugin_skills` need nothing but the SDK,
-the agents API and the core, and run with no window and no realm. `plugin_inspector` and `plugin_settings` depend on
-`hamlet_realm` too, because what they show and set is the world's: the
-thing selected in it, the sky and the sound.
+the agents API and the core, and run with no window and no realm. Two
+plugins depend on `hamlet_realm` itself: `plugin_realm`, the layer that adds
+it, and `plugin_world_view`, which is the realm's view: it mounts the
+realm's camera in a panel, sets its stage and its sky, and hangs the
+realm's labels off the panel. No other crate of the window does: the chat,
+the frame and every other plugin see the world only through
+`hamlet_realm_api`.
+
+## hamlet_realm_api
+
+The plain types and events of the realm, which the realm keeps and answers.
+A panel that runs with no realm reads the read models as they were left,
+and its asks go unanswered.
+
+| Module | What it holds |
+|---|---|
+| `pick` | `Thing`, `Selected`, `Also`, `Hovered`, `Asked`, `AskedGround`, `Asks`, `Taken`, `Following`, `Steer`, `Pressable`; `select` and `ask_about`; `Focus` and `focus_on`, which the camera answers |
+| `chief` | `Chief`, `Beside`, `named`, and `look`: a chief's `Look` and its file |
+| `palette` | The world's `Palette`, and `RobotPaint`, the paint of an agent's robot, which the chat draws a speaker in |
+| `hand` | `Hold`, the hand's `Grip` for the cursor, and `Proud` |
+| `sky` | `Quality` and `TimeOfDay`, the chief's choices of how the world is drawn |
+| `sound` | `PanelCue` and `PanelSound`, the panels' own sounds; `SoundChoice`, what the chief chose to hear |
+| `orders` | `Decree` and `Tell`, which the chat says; `decree`, `restore`, `part` and `offers`; `Introduce`, `Give`, `Carry` and `Switched`, which the realm answers |
 
 ## What plugins share
 
@@ -26,10 +49,10 @@ thing selected in it, the sky and the sound.
 | `hamlet_chat` | The chat with an agent (`chat`), the markdown in it (`markdown`), selecting words (`select`), links (`links`), pictures (`pictures`), who the chat is with and how it is pointed at another (`me`), and the deeds that ask the chief first (`deed`: `Deed`, `ask`, `stop`). A second plugin needs it: the Inspector draws the chat, the Settings draws markdown and asks before it removes a charter, and the window reads the chat for its sounds, its status bar and its mascot |
 | `hamlet_limits` | The panes of the limits: the home's endpoints and catalogue (`models`) and each hamlet's budget, votes, models and the mayor's leave (`rules`). The Settings shows the home's, the Inspector each hamlet's |
 
-The window asks nothing of a plugin, and a plugin asks the window only
-through the SDK: an event the window observes (`deed::Ask`, `settings::SetUpAgain`,
-`settings::AddEndpoint`, `confirm::Confirm`), a command it runs
-(`window/found`), or a resource it keeps (`Bar`, `Roll`, `AgentSelected`).
+A plugin asks another only through the SDK or an API crate: an event one
+observes (`deed::Ask`, `settings::SetUpAgain`, `settings::AddEndpoint`,
+`confirm::Confirm`), a command it runs (`menus/found`), or a resource one
+keeps (`Bar`, `Roll`, `AgentSelected`, `PointerWait`, `Animating`).
 
 ## hamlet_sdk
 
@@ -51,6 +74,7 @@ through the SDK: an event the window observes (`deed::Ask`, `settings::SetUpAgai
 | `page` | `Native` and `ShownWhen`, for a page a built-in plugin draws itself, and `content`, what fills the page of a contribution |
 | `keys` | `Key`, a shortcut a plugin adds, `chord` (reading and writing `Cmd+Shift+N`), and `Keys`, a read-model of the shortcuts with whether each runs |
 | `dock` | `Panel`, `add_panel`, `panel` and `lit_panel`, `show_tab`, `open` and `TabShown` |
+| `frame` | `FramePart` and `Place`, a part a built-in plugin adds to the window's frame, and `parts` and `views`; the window's states `Showing` and `WorldShown`; `Mounting`, the set the frame is mounted in; `Animating` and `PointerWait`, what the frame reads of the plugins |
 | `capability` | `Capability`, the names a plugin can ask for and `NEVER`, the ones no plugin can; `Asks`, what a manifest asks for; `Choice` and `Choices`, what the chief chose; `Granted`, the verdict for each capability the manifest names; `Petition`, `Answer` and `Answered`, a question put to the chief and the answer back. See [`permissions.md`](permissions.md) |
 | `agents` | `AgentList`, a read-model of the living agents and their hamlets, and `SelectedAgent`, the name of the agent selected in the world. `hamlet_agents_api` keeps both, in the set `Kept` |
 | `events` | The catalogue of the host's events a plugin may subscribe to: `selection-changed` and `agents-changed`, each behind `read.agents`. See [`wasm.md`](wasm.md) |
@@ -112,8 +136,9 @@ pub trait HamletPlugin {
   `menu_item`; an item of the menu of a thing in the world, with
   `context_item` and `context_item_if`; a tab of the inspector, with
   `inspector_section` and `inspector_section_with`; a door of the Settings
-  panel, with `settings_page` and `settings_page_with`; and a shortcut, with
-  `key`. A new kind of contribution is a
+  panel, with `settings_page` and `settings_page_with`; a shortcut, with
+  `key`; and a part of the window's frame, with `frame_part` (below). A new
+  kind of contribution is a
   variant of `Declared`, a method of `Entry` and an arm of `Entry::spawn`, all
   in `plugin/entry.rs`. The WASM host makes an `Entry` of what an installed
   plugin declared and spawns it.
@@ -185,7 +210,7 @@ on: what a menu was opened on. `kind` is one of `command::kind`:
 
 `id` names the thing among those of its kind while it is there, and is of no use
 after that. `name` is what the window calls it. The realm does not know the SDK:
-`hamlet_ui::world_menu` makes a `Subject` of a `Thing`, and a built-in command
+`plugin_menus::world_menu` makes a `Subject` of a `Thing`, and a built-in command
 reads the entity back from the `id`. A plugin's command is given the subject
 written with `postcard` (`Subject::encode`, and `Subject::decode`), as `args`.
 
@@ -196,7 +221,7 @@ a plugin; `command` is the name of one of that plugin's own commands, and a line
 whose command is not there does not show. `menu` is `Menu::App` (HAMLET) or
 `Menu::View`. A menu lists its lines by `section`, then by label, then by plugin
 id, with a hairline between sections; the icon is the entry's, or the command's.
-`Menus` is the read-model of the lines that may show, and `hamlet_ui::menu`
+`Menus` is the read-model of the lines that may show, and `plugin_menus::menu`
 draws it when a menu is open. A click triggers `RunCommand` for the line's
 command.
 
@@ -204,10 +229,11 @@ A plugin that is not built in shows its lines only while the chief allows it
 `ui.menu` (`capability::allowed`). A line held back is still an entity, so
 Allow shows it and Don't allow or Ask next time takes it off at once.
 
-The window's own lines are the plugin `window` (`hamlet_ui::menu::window`): Found
-a Hamlet, Run in Background and Quit in HAMLET, and the camera and the sky in
-VIEW. Quit is in section 100 so that it ends the menu whatever plugins add.
-The Skills plugin adds a VIEW line that opens its panel.
+The window's own lines are the plugin `window` (`hamlet_ui::commands`): Run
+in Background and Quit in HAMLET. Quit is in section 100 so that it ends the
+menu whatever plugins add. The `menus` plugin adds Found a Hamlet to HAMLET,
+`world-view` the camera and the sky to VIEW, and Skills a VIEW line that
+opens its panel.
 
 ### Context items
 
@@ -215,7 +241,7 @@ The Skills plugin adds a VIEW line that opens its panel.
 `ContributedBy` a plugin: an item of the menu a right click opens on a thing of
 the kind `target`, which runs the plugin's command `command` on the thing. The
 `label` may hold `{name}`, the thing's name. `ContextItems` is the read-model of
-the items that may show, and `hamlet_ui::world_menu` builds a menu from the
+the items that may show, and `plugin_menus::world_menu` builds a menu from the
 items of the kind of the thing, ordered by `section` and then by label, with
 the lines of its own that depend on a second agent that is chosen (a road to
 it, merging the two) and on the roads an agent has. The menu has no line
@@ -225,8 +251,8 @@ A click triggers `RunCommand::on` for the item's command and the thing as a
 
 An item of a built-in plugin may have `ContextWhen`, a function of the world and
 the subject that says whether it is there (`Entry::context_item_if`): Stop is
-only there for an agent at work. The window's own items use the sections 10 to
-120, in `hamlet_ui::world_menu::contribute`, so that an item a plugin adds with
+only there for an agent at work. The items of the `menus` plugin use the sections 10
+to 120, in `plugin_menus::world_menu::contribute`, so that an item a plugin adds with
 a higher section comes after them. A plugin that is not built in shows its items
 only while the chief allows it `ui.context`, as for menu lines.
 
@@ -287,8 +313,8 @@ The chief's slash commands, the table `ALL` in `hamlet_rules::commands`, are
 what the chief's decrees are made of: each names who carries it out (the
 session, the oversight, a hamlet or the realm). They are not `Command`
 entities, and no menu line or key points at them; the window's lines and the
-items of its menus run commands of the `window` plugin, which act through the
-world. The world's
+items of its menus run commands of the `window`, `menus` and `world-view`
+plugins, which act through the world. The world's
 camera keys (F to come in close, Escape to let go) and the commit keys of a
 text area are handled where they apply and are not chords.
 
@@ -302,8 +328,9 @@ listed in these `PluginGroup`s:
 | Group | What it lists |
 |---|---|
 | `Base` | `agents` and `hamlets`, which run with no window. A headless app adds it after `hamlet_sdk::plugin::plugin` |
+| `Frame` | The plugins that fill the window's frame: `world-view`, `menus`, `status` and `welcome` |
 | `Panels` | The plugins that add a panel. The gallery adds it after `SdkPlugin` and the read models of `hamlet_agents_api` |
-| `Builtin` | `Base`, the window (`hamlet_ui::UiPlugin`, under the `window` feature), `realm` and `Panels`, in that order. The binary adds it after Bevy's default plugins |
+| `Builtin` | `Base`, the frame (`hamlet_ui::UiPlugin`, under the `window` feature), `realm`, `Frame` and `Panels`, in that order. The binary adds it after Bevy's default plugins |
 
 ### The layers
 
@@ -313,7 +340,10 @@ leaves it running, and the Plugins page shows it as Essential with no switch,
 because the app cannot run without it. A layer needs the one below it, and
 never depends on one above. `settings` and `needs` are essential too, so the
 chief cannot switch off the Plugins page or the petitions, the two places a
-plugin is put right. The inspector may be switched off.
+plugin is put right, and so is `menus`, the only way to quit: the close
+button sends the app to the background. The inspector, the world's panel,
+the status bar and the first-run screen may be switched off; a panel closed
+for good is opened again from a tab bar's plus.
 
 | Layer | What it wraps |
 |---|---|
@@ -326,29 +356,54 @@ plugins and then its own `HamletPlugin`, which adds nothing to the window.
 
 | Plugin | What it adds |
 |---|---|
+| `plugin_world_view` | The world's panel, titled REALM: the realm's camera drawn into it at the window's pixel scale and never larger than the window, the pointer passed on to the camera, the labels of the world hung off it; the stage set from the mayor's session, the sky held at day or night, `Animating` while something moves; the VIEW lines Reset Camera and the sky's three; and the chief's mascot brought into the world, kept beside whoever the chat is with and its look kept between launches |
+| `plugin_menus` | HAMLET and VIEW in the top bar (a part of the frame) and the open menu; the menu a right click opens on a thing of the world or the ground, with the items and commands of its own (Talk, Focus, Follow, Stop, Give a Skill, Undo, Make Mayor, Remove, Restore, Move, Close Down, the chief's and the library's, Found a Hamlet Here) and the roads and merges of two that are chosen; the form a hamlet is founded with, with its HAMLET line; the question before a `Deed` and a plugin's `Confirm`; and the sounds of those popups. Essential |
+| `plugin_status` | The status bar at the foot of the window: the sandbox, the model, the connection, what the session and the hamlet spent, the link under the pointer, what waits and whether an agent works. It keeps `Bar` |
+| `plugin_welcome` | The first-run screen over the dock, on a home whose model was never chosen: a provider's key, signing in, a server on this computer, and the models of whoever answered. Settings opens it again with `SetUpAgain` and `AddEndpoint` |
 | `plugin_inspector` | The Inspector: whoever is selected in the world, or every hamlet when none is. An agent's page (its chat, notes, character and past sessions, and the tabs plugins add), a hamlet's overview and rules, a chief's page and look, the page of an agent that is gone and the library's. It brings itself forward when something is selected, and adds the PROMPT item to the menu of an agent, its house and the mayor |
 | `plugin_needs` | The Needs You panel, titled PETITIONS: everything that waits for the chief, oldest first, with the answers each takes and a field for the reason or reply. It reads the chief's `ChiefName` and, where the window has set it, `DrawChange`, so it runs with no window |
-| `plugin_settings` | The Settings panel: its front page and the pages of it (endpoints, models, agents, charter, realm, senses) and the Plugins page. It stands on `hamlet_chat` (markdown, links, the deeds that ask first), `hamlet_limits` (the models and the rules of the realm) and `hamlet_realm` (the sky and the sound it sets) |
+| `plugin_settings` | The Settings panel: its front page and the pages of it (endpoints, models, agents, charter, realm, senses) and the Plugins page. It stands on `hamlet_chat` (markdown, links, the deeds that ask first), `hamlet_limits` (the models and the rules of the realm) and `hamlet_realm_api` (the quality and the `SoundChoice` it sets) |
 | `plugin_skills` | The Skills panel: the selected agent's own skills over the library, a VIEW line that opens it, and a SKILLS tab of the inspector's page of an agent that has skills of its own. TAKE OUT asks through `Confirm` and then runs `/unshelve` as the chief |
 
 Settings has a Plugins page that lists every `PluginInfo` with a switch
 that sends `Enable` or `Disable`, and shows what each asks for, what it adds
-and what the chief chose ([`permissions.md`](permissions.md)). The window
-and every plugin but the three layers can be switched off from it, the
-Settings and the Inspector too; the panel of one that is off is gone until it
-is switched on or the app starts again.
+and what the chief chose ([`permissions.md`](permissions.md)). Every plugin
+but the essential ones can be switched off from it; the panel or the part of
+the frame of one that is off is gone until it is switched on or the app
+starts again.
+
+### The frame
+
+A built-in plugin puts a view in the window around the dock with
+`Entry::frame_part(place, order, view)`: a `FramePart` entity with the view as
+its `Native`, gone with the plugin. `Place` is the top bar (`Bar`, before the
+room the window is held by), over the dock (`Dock`), the foot (`Foot`) or over
+everything (`Over`), and the parts of a place are drawn by `order`. The root
+is built once the theme is ready, in the set `Mounting`, and again when a
+part comes or goes, as for a new theme. The menus are the `Bar` part and two
+`Over` parts (0 and 10), the status bar the `Foot` part and the first-run
+screen the `Dock` part. A plugin that is not built in adds no part: a view is
+a function in the app.
 
 ### What stays in the window
 
-`hamlet_ui` keeps what is the window's own, or what a plugin must not
-reach: the dock and its saved layout, the menus, the status bar, the
-welcome screen, the camera and the world's panel, the right-click menu and
-the question it asks, the hover card, the cursor and the sounds. The
-world's panel and camera stay because they are the world on screen: they
-mount the realm's camera and take its pointer, and nothing else draws or
-reads them. The window also bridges the world's selection to the chat
-(`hamlet_chat::me`) and to the mascot, so that a plugin sees the selection
-only as `AgentSelected`, `SelectedAgent` and `Me`.
+`hamlet_ui` is the frame, and keeps only what belongs to the window and to
+no one subject:
+
+| Part | Why it is the frame's |
+|---|---|
+| `root` | The root the dock and the parts are mounted in, built again for a theme or a part that came or went. It also tells the world whether any popup is open (`over` of `Taken`), whoever opened it, so that Escape closes it and the hover card hides |
+| `dock`, `remember` | The dock is the host every panel is in, and its layout, the chosen sky, sound and quality and the selection are saved together in one file of the window |
+| `window`, `chrome`, `commands` | The window's states (`Showing`, `WorldShown`), its size, its buttons and grip, and the pace it is drawn at from `Animating`; Run in Background and Quit are what the window does to itself |
+| `cursor` | One pointer for the whole window, chosen from what every part reports: the panels' cursors, `Hold`, `Steer`, `Hovered`, `PointerWait` |
+| `hover` | The card that follows the pointer over any thing of the world, over every panel and under the menus. It reads the realm only through `hamlet_realm_api` |
+| `sounds`, `widgets` | How every control feels and sounds, and the sounds no single plugin makes: the dock's tabs and drags, a fold, a card, a message sent or failed |
+
+The frame also adds `hamlet_chat`, `hamlet_limits` and the question card of
+`hamlet_agents_api`, which several plugins share. The chat bridges the
+world's selection to who the chat is with (`hamlet_chat::me`), so that a
+plugin sees the selection as `AgentSelected`, `SelectedAgent` and `Me`, and
+`plugin_world_view` keeps the mascot beside it.
 
 ### The SDK and the core
 

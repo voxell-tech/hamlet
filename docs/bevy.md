@@ -49,7 +49,8 @@ each message.
 
 ## A frame costs what its systems touch
 
-The world is drawn only when something asks (`world_view::pace`), so work
+The world is drawn only when something asks (`Animating`, which
+`plugin_world_view` sets and the window's `pace` reads), so work
 that runs every frame is also work that keeps the app from resting.
 
 1. **Gate a system on what it waits for.** `run_if(resource_changed::<T>)`,
@@ -116,15 +117,16 @@ observers and resources and does little else in `build`.
 
 `bevy_fynix` builds a view with `&mut World` and reads the world through
 signals, all inside one exclusive system. So most `world.resource..` calls
-in `hamlet_ui` are the toolkit's shape, not a choice. What is a choice is
+in the window and its plugins are the toolkit's shape, not a choice. What is a choice is
 where a signal reads from. The pattern that fits:
 
 > An ordinary system with queries and change detection writes a small
 > `PartialEq` resource only when it differs, and the view binds to that
 > resource.
 
-`Lines`, `Bar`, `Card`, `Offered`, `Roll`, `plugin_needs`'s `Queue` and
-`inspector::Papers` are built this way. A signal on `every_frame()` does
+`Lines`, `Bar`, `Card`, `Offered`, `Roll`, `plugin_needs`'s `Queue`,
+`inspector::Papers` and the realm's `Hold` and `RobotPaint` are built this
+way. A signal on `every_frame()` does
 its whole read each frame, and a dock tab that is not in front still runs
 its signals. A read that has no resource of its own takes its check from
 `moved::<R>()` or `either(..)` in `hamlet_sdk/src/checks.rs`, or from
