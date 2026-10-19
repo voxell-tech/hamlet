@@ -8,7 +8,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_agents_api::model::SignIn;
-use hamlet_model::config::providers::PROVIDERS;
+use hamlet_agents_api::model::config::providers::PROVIDERS;
 
 use super::{
     Act, Narrowing, Step, Welcome, close, go, look, pick, request,
@@ -332,7 +332,7 @@ fn models() -> AnyView {
                 " You're using your ChatGPT plan: its models count \
                  toward the plan's usage, which you can manage at \
                  {}.",
-                hamlet_model::chatgpt::USAGE
+                hamlet_agents_api::model::chatgpt::USAGE
             ));
         }
         cx.build(

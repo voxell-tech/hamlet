@@ -8,14 +8,13 @@ use bevy_fynix::views::{
     FrameProps, column, label, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use hamlet_agents_api::model::catalogue::{Model, Priced};
+use hamlet_agents_api::model::config::Config;
 use hamlet_agents_api::model::{
     ListModels, Listing, ModelCatalogue, SaveSettings, Settings,
-    TestConnection,
+    TestConnection, chatgpt,
 };
 use hamlet_base::{HomeDir, Tokio};
-use hamlet_model::catalogue::{Model, Priced};
-use hamlet_model::chatgpt;
-use hamlet_model::config::Config;
 use hamlet_sdk::checks::{either, moved};
 use hamlet_sdk::settings::AddEndpoint;
 

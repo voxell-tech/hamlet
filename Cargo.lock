@@ -3584,6 +3584,7 @@ dependencies = [
  "bevy_fynix",
  "hamlet_base",
  "hamlet_core",
+ "hamlet_model",
  "hamlet_rules",
  "hamlet_sdk",
 ]
@@ -5777,7 +5778,6 @@ dependencies = [
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_limits_api",
- "hamlet_model",
  "hamlet_sdk",
  "hamlet_testing",
 ]
@@ -5831,7 +5831,6 @@ dependencies = [
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_limits_api",
- "hamlet_model",
  "hamlet_realm_api",
  "hamlet_sdk",
 ]
@@ -5865,7 +5864,6 @@ dependencies = [
  "bevy_fynix",
  "hamlet_agents_api",
  "hamlet_limits_api",
- "hamlet_model",
  "hamlet_sdk",
 ]
 

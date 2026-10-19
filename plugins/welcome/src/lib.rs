@@ -19,17 +19,16 @@ use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input_focus::InputFocus;
 use bevy::text::EditableText;
-use hamlet_agents_api::model::{
-    Link, ListModels, Model, SaveSettings, Settings, SignIn, Signing,
-    TestConnection, Trial, TryModel,
-};
-use hamlet_limits_api::models;
-use hamlet_model::catalogue::{self, Catalogue, Listed};
-use hamlet_model::chatgpt;
-use hamlet_model::config::providers::{
+use hamlet_agents_api::model::catalogue::{self, Catalogue, Listed};
+use hamlet_agents_api::model::config::providers::{
     LOCAL, OPENROUTER, OTHER, PROVIDERS, served,
 };
-use hamlet_model::config::{Config, Endpoint};
+use hamlet_agents_api::model::config::{Config, Endpoint};
+use hamlet_agents_api::model::{
+    Link, ListModels, Model, SaveSettings, Settings, SignIn, Signing,
+    TestConnection, Trial, TryModel, chatgpt,
+};
+use hamlet_limits_api::models;
 use hamlet_sdk::frame::{Place, PointerWait};
 use hamlet_sdk::plugin::{
     AppPluginExt, Entry, HamletPlugin, Manifest,
@@ -629,7 +628,7 @@ mod tests {
     fn every_provider_is_named_as_an_endpoint_may_be() {
         for provider in PROVIDERS.iter().chain(&LOCAL) {
             assert!(
-                hamlet_model::config::names_endpoint(
+                hamlet_agents_api::model::config::names_endpoint(
                     provider.endpoint
                 ),
                 "{}",
@@ -643,7 +642,9 @@ mod tests {
                 Some(provider.base_url)
             );
         }
-        assert!(hamlet_model::config::names_endpoint(OTHER));
+        assert!(hamlet_agents_api::model::config::names_endpoint(
+            OTHER
+        ));
     }
 
     #[test]

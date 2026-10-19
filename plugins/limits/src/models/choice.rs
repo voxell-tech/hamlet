@@ -11,9 +11,9 @@ use hamlet_agents_api::agents::{
     self, Account, LivesIn, Mayor, Settlement,
 };
 use hamlet_agents_api::hamlet::{Hamlet, MAYOR};
+use hamlet_agents_api::model::catalogue::Catalogue;
 use hamlet_agents_api::model::{ModelCatalogue, Settings};
 use hamlet_home::limits::{self, Limits};
-use hamlet_model::catalogue::Catalogue;
 use hamlet_sdk::checks::{either, moved};
 
 use super::Shelf;
@@ -317,7 +317,7 @@ pub fn of_hamlet(hamlet: Entity) -> AnyView {
 
 #[cfg(test)]
 mod tests {
-    use hamlet_model::catalogue::{Catalogue, Model};
+    use hamlet_agents_api::model::catalogue::{Catalogue, Model};
 
     use super::*;
 

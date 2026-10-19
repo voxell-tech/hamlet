@@ -15,7 +15,6 @@ hamlet_chat_api.workspace = true
 hamlet_desktop.workspace = true
 hamlet_home.workspace = true
 hamlet_limits_api.workspace = true
-hamlet_model.workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true

@@ -20,6 +20,7 @@ use bevy_fynix::views::{
     number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use hamlet_agents_api::model::config::Config;
 use hamlet_agents_api::model::{SaveSettings, Settings};
 use hamlet_agents_api::oversight::{Grants, Revoke};
 use hamlet_chat_api::deed::{self, CharterReset, Deed};
@@ -29,7 +30,6 @@ use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::open;
 use hamlet_home::charter;
 use hamlet_limits_api::{models, rules};
-use hamlet_model::config::Config;
 use hamlet_realm_api::sky::Quality;
 use hamlet_realm_api::sound::SoundChoice;
 use hamlet_sdk::checks::{either, moved};

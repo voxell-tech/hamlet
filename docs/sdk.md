@@ -44,16 +44,26 @@ breaks these rules:
 - an API crate that owns its words (`OWNERS` in the test: `hamlet_realm_api`
   and `hamlet_limits_api`) stands on no layer crate, nor on a crate that
   does, its tests neither ([Who owns the words](#who-owns-the-words));
-- only `plugin_agents` and `plugin_hamlets` depend on `hamlet_core` or
-  `hamlet_rules`, and only `plugin_realm` on `hamlet_realm`. A plugin's tests
-  may: the chat's stand up the core's agents to talk to;
+- only `plugin_agents` and `plugin_hamlets` depend on `hamlet_core`,
+  `hamlet_rules`, `hamlet_model` or `hamlet_sandbox`, and only `plugin_realm`
+  on `hamlet_realm`; the others read the model's settings, prices and
+  sign-in through `hamlet_agents_api::model`. A plugin's tests may: the
+  chat's stand up the core's agents to talk to;
 - an engine crate (`hamlet_sdk`, `hamlet_base`, `hamlet_wasm`,
-  `hamlet_native`, `hamlet_desktop`, `hamlet_ui`, `hamlet_openui`) depends on
-  no layer crate (`hamlet_core`, `hamlet_rules`, `hamlet_realm`), its tests
-  neither. `EXCEPTIONS` in the test would name one that stands for now with
-  its reason; there is none. The frame reads the agents through
-  `hamlet_agents_api`, and the machine's `Busy` mark and runtime are
-  `hamlet_base`'s.
+  `hamlet_native`, `hamlet_desktop`, `hamlet_ui`, `hamlet_openui`) stands on
+  no layer crate (`LAYERS`: `hamlet_core`, `hamlet_rules`, `hamlet_realm`
+  and those under them, `hamlet_model`, `hamlet_home` and `hamlet_sandbox`),
+  nor on a crate that does, its tests neither. The test walks every
+  dependency down, as for an API crate that owns its words.
+
+`EXCEPTIONS` in the test names each dependency that leads to a layer and
+stands for now, with its reason, and the walk does not follow it; an
+exception whose dependency is gone fails the test. They are: `hamlet_base`
+on `hamlet_home`, as `HomeDir` holds its `Home`; `hamlet_wasm` and the frame
+on `hamlet_agents_api`, which re-exports the core's types, and the frame on
+`hamlet_chat_api`, which stands on it; and the tests of `hamlet_wasm`,
+`hamlet_native` and the frame on `hamlet_home`, to make a `HomeDir`. The
+machine's `Busy` mark and runtime are `hamlet_base`'s.
 
 ## hamlet_realm_api
 
