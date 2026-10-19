@@ -276,8 +276,11 @@ reaches the GPU: the host draws what it describes.
    frame and hidden while the site is not drawn, and an entity for each node under it. When
    the scene changes it compares the nodes by id and spawns, changes or despawns only those
    that differ, and makes a mesh or a shader again only when its data changed. A shader is
-   one asset for each id of each plugin, kept for the run and replaced in place, so its
-   pipeline is compiled again and never left without it; a node whose shader is gone or no
+   one asset for each id of each plugin, replaced in place, so its pipeline is compiled again
+   and never left without it. A shader the scene no longer sends, and all of a plugin's
+   when its scene is taken away (it is removed, switched off or stops), give their assets up
+   to the next shaders of any plugin; no asset is dropped, since the renderer would try a
+   pipeline whose shader is gone again every frame. A node whose shader is gone or no
    longer allowed is drawn again in a plain material. The nodes
    ignore the pointer. The plugin's name hangs over its scene, and the tag in the corner of
    the REALM panel names it among the plugins that draw.

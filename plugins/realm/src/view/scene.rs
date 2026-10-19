@@ -68,11 +68,53 @@ pub struct Named(Entity);
 #[derive(Resource)]
 struct Shapes(HashMap<&'static str, Handle<Mesh>>);
 
-/// The shader asset of each shader id of each plugin, kept for the
-/// run: a pipeline whose shader is dropped would be tried again every
-/// frame.
+/// The shader asset of each shader id of each plugin, and the assets
+/// no plugin holds now, given to the next shader that needs one. No
+/// asset is dropped: a pipeline whose shader is dropped would be
+/// tried again every frame for the rest of the run.
 #[derive(Resource, Default)]
-struct PluginShaders(HashMap<(String, String), Handle<Shader>>);
+struct PluginShaders {
+    held: HashMap<(String, String), Handle<Shader>>,
+    spare: Vec<Handle<Shader>>,
+}
+
+impl PluginShaders {
+    /// The asset of the shader `id` of `plugin`, made `compiled` in
+    /// place, so that its pipeline is made again and none is left
+    /// without its shader.
+    fn put(
+        &mut self,
+        (plugin, id): (&str, &str),
+        compiled: Shader,
+        shaders: &mut Assets<Shader>,
+    ) -> Handle<Shader> {
+        let key = (plugin.to_string(), id.to_string());
+        let held =
+            self.held.get(&key).cloned().or_else(|| self.spare.pop());
+        let handle = match held {
+            Some(handle) => {
+                if let Some(mut held) = shaders.get_mut(&handle) {
+                    *held = compiled;
+                }
+                handle
+            }
+            None => shaders.add(compiled),
+        };
+        self.held.insert(key, handle.clone());
+        handle
+    }
+
+    /// Gives up the shaders of `plugin` that `gone` says go.
+    fn release(&mut self, plugin: &str, gone: impl Fn(&str) -> bool) {
+        let (spare, held) = std::mem::take(&mut self.held)
+            .into_iter()
+            .partition::<HashMap<_, _>, _>(|((by, id), _)| {
+                by == plugin && gone(id)
+            });
+        self.held = held;
+        self.spare.extend(spare.into_values());
+    }
+}
 
 impl FromWorld for Shapes {
     fn from_world(world: &mut World) -> Self {
@@ -323,6 +365,9 @@ fn stock(
         }
         sent
     });
+    kept.release(plugin, |id| {
+        !scene.shaders.iter().any(|s| s.id == id)
+    });
     for sent in &scene.shaders {
         let held = stage.shaders.get(&sent.id);
         if held.is_some_and(|(source, _)| *source == sent.source) {
@@ -330,23 +375,7 @@ fn stock(
         }
         let compiled =
             shader::compiled(plugin, &sent.id, &sent.source);
-        // One asset for each shader of each plugin, replaced in
-        // place, so that its pipeline is made again and none is left
-        // without its shader.
-        let key = (plugin.to_string(), sent.id.clone());
-        let handle = match kept.0.get(&key) {
-            Some(handle) => {
-                if let Some(mut held) = shaders.get_mut(handle) {
-                    *held = compiled;
-                }
-                handle.clone()
-            }
-            None => {
-                let handle = shaders.add(compiled);
-                kept.0.insert(key, handle.clone());
-                handle
-            }
-        };
+        let handle = kept.put((plugin, &sent.id), compiled, shaders);
         stage
             .shaders
             .insert(sent.id.clone(), (sent.source.clone(), handle));
@@ -545,12 +574,20 @@ fn tag(
     ));
 }
 
-/// Takes away the scene of a plugin that no longer builds one.
+/// Takes away the scene of a plugin that no longer builds one, and
+/// gives up its shaders.
 fn clear(
     gone: On<Remove, PluginScene>,
+    scenes: Query<(&PluginScene, Option<&PluginInfo>)>,
     staged: Query<&Staged>,
+    mut kept: ResMut<PluginShaders>,
     mut commands: Commands,
 ) {
+    if let Ok((scene, info)) = scenes.get(gone.entity) {
+        let id =
+            info.map_or(scene.by.as_str(), |info| info.id.as_str());
+        kept.release(id, |_| true);
+    }
     let Ok(staged) = staged.get(gone.entity) else {
         return;
     };
