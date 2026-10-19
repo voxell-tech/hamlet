@@ -53,7 +53,9 @@ every target.
 - `plugin.use` lets a plugin run a command of another plugin, hear its events
   and have them given to it (see [`wasm.md`](wasm.md)). The first use of a
   plugin it has no choice for raises the petition, "Clipper asks to use
-  plugin.use for `notes`. Allow it?", and the call is answered with the error
+  plugin.use for `notes`. Allow it?", which also names what of `chat.send`,
+  `commands.run` and `world.act` the target holds, since what it does for the
+  caller needs the caller's own grant for the same, and the call is answered with the error
   `plugin.use not granted`; the answer reaches the plugin as `granted` or
   `denied` of `plugin.use:notes`. An event is given to a plugin only while it
   holds `plugin.use` for the plugin that publishes it, and the events of the

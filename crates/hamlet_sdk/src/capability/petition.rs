@@ -13,6 +13,7 @@ use super::ask::{Asked, Asks};
 use super::choice::Choice;
 use super::decide::Decide;
 use super::dependency::{needed, needing};
+use super::granted::Granted;
 use super::install::{self, Removed, Uninstalled};
 use super::name::Capability;
 use super::subject::Subject;
@@ -141,6 +142,12 @@ pub(super) fn using(
         capability,
         target: target.clone(),
     };
+    let powers = match (capability, &target) {
+        (Capability::PluginUse, Some(target)) => {
+            powers(world, target)
+        }
+        _ => String::new(),
+    };
     let of = target
         .map(|target| format!(" for `{}`", plain(&target)))
         .unwrap_or_default();
@@ -156,6 +163,7 @@ pub(super) fn using(
             text += &format!("\nLimited to: {}", plain(&limit));
         }
     }
+    text += &powers;
     // One plain line, so that it cannot pass for a line of the
     // petition's own.
     let said = plain(said);
@@ -173,6 +181,37 @@ pub(super) fn using(
 /// The most of a plugin's own reason a petition quotes, in
 /// characters.
 const SAID: usize = 200;
+
+/// A line on what the plugin `target` holds of acting as the chief,
+/// and that a plugin using it needs the same grants for what it does
+/// on that plugin's behalf. Empty when it holds none.
+fn powers(world: &mut World, target: &str) -> String {
+    let mut plugins = world.query::<(&PluginInfo, &Granted)>();
+    let Some((_, granted)) =
+        plugins.iter(world).find(|(info, _)| info.id == target)
+    else {
+        return String::new();
+    };
+    let held = [
+        Capability::ChatSend,
+        Capability::CommandsRun,
+        Capability::WorldAct,
+    ]
+    .into_iter()
+    .filter(|capability| granted.holds(*capability))
+    .map(Capability::name)
+    .collect::<Vec<_>>();
+    match held.is_empty() {
+        true => String::new(),
+        false => format!(
+            "\n`{}` acts as you with {}. What it does when this \
+             plugin calls it needs this plugin's own grant for the \
+             same.",
+            plain(target),
+            held.join(", ")
+        ),
+    }
+}
 
 /// `head`, and under it each of `asks` with its reason, each made
 /// one plain line.
