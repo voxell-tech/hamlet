@@ -8,6 +8,7 @@ use hamlet_sdk::plugin::Status;
 
 use super::calls::{Caller, Calls};
 use super::mail::{Who, send};
+use super::tools;
 use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::{
     CallAnswer, CallRequest, CommandCall, Incoming,
@@ -205,6 +206,10 @@ pub(super) fn reply(
                 }),
             );
         }
+        Caller::Agent => calls.tell_agent(
+            call.id,
+            outcome.map(|bytes| tools::text(&bytes, limits)),
+        ),
         Caller::Chief(command) => {
             if let Err(why) = outcome {
                 let words = format!(

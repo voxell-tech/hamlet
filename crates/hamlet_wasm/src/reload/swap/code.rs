@@ -60,7 +60,8 @@ pub(super) fn swap(
     );
     command::replace(
         case.plugin,
-        &info.id,
+        &info,
+        &granted,
         &installed.manifest.exports,
         &case.offered,
         &offers,

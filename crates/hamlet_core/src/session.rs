@@ -8,6 +8,7 @@ mod gate;
 mod key;
 mod mail;
 mod output;
+mod plug;
 mod rewind;
 mod told;
 mod transcript;
@@ -33,6 +34,7 @@ pub use self::key::{ASKED, MAIL, Seat, SessionKey};
 use self::mail::{Letter, Mail, post, reply_head};
 pub use self::mail::{gather, reply_in};
 use self::output::output;
+use self::plug::serve;
 pub use self::rewind::{Rewind, Rewound};
 pub use self::told::prompt_of;
 pub use self::transcript::{Began, Entry, Item, Transcript};
@@ -392,6 +394,7 @@ fn drain(world: &mut World) {
                 }
             }
             Msg::Gate(starting) => rule(world, starting),
+            Msg::Plug(plugs) => serve(world, plugs),
             Msg::Started {
                 session,
                 instruction,

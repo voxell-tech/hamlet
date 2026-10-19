@@ -62,6 +62,7 @@ pub(super) fn settle(
                     }),
                 );
             }
+            Caller::Agent => calls.tell_agent(call.id, Err(why)),
             Caller::Chief(command) => {
                 let words = format!(
                     "`{}/{command}` did not run: {why}",

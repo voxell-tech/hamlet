@@ -4,6 +4,7 @@
 pub mod change;
 mod custom;
 mod edit;
+pub mod plugged;
 mod reading;
 mod shell;
 
@@ -17,6 +18,7 @@ use serde_json::{Value, json};
 pub use self::change::Change;
 use self::custom::{CustomTool, reserved};
 use self::edit::edit;
+pub use self::plugged::{AgentTool, AgentToolCalled, Offered};
 use self::reading::Sight;
 use self::shell::Shell;
 
@@ -84,6 +86,9 @@ pub struct Tools {
     sandbox: &'static dyn Sandbox,
     shell: Shell,
     custom_tools: Vec<CustomTool>,
+    /// The tools installed plugins give this agent, as of its last
+    /// step.
+    plugged: Vec<Offered>,
     site: Option<Site>,
     /// The workspaces of other agents that a command may read.
     led: Vec<PathBuf>,
@@ -105,9 +110,23 @@ impl Tools {
             sandbox,
             shell: Shell::detect(),
             custom_tools: vec![],
+            plugged: vec![],
             site: None,
             led: vec![],
         }
+    }
+
+    /// Takes the tools plugins give the agent from now on.
+    pub(crate) fn plugged(&mut self, tools: Vec<Offered>) {
+        self.plugged = tools;
+    }
+
+    /// The tool a plugin gives the agent that goes by `name`.
+    pub(crate) fn plugged_tool(
+        &self,
+        name: &str,
+    ) -> Option<&Offered> {
+        self.plugged.iter().find(|tool| tool.name == name)
     }
 
     /// Lets a command read the workspaces `led`, each with its
@@ -265,6 +284,9 @@ impl Tools {
         }
         defs.extend(
             self.custom_tools.iter().map(|p| p.definition.clone()),
+        );
+        defs.extend(
+            self.plugged.iter().map(|tool| tool.definition.clone()),
         );
         defs
     }

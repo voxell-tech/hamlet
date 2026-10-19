@@ -1,0 +1,42 @@
+# Run from the Hamlet checkout, after building Tides into a folder:
+#   guests/tides/build.sh <dir>/tides
+#   cargo run --example plugin_check --features wasm -- \
+#     <dir>/tides --script guests/tides/steps.toml --out <pictures>
+#
+# The plugin is installed with its ask unanswered, as a chief would
+# who let it in. A tool is offered to the agents only while the chief
+# allows agent.tool, and only to the hamlets the ask lists.
+
+[[step]]
+tick = 2
+
+# Not allowed yet: no agent is offered the tool.
+[[step]]
+call-tool = { tool = "height", offered = false }
+
+[[step]]
+grant = "agent.tool"
+
+[[step]]
+call-tool = { tool = "height", args = '{"port": "Dover"}', shows = "6.1 metres" }
+
+[[step]]
+call-tool = { tool = "height", args = '{"port": "Hull", "feet": true}', shows = "24 feet" }
+
+# The plugin says why it cannot answer, and the agent is told. A
+# missing argument never reaches the plugin.
+[[step]]
+call-tool = { tool = "height", args = '{"port": "Atlantis"}', fails = true, shows = "no table" }
+
+[[step]]
+call-tool = { tool = "height", fails = true, shows = "missing `port`" }
+
+[[step]]
+expect = { panel = "tides", text = "Calls: 3" }
+
+# The ask lists Home, so the agents of another hamlet are not offered it.
+[[step]]
+call-tool = { tool = "height", hamlet = "Elsewhere", offered = false }
+
+[[step]]
+render = { panel = "tides", file = "tides.png" }

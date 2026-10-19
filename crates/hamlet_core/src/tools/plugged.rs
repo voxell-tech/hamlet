@@ -1,0 +1,295 @@
+//! Tools that installed plugins give the agents: what a plugin
+//! declares, how it is shown to a model and how its call is checked.
+
+use bevy_ecs::prelude::*;
+use serde_json::{Map, Value, json};
+use tokio::sync::oneshot;
+
+/// The longest name a model may give a tool.
+const NAME_MAX: usize = 64;
+
+/// Between a plugin's id and the name of its tool, in the name an
+/// agent calls it by. No tool added by hand may have it, so a name
+/// with it is always a plugin's.
+pub const JOIN: &str = "__";
+
+/// The kind of value a field of a tool takes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FieldKind {
+    Text,
+    Number,
+    Flag,
+}
+
+impl FieldKind {
+    fn schema(self) -> &'static str {
+        match self {
+            FieldKind::Text => "string",
+            FieldKind::Number => "number",
+            FieldKind::Flag => "boolean",
+        }
+    }
+}
+
+/// One argument of a tool.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ToolField {
+    pub name: String,
+    pub kind: FieldKind,
+    pub description: String,
+    pub required: bool,
+}
+
+/// On the entity of a tool a plugin declared for the agents. It goes
+/// with the plugin.
+#[derive(Component, Clone, PartialEq, Debug)]
+pub struct AgentTool {
+    /// The id of the plugin that answers calls of it.
+    pub plugin: String,
+    /// The name the chief knows the plugin by.
+    pub label: String,
+    /// The plugin's own name for the tool.
+    pub name: String,
+    pub description: String,
+    pub fields: Vec<ToolField>,
+    /// The hamlets whose agents may call it. Empty is every hamlet.
+    pub hamlets: Vec<String>,
+    /// The chief allows the plugin to give tools.
+    pub live: bool,
+}
+
+impl AgentTool {
+    /// The name an agent calls it by, or `None` where it is more
+    /// than a model takes.
+    pub fn called(plugin: &str, name: &str) -> Option<String> {
+        let called =
+            format!("{plugin}{JOIN}{name}").replace('.', "_");
+        (called.len() <= NAME_MAX).then_some(called)
+    }
+
+    /// Whether the agents of `hamlet` are offered it.
+    pub fn offered_to(&self, hamlet: &str) -> bool {
+        self.live
+            && (self.hamlets.is_empty()
+                || self.hamlets.iter().any(|h| h == hamlet))
+    }
+
+    /// The tool as a model is shown it.
+    pub fn definition(&self) -> Option<Offered> {
+        let name = Self::called(&self.plugin, &self.name)?;
+        let properties = self
+            .fields
+            .iter()
+            .map(|field| {
+                (
+                    field.name.clone(),
+                    json!({
+                        "type": field.kind.schema(),
+                        "description": field.description,
+                    }),
+                )
+            })
+            .collect::<Map<_, _>>();
+        let required = self
+            .fields
+            .iter()
+            .filter(|field| field.required)
+            .map(|field| field.name.clone())
+            .collect::<Vec<_>>();
+        Some(Offered {
+            plugin: self.plugin.clone(),
+            tool: self.name.clone(),
+            definition: json!({"type": "function", "function": {
+            "name": name,
+            "description": format!(
+                "[from the plugin {}] {}",
+                self.label, self.description
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            }}}),
+            name,
+        })
+    }
+
+    /// The arguments a model gave, as pairs of a field and its value
+    /// in words, or why they are not the tool's. A field the tool
+    /// does not have is dropped.
+    pub fn arguments(
+        &self,
+        args: &str,
+    ) -> Result<Vec<(String, String)>, String> {
+        let given =
+            serde_json::from_str::<Value>(if args.is_empty() {
+                "{}"
+            } else {
+                args
+            })
+            .map_err(|e| {
+                format!("arguments are not valid JSON: {e}")
+            })?;
+        let mut pairs = Vec::new();
+        for field in &self.fields {
+            let value = &given[&field.name];
+            let word = match (field.kind, value) {
+                (_, Value::Null) if field.required => {
+                    return Err(format!("missing `{}`", field.name));
+                }
+                (_, Value::Null) => continue,
+                (FieldKind::Text, Value::String(text)) => {
+                    text.clone()
+                }
+                (FieldKind::Number, Value::Number(number)) => {
+                    number.to_string()
+                }
+                (FieldKind::Flag, Value::Bool(flag)) => {
+                    flag.to_string()
+                }
+                (kind, _) => {
+                    return Err(format!(
+                        "`{}` is not a {}",
+                        field.name,
+                        kind.schema()
+                    ));
+                }
+            };
+            pairs.push((field.name.clone(), word));
+        }
+        Ok(pairs)
+    }
+}
+
+/// A tool as one agent is offered it.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Offered {
+    /// The name the agent calls it by.
+    pub name: String,
+    pub plugin: String,
+    /// The plugin's own name for it.
+    pub tool: String,
+    pub definition: Value,
+}
+
+/// An agent calls a tool of a plugin. An observer of the plugin takes
+/// `answer` and sends what the tool returns, or why it cannot. A call
+/// nobody takes is answered with an error.
+#[derive(Event)]
+pub struct AgentToolCalled {
+    /// The agent making the call, and its hamlet.
+    pub agent: String,
+    pub hamlet: String,
+    pub plugin: String,
+    pub tool: String,
+    /// The arguments, checked against the tool.
+    pub args: Vec<(String, String)>,
+    pub answer: Option<Answer>,
+}
+
+/// Where the answer to a call of a tool goes.
+#[derive(Debug)]
+pub struct Answer(pub(crate) oneshot::Sender<Result<String, String>>);
+
+impl Answer {
+    pub fn send(self, outcome: Result<String, String>) {
+        let _ = self.0.send(outcome);
+    }
+}
+
+/// The answer to a call of a tool, once it is given.
+pub struct Waiting(oneshot::Receiver<Result<String, String>>);
+
+impl Waiting {
+    /// The answer, if it came. An error where it never will.
+    pub fn take(&mut self) -> Option<Result<String, String>> {
+        match self.0.try_recv() {
+            Ok(outcome) => Some(outcome),
+            Err(oneshot::error::TryRecvError::Empty) => None,
+            Err(oneshot::error::TryRecvError::Closed) => {
+                Some(Err("nobody answered".into()))
+            }
+        }
+    }
+}
+
+impl AgentToolCalled {
+    /// The call of `tool` of `plugin` by `agent` of `hamlet`, and
+    /// where its answer comes.
+    pub fn new(
+        agent: &str,
+        hamlet: &str,
+        plugin: &str,
+        tool: &str,
+        args: Vec<(String, String)>,
+    ) -> (Self, Waiting) {
+        let (tx, rx) = oneshot::channel();
+        let call = Self {
+            agent: agent.into(),
+            hamlet: hamlet.into(),
+            plugin: plugin.into(),
+            tool: tool.into(),
+            args,
+            answer: Some(Answer(tx)),
+        };
+        (call, Waiting(rx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool() -> AgentTool {
+        AgentTool {
+            plugin: "tide.table".into(),
+            label: "Tide Table".into(),
+            name: "height".into(),
+            description: "The height of the tide.".into(),
+            fields: vec![
+                ToolField {
+                    name: "port".into(),
+                    kind: FieldKind::Text,
+                    description: "Where.".into(),
+                    required: true,
+                },
+                ToolField {
+                    name: "feet".into(),
+                    kind: FieldKind::Flag,
+                    description: "In feet.".into(),
+                    required: false,
+                },
+            ],
+            hamlets: vec!["Home".into()],
+            live: true,
+        }
+    }
+
+    #[test]
+    fn a_tool_is_named_for_its_plugin_and_checks_its_arguments() {
+        let tool = tool();
+        let offered = tool.definition().unwrap();
+        assert_eq!(offered.name, "tide_table__height");
+        assert!(
+            offered.definition["function"]["description"]
+                .as_str()
+                .unwrap()
+                .starts_with("[from the plugin Tide Table]")
+        );
+        assert!(tool.offered_to("Home") && !tool.offered_to("Away"));
+        assert_eq!(
+            tool.arguments(r#"{"port":"Dover","feet":true,"x":1}"#),
+            Ok(vec![
+                ("port".into(), "Dover".into()),
+                ("feet".into(), "true".into())
+            ])
+        );
+        assert!(tool.arguments("{}").unwrap_err().contains("port"));
+        assert!(
+            tool.arguments(r#"{"port":4}"#)
+                .unwrap_err()
+                .contains("string")
+        );
+        assert!(AgentTool::called(&"p".repeat(60), "tool").is_none());
+    }
+}

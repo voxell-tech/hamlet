@@ -70,6 +70,9 @@ pub enum Step {
     /// Fails unless a notice the chief was given in the chat holds
     /// the text, as an act done as the chief is noted.
     ExpectTold(String),
+    /// Has an agent call a tool the plugin gave, as the app carries
+    /// a call of an agent's, and checks what comes back.
+    CallTool(ToolCall),
 }
 
 impl Step {
@@ -80,6 +83,43 @@ impl Step {
             Step::Render(_) | Step::Section(_) | Step::Page(_)
         )
     }
+}
+
+/// A call of a tool of the plugin in front, by an agent.
+#[derive(Deserialize, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ToolCall {
+    /// The plugin's own name for the tool.
+    pub tool: String,
+    /// The arguments as a model writes them, in JSON.
+    #[serde(default = "no_arguments")]
+    pub args: String,
+    /// The hamlet of the agent. A tool is offered to the agents of
+    /// the hamlets the ask lists.
+    #[serde(default = "a_hamlet")]
+    pub hamlet: String,
+    /// Fails unless the text the tool returned holds this.
+    #[serde(default)]
+    pub shows: String,
+    /// The call is to fail, and `shows` is in why.
+    #[serde(default)]
+    pub fails: bool,
+    /// False checks that the tool is not offered to the agent, and
+    /// calls nothing.
+    #[serde(default = "offered")]
+    pub offered: bool,
+}
+
+fn no_arguments() -> String {
+    "{}".into()
+}
+
+fn a_hamlet() -> String {
+    "Home".into()
+}
+
+fn offered() -> bool {
+    true
 }
 
 /// An item of the menu of a thing of the world.

@@ -1,6 +1,7 @@
 //! The commands that wait for an answer.
 
 use bevy::prelude::*;
+use hamlet_core::tools::plugged::Answer;
 
 /// Who ran a command.
 #[derive(Clone, PartialEq, Debug)]
@@ -12,6 +13,9 @@ pub enum Caller {
     },
     /// The chief, by the command of this name.
     Chief(String),
+    /// An agent, calling a tool. The answer goes to the sender kept
+    /// in [`Calls`] under the call's number.
+    Agent,
 }
 
 /// A command run by one plugin or the chief that its target has not
@@ -36,6 +40,8 @@ pub struct Calls {
     next: u64,
     pub(super) frame: u64,
     pub(super) open: Vec<Call>,
+    /// Where the answer to each call of an agent goes.
+    agents: Vec<(u64, Answer)>,
 }
 
 impl Call {
@@ -109,6 +115,42 @@ impl Calls {
     ) -> u64 {
         let caller = Caller::Chief(command.into());
         self.push(caller, target, 1, wait)
+    }
+
+    /// The calls of agents that `target` has waiting.
+    pub fn agents_waiting(&self, target: Entity) -> usize {
+        self.open
+            .iter()
+            .filter(|call| {
+                call.target == target && call.caller == Caller::Agent
+            })
+            .count()
+    }
+
+    /// Notes a call of an agent, to be given up `wait` frames from
+    /// now, and returns its number. `answer` is told how it ends.
+    pub fn open_for_agent(
+        &mut self,
+        target: (Entity, &str),
+        wait: u64,
+        answer: Answer,
+    ) -> u64 {
+        let id = self.push(Caller::Agent, target, 1, wait);
+        self.agents.push((id, answer));
+        id
+    }
+
+    /// Tells the agent whose call is numbered `id` how it ended.
+    pub(super) fn tell_agent(
+        &mut self,
+        id: u64,
+        outcome: Result<String, String>,
+    ) {
+        if let Some(at) =
+            self.agents.iter().position(|(held, _)| *held == id)
+        {
+            self.agents.remove(at).1.send(outcome);
+        }
     }
 
     fn push(

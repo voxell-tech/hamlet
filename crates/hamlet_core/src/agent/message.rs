@@ -67,6 +67,7 @@ impl Agent {
         agent.overseen = self.overseen;
         // Its tool calls pass the same gate as the sender's.
         agent.gate = self.gate.take();
+        agent.plug = self.plug.take();
         let mut relay = |event: Event| {
             on(Event::Agent {
                 name: to.clone(),
@@ -82,6 +83,7 @@ impl Agent {
         let reply =
             Box::pin(agent.run(&me, message, &mut relay)).await;
         self.gate = agent.gate.take();
+        self.plug = agent.plug.take();
         reply.map_err(|e| {
             anyhow::anyhow!("`{to}` could not finish: {e}")
         })

@@ -56,4 +56,21 @@ impl Asks {
     pub fn of(&self, capability: Capability) -> Option<&Asked> {
         self.0.iter().find(|ask| ask.capability == capability)
     }
+
+    /// The first pair of asks no plugin may make together: one that
+    /// faces the agents, and one that acts as the chief or through
+    /// other plugins.
+    pub fn conflict(&self) -> Option<Refusal> {
+        let facing =
+            self.0.iter().find(|a| a.capability.agent_facing())?;
+        Capability::AGENT_FACING
+            .into_iter()
+            .find(|with| self.names(*with))
+            .map(|with| {
+                Refusal::Together(
+                    facing.capability.name().into(),
+                    with.name().into(),
+                )
+            })
+    }
 }

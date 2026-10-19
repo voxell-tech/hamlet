@@ -41,10 +41,11 @@ pub enum Capability {
     FilesRead,
     FilesWrite,
     Db,
+    AgentTool,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 21] = [
+    pub const ALL: [Capability; 22] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -66,7 +67,23 @@ impl Capability {
         Capability::FilesRead,
         Capability::FilesWrite,
         Capability::Db,
+        Capability::AgentTool,
     ];
+
+    /// What a plugin that holds this one may not also ask for, since
+    /// together they would hand the chief's authority to whatever an
+    /// agent writes: a tool an agent calls, with a way to act as the
+    /// chief or to work through another plugin that does.
+    pub const AGENT_FACING: [Capability; 3] = [
+        Capability::ChatSend,
+        Capability::CommandsRun,
+        Capability::PluginUse,
+    ];
+
+    /// Whether what the plugin does is set off by an agent.
+    pub fn agent_facing(self) -> bool {
+        matches!(self, Capability::AgentTool)
+    }
 
     /// The name a manifest and the grants file know it by.
     pub fn name(self) -> &'static str {
@@ -92,6 +109,7 @@ impl Capability {
             Capability::FilesRead => "files.read",
             Capability::FilesWrite => "files.write",
             Capability::Db => "db",
+            Capability::AgentTool => "agent.tool",
         }
     }
 
@@ -135,6 +153,9 @@ impl Capability {
             (false, _) => Some(scope.join(", ")),
             (true, true) => {
                 Some("nothing, the ask names no scope".into())
+            }
+            (true, false) if self == Capability::AgentTool => {
+                Some("every hamlet, the ask names none".into())
             }
             (true, false) => None,
         }
@@ -186,6 +207,9 @@ impl Capability {
                 "Write the files in its own folder"
             }
             Capability::Db => "Keep records in a database of its own",
+            Capability::AgentTool => {
+                "Give the agents tools that it carries out"
+            }
         }
     }
 
@@ -200,6 +224,13 @@ impl Capability {
             Capability::Net => Some(
                 "Reaches only the hosts listed, over https, within \
                  a size and time limit.",
+            ),
+            Capability::AgentTool => Some(
+                "The agents of the hamlets listed (every hamlet \
+                 where none is) are offered its tools, each marked \
+                 with the plugin's name, and what a tool returns is \
+                 shown to them as text from a plugin. It cannot \
+                 also act as the chief or use other plugins.",
             ),
             _ => None,
         }
@@ -225,6 +256,10 @@ pub enum Refusal {
     Unknown(String),
     /// The ask gives no reason.
     NoReason(String),
+    /// Two asks that no plugin may make together: the first faces the
+    /// agents, and the second would give what it does the chief's
+    /// authority.
+    Together(String, String),
 }
 
 impl fmt::Display for Refusal {
@@ -245,6 +280,11 @@ impl fmt::Display for Refusal {
             Refusal::NoReason(name) => {
                 write!(f, "its ask for `{name}` gives no reason")
             }
+            Refusal::Together(facing, with) => write!(
+                f,
+                "it asks for `{facing}` and `{with}`, which no \
+                 plugin may have together"
+            ),
         }
     }
 }

@@ -108,7 +108,7 @@ pub fn bring_up(
             let shown =
                 panel::spawn(plugin, &info.id, &declared, commands);
             command::spawn(
-                plugin, &info.id, exports, &offers, commands,
+                plugin, info, granted, exports, &offers, commands,
             );
             commands
                 .entity(plugin)

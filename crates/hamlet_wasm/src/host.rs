@@ -17,7 +17,7 @@ use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 pub use self::collections::{Reach, Shared};
 pub use self::declare::{
     Chorded, Declared, Offered, Offers, Paged, Placed, Tabbed,
-    Targeted,
+    Targeted, Toolled,
 };
 pub use self::request::Want;
 use crate::db::Db;
@@ -55,6 +55,8 @@ pub struct State {
     pub(crate) section_room: usize,
     pub(crate) page_room: usize,
     pub(crate) key_room: usize,
+    pub(crate) tool_room: usize,
+    pub(crate) field_room: usize,
     /// The id of the plugin this store belongs to.
     pub(crate) plugin: String,
     pub(crate) granted: Granted,
@@ -100,6 +102,8 @@ impl State {
             section_room: limits.inspector_sections,
             page_room: limits.settings_pages,
             key_room: limits.keys,
+            tool_room: limits.agent_tools,
+            field_room: limits.tool_fields,
             plugin: String::new(),
             granted: Granted::default(),
             wants: Vec::new(),
@@ -188,6 +192,15 @@ impl Host for State {
         panel: String,
     ) {
         self.page(title, icon, panel);
+    }
+
+    fn agent_tool(
+        &mut self,
+        name: String,
+        description: String,
+        fields: Vec<host::ToolField>,
+    ) {
+        self.give_tool(name, description, fields);
     }
 
     fn agents(&mut self) -> Result<Vec<host::Agent>, String> {

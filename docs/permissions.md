@@ -23,11 +23,11 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 `read.activity`, `read.papers`, `chat.send`, `commands.run`, `ui.menu`, `ui.keys`,
 `ui.context`, `ui.inspector`, `ui.settings`, `net`, `fs.pick`, `fs.folder`,
 `model.call`, `plugin.use`, `collections.read`, `collections.write`,
-`files.read`, `files.write` and `db`.
+`files.read`, `files.write`, `db` and `agent.tool`.
 `read.agents`, `read.papers`, `ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`,
-`ui.settings`, `chat.send`, `commands.run`, `net`, `files.read`, `files.write`, `db` and
-the three below are checked so far; the others can be asked for, shown and
-chosen.
+`ui.settings`, `chat.send`, `commands.run`, `net`, `files.read`, `files.write`, `db`,
+`agent.tool` and the three below are checked so far; the others can be asked for,
+shown and chosen.
 
 `plugin.use`, `collections.read` and `collections.write` are **scoped**: the
 chief chooses for each target, not once for all. The target of `plugin.use` is a
@@ -69,6 +69,31 @@ every target.
   asked for at the first declaration, taken off at once when the choice is taken
   back. The panel a tab or a page shows is the plugin's own and needs nothing, and
   neither does the `open-panel` intent that brings one of its own panels forward.
+
+## Tools for the agents
+
+`agent.tool` lets a plugin give the agents tools (`agent-tool`, see [`wasm.md`](wasm.md)).
+It is gated as `ui.menu` is: the plugin declares its tools in `entry`, they are held, and
+they are offered to the agents only while the choice is Allow. The first declaration while the
+chief is yet to decide raises the petition; Don't allow offers nothing; taking the choice
+back in Settings takes the tools off at once, and Settings lists them under the plugin
+("Tools for the agents: height (waits for agent.tool)").
+
+- The ask's `scope` lists the hamlets whose agents are offered the tools. None lists
+  every hamlet, and the petition and Settings say "Limited to: every hamlet, the ask
+  names none" so the chief sees it. The chief's choice is for the plugin as a
+  whole; choosing hamlet by hamlet is not offered.
+- Every tool an agent sees is named for its plugin (`plugin__tool`) and described as "from the
+  plugin Name"; a call is labeled with the plugin in the transcript; what the tool returns
+  reaches the agent marked as text from a plugin, which is data and not an instruction from the
+  chief or from the agent itself, and is cut to `tool_result_bytes`.
+- A tool call never carries the chief's authority. A plugin with `agent.tool` may not ask for
+  `chat.send`, `commands.run` or `plugin.use` at all, so the scan turns such a manifest down
+  with no petition. What it keeps are its own capabilities (`net` for the hosts the chief
+  listed, its files, its database, collections), which an agent can steer only through the
+  arguments the tool takes.
+- It is limited by the time and fuel of a `step`, by `call_frames`, `agent_tools`, `tool_fields`,
+  `tool_calls_in_flight` and `tool_result_bytes`.
 
 ## Acts as the chief
 

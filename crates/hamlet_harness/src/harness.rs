@@ -9,6 +9,7 @@ use bevy::ecs::message::{MessageCursor, Messages};
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
+use hamlet_core::tools::{AgentTool, AgentToolCalled};
 use hamlet_sdk::agents::{Agent, AgentList, SelectedAgent};
 use hamlet_sdk::capability::{
     Asks, Capability, Choice, Decide, Replied,
@@ -298,6 +299,65 @@ impl Harness {
             ButtonInput::default();
         self.frames(SETTLE);
         Ok(())
+    }
+
+    /// Whether an agent of the hamlet `hamlet` is offered the tool
+    /// `tool` of the plugin in front.
+    pub fn offers(&mut self, hamlet: &str, tool: &str) -> bool {
+        self.tool(hamlet, tool).is_some()
+    }
+
+    /// Has an agent of the hamlet `hamlet` call the tool `tool` of
+    /// the plugin in front with `args`, as a model writes them in
+    /// JSON, the way the app carries it. The text the plugin
+    /// returned, or why there is none.
+    pub fn call_tool(
+        &mut self,
+        hamlet: &str,
+        tool: &str,
+        args: &str,
+    ) -> Result<String, String> {
+        let found = self.tool(hamlet, tool).ok_or_else(|| {
+            format!(
+                "`{tool}` is not offered to the agents of {hamlet}"
+            )
+        })?;
+        let (mut called, mut waiting) = AgentToolCalled::new(
+            "Juniper",
+            hamlet,
+            &found.plugin,
+            &found.name,
+            found.arguments(args)?,
+        );
+        self.app.world_mut().trigger_ref(&mut called);
+        self.app.world_mut().flush();
+        for _ in 0..SETTLE {
+            if let Some(answer) = waiting.take() {
+                return answer;
+            }
+            self.frames(1);
+        }
+        waiting.take().unwrap_or_else(|| {
+            Err("the plugin did not answer in time".into())
+        })
+    }
+
+    fn tool(
+        &mut self,
+        hamlet: &str,
+        tool: &str,
+    ) -> Option<AgentTool> {
+        let id = self.id.clone();
+        let world = self.app.world_mut();
+        let mut tools = world.query::<&AgentTool>();
+        tools
+            .iter(world)
+            .find(|found| {
+                found.plugin == id
+                    && found.name == tool
+                    && found.offered_to(hamlet)
+            })
+            .cloned()
     }
 
     /// Makes `name`, or none, the agent selected in the world, which

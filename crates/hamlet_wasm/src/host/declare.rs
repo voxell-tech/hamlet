@@ -1,16 +1,19 @@
 //! What a plugin declares during `entry`.
 
 use bevy_fynix::shortcut::Chord;
+use hamlet_core::tools::AgentTool;
+use hamlet_core::tools::plugged::{FieldKind, ToolField};
 use hamlet_sdk::capability::{Capability, Verdict};
 use hamlet_sdk::command::kind;
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::inspector;
 use hamlet_sdk::keys::chord;
 use hamlet_sdk::menu::Menu;
+use hamlet_sdk::plugin::valid;
 use hamlet_sdk::tree::glyph;
 
 use super::State;
-use crate::interface::hamlet::plugin::host::Level;
+use crate::interface::hamlet::plugin::host::{self, Level};
 
 /// A panel a plugin declared.
 #[derive(Clone, PartialEq, Debug)]
@@ -77,9 +80,18 @@ pub struct Chorded {
     pub command: String,
 }
 
+/// A tool a plugin declared for the agents.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Toolled {
+    pub name: String,
+    pub description: String,
+    pub fields: Vec<ToolField>,
+}
+
 /// What a plugin adds besides panels.
 #[derive(Clone, PartialEq, Default, Debug)]
 pub struct Offers {
+    pub tools: Vec<Toolled>,
     pub commands: Vec<Offered>,
     pub menus: Vec<Placed>,
     pub contexts: Vec<Targeted>,
@@ -89,6 +101,51 @@ pub struct Offers {
 }
 
 impl State {
+    pub(super) fn give_tool(
+        &mut self,
+        name: String,
+        description: String,
+        fields: Vec<host::ToolField>,
+    ) {
+        if !valid(&name)
+            || AgentTool::called(&self.plugin, &name).is_none()
+        {
+            self.write(
+                Level::Warn,
+                format!("`{name}` is not a name for a tool"),
+            );
+            return;
+        }
+        let tools = &self.offered.tools;
+        if tools.len() >= self.tool_room
+            || tools.iter().any(|tool| tool.name == name)
+        {
+            return;
+        }
+        let kept = fields
+            .into_iter()
+            .filter(|field| valid(&field.name))
+            .take(self.field_room)
+            .map(|field| ToolField {
+                kind: match field.kind {
+                    host::FieldKind::Text => FieldKind::Text,
+                    host::FieldKind::Number => FieldKind::Number,
+                    host::FieldKind::Flag => FieldKind::Flag,
+                },
+                description: self.cut(field.description),
+                name: field.name,
+                required: field.required,
+            })
+            .collect();
+        self.want_to_contribute(Capability::AgentTool);
+        let description = self.cut(description);
+        self.offered.tools.push(Toolled {
+            name,
+            description,
+            fields: kept,
+        });
+    }
+
     pub(super) fn offer(
         &mut self,
         id: String,

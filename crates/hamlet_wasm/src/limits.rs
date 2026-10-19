@@ -132,6 +132,16 @@ pub struct Limits {
     pub settings_pages: usize,
     /// The shortcuts one plugin may declare. The rest are dropped.
     pub keys: usize,
+    /// The tools one plugin may give the agents. The rest are
+    /// dropped.
+    pub agent_tools: usize,
+    /// The fields of one tool. The rest are dropped.
+    pub tool_fields: usize,
+    /// The bytes of what a tool returns to an agent. A longer text
+    /// is cut.
+    pub tool_result_bytes: usize,
+    /// The calls of agents one plugin may have waiting at once.
+    pub tool_calls_in_flight: usize,
     /// The plugins a call may cross, one running a command whose
     /// handler runs another. A call over it is answered with an
     /// error.

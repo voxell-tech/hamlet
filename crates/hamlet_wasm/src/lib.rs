@@ -93,6 +93,7 @@ pub fn plugin(app: &mut App) {
         Update,
         (
             inbox::tick.in_set(PluginSet::Collect),
+            command::follow.in_set(PluginSet::Collect),
             stop::retry
                 .in_set(PluginSet::Collect)
                 .run_if(resource_exists::<Time>),

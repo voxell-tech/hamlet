@@ -24,7 +24,7 @@ pub(super) fn put(world: &mut World) {
         Reload {
             note: Some(
                 "could not load: built for interface 0.1.0, this \
-                 Hamlet speaks 0.8.0"
+                 Hamlet speaks 0.9.0"
                     .into(),
             ),
             rollback: true,

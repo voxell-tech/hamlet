@@ -18,6 +18,7 @@ use tokio::sync::mpsc::{
 
 use super::gate::{ToolStarting, gate};
 use super::mail::Mail;
+use super::plug::{Plugs, plug};
 use super::{Overseen, Reply, SessionKey, place};
 use crate::agent::{Agent, Event as AgentEvent, Objection};
 use crate::core::{HomeDir, Model, Sandboxing, Settings, Tokio};
@@ -109,6 +110,7 @@ pub(super) enum Msg {
         reply: Reply,
     },
     Gate(ToolStarting),
+    Plug(Plugs),
     Started {
         session: Entity,
         instruction: Option<Entity>,
@@ -197,6 +199,7 @@ pub(super) fn start_worker(
     agent.resident = Some(resident);
     agent.overseen = overseen;
     agent.gate = Some(gate(out.clone(), session));
+    agent.plug = Some(plug(out.clone()));
 
     let (queue, jobs) = unbounded_channel();
     let (stops, stopped) = unbounded_channel();
@@ -369,6 +372,7 @@ impl Worker {
         // The turn may have been cut off while another agent held
         // the gate.
         self.agent.gate = Some(gate(self.out.clone(), self.session));
+        self.agent.plug = Some(plug(self.out.clone()));
         self.halted = halt;
         self.stopped(0);
     }

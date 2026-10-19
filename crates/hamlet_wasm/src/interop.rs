@@ -11,6 +11,7 @@ mod mail;
 mod publish;
 mod route;
 mod settle;
+mod tools;
 
 use bevy::prelude::*;
 use hamlet_sdk::agents::{AgentList, SelectedAgent};
@@ -27,6 +28,7 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Calls>()
         .init_resource::<Flow>()
         .add_observer(chief::forward)
+        .add_observer(tools::called)
         .add_systems(
             Update,
             (

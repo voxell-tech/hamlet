@@ -7,6 +7,7 @@ use bevy::ecs::relationship::RelationshipTarget;
 use bevy::ecs::system::{Query, Res, SystemParam};
 use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
+use hamlet_core::tools::AgentTool;
 use hamlet_sdk::capability::{Capability, Granted, allowed};
 use hamlet_sdk::command::{Commands, full};
 use hamlet_sdk::context::ContextItem;
@@ -27,6 +28,7 @@ pub(super) struct Contributed<'w, 's> {
     contexts: Query<'w, 's, &'static ContextItem>,
     sections: Query<'w, 's, &'static InspectorSection>,
     pages: Query<'w, 's, &'static SettingsPage>,
+    tools: Query<'w, 's, &'static AgentTool>,
     keys: Query<'w, 's, &'static Key>,
     commands: Res<'w, Commands>,
     bound: Res<'w, Keys>,
@@ -47,6 +49,7 @@ pub(super) struct Adds {
     pub contexts: Vec<String>,
     pub tabs: Vec<String>,
     pub pages: Vec<String>,
+    pub tools: Vec<String>,
     pub keys: Vec<Chorded>,
 }
 
@@ -136,6 +139,14 @@ pub(super) fn of(
         })
         .collect::<Vec<_>>();
     pages.sort();
+    let mut tools = from
+        .tools
+        .iter_many(&mine)
+        .map(|tool| {
+            format!("{}{}", tool.name, waits(Capability::AgentTool))
+        })
+        .collect::<Vec<_>>();
+    tools.sort();
     let keys = from
         .keys
         .iter_many(&mine)
@@ -178,6 +189,7 @@ pub(super) fn of(
         contexts,
         tabs,
         pages,
+        tools,
         keys,
     }
 }
@@ -204,6 +216,7 @@ pub(super) fn lines(adds: &Adds) -> Vec<AnyView> {
         ("Context menu", &adds.contexts),
         ("Inspector tabs", &adds.tabs),
         ("Settings pages", &adds.pages),
+        ("Tools for the agents", &adds.tools),
     ] {
         if !listed.is_empty() {
             views.push(

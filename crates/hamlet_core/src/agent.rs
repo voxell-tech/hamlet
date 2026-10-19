@@ -7,6 +7,7 @@ mod gate;
 mod hamlet_tools;
 mod library;
 mod message;
+mod plug;
 mod told;
 mod voting;
 
@@ -27,6 +28,7 @@ use serde_json::{Value, json};
 pub(crate) use self::event::SUMMARY_CHARS;
 pub use self::event::{Event, Listener};
 pub(crate) use self::gate::{Gate, Objection, Request, Ruling};
+pub(crate) use self::plug::{Ask, Given, Plug, What};
 pub(crate) use self::told::Told;
 use self::voting::Polling;
 use crate::tools::change::failure;
@@ -78,6 +80,8 @@ pub struct Agent {
     /// Another agent is waiting on this one's reply.
     awaited: bool,
     pub(crate) gate: Option<Gate>,
+    /// The way to the tools installed plugins give it.
+    pub(crate) plug: Option<Plug>,
     pub(crate) objection: Objection,
     /// A chief answers its gate, so it can be asked a question.
     pub(crate) overseen: bool,
@@ -117,6 +121,7 @@ impl Agent {
             task: String::new(),
             awaited: false,
             gate: None,
+            plug: None,
             objection: Objection::Closed,
             overseen: false,
             unreflected: 0,
@@ -483,6 +488,7 @@ impl Agent {
                     Some((self.mayor, words.unwrap_or_default()));
             }
             let words = budget.as_ref().map_or("", |b| b.1.as_str());
+            self.plugged().await;
             let (system, defs) = self.brief(model, &faults, words);
             let system = json!({"role": "system", "content": system});
             let window = self.window(model);
@@ -591,12 +597,16 @@ impl Agent {
                     Ruling::Deny(reason) => Outcome::blocked(&reason),
                     Ruling::Say(text) => Outcome::plain(0, text),
                     Ruling::Go(leave) => {
-                        match self.hamlet_call(&call, leave, on).await
+                        if let Some(outcome) =
+                            self.hamlet_call(&call, leave, on).await
                         {
-                            Some(outcome) => outcome,
-                            None => {
-                                self.tools.call(&call, leave).await
-                            }
+                            outcome
+                        } else if let Some(outcome) =
+                            self.plug_call(&call).await
+                        {
+                            outcome
+                        } else {
+                            self.tools.call(&call, leave).await
                         }
                     }
                 };

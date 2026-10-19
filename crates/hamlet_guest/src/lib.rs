@@ -21,6 +21,7 @@ pub mod net;
 pub mod state;
 pub mod storage;
 pub mod subject;
+pub mod tool;
 pub mod ui;
 
 pub use self::bindings::exports::hamlet::plugin::plugin::{

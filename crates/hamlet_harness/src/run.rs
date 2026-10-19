@@ -112,6 +112,7 @@ fn describe(step: &Step) -> String {
             format!("expect {} shows {:?}", e.panel, e.text)
         }
         Step::ExpectTold(text) => format!("expect-told {text:?}"),
+        Step::CallTool(call) => format!("call-tool {}", call.tool),
     }
 }
 
@@ -202,6 +203,38 @@ fn apply(
                 false => Err(format!(
                     "panel `{}` does not show {:?}",
                     e.panel, e.text
+                )),
+            }
+        }
+        Step::CallTool(call) if !call.offered => {
+            match harness.offers(&call.hamlet, &call.tool) {
+                false => Ok(()),
+                true => Err(format!(
+                    "`{}` is offered to the agents of {}",
+                    call.tool, call.hamlet
+                )),
+            }
+        }
+        Step::CallTool(call) => {
+            let done = harness.call_tool(
+                &call.hamlet,
+                &call.tool,
+                &call.args,
+            );
+            let (failed, text) = match done {
+                Ok(text) => (false, text),
+                Err(why) => (true, why),
+            };
+            lines.push(format!("  tool returned {text:?}"));
+            match (failed == call.fails, text.contains(&call.shows)) {
+                (true, true) => Ok(()),
+                (true, false) => Err(format!(
+                    "the tool did not return {:?}",
+                    call.shows
+                )),
+                (false, _) => Err(format!(
+                    "the call {} ({text:?})",
+                    if failed { "failed" } else { "did not fail" }
                 )),
             }
         }

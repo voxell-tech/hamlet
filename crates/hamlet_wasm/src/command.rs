@@ -3,12 +3,14 @@
 //! linked to it.
 
 use bevy::prelude::*;
+use hamlet_core::tools::AgentTool;
+use hamlet_sdk::capability::{Capability, Granted};
 use hamlet_sdk::command::Command;
 use hamlet_sdk::context::ContextItem;
 use hamlet_sdk::inspector::InspectorSection;
 use hamlet_sdk::keys::Key;
 use hamlet_sdk::menu::MenuEntry;
-use hamlet_sdk::plugin::{Entry, Exports};
+use hamlet_sdk::plugin::{ContributedBy, Entry, Exports, PluginInfo};
 use hamlet_sdk::settings::SettingsPage;
 use hamlet_sdk::tree::id::dock_id;
 
@@ -22,6 +24,7 @@ pub type Contributed = Or<(
     With<InspectorSection>,
     With<SettingsPage>,
     With<Key>,
+    With<AgentTool>,
 )>;
 
 /// Spawns the commands `offers` declares that the plugin `id` lists
@@ -31,11 +34,29 @@ pub type Contributed = Or<(
 /// reachable.
 pub fn spawn(
     plugin: Entity,
-    id: &str,
+    info: &PluginInfo,
+    granted: &Granted,
     exports: &Exports,
     offers: &Offers,
     commands: &mut Commands,
 ) {
+    let id = info.id.as_str();
+    for tool in &offers.tools {
+        commands.spawn((
+            AgentTool {
+                plugin: id.into(),
+                label: info.name.clone(),
+                name: tool.name.clone(),
+                description: tool.description.clone(),
+                fields: tool.fields.clone(),
+                hamlets: granted
+                    .scope(Capability::AgentTool)
+                    .to_vec(),
+                live: granted.holds(Capability::AgentTool),
+            },
+            ContributedBy(plugin),
+        ));
+    }
     let mut entry = Entry::default();
     let mut kept = Vec::new();
     for offered in &offers.commands {
@@ -113,7 +134,8 @@ pub fn spawn(
 /// `held` ones it has.
 pub fn replace(
     plugin: Entity,
-    id: &str,
+    info: &PluginInfo,
+    granted: &Granted,
     exports: &Exports,
     held: &[Entity],
     offers: &Offers,
@@ -122,7 +144,23 @@ pub fn replace(
     for entity in held {
         commands.entity(*entity).despawn();
     }
-    spawn(plugin, id, exports, offers, commands);
+    spawn(plugin, info, granted, exports, offers, commands);
+}
+
+/// Keeps the tools of a plugin live only while the chief allows it
+/// to give them.
+pub fn follow(
+    plugins: Query<&Granted>,
+    mut tools: Query<(&mut AgentTool, &ContributedBy)>,
+) {
+    for (mut tool, by) in &mut tools {
+        let live = plugins.get(by.0).is_ok_and(|granted| {
+            granted.holds(Capability::AgentTool)
+        });
+        if tool.live != live {
+            tool.live = live;
+        }
+    }
 }
 
 /// The commands, menu lines and shortcuts among `contributions`,

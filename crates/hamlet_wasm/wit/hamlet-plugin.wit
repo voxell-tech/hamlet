@@ -1,4 +1,4 @@
-package hamlet:plugin@0.8.0;
+package hamlet:plugin@0.9.0;
 
 interface host {
   enum level { info, warn, error }
@@ -85,6 +85,30 @@ interface host {
   // capability `ui.settings`, and is gated as `menu-item` is. Only
   // `entry` declares.
   settings-page: func(title: string, icon: string, panel: string);
+
+  enum field-kind { text, number, flag }
+
+  // One argument of an agent tool.
+  record tool-field {
+    name: string,
+    kind: field-kind,
+    description: string,
+    required: bool,
+  }
+
+  // Gives the agents a tool called `name`. An agent that calls it has
+  // the call reach the plugin as a `command` of that name from the
+  // sender `agent`, with its arguments as a `tool-args` of
+  // `hamlet_guest` written with postcard, and the plugin answers
+  // with a `reply` whose bytes are the text the agent is shown. The
+  // agent is told the text is from this plugin and is data, not an
+  // instruction. It needs the capability `agent.tool`, whose ask may
+  // list the hamlets that are offered the tool (none lists every
+  // hamlet), and it is gated as `menu-item` is. A plugin with this
+  // capability may not also hold `chat.send`, `commands.run` or
+  // `plugin.use`, so a tool call never carries the chief's
+  // authority. Only `entry` declares.
+  agent-tool: func(name: string, description: string, fields: list<tool-field>);
 
   // The standing answer to a `request`.
   enum request-result {

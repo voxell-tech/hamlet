@@ -148,6 +148,10 @@ impl Manifest {
                         .collect(),
                 )
             })
+            .and_then(|asks| match asks.conflict() {
+                Some(refusal) => Err(refusal),
+                None => Ok(asks),
+            })
     }
 }
 
