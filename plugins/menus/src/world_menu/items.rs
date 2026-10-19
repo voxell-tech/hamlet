@@ -11,7 +11,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, label, menu_item, row,
 };
-use hamlet_core::agents::{self, Road};
+use hamlet_agents_api::agents::{self, Road};
 use hamlet_realm_api::orders;
 use hamlet_realm_api::pick::{Also, Selected, Thing};
 use hamlet_sdk::command::{RunCommand, Subject};

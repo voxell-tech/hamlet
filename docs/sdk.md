@@ -18,9 +18,8 @@ the agents, `hamlet_realm_api` where it reads the world or asks something of
 it, the engine crates and the two crates that hold what plugins share,
 `hamlet_chat` and `hamlet_limits` (below), never on `hamlet_ui` or on
 another plugin. A plugin reads the core through `hamlet_agents_api`, which
-gives the core's types a plugin reads; only the layers `plugin_agents` and
-`plugin_hamlets`, and `plugin_inspector` and `plugin_menus`, which call the
-core's own functions, depend on `hamlet_core`. `plugin_needs` and
+gives the core's types, events and functions a plugin uses; only the layers
+`plugin_agents` and `plugin_hamlets` depend on `hamlet_core`. `plugin_needs` and
 `plugin_skills` need nothing but the SDK, the agents API and, for `needs`,
 the rules, and run with no window and no realm. Only
 `plugin_realm` depends on `hamlet_realm` itself: it holds the layer that
@@ -29,8 +28,7 @@ which mounts the realm's camera in a panel, sets its stage and its sky,
 and hangs the realm's labels off the panel. No other crate of the window does: the chat,
 the frame and every other plugin see the world only through
 `hamlet_realm_api`. A test of `hamlet_plugins` (`layering.rs`) reads each
-plugin's `Cargo.toml` and fails on a dependency that breaks these rules
-and is not one of the exceptions it lists with a reason.
+plugin's `Cargo.toml` and fails on a dependency that breaks these rules.
 
 ## hamlet_realm_api
 
@@ -105,12 +103,12 @@ core, and the layers add its plugins (below).
 
 | Module | What it holds |
 |---|---|
-| `agents` | The systems that keep the SDK's `AgentList` and `SelectedAgent`; the core's `Busy`, `Settlement` and `Treasury` |
-| `session` | The core's `Entry`, `Transcript`, `Status`, `Usage`, `SessionKey` and `UserMessage` |
+| `agents` | The systems that keep the SDK's `AgentList` and `SelectedAgent`; the core's marks on an agent, a hamlet and a road (`Citizen`, `Mayor`, `Busy`, `Left`, `Settlement`, `Treasury`, `Road` and the rest), and its `name_of`, `mayor` and `register` |
+| `session` | The core's `Entry`, `Transcript`, `Status`, `Usage`, `SessionKey`, `Seat`, `UserMessage` and `JobFinished`; `house_at`, `log_of` and `prompt_of`; and `archive`, the past sessions |
 | `oversight` | The core's `Waiting`, `Need`, `Asks`, `Answer`, `Kind`, `Danger`, `Veto`, `Revoke`, `Grants` and the tags of a petition |
 | `model` | The core's `Settings`, `Model` and `Link`, signing in, and the events that save, test, list and try the models |
-| `library` | The core's `Skills`, the library's skills as last read |
-| `papers` | The systems that read the SDK's `Papers` from the selected agent's house |
+| `library` | The core's `Skills`, the library's skills as last read, and `RefreshLists`, which reads them again |
+| `papers` | The systems that read the SDK's `Papers` from the selected agent's house, and `character_file` |
 | `convo` | `ChiefName`, the name of the window's chief. `Me`, the chat's session and the agent it is with (`Me::of` makes one). `AgentSelected`, whether the world has an agent selected. `of_agent`, a page about the agent the chat is with. `send_as_chief`. It puts each `Notice` in the open chat |
 | `roll` | `Roll`, the count of changes to the agents and the hamlets, and the checks over it (`rolled`, `agents_moved`, `hamlets_moved`) |
 | `words` | The words for an agent's step (`now`), a hamlet's state (`standing`) and a purpose cut short (`short`) |

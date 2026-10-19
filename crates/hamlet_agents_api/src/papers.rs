@@ -1,4 +1,5 @@
-//! The SDK's [`Papers`], read from the selected agent's house.
+//! The SDK's [`Papers`], read from the selected agent's house, and
+//! the file of an agent's character.
 
 use bevy::app::{App, Update};
 use bevy::ecs::observer::On;
@@ -9,6 +10,7 @@ use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Query, Res, ResMut};
 use hamlet_base::HomeDir;
 use hamlet_core::agents;
+pub use hamlet_core::agents::papers::character_file;
 use hamlet_core::session::{self, JobFinished, Seat};
 use hamlet_sdk::papers::Papers;
 

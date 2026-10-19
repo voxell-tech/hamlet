@@ -4,23 +4,6 @@ use std::path::Path;
 
 use toml::Table;
 
-/// The dependencies of plugin crates that break a rule of [`broken`]
-/// today, each with the reason it stands.
-const EXCEPTIONS: &[(&str, &str, &str)] = &[
-    (
-        "plugin_inspector",
-        "hamlet_core",
-        "it calls the core's functions over the agents and the \
-         sessions: names, the mayor, the archive of past sessions",
-    ),
-    (
-        "plugin_menus",
-        "hamlet_core",
-        "it calls the core's functions over the agents: the mayor, \
-         names and roads",
-    ),
-];
-
 const TABLES: [&str; 3] =
     ["dependencies", "dev-dependencies", "build-dependencies"];
 
@@ -81,23 +64,5 @@ fn the_plugin_crates_keep_to_their_layers() {
             }
         }
     }
-
-    let new = found
-        .iter()
-        .filter(|(plugin, dependency, _)| {
-            !EXCEPTIONS
-                .iter()
-                .any(|(p, d, _)| p == plugin && d == dependency)
-        })
-        .collect::<Vec<_>>();
-    assert!(new.is_empty(), "{new:#?}");
-    let stale = EXCEPTIONS
-        .iter()
-        .filter(|(p, d, _)| {
-            !found.iter().any(|(plugin, dependency, _)| {
-                plugin == p && dependency == d
-            })
-        })
-        .collect::<Vec<_>>();
-    assert!(stale.is_empty(), "no longer needed: {stale:#?}");
+    assert!(found.is_empty(), "{found:#?}");
 }

@@ -5746,7 +5746,6 @@ dependencies = [
  "bevy_fynix",
  "hamlet_agents_api",
  "hamlet_chat",
- "hamlet_core",
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_limits",
@@ -5763,8 +5762,8 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
+ "hamlet_agents_api",
  "hamlet_chat",
- "hamlet_core",
  "hamlet_realm_api",
  "hamlet_rules",
  "hamlet_sdk",

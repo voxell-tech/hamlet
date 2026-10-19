@@ -21,9 +21,11 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, each, keyed, resource, style,
 };
-use hamlet_core::core::RefreshLists;
-use hamlet_core::session::archive::{self, Past, pasts};
-use hamlet_core::session::{self, Entry, JobFinished, Transcript};
+use hamlet_agents_api::library::RefreshLists;
+use hamlet_agents_api::session::archive::{self, Past, pasts};
+use hamlet_agents_api::session::{
+    self, Entry, JobFinished, Transcript,
+};
 use hamlet_rules::budget::format_tokens;
 use hamlet_rules::commands::RESUME;
 

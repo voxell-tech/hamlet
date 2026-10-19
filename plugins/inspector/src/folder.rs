@@ -14,7 +14,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, segmented,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
-use hamlet_core::agents::{Settlement, Works};
+use hamlet_agents_api::agents::{Settlement, Works};
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm_api::orders::Switched;
 use hamlet_realm_api::pick::{Thing, select};

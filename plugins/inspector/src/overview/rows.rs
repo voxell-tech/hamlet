@@ -10,11 +10,11 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
-use hamlet_agents_api::oversight::Waiting;
-use hamlet_core::agents::{
-    Account, Activity, Busy, Citizen, Left, LivesIn, Mayor,
+use hamlet_agents_api::agents::{
+    self, Account, Activity, Busy, Citizen, Left, LivesIn, Mayor,
     MergedInto, Purpose, Settlement, Treasury,
 };
+use hamlet_agents_api::oversight::Waiting;
 use hamlet_realm_api::pick::{Asks, Thing};
 use hamlet_rules::hamlet::HOME;
 
@@ -113,8 +113,7 @@ pub(super) fn agent_rows(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let named =
-        |agent: Entity| hamlet_core::agents::name_of(world, agent);
+    let named = |agent: Entity| agents::name_of(world, agent);
     let mut rows = agents
         .iter(world)
         .filter(|told| hamlet.is_none_or(|h| told.3.0 == h))

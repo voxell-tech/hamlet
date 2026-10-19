@@ -2,7 +2,7 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
-use hamlet_core::agents;
+use hamlet_agents_api::agents;
 use hamlet_realm_api::pick::Thing;
 use hamlet_sdk::command::{Subject, kind};
 

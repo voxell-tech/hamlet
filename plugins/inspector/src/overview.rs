@@ -19,9 +19,10 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row, scroll, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
-use hamlet_agents_api::agents::{Settlement, Treasury};
+use hamlet_agents_api::agents::{
+    self, Activity, LivesIn, Settlement, Treasury,
+};
 use hamlet_agents_api::oversight::Waiting;
-use hamlet_core::agents::{Activity, LivesIn};
 use hamlet_realm_api::pick::{Thing, focus_on, select};
 use hamlet_rules::realm::Realm;
 use hamlet_sdk::HomeDir;
@@ -59,7 +60,7 @@ pub struct SearchField;
 /// Registers the components these views read, so that a shared
 /// reference can query them before anything has them.
 pub fn register(world: &mut World) {
-    hamlet_core::agents::register(world);
+    agents::register(world);
     world.register_component::<Settlement>();
     world.register_component::<LivesIn>();
     world.register_component::<Activity>();

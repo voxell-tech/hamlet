@@ -13,11 +13,12 @@ use bevy_fynix::views::{
     label, row, scroll,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_core::agents::{
+use hamlet_agents_api::agents::{
     self, Account, Activity, Busy, LivesIn, Purpose, Treasury,
 };
-use hamlet_core::core::RefreshLists;
-use hamlet_core::session::{self, Seat};
+use hamlet_agents_api::library::RefreshLists;
+use hamlet_agents_api::papers::character_file;
+use hamlet_agents_api::session::{self, Seat};
 use hamlet_realm_api::pick::{Thing, ask_about, select};
 use hamlet_sdk::bar::Bar;
 use hamlet_sdk::checks::{either, moved};
@@ -146,8 +147,7 @@ fn header(agent: Entity, with: Option<String>) -> AnyView {
             cx.world.get::<LivesIn>(agent).map(|lives| lives.0);
         let crumb = match hamlet {
             Some(hamlet) => {
-                let of =
-                    hamlet_core::agents::name_of(cx.world, hamlet);
+                let of = agents::name_of(cx.world, hamlet);
                 button(headed(
                     Glyph::Back,
                     label(of.to_uppercase())
@@ -186,7 +186,7 @@ fn header(agent: Entity, with: Option<String>) -> AnyView {
         .rules(crate::looks::brass)
         .tagged(Mood::Plain)
         .on_activate(move |world| {
-            let mayor = hamlet_core::agents::mayor(world);
+            let mayor = agents::mayor(world);
             let thing = if mayor == Some(agent) {
                 Thing::Keeper
             } else {
@@ -246,7 +246,7 @@ fn notes() -> impl View {
 /// keeps for such a file, made empty if there is none yet.
 fn edit_character(world: &mut World) {
     let house = super::house::house(world);
-    if let Ok(file) = agents::papers::character_file(&house) {
+    if let Ok(file) = character_file(&house) {
         crate::links::open_file(&file);
     }
 }

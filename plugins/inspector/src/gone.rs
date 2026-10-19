@@ -7,7 +7,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, scroll,
 };
-use hamlet_core::agents::{LivesIn, MergedInto, Purpose};
+use hamlet_agents_api::agents::{self, LivesIn, MergedInto, Purpose};
 use hamlet_realm_api::orders::{self, Carry};
 use hamlet_realm_api::pick::{Selected, Thing, select};
 
@@ -23,9 +23,7 @@ use crate::{AnyView, Cx, View, lists};
 /// The page of an agent that is gone, with the way back.
 pub(super) fn ruin(agent: Entity) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let named = |agent: Entity| {
-            hamlet_core::agents::name_of(cx.world, agent)
-        };
+        let named = |agent: Entity| agents::name_of(cx.world, agent);
         let name = named(agent);
         let fate = match cx.world.get::<MergedInto>(agent) {
             Some(host) => format!("Merged into {}", named(host.0)),
