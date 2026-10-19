@@ -125,7 +125,8 @@ The plugin exports:
   warning for a panel the plugin did not declare), and between plugins
   `run-command`, `reply` and `publish`. More go out of the host: `send-chat`,
   `run-as-chief` and `world-act` (see Acts as the chief below), `overlay` (see
-  Drawing below) and `fetch` (see
+  Drawing below), `pick-file` (see Files below), whose answer reaches a later
+  `step` as `picked(id, outcome)`, and `fetch` (see
   The web below), the answer to which reaches a later `step` as `fetched(id,
   outcome)`.
 - `panel-view(panel) -> view`, which returns the panel as it is now: a
@@ -297,6 +298,22 @@ path through a symbolic link are refused, so no path leaves the folder. The caps
 `files_bytes`, `files_count`, `file_bytes` and `file_path_bytes` of
 `assets/wasm.toml` bound it. A file is written beside its place and renamed over
 it. `hamlet_guest::files` has the four calls.
+
+A file from outside comes in only as the chief picks it. The `pick-file(id,
+title)` intent, which needs `fs.pick`, opens the system's dialog titled with the
+plugin's name and the title (`hamlet_wasm/src/pick.rs`). The file the chief picks
+is copied to `picked/<name>` in the plugin's folder, the name made a path of the
+folder (each other character `_`, no dot first, cut from its start to fit
+`file_path_bytes`), within `file_bytes` and the folder's other caps, and the
+answer reaches a later `step` as `picked(id, outcome)`: the path in the folder,
+or why there is none (nothing was chosen, `fs.pick` is not granted or yet to be
+decided, a dialog is already open, there is no dialog in a headless app, or a cap
+was passed). One dialog is open at a time. The dialog is
+`hamlet_desktop::file::FileDialog`, a resource holding a plain function that the
+window puts in (`file::system`, the same dialog crate as the folder dialog);
+the harness and the tests put in `file::unseen`, which opens nothing, and choose
+in its place with `Picking::choose`. `hamlet_guest::files::pick` and `picked`
+make the intent and read the answer.
 
 ## Database
 

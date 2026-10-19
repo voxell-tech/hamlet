@@ -298,6 +298,7 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 | `set-papers = { notes = "..", character = "..", skills = ["a"] }` | Replaces the notes, character and skill names of the selected agent that a plugin that may read them sees |
 | `set-selected = "Juniper"` | Selects the agent of that name in the world, or none for `""`; a plugin that imports `host/selection-changed` and may read the agents hears of it |
 | `set-world = { hamlets = [{ id = "home", name = "Pear Tree", at = [0, 0, 0] }], agents = [{ name = "Juniper", hamlet = "home", at = [4, 0, 2], busy = true }], selected = "agent:Juniper", hour = 9.5 }` | Replaces the realm a plugin that may read it (`read.world`) sees: its hamlets, its agents and where each stands, the thing selected as `kind:name` and the hour |
+| `choose-file = "tide.csv"` | Closes the file dialog a plugin opened with `pick-file` with this file chosen, a path from where the check runs, or with nothing for `""`. No dialog is shown; it fails where no plugin asked for a file |
 | `plugin = "clipper"` | Puts a plugin in front, where several were opened: the steps after it are done to that one |
 | `grant = "read.agents"` | The chief allows a capability the manifest asks for. For a scoped capability, `plugin.use:notes` or `collections.read:notes/notes` |
 | `deny = "read.agents"` | The chief refuses it |
@@ -351,6 +352,7 @@ on:
 | `set_selected(name)` | Makes up the agent selected in the world |
 | `set_world(survey)` | Makes up the realm a plugin that holds `read.world` reads |
 | `overlay_of(id)` | The marks the plugin draws over the world, one line each |
+| `choose_file(file)` | Chooses a file in the place of the dialog a plugin opened, or nothing |
 | `grant(capability)`, `deny(capability)` | Answer as the chief, for the plugin in front. A scoped capability is `plugin.use:notes` |
 | `tree(panel)`, `outline(panel)` | The tree a panel shows, as nodes and as lines |
 | `panels()`, `logs()`, `stopped()` | The panels the plugin declared, what it logged, why it stopped (`tree_of`, `outline_of`, `panels_of` and `stopped_of` take a plugin id) |
@@ -566,6 +568,23 @@ link is an error. A fetch to a host that is not in the `scope`, or over http, is
 answered with an error. The limits are in `assets/wasm.toml`; the rules are in
 [`permissions.md`](permissions.md) and [`wasm.md`](wasm.md). In a script, `grant`
 answers an ask and `expect-told` checks the notice that tells of an act.
+
+A file from outside its folder reaches a plugin only as the chief picks it, with
+`fs.pick` (and `files.read` to read the copy):
+
+```rust
+out.push(hamlet_guest::files::pick(7, "a tide table"));
+
+// In a later `step`: the path of the copy in the plugin's folder.
+if let Some((7, Ok(path))) = hamlet_guest::files::picked(&incoming) {
+    let bytes = hamlet_guest::files::read(path)?;
+}
+```
+
+The system's dialog names the plugin; the file the chief picks is copied to
+`picked/<name>` in the folder, within its caps, and the plugin never sees where
+it came from. In a script, `choose-file = "tide.csv"` picks in the dialog's place,
+and `choose-file = ""` closes it with nothing.
 
 ## Keeping records in a database
 

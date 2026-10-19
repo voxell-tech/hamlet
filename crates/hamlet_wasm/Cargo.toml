@@ -12,6 +12,7 @@ workspace = true
 hamlet_agents_api.workspace = true
 hamlet_assets.workspace = true
 hamlet_base.workspace = true
+hamlet_desktop.workspace = true
 hamlet_openui.workspace = true
 hamlet_realm_api.workspace = true
 hamlet_sdk.workspace = true

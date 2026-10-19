@@ -10,6 +10,7 @@ use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
 use bevy::time::{TimePlugin, TimeUpdateStrategy};
 use hamlet_base::HomeDir;
+use hamlet_desktop::file::{FileDialog, unseen};
 use hamlet_home::Home;
 use hamlet_sdk::capability::{Choice, Choices, Record, Store};
 use hamlet_sdk::command::Notice;
@@ -125,6 +126,8 @@ pub fn app(home: &Scratch) -> App {
     ))
     .init_resource::<ButtonInput<KeyCode>>()
     .init_resource::<Told>()
+    // A file is chosen by a step of the script, never in a dialog.
+    .insert_resource(FileDialog(unseen))
     .add_observer(
         |notice: On<Notice>, mut told: ResMut<Told>| {
             told.0.push(notice.0.clone());

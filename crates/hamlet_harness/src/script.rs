@@ -50,6 +50,9 @@ pub enum Step {
     SetSelected(String),
     /// Replaces the realm a plugin that may read it sees.
     SetWorld(Surveying),
+    /// Closes the file dialog a plugin opened with the file at this
+    /// path chosen, or with nothing for an empty path.
+    ChooseFile(String),
     /// The chief allows a capability the plugin asked for.
     Grant(String),
     /// The chief refuses one.

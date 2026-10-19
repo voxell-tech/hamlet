@@ -14,6 +14,7 @@ mod net;
 mod overlay;
 mod panels;
 mod permissions;
+mod pick;
 mod reads;
 mod reload;
 mod state;

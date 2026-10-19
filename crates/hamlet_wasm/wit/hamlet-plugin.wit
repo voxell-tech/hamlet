@@ -333,6 +333,8 @@ interface plugin {
     event(published),
     // The answer to a `fetch` this plugin made.
     fetched(fetch-answer),
+    // The answer to a `pick-file` this plugin made.
+    picked(pick-answer),
   }
 
   record published {
@@ -438,6 +440,30 @@ interface plugin {
     // in a corner of the world's panel, caps the marks and their text
     // and limits how often a plugin replaces them.
     overlay(list<mark>),
+    // Asks the chief for a file in the system's dialog, titled with
+    // the plugin's name and `title`. The file the chief picks is
+    // copied into the plugin's folder of files, under `picked/`,
+    // within that folder's caps, and the answer reaches a later
+    // `step` as `picked`: the path in the folder, never one outside
+    // it. It needs the capability `fs.pick`. One dialog is open at a
+    // time.
+    pick-file(pick-request),
+  }
+
+  record pick-request {
+    // The plugin's own number for the ask, which the answer names.
+    id: u32,
+    title: string,
+  }
+
+  record pick-answer {
+    // The `id` of the ask it answers.
+    id: u32,
+    // The path of the copy in the plugin's folder of files, or why
+    // there is none: nothing was chosen, `fs.pick` is not granted (the
+    // chief is asked where it is yet to be decided), a dialog is
+    // already open, or the file is over a cap.
+    outcome: result<string, string>,
   }
 
   // A point of the world in metres, as a `place` of the survey.

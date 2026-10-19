@@ -99,6 +99,7 @@ fn describe(step: &Step) -> String {
             )
         }
         Step::SetSelected(name) => format!("set-selected {name:?}"),
+        Step::ChooseFile(file) => format!("choose-file {file:?}"),
         Step::SetWorld(world) => format!(
             "set-world ({} hamlets, {} agents)",
             world.hamlets.len(),
@@ -180,6 +181,10 @@ fn apply(
             harness.set_world(surveyed(world)?);
             Ok(())
         }
+        Step::ChooseFile(file) => harness.choose_file(
+            Some(Path::new(file))
+                .filter(|file| !file.as_os_str().is_empty()),
+        ),
         Step::Grant(capability) => harness.grant(capability),
         Step::Deny(capability) => harness.deny(capability),
         Step::Restart(true) => {

@@ -31,6 +31,7 @@ use hamlet_sdk::tree::id::{dock_id, local_id};
 use hamlet_sdk::tree::node::{Kind, Node};
 use hamlet_sdk::tree::store::{Drawn, PluginTrees, Shape};
 use hamlet_wasm::interface::hamlet::plugin::host::Level;
+use hamlet_wasm::pick::Picking;
 use hamlet_wasm::run::Said;
 use hamlet_wasm::stop::Failure;
 
@@ -219,6 +220,21 @@ impl Harness {
     pub fn set_world(&mut self, survey: Survey) {
         *self.app.world_mut().resource_mut::<Survey>() = survey;
         self.frames(SETTLE);
+    }
+
+    /// Closes the file dialog a plugin opened with `file` chosen, or
+    /// with nothing, as the chief does. No dialog is shown.
+    pub fn choose_file(
+        &mut self,
+        file: Option<&Path>,
+    ) -> Result<(), String> {
+        let picking = self.app.world().resource::<Picking>();
+        if !picking.is_open() {
+            return Err("no plugin asked for a file".into());
+        }
+        picking.choose(file.map(Path::to_path_buf));
+        self.frames(SETTLE);
+        Ok(())
     }
 
     /// The lines of what the plugin `id` draws over the world, one

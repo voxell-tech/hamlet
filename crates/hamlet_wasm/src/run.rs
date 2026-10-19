@@ -149,6 +149,7 @@ pub fn apply(
                     | Intent::RunAsChief(_)
                     | Intent::WorldAct(_)
                     | Intent::Overlay(_)
+                    | Intent::PickFile(_)
                     | Intent::Fetch(_),
                     _,
                 ) => {}

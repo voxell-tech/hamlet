@@ -18,6 +18,7 @@ bevy_fynix = { workspace = true, optional = true }
 hamlet_agents_api = { workspace = true, optional = true }
 hamlet_assets = { workspace = true, optional = true }
 hamlet_base = { workspace = true, optional = true }
+hamlet_desktop = { workspace = true, optional = true }
 hamlet_home = { workspace = true, optional = true }
 hamlet_offscreen = { workspace = true, optional = true }
 hamlet_realm_api = { workspace = true, optional = true }
@@ -34,6 +35,7 @@ wasm = [
     "dep:hamlet_agents_api",
     "dep:hamlet_assets",
     "dep:hamlet_base",
+    "dep:hamlet_desktop",
     "dep:hamlet_home",
     "dep:hamlet_offscreen",
     "dep:hamlet_realm_api",

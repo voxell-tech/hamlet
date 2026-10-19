@@ -27,7 +27,7 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 `agent.tool`, `agent.hook`, `ui.canvas` and `world.overlay`. `read.agents`,
 `read.papers`, `read.world`, `ui.menu`, `ui.keys`, `ui.context`,
 `ui.inspector`, `ui.settings`, `ui.canvas`, `world.overlay`, `chat.send`,
-`commands.run`, `world.act`, `net`,
+`commands.run`, `world.act`, `net`, `fs.pick`,
 `files.read`, `files.write`,
 `db`, `agent.tool`, `agent.hook` and the three below are checked so far; the
 others can be asked for, shown and chosen.
@@ -184,10 +184,16 @@ of `a-z`, `0-9`, `_` and `-` only, so no name reaches another plugin's records o
 place outside the folder; the host caps the tables, the records, the bytes and the
 fields. Records reach another plugin only through a collection.
 
-There is no `files.pick`: no file dialog exists in the app yet (the one dialog
-chooses a folder for a hamlet), so a plugin cannot ask the chief for a file. The
-`fs.pick` and `fs.folder` capabilities can be asked for and chosen and nothing
-checks them.
+`fs.pick` lets a plugin ask the chief for a file (the `pick-file` intent, see
+[`wasm.md`](wasm.md)). It is allowed when the chief lets the plugin in, since
+the chief answers each ask in the system's dialog, whose title names the
+plugin. The file the chief picks is copied into the plugin's own folder of
+files under `picked/`, its name made a path of that folder, within the folder's
+caps, and the plugin is told the path there; it never learns a path outside
+its folder, and reads the copy with `files.read`. One dialog is open at a time.
+Where the choice is yet to be made the chief is asked and the ask is answered
+with an error. `fs.folder`, working in a hamlet's folder, can be asked for and
+chosen and nothing grants it: no host function uses it.
 
 ## The web
 

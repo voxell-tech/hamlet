@@ -92,6 +92,7 @@ pub(super) fn route(
                 | Intent::RunAsChief(_)
                 | Intent::WorldAct(_)
                 | Intent::Overlay(_)
+                | Intent::PickFile(_)
                 | Intent::Fetch(_) => {}
             }
         }

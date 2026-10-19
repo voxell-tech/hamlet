@@ -36,6 +36,7 @@ pub mod manifest;
 pub mod net;
 pub mod overlay;
 pub mod panel;
+pub mod pick;
 pub mod rate;
 pub mod reach;
 pub mod reload;
@@ -66,6 +67,7 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Survey>()
     .init_resource::<Overlays>()
     .init_resource::<overlay::Redrawn>()
+    .init_resource::<pick::Picking>()
     .init_resource::<acts::Acted>()
     .init_resource::<net::Fetching>()
     .add_message::<run::Done>()
@@ -126,6 +128,15 @@ pub fn plugin(app: &mut App) {
             overlay::prune
                 .in_set(PluginSet::Collect)
                 .run_if(overlay::any),
+            pick::take
+                .in_set(PluginSet::Collect)
+                .run_if(pick::is_open),
+            (
+                pick::ask.run_if(on_message::<run::Done>),
+                pick::open.run_if(pick::asked),
+            )
+                .chain()
+                .in_set(PluginSet::Apply),
             draw::draw.in_set(PluginSet::Draw).run_if(draw::due),
         ),
     );

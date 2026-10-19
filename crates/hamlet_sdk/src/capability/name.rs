@@ -281,6 +281,11 @@ impl Capability {
                  its own panels, within a size and a count. It \
                  cannot draw over the world or anywhere else.",
             ),
+            Capability::FsPick => Some(
+                "The chief picks each file in the system's dialog. \
+                 The plugin gets a copy in its own folder, within \
+                 its caps, and never a path outside it.",
+            ),
             Capability::WorldOverlay => Some(
                 "Hamlet draws its rectangles, lines, circles and \
                  text over the world, at agents, hamlets or places, \

@@ -55,7 +55,7 @@ table. The binary and the examples are the root package.
 | `hamlet_base` | What every layer shares: `HomeDir`, the home the app opened, `Tokio`, the runtime background work runs on, and the rules of a plugin's names (`plain`, `joinable`) |
 | `hamlet_rules` | The hamlet's record and the rules over it. Plain files and functions, no Bevy |
 | `hamlet_core` | The runtime as Bevy plugins: agents, sessions, tools and oversight. No rendering |
-| `hamlet_desktop` | The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder dialog and the app's icon |
+| `hamlet_desktop` | The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder and file dialogs and the app's icon |
 | `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
 | `hamlet_offscreen` | An app that draws into an image with no window and saves a still. The examples and the plugin harness draw with it |
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
@@ -180,7 +180,7 @@ Paths are under `crates/`.
 | A panel written in the panel language, its components, actions and limits | `hamlet_openui/src/components.rs`, `action.rs`, `evaluate.rs`, `assets/panel_lang.toml`; [`panels.md`](panels.md) |
 | A plugin that is a panel and no code | `hamlet_openui/src/data.rs`, `hamlet_wasm/src/install.rs`, `load.rs`; `guests/greeter_ui/`; [`panels.md`](panels.md) |
 | Writing a WASM plugin | `hamlet_guest/src/lib.rs` and `ui.rs`, `guests/hello/`, `guests/roster/`, `guests/notes/`, `guests/herald/`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
-| What a plugin does as the chief, in its folder of files and over the web | `hamlet_wasm/src/acts.rs`, `files.rs`, `host/folder.rs`, `net.rs`, `rate.rs`, `assets/wasm.toml`; `hamlet_agents_api/src/convo/send.rs`; for a guest `hamlet_guest/src/files.rs` and `net.rs`; `guests/herald/`; [`permissions.md`](permissions.md), [`wasm.md`](wasm.md) |
+| What a plugin does as the chief, in its folder of files and over the web | `hamlet_wasm/src/acts.rs`, `files.rs`, `host/folder.rs`, `pick.rs` (a file the chief picks, in the dialog of `hamlet_desktop/src/file.rs`), `net.rs`, `rate.rs`, `assets/wasm.toml`; `hamlet_agents_api/src/convo/send.rs`; for a guest `hamlet_guest/src/files.rs` and `net.rs`; `guests/herald/`; [`permissions.md`](permissions.md), [`wasm.md`](wasm.md) |
 | A plugin's own database: tables of records found by a field | `hamlet_wasm/src/db.rs`, `host/database.rs`, `assets/wasm.toml`; for a guest `hamlet_guest/src/db.rs`; `guests/pantry/`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
 | A plugin's own storage, its caps and the state the host holds for it | `hamlet_wasm/src/storage.rs`, `host/keeping.rs`, `instance.rs`, `assets/wasm.toml`; for a guest `hamlet_guest/src/storage.rs` and `state.rs`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
 | A text area or markdown in a plugin's panel | `hamlet_sdk/src/tree/view/area.rs`, `markdown.rs` and `markdown/parse.rs`; [`wasm.md`](wasm.md) |
