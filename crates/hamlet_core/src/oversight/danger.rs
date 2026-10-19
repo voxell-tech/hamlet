@@ -188,6 +188,12 @@ pub(crate) fn judge(
     };
     match reach {
         Reach::Read | Reach::Other => Verdict::Run(Leave::default()),
+        // It runs in the plugin, past this sandbox, so a hamlet that
+        // asks before commands asks before it.
+        Reach::Plugin if standing.asks_commands => {
+            Verdict::Ask(Danger::Command)
+        }
+        Reach::Plugin => Verdict::Run(Leave::default()),
         // An edit confines itself to the workspace and the project.
         Reach::Edit if standing.asks_edits => {
             Verdict::Ask(Danger::Edit)
@@ -418,6 +424,14 @@ mod tests {
         assert_eq!(
             ask(&Reach::CustomTool { net: false }, manual),
             Verdict::Ask(Danger::Command)
+        );
+        assert_eq!(
+            ask(&Reach::Plugin, manual),
+            Verdict::Ask(Danger::Command)
+        );
+        assert_eq!(
+            ask(&Reach::Plugin, BOXED),
+            Verdict::Run(Leave::default())
         );
         // Reading is free, and so are the hamlet's own tools.
         for free in [Reach::Read, Reach::Other] {

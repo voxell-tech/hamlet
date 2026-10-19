@@ -541,7 +541,9 @@ logged.
    plugin. Before each model step an agent's worker asks the app thread for the tools
    its hamlet is offered, over the channel its gate uses, and shows them to the model
    as `plugin__tool`, described as "[from the plugin
-   Name] ...". No tool added by hand may have `__` in its name.
+   Name] ...", its fields too, with the plugin's words as one plain line without
+   brackets. In a hamlet in manual mode the call waits for the chief like a command
+   (`Reach::Plugin`). No tool added by hand may have `__` in its name.
 2. A call is checked against the fields (a field missing, or of the wrong kind, is
    an error to the agent and the plugin never hears of it). It then goes to the plugin
    as `AgentToolCalled`, which `interop/tools.rs` takes: the plugin must be running

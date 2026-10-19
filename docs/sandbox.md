@@ -23,7 +23,8 @@ its own house.
 
 A hamlet starts in manual mode. Each edit and each command waits in
 Petitions for the chief to allow it once, for the rest of the agent's
-session, or not at all. Reading is free.
+session, or not at all. A call of a tool an installed plugin gave the agent
+waits the same way, as a command. Reading is free.
 
 In auto mode the agents edit and run without asking, and the sandbox keeps
 their writes inside the folder and their own workspace. There, a command

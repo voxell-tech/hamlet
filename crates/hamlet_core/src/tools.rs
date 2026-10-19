@@ -40,6 +40,8 @@ pub(crate) enum Reach {
     Read,
     /// `net` when its manifest asks for the network.
     CustomTool { net: bool },
+    /// A tool an installed plugin gives the agent.
+    Plugin,
     /// None of these tools.
     Other,
 }
@@ -308,6 +310,7 @@ impl Tools {
             {
                 Reach::Read
             }
+            n if self.plugged_tool(n).is_some() => Reach::Plugin,
             n => match self.custom_tools.iter().find(|p| p.name == n)
             {
                 Some(p) => Reach::CustomTool { net: p.net },
@@ -759,6 +762,16 @@ mod tests {
                 command: "ls".into(),
                 net: true
             }
+        );
+        t.plugged(vec![Offered {
+            name: "tides__height".into(),
+            plugin: "tides".into(),
+            tool: "height".into(),
+            definition: json!({}),
+        }]);
+        assert_eq!(
+            t.reach(&call("tides__height", json!({}))),
+            Reach::Plugin
         );
         let o = t.call(&shout, Leave::default()).await;
         assert!(
