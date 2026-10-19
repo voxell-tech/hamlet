@@ -1,0 +1,14 @@
+[package]
+name = "plugin_agents"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The agents layer: the model loop, the tools and the sessions, the base every other plugin stands on"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_core.workspace = true
+hamlet_sdk.workspace = true
+bevy.workspace = true

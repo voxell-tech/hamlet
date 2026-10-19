@@ -18,7 +18,10 @@ pub struct HamletsPlugin;
 
 impl HamletPlugin for HamletsPlugin {
     fn manifest() -> Manifest {
-        Manifest::built_in("hamlets").named("Hamlets").essential()
+        Manifest::built_in("hamlets")
+            .named("Hamlets")
+            .needs("agents", ">=0.1, <1")
+            .essential()
     }
 
     fn entry(_: &mut Entry) {}

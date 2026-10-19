@@ -12,16 +12,15 @@ use bevy_app::{
 use hamlet_core::agents::WatchEvery;
 use hamlet_core::core::CorePlugin;
 use hamlet_core::oversight::Unreviewed;
-use hamlet_core::session::SessionPlugin;
 use hamlet_core::terminal::TerminalPlugin;
 use hamlet_desktop::DesktopPlugin;
 use hamlet_home::instance::{self, Instance};
 use hamlet_home::{Home, limits};
 use hamlet_model::config::Config;
 use hamlet_model::log;
-use hamlet_plugins::{Base, Builtin};
+use hamlet_plugins::{Base, Builtin, Launch};
 use hamlet_sandbox as sandbox;
-use hamlet_ui::{ShowRequests, UiPlugin, window_plugin};
+use hamlet_ui::{ShowRequests, window_plugin};
 
 const USAGE: &str = "\
 usage: hamlet [--headless | --repl] [--insecure] [--replay \
@@ -137,24 +136,21 @@ fn main() -> Result<()> {
     let mut app = App::new();
     let config = Config::load(&home.root)?;
     let replayed = replay.is_some();
-    app.add_plugins((
-        CorePlugin {
-            sandbox: sandbox::detect(insecure)?,
-            config,
-            replay: replay
-                .map(|p| {
-                    log::read_events(&p)
-                        .map(|e| log::assistant_messages(&e))
-                })
-                .transpose()?,
-            tokio: rt.handle().clone(),
-            home,
-        },
-        SessionPlugin,
-        DesktopPlugin {
-            window: mode == Mode::Window,
-        },
-    ));
+    app.insert_resource(Launch(CorePlugin {
+        sandbox: sandbox::detect(insecure)?,
+        config,
+        replay: replay
+            .map(|p| {
+                log::read_events(&p)
+                    .map(|e| log::assistant_messages(&e))
+            })
+            .transpose()?,
+        tokio: rt.handle().clone(),
+        home,
+    }))
+    .add_plugins(DesktopPlugin {
+        window: mode == Mode::Window,
+    });
     if replayed {
         // A recorded session holds no answers for the mayor's
         // reviews.
@@ -200,7 +196,6 @@ fn main() -> Result<()> {
                 )))
                 .add_plugins((
                     DefaultPlugins.set(window_plugin(&root)),
-                    UiPlugin,
                     Builtin,
                 ))
                 .run();

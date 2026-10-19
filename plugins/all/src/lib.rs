@@ -2,15 +2,21 @@
 //! dependency behind a feature of its name.
 
 use bevy_app::{PluginGroup, PluginGroupBuilder};
+#[cfg(feature = "agents")]
+pub use plugin_agents::Launch;
 
 /// Every plugin whose feature is on: the layers from the base up,
-/// then the panels. Add it to the app after the SDK.
+/// the window and then the panels. Add it to the app after Bevy's
+/// default plugins and a `ShowRequests` resource.
 pub struct Builtin;
 
 impl PluginGroup for Builtin {
     fn build(self) -> PluginGroupBuilder {
         let group =
             PluginGroupBuilder::start::<Self>().add_group(Base);
+        // The window reads the agents when it is built.
+        #[cfg(feature = "window")]
+        let group = group.add(hamlet_ui::UiPlugin);
         // The realm draws into a window, so only an app with one
         // adds it.
         #[cfg(feature = "realm")]
@@ -25,6 +31,8 @@ pub struct Base;
 impl PluginGroup for Base {
     fn build(self) -> PluginGroupBuilder {
         let group = PluginGroupBuilder::start::<Self>();
+        #[cfg(feature = "agents")]
+        let group = group.add(plugin_agents::plugin);
         #[cfg(feature = "hamlets")]
         let group = group.add(plugin_hamlets::plugin);
         group
