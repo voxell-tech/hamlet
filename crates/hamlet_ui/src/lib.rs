@@ -6,6 +6,7 @@ mod chief;
 pub mod chrome;
 pub mod cursor;
 mod dock;
+mod fields;
 mod folder;
 pub mod history;
 mod hover;
@@ -112,7 +113,12 @@ impl Plugin for UiPlugin {
                 history::plugin,
                 welcome::plugin,
             ),
-            (world_view::plugin, world_menu::plugin, hover::plugin),
+            (
+                world_view::plugin,
+                world_menu::plugin,
+                hover::plugin,
+                fields::plugin,
+            ),
             (
                 theme::plugin,
                 widgets::plugin,
