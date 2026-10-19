@@ -62,8 +62,36 @@ mod tests {
     use bevy::MinimalPlugins;
     use bevy_app::App;
     use hamlet_sdk::SdkPlugin;
+    use hamlet_sdk::plugin::{HamletPlugin, Manifest, RESERVED};
 
     use super::Panels;
+
+    #[test]
+    fn every_built_in_id_is_reserved() {
+        let manifests: [Manifest; _] = [
+            #[cfg(feature = "agents")]
+            plugin_agents::AgentsPlugin::manifest(),
+            #[cfg(feature = "hamlets")]
+            plugin_hamlets::HamletsPlugin::manifest(),
+            #[cfg(feature = "inspector")]
+            plugin_inspector::InspectorPlugin::manifest(),
+            #[cfg(feature = "needs")]
+            plugin_needs::NeedsPlugin::manifest(),
+            #[cfg(feature = "realm")]
+            plugin_realm::RealmLayer::manifest(),
+            #[cfg(feature = "settings")]
+            plugin_settings::SettingsPlugin::manifest(),
+            #[cfg(feature = "skills")]
+            plugin_skills::SkillsPlugin::manifest(),
+        ];
+        for manifest in manifests {
+            assert!(
+                RESERVED.contains(&manifest.id.as_str()),
+                "{}",
+                manifest.id
+            );
+        }
+    }
 
     #[test]
     fn the_panels_run_with_no_window() {

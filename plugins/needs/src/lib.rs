@@ -58,7 +58,7 @@ pub struct NeedsPlugin;
 
 impl HamletPlugin for NeedsPlugin {
     fn manifest() -> Manifest {
-        Manifest::built_in("needs").named("Needs You")
+        Manifest::built_in("needs").named("Needs You").essential()
     }
 
     fn entry(entry: &mut hamlet_sdk::plugin::Entry) {

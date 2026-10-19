@@ -76,7 +76,7 @@ pub struct SettingsPlugin;
 
 impl HamletPlugin for SettingsPlugin {
     fn manifest() -> Manifest {
-        Manifest::built_in("settings").named("Settings")
+        Manifest::built_in("settings").named("Settings").essential()
     }
 
     fn entry(entry: &mut Entry) {
