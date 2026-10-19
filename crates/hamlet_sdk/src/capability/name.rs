@@ -15,6 +15,11 @@ pub const NEVER: [&str; 6] = [
     "storage.other",
 ];
 
+/// The capabilities only a native plugin has, as it is given the
+/// whole app. A manifest that asks for one is turned down at the
+/// scan, with no petition.
+pub const NATIVE_ONLY: [&str; 1] = ["render.compute"];
+
 /// A thing a plugin can be allowed to do. A manifest names the most
 /// it may ask for; a host function checks the matching verdict on
 /// each call.
@@ -48,10 +53,12 @@ pub enum Capability {
     AgentSteer,
     UiCanvas,
     WorldOverlay,
+    RenderScene,
+    RenderShader,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 28] = [
+    pub const ALL: [Capability; 30] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -80,6 +87,8 @@ impl Capability {
         Capability::AgentSteer,
         Capability::UiCanvas,
         Capability::WorldOverlay,
+        Capability::RenderScene,
+        Capability::RenderShader,
     ];
 
     /// What a plugin that holds a capability that [faces the
@@ -136,6 +145,8 @@ impl Capability {
             Capability::AgentSteer => "agent.steer",
             Capability::UiCanvas => "ui.canvas",
             Capability::WorldOverlay => "world.overlay",
+            Capability::RenderScene => "render.scene",
+            Capability::RenderShader => "render.shader",
         }
     }
 
@@ -267,6 +278,12 @@ impl Capability {
             Capability::WorldOverlay => {
                 "Draw labels and marks over the world"
             }
+            Capability::RenderScene => {
+                "Build small 3D scenes in the world beside a hamlet"
+            }
+            Capability::RenderShader => {
+                "Colour its 3D scenes with shaders of its own"
+            }
         }
     }
 
@@ -327,6 +344,20 @@ impl Capability {
                  a corner. It draws nothing itself: no shader, \
                  texture or model.",
             ),
+            Capability::RenderScene => Some(
+                "Hamlet builds its scene from Hamlet's own shapes, \
+                 materials and lights, within a count and a small \
+                 space about the place it names, and names the \
+                 plugin over it. Nothing the plugin sends reaches \
+                 the graphics card as code.",
+            ),
+            Capability::RenderShader => Some(
+                "Hamlet checks each shader before it is used: one \
+                 function that colours a point of a shape, within a \
+                 size, with no resources of its own and only loops \
+                 of a fixed count. It still runs on the graphics \
+                 card for every point it colours.",
+            ),
             Capability::AgentHook => Some(
                 "Told of each turn of the agents of the hamlets \
                  listed (every hamlet where none is): the agent, \
@@ -356,6 +387,9 @@ impl Capability {
         if NEVER.contains(&name) {
             return Err(Refusal::Never(name.into()));
         }
+        if NATIVE_ONLY.contains(&name) {
+            return Err(Refusal::NativeOnly(name.into()));
+        }
         Self::ALL
             .into_iter()
             .find(|capability| capability.name() == name)
@@ -368,6 +402,8 @@ impl Capability {
 pub enum Refusal {
     /// The capability is among [`NEVER`].
     Never(String),
+    /// The capability is among [`NATIVE_ONLY`].
+    NativeOnly(String),
     Unknown(String),
     /// The ask gives no reason.
     NoReason(String),
@@ -386,6 +422,12 @@ impl fmt::Display for Refusal {
                     "it asks for `{name}`, which is never granted"
                 )
             }
+            Refusal::NativeOnly(name) => write!(
+                f,
+                "it asks for `{name}`: render passes and compute \
+                 are native-only, for a native plugin, which has \
+                 the whole app"
+            ),
             Refusal::Unknown(name) => {
                 write!(
                     f,

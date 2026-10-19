@@ -26,7 +26,7 @@ pub use self::granted::{Choices, Granted, Verdict};
 pub use self::install::{
     AskToInstall, AskToRemove, Installed, Removed, Uninstalled,
 };
-pub use self::name::{Capability, NEVER, Refusal};
+pub use self::name::{Capability, NATIVE_ONLY, NEVER, Refusal};
 pub use self::petition::{
     Answer, Answered, AskForMore, Petition, Replied,
 };
@@ -65,6 +65,10 @@ mod tests {
                 Err(Refusal::Never(never.into()))
             );
         }
+        assert_eq!(
+            Capability::parse("render.compute"),
+            Err(Refusal::NativeOnly("render.compute".into()))
+        );
         assert!(matches!(
             Capability::parse("read.nothing"),
             Err(Refusal::Unknown(_))
