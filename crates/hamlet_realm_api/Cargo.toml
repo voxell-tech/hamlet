@@ -10,8 +10,6 @@ workspace = true
 
 [dependencies]
 hamlet_assets.workspace = true
-hamlet_core.workspace = true
-hamlet_rules.workspace = true
 bevy.workspace = true
 serde.workspace = true
 toml.workspace = true

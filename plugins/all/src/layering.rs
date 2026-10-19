@@ -31,6 +31,10 @@ const LIST: &str = "hamlet_plugins";
 /// An engine's dependency on a layer that stands for now, and why.
 const EXCEPTIONS: &[(&str, &str, &str)] = &[];
 
+/// The API crates that own their words: each stands on no layer, nor
+/// on a crate that does, its tests neither.
+const OWNERS: [&str; 1] = ["hamlet_realm_api"];
+
 /// One dependency of a member: the package it names, and whether it
 /// is only for the member's tests.
 struct Dependency {
@@ -73,6 +77,33 @@ fn broken(
     } else {
         None
     }
+}
+
+/// The layers `owner` is built on: those it depends on, its tests
+/// too, and those under the members it depends on.
+fn layers_under<'a>(
+    owner: &str,
+    members: &'a [(String, String, Vec<Dependency>)],
+) -> Vec<&'a str> {
+    let dependencies = |name: &str| {
+        members
+            .iter()
+            .find(|(member, ..)| member == name)
+            .map(|(.., dependencies)| dependencies.as_slice())
+            .unwrap_or_default()
+    };
+    let mut seen = Vec::<&str>::new();
+    let mut next = dependencies(owner).iter().collect::<Vec<_>>();
+    while let Some(dependency) = next.pop() {
+        let to = dependency.package.as_str();
+        if seen.contains(&to) {
+            continue;
+        }
+        seen.push(to);
+        next.extend(dependencies(to).iter().filter(|d| !d.dev));
+    }
+    seen.retain(|to| LAYERS.contains(to));
+    seen
 }
 
 /// Each member of the workspace with its folder and its dependencies,
@@ -140,8 +171,20 @@ fn the_crates_keep_to_their_layers() {
     for (member, _, dependencies) in &members {
         for dependency in dependencies {
             if let Some(rule) = broken(member, dependency, &plugins) {
-                found.push((member, &dependency.package, rule));
+                found.push((
+                    member.as_str(),
+                    &*dependency.package,
+                    rule,
+                ));
             }
+        }
+    }
+    for owner in OWNERS {
+        assert!(members.iter().any(|(name, ..)| name == owner));
+        for layer in layers_under(owner, &members) {
+            let rule =
+                "an API crate that owns its words stands on no layer";
+            found.push((owner, layer, rule));
         }
     }
     assert!(found.is_empty(), "{found:#?}");

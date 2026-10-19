@@ -12,6 +12,8 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, label, menu_item, row,
 };
 use hamlet_agents_api::agents::{self, Road};
+use hamlet_agents_api::hamlet::offers;
+use hamlet_chat_api::orders::part;
 use hamlet_realm_api::orders;
 use hamlet_realm_api::pick::{Also, Selected, Thing};
 use hamlet_sdk::command::{RunCommand, Subject};
@@ -146,7 +148,7 @@ fn between(
                 ROAD,
                 item(
                     format!("Remove the road to {other}"),
-                    move |w| orders::part(w, agent, them),
+                    move |w| part(w, agent, them),
                 ),
             )
         } else {
@@ -192,7 +194,7 @@ fn between(
                 PEERS,
                 item(
                     format!("Remove the road to {name}"),
-                    move |w| orders::part(w, agent, peer),
+                    move |w| part(w, agent, peer),
                 ),
             ));
         }
@@ -224,14 +226,21 @@ fn listed(
 
 /// The skills `agent` could be given, each pressed to give it.
 pub(super) fn skills(world: &World, agent: Entity) -> Vec<AnyView> {
-    orders::offers(world, agent)
+    offers(world, agent)
         .into_iter()
         .map(|offer| {
             let text = match &offer.from {
                 Some(from) => format!("{} (of {from})", offer.skill),
                 None => format!("{} (starter)", offer.skill),
             };
-            item(text, move |w| orders::give(w, agent, &offer))
+            item(text, move |w| {
+                orders::give(
+                    w,
+                    agent,
+                    &offer.skill,
+                    offer.from.as_deref(),
+                )
+            })
         })
         .collect()
 }

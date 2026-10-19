@@ -13,11 +13,10 @@ use hamlet_agents_api::oversight::Veto;
 use hamlet_agents_api::session::Rewind;
 use hamlet_base::HomeDir;
 use hamlet_home::charter;
-use hamlet_realm_api::orders;
 use hamlet_sdk::confirm::Confirm;
 
-use crate::chat;
 use crate::me::Me;
+use crate::{chat, orders};
 
 /// Asks the chief before `deed` is done. The window answers it with
 /// the question, at the pointer.

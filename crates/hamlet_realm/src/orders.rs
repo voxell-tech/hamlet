@@ -6,14 +6,13 @@
 use std::path::Path;
 
 use bevy::prelude::*;
-use hamlet_core::agents::{LivesIn, Settlement};
+use hamlet_core::agents::{self, LivesIn, Settlement};
 use hamlet_core::core::HomeDir;
 pub use hamlet_realm_api::orders::{
-    Carry, Decree, Give, Introduce, Tell, decree, offers, part,
-    restore,
+    Carry, Decree, Give, Introduce, Tell,
 };
 use hamlet_rules::gifts::{self, Offer};
-use hamlet_rules::hamlet::Hamlet;
+use hamlet_rules::hamlet::{HOME, Hamlet};
 
 use crate::chief::{Player, Stands};
 use crate::generator::society::Place;
@@ -37,7 +36,8 @@ fn asked_introduce(asked: On<Introduce>, mut commands: Commands) {
 
 /// Gives a skill, as a panel asked.
 fn asked_give(asked: On<Give>, mut commands: Commands) {
-    let Give { agent, offer } = asked.event().clone();
+    let Give { agent, skill, from } = asked.event().clone();
+    let offer = Offer { skill, from };
     commands
         .queue(move |world: &mut World| give(world, agent, &offer));
 }
@@ -62,6 +62,15 @@ fn name(world: &World, agent: Entity) -> Option<String> {
 fn record(world: &World, agent: Entity) -> Option<Hamlet> {
     let lives = world.get::<LivesIn>(agent)?;
     Some(world.get::<Settlement>(lives.0)?.record())
+}
+
+/// Gives a chief's command to the hamlet of `agent`, carried out by
+/// the time this returns.
+fn decree(world: &mut World, agent: Entity, text: String) {
+    let hamlet =
+        agents::hamlet_of(world, agent).unwrap_or(HOME).to_string();
+    world.trigger(Decree { hamlet, text });
+    world.flush();
 }
 
 /// Builds a road between two agents at the chief's word.
@@ -322,7 +331,7 @@ mod tests {
         assert!(heard(&mut app).is_empty());
 
         // Taken up again, it leaves the record and the world.
-        part(app.world_mut(), a, b);
+        decree(app.world_mut(), a, "/unroad scout librarian".into());
         assert_eq!(heard(&mut app)[0].1, "/unroad scout librarian");
         assert!(!hamlet.has_road("scout", "librarian"));
         app.update();
@@ -378,7 +387,10 @@ mod tests {
         )
         .unwrap();
         let librarian = agent(&mut app, "librarian");
-        let offered = offers(app.world(), librarian);
+        let offers = |world: &World| {
+            record(world, librarian).unwrap().offers("librarian")
+        };
+        let offered = offers(app.world());
         assert_eq!(
             offered,
             [Offer {
@@ -393,6 +405,6 @@ mod tests {
         );
         let got = hamlet.house("librarian").unwrap().skills();
         assert!(got.join("maps/SKILL.md").is_file());
-        assert!(offers(app.world(), librarian).is_empty());
+        assert!(offers(app.world()).is_empty());
     }
 }

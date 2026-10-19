@@ -9,8 +9,9 @@ use bevy::math::Vec2;
 use hamlet_agents_api::agents::{
     self, Busy, Left, Mayor, Settlement,
 };
-use hamlet_agents_api::hamlet::HOME;
+use hamlet_agents_api::hamlet::{HOME, offers};
 use hamlet_chat_api::deed;
+use hamlet_chat_api::orders::{decree, restore};
 use hamlet_realm_api::orders::{self, Carry};
 use hamlet_realm_api::pick::{Thing, focus_on, select};
 use hamlet_sdk::command::{Subject, kind};
@@ -81,7 +82,7 @@ pub(super) fn undo(world: &mut World, subject: &Subject) {
     let text = "/undo".to_string();
     match (subject.kind == kind::MAYOR, entity(subject)) {
         (true, _) => chat::decree(world, HOME, text),
-        (_, Some(agent)) => orders::decree(world, agent, text),
+        (_, Some(agent)) => decree(world, agent, text),
         _ => {}
     }
 }
@@ -107,7 +108,7 @@ pub(super) fn give_skill(world: &mut World, subject: &Subject) {
 
 pub(super) fn bring_back(world: &mut World, subject: &Subject) {
     if let Some(agent) = entity(subject) {
-        orders::restore(world, agent);
+        restore(world, agent);
     }
 }
 
@@ -172,9 +173,8 @@ pub(super) fn plain_agent(world: &World, agent: Entity) -> bool {
 /// Whether the agent could be given a skill.
 pub(super) fn can_learn(world: &World, subject: &Subject) -> bool {
     plain(world, subject)
-        && entity(subject).is_some_and(|agent| {
-            !orders::offers(world, agent).is_empty()
-        })
+        && entity(subject)
+            .is_some_and(|agent| !offers(world, agent).is_empty())
 }
 
 /// Whether the hamlet may be closed down: the first one stays.

@@ -8,6 +8,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, scroll,
 };
 use hamlet_agents_api::agents::{self, LivesIn, MergedInto, Purpose};
+use hamlet_chat_api::orders::restore;
 use hamlet_realm_api::orders::{self, Carry};
 use hamlet_realm_api::pick::{Selected, Thing, select};
 
@@ -50,7 +51,7 @@ pub(super) fn ruin(agent: Entity) -> AnyView {
                     good_action(
                         Glyph::Restore,
                         "RESTORE",
-                        move |world| orders::restore(world, agent),
+                        move |world| restore(world, agent),
                     ),
                     bad_action(
                         Glyph::Delete,
