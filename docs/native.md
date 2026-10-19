@@ -297,8 +297,9 @@ fn declare(entry: &mut hamlet_sdk::plugin::Entry) {
   there are the app's; the plugins are in its registry, so their `finish`
   and `cleanup` run, and the sub-apps (the render app) are there to reach.
   `Startup` has not run yet. So the levels of drawing past what the host
-  draws for a WASM plugin (a material, a shader, a renderer of its own; see
-  Drawing in [`wasm.md`](wasm.md)) are a native plugin's.
+  draws for a WASM plugin (a render pass, a compute shader, a texture or a
+  renderer of its own; see Drawing in [`wasm.md`](wasm.md)) are a native
+  plugin's (see Render passes and compute below).
 - A plugin the chief installs while Hamlet runs is loaded at once, into an
   `App` of its own that holds the running world: what it adds runs, but
   that app has none of the app's plugins or sub-apps, is never finished,
@@ -321,6 +322,28 @@ fn declare(entry: &mut hamlet_sdk::plugin::Entry) {
   aborts the process (see below).
 - `native/spark/` is the sample: a resource that counts frames and a panel
   that shows the count.
+
+## Render passes and compute
+
+An installed WASM plugin may have the host build a scene and paint it with a
+checked shader (`render.scene`, `render.shader`), and no more: a manifest that
+asks for `render.compute` is turned down ([`permissions.md`](permissions.md)).
+A native plugin needs no capability for it, since its entry has the whole
+`App`:
+
+- a material of its own is a Bevy `Material` with its shader, added with
+  `MaterialPlugin` in the entry, as `hamlet_vfx` adds its own;
+- a compute shader or a render pass is set up on the render sub-app,
+  `app.sub_app_mut(RenderApp)`: its pipelines in the render world, its
+  systems in the `Render` schedule and its node in the render graph, as any
+  Bevy plugin does;
+- what it draws in the world uses the realm's own camera and entities, which
+  it reaches as the app does.
+
+Such work is done only when Hamlet starts with the library loaded: a plugin
+installed while Hamlet runs gets an `App` with no sub-apps until the next
+start (see Writing one above). Nothing checks or limits what it puts on the
+GPU, and the chief's full-access answer is all that lets it.
 
 ## When the app stops while a library is new
 

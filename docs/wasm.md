@@ -25,6 +25,7 @@ The host is behind the `wasm` feature of the binary, on by default beside
 | `guests/herald` | Herald: a panel with buttons that send a message to an agent (`chat.send`), run `notes/new` (`commands.run`), keep, read and try to escape a draft in its folder (`files.write`, `files.read`), keep a copy of a file the chief picks (`fs.pick`) and fetch a page (`net`, limited to one host). Its `steps.toml` checks each, with the harness's `expect-told` and `choose-file` steps |
 | `guests/scribe` | Scribe: works in a folder the chief chooses, lists it, reads its notes and keeps a summary there (`fs.folder`), asks the model for the summary (`model.call`), and steers the agents of Home: a reminder before each model call, and a command that deletes a folder held back (`agent.steer`). Its `steps.toml` checks each, with the harness's `choose-folder`, `model-replies`, `answer` and `steer` steps, on the folder `guests/scribe/sample` |
 | `guests/surveyor` | Surveyor: lists the hamlets and the agents and where each stands (`read.world`), marks the agents at work over the world with a line to their hamlet (`world.overlay`) and brings the camera to an agent chosen in its panel (`world.act`, limited to `home`). Its `steps.toml` checks each, with the harness's `set-world`, `expect-overlay` and `expect-told` steps |
+| `guests/beacon` | Beacon: builds a small beacon beside the hamlet `home` (`render.scene`): a plinth and a pillar of Hamlet's shapes, a brass ring, a spire of a mesh it sends and an orb with a light, painted by a shader of its own (`render.shader`). A button sends a shader with an endless loop, which the host refuses. Its `steps.toml` checks each, with the harness's `expect-scene` step |
 | `guests/pantry` | Pantry: a panel with buttons that add things to a table of its database, find the drinks by a field and remove one (`db`). Its `steps.toml` restarts the app, with the harness's `restart` step, to see the records are still there |
 | `guests/clipper` | Clipper: sends the selected agent's name to Notes with its command, lists the titles of the notes it reads from Notes' collection and counts the `note-saved` events. Its command `clip` sends the name of the agent whose menu item "Clip name to Notes" was chosen. It needs Notes. The pair is the example of [`authoring.md`](authoring.md#two-plugins-working-together) |
 | `guests/charts` | Charts: a bar chart on a canvas, behind `ui.canvas`, with a Shuffle button that draws other numbers. Its `steps.toml` checks it held back and then drawn |
@@ -43,6 +44,7 @@ In `hamlet_wasm/src/`, a file for each part:
 | Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
 | Bringing up and the frame | `load.rs`, `admit.rs` (a plugin the chief just let in), `start.rs`, `enable.rs`, `inbox.rs`, `reply.rs` (an answer to a request), `run.rs`, `stop.rs` |
 | The panels | `panel.rs`, `wire.rs` (a returned tree made into nodes), `draw.rs`, `event.rs` |
+| Drawing in the world | `overlay.rs` (the marks), `scene.rs` (the `render` functions and the scene kept on the plugin), `shader.rs` (the check of a shader) |
 
 `lib.rs` has the plugin. The node model, the read-model of what each panel
 shows and the view built from it are in `hamlet_sdk::tree`.
@@ -109,6 +111,10 @@ shows and the view built from it are in `hamlet_sdk::tree`.
   `collections.write`, chosen for each collection.
 - `state-get()` and `state-set(state)`, a blob the host holds for the plugin
   in memory (see State below).
+
+A second interface, `render`, holds what a plugin builds in the world:
+`build(scene)`, `mesh(id, positions, normals, indices)` and `shader(id,
+source)` (see Drawing below).
 
 The plugin exports:
 
@@ -188,7 +194,9 @@ under way goes on.
 
 ## Drawing
 
-A plugin draws in levels. The WASM host offers the first two and no other.
+A plugin draws in levels. The WASM host offers the first four, each its own
+capability with its own reason in the petition, and no other. A plugin never
+reaches the GPU: the host draws what it describes.
 
 1. **A canvas in a panel.** `canvas(width, height, shapes)` is a node of the tree: a box
    of at most `canvas_px` pixels a side, and a list of shapes drawn first to last:
@@ -230,17 +238,74 @@ A plugin draws in levels. The WASM host offers the first two and no other.
    but as the panels' own nodes. Boxes, lines and words in the theme's colours can still be
    laid out to look like the world's own bubbles, name tags or a question put to the chief:
    the tag is all that tells them apart, and nothing keeps marks off those places yet.
-3. **Levels past it are only for native plugins.** A material, a shader, a texture or a
-   renderer of a plugin's own is not something a WASM plugin can have: each would put what the
-   plugin wrote on the GPU or in the world's own frame, beyond the limits of time, fuel and
-   memory that bound a `step`. A native plugin (see [`native.md`](native.md)) is given the
-   real App, its render sub-app among it, and adds them as any Bevy plugin does.
+3. **A scene in the world, built by the host.** `build(scene)` of the `render` interface
+   replaces what the plugin builds in the world with a tree of nodes about a site, and a scene
+   with no nodes takes it away. The site is named as an overlay's anchor is: an agent's robot,
+   a hamlet's common by its id, or a point. A node has an `id` of the plugin's own, an optional
+   `parent` (a node before it), a translation, a rotation (a quaternion) and a scale from its
+   parent, or from the site; an optional shape, one of Hamlet's own one metre across (`cube`,
+   `sphere`, `cylinder`, `cone`, `capsule`, `plane`, `torus`) or `custom(id)`, a mesh the plugin
+   sent; a material, a surface (`solid`, `clear` or `unlit`, a colour as `0xRRGGBBAA`, a glow
+   up to `scene_glow`, a roughness and a metallic of 0 to 1) or `shaded`, a shader the plugin
+   sent and up to four values for it; and an optional light, a point light, or a spot light
+   with a cone, of at most `scene_lumens` lumens and `scene_light_range` metres, that casts no
+   shadow. `mesh(id, positions, normals, indices)` sends a mesh kept by its id, with a normal
+   for each point or none (the host works them out), at most `scene_meshes` of them, each of
+   at most `scene_mesh_points` points and `scene_mesh_triangles` triangles; a mesh is sent
+   before the scene that names it. Both need `render.scene`, allowed when the chief lets the
+   plugin in. The host checks the call and returns why it refuses it, keeping the last scene:
+   at most `scene_nodes` nodes, `scene_lights` lights and `scene_depth` levels, ids that are
+   each one node's, numbers that are numbers, and every shape and light within `scene_radius`
+   metres of the site, its mesh's reach grown by the scales above it
+   (`hamlet_wasm/src/scene.rs`). A scene that passes is kept on the plugin's entity as a
+   `hamlet_realm_api::scene::PluginScene`, with the plugin's meshes and, while it holds
+   `render.shader`, its shaders, at most `scene_updates_per_second` times a second; a change
+   sent sooner waits and only the last one is kept. The host takes it away when the plugin
+   stops, is switched off or loses the grant. The realm's view (`plugins/realm/src/view/scene.rs`)
+   is the only thing that builds it: a root linked to the plugin's entity
+   (`StagedBy`, so the scene goes with a plugin that is removed), placed at the site each
+   frame and hidden while the site is not drawn, and an entity for each node under it. When
+   the scene changes it compares the nodes by id and spawns, changes or despawns only those
+   that differ, and makes a mesh or a shader again only when its data changed. The nodes
+   ignore the pointer. The plugin's name hangs over its scene, and the tag in the corner of
+   the REALM panel names it among the plugins that draw.
+4. **A shader of the plugin's own.** `shader(id, source)` sends WGSL that defines `fn
+   shade(surface: Surface) -> vec4<f32>`, which colours a point of a shape. `Surface` holds
+   `uv`, `position` (in the world), `normal` and `time` (seconds), and `param(i)` gives the
+   value `i` of the node's `shaded` material (`hamlet_realm_api::scene::INTERFACE`). It needs
+   `render.shader`, allowed when the chief lets the plugin in, and a plugin keeps at most
+   `shaders` of them. The host checks it in the call (`hamlet_wasm/src/shader.rs`) and returns
+   why it refuses one, with the line of the source where naga gives one:
+   - it is at most `shader_bytes` and has no `#`, so nothing reaches the shader preprocessor;
+   - naga parses it after the interface and a stand-in of the material's entry point, and
+     validates the whole with no extra capabilities, so a type, a name taken from the
+     interface, a stage rule or a recursion is refused;
+   - it declares no entry point, no binding or global outside the `private` space, and no
+     `override`, and `shade` has the interface's signature;
+   - every loop is a `for` over a whole-number counter that starts from a number, is compared
+     with a number and only its update changes by a fixed step, in the direction that ends
+     it, and ends at a value the counter can hold; a `loop` or `while` is refused. The counts
+     multiplied through nested loops and calls are at most `shader_loop_runs` for a point.
+
+   What it cannot check: how long the shader takes for each point beyond those caps, which
+   depends on the GPU and the size on screen, and what it paints inside its shapes. The
+   realm's view wraps a kept shader in the material's fragment shader
+   (`plugins/realm/src/view/shader.rs`), with the renderer's checks of bounds on, and a node
+   painted with it gets a `PluginMaterial` specialised with that shader, so the pipeline is
+   compiled once for each shader. Its output is opaque. A node whose shader is not there,
+   while `render.shader` is not held, is drawn in a plain material.
+5. **Render passes and compute are only for native plugins.** A pass of a plugin's own, a
+   compute shader or a texture is not something a WASM plugin can have. A manifest that asks
+   for `render.compute` is turned down at the scan with "render passes and compute are
+   native-only". A native plugin (see [`native.md`](native.md)) is given the real App, its
+   render sub-app among it, and adds them as any Bevy plugin does.
 
 `hamlet_guest::ui::canvas` and `hamlet_guest::draw` make the node and its shapes, and
 `guests/charts` is the example. The gallery scene `plugin-canvas` draws its panel.
 `hamlet_guest::overlay` makes the marks and the intent, `guests/surveyor` is the example,
 and the gallery scene `plugin-overlay` draws its marks over a picture of the world as the
-realm's view does.
+realm's view does. `hamlet_guest::render` makes the nodes, materials and lights and sends a
+scene, a mesh or a shader, and `guests/beacon` is the example.
 
 ## How a panel is drawn
 
@@ -897,6 +962,14 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **Steering a turn.** The `step` that answers a point of a turn has `steer_ms` and
   `steer_fuel`; a note or a reason is cut to `steer_note_bytes`, and the arguments a
   plugin is shown to `steer_args_bytes`.
+- **Scenes and shaders.** A scene holds at most `scene_nodes` nodes,
+  `scene_lights` lights and `scene_depth` levels within `scene_radius` metres
+  of its site, a light at most `scene_lumens` and `scene_light_range`, a glow
+  at most `scene_glow`, and is kept at most `scene_updates_per_second` times a
+  second. A plugin sends at most `scene_meshes` meshes of `scene_mesh_points`
+  points and `scene_mesh_triangles` triangles, and `shaders` shaders of
+  `shader_bytes` whose loops run at most `shader_loop_runs` times for a point.
+  A call over one returns an error (see Drawing above).
 - **Tools for the agents.** At most `agent_tools` tools of `tool_fields` fields
   declared, `tool_calls_in_flight` calls of agents waiting on a plugin, and a
   returned text of `tool_result_bytes` (a longer one is cut). A call is bounded by
@@ -943,11 +1016,12 @@ with.
 
 ## What a plugin can import
 
-The linker defines the `hamlet:plugin/host` interface and nothing else. A
+The linker defines the `hamlet:plugin/host` and `hamlet:plugin/render`
+interfaces and nothing else. A
 plugin written in Rust with `std` imports the `wasi:` interfaces of its
 standard library; each of those is defined as a function that traps when
 called, so such a plugin loads, and one that prints or reads the clock is
-failed. Any import that is neither `hamlet:plugin/host` nor `wasi:` fails
+failed. Any import that is none of those two nor `wasi:` fails
 the load with the name of the import.
 
 ## Installing a plugin

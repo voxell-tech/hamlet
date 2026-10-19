@@ -63,7 +63,7 @@ sandbox".
    - making up the world: `set-agents`, `set-papers`, `set-selected`,
      `set-world`, `turn`, `call-tool`, `restart`;
    - looking: `render`, `section`, `page`, `expect`, `expect-told`,
-     `expect-overlay`.
+     `expect-overlay`, `expect-scene`.
 
    Each is in `docs/authoring.md`, under "The script". Where there is no
    GPU, as in your sandbox, add `--no-pictures`.
@@ -81,7 +81,8 @@ sandbox".
   `read.agents`, `read.chat`, `read.activity`, `read.papers`, `read.world`,
   `chat.send`, `commands.run`, `world.act`, `ui.menu`, `ui.keys`,
   `ui.context`, `ui.inspector`, `ui.settings`, `ui.canvas`, `world.overlay`,
-  `net`, `fs.pick`, `fs.folder`, `files.read`, `files.write`, `db`,
+  `render.scene`, `render.shader`, `net`, `fs.pick`, `fs.folder`,
+  `files.read`, `files.write`, `db`,
   `model.call`, `plugin.use`, `collections.read`, `collections.write`,
   `agent.tool` and `agent.hook`. All but `read.chat`, `read.activity`,
   `fs.folder` and `model.call` are checked today; those four can be asked

@@ -24,9 +24,11 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 `world.act`, `ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`,
 `ui.settings`, `net`, `fs.pick`, `fs.folder`, `model.call`, `plugin.use`,
 `collections.read`, `collections.write`, `files.read`, `files.write`, `db`,
-`agent.tool`, `agent.hook`, `agent.steer`, `ui.canvas` and `world.overlay`. `read.agents`,
+`agent.tool`, `agent.hook`, `agent.steer`, `ui.canvas`, `world.overlay`,
+`render.scene` and `render.shader`. `read.agents`,
 `read.papers`, `read.world`, `ui.menu`, `ui.keys`, `ui.context`,
-`ui.inspector`, `ui.settings`, `ui.canvas`, `world.overlay`, `chat.send`,
+`ui.inspector`, `ui.settings`, `ui.canvas`, `world.overlay`, `render.scene`,
+`render.shader`, `chat.send`,
 `commands.run`, `world.act`, `net`, `fs.pick`, `fs.folder`, `model.call`,
 `files.read`, `files.write`,
 `db`, `agent.tool`, `agent.hook`, `agent.steer` and the three below are checked so far; the
@@ -116,6 +118,27 @@ and nothing is drawn; a choice taken back in Settings, or the plugin stopping, t
 away at once. Only the host draws them, as nodes of the panels, and a tag in the corner of the
 panel names every plugin that draws. Marks can still be laid out to look like Hamlet's own
 bubbles, name tags or questions in the world; the tag is what tells them apart.
+
+`render.scene` lets a plugin have the host build a small scene in the world (`build` and
+`mesh` of the `render` interface, see Drawing in [`wasm.md`](wasm.md)): Hamlet's own shapes or
+meshes it sends, Hamlet's surfaces and lights, about a hamlet, an agent or a point, within a
+count of nodes and lights, a depth of the tree, a radius about the site and a number of changes
+a second. `render.shader` lets it paint those shapes with WGSL of its own, one function the host
+checks with naga before it is used and wraps in a material: no binding, entry point or `#` of
+its own, and only loops of a fixed count. Each is allowed when the chief lets the plugin in,
+with its own reason in the petition. Where the choice is yet to be made the call returns
+`render.scene not granted` and the chief is asked; a choice taken back in Settings, or the
+plugin stopping, takes the scene away at once, and without `render.shader` its shaded shapes are
+drawn plain. Only the host builds the scene: the nodes ignore the pointer, the plugin's name
+hangs over them and the tag in the corner of the panel names it. Nothing it sends reaches the
+GPU as code but a shader that passed the check, which the renderer runs with its bounds checks
+on.
+
+`render.compute` is not offered to an installed plugin: a pass of its own or a compute shader
+would run what it wrote on the GPU unchecked. A manifest that asks for it is turned down by the
+scan, with no petition, as "it asks for `render.compute`: render passes and compute are
+native-only, for a native plugin, which has the whole app" (`NATIVE_ONLY` in
+`hamlet_sdk::capability`). See [`native.md`](native.md).
 
 `agent.hook` lets a plugin hear `host/before-turn` and `host/after-turn` (see
 [`wasm.md`](wasm.md)). It is checked where the events are given, as `read.agents` is for
@@ -506,6 +529,7 @@ what crosses between plugins. What each does when passed is in
 `NEVER` in `hamlet_sdk::capability`: `keys` (keys and model credentials),
 `petitions.answer`, `home.raw`, `process.run`, `sandbox.off` and
 `storage.other` (another plugin's storage; a plugin shares part of its own
-as a collection, which others read with `collections.read`). A manifest that asks for one, for a
-name that is not a capability, or with no reason is turned down by the scan,
+as a collection, which others read with `collections.read`). A manifest that asks for one, for
+`render.compute`, for a name that is not a capability, or with no reason is turned down by the
+scan,
 with the reason logged, and no petition is raised.
