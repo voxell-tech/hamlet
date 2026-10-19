@@ -24,7 +24,9 @@ it, and `plugin_world_view`, which is the realm's view: it mounts the
 realm's camera in a panel, sets its stage and its sky, and hangs the
 realm's labels off the panel. No other crate of the window does: the chat,
 the frame and every other plugin see the world only through
-`hamlet_realm_api`.
+`hamlet_realm_api`. A test of `hamlet_plugins` (`layering.rs`) reads each
+plugin's `Cargo.toml` and fails on a dependency that breaks these rules
+and is not one of the exceptions it lists with a reason.
 
 ## hamlet_realm_api
 

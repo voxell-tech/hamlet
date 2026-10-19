@@ -3794,6 +3794,7 @@ dependencies = [
  "plugin_status",
  "plugin_welcome",
  "plugin_world_view",
+ "toml",
 ]
 
 [[package]]

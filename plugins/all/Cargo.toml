@@ -27,6 +27,7 @@ plugin_skills = { workspace = true, optional = true }
 bevy.workspace = true
 hamlet_agents_api.workspace = true
 hamlet_sdk.workspace = true
+toml.workspace = true
 
 [features]
 # A plugin is built in when the feature of its name is on.

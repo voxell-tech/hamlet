@@ -5,6 +5,9 @@ use bevy_app::{PluginGroup, PluginGroupBuilder};
 #[cfg(feature = "agents")]
 pub use plugin_agents::Launch;
 
+#[cfg(test)]
+mod layering;
+
 /// Every plugin whose feature is on: the layers from the base up,
 /// the window's frame, the realm, what fills the frame and then the
 /// panels. Add it to the app after Bevy's default plugins and a
