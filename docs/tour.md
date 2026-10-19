@@ -59,11 +59,11 @@ table. The binary and the examples are the root package.
 | `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
 | `hamlet_offscreen` | An app that draws into an image with no window and saves a still. The examples and the plugin harness draw with it |
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
-| `hamlet_realm_api` | What the window and its plugins read of the realm and ask of it: the things chosen and the camera brought to one (`pick`), the chief's look (`chief`), the palette and an agent's `RobotPaint`, the hand's hold, the quality and the sky's hour (`sky`), the panels' sounds and the chief's choice of sound (`sound`), the orders (`orders`: decrees, carrying a hamlet, the library or the Hearth, giving a skill), and the realm as a plugin reads it (`survey`) |
-| `hamlet_realm` | The 3D world, drawn from the core's entities. It keeps the read models of `hamlet_realm_api` and answers its events |
+| `hamlet_realm_api` | What the window and its plugins read of the realm and ask of it: the things chosen and the camera brought to one (`pick`), the chief's look (`chief`), the palette and an agent's `RobotPaint`, the hand's hold, the quality and the sky's hour (`sky`), the panels' sounds and the chief's choice of sound (`sound`), the orders (`orders`: decrees, carrying a hamlet, the library or the Hearth, giving a skill), and the realm as a plugin reads it (`survey`). Its types are its own: it stands on no layer |
+| `hamlet_realm` | The 3D world, drawn from the core's entities. It depends on `hamlet_realm_api`, keeps its read models and answers its events |
 | `hamlet_sdk` | What a plugin is built with: the plugin types, commands, menu lines, context menu items, inspector tabs, settings pages and keys, the theme, looks and icons, the dock's panels. It does not depend on the core: its read models of the agents are plain data |
 | `hamlet_agents_api` | What a plugin reads and does about the agents: the systems that keep the SDK's read models from the core, the chat the window shows (`Me`), the questions' card, the words for an agent's state, the petitions of plugins put in the chief's queue, the core's tools and turns a host of plugins reaches, and the core's and the rules' types a plugin reads (`session`, `oversight`, `model`, `library`, `hamlet`) |
-| `hamlet_chat_api` | What other plugins use of the chat: sending to it and pointing it at an agent, the deeds that ask the chief first, the link under the pointer, and the chat's views, which `plugin_chat` sets |
+| `hamlet_chat_api` | What other plugins use of the chat: sending to it and pointing it at an agent, the chief's commands about an agent (`orders`), the deeds that ask the chief first, the link under the pointer, and the chat's views, which `plugin_chat` sets |
 | `hamlet_limits_api` | What other plugins use of the limits: the panes of the home's models and of each hamlet's rules, which `plugin_limits` sets |
 | `hamlet_ui` | The frame of the window: the dock and its saved layout, the window's chrome and states, the pointer, the hover card and the panels' sounds. What fills it is plugins |
 | `hamlet_openui` | Panels written in Hamlet's panel language: the components, the evaluation into a panel tree, state, actions and the data plugin. See [`panels.md`](panels.md) |
@@ -160,7 +160,8 @@ Paths are under `crates/`.
 | The status bar | `plugins/status/src/lib.rs` |
 | The first-run screen | `plugins/welcome/src/` |
 | The world's panel, its camera, the sky's hour and the pace of drawing | `plugins/realm/src/view.rs`; the mascot beside the chat, `view/chief.rs` there |
-| What a panel reads of the realm, and asks of it | `hamlet_realm_api/src/`; where the realm answers, the observers in `hamlet_realm/src/orders.rs`, `pick/camera.rs` and `sound.rs` |
+| What a panel reads of the realm, and asks of it | `hamlet_realm_api/src/`; where the realm answers, the observers in `hamlet_realm/src/orders.rs`, `pick/camera.rs` and `sound.rs`; a decree about an agent, `hamlet_chat_api/src/orders.rs`; [`sdk.md`](sdk.md), Who owns the words |
+| Which crates may depend on which | `plugins/all/src/layering.rs`; [`sdk.md`](sdk.md) |
 | The right-click menu | The items are contributions: `plugins/menus/src/world_menu/contribute.rs` and `acts.rs`, and `items.rs` for the lines that depend on two agents that are chosen |
 | A colour in the panels | `assets/theme.toml`, its fields in `hamlet_sdk/src/theme.rs` |
 | How a control looks or feels | `hamlet_sdk/src/looks.rs`, `hamlet_ui/src/widgets/feel/`; [`ui-warmth.md`](ui-warmth.md) |

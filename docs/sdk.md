@@ -7,10 +7,14 @@ built with, `plugins/` holds the plugins, and `hamlet_plugins` lists which are
 built in.
 
 ```
-hamlet (binary) -> hamlet_plugins -> plugins/<name> -> hamlet_chat_api, hamlet_limits_api -> hamlet_agents_api -> hamlet_sdk -> hamlet_base, hamlet_assets
-                 |                                 \-> hamlet_realm_api ----------------------------------------> hamlet_core, hamlet_rules
-                 |                                      ^
-                 \-> hamlet_ui (the frame) ------------/   hamlet_realm -> hamlet_realm_api
+hamlet (binary) -> hamlet_plugins -> plugins/<name> -> hamlet_chat_api -> hamlet_agents_api -> hamlet_core, hamlet_rules
+                 |                                 |         |                      \-> hamlet_sdk -> hamlet_base, hamlet_assets
+                 |                                 |         \-> hamlet_realm_api -> hamlet_assets
+                 |                                 |-> hamlet_limits_api -> hamlet_sdk
+                 |                                 \-> hamlet_realm_api
+                 \-> hamlet_ui (the frame)
+
+hamlet_realm -> hamlet_realm_api, hamlet_core, hamlet_rules
 ```
 
 A plugin crate depends on `hamlet_sdk`, the API crate of each thing it reads
@@ -37,6 +41,9 @@ breaks these rules:
 - a plugin (every crate under `plugins/` but the list `hamlet_plugins`, and
   the frame `hamlet_ui`) depends on no other plugin, its tests neither;
 - an API crate (`*_api`) depends on no plugin;
+- an API crate that owns its words (`OWNERS` in the test: `hamlet_realm_api`
+  and `hamlet_limits_api`) stands on no layer crate, nor on a crate that
+  does, its tests neither ([Who owns the words](#who-owns-the-words));
 - only `plugin_agents` and `plugin_hamlets` depend on `hamlet_core` or
   `hamlet_rules`, and only `plugin_realm` on `hamlet_realm`. A plugin's tests
   may: the chat's stand up the core's agents to talk to;
@@ -51,8 +58,9 @@ breaks these rules:
 ## hamlet_realm_api
 
 The plain types and events of the realm, which the realm keeps and answers.
-A panel that runs with no realm reads the read models as they were left,
-and its asks go unanswered.
+They are its own: it stands on `hamlet_assets` and Bevy, not on the realm,
+the core or the rules. A panel that runs with no realm reads the read models
+as they were left, and its asks go unanswered.
 
 | Module | What it holds |
 |---|---|
@@ -62,7 +70,7 @@ and its asks go unanswered.
 | `hand` | `Hold`, the hand's `Grip` for the cursor, and `Proud` |
 | `sky` | `Quality` and `TimeOfDay`, the chief's choices of how the world is drawn |
 | `sound` | `PanelCue` and `PanelSound`, the panels' own sounds; `SoundChoice`, what the chief chose to hear |
-| `orders` | `Decree` and `Tell`, which the chat says; `decree`, `restore`, `part` and `offers`; `Introduce`, `Give`, `Carry` and `Switched`, which the realm answers |
+| `orders` | `Decree` and `Tell`, which the chat says; `Introduce`, `Give`, `Carry` and `Switched`, which the realm answers, and `introduce`, `give` and `carry`, which trigger them |
 | `overlay` | `Overlays`, the marks plugins draw over the world, which the host of the plugins keeps and the realm's view draws |
 | `scene` | `PluginScene`, what a plugin builds in the world (its nodes, meshes and shaders), which the host of the plugins keeps on the plugin and the realm's view builds; `StagedBy` and `Staged`, which link what is built to the plugin; `INTERFACE` and `SHADE`, what a plugin's shader is written against |
 | `survey` | `Survey`, the realm by name for a plugin that holds `read.world`: the hamlets, the agents and where each stands, the thing selected and the hour; `SurveyWanted`, set while a plugin needs it, which the host of the plugins keeps |
@@ -76,7 +84,7 @@ API crates:
 
 | Crate | What it holds |
 |---|---|
-| `hamlet_chat_api` | `chat`: `send`, `decree` and `decree_for`, `Unfolded`, and `Views`, the chat's views other plugins show (`transcript`, `message_bar`, `entry_view`); `markdown::fixed`, markdown drawn as the chat draws it; `me`: `talk_to`, `talk_to_mayor`, `seat`, `mark_selected` and the sets `Reseated` and `Followed`; `deed`: `Deed`, `Ask`, `ask`, `stop` and `CharterReset`; `links::Aimed`, the link under the pointer. The Inspector draws the chat, the Settings draws markdown and asks before it removes a charter, the menus ask before a deed, the status bar shows the link and the realm's view keeps the mascot beside the chat |
+| `hamlet_chat_api` | `chat`: `send`, `decree` and `decree_for`, `Unfolded`, and `Views`, the chat's views other plugins show (`transcript`, `message_bar`, `entry_view`); `markdown::fixed`, markdown drawn as the chat draws it; `me`: `talk_to`, `talk_to_mayor`, `seat`, `mark_selected` and the sets `Reseated` and `Followed`; `deed`: `Deed`, `Ask`, `ask`, `stop` and `CharterReset`; `orders`: `decree`, `restore` and `part`, the chief's commands about an agent, which reach the chat as the realm's `Decree`; `links::Aimed`, the link under the pointer. The Inspector draws the chat, the Settings draws markdown and asks before it removes a charter, the menus ask before a deed, the status bar shows the link and the realm's view keeps the mascot beside the chat |
 | `hamlet_limits_api` | `Panes`, the panes of the limits other plugins show: the home's endpoints and catalogue and an agent's model (`models`), and the realm's rules and a hamlet's (`rules`); and `models::narrowed`. The Settings shows the home's, the Inspector each hamlet's, the first-run screen narrows the models |
 
 A view one plugin draws and another shows is a resource of plain functions
@@ -133,7 +141,7 @@ core, and the layers add its plugins (below).
 | `session` | The core's `Entry`, `Item`, `Transcript`, `Status`, `Usage`, `SessionKey`, `Seat`, `TalksTo`, `UserMessage`, `Reply`, `SessionOutput`, `Rewind`, `Rewound`, `Began` and `JobFinished`; `ensure`, `gather`, `reply_in`, `house_at`, `log_of` and `prompt_of`; and `archive`, the past sessions |
 | `oversight` | The core's `Waiting`, `Need`, `Asks`, `Answer`, `Kind`, `Danger`, `Veto`, `Revoke`, `Grants`, `Settled` and the tags of a petition; the rules' `Choice`, an answer to a ruling |
 | `model` | The core's `Settings`, `Model` (and `Model::answering`, one that reaches no server), `Link`, `Listing` and `ModelCatalogue`, signing in, the events that save, test, list and try the models, and `call_model` with its `ModelCall`, a model call a plugin makes on the first hamlet's budget |
-| `hamlet` | The rules' record of a hamlet and the realm as a plugin reads them: `HOME`, `MAYOR`, `Hamlet`, `Realm`, `Origin`, the work a hamlet is pointed at (`Mode`, `Work`), its votes (`vote`, `Standing`), `format_tokens`, `RESUME`, and the chief's `switch` and `Target` |
+| `hamlet` | The rules' record of a hamlet and the realm as a plugin reads them: `HOME`, `MAYOR`, `Hamlet`, `Realm`, `Origin`, the work a hamlet is pointed at (`Mode`, `Work`), its votes (`vote`, `Standing`), the skills an agent could be given (`offers`, `Offer`), `format_tokens`, `RESUME`, and the chief's `switch` and `Target` |
 | `library` | The core's `Skills`, the library's skills as last read, and `RefreshLists`, which reads them again |
 | `papers` | The systems that read the SDK's `Papers` from the selected agent's house, and `character_file` |
 | `convo` | `ChiefName`, the name of the window's chief. `Me`, the chat's session and the agent it is with (`Me::of` makes one). `AgentSelected`, whether the world has an agent selected. `of_agent`, a page about the agent the chat is with. `send_as_chief`. It puts each `Notice` in the open chat |
@@ -420,8 +428,8 @@ app from its modules, and the engine cannot depend on the plugin crate
 above it. And a module's plugin stands first in its module, beside what it
 adds, so a change to a system and to where it runs is one edit. Moving the
 engines themselves into the plugin crates was not cheap either:
-`hamlet_core` is under `hamlet_agents_api`, `hamlet_realm_api` and
-`hamlet_realm`, which would then stand on a plugin.
+`hamlet_core` is under `hamlet_agents_api` and `hamlet_realm`, which would
+then stand on a plugin.
 
 A layer's `HamletPlugin` declares nothing in `entry`: neither engine knows
 the SDK, so no command, menu line or other contribution lives in them. The
@@ -497,11 +505,30 @@ the first from the core and carries the second to the core's queue and back.
 
 ### Who owns the words
 
-`hamlet_agents_api` and `hamlet_realm_api` stand on the layers: most of what
-they hold is the core's, the rules' or the realm's own types and events,
-re-exported (`pub use`). A plugin names no layer, but it is still built
-against the layers' types, and a change to one of them reaches every plugin.
-The next step turns this round: each API crate owns its vocabulary as plain
-types, events and read models, depends on no layer, and the layer depends on
-the API crate, implementing it. `hamlet_sdk`'s `AgentList` and `Petition`, and
-`chat::Views` and `Panes`, are already made this way.
+An API crate that owns its words defines the types the layers speak in (the
+ids, read models, events, sets and the resources of plain functions), and
+the layer depends on it and implements it: keeps its read models, observes
+its events and fills its resources. A plugin that needs only those words
+builds no engine.
+
+- `hamlet_realm_api` is made this way. Every type in it is its own, and
+  `hamlet_realm` uses them from there (`pick`, `hand`, `palette`, `sky`,
+  `chief`, `orders`, `survey`). What needs the core or the rules is not in it:
+  the decree for an agent's hamlet is `hamlet_chat_api::orders`, and the
+  skills an agent could be given are `hamlet_agents_api::hamlet::offers`.
+  `Give` carries the skill and whose it is as plain words.
+- `hamlet_limits_api` holds `Panes`, plain functions `plugin_limits` fills,
+  over the SDK alone. So do `hamlet_sdk`'s `AgentList`, `Papers` and
+  `Petition`, which `hamlet_agents_api` fills from the core.
+- `hamlet_agents_api` stands on the layers: most of what it holds is the
+  core's and the rules' own types, functions and events, re-exported
+  (`pub use`), and `hamlet_chat_api`, which stands on it, builds the core
+  too. Three things hold it there. `hamlet_rules` has no Bevy, while
+  `hamlet_agents_api` stands on the SDK and Bevy, so the rules' types
+  (`Hamlet`, `Realm`, `Work`, `Choice`, `Questions`) cannot move into it, and
+  the plugins call the record's own methods (`Settlement::record`). The core
+  stands on `bevy_ecs` alone, and would build the SDK and the window's views
+  (`asking`, `convo::of_agent`, `words`, `DrawChange`) with the crate. And
+  some of what plugins reach is the engine's behaviour or holds its handles:
+  `Model` (a provider), `Sandboxing`, `session::ensure`, `gather` and
+  `archive`, `agents::sync` and `register`, `call_model`.
