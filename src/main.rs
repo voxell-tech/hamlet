@@ -25,6 +25,7 @@ use hamlet_ui::{ShowRequests, window_plugin};
 const USAGE: &str = "\
 usage: hamlet [--headless | --repl] [--insecure] [--safe-mode] \
                      [--replay <session.jsonl>]
+       hamlet --native-abi
 
   (default)    open the command center window
   --headless   no window, for machines without a display; Ctrl-C \
@@ -34,6 +35,8 @@ usage: hamlet [--headless | --repl] [--insecure] [--safe-mode] \
   --safe-mode  open no native plugin's library in this run
   --replay     answer with the assistant messages recorded in a \
                      session log instead of a model
+  --native-abi print what a native plugin must be built with to load \
+                     in this Hamlet, and exit
 
 Settings live in <home>/config.toml and are edited from the command \
                      center. The chief's limits (budget, models, \
@@ -59,6 +62,7 @@ struct Args {
     mode: Mode,
     insecure: bool,
     safe_mode: bool,
+    native_abi: bool,
     replay: Option<PathBuf>,
 }
 
@@ -70,12 +74,14 @@ fn parse(
         mode: Mode::Window,
         insecure: false,
         safe_mode: false,
+        native_abi: false,
         replay: None,
     };
     while let Some(a) = args.next() {
         match a.as_str() {
             "--headless" => parsed.mode = Mode::Headless,
             "--repl" => parsed.mode = Mode::Repl,
+            "--native-abi" => parsed.native_abi = true,
             "--insecure" => parsed.insecure = true,
             "--safe-mode" => parsed.safe_mode = true,
             "--replay" => {
@@ -99,12 +105,22 @@ fn main() -> Result<()> {
         mode,
         insecure,
         safe_mode,
+        native_abi,
         replay,
     }) = parse(std::env::args().skip(1))?
     else {
         println!("{USAGE}");
         return Ok(());
     };
+    if native_abi {
+        #[cfg(feature = "native")]
+        {
+            print!("{}", hamlet_native::abi::Info::ours().toml());
+            return Ok(());
+        }
+        #[cfg(not(feature = "native"))]
+        bail!("this Hamlet was built without native plugins");
+    }
 
     let root = std::env::var_os("HAMLET_HOME")
         .map(PathBuf::from)
@@ -245,6 +261,7 @@ mod tests {
                 mode: Mode::Repl,
                 insecure: true,
                 safe_mode: true,
+                native_abi: false,
                 replay: Some("a.jsonl".into()),
             })
         );

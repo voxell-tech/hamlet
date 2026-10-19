@@ -138,6 +138,22 @@ impl Info {
         // SAFETY: it is this build's own, in this build's memory.
         unsafe { Abi::ours().read() }
     }
+
+    /// The values as TOML, the hashes as strings.
+    pub fn toml(&self) -> String {
+        format!(
+            "abi = {}\nhamlet = {:?}\nrustc = {:?}\nprofile = \
+             {:?}\nfingerprint = \"{}\"\nsources = \"{}\"\ntypes = \
+             \"{}\"\n",
+            self.abi,
+            self.hamlet,
+            self.rustc,
+            self.profile,
+            self.fingerprint,
+            self.sources,
+            self.types
+        )
+    }
 }
 
 /// The hash of the identities of the types the host and a library

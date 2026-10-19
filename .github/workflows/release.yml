@@ -2,8 +2,9 @@
 #
 # Runs when a version tag is pushed (v0.1.0) and when started by hand
 # from the Actions tab, and at no other time. A tag publishes a GitHub
-# release with the three archives. A run by hand only keeps them as
-# the run's artifacts.
+# release with the three archives of the app and the three SDK kits
+# made from the same builds. A run by hand only keeps them as the
+# run's artifacts.
 name: Release
 
 on:
@@ -66,6 +67,21 @@ jobs:
       - name: Package
         shell: bash
         run: .github/scripts/package.sh "${{ matrix.target }}" "${{ github.ref_type == 'tag' && github.ref_name || github.sha }}"
+
+      # The kit native plugins for this app are built with, from the
+      # build above: the same options, so nothing is compiled again.
+      - name: Package the native SDK kit
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+        run: |
+          case $VERSION in v*) ;; *) VERSION=${VERSION:0:7} ;; esac
+          name=hamlet-sdk-$VERSION-$TARGET
+          scripts/make-native-sdk.sh "sdk/$name" --release --locked -p hamlet --target "$TARGET"
+          tar -C sdk -czf "dist/$name.tar.gz" "$name"
+          rm -rf sdk
+          ls -l dist
 
       - uses: actions/upload-artifact@v4
         with:

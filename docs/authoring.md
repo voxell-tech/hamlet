@@ -22,6 +22,7 @@ compiled engine of the Hamlet that loads it, and the chief gives it full
 access or none. Make one in the checkout's workspace with
 `scripts/new-native-plugin.sh <name>`, or in a folder of its own with
 `scripts/new-native-plugin.sh <name> <folder>`, built against an SDK kit that
+`scripts/fetch-native-sdk.sh` downloads for a release, or that
 `scripts/make-native-sdk.sh <kit>` makes from that Hamlet's build, and read
 [`native.md`](native.md). Prefer a WASM or data plugin when either will do:
 the chief answers one question for them, not "everything".
@@ -34,7 +35,7 @@ the chief answers one question for them, not "everything".
 | `templates/data-plugin/` | A data plugin to copy: `manifest.toml`, `panel.ui`, `steps.toml` |
 | `scripts/new-plugin.sh` | Copies a template into a folder and fills in its placeholders |
 | `templates/native-plugin/`, `scripts/new-native-plugin.sh`, `native/spark/` | A native plugin to copy into `native/` or a folder of its own, the script that does it, and a sample to read |
-| `scripts/make-native-sdk.sh` | Makes the SDK kit a native plugin outside the checkout is built with, from one build of Hamlet |
+| `scripts/make-native-sdk.sh`, `scripts/fetch-native-sdk.sh` | Make the SDK kit a native plugin outside the checkout is built with from one build of Hamlet, or fetch the one a release published |
 | `scripts/vendor-plugin-deps.sh` | Copies the crates a wasm plugin builds from into it, for a build with no network |
 | `crates/hamlet_harness` | The harness that runs a plugin headlessly: a `Harness` to drive in Rust, and a script runner |
 | `examples/plugin_check` | The harness as a command |
