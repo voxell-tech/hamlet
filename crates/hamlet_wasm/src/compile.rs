@@ -21,6 +21,7 @@ use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::reload::{Modified, keep};
 use crate::start::{self, Setting, Source};
+use crate::stop::{HeldState, state_of};
 
 /// A compile that ended: the plugin, what it was for and whether it
 /// worked.
@@ -110,6 +111,7 @@ fn compiled(
         &Source,
         &Granted,
         Option<&Instance>,
+        Option<&HeldState>,
     )>,
     host: Option<Res<Host>>,
     limits: Res<Limits>,
@@ -129,8 +131,15 @@ fn compiled(
         background: None,
     };
     while let Ok((plugin, then, made)) = compiler.rx.try_recv() {
-        let Ok((info, manifest, status, source, granted, instance)) =
-            plugins.get(plugin)
+        let Ok((
+            info,
+            manifest,
+            status,
+            source,
+            granted,
+            instance,
+            held,
+        )) = plugins.get(plugin)
         else {
             continue;
         };
@@ -162,7 +171,7 @@ fn compiled(
                 source,
                 granted,
                 &setting,
-                instance.map_or(&[], Instance::state),
+                state_of(instance, held),
                 &mut commands,
             ),
         }

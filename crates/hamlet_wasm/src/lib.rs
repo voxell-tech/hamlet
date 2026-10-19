@@ -96,6 +96,7 @@ pub fn plugin(app: &mut App) {
     .add_observer(steer::steer)
     .add_observer(stop::stopped)
     .add_observer(stop::schedule)
+    .add_observer(stop::release)
     .add_observer(uninstall::removed)
     .configure_sets(
         Update,

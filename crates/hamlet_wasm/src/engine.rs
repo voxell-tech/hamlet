@@ -25,7 +25,8 @@ impl Host {
             .wasm_component_model(true)
             .epoch_interruption(true)
             .consume_fuel(true);
-        let plugins = limits.pool_plugins;
+        // Room for a version being built beside its running one.
+        let plugins = limits.pool_plugins + 1;
         let mut pool = PoolingAllocationConfig::new();
         pool.max_memory_size(limits.memory_bytes())
             .table_elements(limits.table_elements)

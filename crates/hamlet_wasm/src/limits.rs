@@ -69,9 +69,9 @@ pub struct Limits {
     pub plugin_memories: u32,
     /// The tables one plugin's component may hold.
     pub plugin_tables: u32,
-    /// The plugins the engine's pool holds at once, each with room
-    /// for its instances, memories and tables. A plugin being
-    /// reloaded holds two places while both versions run.
+    /// The plugins that run at once, each with room in the engine's
+    /// pool for its instances, memories and tables. The pool holds
+    /// one more, for a version built beside the running one.
     pub pool_plugins: u32,
     /// The log lines one call may leave. The rest are dropped.
     pub log_lines: usize,

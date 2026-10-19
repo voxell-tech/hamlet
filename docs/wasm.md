@@ -1073,9 +1073,12 @@ each means. They apply to every plugin alike, whatever it is granted.
   `table_elements`, which traps the call as `Fault::OutOfMemory`, and holds a
   plugin to `plugin_instances` core instances, `plugin_memories` memories and
   `plugin_tables` tables. The pooling allocator is sized to the same memory and
-  counts, and holds `pool_plugins` plugins at once, each to its own share, so
-  no plugin takes another's room; a plugin that finds the pool full does not
-  start, with "the host runs 128 plugins at most". A plugin built with Rust's
+  counts, and holds `pool_plugins` plugins at once and one more, for a version
+  built beside the running one in a reload, each to its own share, so no
+  plugin takes another's room. A plugin that fails or is switched off gives its
+  room back: its instance is dropped and the blob the host holds for it kept
+  (`stop::release`). A plugin that finds the pool full does not start, with
+  "the host runs 128 plugins at most". A plugin built with Rust's
   `wasm32-wasip2` uses three core instances, one memory and two tables.
 - **Copies out of a plugin.** The strings and lists a plugin gives one host
   function, or returns from one call of `step` or `panel-view`, are copied
@@ -1193,9 +1196,10 @@ the plugin is removed the chief decides whether `data/` goes with it
 
 The host holds a blob for each plugin in memory, in the store of its running
 instance: `state-get` returns it and `state-set` replaces it, up to
-`state_bytes`. Building a new instance (a reload, or Enable after a switch off
-or a failure) hands it the blob of the one it replaces, before `entry` runs, so
-the state survives both. It is not written to disk and is empty after Hamlet
+`state_bytes`. A plugin that fails or is switched off has its instance dropped
+and the blob kept on its entity (`HeldState`). Building a new instance (a
+reload, or Enable after a switch off or a failure) hands it the blob of the one
+it replaces, before `entry` runs, so the state survives both. It is not written to disk and is empty after Hamlet
 restarts. A plugin that never calls `state-set` has an empty blob.
 `hamlet_guest::State<T>` keeps a value of the plugin's own type in it.
 

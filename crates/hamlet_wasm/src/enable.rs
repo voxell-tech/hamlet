@@ -15,7 +15,7 @@ use crate::engine::Host;
 use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::start::{self, Setting, Source};
-use crate::stop::{Automatic, Retry, Tries};
+use crate::stop::{Automatic, HeldState, Retry, Tries, state_of};
 
 /// Brings up again the disabled or failed plugin of this id, from
 /// its file, with a store of its own, unless a plugin it needs is not
@@ -31,6 +31,7 @@ pub fn restart(
             &Source,
             &Granted,
             Option<&Instance>,
+            Option<&HeldState>,
             Has<Automatic>,
         ),
         Without<Uninstalled>,
@@ -68,6 +69,7 @@ pub fn restart(
         source,
         granted,
         instance,
+        held,
         automatic,
     ) in &plugins
     {
@@ -98,7 +100,7 @@ pub fn restart(
             source,
             granted,
             &setting,
-            instance.map_or(&[], Instance::state),
+            state_of(instance, held),
             &mut commands,
         );
     }

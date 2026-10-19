@@ -29,6 +29,7 @@ use crate::install::{self, Body, Installed};
 use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::start::{Setting, Source};
+use crate::stop::{HeldState, state_of};
 
 /// What the files of a plugin that changed say.
 enum Next {
@@ -76,6 +77,7 @@ pub fn reload(
             Option<&Source>,
             Option<&Contributions>,
             Option<&Instance>,
+            Option<&HeldState>,
         ),
         Without<Uninstalled>,
     >,
@@ -115,11 +117,12 @@ pub fn reload(
             source,
             held,
             instance,
+            kept_state,
         )) = plugins.get(*plugin)
         else {
             continue;
         };
-        let state = instance.map_or(&[][..], Instance::state);
+        let state = state_of(instance, kept_state);
         commands.entity(*plugin).remove::<Waiting>();
         let folder = watch.folder.as_path();
         let next =

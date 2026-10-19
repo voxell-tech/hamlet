@@ -7,6 +7,7 @@ use hamlet_sdk::plugin::{Contributions, Enable, PluginInfo, Status};
 use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 
 use crate::fault::Fault;
+use crate::instance::Instance;
 use crate::limits::Limits;
 
 /// On the entity of a failed plugin: why it failed.
@@ -28,6 +29,57 @@ pub struct Tries(pub u32);
 /// up.
 #[derive(Component)]
 pub struct Automatic;
+
+/// On a plugin that is not running: the blob the host holds for it,
+/// kept from its dropped [`Instance`].
+#[derive(Component, Clone, Default, Debug)]
+pub struct HeldState(pub Vec<u8>);
+
+/// The blob the host holds for a plugin, from its instance or, while
+/// it has none, as kept.
+pub fn state_of<'a>(
+    instance: Option<&'a Instance>,
+    held: Option<&'a HeldState>,
+) -> &'a [u8] {
+    match (instance, held) {
+        (Some(instance), _) => instance.state(),
+        (None, Some(held)) => &held.0,
+        (None, None) => &[],
+    }
+}
+
+/// Drops the instance of a plugin that failed or was switched off,
+/// keeping the blob the host holds for it, so that its room in the
+/// engine's pool is free for another.
+pub fn release(
+    insert: On<Insert, Status>,
+    plugins: Query<&Status, With<Instance>>,
+    mut commands: Commands,
+) {
+    let Ok(status) = plugins.get(insert.entity) else {
+        return;
+    };
+    if !matches!(status, Status::Disabled | Status::Failed) {
+        return;
+    }
+    commands.entity(insert.entity).queue_silenced(
+        |mut plugin: EntityWorldMut| {
+            // It may have been started again since.
+            let stopped =
+                plugin.get::<Status>().is_some_and(|status| {
+                    matches!(
+                        status,
+                        Status::Disabled | Status::Failed
+                    )
+                });
+            if stopped
+                && let Some(instance) = plugin.take::<Instance>()
+            {
+                plugin.insert(HeldState(instance.state().to_vec()));
+            }
+        },
+    );
+}
 
 /// Plans the automatic restart of a plugin that failed, if it has any
 /// left and there is a clock to wait by.

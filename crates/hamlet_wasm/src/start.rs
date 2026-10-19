@@ -20,7 +20,7 @@ use crate::inbox::Inbox;
 use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::reload::keep;
-use crate::stop::{self, Failure};
+use crate::stop::{self, Failure, HeldState};
 use crate::storage::DATA;
 use crate::{command, panel, run};
 
@@ -137,7 +137,7 @@ pub fn bring_up(
                     Dirty::of(shown),
                     keep::remember(folder),
                 ))
-                .remove::<Failure>();
+                .remove::<(Failure, HeldState)>();
         }
         Err(fault) => failed(plugin, info, source, &fault, commands),
     }

@@ -12,7 +12,7 @@ use crate::inbox::Inbox;
 use crate::install::Installed;
 use crate::reload::keep;
 use crate::start::{self, Built, Setting, Source};
-use crate::stop::Failure;
+use crate::stop::{Failure, HeldState};
 use crate::{command, panel, run};
 
 /// Builds the version in `file` and runs its `entry` and a draw of
@@ -77,6 +77,6 @@ pub(super) fn swap(
             Dirty::of(shown),
             keep::remember(case.folder),
         ))
-        .remove::<Failure>();
+        .remove::<(Failure, HeldState)>();
     Ok(())
 }
