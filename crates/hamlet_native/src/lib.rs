@@ -40,8 +40,14 @@ pub use self::abi::{ABI, Abi, declare};
 #[cfg(feature = "host")]
 pub fn plugin(app: &mut App) {
     app.add_plugins(guard::plugin)
+        .init_resource::<load::Late>()
         .add_observer(load::admit)
         .add_observer(remove::removed)
-        .add_systems(Startup, load::installed.after(open_store));
+        .add_systems(Startup, load::installed.after(open_store))
+        .add_systems(
+            First,
+            load::late
+                .run_if(|late: Res<load::Late>| !late.0.is_empty()),
+        );
     load::granted(app);
 }

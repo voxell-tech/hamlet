@@ -66,7 +66,16 @@ enum Failure {
     Refused(String),
     /// Its entry panicked, and what it added before that stays.
     Panicked,
+    /// Its entry, run while the app runs, added to these schedules
+    /// while they ran, which lost it. The rest of what it added
+    /// stays.
+    Lost(Vec<String>),
 }
+
+/// The plugins let in while the app runs, loaded at the start of the
+/// next frame.
+#[derive(Resource, Default)]
+pub struct Late(pub Vec<Entity>);
 
 impl Opened {
     fn take(&mut self, id: &str) -> Option<Outcome> {
@@ -259,7 +268,10 @@ pub fn installed(world: &mut World) {
                         Some(outcome) => {
                             loaded(world, entity, &id, outcome)
                         }
-                        None => start(world, entity),
+                        None => world
+                            .resource_mut::<Late>()
+                            .0
+                            .push(entity),
                     },
                 }
             }
@@ -440,6 +452,18 @@ fn loaded(
             world.entity_mut(plugin).insert(Status::Failed);
             not_loaded(world, plugin, &why);
         }
+        Err(Failure::Lost(schedules)) => {
+            world.entity_mut(plugin).insert(Status::Failed);
+            let why = format!(
+                "Not loaded: it adds to {} while the app runs it, \
+                 which cannot be done until Hamlet starts again. \
+                 What else it added runs until then, and the next \
+                 start loads it whole.",
+                schedules.join(", ")
+            );
+            not_loaded(world, plugin, &why);
+            world.trigger(Notice(why));
+        }
         Err(Failure::Panicked) => {
             world.entity_mut(plugin).insert(Status::Failed);
             not_loaded(world, plugin, PANICKED);
@@ -456,10 +480,21 @@ fn loaded(
     }
 }
 
+/// Loads the plugins let in while the app runs, at the start of a
+/// frame, where only `Main` and `First` are running.
+pub fn late(world: &mut World) {
+    for plugin in std::mem::take(&mut world.resource_mut::<Late>().0)
+    {
+        if world.get_entity(plugin).is_ok() {
+            start(world, plugin);
+        }
+    }
+}
+
 /// Opens the library of the plugin `plugin` and runs its entry with
 /// the running world, in an app of its own. What the entry declared
 /// is switched on by the plugin frame, as for any plugin.
-pub fn start(world: &mut World, plugin: Entity) {
+fn start(world: &mut World, plugin: Entity) {
     let (Some(info), Some(file), Some(granted), Some(root)) = (
         world.get::<PluginInfo>(plugin).cloned(),
         world.get::<Library>(plugin).map(|l| l.file.clone()),
@@ -474,7 +509,19 @@ pub fn start(world: &mut World, plugin: Entity) {
         .and_then(|entry| {
             world.remove_resource::<Declared>();
             let ran = with_app(world, entry);
-            settle(world, &root, &info.id, ran)
+            let lost = ran
+                .as_ref()
+                .map_or(Vec::new(), |(_, lost)| lost.clone());
+            let outcome = settle(
+                world,
+                &root,
+                &info.id,
+                ran.map(|(ran, _)| ran),
+            );
+            match lost.is_empty() {
+                true => outcome,
+                false => outcome.and(Err(Failure::Lost(lost))),
+            }
         });
     if outcome.is_ok() {
         world.entity_mut(plugin).insert(Reload {
@@ -489,22 +536,41 @@ fn nothing(_: &mut Entry) {}
 
 /// Runs `run` with an app that holds this world, so that code written
 /// for an app can add its systems, observers and resources to a world
-/// that is running. That app has none of the running app's plugins
-/// and sub-apps, and is never finished. A panic in it is caught and
-/// the world is put back; one in a library is caught by the library.
+/// that is running, and names the schedules it added to that were
+/// running then: what it added to those is taken out, as it would be
+/// lost when they are put back. That app has none of the running
+/// app's plugins and sub-apps, and is never finished. A panic in it
+/// is caught and the world is put back; one in a library is caught by
+/// the library.
 pub fn with_app<R>(
     world: &mut World,
     run: impl FnOnce(&mut App) -> R,
-) -> Result<R, String> {
+) -> Result<(R, Vec<String>), String> {
+    let running = world
+        .get_resource::<Schedules>()
+        .map(Schedules::get_temporarily_removed)
+        .unwrap_or_default();
     let mut app = App::empty();
     std::mem::swap(app.world_mut(), world);
     let ran = catch_unwind(AssertUnwindSafe(|| run(&mut app)));
     std::mem::swap(app.world_mut(), world);
-    ran.map_err(|_| "its entry panicked".to_string())
+    // A schedule that runs is out of `Schedules`, so what was added
+    // to it went to a new one of the same label.
+    let mut lost = match world.get_resource_mut::<Schedules>() {
+        Some(mut schedules) => running
+            .iter()
+            .filter(|label| schedules.remove(**label).is_some())
+            .map(|label| format!("{label:?}"))
+            .collect::<Vec<_>>(),
+        None => Vec::new(),
+    };
+    lost.sort();
+    ran.map(|ran| (ran, lost))
+        .map_err(|_| "its entry panicked".to_string())
 }
 
-/// Loads the plugin the chief has just let in, unless this run is in
-/// safe mode.
+/// Loads the plugin the chief has just let in at the start of the
+/// next frame, unless this run is in safe mode.
 pub fn admit(
     installed: On<Installed>,
     plugins: Query<
@@ -512,6 +578,7 @@ pub fn admit(
         (With<FullAccess>, Without<Uninstalled>, Without<EntryPoint>),
     >,
     safe: Option<Res<SafeMode>>,
+    mut late: ResMut<Late>,
     mut commands: Commands,
 ) {
     for (plugin, info) in &plugins {
@@ -533,7 +600,9 @@ pub fn admit(
             commands.entity(plugin).insert(NotLoaded(why.into()));
             continue;
         }
-        commands.queue(move |world: &mut World| start(world, plugin));
+        if !late.0.contains(&plugin) {
+            late.0.push(plugin);
+        }
     }
 }
 
@@ -563,6 +632,33 @@ mod tests {
         assert!(ran.is_ok());
         app.update();
         assert_eq!(app.world().resource::<Added>().0, 1);
+    }
+
+    #[derive(Resource, Default)]
+    struct Lost(Vec<String>);
+
+    #[test]
+    fn what_a_late_entry_adds_to_a_running_schedule_is_named() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).init_resource::<Lost>();
+        app.add_systems(First, |world: &mut World| {
+            if world.contains_resource::<Added>() {
+                return;
+            }
+            let (_, lost) = with_app(world, |app| {
+                adds_a_resource_and_a_system(app);
+                app.add_systems(First, |mut added: ResMut<Added>| {
+                    added.0 += 100
+                });
+            })
+            .unwrap();
+            world.resource_mut::<Lost>().0 = lost;
+        });
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<Lost>().0, ["First"]);
+        // What it added to `Update`, which was not running, runs.
+        assert_eq!(app.world().resource::<Added>().0, 2);
     }
 
     /// An app over a scratch home that holds the native plugin

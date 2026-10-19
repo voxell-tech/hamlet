@@ -304,12 +304,16 @@ fn declare(entry: &mut hamlet_sdk::plugin::Entry) {
   draws for a WASM plugin (a render pass, a compute shader, a texture or a
   renderer of its own; see Drawing in [`wasm.md`](wasm.md)) are a native
   plugin's (see Render passes and compute below).
-- A plugin the chief installs while Hamlet runs is loaded at once, into an
-  `App` of its own that holds the running world: what it adds runs, but
-  that app has none of the app's plugins or sub-apps, is never finished,
-  and its `Startup` systems never run. Its line on the Plugins page says it
-  gets the full app when Hamlet starts again, which is when the next start
-  loads it as above.
+- A plugin the chief installs while Hamlet runs is loaded at the start of
+  the next frame (`load::late`, in `First`), into an `App` of its own that
+  holds the running world: what it adds runs, but that app has none of the
+  app's plugins or sub-apps, is never finished, and its `Startup` systems
+  never run. Its line on the Plugins page says it gets the full app when
+  Hamlet starts again, which is when the next start loads it as above. A
+  schedule that runs is out of the world while it does, so what an entry
+  adds to `Main` or `First` there would be lost: such a plugin is marked
+  not loaded, with the schedules named, and the chief is told; the rest of
+  what it added runs until the next start, which loads it whole.
 - `hamlet_native::declare` hands the host the function that adds what goes
   through the SDK's `Entry`: panels, commands, menu lines, keys, context
   items, inspector sections, settings pages, parts of the window's frame.
