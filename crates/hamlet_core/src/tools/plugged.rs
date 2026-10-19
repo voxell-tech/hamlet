@@ -2,39 +2,12 @@
 //! declares, how it is shown to a model and how its call is checked.
 
 use bevy_ecs::prelude::*;
+use hamlet_base::{JOIN, joinable, plain};
 use serde_json::{Map, Value, json};
 use tokio::sync::oneshot;
 
 /// The longest name a model may give a tool.
 const NAME_MAX: usize = 64;
-
-/// Between a plugin's id and the name of its tool, in the name an
-/// agent calls it by. No tool added by hand may have it, so a name
-/// with it is always a plugin's.
-pub const JOIN: &str = "__";
-
-/// Whether `name` can be a plugin's id or a tool's name in the name
-/// an agent calls the tool by: no dot, no `__` and no underscore at
-/// an edge, so that no two pairs join into the same name.
-pub fn joinable(name: &str) -> bool {
-    !name.is_empty()
-        && !name.contains('.')
-        && !name.contains(JOIN)
-        && !name.starts_with('_')
-        && !name.ends_with('_')
-}
-
-/// `text` as one plain line: control characters become spaces and
-/// brackets go, so that it cannot pass for a label or a line of
-/// its own.
-pub fn plain(text: &str) -> String {
-    text.chars()
-        .filter(|c| !matches!(c, '[' | ']'))
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect::<String>()
-        .trim()
-        .to_string()
-}
 
 /// `tools` with a name once: the first tool of a name stays, the
 /// later ones are left out and logged.

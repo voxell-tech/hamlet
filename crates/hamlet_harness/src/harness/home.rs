@@ -8,7 +8,7 @@ use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
 use bevy::time::{TimePlugin, TimeUpdateStrategy};
-use hamlet_core::core::HomeDir;
+use hamlet_base::HomeDir;
 use hamlet_home::Home;
 use hamlet_sdk::capability::{Choice, Choices, Record, Store};
 use hamlet_sdk::command::Notice;

@@ -1,9 +1,8 @@
 //! `manifest.toml`: what an installed plugin says about itself.
 
-use hamlet_core::tools::plugged::joinable;
 use hamlet_sdk::capability::{Asked, Asks, Refusal};
 use hamlet_sdk::plugin::{
-    Exports, Imports, Need, RESERVED, Range, plain, valid,
+    Exports, Imports, Need, RESERVED, Range, joinable, plain, valid,
 };
 
 /// The most characters of a plugin's name.

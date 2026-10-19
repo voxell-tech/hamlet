@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Res};
 use bevy::log::warn;
-use hamlet_core::core::HomeDir;
+use hamlet_base::HomeDir;
 
 use super::record::Record;
 

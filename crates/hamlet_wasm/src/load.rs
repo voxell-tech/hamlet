@@ -3,7 +3,7 @@
 //! chief.
 
 use bevy::prelude::*;
-use hamlet_core::core::HomeDir;
+use hamlet_base::HomeDir;
 use hamlet_openui::data::{self, DataPanel};
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{

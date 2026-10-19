@@ -20,7 +20,7 @@ pub const RESERVED: [&str; 10] = [
     "skills",
 ];
 
-pub use hamlet_core::tools::plugged::plain;
+pub use hamlet_base::{joinable, plain};
 
 /// A collection a plugin offers: the keys of its storage that start
 /// with `prefix`.

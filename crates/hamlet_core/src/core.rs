@@ -9,6 +9,7 @@ use std::time::SystemTime;
 use bevy_app::{App, Plugin, Startup, Update};
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
+pub use hamlet_base::{HomeDir, Tokio};
 use hamlet_home::{Home, Skill};
 use hamlet_model::catalogue::{self, Catalogue, Listed};
 use hamlet_model::config::{self, Config};
@@ -104,14 +105,6 @@ impl Plugin for CorePlugin {
         ));
     }
 }
-
-/// The tokio runtime that background work is spawned on.
-#[derive(Resource)]
-pub struct Tokio(pub tokio::runtime::Handle);
-
-/// The home the app opened.
-#[derive(Resource)]
-pub struct HomeDir(pub Home);
 
 /// The sandbox the agents' tools run in.
 #[derive(Resource)]

@@ -101,7 +101,7 @@ pub(super) fn reserved(name: &str) -> bool {
         defs.iter().any(|d| d["function"]["name"] == name)
     };
     ["bash", "powershell", "edit"].contains(&name)
-        || name.contains(super::plugged::JOIN)
+        || name.contains(hamlet_base::JOIN)
         || reading::NAMES.contains(&name)
         || named(Hamlet::definitions())
         || named(Hamlet::resident_definitions())

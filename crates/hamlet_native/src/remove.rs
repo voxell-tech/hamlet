@@ -1,7 +1,7 @@
 //! Removing a native plugin: its entity and its files.
 
 use bevy::prelude::*;
-use hamlet_core::core::HomeDir;
+use hamlet_base::HomeDir;
 use hamlet_sdk::capability::{Removed, Store};
 use hamlet_sdk::plugin::{FullAccess, PluginInfo};
 

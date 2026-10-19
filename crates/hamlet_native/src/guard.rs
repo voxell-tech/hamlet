@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 use hamlet_assets::{File, Tuning, designed, follow};
-use hamlet_core::core::HomeDir;
+use hamlet_base::HomeDir;
 
 use crate::marker;
 

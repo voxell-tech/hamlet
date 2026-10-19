@@ -6,7 +6,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use bevy::prelude::*;
-use hamlet_core::core::Tokio;
+use hamlet_base::Tokio;
 use hamlet_sdk::capability::{Capability, Granted, Verdict, Wanted};
 use hamlet_sdk::plugin::PluginInfo;
 use reqwest::header::CONTENT_TYPE;

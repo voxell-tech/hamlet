@@ -9,6 +9,7 @@ description = "The headless runtime: agents, sessions and oversight as Bevy plug
 workspace = true
 
 [dependencies]
+hamlet_base.workspace = true
 hamlet_home.workspace = true
 hamlet_model.workspace = true
 hamlet_rules.workspace = true

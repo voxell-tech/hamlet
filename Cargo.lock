@@ -3577,6 +3577,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_base"
+version = "0.1.0"
+dependencies = [
+ "bevy_ecs",
+ "hamlet_home",
+ "tokio",
+]
+
+[[package]]
 name = "hamlet_chat"
 version = "0.1.0"
 dependencies = [
@@ -3609,6 +3618,7 @@ dependencies = [
  "bevy_ecs",
  "chrono",
  "futures",
+ "hamlet_base",
  "hamlet_home",
  "hamlet_model",
  "hamlet_rules",
@@ -3650,6 +3660,7 @@ dependencies = [
  "bevy",
  "bevy_fynix",
  "hamlet_assets",
+ "hamlet_base",
  "hamlet_core",
  "hamlet_home",
  "hamlet_offscreen",
@@ -3715,7 +3726,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "hamlet_assets",
- "hamlet_core",
+ "hamlet_base",
  "hamlet_home",
  "hamlet_sdk",
  "libloading",
@@ -3807,6 +3818,7 @@ dependencies = [
  "bevy",
  "bevy_fynix",
  "hamlet_assets",
+ "hamlet_base",
  "hamlet_core",
  "hamlet_rules",
  "postcard",
@@ -3859,6 +3871,7 @@ dependencies = [
  "bevy",
  "bevy_fynix",
  "hamlet_assets",
+ "hamlet_base",
  "hamlet_core",
  "hamlet_home",
  "hamlet_openui",

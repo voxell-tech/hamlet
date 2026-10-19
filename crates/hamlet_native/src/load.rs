@@ -5,7 +5,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 
 use bevy::prelude::*;
-use hamlet_core::core::HomeDir;
+use hamlet_base::HomeDir;
 use hamlet_sdk::capability::{
     AskToInstall, AskToRemove, Asks, Choices, Granted, Installed,
     Record, Standing, Store, Uninstalled, standing,

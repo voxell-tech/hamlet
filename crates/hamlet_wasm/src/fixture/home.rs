@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use bevy::time::{TimePlugin, TimeUpdateStrategy};
 use bevy_fynix::FynixPlugin;
 use hamlet_assets::Tuning;
-use hamlet_core::core::HomeDir;
+use hamlet_base::HomeDir;
 use hamlet_home::Home;
 use hamlet_sdk::capability::{
     Capability, Choice, Choices, Record, Store,

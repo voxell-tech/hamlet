@@ -13,7 +13,7 @@ workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true
 hamlet_assets = { workspace = true, optional = true }
-hamlet_core = { workspace = true, optional = true }
+hamlet_base = { workspace = true, optional = true }
 libloading = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
@@ -28,7 +28,7 @@ default = ["host"]
 # contract.
 host = [
     "dep:hamlet_assets",
-    "dep:hamlet_core",
+    "dep:hamlet_base",
     "dep:libloading",
     "dep:serde",
     "dep:sha2",

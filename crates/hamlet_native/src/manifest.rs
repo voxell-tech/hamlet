@@ -1,7 +1,6 @@
 //! `manifest.toml` of a native plugin.
 
-use hamlet_core::tools::plugged::joinable;
-use hamlet_sdk::plugin::{RESERVED, plain, valid};
+use hamlet_sdk::plugin::{RESERVED, joinable, plain, valid};
 
 /// The most characters of a plugin's name.
 const NAME_MAX: usize = 64;

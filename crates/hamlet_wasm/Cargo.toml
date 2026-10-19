@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 hamlet_assets.workspace = true
+hamlet_base.workspace = true
 hamlet_core.workspace = true
 hamlet_openui.workspace = true
 hamlet_sdk.workspace = true

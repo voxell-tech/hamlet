@@ -21,6 +21,7 @@ repository = "https://github.com/voxell-tech/hamlet"
 hamlet_sandbox = { version = "0.1.0", path = "crates/hamlet_sandbox" }
 hamlet_model = { version = "0.1.0", path = "crates/hamlet_model" }
 hamlet_home = { version = "0.1.0", path = "crates/hamlet_home" }
+hamlet_base = { version = "0.1.0", path = "crates/hamlet_base" }
 hamlet_rules = { version = "0.1.0", path = "crates/hamlet_rules" }
 hamlet_core = { version = "0.1.0", path = "crates/hamlet_core" }
 hamlet_desktop = { version = "0.1.0", path = "crates/hamlet_desktop" }
