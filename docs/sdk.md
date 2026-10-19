@@ -57,11 +57,16 @@ breaks these rules:
   dependency down, as for an API crate that owns its words.
 
 `EXCEPTIONS` in the test names each dependency that leads to a layer and
-stands for now, with its reason, and the walk does not follow it; an
-exception whose dependency is gone fails the test. They are: `hamlet_base`
-on `hamlet_home`, as `HomeDir` holds its `Home`; `hamlet_wasm` and the frame
-on `hamlet_agents_api`, which re-exports the core's types, and the frame on
-`hamlet_chat_api`, which stands on it; and the tests of `hamlet_wasm`,
+stands for now, the layers it lets through, whether it must be only for the
+member's tests, and its reason. The walk goes on through it and finds any
+other layer behind it; an exception for tests lets nothing through a
+dependency that is not a dev-dependency. An exception whose dependency is
+gone, is not of the kind it says, or names a layer that is not behind it
+fails the test. They are: `hamlet_base` on `hamlet_home`, as `HomeDir` holds
+its `Home`; `hamlet_wasm` and the frame on `hamlet_agents_api`, which
+re-exports the core's types, and the frame on `hamlet_chat_api`, which stands
+on it, letting through `hamlet_core`, `hamlet_rules`, `hamlet_model`,
+`hamlet_sandbox` and `hamlet_home`; and the tests of `hamlet_wasm`,
 `hamlet_native` and the frame on `hamlet_home`, to make a `HomeDir`. The
 machine's `Busy` mark and runtime are `hamlet_base`'s.
 

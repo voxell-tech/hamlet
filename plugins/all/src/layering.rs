@@ -35,47 +35,81 @@ const FRAME: &str = "hamlet_ui";
 /// The list of the built-in plugins, which names every one.
 const LIST: &str = "hamlet_plugins";
 
-/// The dependencies that lead to a layer and stand for now, each with
-/// why: the walk from an engine or an API crate does not follow them.
-const EXCEPTIONS: &[(&str, &str, &str)] = &[
+/// The layers under `hamlet_agents_api`.
+const AGENTS_API: &[&str] = &[
+    "hamlet_core",
+    "hamlet_home",
+    "hamlet_model",
+    "hamlet_rules",
+    "hamlet_sandbox",
+];
+
+/// A dependency that leads to a layer and stands for now: the member,
+/// the package it depends on, the layers the walk from an engine or
+/// an API crate lets through it, whether the dependency must be only
+/// for the member's tests, and why.
+type Exception = (
+    &'static str,
+    &'static str,
+    &'static [&'static str],
+    bool,
+    &'static str,
+);
+
+/// The dependencies that lead to a layer and stand for now.
+const EXCEPTIONS: &[Exception] = &[
     (
         "hamlet_base",
         "hamlet_home",
+        &["hamlet_home"],
+        false,
         "`HomeDir` holds hamlet_home's `Home`; a layout of its own \
          in hamlet_base would put Bevy under the rules",
     ),
     (
         "hamlet_wasm",
         "hamlet_agents_api",
+        AGENTS_API,
+        false,
         "the agents' API re-exports the core's types, and taking it \
          off the core is a design of its own",
     ),
     (
         "hamlet_ui",
         "hamlet_agents_api",
+        AGENTS_API,
+        false,
         "the frame adds the questions' card and the chat's read \
          models, which the agents' API keeps from the core",
     ),
     (
         "hamlet_ui",
         "hamlet_chat_api",
+        AGENTS_API,
+        false,
         "the chat's API stands on the agents' API",
     ),
     (
         "hamlet_wasm",
         "hamlet_home",
+        &["hamlet_home"],
+        true,
         "its tests make a `HomeDir`, which holds hamlet_home's \
          `Home`",
     ),
     (
         "hamlet_native",
         "hamlet_home",
+        &["hamlet_home"],
+        true,
         "its tests make a `HomeDir`, which holds hamlet_home's \
          `Home`",
     ),
     (
         "hamlet_ui",
         "hamlet_home",
+        &["hamlet_home"],
+        true,
         "its tests make a `HomeDir`, which holds hamlet_home's \
          `Home`",
     ),
@@ -129,42 +163,63 @@ fn broken(
     }
 }
 
-/// The layers `member` is built on: those it depends on, its tests
-/// too, and those under the members it depends on, but through none
-/// of the `EXCEPTIONS`.
+/// The dependencies of the member `name` among `members`.
+fn dependencies<'a>(
+    name: &str,
+    members: &'a [(String, String, Vec<Dependency>)],
+) -> &'a [Dependency] {
+    members
+        .iter()
+        .find(|(member, ..)| member == name)
+        .map(|(.., dependencies)| dependencies.as_slice())
+        .unwrap_or_default()
+}
+
+/// The layers `member` is built on through its dependencies `first`,
+/// which may be its tests': those and the ones under them, but those
+/// an exception on the way lets through.
 fn layers_under<'a>(
     member: &'a str,
+    first: impl IntoIterator<Item = &'a Dependency>,
     members: &'a [(String, String, Vec<Dependency>)],
+    exceptions: &[Exception],
 ) -> Vec<&'a str> {
-    let dependencies = |name: &str| {
-        members
-            .iter()
-            .find(|(member, ..)| member == name)
-            .map(|(.., dependencies)| dependencies.as_slice())
-            .unwrap_or_default()
-    };
-    let mut seen = Vec::<&str>::new();
-    let mut next = dependencies(member)
-        .iter()
-        .map(|dependency| (member, dependency))
+    // Each crate reached, with the layers let through on the way.
+    let mut seen = Vec::<(&str, Vec<&str>)>::new();
+    let mut found = Vec::new();
+    let mut next = first
+        .into_iter()
+        .map(|dependency| (member, dependency, Vec::new()))
         .collect::<Vec<_>>();
-    while let Some((from, dependency)) = next.pop() {
+    while let Some((from, dependency, mut through)) = next.pop() {
         let to = dependency.package.as_str();
-        let excepted =
-            EXCEPTIONS.iter().any(|(m, d, _)| (*m, *d) == (from, to));
-        if excepted || seen.contains(&to) {
+        for (.., layers, _, _) in
+            exceptions.iter().filter(|(m, d, _, tests, _)| {
+                (*m, *d) == (from, to) && (!tests || dependency.dev)
+            })
+        {
+            through.extend(layers.iter().copied());
+        }
+        through.sort_unstable();
+        through.dedup();
+        if seen.contains(&(to, through.clone())) {
             continue;
         }
-        seen.push(to);
+        seen.push((to, through.clone()));
+        if LAYERS.contains(&to)
+            && !through.contains(&to)
+            && !found.contains(&to)
+        {
+            found.push(to);
+        }
         next.extend(
-            dependencies(to)
+            dependencies(to, members)
                 .iter()
                 .filter(|d| !d.dev)
-                .map(|dependency| (to, dependency)),
+                .map(|dependency| (to, dependency, through.clone())),
         );
     }
-    seen.retain(|to| LAYERS.contains(to));
-    seen
+    found
 }
 
 /// Each member of the workspace with its folder and its dependencies,
@@ -248,25 +303,73 @@ fn the_crates_keep_to_their_layers() {
             }
             false => "an engine crate stands on no layer",
         };
-        for layer in layers_under(walker, &members) {
+        let first = dependencies(walker, &members);
+        for layer in layers_under(walker, first, &members, EXCEPTIONS)
+        {
             found.push((walker, layer, rule));
         }
     }
-    // An exception names a dependency that is there.
-    for &(member, dependency, _) in EXCEPTIONS {
-        let there = members.iter().any(|(name, _, dependencies)| {
-            name == member
-                && dependencies
-                    .iter()
-                    .any(|d| d.package == dependency)
-        });
-        if !there {
+    // An exception names a dependency that is there, of the kind it
+    // says, and each layer it lets through is behind it.
+    for &(member, dependency, layers, tests, _) in EXCEPTIONS {
+        let edges = dependencies(member, &members)
+            .iter()
+            .filter(|d| d.package == dependency)
+            .collect::<Vec<_>>();
+        if edges.is_empty() {
             found.push((
                 member,
                 dependency,
                 "an exception that is gone",
             ));
+        } else if tests && edges.iter().any(|d| !d.dev) {
+            found.push((
+                member,
+                dependency,
+                "an exception for tests on a dependency that is not \
+                 only theirs",
+            ));
+        }
+        let behind = layers_under(member, edges, &members, &[]);
+        for layer in layers.iter().filter(|l| !behind.contains(l)) {
+            found.push((
+                dependency,
+                layer,
+                "an exception lets through a layer that is not \
+                 behind it",
+            ));
         }
     }
     assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
+fn an_exception_lets_through_only_the_layers_it_names() {
+    let member = |name: &str, on: &[(&str, bool)]| {
+        let dependencies = on
+            .iter()
+            .map(|(package, dev)| Dependency {
+                package: package.to_string(),
+                dev: *dev,
+            })
+            .collect();
+        (name.to_string(), String::new(), dependencies)
+    };
+    let members = [
+        member("engine", &[("api", false), ("hamlet_home", false)]),
+        member(
+            "api",
+            &[("hamlet_core", false), ("hamlet_model", false)],
+        ),
+    ];
+    let exceptions: &[Exception] = &[
+        ("engine", "api", &["hamlet_core"], false, ""),
+        ("engine", "hamlet_home", &["hamlet_home"], true, ""),
+    ];
+    let first = dependencies("engine", &members);
+
+    let mut found =
+        layers_under("engine", first, &members, exceptions);
+    found.sort_unstable();
+    assert_eq!(found, ["hamlet_home", "hamlet_model"]);
 }
