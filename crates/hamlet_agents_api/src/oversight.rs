@@ -4,6 +4,7 @@
 pub use hamlet_core::oversight::danger::Danger;
 pub use hamlet_core::oversight::grants::Grants;
 pub use hamlet_core::oversight::{
-    Answer, Asks, Kind, Need, Revoke, TagAnswered, TagOpened, Veto,
-    Waiting,
+    Answer, Asks, Kind, Need, Revoke, Settled, TagAnswered,
+    TagOpened, Veto, Waiting,
 };
+pub use hamlet_rules::chief::rulings::Choice;

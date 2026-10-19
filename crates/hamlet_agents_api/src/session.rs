@@ -2,6 +2,8 @@
 //! one, and the archive of past sessions.
 
 pub use hamlet_core::session::{
-    Entry, JobFinished, Seat, SessionKey, Status, Transcript, Usage,
-    UserMessage, archive, house_at, log_of, prompt_of,
+    Began, Entry, Item, JobFinished, Reply, Rewind, Rewound, Seat,
+    SessionKey, SessionOutput, Status, TalksTo, Transcript, Usage,
+    UserMessage, archive, ensure, gather, house_at, log_of,
+    prompt_of, reply_in,
 };

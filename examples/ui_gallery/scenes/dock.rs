@@ -16,9 +16,9 @@ use hamlet_sdk::dock::show_tab;
 use hamlet_ui::feel::Lit;
 use hamlet_ui::icons::Glyph;
 use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::{
-    Cx, ICON, Me, View, chat, lit_panel, panel, toolbar,
-};
+use hamlet_ui::{Cx, ICON, View, lit_panel, panel, toolbar};
+use plugin_chat::chat;
+use plugin_chat::me::Me;
 use plugin_menus::menu;
 use plugin_menus::world_menu::{Deed, question};
 use plugin_status::status_bar;

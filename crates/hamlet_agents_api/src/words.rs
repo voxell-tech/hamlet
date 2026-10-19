@@ -3,6 +3,7 @@
 
 use bevy_fynix::tokens::Tone;
 use hamlet_core::agents::{Activity, Doing, Paper};
+pub use hamlet_rules::words::clip;
 use hamlet_sdk::icons::Glyph;
 
 /// The most of an agent's purpose a card shows, in letters.

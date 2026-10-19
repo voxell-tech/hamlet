@@ -7,17 +7,17 @@ built with, `plugins/` holds the plugins, and `hamlet_plugins` lists which are
 built in.
 
 ```
-hamlet (binary) -> hamlet_plugins -> plugins/<name> -> hamlet_limits, hamlet_chat -> hamlet_agents_api -> hamlet_sdk -> hamlet_base, hamlet_assets
-                 |                                 \-> hamlet_realm_api ------------------------------> hamlet_core, hamlet_rules
+hamlet (binary) -> hamlet_plugins -> plugins/<name> -> hamlet_chat_api, hamlet_limits_api -> hamlet_agents_api -> hamlet_sdk -> hamlet_base, hamlet_assets
+                 |                                 \-> hamlet_realm_api ----------------------------------------> hamlet_core, hamlet_rules
                  |                                      ^
                  \-> hamlet_ui (the frame) ------------/   hamlet_realm -> hamlet_realm_api
 ```
 
-A plugin crate depends on `hamlet_sdk`, `hamlet_agents_api` where it reads
-the agents, `hamlet_realm_api` where it reads the world or asks something of
-it, the engine crates and the two crates that hold what plugins share,
-`hamlet_chat` and `hamlet_limits` (below), never on `hamlet_ui` or on
-another plugin. A plugin reads the core through `hamlet_agents_api`, which
+A plugin crate depends on `hamlet_sdk`, the API crate of each thing it reads
+or asks something of (`hamlet_agents_api` for the agents, `hamlet_realm_api`
+for the world, `hamlet_chat_api` for the chat and `hamlet_limits_api` for
+the panes of the limits, below) and the engine crates, never on `hamlet_ui`
+or on another plugin. A plugin reads the core through `hamlet_agents_api`, which
 gives the core's types, events and functions a plugin uses; only the layers
 `plugin_agents` and `plugin_hamlets` depend on `hamlet_core`. `plugin_needs` and
 `plugin_skills` need nothing but the SDK, the agents API and, for `needs`,
@@ -48,16 +48,23 @@ and its asks go unanswered.
 | `overlay` | `Overlays`, the marks plugins draw over the world, which the host of the plugins keeps and the realm's view draws |
 | `survey` | `Survey`, the realm by name for a plugin that holds `read.world`: the hamlets, the agents and where each stands, the thing selected and the hour |
 
-## What plugins share
+## The chat and the limits
+
+The chat (`plugin_chat`, `ChatPlugin`) and the panes of the limits
+(`plugin_limits`, `LimitsPlugin`) are plugins, both essential, which
+`Builtin` adds after the frame. What other plugins use of them is in their
+API crates:
 
 | Crate | What it holds |
 |---|---|
-| `hamlet_chat` | The chat with an agent (`chat`), the markdown in it (`markdown`), selecting words (`select`), links (`links`), pictures (`pictures`), who the chat is with and how it is pointed at another (`me`), and the deeds that ask the chief first (`deed`: `Deed`, `ask`, `stop`). A second plugin needs it: the Inspector draws the chat, the Settings draws markdown and asks before it removes a charter, and the window reads the chat for its sounds, its status bar and its mascot |
-| `hamlet_limits` | The panes of the limits: the home's endpoints and catalogue (`models`) and each hamlet's budget, votes, models and the mayor's leave (`rules`). The Settings shows the home's, the Inspector each hamlet's |
+| `hamlet_chat_api` | `chat`: `send`, `decree` and `decree_for`, `Unfolded`, and `Views`, the chat's views other plugins show (`transcript`, `message_bar`, `entry_view`); `markdown::fixed`, markdown drawn as the chat draws it; `me`: `talk_to`, `talk_to_mayor`, `seat`, `mark_selected` and the sets `Reseated` and `Followed`; `deed`: `Deed`, `Ask`, `ask`, `stop` and `CharterReset`; `links::Aimed`, the link under the pointer. The Inspector draws the chat, the Settings draws markdown and asks before it removes a charter, the menus ask before a deed, the status bar shows the link and the realm's view keeps the mascot beside the chat |
+| `hamlet_limits_api` | `Panes`, the panes of the limits other plugins show: the home's endpoints and catalogue and an agent's model (`models`), and the realm's rules and a hamlet's (`rules`); and `models::narrowed`. The Settings shows the home's, the Inspector each hamlet's, the first-run screen narrows the models |
 
-Each is also a built-in plugin, `chat` (`ChatPlugin`) and `limits`
-(`LimitsPlugin`), both essential, which `Builtin` adds after the frame. A
-plugin crate depends on them for their types, and adds neither.
+A view one plugin draws and another shows is a resource of plain functions
+in the API crate, which the drawing plugin inserts (`chat::Views`,
+`Panes`, as `change::DrawChange` in `hamlet_agents_api`). The plugin that
+shows it calls the API's function and never names the plugin that draws it;
+with that plugin left out, the view is empty.
 
 A plugin asks another only through the SDK or an API crate: an event one
 observes (`deed::Ask`, `settings::SetUpAgain`, `settings::AddEndpoint`,
@@ -103,17 +110,18 @@ core, and the layers add its plugins (below).
 
 | Module | What it holds |
 |---|---|
-| `agents` | The systems that keep the SDK's `AgentList` and `SelectedAgent`; the core's marks on an agent, a hamlet and a road (`Citizen`, `Mayor`, `Busy`, `Left`, `Settlement`, `Treasury`, `Road` and the rest), and its `name_of`, `mayor` and `register` |
-| `session` | The core's `Entry`, `Transcript`, `Status`, `Usage`, `SessionKey`, `Seat`, `UserMessage` and `JobFinished`; `house_at`, `log_of` and `prompt_of`; and `archive`, the past sessions |
-| `oversight` | The core's `Waiting`, `Need`, `Asks`, `Answer`, `Kind`, `Danger`, `Veto`, `Revoke`, `Grants` and the tags of a petition |
-| `model` | The core's `Settings`, `Model` and `Link`, signing in, and the events that save, test, list and try the models |
+| `agents` | The systems that keep the SDK's `AgentList` and `SelectedAgent`; the core's marks on an agent, a hamlet and a road (`Citizen`, `Mayor`, `Busy`, `Left`, `Settlement`, `Treasury`, `Charter`, `Road` and the rest), and its `name_of`, `named`, `mayor`, `mayor_of`, `hamlet_of`, `sync` and `register` |
+| `session` | The core's `Entry`, `Item`, `Transcript`, `Status`, `Usage`, `SessionKey`, `Seat`, `TalksTo`, `UserMessage`, `Reply`, `SessionOutput`, `Rewind`, `Rewound`, `Began` and `JobFinished`; `ensure`, `gather`, `reply_in`, `house_at`, `log_of` and `prompt_of`; and `archive`, the past sessions |
+| `oversight` | The core's `Waiting`, `Need`, `Asks`, `Answer`, `Kind`, `Danger`, `Veto`, `Revoke`, `Grants`, `Settled` and the tags of a petition; the rules' `Choice`, an answer to a ruling |
+| `model` | The core's `Settings`, `Model`, `Link`, `Listing` and `ModelCatalogue`, signing in, and the events that save, test, list and try the models |
+| `hamlet` | The rules' record of a hamlet and the realm as a plugin reads them: `HOME`, `MAYOR`, `Hamlet`, `Realm`, `Origin`, the work a hamlet is pointed at (`Mode`, `Work`), its votes (`vote`, `Standing`), `format_tokens`, `RESUME`, and the chief's `switch` and `Target` |
 | `library` | The core's `Skills`, the library's skills as last read, and `RefreshLists`, which reads them again |
 | `papers` | The systems that read the SDK's `Papers` from the selected agent's house, and `character_file` |
 | `convo` | `ChiefName`, the name of the window's chief. `Me`, the chat's session and the agent it is with (`Me::of` makes one). `AgentSelected`, whether the world has an agent selected. `of_agent`, a page about the agent the chat is with. `send_as_chief`. It puts each `Notice` in the open chat |
 | `roll` | `Roll`, the count of changes to the agents and the hamlets, and the checks over it (`rolled`, `agents_moved`, `hamlets_moved`) |
-| `words` | The words for an agent's step (`now`), a hamlet's state (`standing`) and a purpose cut short (`short`) |
+| `words` | The words for an agent's step (`now`), a hamlet's state (`standing`) and a purpose cut short (`short`); the rules' `clip` |
 | `asking` | The card of the questions an agent asks the chief, which Needs You and the chat both show, so an answer begun in one stands in the other |
-| `change` | The core's `Change`, and `DrawChange`, set by the window to the function that draws the edit an approval holds as the chat draws it, so a plugin shows an edit the same way |
+| `change` | The core's `Change`, its `Line` and `Mark`, and `DrawChange`, set by the window to the function that draws the edit an approval holds as the chat draws it, so a plugin shows an edit the same way |
 | `waits` | `Waits`, how many things wait for the chief, for the status bar and any plugin |
 | `petition` | Puts the SDK's `Petition` in the core's queue and passes the chief's answer back as `Answered` |
 | `tools` | The core's tools a plugin gives the agents, the sandbox they run in (`Sandboxing`) and the turns a plugin is told of, for a host of plugins |
@@ -386,9 +394,9 @@ app from its modules, and the engine cannot depend on the plugin crate
 above it. And a module's plugin stands first in its module, beside what it
 adds, so a change to a system and to where it runs is one edit. Moving the
 engines themselves into the plugin crates was not cheap either:
-`hamlet_core` is under `hamlet_agents_api`, `hamlet_chat`, `hamlet_limits`,
-`hamlet_realm_api`, `hamlet_realm`, `hamlet_ui`, `hamlet_wasm` and
-`hamlet_desktop`, which would then stand on a plugin.
+`hamlet_core` is under `hamlet_agents_api`, `hamlet_realm_api`,
+`hamlet_realm`, `hamlet_ui`, `hamlet_wasm` and `hamlet_desktop`, which
+would then stand on a plugin.
 
 A layer's `HamletPlugin` declares nothing in `entry`: neither engine knows
 the SDK, so no command, menu line or other contribution lives in them. The
@@ -407,7 +415,7 @@ switch off.
 | `plugin_welcome` | The first-run screen over the dock, on a home whose model was never chosen: a provider's key, signing in, a server on this computer, and the models of whoever answered. Settings opens it again with `SetUpAgain` and `AddEndpoint` |
 | `plugin_inspector` | The Inspector: whoever is selected in the world, or every hamlet when none is. An agent's page (its chat, notes, character and past sessions, and the tabs plugins add), a hamlet's overview and rules, a chief's page and look, the page of an agent that is gone and the library's. It brings itself forward when something is selected, and adds the PROMPT item to the menu of an agent, its house and the mayor |
 | `plugin_needs` | The Needs You panel, titled PETITIONS: everything that waits for the chief, oldest first, with the answers each takes and a field for the reason or reply. It reads the chief's `ChiefName` and, where the window has set it, `DrawChange`, so it runs with no window |
-| `plugin_settings` | The Settings panel: its front page and the pages of it (endpoints, models, agents, charter, realm, senses) and the Plugins page. It stands on `hamlet_chat` (markdown, links, the deeds that ask first), `hamlet_limits` (the models and the rules of the realm) and `hamlet_realm_api` (the quality and the `SoundChoice` it sets) |
+| `plugin_settings` | The Settings panel: its front page and the pages of it (endpoints, models, agents, charter, realm, senses) and the Plugins page. It stands on `hamlet_chat_api` (markdown and the deeds that ask first), `hamlet_limits_api` (the models and the rules of the realm) and `hamlet_realm_api` (the quality and the `SoundChoice` it sets) |
 | `plugin_skills` | The Skills panel: the selected agent's own skills over the library, a VIEW line that opens it, and a SKILLS tab of the inspector's page of an agent that has skills of its own. TAKE OUT asks through `Confirm` and then runs `/unshelve` as the chief |
 
 Settings has a Plugins page that lists every `PluginInfo` with a switch
@@ -448,7 +456,7 @@ no one subject:
 
 The frame also adds the question card of `hamlet_agents_api`, which
 several plugins share. The chat, a plugin of its own, bridges the
-world's selection to who the chat is with (`hamlet_chat::me`), so that a
+world's selection to who the chat is with (`plugin_chat::me`), so that a
 plugin sees the selection as `AgentSelected`, `SelectedAgent` and `Me`, and
 `plugin_realm::view` keeps the mascot beside it.
 

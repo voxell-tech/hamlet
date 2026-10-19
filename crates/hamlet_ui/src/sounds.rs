@@ -10,10 +10,10 @@ use bevy::ecs::system::{Local, Query, Res};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
+use hamlet_chat_api::chat::Unfolded;
 use hamlet_core::session::{Reply, SessionOutput, UserMessage};
 use hamlet_realm_api::sound::{PanelCue, PanelSound, write};
 
-use crate::chat::Unfolded;
 use crate::hover::Card;
 
 pub(crate) fn plugin(app: &mut App) {

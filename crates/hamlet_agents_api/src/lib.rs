@@ -7,6 +7,7 @@ pub mod agents;
 pub mod asking;
 pub mod change;
 pub mod convo;
+pub mod hamlet;
 pub mod library;
 pub mod model;
 pub mod oversight;

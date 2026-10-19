@@ -45,7 +45,8 @@ use hamlet_sdk::inspector::InspectorSections;
 use hamlet_sdk::plugin::AppPluginExt;
 use hamlet_sdk::settings::SettingsPages;
 use hamlet_ui::theme::{self, HamletTheme};
-use hamlet_ui::{Bar, Roll, chrome, select};
+use hamlet_ui::{Bar, Roll, chrome};
+use plugin_chat::select;
 use plugin_inspector::history::History;
 use plugin_menus::menu;
 use plugin_realm::view::WorldViewPlugin;
@@ -95,10 +96,11 @@ impl Plugin for GalleryPlugin {
             .init_resource::<SoundSettings>()
             .insert_resource(sound::choice(&SoundSettings::default()))
             .init_resource::<History>()
-            .init_resource::<hamlet_ui::rules::Book>()
-            .init_resource::<hamlet_ui::models::Shelf>()
-            .init_resource::<hamlet_ui::models::Draft>()
-            .init_resource::<hamlet_ui::rules::Part>()
+            .init_resource::<plugin_limits::rules::Book>()
+            .init_resource::<plugin_limits::models::Shelf>()
+            .init_resource::<plugin_limits::models::Draft>()
+            .init_resource::<plugin_limits::rules::Part>()
+            .insert_resource(plugin_limits::PANES)
             .init_resource::<menu::OpenMenu>()
             .insert_resource(first_run(self.0))
             .init_resource::<chrome::ChromeSettings>()
@@ -131,7 +133,7 @@ impl Plugin for GalleryPlugin {
             .add_systems(
                 Update,
                 (
-                    hamlet_ui::me::mark_selected.run_if(
+                    plugin_chat::me::mark_selected.run_if(
                         resource_exists_and_changed::<Selected>,
                     ),
                     keeper::paint,
@@ -185,9 +187,9 @@ impl Plugin for GalleryPlugin {
                 hamlet_plugins::Panels,
                 asking::plugin,
                 select::plugin,
-                hamlet_ui::chat::plugin,
-                hamlet_ui::links::plugin,
-                hamlet_ui::pictures::plugin,
+                plugin_chat::chat::plugin,
+                plugin_chat::links::plugin,
+                plugin_chat::pictures::plugin,
             ))
             // Their parts and lines, without the systems that need a
             // home and a world.

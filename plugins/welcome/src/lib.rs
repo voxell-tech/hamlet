@@ -23,7 +23,7 @@ use hamlet_agents_api::model::{
     Link, ListModels, Model, SaveSettings, Settings, SignIn, Signing,
     TestConnection, Trial, TryModel,
 };
-use hamlet_limits::models;
+use hamlet_limits_api::models;
 use hamlet_model::catalogue::{self, Catalogue, Listed};
 use hamlet_model::chatgpt;
 use hamlet_model::config::providers::{

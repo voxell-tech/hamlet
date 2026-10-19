@@ -23,9 +23,9 @@ impl PluginGroup for Builtin {
         let group = group.add(hamlet_ui::UiPlugin);
         // After the frame, which adds the SDK's plugin.
         #[cfg(feature = "chat")]
-        let group = group.add(hamlet_chat::plugin);
+        let group = group.add(plugin_chat::plugin);
         #[cfg(feature = "limits")]
-        let group = group.add(hamlet_limits::plugin);
+        let group = group.add(plugin_limits::plugin);
         // The realm draws into a window, so only an app with one
         // adds it.
         #[cfg(feature = "realm")]
@@ -100,9 +100,9 @@ mod tests {
             #[cfg(feature = "agents")]
             plugin_agents::AgentsPlugin::manifest(),
             #[cfg(feature = "chat")]
-            hamlet_chat::ChatPlugin::manifest(),
+            plugin_chat::ChatPlugin::manifest(),
             #[cfg(feature = "limits")]
-            hamlet_limits::LimitsPlugin::manifest(),
+            plugin_limits::LimitsPlugin::manifest(),
             #[cfg(feature = "hamlets")]
             plugin_hamlets::HamletsPlugin::manifest(),
             #[cfg(feature = "inspector")]

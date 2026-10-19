@@ -11,7 +11,7 @@ use bevy::ecs::system::{Query, Res};
 use bevy::ecs::world::World;
 use hamlet_agents_api::convo::Me;
 use hamlet_agents_api::session::UserMessage;
-use hamlet_chat::me::Followed;
+use hamlet_chat_api::me::Followed;
 use hamlet_realm::chief::{
     self, Beside, Chief, Look, Player, Stands,
 };

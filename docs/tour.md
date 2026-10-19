@@ -17,7 +17,7 @@ files are.
 ```mermaid
 flowchart TD
     typed([You type a line])
-    chat["hamlet_chat: chat"]
+    chat["plugin_chat: chat"]
     session["hamlet_core: session"]
     rules["hamlet_rules: commands, chief"]
     agent["hamlet_core: agent, the loop"]
@@ -62,9 +62,9 @@ table. The binary and the examples are the root package.
 | `hamlet_realm_api` | What the window and its plugins read of the realm and ask of it: the things chosen and the camera brought to one (`pick`), the chief's look (`chief`), the palette and an agent's `RobotPaint`, the hand's hold, the quality and the sky's hour (`sky`), the panels' sounds and the chief's choice of sound (`sound`), the orders (`orders`: decrees, carrying a hamlet, the library or the Hearth, giving a skill), and the realm as a plugin reads it (`survey`) |
 | `hamlet_realm` | The 3D world, drawn from the core's entities. It keeps the read models of `hamlet_realm_api` and answers its events |
 | `hamlet_sdk` | What a plugin is built with: the plugin types, commands, menu lines, context menu items, inspector tabs, settings pages and keys, the theme, looks and icons, the dock's panels. It does not depend on the core: its read models of the agents are plain data |
-| `hamlet_agents_api` | What a plugin reads and does about the agents: the systems that keep the SDK's read models from the core, the chat the window shows (`Me`), the questions' card, the words for an agent's state, the petitions of plugins put in the chief's queue, the core's tools and turns a host of plugins reaches, and the core's types a plugin reads (`session`, `oversight`, `model`, `library`) |
-| `hamlet_chat` | The chat with an agent: who it is with, how it is read and typed, the markdown and pictures in it, selecting its words, links, and the deeds that ask the chief first |
-| `hamlet_limits` | The panes where the chief changes the home's models and each hamlet's budget, votes, models and the mayor's leave |
+| `hamlet_agents_api` | What a plugin reads and does about the agents: the systems that keep the SDK's read models from the core, the chat the window shows (`Me`), the questions' card, the words for an agent's state, the petitions of plugins put in the chief's queue, the core's tools and turns a host of plugins reaches, and the core's and the rules' types a plugin reads (`session`, `oversight`, `model`, `library`, `hamlet`) |
+| `hamlet_chat_api` | What other plugins use of the chat: sending to it and pointing it at an agent, the deeds that ask the chief first, the link under the pointer, and the chat's views, which `plugin_chat` sets |
+| `hamlet_limits_api` | What other plugins use of the limits: the panes of the home's models and of each hamlet's rules, which `plugin_limits` sets |
 | `hamlet_ui` | The frame of the window: the dock and its saved layout, the window's chrome and states, the pointer, the hover card and the panels' sounds. What fills it is plugins |
 | `hamlet_openui` | Panels written in Hamlet's panel language: the components, the evaluation into a panel tree, state, actions and the data plugin. See [`panels.md`](panels.md) |
 | `hamlet_wasm` | The host of the installed WASM plugins, behind the binary's `wasm` feature. See [`wasm.md`](wasm.md) |
@@ -77,7 +77,7 @@ lists them, and each other folder is one plugin crate. The binary is a list
 of plugins: the layers `plugin_agents`, `plugin_hamlets` and `plugin_realm`
 (each adds the modules of the engine crate of the same subject, and none can be switched
 off), then the frame of the window (`hamlet_ui`), the chat and the limits
-(`hamlet_chat`, `hamlet_limits`, each a plugin too), what fills the frame
+(`plugin_chat`, `plugin_limits`), what fills the frame
 (the realm's view in `plugin_realm`, `plugin_menus`, `plugin_status`,
 `plugin_welcome`) and
 the panels. See [`sdk.md`](sdk.md). A plugin built
@@ -140,7 +140,7 @@ Paths are under `crates/`.
 | What an agent is told every turn | [`prompt.md`](prompt.md); the charter is `assets/charter.md` |
 | The tools an agent has | `hamlet_core/src/tools/`; the hamlet's own in `hamlet_core/src/agent/hamlet_tools.rs` |
 | The questions an agent asks the chief | `hamlet_rules/src/chief/asking.rs`; their card, in Needs You and the chat, in `hamlet_agents_api/src/asking.rs` |
-| Selecting and copying text in the panels | `hamlet_chat/src/select.rs`; [`chat.md`](chat.md) |
+| Selecting and copying text in the panels | `plugins/chat/src/select.rs`; [`chat.md`](chat.md) |
 | A chief's slash command | The table `ALL` in `hamlet_rules/src/commands.rs`, which names who carries it out. It is not a `Command` entity: see [`sdk.md`](sdk.md) |
 | What needs the chief's approval | `hamlet_core/src/oversight/danger.rs` |
 | A plugin's petition: installing it, letting it use more, removing it | `hamlet_core/src/oversight/plugin.rs`, `hamlet_sdk/src/capability/petition.rs`, `install.rs`, `hamlet_agents_api/src/petition.rs` (between the two); removing it, `hamlet_wasm/src/uninstall.rs`; [`permissions.md`](permissions.md) |
@@ -169,9 +169,10 @@ Paths are under `crates/`.
 | Which plugins are built in | `plugins/all/Cargo.toml` and `src/lib.rs` |
 | What starts the agents, and the layers that cannot be switched off | `plugins/agents/src/lib.rs`, `plugins/hamlets/src/lib.rs`, `plugins/realm/src/lib.rs`; `Manifest::essential` in `hamlet_sdk/src/plugin/manifest.rs` |
 | The Skills panel | `plugins/skills/src/` |
-| The Inspector: an agent's page, a hamlet's overview and rules, a chief's page, the Archive | `plugins/inspector/src/` (`agent.rs`, `overview.rs`, `history.rs`, `folder.rs`, `chief.rs`, `gone.rs`); the rules and models it shows, `hamlet_limits/src/`; its chat, `hamlet_chat/src/chat/` |
-| The Settings panel and its pages | `plugins/settings/src/lib.rs`; the models and the rules of the realm it shows, `hamlet_limits/src/` |
-| The question asked before a deed, and the deeds | The words and what each does, `hamlet_chat/src/deed.rs`; how it is drawn over the world, `plugins/menus/src/world_menu/deed.rs` |
+| The Inspector: an agent's page, a hamlet's overview and rules, a chief's page, the Archive | `plugins/inspector/src/` (`agent.rs`, `overview.rs`, `history.rs`, `folder.rs`, `chief.rs`, `gone.rs`); the rules and models it shows, `plugins/limits/src/`; its chat, `plugins/chat/src/chat/` |
+| The Settings panel and its pages | `plugins/settings/src/lib.rs`; the models and the rules of the realm it shows, `plugins/limits/src/` |
+| A view one plugin draws and another shows (the chat, markdown, the panes of the limits) | The slot in the API crate, `hamlet_chat_api/src/chat.rs` (`Views`) and `hamlet_limits_api/src/lib.rs` (`Panes`); the plugin that fills it, `plugins/chat/src/chat.rs` and `plugins/limits/src/lib.rs`; [`sdk.md`](sdk.md) |
+| The question asked before a deed, and the deeds | The words and what each does, `hamlet_chat_api/src/deed.rs`; how it is drawn over the world, `plugins/menus/src/world_menu/deed.rs` |
 | The Needs You panel (the queue of what waits for the chief) | `plugins/needs/src/lib.rs`; the count in the status bar is `hamlet_agents_api/src/waits.rs`; how it draws an edit, `hamlet_agents_api/src/change.rs` |
 | What an installed plugin may call, and its limits | `hamlet_wasm/wit/hamlet-plugin.wit`, `hamlet_wasm/src/host.rs` and `host/`, `assets/wasm.toml`; [`wasm.md`](wasm.md) |
 | Which installed plugins load, and what each is granted | `hamlet_wasm/src/install.rs`, `load.rs`, `hamlet_sdk/src/capability/`; [`permissions.md`](permissions.md), [`wasm.md`](wasm.md) |

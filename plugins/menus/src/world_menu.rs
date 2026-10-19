@@ -22,7 +22,7 @@ use bevy::ui::px;
 use bevy::window::Window;
 use bevy_fynix::views::{FrameProps, frame, overlay, popup};
 use bevy_fynix::{ViewExt, derived, keyed};
-use hamlet_chat::deed::Ask;
+use hamlet_chat_api::deed::Ask;
 use hamlet_realm_api::pick::{Asked, AskedGround, Asks, Thing};
 use hamlet_sdk::checks::{either, moved};
 use hamlet_sdk::confirm::Confirm;

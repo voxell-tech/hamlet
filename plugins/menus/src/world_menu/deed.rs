@@ -7,7 +7,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, popup, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
-pub use hamlet_chat::deed::Deed;
+pub use hamlet_chat_api::deed::Deed;
 
 use super::close;
 use crate::feel::Mood;

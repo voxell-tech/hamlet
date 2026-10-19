@@ -247,7 +247,7 @@ fn notes() -> impl View {
 fn edit_character(world: &mut World) {
     let house = super::house::house(world);
     if let Ok(file) = character_file(&house) {
-        crate::links::open_file(&file);
+        hamlet_desktop::open::file(&file);
     }
 }
 

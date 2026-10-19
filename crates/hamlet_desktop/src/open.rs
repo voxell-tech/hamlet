@@ -118,6 +118,14 @@ pub fn show(path: &Path, roots: &[PathBuf]) -> bool {
     program(&path, way(&path)).spawn().is_ok()
 }
 
+/// Opens the file `path` by the system's program for it. False when
+/// nothing could.
+pub fn file(path: &Path) -> bool {
+    let folder =
+        path.parent().and_then(|folder| folder.canonicalize().ok());
+    folder.is_some_and(|folder| show(path, &[folder]))
+}
+
 /// Opens `address` in the chief's browser or mail program.
 pub fn browse(address: &str) -> bool {
     let mut open = if cfg!(target_os = "macos") {

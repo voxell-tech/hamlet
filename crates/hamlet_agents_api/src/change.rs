@@ -3,6 +3,7 @@
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 pub use hamlet_core::tools::Change;
+pub use hamlet_core::tools::change::{Line, Mark};
 use hamlet_sdk::AnyView;
 
 /// Draws the edit at entry `id` of the conversation `session`. The

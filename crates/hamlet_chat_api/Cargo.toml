@@ -1,0 +1,18 @@
+[package]
+name = "hamlet_chat_api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What other plugins use of the chat: sending to it, pointing it at an agent, the deeds that ask first and the chat's views"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_agents_api.workspace = true
+hamlet_base.workspace = true
+hamlet_home.workspace = true
+hamlet_realm_api.workspace = true
+hamlet_sdk.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true

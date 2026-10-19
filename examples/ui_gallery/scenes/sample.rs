@@ -29,8 +29,9 @@ use hamlet_realm::pick::{Also, Selected, Thing};
 use hamlet_rules::budget::{AgentBudget, Amount};
 use hamlet_rules::chief::asking::Pick;
 use hamlet_rules::chief::rulings::Choice;
-use hamlet_ui::links::{Aimed, Roots};
-use hamlet_ui::{Me, chat};
+use plugin_chat::chat;
+use plugin_chat::links::{Aimed, Roots};
+use plugin_chat::me::Me;
 use plugin_inspector::history::{History, Reading};
 use plugin_inspector::{self as inspector, history, overview};
 use plugin_menus::menu;
@@ -187,7 +188,7 @@ pub(super) fn setup(world: &mut World) {
         world.insert_resource(
             hamlet_core::catalogue::ModelCatalogue::of(shelf()),
         );
-        world.init_resource::<hamlet_ui::models::Shelf>();
+        world.init_resource::<plugin_limits::models::Shelf>();
         world.init_resource::<hamlet_core::core::Listing>();
         world.insert_resource(hamlet_core::core::Settings {
             config,

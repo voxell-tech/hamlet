@@ -1,5 +1,5 @@
 # How the chat is drawn: the edits, pictures and replies in it. What each
-# value means is written beside its field in crates/hamlet_chat/src/chat/.
+# value means is written beside its field in plugins/chat/src/chat/.
 
 [chat]
 change_lines = 16

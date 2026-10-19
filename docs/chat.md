@@ -1,7 +1,7 @@
 # The chat
 
 What an agent's chat holds, in what order, and how it is drawn as a group
-chat. The drawing is `hamlet_chat/src/chat/` and `markdown/`. The
+chat. The drawing is `plugins/chat/src/chat/` and `markdown/`. The
 conversations themselves are `hamlet_core/src/session.rs`.
 
 ## What is recorded
@@ -134,7 +134,7 @@ lines, so a quote can be followed by the chief's own words.
 
 Any text of the panels is selected where it is drawn, as on a web page:
 a press and a drag, a double-click for a word, a triple-click for a line.
-`hamlet_chat/src/select.rs` holds it. An `Area` is selected as one across
+`plugins/chat/src/select.rs` holds it. An `Area` is selected as one across
 all its text: the words of a message, and every Markdown document, so a
 drag runs across the paragraphs, lists and code blocks of a reply or of
 the Notes page. Any other text is selected on its own. What a button, a

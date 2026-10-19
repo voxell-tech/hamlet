@@ -1,0 +1,24 @@
+[package]
+name = "plugin_limits"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The panes where the chief changes the home's models and each hamlet's budget, votes and models"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_agents_api.workspace = true
+hamlet_base.workspace = true
+hamlet_chat_api.workspace = true
+hamlet_desktop.workspace = true
+hamlet_home.workspace = true
+hamlet_limits_api.workspace = true
+hamlet_model.workspace = true
+hamlet_sdk.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true
+
+[dev-dependencies]
+hamlet_testing.workspace = true

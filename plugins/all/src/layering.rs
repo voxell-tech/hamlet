@@ -4,8 +4,8 @@ use std::path::Path;
 
 use toml::Table;
 
-const TABLES: [&str; 3] =
-    ["dependencies", "dev-dependencies", "build-dependencies"];
+/// A test may stand up the engine a plugin reads through an API.
+const TABLES: [&str; 2] = ["dependencies", "build-dependencies"];
 
 /// The rule `plugin` breaks by depending on `dependency`.
 fn broken(plugin: &str, dependency: &str) -> Option<&'static str> {

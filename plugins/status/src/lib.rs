@@ -16,7 +16,7 @@ use hamlet_agents_api::model::{Link, Settings};
 use hamlet_agents_api::session::{Status, Usage};
 use hamlet_agents_api::tools::Sandboxing;
 use hamlet_agents_api::waits::Waits;
-use hamlet_chat::links::Aimed;
+use hamlet_chat_api::links::Aimed;
 use hamlet_rules::hamlet::HOME;
 use hamlet_sdk::bar::Bar;
 use hamlet_sdk::frame::Place;

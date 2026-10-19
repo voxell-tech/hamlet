@@ -10,7 +10,7 @@ workspace = true
 
 [dependencies]
 hamlet_agents_api.workspace = true
-hamlet_limits.workspace = true
+hamlet_limits_api.workspace = true
 hamlet_model.workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true

@@ -11,10 +11,9 @@ workspace = true
 [dependencies]
 hamlet_agents_api.workspace = true
 hamlet_assets.workspace = true
-hamlet_chat.workspace = true
+hamlet_chat_api.workspace = true
 hamlet_core.workspace = true
 hamlet_desktop.workspace = true
-hamlet_limits.workspace = true
 hamlet_rules.workspace = true
 hamlet_realm_api.workspace = true
 hamlet_sdk.workspace = true

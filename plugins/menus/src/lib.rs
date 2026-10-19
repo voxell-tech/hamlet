@@ -10,7 +10,7 @@ use bevy::app::{App, Update};
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::system::{Local, Res};
 use bevy_fynix::ViewExt;
-use hamlet_chat::{chat, me};
+use hamlet_chat_api::{chat, me};
 use hamlet_realm_api::sound::{PanelCue, PanelSound, write};
 use hamlet_sdk::frame::Place;
 use hamlet_sdk::icons::Glyph;

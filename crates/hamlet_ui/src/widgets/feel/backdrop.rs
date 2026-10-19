@@ -12,11 +12,11 @@ use bevy::shader::ShaderRef;
 use bevy::time::Time;
 use bevy::ui::ComputedNode;
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
+use hamlet_agents_api::convo::Me;
 use hamlet_core::oversight::Waiting;
 use hamlet_sdk::feel::Lit;
 
 use super::{FeelSettings, MagicColors, ease, linear};
-use crate::me::Me;
 use crate::theme::Themed;
 
 /// The light that falls into a panel.
@@ -143,7 +143,6 @@ mod tests {
 
     use super::super::tests::step;
     use super::*;
-    use crate::me::Me;
     use crate::theme::HamletTheme;
 
     /// A world with one panel of each kind, and their backdrops.
