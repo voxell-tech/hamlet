@@ -1,6 +1,6 @@
-//! Markdown in a message: its blocks ([`parse`]), the links in its
-//! words ([`links`]) and the views that draw them ([`document`],
-//! [`fixed`], [`typed`]), a [`picture`] among them.
+//! Markdown in a message: its blocks (`parse`), the links in its
+//! words (`links`) and the views that draw them ([`document`],
+//! [`fixed`], [`typed`]), a `picture` among them.
 
 mod draw;
 mod links;
