@@ -304,7 +304,8 @@ fn declare(entry: &mut hamlet_sdk::plugin::Entry) {
   loads it as above.
 - `hamlet_native::declare` hands the host the function that adds what goes
   through the SDK's `Entry`: panels, commands, menu lines, keys, context
-  items, inspector sections, settings pages. Those carry `ContributedBy`
+  items, inspector sections, settings pages, parts of the window's frame.
+  Those carry `ContributedBy`
   as everything a plugin adds does, so switching the plugin off despawns
   them and switching it on runs the function again. Anything the entry adds
   to the app directly is not tracked and stays until restart.

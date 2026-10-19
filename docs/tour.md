@@ -59,16 +59,16 @@ table. The binary and the examples are the root package.
 | `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
 | `hamlet_offscreen` | An app that draws into an image with no window and saves a still. The examples and the plugin harness draw with it |
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
-| `hamlet_realm_api` | What the window and its plugins read of the realm and ask of it: the things chosen and the camera brought to one (`pick`), the chief's look (`chief`), the palette and an agent's `RobotPaint`, the hand's hold, the quality and the sky's hour (`sky`), the panels' sounds and the chief's choice of sound (`sound`), and the orders (`orders`: decrees, carrying a town, the library or the Hearth, giving a skill) |
+| `hamlet_realm_api` | What the window and its plugins read of the realm and ask of it: the things chosen and the camera brought to one (`pick`), the chief's look (`chief`), the palette and an agent's `RobotPaint`, the hand's hold, the quality and the sky's hour (`sky`), the panels' sounds and the chief's choice of sound (`sound`), and the orders (`orders`: decrees, carrying a hamlet, the library or the Hearth, giving a skill) |
 | `hamlet_realm` | The 3D world, drawn from the core's entities. It keeps the read models of `hamlet_realm_api` and answers its events |
 | `hamlet_sdk` | What a plugin is built with: the plugin types, commands, menu lines, context menu items, inspector tabs, settings pages and keys, the theme, looks and icons, the dock's panels. It does not depend on the core: its read models of the agents are plain data |
 | `hamlet_agents_api` | What a plugin reads and does about the agents: the systems that keep the SDK's read models from the core, the chat the window shows (`Me`), the questions' card, the words for an agent's state, the petitions of plugins put in the chief's queue, and the core's tools and turns a host of plugins reaches |
 | `hamlet_chat` | The chat with an agent: who it is with, how it is read and typed, the markdown and pictures in it, selecting its words, links, and the deeds that ask the chief first |
 | `hamlet_limits` | The panes where the chief changes the home's models and each hamlet's budget, votes, models and the mayor's leave |
 | `hamlet_ui` | The frame of the window: the dock and its saved layout, the window's chrome and states, the pointer, the hover card and the panels' sounds. What fills it is plugins |
+| `hamlet_openui` | Panels written in Hamlet's panel language: the components, the evaluation into a panel tree, state, actions and the data plugin. See [`panels.md`](panels.md) |
 | `hamlet_wasm` | The host of the installed WASM plugins, behind the binary's `wasm` feature. See [`wasm.md`](wasm.md) |
 | `hamlet_native` | The host of the installed native plugins, behind the binary's `native` feature, and the contract a library keeps. See [`native.md`](native.md) |
-| `hamlet_openui` | Panels written in Hamlet's panel language: the components, the evaluation into a panel tree, state, actions and the data plugin. See [`panels.md`](panels.md) |
 | `hamlet_guest` | What a WASM plugin is written with: the interface bindings, the `Plugin` trait, the tree builder and the helpers that keep its state and its storage |
 | `hamlet_harness` | Runs a plugin headlessly against made-up state: clicks, typed text, grants, the tree of each panel as text and a picture of it. Behind its `wasm` feature. See [`authoring.md`](authoring.md) |
 

@@ -375,7 +375,7 @@ starts again.
 
 ### The frame
 
-A built-in plugin puts a view in the window around the dock with
+A built-in or native plugin puts a view in the window around the dock with
 `Entry::frame_part(place, order, view)`: a `FramePart` entity with the view as
 its `Native`, gone with the plugin. `Place` is the top bar (`Bar`, before the
 room the window is held by), over the dock (`Dock`), the foot (`Foot`) or over
@@ -383,8 +383,10 @@ everything (`Over`), and the parts of a place are drawn by `order`. The root
 is built once the theme is ready, in the set `Mounting`, and again when a
 part comes or goes, as for a new theme. The menus are the `Bar` part and two
 `Over` parts (0 and 10), the status bar the `Foot` part and the first-run
-screen the `Dock` part. A plugin that is not built in adds no part: a view is
-a function in the app.
+screen the `Dock` part. A native plugin reaches `Entry` through
+`hamlet_native::declare` and may add parts too, as it runs with full trust.
+A WASM plugin adds none: a view is a function in the app, and the host
+hands a WASM plugin only the panels drawn from its tree.
 
 ### What stays in the window
 
