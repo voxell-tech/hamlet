@@ -18,9 +18,9 @@ use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockNode, DockRegistry, DockSplit,
     DockTree, NodeId, SplitAxis,
 };
+use hamlet_agents_api::agents::{Citizen, Left, Settlement};
 use hamlet_agents_api::convo::Me;
-use hamlet_core::agents::{Citizen, Left, Settlement};
-use hamlet_core::core::HomeDir;
+use hamlet_base::HomeDir;
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_realm_api::chief;
 use hamlet_realm_api::pick::{Selected, Thing, select};

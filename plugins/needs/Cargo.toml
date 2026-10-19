@@ -10,7 +10,6 @@ workspace = true
 
 [dependencies]
 hamlet_agents_api.workspace = true
-hamlet_rules.workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true

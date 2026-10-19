@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use bevy_app::{App, Update};
 use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
+pub use hamlet_base::Busy;
 use hamlet_home::limits::Limits;
 use hamlet_rules::budget::{AgentBudget, Report};
 use hamlet_rules::hamlet::{HOME, Hamlet, RoadUse};
@@ -135,10 +136,6 @@ pub struct Mayor;
 #[derive(Component, Clone, PartialEq, Eq, Debug)]
 #[component(immutable)]
 pub struct Purpose(pub String);
-
-/// The agent has a turn running, or another agent waits on it.
-#[derive(Component, Clone, Copy, Debug)]
-pub struct Busy;
 
 /// The agent was removed or merged away and has not come back.
 #[derive(Component, Clone, Copy, Debug)]

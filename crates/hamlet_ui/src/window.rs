@@ -19,7 +19,7 @@ use bevy::window::{
     WindowResolution,
 };
 use bevy::winit::{UpdateMode, WinitSettings};
-use hamlet_core::core::HomeDir;
+use hamlet_base::HomeDir;
 use hamlet_sdk::frame::{Animating, Showing, WorldShown};
 use tokio::sync::mpsc::UnboundedReceiver;
 

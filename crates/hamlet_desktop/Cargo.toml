@@ -9,7 +9,7 @@ description = "The machine the app runs on: kept awake while an agent works, its
 workspace = true
 
 [dependencies]
-hamlet_core.workspace = true
+hamlet_base.workspace = true
 bevy.workspace = true
 rfd.workspace = true
 tokio.workspace = true

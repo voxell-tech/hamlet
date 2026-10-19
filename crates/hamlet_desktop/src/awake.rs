@@ -6,7 +6,7 @@ use bevy::app::{App, Update};
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Local, Query, Res, ResMut};
-use hamlet_core::agents::Busy;
+use hamlet_base::Busy;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<KeepAwake>()

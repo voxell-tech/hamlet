@@ -39,10 +39,7 @@ fixture = ["dep:wat", "dep:wit-component", "dep:wit-parser"]
 name = "bench"
 
 [dev-dependencies]
-# The tests make the core's agents and petitions by hand.
-hamlet_core.workspace = true
 hamlet_home.workspace = true
-hamlet_rules.workspace = true
 # The test plugins are core modules in text, made into components
 # against the WIT file.
 wat = "1.262"

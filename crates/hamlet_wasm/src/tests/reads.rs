@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use bevy::prelude::*;
-use hamlet_core::agents::{Citizen, Left, LivesIn, Settlement};
+use hamlet_agents_api::agents::{Citizen, Left, LivesIn, Settlement};
 use hamlet_realm_api::survey::{Survey, SurveyedHamlet};
 use hamlet_sdk::agents::{Agent, AgentList};
 use hamlet_sdk::capability::{Capability, Granted, Verdict};

@@ -15,10 +15,10 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_agents_api::agents::{Settlement, Works};
+use hamlet_agents_api::hamlet::{Mode, Work};
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm_api::orders::Switched;
 use hamlet_realm_api::pick::{Thing, select};
-use hamlet_rules::work::{Mode, Work};
 use hamlet_sdk::cards::heading;
 
 use crate::View;

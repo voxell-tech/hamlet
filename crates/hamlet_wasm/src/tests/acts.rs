@@ -1,7 +1,7 @@
 use bevy::prelude::*;
+use hamlet_agents_api::oversight::Choice as Answer;
 use hamlet_realm_api::pick::{Gesture, Named, PointAt};
 use hamlet_realm_api::survey::{Survey, SurveyedAgent};
-use hamlet_rules::chief::rulings::Choice as Answer;
 use hamlet_sdk::capability::{Capability, Subject};
 use hamlet_sdk::command::{Notice, RunCommand};
 use hamlet_sdk::plugin::PluginInfo;

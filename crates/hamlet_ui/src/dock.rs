@@ -12,7 +12,7 @@ use bevy_fynix::dock::{
     DockArea, DockAreaStyle, DockLeaf, DockNode, DockTree, Edge,
     NodeId, SplitAxis,
 };
-use hamlet_core::core::RefreshLists;
+use hamlet_agents_api::library::RefreshLists;
 use hamlet_sdk::dock::TabShown;
 
 use crate::remember;

@@ -12,12 +12,12 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_agents_api::agents::{Settlement, Treasury};
 use hamlet_agents_api::convo::Me;
+use hamlet_agents_api::hamlet::HOME;
 use hamlet_agents_api::model::{Link, Settings};
 use hamlet_agents_api::session::{Status, Usage};
 use hamlet_agents_api::tools::Sandboxing;
 use hamlet_agents_api::waits::Waits;
 use hamlet_chat_api::links::Aimed;
-use hamlet_rules::hamlet::HOME;
 use hamlet_sdk::bar::Bar;
 use hamlet_sdk::frame::Place;
 use hamlet_sdk::icons::{Glyph, glyph};

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_fynix::dock::DockRegistry;
-use hamlet_core::oversight::Waiting;
+use hamlet_agents_api::oversight::Waiting;
 use hamlet_sdk::capability::AskToRemove;
 use hamlet_sdk::plugin::{
     Blocked, Disable, Enable, PluginInfo, Status,

@@ -14,9 +14,9 @@ use hamlet_agents_api::agents::{
     self, Account, Activity, Busy, Citizen, Left, LivesIn, Mayor,
     MergedInto, Purpose, Settlement, Treasury,
 };
+use hamlet_agents_api::hamlet::HOME;
 use hamlet_agents_api::oversight::Waiting;
 use hamlet_realm_api::pick::{Asks, Thing};
-use hamlet_rules::hamlet::HOME;
 
 use super::{Naming, Search};
 use crate::View;

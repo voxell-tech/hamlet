@@ -7,7 +7,7 @@ use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::prelude::*;
 pub use hamlet_core::agents::{
     Account, Activity, Busy, Charter, Citizen, Left, LivesIn, Mayor,
-    MergedInto, Purpose, Road, Settlement, Treasury, Works,
+    MergedInto, Purpose, Road, Roster, Settlement, Treasury, Works,
     hamlet_of, mayor, mayor_of, name_of, named, register, sync,
 };
 use hamlet_sdk::agents::{Agent, AgentList, Kept, SelectedAgent};

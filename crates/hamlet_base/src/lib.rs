@@ -1,6 +1,7 @@
 //! What every layer shares: the home the app opened, the runtime
 //! background work runs on, and the rules of a plugin's names.
 
+use bevy_ecs::component::Component;
 use bevy_ecs::resource::Resource;
 use hamlet_home::Home;
 
@@ -8,6 +9,11 @@ use hamlet_home::Home;
 /// agent calls it by. No tool added by hand may have it, so a name
 /// with it is always a plugin's.
 pub const JOIN: &str = "__";
+
+/// On an agent that has a turn running, or that another agent waits
+/// on.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Busy;
 
 /// The tokio runtime that background work is spawned on.
 #[derive(Resource)]

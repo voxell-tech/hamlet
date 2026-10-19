@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 use bevy_fynix::dock::DockRegistry;
-use hamlet_core::oversight::{Settled, Waiting};
-use hamlet_rules::chief::rulings::Choice as Answer;
+use hamlet_agents_api::oversight::{
+    Choice as Answer, Settled, Waiting,
+};
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{
     Asked, Asks, Capability, Choice, Choices, Granted, Installation,

@@ -22,9 +22,9 @@ use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_agents_api::agents::{
     self, Activity, LivesIn, Settlement, Treasury,
 };
+use hamlet_agents_api::hamlet::Realm;
 use hamlet_agents_api::oversight::Waiting;
 use hamlet_realm_api::pick::{Thing, focus_on, select};
-use hamlet_rules::realm::Realm;
 use hamlet_sdk::HomeDir;
 pub(crate) use hamlet_sdk::cards::heading;
 use hamlet_sdk::command::{self, RunCommand};

@@ -6,9 +6,8 @@ use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::views::{FrameProps, column};
 use bevy_fynix::{ViewExt, derived, keyed};
 use hamlet_agents_api::agents::Settlement;
+use hamlet_agents_api::hamlet::{Realm, Standing, vote};
 use hamlet_agents_api::model::Settings;
-use hamlet_rules::realm::Realm;
-use hamlet_rules::vote::{self, Standing};
 
 use super::heading;
 use crate::View;

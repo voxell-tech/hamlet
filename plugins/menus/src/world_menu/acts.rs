@@ -9,10 +9,10 @@ use bevy::math::Vec2;
 use hamlet_agents_api::agents::{
     self, Busy, Left, Mayor, Settlement,
 };
+use hamlet_agents_api::hamlet::HOME;
 use hamlet_chat_api::deed;
 use hamlet_realm_api::orders::{self, Carry};
 use hamlet_realm_api::pick::{Thing, focus_on, select};
-use hamlet_rules::hamlet::HOME;
 use hamlet_sdk::command::{Subject, kind};
 
 use super::deed::Deed;

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use hamlet_core::tools::AgentToolCalled;
-use hamlet_core::tools::plugged::Waiting;
+use hamlet_agents_api::tools::AgentToolCalled;
+use hamlet_agents_api::tools::plugged::Waiting;
 use hamlet_sdk::capability::Refusal;
 
 use crate::fixture;

@@ -22,11 +22,10 @@ use hamlet_agents_api::asking;
 use hamlet_agents_api::change::{Change, DrawChange};
 use hamlet_agents_api::convo::ChiefName;
 use hamlet_agents_api::oversight::{
-    Answer, Asks, Danger, Kind, Need, TagAnswered, TagOpened, Veto,
-    Waiting,
+    Answer, Asks, Choice, Danger, Kind, Need, TagAnswered, TagOpened,
+    Veto, Waiting,
 };
 use hamlet_agents_api::session::{Entry, Transcript};
-use hamlet_rules::chief::rulings::Choice;
 use hamlet_sdk::dock::{lit_panel, show_tab};
 use hamlet_sdk::feel::{Lit, Mood};
 use hamlet_sdk::icons::Glyph;

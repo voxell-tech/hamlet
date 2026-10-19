@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use hamlet_rules::chief::rulings::Choice as Answer;
+use hamlet_agents_api::oversight::Choice as Answer;
 use hamlet_sdk::capability::{AskToRemove, Store, Subject};
 use hamlet_sdk::plugin::PluginInfo;
 

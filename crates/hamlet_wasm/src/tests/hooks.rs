@@ -1,4 +1,4 @@
-use hamlet_core::session::{Phase, TurnObserved};
+use hamlet_agents_api::tools::{Phase, TurnObserved};
 
 use super::interop::said;
 use crate::fixture;

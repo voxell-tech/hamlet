@@ -21,13 +21,12 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, each, keyed, resource, style,
 };
+use hamlet_agents_api::hamlet::{RESUME, format_tokens};
 use hamlet_agents_api::library::RefreshLists;
 use hamlet_agents_api::session::archive::{self, Past, pasts};
 use hamlet_agents_api::session::{
     self, Entry, JobFinished, Transcript,
 };
-use hamlet_rules::budget::format_tokens;
-use hamlet_rules::commands::RESUME;
 
 use crate::dock::show_tab;
 use crate::feel::Mood;

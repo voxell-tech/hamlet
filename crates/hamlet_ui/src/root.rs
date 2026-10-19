@@ -20,7 +20,7 @@ use bevy_fynix::shortcut::Scope;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, POPUP, column, frame, row,
 };
-use hamlet_core::core::{Settings, TestConnection};
+use hamlet_agents_api::model::{Settings, TestConnection};
 use hamlet_realm_api::pick::Taken;
 use hamlet_sdk::frame::{self, FramePart, Place};
 

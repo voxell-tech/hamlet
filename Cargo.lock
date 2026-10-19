@@ -3644,7 +3644,7 @@ name = "hamlet_desktop"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "hamlet_core",
+ "hamlet_base",
  "hamlet_testing",
  "objc2 0.5.2",
  "objc2-app-kit 0.2.2",
@@ -3779,7 +3779,7 @@ dependencies = [
  "plugin_skills",
  "plugin_status",
  "plugin_welcome",
- "toml",
+ "serde_json",
 ]
 
 [[package]]
@@ -3862,12 +3862,11 @@ dependencies = [
  "bevy_fynix",
  "hamlet_agents_api",
  "hamlet_assets",
+ "hamlet_base",
  "hamlet_chat_api",
- "hamlet_core",
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_realm_api",
- "hamlet_rules",
  "hamlet_sdk",
  "hamlet_testing",
  "serde",
@@ -3894,12 +3893,10 @@ dependencies = [
  "hamlet_agents_api",
  "hamlet_assets",
  "hamlet_base",
- "hamlet_core",
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_openui",
  "hamlet_realm_api",
- "hamlet_rules",
  "hamlet_sdk",
  "postcard",
  "reqwest",
@@ -5763,7 +5760,6 @@ dependencies = [
  "hamlet_home",
  "hamlet_limits_api",
  "hamlet_realm_api",
- "hamlet_rules",
  "hamlet_sdk",
  "hamlet_testing",
  "serde_json",
@@ -5795,7 +5791,6 @@ dependencies = [
  "hamlet_agents_api",
  "hamlet_chat_api",
  "hamlet_realm_api",
- "hamlet_rules",
  "hamlet_sdk",
 ]
 
@@ -5806,7 +5801,6 @@ dependencies = [
  "bevy",
  "bevy_fynix",
  "hamlet_agents_api",
- "hamlet_rules",
  "hamlet_sdk",
 ]
 
@@ -5860,7 +5854,6 @@ dependencies = [
  "bevy_fynix",
  "hamlet_agents_api",
  "hamlet_chat_api",
- "hamlet_rules",
  "hamlet_sdk",
 ]
 

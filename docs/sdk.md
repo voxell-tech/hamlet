@@ -17,18 +17,36 @@ A plugin crate depends on `hamlet_sdk`, the API crate of each thing it reads
 or asks something of (`hamlet_agents_api` for the agents, `hamlet_realm_api`
 for the world, `hamlet_chat_api` for the chat and `hamlet_limits_api` for
 the panes of the limits, below) and the engine crates, never on `hamlet_ui`
-or on another plugin. A plugin reads the core through `hamlet_agents_api`, which
-gives the core's types, events and functions a plugin uses; only the layers
-`plugin_agents` and `plugin_hamlets` depend on `hamlet_core`. `plugin_needs` and
-`plugin_skills` need nothing but the SDK, the agents API and, for `needs`,
-the rules, and run with no window and no realm. Only
-`plugin_realm` depends on `hamlet_realm` itself: it holds the layer that
-adds the realm and the realm's view (`view`, the plugin `world-view`),
-which mounts the realm's camera in a panel, sets its stage and its sky,
-and hangs the realm's labels off the panel. No other crate of the window does: the chat,
-the frame and every other plugin see the world only through
-`hamlet_realm_api`. A test of `hamlet_plugins` (`layering.rs`) reads each
-plugin's `Cargo.toml` and fails on a dependency that breaks these rules.
+or on another plugin. A plugin reads the core and the rules through
+`hamlet_agents_api`, which gives the core's and the rules' types, events and
+functions a plugin uses; only the layers `plugin_agents` and `plugin_hamlets`
+depend on `hamlet_core` or `hamlet_rules`. `plugin_needs` and `plugin_skills`
+need nothing but the SDK and the agents API, and run with no window and no
+realm. Only `plugin_realm` depends on `hamlet_realm` itself: it holds the
+layer that adds the realm and the realm's view (`view`, the plugin
+`world-view`), which mounts the realm's camera in a panel, sets its stage and
+its sky, and hangs the realm's labels off the panel. No other crate of the
+window does: the chat, the frame and every other plugin see the world only
+through `hamlet_realm_api`.
+
+A test of `hamlet_plugins` (`layering.rs`) reads every member of the
+workspace from `cargo metadata --offline --no-deps`, where a dependency is
+named by its package even when `package =` renames it, and fails on one that
+breaks these rules:
+
+- a plugin (every crate under `plugins/` but the list `hamlet_plugins`, and
+  the frame `hamlet_ui`) depends on no other plugin, its tests neither;
+- an API crate (`*_api`) depends on no plugin;
+- only `plugin_agents` and `plugin_hamlets` depend on `hamlet_core` or
+  `hamlet_rules`, and only `plugin_realm` on `hamlet_realm`. A plugin's tests
+  may: the chat's stand up the core's agents to talk to;
+- an engine crate (`hamlet_sdk`, `hamlet_base`, `hamlet_wasm`,
+  `hamlet_native`, `hamlet_desktop`, `hamlet_ui`, `hamlet_openui`) depends on
+  no layer crate (`hamlet_core`, `hamlet_rules`, `hamlet_realm`), its tests
+  neither. `EXCEPTIONS` in the test would name one that stands for now with
+  its reason; there is none. The frame reads the agents through
+  `hamlet_agents_api`, and the machine's `Busy` mark and runtime are
+  `hamlet_base`'s.
 
 ## hamlet_realm_api
 
@@ -394,9 +412,8 @@ app from its modules, and the engine cannot depend on the plugin crate
 above it. And a module's plugin stands first in its module, beside what it
 adds, so a change to a system and to where it runs is one edit. Moving the
 engines themselves into the plugin crates was not cheap either:
-`hamlet_core` is under `hamlet_agents_api`, `hamlet_realm_api`,
-`hamlet_realm`, `hamlet_ui`, `hamlet_wasm` and `hamlet_desktop`, which
-would then stand on a plugin.
+`hamlet_core` is under `hamlet_agents_api`, `hamlet_realm_api` and
+`hamlet_realm`, which would then stand on a plugin.
 
 A layer's `HamletPlugin` declares nothing in `entry`: neither engine knows
 the SDK, so no command, menu line or other contribution lives in them. The
