@@ -300,6 +300,10 @@ pub struct Limits {
     /// The bytes of a shader's variables together, private and of
     /// every function, and of any one value it names.
     pub shader_variable_bytes: u32,
+    /// The times one plugin's scene may be kept with a new or
+    /// changed shader in a minute. A scene with one sent sooner
+    /// waits.
+    pub shader_updates_per_minute: u32,
 }
 
 /// The time one call may take, in milliseconds, for runs on a busy

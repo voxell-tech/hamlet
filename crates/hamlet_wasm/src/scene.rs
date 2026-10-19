@@ -30,8 +30,9 @@ const NARROW: f32 = 0.02;
 const WIDE: f32 = 1.55;
 
 /// Keeps what the plugins build in the world, at most
-/// `scene_updates_per_second` times a second each, and takes it away
-/// from a plugin that may no longer build.
+/// `scene_updates_per_second` times a second each and with a new
+/// shader `shader_updates_per_minute` times a minute, and takes it
+/// away from a plugin that may no longer build.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Rebuilt>().add_systems(
         Update,
@@ -75,9 +76,13 @@ impl Kept {
     }
 }
 
-/// The scenes each plugin had kept lately.
+/// The scenes each plugin had kept lately, and those with a new or
+/// changed shader.
 #[derive(Resource, Default)]
-pub struct Rebuilt(Rate);
+pub struct Rebuilt {
+    scenes: Rate,
+    shaders: Rate,
+}
 
 impl Host for State {
     fn build(&mut self, scene: wire::Scene) -> Result<(), String> {
@@ -173,7 +178,19 @@ pub fn take(
         // A change waits until the plugin may make one again; only
         // its last scene is kept then.
         let most = limits.scene_updates_per_second;
-        if kept.changed && !rebuilt.0.within(plugin, now, 1.0, most) {
+        if kept.changed
+            && !rebuilt.scenes.within(plugin, now, 1.0, most)
+        {
+            continue;
+        }
+        // A new or changed shader is compiled again, so it waits
+        // longer, and its scene with it.
+        let fresh = shaded
+            && kept.shaders.iter().any(|sent| {
+                held.is_none_or(|held| !held.shaders.contains(sent))
+            });
+        let most = limits.shader_updates_per_minute;
+        if fresh && !rebuilt.shaders.admit(plugin, now, most) {
             continue;
         }
         let kept = &mut instance.store.data_mut().render;

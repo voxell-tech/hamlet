@@ -263,14 +263,18 @@ reaches the GPU: the host draws what it describes.
    metres of the site, its mesh's reach grown by the scales above it
    (`hamlet_wasm/src/scene.rs`). A scene that passes is kept on the plugin's entity as a
    `hamlet_realm_api::scene::PluginScene`, with the plugin's meshes and, while it holds
-   `render.shader`, its shaders, at most `scene_updates_per_second` times a second; a change
-   sent sooner waits and only the last one is kept. The host takes it away when the plugin
+   `render.shader`, its shaders, at most `scene_updates_per_second` times a second, and with
+   a new or changed shader at most `shader_updates_per_minute` times a minute; a change sent
+   sooner waits and only the last one is kept. The host takes it away when the plugin
    stops, is switched off or loses the grant. The realm's view (`plugins/realm/src/view/scene.rs`)
    is the only thing that builds it: a root linked to the plugin's entity
    (`StagedBy`, so the scene goes with a plugin that is removed), placed at the site each
    frame and hidden while the site is not drawn, and an entity for each node under it. When
    the scene changes it compares the nodes by id and spawns, changes or despawns only those
-   that differ, and makes a mesh or a shader again only when its data changed. The nodes
+   that differ, and makes a mesh or a shader again only when its data changed. A shader is
+   one asset for each id of each plugin, kept for the run and replaced in place, so its
+   pipeline is compiled again and never left without it; a node whose shader is gone or no
+   longer allowed is drawn again in a plain material. The nodes
    ignore the pointer. The plugin's name hangs over its scene, and the tag in the corner of
    the REALM panel names it among the plugins that draw.
 4. **A shader of the plugin's own.** `shader(id, source)` sends WGSL that defines `fn
@@ -1133,8 +1137,9 @@ each means. They apply to every plugin alike, whatever it is granted.
   second. A plugin sends at most `scene_meshes` meshes of `scene_mesh_points`
   points and `scene_mesh_triangles` triangles, and `shaders` shaders of
   `shader_bytes` that take at most `shader_work` steps for a point, with
-  variables of at most `shader_variable_bytes` together. A call over one
-  returns an error (see Drawing above).
+  variables of at most `shader_variable_bytes` together, and a scene with a
+  new or changed shader is kept at most `shader_updates_per_minute` times a
+  minute. A call over one returns an error (see Drawing above).
 - **Tools for the agents.** At most `agent_tools` tools of `tool_fields` fields
   declared, `tool_calls_in_flight` calls of agents waiting on a plugin, and a
   returned text of `tool_result_bytes` (a longer one is cut). A call is bounded by

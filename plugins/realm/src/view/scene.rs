@@ -19,6 +19,7 @@ use hamlet_realm_api::scene::{
     Anchor, Finish, Lamp, Material as Paint, PluginScene, SceneMesh,
     SceneNode, Shape, Staged, StagedBy,
 };
+use hamlet_sdk::plugin::PluginInfo;
 use hamlet_sdk::theme::Themed;
 
 use super::shader::{self, PluginMaterial, ShadersOff};
@@ -28,6 +29,7 @@ const GAP: f32 = 6.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Shapes>()
+        .init_resource::<PluginShaders>()
         .add_observer(clear)
         .add_systems(
             Update,
@@ -63,6 +65,12 @@ pub struct Named(Entity);
 /// Hamlet's own shapes, one metre across.
 #[derive(Resource)]
 struct Shapes(HashMap<&'static str, Handle<Mesh>>);
+
+/// The shader asset of each shader id of each plugin, kept for the
+/// run: a pipeline whose shader is dropped would be tried again every
+/// frame.
+#[derive(Resource, Default)]
+struct PluginShaders(HashMap<(String, String), Handle<Shader>>);
 
 impl FromWorld for Shapes {
     fn from_world(world: &mut World) -> Self {
@@ -129,7 +137,7 @@ struct Making<'a> {
 fn build(
     mut commands: Commands,
     scenes: Query<
-        (Entity, &PluginScene, Option<&Staged>),
+        (Entity, &PluginScene, Option<&Staged>, Option<&PluginInfo>),
         Changed<PluginScene>,
     >,
     mut stages: Query<&mut Stage>,
@@ -138,12 +146,13 @@ fn build(
     shapes: Res<Shapes>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut shaders: ResMut<Assets<Shader>>,
+    mut kept: ResMut<PluginShaders>,
     mut standard: ResMut<Assets<StandardMaterial>>,
     mut shaded: ResMut<Assets<PluginMaterial>>,
     off: Option<Res<ShadersOff>>,
     theme: Themed,
 ) {
-    for (plugin, scene, staged) in &scenes {
+    for (plugin, scene, staged, info) in &scenes {
         let held = staged
             .into_iter()
             .flat_map(|staged| staged.iter())
@@ -175,8 +184,16 @@ fn build(
                 }
             }
         }
-        let remade =
-            stock(scene, &mut stage, &mut meshes, &mut shaders);
+        let id =
+            info.map_or(scene.by.as_str(), |info| info.id.as_str());
+        let remade = stock(
+            scene,
+            id,
+            &mut stage,
+            &mut meshes,
+            &mut shaders,
+            &mut kept,
+        );
         let mut making = Making {
             shapes: &shapes,
             standard: &mut standard,
@@ -266,13 +283,17 @@ impl Remade {
     }
 }
 
-/// Makes the meshes and shaders of `scene` that `stage` does not hold
-/// as they are, and forgets those it no longer has.
+/// Makes the meshes and shaders of `scene`, by the plugin `plugin`,
+/// that `stage` does not hold as they are, and forgets those it no
+/// longer has. A shader that goes counts as made again, so that its
+/// nodes are drawn plain.
 fn stock(
     scene: &PluginScene,
+    plugin: &str,
     stage: &mut Stage,
     meshes: &mut Assets<Mesh>,
     shaders: &mut Assets<Shader>,
+    kept: &mut PluginShaders,
 ) -> Remade {
     let mut remade = Remade {
         meshes: Vec::new(),
@@ -293,17 +314,37 @@ fn stock(
         stage.meshes.insert(sent.id.clone(), (sent.clone(), handle));
         remade.meshes.push(sent.id.clone());
     }
-    stage
-        .shaders
-        .retain(|id, _| scene.shaders.iter().any(|s| s.id == *id));
+    stage.shaders.retain(|id, _| {
+        let sent = scene.shaders.iter().any(|s| s.id == *id);
+        if !sent {
+            remade.shaders.push(id.clone());
+        }
+        sent
+    });
     for sent in &scene.shaders {
         let held = stage.shaders.get(&sent.id);
         if held.is_some_and(|(source, _)| *source == sent.source) {
             continue;
         }
         let compiled =
-            shader::compiled(&scene.by, &sent.id, &sent.source);
-        let handle = shaders.add(compiled);
+            shader::compiled(plugin, &sent.id, &sent.source);
+        // One asset for each shader of each plugin, replaced in
+        // place, so that its pipeline is made again and none is left
+        // without its shader.
+        let key = (plugin.to_string(), sent.id.clone());
+        let handle = match kept.0.get(&key) {
+            Some(handle) => {
+                if let Some(mut held) = shaders.get_mut(handle) {
+                    *held = compiled;
+                }
+                handle.clone()
+            }
+            None => {
+                let handle = shaders.add(compiled);
+                kept.0.insert(key, handle.clone());
+                handle
+            }
+        };
         stage
             .shaders
             .insert(sent.id.clone(), (sent.source.clone(), handle));

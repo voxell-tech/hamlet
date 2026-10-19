@@ -113,6 +113,7 @@ shaders = 4
 shader_bytes = 16384
 shader_work = 4096
 shader_variable_bytes = 4096
+shader_updates_per_minute = 6
 
 [reload]
 poll_ms = 500
