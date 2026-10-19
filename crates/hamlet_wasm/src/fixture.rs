@@ -558,6 +558,30 @@ pub fn grow() -> String {
     )
 }
 
+/// Returns from `step` 100000 `log-line`s that all point at the same
+/// 4 MiB of its memory.
+pub fn hoarding() -> String {
+    format!(
+        r#"(module {COMMON} {QUIET} {NO_VIEW}
+  (func (export "hamlet:plugin/plugin@0.1.0#step")
+    (param i32 i32) (result i32)
+    (local $at i32)
+    (drop (memory.grow (i32.const 127)))
+    (local.set $at (i32.const 65536))
+    (loop $fill
+      (i32.store8 (local.get $at) (i32.const 0))
+      (i32.store (i32.add (local.get $at) (i32.const 8))
+        (i32.const 4194304))
+      (i32.store (i32.add (local.get $at) (i32.const 12))
+        (i32.const 4194304))
+      (local.set $at (i32.add (local.get $at) (i32.const 40)))
+      (br_if $fill (i32.lt_u (local.get $at) (i32.const 4065536))))
+    (i32.store (i32.const 512) (i32.const 65536))
+    (i32.store (i32.const 516) (i32.const 100000))
+    (i32.const 512)))"#
+    )
+}
+
 /// A component that imports an interface the host does not define.
 pub fn greedy() -> Vec<u8> {
     wat::parse_str(

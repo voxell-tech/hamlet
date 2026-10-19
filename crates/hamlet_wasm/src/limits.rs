@@ -40,8 +40,25 @@ pub struct Limits {
     pub publish_bytes_per_step: usize,
     /// The memory one plugin may grow to, in MiB.
     pub memory_mib: usize,
+    /// The bytes the host may copy out of a plugin's memory for one
+    /// crossing: the values given to one host function, or returned
+    /// by one call of an export. Strings and lists that point at the
+    /// same bytes count each time. A crossing over it traps the
+    /// call.
+    pub lift_bytes: usize,
     /// The elements one plugin's tables may hold.
     pub table_elements: usize,
+    /// The core instances one plugin's component may hold.
+    pub plugin_instances: u32,
+    /// The memories one plugin's component may hold. Together they
+    /// may grow to `memory_mib`.
+    pub plugin_memories: u32,
+    /// The tables one plugin's component may hold.
+    pub plugin_tables: u32,
+    /// The plugins the engine's pool holds at once, each with room
+    /// for its instances, memories and tables. A plugin being
+    /// reloaded holds two places while both versions run.
+    pub pool_plugins: u32,
     /// The log lines one call may leave. The rest are dropped.
     pub log_lines: usize,
     /// The bytes of one log line. The rest of a longer line is cut.
@@ -340,18 +357,31 @@ impl fmt::Display for OverLimit {
 
 impl std::error::Error for OverLimit {}
 
-/// Holds one plugin's store to its [`Limits`]. A growth past a limit
-/// traps the call.
+/// Holds one plugin's store to its [`Limits`]: the memory of all its
+/// memories together, each table, and how many of each it makes. A
+/// growth past a limit traps the call.
 pub struct Limiter {
     memory: usize,
+    /// The bytes of all the store's memories.
+    used: usize,
+    /// The last growth allowed, taken back if it failed.
+    growing: usize,
     table_elements: usize,
+    instances: usize,
+    memories: usize,
+    tables: usize,
 }
 
 impl Limiter {
     pub fn new(limits: &Limits) -> Self {
         Self {
             memory: limits.memory_bytes(),
+            used: 0,
+            growing: 0,
             table_elements: limits.table_elements,
+            instances: limits.plugin_instances as usize,
+            memories: limits.plugin_memories as usize,
+            tables: limits.plugin_tables as usize,
         }
     }
 }
@@ -359,14 +389,25 @@ impl Limiter {
 impl ResourceLimiter for Limiter {
     fn memory_growing(
         &mut self,
-        _current: usize,
+        current: usize,
         desired: usize,
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
-        if desired > self.memory {
+        let growth = desired.saturating_sub(current);
+        if self.used.saturating_add(growth) > self.memory {
             return Err(wasmtime::Error::new(OverLimit("memory")));
         }
+        self.used += growth;
+        self.growing = growth;
         Ok(true)
+    }
+
+    fn memory_grow_failed(
+        &mut self,
+        _error: wasmtime::Error,
+    ) -> wasmtime::Result<()> {
+        self.used -= std::mem::take(&mut self.growing);
+        Ok(())
     }
 
     fn table_growing(
@@ -379,5 +420,17 @@ impl ResourceLimiter for Limiter {
             return Err(wasmtime::Error::new(OverLimit("table")));
         }
         Ok(true)
+    }
+
+    fn instances(&self) -> usize {
+        self.instances
+    }
+
+    fn memories(&self) -> usize {
+        self.memories
+    }
+
+    fn tables(&self) -> usize {
+        self.tables
     }
 }

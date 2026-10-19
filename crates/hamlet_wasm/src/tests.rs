@@ -104,6 +104,17 @@ fn memory_that_grows_without_end_is_stopped() {
 }
 
 #[test]
+fn strings_that_share_their_bytes_are_not_copied_past_the_cap() {
+    let limits = Limits::default().patient();
+    let mut plugin = load(&fixture::hoarding()).unwrap();
+    let fault = plugin.step(&limits, &[]).map(drop).unwrap_err();
+    assert!(
+        matches!(&fault, Fault::Trap(why) if why.contains("too much data")),
+        "{fault}"
+    );
+}
+
+#[test]
 fn an_import_the_host_does_not_provide_fails_to_load() {
     let limits = Limits::default();
     let host = Host::new(&limits).unwrap();

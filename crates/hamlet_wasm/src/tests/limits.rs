@@ -1,4 +1,5 @@
 use bevy::ecs::entity::Entity;
+use wasmtime::ResourceLimiter;
 
 use crate::inbox::{Inbox, Ticks};
 use crate::interface::exports::hamlet::plugin::plugin::{
@@ -6,7 +7,7 @@ use crate::interface::exports::hamlet::plugin::plugin::{
     Tree, Widget,
 };
 use crate::interface::hamlet::plugin::host::Level;
-use crate::limits::Limits;
+use crate::limits::{Limiter, Limits};
 use crate::manifest::Manifest;
 use crate::rate::Rate;
 use crate::{fixture, wire};
@@ -116,6 +117,17 @@ fn intents_over_the_limit_are_dropped_with_a_warning() {
     assert!(out.logs.iter().any(|line| {
         line.level == Level::Warn && line.message.contains("dropped")
     }));
+}
+
+#[test]
+fn the_memories_of_a_plugin_share_one_limit() {
+    let mut limiter = Limiter::new(&Limits {
+        memory_mib: 1,
+        ..Limits::default()
+    });
+    assert!(limiter.memory_growing(0, 600 << 10, None).is_ok());
+    assert!(limiter.memory_growing(0, 600 << 10, None).is_err());
+    assert!(limiter.memory_growing(0, 400 << 10, None).is_ok());
 }
 
 #[test]

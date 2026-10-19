@@ -9,7 +9,7 @@ use hamlet_sdk::agents::{Agent, AgentList};
 use hamlet_sdk::capability::{Capability, Granted};
 use hamlet_sdk::papers::Papers;
 use wasmtime::component::Component as Compiled;
-use wasmtime::{Engine, Store};
+use wasmtime::{Engine, PoolConcurrencyLimitError, Store};
 
 use crate::cache;
 use crate::db::{self, Db};
@@ -42,9 +42,19 @@ impl Instance {
         store.epoch_deadline_trap();
         store.set_epoch_deadline(limits.call_ticks());
         store.set_fuel(limits.call_fuel).map_err(Fault::load)?;
+        store.set_hostcall_fuel(limits.lift_bytes);
         let exports =
             Hamlet::instantiate(&mut store, component, &linker)
-                .map_err(Fault::load)?;
+                .map_err(|error| {
+                    match error.is::<PoolConcurrencyLimitError>() {
+                        true => Fault::Load(format!(
+                            "the host runs {} plugins at most, and \
+                             has no room for another",
+                            limits.pool_plugins
+                        )),
+                        false => Fault::load(error),
+                    }
+                })?;
         Ok(Self { store, exports })
     }
 

@@ -840,8 +840,11 @@ result = "option<f64>"
 ```
 
 The types are `bool`, `u32`, `u64`, `s32`, `s64`, `f32`, `f64`, `string`,
-`bytes`, `list<T>`, `option<T>` and `tuple<T, ..>`, nested at most eight deep
-(`hamlet_sdk::plugin::Type`). A value crosses as bytes written with `postcard`,
+`bytes`, `list<T>`, `option<T>` and `tuple<T, ..>` of at least one type,
+nested at most eight deep, with at most 64 names in all the types of a
+function (`hamlet_sdk::plugin::Type`). A `tuple<>` is refused, since a list of
+values of no bytes could be as long as its length says. Reading a value takes
+a few steps for each of its bytes at most, and is stopped past them. A value crosses as bytes written with `postcard`,
 the encoding of the commands: the arguments as the tuple of the parameters, a
 Rust struct as the tuple of its fields in order, and no result as nothing. The
 host reads the bytes against the type, without the guest's code, and refuses
@@ -993,9 +996,21 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **Starting again.** A plugin that trapped is started again by the host
   `restart_retries` times, each `restart_backoff_ms` after it failed (see A
   plugin that stopped). The count comes back when the chief restarts it.
-- **Memory and tables.** A `ResourceLimiter` refuses a growth past
-  `memory_mib` or `table_elements`, which traps the call as
-  `Fault::OutOfMemory`. The pooling allocator is sized to the same memory.
+- **Memory and tables.** A `ResourceLimiter` refuses a growth that takes all
+  the memories of a plugin together past `memory_mib`, or a table past
+  `table_elements`, which traps the call as `Fault::OutOfMemory`, and holds a
+  plugin to `plugin_instances` core instances, `plugin_memories` memories and
+  `plugin_tables` tables. The pooling allocator is sized to the same memory and
+  counts, and holds `pool_plugins` plugins at once, each to its own share, so
+  no plugin takes another's room; a plugin that finds the pool full does not
+  start, with "the host runs 128 plugins at most". A plugin built with Rust's
+  `wasm32-wasip2` uses three core instances, one memory and two tables.
+- **Copies out of a plugin.** The strings and lists a plugin gives one host
+  function, or returns from one call of `step` or `panel-view`, are copied
+  out of its memory up to `lift_bytes` in all (wasmtime's hostcall fuel,
+  set before every call). Strings that point at the same bytes count each
+  time they are copied, so a list of many of them traps the call before the
+  host holds more than that; the caps on intents and trees apply after.
 - **Log lines.** A call keeps at most `log_lines` lines of `log_bytes` each.
 - **Panels and trees.** A plugin declares at most `panels` panels, and a
   tree holds at most `tree_nodes` nodes nested `tree_depth` deep.
