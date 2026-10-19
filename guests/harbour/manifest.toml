@@ -1,0 +1,22 @@
+id = "harbour"
+name = "Harbour"
+version = "0.1.0"
+interface = "0.1.0"
+
+# It only answers what is sent to it, so it wants no ticks.
+ticks = false
+
+# The typed interface it calls. With no `from`, any plugin that
+# exports it with these functions, of these types, may be called; the
+# chief allows plugin.use for each one it calls.
+[[imports.interfaces]]
+name = "tide-table"
+
+[[imports.interfaces.functions]]
+name = "height"
+params = ["string"]
+result = "option<f64>"
+
+[[asks]]
+capability = "plugin.use"
+reason = "To ask the plugins that keep a tide table for the tide."

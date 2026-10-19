@@ -1,0 +1,82 @@
+# Run from the Hamlet checkout, after building Tides and Harbour into
+# folders of their own:
+#   guests/tides/build.sh <dir>/tides
+#   guests/harbour/build.sh <dir>/harbour
+#   cargo run --example plugin_check --features wasm -- \
+#     <dir>/tides <dir>/harbour --script guests/harbour/steps.toml \
+#     --out <pictures>
+#
+# Both plugins are installed in one home, with none of their asks
+# answered, as a chief would who let them in.
+
+[[step]]
+tick = 2
+
+[[step]]
+plugin = "harbour"
+
+# Tides does not hold plugin.export yet, so it implements nothing.
+[[step]]
+click = { panel = "main", node = "find" }
+
+[[step]]
+expect = { panel = "main", text = "none found yet" }
+
+[[step]]
+plugin = "tides"
+
+[[step]]
+grant = "plugin.export"
+
+[[step]]
+plugin = "harbour"
+
+[[step]]
+click = { panel = "main", node = "find" }
+
+[[step]]
+expect = { panel = "main", text = "Implementers: tides" }
+
+# The first call raises a petition for plugin.use of Tides, and is
+# answered with a typed error.
+[[step]]
+click = { panel = "main", node = "ask.tides" }
+
+[[step]]
+expect = { panel = "main", text = "refused: plugin.use not granted" }
+
+[[step]]
+grant = "plugin.use:tides"
+
+[[step]]
+click = { panel = "main", node = "ask.tides" }
+
+[[step]]
+expect = { panel = "main", text = "Dover: 6.1 metres" }
+
+[[step]]
+type = { panel = "main", node = "port", text = "Atlantis" }
+
+[[step]]
+click = { panel = "main", node = "ask.tides" }
+
+[[step]]
+expect = { panel = "main", text = "Atlantis: no table" }
+
+# A number where the port goes does not match the declared types, and
+# the host refuses it before Tides is called.
+[[step]]
+click = { panel = "main", node = "number" }
+
+[[step]]
+expect = { panel = "main", text = "mismatch: the arguments are not a tuple<string>" }
+
+[[step]]
+render = { panel = "main", file = "harbour.png" }
+
+# Tides counted the two calls that reached it.
+[[step]]
+plugin = "tides"
+
+[[step]]
+expect = { panel = "tides", text = "Calls: 2" }

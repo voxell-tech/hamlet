@@ -6,6 +6,26 @@ interface = "0.1.0"
 # It only answers what is sent to it, so it wants no ticks.
 ticks = false
 
+# Its table as a typed interface other plugins call through the host.
+# The host checks each call's arguments and result against these
+# types. Another plugin may export one of the same name and functions.
+[[exports.interfaces]]
+name = "tide-table"
+
+# The height of the high tide at a port, in metres, or none.
+[[exports.interfaces.functions]]
+name = "height"
+params = ["string"]
+result = "option<f64>"
+
+[[exports.interfaces.functions]]
+name = "ports"
+result = "list<string>"
+
+[[asks]]
+capability = "plugin.export"
+reason = "To let other plugins read its tide table."
+
 # The tool it gives the agents. The scope lists the hamlets whose
 # agents are offered it; with none, every hamlet's are. A plugin that
 # gives tools cannot also ask for chat.send, commands.run or
