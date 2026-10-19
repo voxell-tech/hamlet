@@ -232,10 +232,13 @@ compiled and its panel is not read until the chief says yes.
   [`wasm.md`](wasm.md)) is not built until the petition is answered, so none of
   it runs before.
 
-The petition is the one queue of Needs You: a `Waiting` of kind `Plugin`
-(`hamlet_core::oversight`), raised with `oversight::petition`, which adds no
-second queue. The chief's answer reaches `hamlet_sdk::capability` as the
-`Settled` event, and a `Subject` on the petition says what it was about. A
+The petition is the one queue of Needs You. `hamlet_sdk::capability` spawns a
+`Petition` (who it is about, the text and the answers it takes) with a
+`Subject` that says what it was about, and knows nothing more of the queue.
+`hamlet_agents_api::petition`, which the hamlets layer adds, makes that entity a
+`Waiting` of kind `Plugin` (`hamlet_core::oversight`) with
+`oversight::petition`, which adds no second queue, and passes the chief's answer
+back from the core's `Settled` as the SDK's `Answered`. A
 petition that is not answered when the app quits is raised again at the next
 start, from the same state.
 

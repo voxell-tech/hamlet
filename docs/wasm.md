@@ -323,7 +323,7 @@ chief lets a plugin in. Each act is limited to what the ask's `scope` lists,
 counted against `acts_per_minute`, and noted in the open chat with the plugin's
 name; a message reaches the agent as `[sent by plugin <id>] <text>`
 ([`permissions.md`](permissions.md)). `hamlet_guest::send_chat` and
-`run_as_chief` make the intents. `hamlet_sdk::convo::send_as_chief` is the
+`run_as_chief` make the intents. `hamlet_agents_api::convo::send_as_chief` is the
 function behind a message.
 
 ## The web
@@ -505,7 +505,7 @@ and once when the app starts. The turn events are given when a turn begins and e
 
 `host/before-turn` and `host/after-turn` let a plugin watch the agents work. The core
 (`session/turns.rs`) tells of a turn when a session's worker begins it and when its
-`Done` or `Error` lands on the app thread, as a `hamlet_core::session::TurnObserved`;
+`Done` or `Error` lands on the app thread, as a `TurnObserved` (`hamlet_agents_api::tools`);
 `interop/hosted.rs` gives it to each running plugin that imports the event and holds
 `agent.hook`. A plugin hears of the hamlets its ask's `scope` lists, or of every
 hamlet where it lists none. It is told the agent's name, its hamlet, the number of the
@@ -537,7 +537,7 @@ turned down, such a tool is dropped), so that two pairs never make one name. If 
 tools offered to an agent still go by one name, the first stays and the others are
 logged.
 
-1. Each tool is an `hamlet_core::tools::AgentTool` entity that is `ContributedBy` the
+1. Each tool is an `AgentTool` entity (`hamlet_agents_api::tools`) that is `ContributedBy` the
    plugin. Before each model step an agent's worker asks the app thread for the tools
    its hamlet is offered, over the channel its gate uses, and shows them to the model
    as `plugin__tool`, described as "[from the plugin
@@ -628,8 +628,9 @@ and the next call sees it.
 The host puts what a function answers from into the plugin's store before a
 call: the grant, a copy of the agents only when `read.agents` is held, and a
 copy of the papers only when `read.papers` is. The agents are `AgentList`, a
-resource that a system writes when the core's agents change, and the papers are
-`hamlet_sdk::papers::Papers`, so a host function never touches the world.
+resource that a system of `hamlet_agents_api` writes when the core's agents
+change, and the papers are `hamlet_sdk::papers::Papers`, so a host function
+never touches the world.
 `agents()` returns a copy: the name of each living agent and the name of its
 hamlet. `papers()` returns the selected agent's notes and character as the SDK
 cut them for its pages, and the names of its skills.

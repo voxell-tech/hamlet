@@ -52,6 +52,7 @@ table. The binary and the examples are the root package.
 | `hamlet_sandbox` | Per-platform process sandboxes |
 | `hamlet_model` | The model client, its settings, the catalogue of models, the session log |
 | `hamlet_home` | A home on disk: its layout, charter and prompt, the chief's limits, the starter skills |
+| `hamlet_base` | What every layer shares: `HomeDir`, the home the app opened, `Tokio`, the runtime background work runs on, and the rules of a plugin's names (`plain`, `joinable`) |
 | `hamlet_rules` | The hamlet's record and the rules over it. Plain files and functions, no Bevy |
 | `hamlet_core` | The runtime as Bevy plugins: agents, sessions, tools and oversight. No rendering |
 | `hamlet_desktop` | The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder dialog and the app's icon |
@@ -59,7 +60,8 @@ table. The binary and the examples are the root package.
 | `hamlet_offscreen` | An app that draws into an image with no window and saves a still. The examples and the plugin harness draw with it |
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
 | `hamlet_realm` | The 3D world, drawn from the core's entities |
-| `hamlet_sdk` | What a plugin is built with: the plugin types, commands, menu lines, context menu items, inspector tabs, settings pages and keys, the theme, looks and icons, the dock's panels |
+| `hamlet_sdk` | What a plugin is built with: the plugin types, commands, menu lines, context menu items, inspector tabs, settings pages and keys, the theme, looks and icons, the dock's panels. It does not depend on the core: its read models of the agents are plain data |
+| `hamlet_agents_api` | What a plugin reads and does about the agents: the systems that keep the SDK's read models from the core, the chat the window shows (`Me`), the questions' card, the words for an agent's state, the petitions of plugins put in the chief's queue, and the core's tools and turns a host of plugins reaches |
 | `hamlet_chat` | The chat with an agent: who it is with, how it is read and typed, the markdown and pictures in it, selecting its words, links, and the deeds that ask the chief first |
 | `hamlet_limits` | The panes where the chief changes the home's models and each hamlet's budget, votes, models and the mayor's leave |
 | `hamlet_ui` | The window: panels, menus and pointer around the world |
@@ -98,7 +100,8 @@ the right-click menu and its question, the cursor and the sounds of the
 panels. `widgets/` holds what the panels are drawn with: `feel/` and
 `tuning.rs`. The panels of the Inspector, the Settings, Needs You and Skills
 are plugins. How things look (`theme.rs`, `looks.rs`, `icons.rs`,
-`platform.rs`) and `tabs.rs`, `roll.rs`, `words.rs` are in `hamlet_sdk`.
+`platform.rs`), `tabs.rs` and `checks.rs` are in `hamlet_sdk`; `roll.rs` and
+`words.rs` in `hamlet_agents_api`.
 
 Names to keep apart:
 
@@ -120,11 +123,11 @@ Paths are under `crates/`.
 |---|---|
 | What an agent is told every turn | [`prompt.md`](prompt.md); the charter is `assets/charter.md` |
 | The tools an agent has | `hamlet_core/src/tools/`; the hamlet's own in `hamlet_core/src/agent/hamlet_tools.rs` |
-| The questions an agent asks the chief | `hamlet_rules/src/chief/asking.rs`; their card, in Needs You and the chat, in `hamlet_sdk/src/asking.rs` |
+| The questions an agent asks the chief | `hamlet_rules/src/chief/asking.rs`; their card, in Needs You and the chat, in `hamlet_agents_api/src/asking.rs` |
 | Selecting and copying text in the panels | `hamlet_chat/src/select.rs`; [`chat.md`](chat.md) |
 | A chief's slash command | The table `ALL` in `hamlet_rules/src/commands.rs`, which names who carries it out. It is not a `Command` entity: see [`sdk.md`](sdk.md) |
 | What needs the chief's approval | `hamlet_core/src/oversight/danger.rs` |
-| A plugin's petition: installing it, letting it use more, removing it | `hamlet_core/src/oversight/plugin.rs`, `hamlet_sdk/src/capability/petition.rs`, `install.rs`; removing it, `hamlet_wasm/src/uninstall.rs`; [`permissions.md`](permissions.md) |
+| A plugin's petition: installing it, letting it use more, removing it | `hamlet_core/src/oversight/plugin.rs`, `hamlet_sdk/src/capability/petition.rs`, `install.rs`, `hamlet_agents_api/src/petition.rs` (between the two); removing it, `hamlet_wasm/src/uninstall.rs`; [`permissions.md`](permissions.md) |
 | What an agent's commands may touch | `hamlet_sandbox/src/`; [`sandbox.md`](sandbox.md) |
 | The folder a hamlet works on | `hamlet_rules/src/work.rs` keeps it; `Tools::work_on` in `hamlet_core/src/tools.rs` applies it |
 | The workbench and its clockwork on a common | `hamlet_realm/src/works.rs` |
@@ -148,7 +151,7 @@ Paths are under `crates/`.
 | The Inspector: an agent's page, a hamlet's overview and rules, a chief's page, the Archive | `plugins/inspector/src/` (`agent.rs`, `overview.rs`, `history.rs`, `folder.rs`, `chief.rs`, `gone.rs`); the rules and models it shows, `hamlet_limits/src/`; its chat, `hamlet_chat/src/chat/` |
 | The Settings panel and its pages | `plugins/settings/src/lib.rs`; the models and the rules of the realm it shows, `hamlet_limits/src/` |
 | The question asked before a deed, and the deeds | The words and what each does, `hamlet_chat/src/deed.rs`; how it is drawn over the world, `hamlet_ui/src/world_menu/deed.rs` |
-| The Needs You panel (the queue of what waits for the chief) | `plugins/needs/src/lib.rs`; the count in the status bar is `hamlet_sdk/src/waits.rs`; how it draws an edit, `hamlet_sdk/src/change.rs` |
+| The Needs You panel (the queue of what waits for the chief) | `plugins/needs/src/lib.rs`; the count in the status bar is `hamlet_agents_api/src/waits.rs`; how it draws an edit, `hamlet_agents_api/src/change.rs` |
 | What an installed plugin may call, and its limits | `hamlet_wasm/wit/hamlet-plugin.wit`, `hamlet_wasm/src/host.rs` and `host/`, `assets/wasm.toml`; [`wasm.md`](wasm.md) |
 | Which installed plugins load, and what each is granted | `hamlet_wasm/src/install.rs`, `load.rs`, `hamlet_sdk/src/capability/`; [`permissions.md`](permissions.md), [`wasm.md`](wasm.md) |
 | Reloading a plugin when its files change, its last good version, the compiled cache | `hamlet_wasm/src/reload.rs` and `reload/`, `cache.rs`, `hamlet_sdk/src/reload.rs`, `assets/wasm.toml`; [`wasm.md`](wasm.md) |
@@ -158,7 +161,7 @@ Paths are under `crates/`.
 | A panel written in the panel language, its components, actions and limits | `hamlet_openui/src/components.rs`, `action.rs`, `evaluate.rs`, `assets/panel_lang.toml`; [`panels.md`](panels.md) |
 | A plugin that is a panel and no code | `hamlet_openui/src/data.rs`, `hamlet_wasm/src/install.rs`, `load.rs`; `guests/greeter_ui/`; [`panels.md`](panels.md) |
 | Writing a WASM plugin | `hamlet_guest/src/lib.rs` and `ui.rs`, `guests/hello/`, `guests/roster/`, `guests/notes/`, `guests/herald/`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
-| What a plugin does as the chief, in its folder of files and over the web | `hamlet_wasm/src/acts.rs`, `files.rs`, `host/folder.rs`, `net.rs`, `rate.rs`, `assets/wasm.toml`; `hamlet_sdk/src/convo/send.rs`; for a guest `hamlet_guest/src/files.rs` and `net.rs`; `guests/herald/`; [`permissions.md`](permissions.md), [`wasm.md`](wasm.md) |
+| What a plugin does as the chief, in its folder of files and over the web | `hamlet_wasm/src/acts.rs`, `files.rs`, `host/folder.rs`, `net.rs`, `rate.rs`, `assets/wasm.toml`; `hamlet_agents_api/src/convo/send.rs`; for a guest `hamlet_guest/src/files.rs` and `net.rs`; `guests/herald/`; [`permissions.md`](permissions.md), [`wasm.md`](wasm.md) |
 | A plugin's own database: tables of records found by a field | `hamlet_wasm/src/db.rs`, `host/database.rs`, `assets/wasm.toml`; for a guest `hamlet_guest/src/db.rs`; `guests/pantry/`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
 | A plugin's own storage, its caps and the state the host holds for it | `hamlet_wasm/src/storage.rs`, `host/keeping.rs`, `instance.rs`, `assets/wasm.toml`; for a guest `hamlet_guest/src/storage.rs` and `state.rs`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
 | A text area or markdown in a plugin's panel | `hamlet_sdk/src/tree/view/area.rs`, `markdown.rs` and `markdown/parse.rs`; [`wasm.md`](wasm.md) |
@@ -169,7 +172,7 @@ Paths are under `crates/`.
 | The Notes plugin | `guests/notes/`; its panel in the gallery, `examples/ui_gallery/scenes/notes.rs` |
 | Plugins running each other's commands, hearing each other's events and reading each other's collections | `hamlet_wasm/src/interop.rs` and `interop/`, `reach.rs`, `host/collections.rs`, `assets/wasm.toml`; for a guest `hamlet_guest/src/calls.rs`, `events.rs` and `collection.rs`; [`wasm.md`](wasm.md), [`authoring.md`](authoring.md) |
 | What a plugin exports and imports, and the version of a plugin it needs | `hamlet_sdk/src/plugin/offers.rs`, `version.rs`, `needs.rs`, `blocked.rs`, `hamlet_wasm/src/manifest.rs`, `install.rs`, `enable.rs`; [`wasm.md`](wasm.md) |
-| The host's events a plugin may hear (selection, agents) | `hamlet_sdk/src/events.rs`, `agents.rs`, `hamlet_wasm/src/interop/hosted.rs`; [`wasm.md`](wasm.md) |
+| The host's events a plugin may hear (selection, agents) | `hamlet_sdk/src/events.rs`, `agents.rs`, `hamlet_agents_api/src/agents.rs`, `hamlet_wasm/src/interop/hosted.rs`; [`wasm.md`](wasm.md) |
 | A command, running one by its id, and what a plugin's commands are as entities | `hamlet_sdk/src/command.rs` and `command/` (`spec.rs`, `run.rs`, `handler.rs`, `list.rs`, `notice.rs`, `subject.rs`), `plugin/entry.rs`, `hamlet_wasm/src/command.rs`; the chief running an installed plugin's command, `hamlet_wasm/src/interop/chief.rs`; [`sdk.md`](sdk.md) |
 | An item of the menu of a thing in the world (the right click) | Its `ContextItem` in the plugin's `entry` (`Entry::context_item`); the window's own items and the commands they run in `hamlet_ui/src/world_menu/contribute.rs` and `acts.rs`; how a thing is a `Subject`, `world_menu/subject.rs`; how the menu is built from the items, `world_menu/items.rs`; what the SDK keeps of them, `hamlet_sdk/src/context/`; [`sdk.md`](sdk.md) |
 | A tab of the inspector's page of an agent | Its `InspectorSection` in the plugin's `entry` (`Entry::inspector_section`); the tabs the page has itself, and how it lists the others, in `plugins/inspector/src/agent.rs`; the Skills tab, `plugins/skills/src/lib.rs`; what the SDK keeps of them, `hamlet_sdk/src/inspector/`, `page.rs`; [`sdk.md`](sdk.md) |

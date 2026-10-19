@@ -7,15 +7,15 @@ built with, `plugins/` holds the plugins, and `hamlet_plugins` lists which are
 built in.
 
 ```
-hamlet (binary) -> hamlet_plugins -> plugins/<name> -> hamlet_limits, hamlet_chat -> hamlet_sdk -> engine crates
-                 \-> hamlet_ui ----------------------/
+hamlet (binary) -> hamlet_plugins -> plugins/<name> -> hamlet_limits, hamlet_chat -> hamlet_agents_api -> hamlet_sdk -> hamlet_base, hamlet_assets
+                 \-> hamlet_ui ----------------------/                                \-> hamlet_core, hamlet_rules
 ```
 
-A plugin crate depends on `hamlet_sdk`, the engine crates and the two
-crates that hold what plugins share, `hamlet_chat` and `hamlet_limits`
-(below), never on `hamlet_ui` or on another plugin. `plugin_needs` and
-`plugin_skills` need nothing but the SDK and the core, and run with no
-window and no realm. `plugin_inspector` and `plugin_settings` depend on
+A plugin crate depends on `hamlet_sdk`, `hamlet_agents_api` where it reads
+the agents, the engine crates and the two crates that hold what plugins
+share, `hamlet_chat` and `hamlet_limits` (below), never on `hamlet_ui` or on
+another plugin. `plugin_needs` and `plugin_skills` need nothing but the SDK,
+the agents API and the core, and run with no window and no realm. `plugin_inspector` and `plugin_settings` depend on
 `hamlet_realm` too, because what they show and set is the world's: the
 thing selected in it, the sky and the sound.
 
@@ -39,14 +39,9 @@ through the SDK: an event the window observes (`deed::Ask`, `settings::SetUpAgai
 | `feel` | `Mood`, `Lit` and `FootLight`, the marks a view puts on a node for the feel in `hamlet_ui` to read |
 | `cards` | The card of a list row and the heading over a part of a panel |
 | `tabs` | A strip of tabs that folds when it is narrow, and the system that marks the one shown |
-| `roll` | `Roll`, the count of changes to the agents and the hamlets, and the checks a signal reads again by (`moved`, `either`, `rolled`) |
+| `checks` | The checks a signal reads again by: `moved`, when a resource changed, and `either` |
 | `bar` | `Bar`, the words of the status bar, which a panel may quote |
-| `words` | The words for an agent's step (`now`), a hamlet's state (`standing`) and a purpose cut short (`short`) |
-| `convo` | `ChiefName`, the name of the window's chief. `Me`, the chat's session and the agent it is with (`Me::of` makes one). `AgentSelected`, whether the world has an agent selected. `of_agent`, a page about the agent the chat is with |
-| `asking` | The card of the questions an agent asks the chief, which Needs You and the chat both show, so an answer begun in one stands in the other |
-| `change` | `DrawChange`, set by the window to the function that draws the edit an approval holds as the chat draws it, so a plugin shows an edit the same way |
-| `waits` | `Waits`, how many things wait for the chief, for the status bar and any plugin |
-| `papers` | `Papers`, a read-model of the selected agent's notes, character and skills. Empty while no agent is selected |
+| `papers` | `Papers`, a read-model of the selected agent's notes, character and skills. Empty while no agent is selected. `hamlet_agents_api` keeps it |
 | `confirm` | `Confirm`, an observer event that asks the chief a question before a command is run |
 | `command` | `Command`, the one action; `RunCommand`, which runs one by its id, on a `Subject` where it has one; `Handler`, `HandlerWith` and `Opens`, what a built-in one does; `Forward`, a command the plugin carries out itself; `Notice`; and `Commands`, a read-model of every command |
 | `menu` | `Menu`, `MenuEntry`, a line a plugin adds to a menu of the top bar, and `Menus`, a read-model of the lines that may show |
@@ -56,15 +51,33 @@ through the SDK: an event the window observes (`deed::Ask`, `settings::SetUpAgai
 | `page` | `Native` and `ShownWhen`, for a page a built-in plugin draws itself, and `content`, what fills the page of a contribution |
 | `keys` | `Key`, a shortcut a plugin adds, `chord` (reading and writing `Cmd+Shift+N`), and `Keys`, a read-model of the shortcuts with whether each runs |
 | `dock` | `Panel`, `add_panel`, `panel` and `lit_panel`, `show_tab`, `open` and `TabShown` |
-| `capability` | `Capability`, the names a plugin can ask for and `NEVER`, the ones no plugin can; `Asks`, what a manifest asks for; `Choice` and `Choices`, what the chief chose; `Granted`, the verdict for each capability the manifest names. See [`permissions.md`](permissions.md) |
-| `agents` | `AgentList`, a read-model of the living agents and their hamlets that a system keeps, and `SelectedAgent`, the name of the agent selected in the world |
+| `capability` | `Capability`, the names a plugin can ask for and `NEVER`, the ones no plugin can; `Asks`, what a manifest asks for; `Choice` and `Choices`, what the chief chose; `Granted`, the verdict for each capability the manifest names; `Petition`, `Answer` and `Answered`, a question put to the chief and the answer back. See [`permissions.md`](permissions.md) |
+| `agents` | `AgentList`, a read-model of the living agents and their hamlets, and `SelectedAgent`, the name of the agent selected in the world. `hamlet_agents_api` keeps both, in the set `Kept` |
 | `events` | The catalogue of the host's events a plugin may subscribe to: `selection-changed` and `agents-changed`, each behind `read.agents`. See [`wasm.md`](wasm.md) |
 | `tree` | The tree of a plugin's panel: `Node`, the `PluginTrees` read-model of what each panel shows, the view built from it with the looks of the panels, and the `Interaction` event of a click or typing in it |
 | `plugin` | The plugin types below |
 
 `Cx`, `AnyView`, `View` and `with_cx` are the view types of the window.
 `SdkPlugin` is the plugin to add before any other: it keeps fynix's
-`DockRegistry` in step with the `Panel` entities and reads the papers.
+`DockRegistry` in step with the `Panel` entities.
+
+## hamlet_agents_api
+
+What a plugin reads and does about the agents. It stands on the SDK and the
+core, and the layers add its plugins (below).
+
+| Module | What it holds |
+|---|---|
+| `agents` | The systems that keep the SDK's `AgentList` and `SelectedAgent` |
+| `papers` | The systems that read the SDK's `Papers` from the selected agent's house |
+| `convo` | `ChiefName`, the name of the window's chief. `Me`, the chat's session and the agent it is with (`Me::of` makes one). `AgentSelected`, whether the world has an agent selected. `of_agent`, a page about the agent the chat is with. `send_as_chief`. It puts each `Notice` in the open chat |
+| `roll` | `Roll`, the count of changes to the agents and the hamlets, and the checks over it (`rolled`, `agents_moved`, `hamlets_moved`) |
+| `words` | The words for an agent's step (`now`), a hamlet's state (`standing`) and a purpose cut short (`short`) |
+| `asking` | The card of the questions an agent asks the chief, which Needs You and the chat both show, so an answer begun in one stands in the other |
+| `change` | `DrawChange`, set by the window to the function that draws the edit an approval holds as the chat draws it, so a plugin shows an edit the same way |
+| `waits` | `Waits`, how many things wait for the chief, for the status bar and any plugin |
+| `petition` | Puts the SDK's `Petition` in the core's queue and passes the chief's answer back as `Answered` |
+| `tools` | The core's tools a plugin gives the agents and the turns it is told of, for a host of plugins |
 
 ### A panel
 
@@ -289,7 +302,7 @@ listed in these `PluginGroup`s:
 | Group | What it lists |
 |---|---|
 | `Base` | `agents` and `hamlets`, which run with no window. A headless app adds it after `hamlet_sdk::plugin::plugin` |
-| `Panels` | The plugins that add a panel. The gallery adds it after `SdkPlugin` |
+| `Panels` | The plugins that add a panel. The gallery adds it after `SdkPlugin` and the read models of `hamlet_agents_api` |
 | `Builtin` | `Base`, the window (`hamlet_ui::UiPlugin`, under the `window` feature), `realm` and `Panels`, in that order. The binary adds it after Bevy's default plugins |
 
 ### The layers
@@ -304,8 +317,8 @@ plugin is put right. The inspector may be switched off.
 
 | Layer | What it wraps |
 |---|---|
-| `plugin_agents` | `hamlet_core`'s `CorePlugin` and `SessionPlugin`: the model, the tools, the agents as entities and the sessions. It starts from `Launch`, a resource the binary inserts and the plugin takes out |
-| `plugin_hamlets` | `hamlet_core`'s `OversightPlugin`: what waits for a chief and the chief's answers over the hamlets' rules. Needs `agents` |
+| `plugin_agents` | `hamlet_core`'s `CorePlugin` and `SessionPlugin`: the model, the tools, the agents as entities and the sessions; and the read models of `hamlet_agents_api` over them (`convo`, `agents`, `papers`, `roll`). It starts from `Launch`, a resource the binary inserts and the plugin takes out |
+| `plugin_hamlets` | `hamlet_core`'s `OversightPlugin`: what waits for a chief and the chief's answers over the hamlets' rules; and `waits` and `petition` of `hamlet_agents_api`. Needs `agents` |
 | `plugin_realm` | `hamlet_realm`'s `RealmPlugin`: the generated world, its ground, sites, camera and effects. Needs `hamlets` |
 
 The engines stay in their crates. A layer's `plugin` adds the engine's Bevy
@@ -337,16 +350,12 @@ reads them. The window also bridges the world's selection to the chat
 (`hamlet_chat::me`) and to the mascot, so that a plugin sees the selection
 only as `AgentSelected`, `SelectedAgent` and `Me`.
 
-### What the SDK still takes from the core
+### The SDK and the core
 
-`hamlet_sdk` depends on `hamlet_core` and `hamlet_rules`. Its read-models
-are made of the core's own components and events: `Waiting`, `Need`, `Answer`
-and `Veto` of the oversight, `Citizen`, `Settlement`, `LivesIn` and `Left` of
-the agents, `SessionKey`, `Transcript`, `Seat` and `UserMessage` of the
-sessions, `Change` of the tools, `Choice` and the asking cards of the chief's
-rules. A small crate of that vocabulary would have to be one that `hamlet_core`
-itself builds on, and the types are defined beside the systems that write
-them, so moving them is a change to most of the core's modules and to every
-crate that names them, not a seam. The SDK reaches nothing else of the core
-(no loop, no tools, no provider), and a plugin that needs only the SDK runs
-headless.
+`hamlet_sdk` does not depend on `hamlet_core` or `hamlet_rules`. What it shares
+with the core is in `hamlet_base`: the home the app opened (`HomeDir`), where the
+capability store is kept, and the rules of a plugin's names. Its read models of
+the agents (`AgentList`, `SelectedAgent`, `Papers`) are plain data, and a petition
+is its own `Petition` entity with its own `Answer`s; `hamlet_agents_api` fills
+the first from the core and carries the second to the core's queue and back.
+`hamlet_wasm` reaches the core only through `hamlet_agents_api`.
