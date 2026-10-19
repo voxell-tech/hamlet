@@ -45,6 +45,7 @@ pub(super) fn route(
                 name,
                 &who,
                 &mut inboxes,
+                &calls,
                 &mut commands,
             );
         }
@@ -98,6 +99,7 @@ pub(super) fn route(
                             publication,
                             &who,
                             &mut inboxes,
+                            &calls,
                             &limits,
                             &mut commands,
                         );

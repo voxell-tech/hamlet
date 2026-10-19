@@ -1,4 +1,7 @@
-//! The commands that wait for an answer.
+//! The commands that wait for an answer, and the plugins barred from
+//! one they stopped.
+
+use std::collections::HashSet;
 
 use bevy::prelude::*;
 use hamlet_agents_api::tools::plugged::Answer;
@@ -51,6 +54,10 @@ pub struct Calls {
     pub(super) open: Vec<Call>,
     /// Where the answer to each call of an agent goes.
     agents: Vec<(u64, Answer)>,
+    /// Each plugin and a plugin its call, command or event stopped,
+    /// which it may not reach until the chief starts that plugin
+    /// again.
+    barred: HashSet<(Entity, Entity)>,
 }
 
 impl Call {
@@ -109,6 +116,38 @@ impl Calls {
         self.open
             .iter()
             .any(|call| call.invoked_by(caller) == Some(id))
+    }
+
+    /// Keeps `from` from reaching `target`, which something of it
+    /// stopped.
+    pub fn bar(&mut self, from: Entity, target: Entity) {
+        self.barred.insert((from, target));
+    }
+
+    /// Whether `from` may not reach `target`.
+    pub fn barred(&self, from: Entity, target: Entity) -> bool {
+        self.barred.contains(&(from, target))
+    }
+
+    /// Lets every plugin reach `target` again.
+    pub fn lift(&mut self, target: Entity) {
+        self.barred.retain(|(_, barred)| *barred != target);
+    }
+
+    /// The plugin that ran the command numbered `id` that `target` is
+    /// to answer, if a plugin ran it.
+    pub fn commander(
+        &self,
+        id: u64,
+        target: Entity,
+    ) -> Option<Entity> {
+        self.open
+            .iter()
+            .find(|call| call.id == id && call.target == target)
+            .and_then(|call| match call.caller {
+                Caller::Plugin { entity, .. } => Some(entity),
+                _ => None,
+            })
     }
 
     /// The plugins whose commands or calls of interfaces `target` is

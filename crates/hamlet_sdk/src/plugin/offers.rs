@@ -130,9 +130,32 @@ impl Exports {
                     )
                 })
             })
+            .or_else(|| self.overlap())
             .or_else(|| {
                 self.interfaces.iter().find_map(Interface::problem)
             })
+    }
+
+    /// Two collections whose prefixes overlap, if two do, since a
+    /// writer of one could reach the keys of the other.
+    fn overlap(&self) -> Option<String> {
+        let all = &self.collections;
+        all.iter().enumerate().find_map(|(at, one)| {
+            all[at + 1..].iter().find_map(|other| {
+                (one.prefix.starts_with(&other.prefix)
+                    || other.prefix.starts_with(&one.prefix))
+                .then(|| {
+                    format!(
+                        "the collections `{}` and `{}` share keys: \
+                         their prefixes `{}` and `{}` overlap",
+                        one.name,
+                        other.name,
+                        one.prefix,
+                        other.prefix
+                    )
+                })
+            })
+        })
     }
 
     pub fn collection(&self, name: &str) -> Option<&Collection> {

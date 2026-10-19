@@ -626,7 +626,15 @@ no plugin `notes` is installed
 A call whose target is switched off or stopped while it waits, or removed, is
 answered with `` `notes` is switched off`` (or `stopped`, `was removed`), and one
 with no answer within `call_frames` frames with `` `notes` did not answer in 300
-frames``. A late reply is dropped with a warning.
+frames``. A late reply is dropped with a warning. A caller whose `plugin.use` for
+the target is taken back while it waits is answered with `` plugin.use for
+`notes` was taken back``, and never given the reply.
+
+A `step` that fails when all its mail was the commands and events of one other
+plugin bars that plugin as a call of a typed interface does (see Typed
+interfaces below): its commands to it are refused, and its events not given to
+it, until the chief restarts it. Where the mail held anything else, nobody is
+barred.
 
 The depth of a call is the number of plugins it has crossed. A call a plugin
 runs while it is answering a call has the depth of the deepest call it is
@@ -807,6 +815,9 @@ of the ask is the plugin's own, and the chief's choice is for the plugin.
 ### Collections
 
 A plugin exports a collection with a `name` and a key `prefix` of its own storage.
+No two of its collections' prefixes may overlap (one the start of the other),
+or the scan turns the manifest down, since a writer of one could reach the keys
+of the other.
 Another plugin imports it as `plugin/name` and the chief chooses
 `collections.read` and `collections.write` for each `plugin/name`. The calls
 return copies, and the keys are those of the collection, without the prefix.

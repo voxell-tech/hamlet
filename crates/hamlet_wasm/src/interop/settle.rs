@@ -1,7 +1,9 @@
 //! Answering the calls whose target will not: it was switched off,
-//! stopped or removed, or it did not answer in time.
+//! stopped or removed, or it did not answer in time, or whose caller
+//! may no longer use it.
 
 use bevy::prelude::*;
+use hamlet_sdk::capability::{Capability, Granted, Verdict};
 use hamlet_sdk::command::Notice;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 
@@ -26,7 +28,7 @@ enum End {
 /// or is out of time, with an error for its caller.
 pub(super) fn settle(
     mut calls: ResMut<Calls>,
-    plugins: Query<(&PluginInfo, &Status)>,
+    plugins: Query<(&PluginInfo, &Status, &Granted)>,
     mut inboxes: Query<(&Status, &mut Inbox)>,
     limits: Res<Limits>,
     mut commands: Commands,
@@ -90,30 +92,39 @@ pub(super) fn settle(
 
 fn caller_name(
     caller: Entity,
-    plugins: &Query<(&PluginInfo, &Status)>,
+    plugins: &Query<(&PluginInfo, &Status, &Granted)>,
 ) -> String {
     plugins
         .get(caller)
-        .map(|(info, _)| info.id.clone())
+        .map(|(info, ..)| info.id.clone())
         .unwrap_or_default()
 }
 
 fn ending(
     call: &Call,
     frame: u64,
-    plugins: &Query<(&PluginInfo, &Status)>,
+    plugins: &Query<(&PluginInfo, &Status, &Granted)>,
     limits: &Limits,
 ) -> Option<End> {
+    let target = &call.target_id;
     if let Caller::Plugin { entity, .. }
     | Caller::Invoker { entity, .. } = call.caller
-        && !matches!(plugins.get(entity), Ok((_, Status::Running)))
     {
-        return Some(End::Quietly);
+        let Ok((_, Status::Running, granted)) = plugins.get(entity)
+        else {
+            return Some(End::Quietly);
+        };
+        if granted.verdict_for(Capability::PluginUse, target)
+            != Some(Verdict::Allowed)
+        {
+            return Some(End::Told(format!(
+                "plugin.use for `{target}` was taken back"
+            )));
+        }
     }
-    let target = &call.target_id;
     match plugins.get(call.target) {
         Err(_) => Some(End::Told(format!("`{target}` was removed"))),
-        Ok((_, status)) if *status != Status::Running => Some(
+        Ok((_, status, _)) if *status != Status::Running => Some(
             End::Told(format!("`{target}` is {}", status.words())),
         ),
         Ok(_) if frame >= call.due => Some(End::Told(format!(

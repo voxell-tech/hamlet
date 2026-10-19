@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{Granted, Wanted};
+use hamlet_sdk::command::Notice;
 use hamlet_sdk::dock::{self, Panel};
 use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{
@@ -16,7 +17,9 @@ use crate::draw::Dirty;
 use crate::host::{Logged, Want};
 use crate::inbox::Inbox;
 use crate::instance::Instance;
-use crate::interface::exports::hamlet::plugin::plugin::Intent;
+use crate::interface::exports::hamlet::plugin::plugin::{
+    Incoming, Intent,
+};
 use crate::interface::hamlet::plugin::host::Level;
 use crate::interop::Calls;
 use crate::limits::Limits;
@@ -37,7 +40,9 @@ pub struct Done {
 }
 
 /// Calls `step` on each running plugin that has mail, once. A plugin
-/// whose call fails is marked failed.
+/// whose call fails is marked failed, and where all its mail was one
+/// other plugin's commands and events, that plugin may not reach it
+/// until the chief starts it again.
 pub fn step(
     limits: Res<Limits>,
     agents: Res<AgentList>,
@@ -54,7 +59,8 @@ pub fn step(
         &mut Dirty,
     )>,
     sharing: Sharing,
-    calls: Res<Calls>,
+    named: Query<(Entity, &PluginInfo)>,
+    mut calls: ResMut<Calls>,
     mut done: MessageWriter<Done>,
     mut commands: Commands,
 ) {
@@ -95,10 +101,47 @@ pub fn step(
                 });
             }
             Err(fault) => {
+                if let Some((sender, by)) =
+                    sender_of(&mail, plugin, &calls, &named)
+                {
+                    calls.bar(sender, plugin);
+                    commands.trigger(Notice(format!(
+                        "A command or an event of {by} stopped {}: \
+                         {fault}. {by} may not reach it again until \
+                         you restart {}.",
+                        info.name, info.name
+                    )));
+                }
                 stop::fail(&mut commands, plugin, &info.id, &fault)
             }
         }
     }
+}
+
+/// The one plugin, and its name, whose commands and events were all
+/// of `mail`, if there was one.
+fn sender_of<'a>(
+    mail: &[Incoming],
+    plugin: Entity,
+    calls: &Calls,
+    named: &'a Query<(Entity, &PluginInfo)>,
+) -> Option<(Entity, &'a str)> {
+    let mut senders = mail.iter().map(|incoming| match incoming {
+        Incoming::Command(call) => {
+            calls.commander(call.call_id, plugin)
+        }
+        Incoming::Event(event) => named
+            .iter()
+            .find(|(_, info)| info.id == event.sender)
+            .map(|(sender, _)| sender),
+        _ => None,
+    });
+    let first = senders.next()??;
+    if !senders.all(|other| other == Some(first)) {
+        return None;
+    }
+    let (_, info) = named.get(first).ok()?;
+    Some((first, &info.name))
 }
 
 /// Carries out the intents of the plugins that were stepped.

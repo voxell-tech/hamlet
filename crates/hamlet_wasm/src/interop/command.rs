@@ -11,7 +11,7 @@ use super::mail::{Who, send};
 use super::{invoke, tools};
 use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::{
-    CallAnswer, CallRequest, CommandCall, Incoming,
+    CallAnswer, CallRequest, CommandCall, Incoming, InvokeError,
 };
 use crate::limits::Limits;
 
@@ -150,6 +150,13 @@ fn admit(
                 "no plugin `{plugin}` is installed"
             ))
         })?;
+    if calls.barred(caller, target) {
+        return Err(Refused::because(format!(
+            "a command or an event of this plugin stopped \
+             `{plugin}`, which it may not reach until the chief \
+             restarts it"
+        )));
+    }
     if !target_manifest.exports.commands.contains(command) {
         return Err(Refused::because(format!(
             "`{plugin}` does not export `{command}`"
@@ -183,17 +190,37 @@ pub(super) fn reply(
         );
         return;
     };
+    // A grant taken back while the call waited keeps the answer from
+    // the caller.
+    let taken_back = match call.caller {
+        Caller::Plugin { entity, .. }
+        | Caller::Invoker { entity, .. } => {
+            !who.get(entity).is_ok_and(|(_, _, _, _, granted)| {
+                granted.verdict_for(
+                    Capability::PluginUse,
+                    &call.target_id,
+                ) == Some(Verdict::Allowed)
+            })
+        }
+        Caller::Chief(_) | Caller::Agent => false,
+    };
+    let lost =
+        format!("plugin.use for `{}` was taken back", call.target_id);
     if let Caller::Invoker { entity, id, result } = &call.caller {
-        let outcome = invoke::checked(
-            result,
-            &answer.outcome,
-            &call.target_id,
-            limits,
-        );
+        let outcome = match taken_back {
+            true => Err(InvokeError::Refused(lost)),
+            false => invoke::checked(
+                result,
+                &answer.outcome,
+                &call.target_id,
+                limits,
+            ),
+        };
         invoke::answer(inboxes, (*entity, *id), outcome);
         return;
     }
     let outcome = match &answer.outcome {
+        _ if taken_back => Err(lost),
         Ok(bytes) if bytes.len() > limits.call_bytes => Err(format!(
             "the reply has {} bytes, the most is {}",
             bytes.len(),

@@ -28,16 +28,12 @@ use crate::reach::{self, Sharing};
 use crate::run::{self, Done};
 use crate::stop::{self, Automatic};
 
-/// The calls admitted and not yet given to their targets, the fuel
-/// each caller's calls used in the last second, and the callers
-/// barred from a target.
+/// The calls admitted and not yet given to their targets, and the
+/// fuel each caller's calls used in the last second.
 #[derive(Resource, Default)]
 pub struct Invoking {
     due: Vec<Due>,
     spent: HashMap<Entity, (f32, u64)>,
-    /// Each caller and a plugin one of its calls stopped, which it
-    /// may not call until the chief starts that plugin again.
-    barred: HashSet<(Entity, Entity)>,
 }
 
 /// A call admitted, to be given to its target.
@@ -153,9 +149,8 @@ pub(super) fn request(
         in_flight: calls.in_flight(caller),
         waiting: calls.invoking(caller, request.call_id),
         fuel_left: invoking.left(caller, now, limits),
-        barred: target.is_some_and(|(entity, ..)| {
-            invoking.barred.contains(&(caller, entity))
-        }),
+        barred: target
+            .is_some_and(|(entity, ..)| calls.barred(caller, entity)),
     };
     let to = format!("{}/{}", request.plugin, request.function);
     match (admit(&asking, limits), target) {
@@ -447,7 +442,7 @@ pub(super) fn deliver(
                     &fault,
                 );
                 stopped.insert(due.target);
-                invoking.barred.insert((due.caller.0, due.target));
+                calls.bar(due.caller.0, due.target);
                 commands.trigger(Notice(format!(
                     "A call of {sender} stopped {}: {fault}. \
                      {sender} may not call it again until you \
@@ -480,17 +475,17 @@ pub(super) fn deliver(
     }
 }
 
-/// Lets every caller call the plugin the chief starts again. A start
+/// Lets every plugin reach the plugin the chief starts again. A start
 /// the host makes by itself lifts nothing.
 pub(super) fn lift(
     enable: On<Enable>,
     plugins: Query<(Entity, &PluginInfo), Without<Automatic>>,
-    mut invoking: ResMut<Invoking>,
+    mut calls: ResMut<Calls>,
 ) {
     for (target, _) in
         plugins.iter().filter(|(_, info)| info.id == enable.0)
     {
-        invoking.barred.retain(|(_, barred)| *barred != target);
+        calls.lift(target);
     }
 }
 

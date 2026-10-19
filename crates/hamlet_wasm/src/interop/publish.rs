@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use hamlet_sdk::capability::{Capability, Verdict, Wanted};
 use hamlet_sdk::plugin::Status;
 
+use super::calls::Calls;
 use super::mail::{Who, send};
 use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::{
@@ -59,6 +60,7 @@ pub(super) fn publish(
     publication: &Publication,
     who: &Who,
     inboxes: &mut Query<(&Status, &mut Inbox)>,
+    calls: &Calls,
     limits: &Limits,
     commands: &mut Commands,
 ) {
@@ -90,6 +92,7 @@ pub(super) fn publish(
         &publication.payload,
         who,
         inboxes,
+        calls,
         commands,
     );
 }
@@ -105,6 +108,7 @@ pub(super) fn changed(
     name: &str,
     who: &Who,
     inboxes: &mut Query<(&Status, &mut Inbox)>,
+    calls: &Calls,
     commands: &mut Commands,
 ) {
     let found = who.iter().find(|(_, info, manifest, ..)| {
@@ -118,6 +122,7 @@ pub(super) fn changed(
             name.as_bytes(),
             who,
             inboxes,
+            calls,
             commands,
         );
     }
@@ -125,14 +130,16 @@ pub(super) fn changed(
 
 /// Gives a copy of the event `topic` of `publisher` with `payload` to
 /// each plugin that imports it and holds `plugin.use` for the
-/// publisher. A plugin the chief is yet to decide for is asked, and
-/// does not get this one.
+/// publisher, unless an event of the publisher stopped it. A plugin
+/// the chief is yet to decide for is asked, and does not get this
+/// one.
 pub(super) fn fan_out(
     publisher: Entity,
     topic: &str,
     payload: &[u8],
     who: &Who,
     inboxes: &mut Query<(&Status, &mut Inbox)>,
+    calls: &Calls,
     commands: &mut Commands,
 ) {
     let Ok((_, info, ..)) = who.get(publisher) else {
@@ -141,6 +148,7 @@ pub(super) fn fan_out(
     for (subscriber, _, manifest, _, granted) in who {
         if subscriber == publisher
             || !manifest.imports.event(&info.id, topic)
+            || calls.barred(publisher, subscriber)
         {
             continue;
         }

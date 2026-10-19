@@ -57,8 +57,10 @@ every target.
   `plugin.use not granted`; the answer reaches the plugin as `granted` or
   `denied` of `plugin.use:notes`. An event is given to a plugin only while it
   holds `plugin.use` for the plugin that publishes it, and the events of the
-  host need `read.agents` instead. A call of a typed interface needs it for the
-  plugin that implements it, checked on every call; an import of an interface
+  host need `read.agents` instead. It is checked again when the answer to a
+  command or a call comes back, and a caller whose choice was taken back while it
+  waited gets an error in place of the answer. A call of a typed interface needs
+  it for the plugin that implements it, checked on every call; an import of an interface
   that names no plugin in `from` has no control in Settings until the chief
   answers for an implementer at its first call.
 - `plugin.export` lets other plugins call the typed interfaces a plugin exports
