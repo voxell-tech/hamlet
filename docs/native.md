@@ -40,7 +40,8 @@ library = "libnative_spark.dylib"
 
 The id is checked as a WASM plugin's is: a name, not a reserved one, and the
 folder's own. `library` is a file name in that folder, with the extension of
-the system. `kind = "native"` is what sends a folder here; the WASM host
+the system: one plain name, with no folder, drive, `..` or backslash. A
+library that is a link is refused. `kind = "native"` is what sends a folder here; the WASM host
 leaves it alone. A manifest names no `[[asks]]`: there is nothing to ask for
 when everything is allowed.
 
@@ -57,7 +58,10 @@ Nothing of the library is opened until the chief says yes: opening a library
 runs its code. The answer is kept in `plugins/grants.toml` with the hash of
 the library file (SHA-256). A library whose hash is not the one answered for
 is asked about again, and is not opened meanwhile; so are a new library put
-in the folder and a plugin that was declined and changed. A plugin is never
+in the folder and a plugin that was declined and changed. The file that is
+opened is a private copy in `native-cache/<id>/<hash>.<ext>` of the home,
+made after the answer and hashed again, so a file swapped after the answer
+is not opened. Removing the plugin deletes its copies. A plugin is never
 updated by itself. There is no signing: what the chief trusts is the
 "full access" answer and the file it was given for. Whoever can write to the
 home can replace a file, and with it can do anything the app can.
@@ -103,7 +107,9 @@ symbols (the `hamlet_native::export!` macro writes them):
    `bevy`, `bevy_internal`, `bevy_app`, `bevy_ecs`, `bevy_fynix` and
    `hamlet_sdk`, with their versions, sources, checksums and dependency
    lists (so a different set of features changes it). `build.rs` finds the
-   lock above the target folder, or the file `HAMLET_LOCK` names;
+   lock above the target folder, or the file `HAMLET_LOCK` names, and fails
+   the build when there is none; a lock with none of those packages is
+   hashed whole;
 6. a hash of the identities (`TypeId`) of `App`, `World`, the SDK's `Entry`
    and `Declared`.
 
@@ -199,7 +205,7 @@ is the app's code.
 |---|---|
 | The contract: `Abi`, `export!`, `declare`, the type hash | `hamlet_native/src/abi.rs`, `build.rs` |
 | Comparing two builds | `hamlet_native/src/gate.rs` |
-| Opening a library | `hamlet_native/src/library.rs` |
+| Opening a library, and the private copy it is opened from | `hamlet_native/src/library.rs`, `cache.rs` |
 | The folder and its manifest | `hamlet_native/src/install.rs`, `manifest.rs` |
 | The scan at start, safe mode, loading the plugin just let in | `hamlet_native/src/load.rs`, `marker.rs` |
 | Removing | `hamlet_native/src/remove.rs` |

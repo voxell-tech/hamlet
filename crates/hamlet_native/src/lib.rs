@@ -10,6 +10,8 @@ use bevy::prelude::*;
 use hamlet_sdk::capability::open_store;
 
 pub mod abi;
+#[cfg(feature = "host")]
+pub mod cache;
 pub mod gate;
 #[cfg(feature = "host")]
 pub mod install;

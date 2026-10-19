@@ -16,7 +16,7 @@ use hamlet_sdk::plugin::{
 };
 
 use crate::install::{Found, scan};
-use crate::{library, marker};
+use crate::{cache, library, marker};
 
 /// On the entity of a native plugin: where its files are.
 #[derive(Component, Clone, PartialEq, Debug)]
@@ -174,13 +174,29 @@ fn not_loaded(world: &mut World, plugin: Entity, why: &str) {
 /// the app. What the entry declares is switched on by the plugin
 /// frame, as for any plugin.
 pub fn start(world: &mut World, plugin: Entity) {
-    let (Some(info), Some(file), Some(home)) = (
+    let (Some(info), Some(file), Some(granted), Some(home)) = (
         world.get::<PluginInfo>(plugin).cloned(),
         world.get::<Library>(plugin).map(|l| l.file.clone()),
+        world.get::<FullAccess>(plugin).map(|a| a.0.clone()),
         world.get_resource::<HomeDir>().map(|h| h.0.root.clone()),
     ) else {
         return;
     };
+    // Whatever an earlier entry left is not this one's.
+    world.remove_resource::<Declared>();
+    let copy =
+        match cache::private_copy(&home, &info.id, &file, &granted) {
+            Ok(copy) => copy,
+            Err(why) => {
+                world.entity_mut(plugin).insert(Status::Failed);
+                not_loaded(
+                    world,
+                    plugin,
+                    &format!("Not loaded: {why}"),
+                );
+                return;
+            }
+        };
     if let Err(e) = marker::begin(&home, &info.id) {
         let why = format!(
             "Not loaded: the `loading` file cannot be written: {e}"
@@ -189,15 +205,15 @@ pub fn start(world: &mut World, plugin: Entity) {
         not_loaded(world, plugin, &why);
         return;
     }
-    let opened = library::open(&file)
+    let opened = library::open(&copy)
         .map_err(|refusal| refusal.to_string())
         .and_then(|entry| with_app(world, entry));
     marker::end(&home);
+    let declared = world.remove_resource::<Declared>();
     match opened {
         Ok(()) => {
-            let declared = world
-                .remove_resource::<Declared>()
-                .map_or(nothing as fn(&mut Entry), |d| d.0);
+            let declared =
+                declared.map_or(nothing as fn(&mut Entry), |d| d.0);
             world.entity_mut(plugin).insert(EntryPoint(declared));
             info!("native plugin {}: loaded", info.id);
             world.trigger(Enable(info.id));

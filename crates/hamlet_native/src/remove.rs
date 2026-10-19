@@ -6,7 +6,7 @@ use hamlet_sdk::capability::{Removed, Store};
 use hamlet_sdk::plugin::{FullAccess, PluginInfo};
 
 use crate::load::Library;
-use crate::marker;
+use crate::{cache, marker};
 
 /// Despawns the plugin the chief removed, which takes what it added
 /// to the window, and deletes its folder, or only its manifest and
@@ -49,6 +49,7 @@ pub fn removed(
             info.id
         );
     }
+    cache::clear(&home.0.root, &info.id);
     commands.entity(plugin).despawn();
     if let Some(mut store) = store {
         store.remove(&info.id);

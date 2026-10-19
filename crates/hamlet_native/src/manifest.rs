@@ -51,9 +51,12 @@ impl Manifest {
                 "the name has more than {NAME_MAX} characters"
             ));
         }
+        // One plain name: no folder, no drive, no `..`.
         let plain_file = !self.library.is_empty()
-            && !self.library.contains(['/', '\\'])
-            && !self.library.starts_with('.');
+            && !self.library.contains(['/', '\\', ':'])
+            && !self.library.starts_with('.')
+            && !self.library.contains("..")
+            && !self.library.chars().any(char::is_control);
         if !plain_file {
             return Some(format!(
                 "the library `{}` is not a file name in the \
@@ -92,7 +95,14 @@ mod tests {
         };
         assert!(problem("Spark!", &library).contains("not a name"));
         assert!(problem("chief", &library).contains("reserved"));
-        assert!(problem("spark", "../x.so").contains("file name"));
+        for bad in ["../x", "/x", "a\\b", "C:lib", "a..b", ".hid"] {
+            let bad =
+                format!("{bad}.{}", std::env::consts::DLL_EXTENSION);
+            assert!(
+                problem("spark", &bad).contains("file name"),
+                "{bad}"
+            );
+        }
         assert!(problem("spark", "spark.txt").contains("not a ."));
         assert!(
             Manifest::parse("id = \"a\"\nkind = \"wasm\"\n").is_err()

@@ -20,15 +20,26 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=HAMLET_LOCK");
     println!("cargo:rerun-if-env-changed=RUSTC");
-    let fingerprint = match find_lock() {
-        Some(lock) => {
-            println!("cargo:rerun-if-changed={}", lock.display());
-            let text =
-                std::fs::read_to_string(&lock).unwrap_or_default();
-            fingerprint(&text)
-        }
-        None => 0,
+    let Some(lock) = find_lock() else {
+        panic!(
+            "no Cargo.lock found: set HAMLET_LOCK to the one in use"
+        );
     };
+    println!("cargo:rerun-if-changed={}", lock.display());
+    let text = std::fs::read_to_string(&lock).unwrap_or_else(|e| {
+        panic!("{} cannot be read: {e}", lock.display())
+    });
+    let mut fingerprint = fingerprint(&text);
+    if fingerprint == FNV_OFFSET {
+        // None of the watched packages is in the lock: the whole
+        // lock stands for them.
+        fingerprint = fnv(FNV_OFFSET, text.as_bytes());
+    }
+    assert!(
+        fingerprint != 0 && !text.trim().is_empty(),
+        "{} is empty, so it cannot fingerprint the engine",
+        lock.display()
+    );
     println!(
         "cargo:rustc-env=HAMLET_NATIVE_FINGERPRINT={fingerprint}"
     );
