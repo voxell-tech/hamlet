@@ -5739,7 +5739,6 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "hamlet_agents_api",
- "hamlet_core",
  "hamlet_sdk",
 ]
 

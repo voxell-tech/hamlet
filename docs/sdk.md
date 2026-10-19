@@ -365,8 +365,8 @@ for good is opened again from a tab bar's plus.
 
 | Layer | What it adds |
 |---|---|
-| `plugin_agents` | The resources the core starts from, made of `Launch`, a resource the binary inserts and the plugin takes out: the runtime, the home, the sandbox, the model (`Model::new`, which answers from a recorded session where there is one) and the settings. Then `hamlet_core`'s modules `core` (the models and the library's skills), `agents` (the hamlets, agents and roads as entities), `catalogue` and `session`, and the read models of `hamlet_agents_api` over them (`convo`, `agents`, `papers`, `roll`) |
-| `plugin_hamlets` | `hamlet_core`'s module `oversight`: what waits for a chief and the chief's answers over the hamlets' rules; and `waits` and `petition` of `hamlet_agents_api`. Needs `agents` |
+| `plugin_agents` | The resources the core starts from, made of `Launch`, a resource the binary inserts and the plugin takes out: the runtime, the home, the sandbox, the model (`Model::new`, which answers from a recorded session where there is one) and the settings. Then `hamlet_core`'s modules `core` (the models and the library's skills), `agents` (the hamlets, agents and roads as entities), `catalogue`, `session` and `oversight` (what waits for a chief and the chief's answers, the gate on every tool call), and the read models of `hamlet_agents_api` over them (`convo`, `agents`, `papers`, `roll`). The gate is here, not in `hamlets`, so that no build runs an agent's tools without it |
+| `plugin_hamlets` | `waits` and `petition` of `hamlet_agents_api`: the count of what waits for the chief, and the petitions of plugins put in the chief's queue. Needs `agents` |
 | `plugin_realm` | `world`, `hamlet_realm`'s modules in order: the scene (settings, palette, play, sound, debug, sky, stage, keeper, stock), the generator, what the chief does in it (pick, needs, bubble, hand, orders, chief, library, moving, works, lantern), and the core's entities drawn (`hamlet`, `survey`). Needs `hamlets` |
 
 A layer owns its wiring: which of the engine's modules make it up, in which

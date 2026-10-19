@@ -1,6 +1,6 @@
-//! The agents layer: the model loop, the tools, the sessions and the
-//! read models of the agents. It needs no window and nothing else is
-//! under it.
+//! The agents layer: the model loop, the tools, the sessions, the
+//! oversight that holds a tool call for the chief and the read models
+//! of the agents. It needs no window and nothing else is under it.
 
 use bevy::app::App;
 use bevy::ecs::resource::Resource;
@@ -8,7 +8,7 @@ use hamlet_agents_api::{agents, convo, papers, roll};
 use hamlet_core::core::{
     self, HomeDir, Model, Sandboxing, Settings, Tokio,
 };
-use hamlet_core::{catalogue, session};
+use hamlet_core::{catalogue, oversight, session};
 use hamlet_home::Home;
 use hamlet_model::config::Config;
 use hamlet_sandbox::Sandbox;
@@ -43,6 +43,8 @@ pub fn plugin(app: &mut App) {
             hamlet_core::agents::plugin,
             catalogue::plugin,
             session::plugin,
+            // With the sessions, so that no tool runs ungated.
+            oversight::plugin,
             convo::plugin,
             agents::plugin,
             papers::plugin,
