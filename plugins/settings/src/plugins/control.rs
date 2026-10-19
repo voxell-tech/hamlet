@@ -22,15 +22,22 @@ pub(super) struct Target {
 }
 
 /// The choices for each target `capability` is chosen for one by
-/// one, among those `manifest` names.
+/// one: those `manifest` names, then those the chief answered for
+/// besides, such as a folder chosen in a dialog.
 pub(super) fn targets(
     manifest: Option<&Manifest>,
     choices: &Choices,
     capability: Capability,
 ) -> Vec<Target> {
-    manifest
+    let mut names = manifest
         .map(|manifest| manifest.targets(capability))
-        .unwrap_or_default()
+        .unwrap_or_default();
+    for (held, name, _) in choices.answered_targets() {
+        if *held == capability && !names.contains(name) {
+            names.push(name.clone());
+        }
+    }
+    names
         .into_iter()
         .map(|name| Target {
             choice: choices.choice_for(capability, &name),

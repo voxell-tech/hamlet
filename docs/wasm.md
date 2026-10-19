@@ -36,7 +36,7 @@ In `hamlet_wasm/src/`, a file for each part:
 | Part | Files |
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
-| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `host/folder.rs` and `files.rs` (the folder of files), `host/database.rs` and `db.rs` (the database), `acts.rs` (a message or a command as the chief), `net.rs` (fetches), `rate.rs` (a count a minute), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
+| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `host/folder.rs` and `files.rs` (the folder of files), `pick.rs` (a file or a folder the chief picks), `folder.rs` (the folder the chief chose), `host/database.rs` and `db.rs` (the database), `acts.rs` (a message or a command as the chief), `net.rs` (fetches), `rate.rs` (a count a minute), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
 | The install folder | `manifest.rs`, `install.rs` (which also turns down plugins whose needs go in a circle), `cache.rs` (the compiled components kept in the home) |
 | Plugins working together | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `chief.rs` (a command the chief runs), `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `tools.rs` (a call of an agent), `mail.rs`. Also `command.rs` (a plugin's commands, menu lines, context items, inspector tabs, settings pages and keys as entities), `reach.rs` and `host/collections.rs` (the shared collections) |
 | Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
@@ -127,7 +127,9 @@ The plugin exports:
   `run-command`, `reply` and `publish`. More go out of the host: `send-chat`,
   `run-as-chief` and `world-act` (see Acts as the chief below), `overlay` (see
   Drawing below), `pick-file` (see Files below), whose answer reaches a later
-  `step` as `picked(id, outcome)`, and `fetch` (see
+  `step` as `picked(id, outcome)`, `pick-folder` and `folder` (see A folder the
+  chief chooses below), answered as `folder-picked(id, outcome)` and
+  `folder-done(id, outcome)`, and `fetch` (see
   The web below), the answer to which reaches a later `step` as `fetched(id,
   outcome)`.
 - `panel-view(panel) -> view`, which returns the panel as it is now: a
@@ -320,10 +322,41 @@ plugin opened `picks_per_minute` dialogs in the last minute, the chief closed it
 last dialog with nothing less than `pick_rest_ms` ago, or a cap was passed). One
 dialog is open at a time. The dialog is
 `hamlet_desktop::file::FileDialog`, a resource holding a plain function that the
-window puts in (`file::system`, the same dialog crate as the folder dialog);
+window puts in (`file::system`, the same dialog crate as the folder dialog),
+which opens a dialog for a file or for a folder (`file::Pick`);
 the harness and the tests put in `file::unseen`, which opens nothing, and choose
 in its place with `Picking::choose`. `hamlet_guest::files::pick` and `picked`
 make the intent and read the answer.
+
+### A folder the chief chooses
+
+`pick-folder(id, title)`, which needs `fs.folder`, opens the same dialog for a
+folder, with the same title, rest and count of dialogs a minute as `pick-file`.
+The folder chosen is made canonical off the frame and refused where it holds
+Hamlet's home or is inside it; otherwise it becomes the one folder the plugin
+works in, kept as the targets `read:<folder>` and `write:<folder>` of its grant
+([`permissions.md`](permissions.md)), and the answer `folder-picked(id,
+outcome)` gives its name, never its path.
+
+`folder(id, op)` is a call in that folder, answered in a later `step` as
+`folder-done(id, outcome)` (`hamlet_wasm/src/folder.rs`). The op is `list(path)`,
+the names in a folder in order, a folder's with `/` after it, at most
+`folder_list_entries` and leaving out links and anything that is not a file or a
+folder; `read(path)`, the bytes of a file of at most `folder_file_bytes`; or
+`write(path, data)`, which sets a file of at most `folder_file_bytes` in a folder
+that is there, written beside its place and renamed over it. A path is relative,
+at most `folder_path_bytes`, with no `..`, `\` or empty start, goes through no
+link, and is checked again once its links are read, at each call. The grant is
+checked when the call is made: no folder chosen, the target not granted or yet
+to be decided (the chief is asked) or `folder_calls_in_flight` calls waiting are
+answered at once. The I/O runs on the app's runtime, off the frame.
+
+A write that would be refused is answered at once; any other waits for the chief
+as a petition in Needs You, with the path, the folder, the size and the start of
+the text, unless the folder is in the folder of a hamlet in auto mode
+(`hamlet_agents_api::hamlet::auto_in`). The chief's Allow writes it; anything
+else answers it with an error. A write done is noted in the open chat with the
+plugin's name. `hamlet_guest::folder` makes the intents and reads the answers.
 
 ## Database
 
@@ -788,6 +821,10 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **Files.** At most `files_count` files in the plugin's folder of files,
   `files_bytes` in all, `file_bytes` in one and `file_path_bytes` in a path. A
   write over one returns an error to the plugin.
+- **A folder the chief chooses.** A file of at most `folder_file_bytes` read or
+  written, a list of `folder_list_entries` names, a path of `folder_path_bytes`
+  and `folder_calls_in_flight` calls waiting, a write put to the chief among
+  them. A call over one is answered with an error.
 - **Database.** At most `db_tables` tables, `db_records` records in a table,
   `db_record_bytes` in a record, `db_fields` fields, `db_name_bytes` in a name,
   `db_text_bytes` in an id or a field value, `db_bytes` in all, and a page of

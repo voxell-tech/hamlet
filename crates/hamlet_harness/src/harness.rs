@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use hamlet_agents_api::tools::{
     AgentTool, AgentToolCalled, TurnObserved,
 };
+use hamlet_desktop::file::Pick;
 use hamlet_realm_api::overlay::{
     Anchor, Form, Mark, Overlays, Paint,
 };
@@ -228,11 +229,31 @@ impl Harness {
         &mut self,
         file: Option<&Path>,
     ) -> Result<(), String> {
+        self.choose(Pick::File, file)
+    }
+
+    /// Closes the folder dialog a plugin opened with `folder` chosen,
+    /// or with nothing, as the chief does. No dialog is shown.
+    pub fn choose_folder(
+        &mut self,
+        folder: Option<&Path>,
+    ) -> Result<(), String> {
+        self.choose(Pick::Folder, folder)
+    }
+
+    fn choose(
+        &mut self,
+        pick: Pick,
+        path: Option<&Path>,
+    ) -> Result<(), String> {
         let picking = self.app.world().resource::<Picking>();
-        if !picking.is_open() {
-            return Err("no plugin asked for a file".into());
+        if picking.open_for() != Some(pick) {
+            return Err(match pick {
+                Pick::File => "no plugin asked for a file".into(),
+                Pick::Folder => "no plugin asked for a folder".into(),
+            });
         }
-        picking.choose(file.map(Path::to_path_buf));
+        picking.choose(path.map(Path::to_path_buf));
         self.frames(SETTLE);
         Ok(())
     }

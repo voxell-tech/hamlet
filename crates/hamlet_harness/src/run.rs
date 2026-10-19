@@ -100,6 +100,9 @@ fn describe(step: &Step) -> String {
         }
         Step::SetSelected(name) => format!("set-selected {name:?}"),
         Step::ChooseFile(file) => format!("choose-file {file:?}"),
+        Step::ChooseFolder(folder) => {
+            format!("choose-folder {folder:?}")
+        }
         Step::SetWorld(world) => format!(
             "set-world ({} hamlets, {} agents)",
             world.hamlets.len(),
@@ -184,6 +187,10 @@ fn apply(
         Step::ChooseFile(file) => harness.choose_file(
             Some(Path::new(file))
                 .filter(|file| !file.as_os_str().is_empty()),
+        ),
+        Step::ChooseFolder(folder) => harness.choose_folder(
+            Some(Path::new(folder))
+                .filter(|folder| !folder.as_os_str().is_empty()),
         ),
         Step::Grant(capability) => harness.grant(capability),
         Step::Deny(capability) => harness.deny(capability),

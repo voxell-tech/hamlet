@@ -5,6 +5,7 @@ mod contributions;
 mod database;
 mod events;
 mod files;
+mod folder;
 mod hooks;
 mod interop;
 mod limits;

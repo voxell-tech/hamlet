@@ -93,6 +93,8 @@ pub(super) fn route(
                 | Intent::WorldAct(_)
                 | Intent::Overlay(_)
                 | Intent::PickFile(_)
+                | Intent::PickFolder(_)
+                | Intent::Folder(_)
                 | Intent::Fetch(_) => {}
             }
         }

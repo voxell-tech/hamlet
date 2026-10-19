@@ -1,7 +1,8 @@
-//! A file the chief picks for a plugin: the plugin asks, the chief
-//! chooses in the system's dialog, and the file is copied into the
-//! plugin's folder of files, so that the plugin never learns a path
-//! outside it.
+//! A file or a folder the chief picks for a plugin: the plugin asks,
+//! the chief chooses in the system's dialog, and a file is copied
+//! into the plugin's folder of files, so that the plugin never learns
+//! a path outside it, while a folder becomes the one the plugin works
+//! in.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -9,18 +10,21 @@ use std::path::{Path, PathBuf};
 
 use bevy::ecs::system::NonSendMarker;
 use bevy::prelude::*;
-use hamlet_base::Tokio;
-use hamlet_desktop::file::FileDialog;
-use hamlet_sdk::capability::{Capability, Granted, Verdict, Wanted};
+use hamlet_base::{HomeDir, Tokio};
+use hamlet_desktop::file::{FileDialog, Pick};
+use hamlet_sdk::capability::{
+    Capability, Choice, Decide, Forget, Granted, Verdict, Wanted,
+};
 use hamlet_sdk::plugin::PluginInfo;
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
 
 use crate::files::{Caps, FILES, Files};
+use crate::folder::{self, reading, writing};
 use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::{
-    Incoming, Intent, PickAnswer,
+    Incoming, Intent, PickAnswer, PickRequest,
 };
 use crate::limits::Limits;
 use crate::rate::Rate;
@@ -31,19 +35,22 @@ use crate::start::Source;
 /// copied into.
 const PICKED: &str = "picked";
 
-/// A copy that finished: the plugin, the number of its ask and the
-/// path in its folder, or why there is none.
-type Copied = (Entity, u32, Result<String, String>);
+/// A pick that finished: the plugin, the number of its ask, what was
+/// picked and the path, or why there is none. The path of a file is
+/// in the plugin's folder of files; that of a folder is the folder's.
+type Copied = (Entity, u32, Pick, Result<String, String>);
 
 /// The dialog a plugin asked for, waiting to be opened or open, and
 /// the copy of the file chosen in it. One is under way at a time.
 #[derive(Resource)]
 pub struct Picking {
-    /// The plugin, the number of its ask and the dialog's title.
-    asked: Option<(Entity, u32, String)>,
-    /// The plugin and the number of the ask a dialog is open for.
-    open: Option<(Entity, u32)>,
-    /// The plugin and the number of the ask whose file is copied.
+    /// The plugin, the number of its ask, the dialog's title and
+    /// what it picks.
+    asked: Option<(Entity, u32, String, Pick)>,
+    /// The plugin, the number of the ask a dialog is open for and
+    /// what it picks.
+    open: Option<(Entity, u32, Pick)>,
+    /// The plugin and the number of the ask whose pick is taken in.
     copying: Option<(Entity, u32)>,
     tx: UnboundedSender<Option<PathBuf>>,
     rx: UnboundedReceiver<Option<PathBuf>>,
@@ -74,18 +81,24 @@ impl Default for Picking {
 }
 
 impl Picking {
+    /// What the open dialog picks, if a dialog is open for a plugin.
+    pub fn open_for(&self) -> Option<Pick> {
+        self.open.map(|(.., pick)| pick)
+    }
+
     /// Whether a dialog is open for a plugin.
     pub fn is_open(&self) -> bool {
         self.open.is_some()
     }
 
-    /// Closes the open dialog with `file` chosen, or with nothing, as
+    /// Closes the open dialog with `path` chosen, or with nothing, as
     /// the system's dialog does.
-    pub fn choose(&self, file: Option<PathBuf>) {
-        let _ = self.tx.send(file);
+    pub fn choose(&self, path: Option<PathBuf>) {
+        let _ = self.tx.send(path);
     }
 
-    /// Whether a dialog is open or a file chosen in one is copied.
+    /// Whether a dialog is open or what was chosen in one is taken
+    /// in.
     pub fn under_way(&self) -> bool {
         self.open.is_some() || self.copying.is_some()
     }
@@ -95,7 +108,8 @@ impl Picking {
     }
 }
 
-/// Takes the asks for a file of the plugins that were stepped.
+/// Takes the asks for a file or a folder of the plugins that were
+/// stepped.
 pub fn ask(
     mut done: MessageReader<Done>,
     plugins: Query<(&PluginInfo, &Granted)>,
@@ -111,10 +125,7 @@ pub fn ask(
         plugin, intents, ..
     } in done.read()
     {
-        for intent in intents {
-            let Intent::PickFile(request) = intent else {
-                continue;
-            };
+        for (request, pick) in intents.iter().filter_map(asked) {
             let Ok((info, granted)) = plugins.get(*plugin) else {
                 continue;
             };
@@ -124,7 +135,18 @@ pub fn ask(
                 .resting
                 .get(plugin)
                 .is_some_and(|until| now < *until);
-            let refused = match granted.verdict(Capability::FsPick) {
+            let capability = match pick {
+                Pick::File => Capability::FsPick,
+                Pick::Folder => Capability::FsFolder,
+            };
+            let verdict = match (granted.verdict(capability), pick) {
+                // The dialog is the chief's answer for a folder.
+                (Some(Verdict::Ask), Pick::Folder) => {
+                    Some(Verdict::Allowed)
+                }
+                (verdict, _) => verdict,
+            };
+            let refused = match verdict {
                 Some(Verdict::Allowed) if dialog.is_none() => {
                     Some("there is no file dialog here".into())
                 }
@@ -152,19 +174,25 @@ pub fn ask(
                 Some(Verdict::Ask) => {
                     commands.trigger(Wanted {
                         plugin: *plugin,
-                        capability: Capability::FsPick,
+                        capability,
                         target: None,
                         reason: title.clone(),
                     });
-                    Some("fs.pick is yet to be decided".to_string())
+                    Some(format!(
+                        "{} is yet to be decided",
+                        capability.name()
+                    ))
                 }
-                _ => Some("fs.pick not granted".into()),
+                _ => {
+                    Some(format!("{} not granted", capability.name()))
+                }
             };
             match refused {
                 Some(why) => answer(
                     &mut inboxes,
                     *plugin,
                     request.id,
+                    pick,
                     Err(why),
                 ),
                 None => {
@@ -172,10 +200,20 @@ pub fn ask(
                         *plugin,
                         request.id,
                         format!("{}: {title}", info.name),
+                        pick,
                     ));
                 }
             }
         }
+    }
+}
+
+/// The ask of `intent` and what it picks, if it is one.
+fn asked(intent: &Intent) -> Option<(&PickRequest, Pick)> {
+    match intent {
+        Intent::PickFile(request) => Some((request, Pick::File)),
+        Intent::PickFolder(request) => Some((request, Pick::Folder)),
+        _ => None,
     }
 }
 
@@ -187,7 +225,7 @@ fn title(text: &str, most: usize) -> String {
 }
 
 /// Whether a plugin's ask waits for its dialog to be opened.
-pub fn asked(picking: Res<Picking>) -> bool {
+pub fn waits(picking: Res<Picking>) -> bool {
     picking.asked.is_some()
 }
 
@@ -199,74 +237,144 @@ pub fn open(
     tokio: Option<Res<Tokio>>,
     mut picking: ResMut<Picking>,
 ) {
-    let (Some(dialog), Some((plugin, id, title))) =
+    let (Some(dialog), Some((plugin, id, title, pick))) =
         (dialog, picking.asked.take())
     else {
         return;
     };
-    picking.open = Some((plugin, id));
+    picking.open = Some((plugin, id, pick));
     let tx = picking.tx.clone();
-    (dialog.0)(title, tx, tokio.as_deref().map(|tokio| &tokio.0));
+    (dialog.0)(
+        title,
+        pick,
+        tx,
+        tokio.as_deref().map(|tokio| &tokio.0),
+    );
 }
 
 pub fn waiting(picking: Res<Picking>) -> bool {
     picking.under_way()
 }
 
-/// Copies the file the chief chose into the folder of the plugin that
-/// asked for it, on the runtime where there is one, and answers the
-/// plugin once it is copied. A plugin whose dialog was closed with
-/// nothing rests before it may ask again.
+/// Takes in what the chief chose for the plugin that asked for it,
+/// on the runtime where there is one: a file is copied into its
+/// folder of files, and a folder is checked. The plugin is answered
+/// once it is done, and a folder becomes the one it works in. A
+/// plugin whose dialog was closed with nothing rests before it may
+/// ask again.
 pub fn take(
     mut picking: ResMut<Picking>,
     sources: Query<&Source>,
+    plugins: Query<&PluginInfo>,
+    home: Option<Res<HomeDir>>,
     limits: Res<Limits>,
     time: Option<Res<Time>>,
     tokio: Option<Res<Tokio>>,
     mut inboxes: Query<&mut Inbox>,
+    mut commands: Commands,
 ) {
     let now = time.map_or(0.0, |time| time.elapsed_secs());
-    while let Ok(file) = picking.rx.try_recv() {
-        let Some((plugin, id)) = picking.open.take() else {
+    while let Ok(path) = picking.rx.try_recv() {
+        let Some((plugin, id, pick)) = picking.open.take() else {
             continue;
         };
-        let folder = sources.get(plugin).map(|source| {
-            source.0.parent().unwrap_or(Path::new("")).join(FILES)
-        });
-        let (file, folder) = match (file, folder) {
-            (None, _) => {
-                let rest = limits.pick_rest_ms as f32 / 1000.0;
-                picking.resting.retain(|_, until| now < *until);
-                picking.resting.insert(plugin, now + rest);
-                let why = "nothing was chosen".to_string();
-                answer(&mut inboxes, plugin, id, Err(why));
-                continue;
-            }
-            (Some(_), Err(_)) => {
-                let why = "the plugin is not there".to_string();
-                answer(&mut inboxes, plugin, id, Err(why));
-                continue;
-            }
-            (Some(file), Ok(folder)) => (file, folder),
+        let Some(path) = path else {
+            let rest = limits.pick_rest_ms as f32 / 1000.0;
+            picking.resting.retain(|_, until| now < *until);
+            picking.resting.insert(plugin, now + rest);
+            let why = "nothing was chosen".to_string();
+            answer(&mut inboxes, plugin, id, pick, Err(why));
+            continue;
         };
-        let caps = Caps::of(&limits);
-        let files = Files::new(folder, caps);
-        let tx = picking.copied_tx.clone();
-        let copy_it = move || {
-            let _ = tx.send((plugin, id, copy(&file, &files, caps)));
+        let into = match pick {
+            Pick::File => sources.get(plugin).ok().map(|source| {
+                let folder = source
+                    .0
+                    .parent()
+                    .unwrap_or(Path::new(""))
+                    .join(FILES);
+                Destination::Files(Files::new(
+                    folder,
+                    Caps::of(&limits),
+                ))
+            }),
+            Pick::Folder => home
+                .as_deref()
+                .map(|home| Destination::Home(home.0.root.clone())),
+        };
+        let Some(into) = into else {
+            let why = "the plugin is not there".to_string();
+            answer(&mut inboxes, plugin, id, pick, Err(why));
+            continue;
+        };
+        let (tx, caps) =
+            (picking.copied_tx.clone(), Caps::of(&limits));
+        let take_in = move || {
+            let taken = match into {
+                Destination::Files(files) => {
+                    copy(&path, &files, caps)
+                }
+                Destination::Home(home) => {
+                    folder::chosen(&path, &home)
+                        .map(|real| real.display().to_string())
+                }
+            };
+            let _ = tx.send((plugin, id, pick, taken));
         };
         picking.copying = Some((plugin, id));
         match tokio.as_deref() {
             Some(tokio) => {
-                tokio.0.spawn_blocking(copy_it);
+                tokio.0.spawn_blocking(take_in);
             }
-            None => copy_it(),
+            None => take_in(),
         }
     }
-    while let Ok((plugin, id, outcome)) = picking.copied_rx.try_recv()
+    while let Ok((plugin, id, pick, outcome)) =
+        picking.copied_rx.try_recv()
     {
         picking.copying = None;
-        answer(&mut inboxes, plugin, id, outcome);
+        let outcome = match (pick, outcome, plugins.get(plugin)) {
+            (Pick::Folder, Ok(chosen), Ok(info)) => {
+                let chosen = PathBuf::from(chosen);
+                work_in(&mut commands, &info.id, &chosen);
+                info!(
+                    "plugin {}: works in {}",
+                    info.id,
+                    chosen.display()
+                );
+                Ok(chosen
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default())
+            }
+            (_, outcome, _) => outcome,
+        };
+        answer(&mut inboxes, plugin, id, pick, outcome);
+    }
+}
+
+/// Where what the chief chose is taken in: a file into the plugin's
+/// folder of files, and a folder is checked against the home.
+enum Destination {
+    Files(Files),
+    Home(PathBuf),
+}
+
+/// Makes `folder` the one folder the plugin of this id works in, with
+/// reading and writing in it allowed, as the chief chose it.
+fn work_in(commands: &mut Commands, plugin: &str, folder: &Path) {
+    commands.trigger(Forget {
+        plugin: plugin.into(),
+        capability: Capability::FsFolder,
+    });
+    for target in [reading(folder), writing(folder)] {
+        commands.trigger(Decide {
+            plugin: plugin.into(),
+            capability: Capability::FsFolder,
+            target: Some(target),
+            choice: Choice::Allow,
+            this_run: false,
+        });
     }
 }
 
@@ -274,10 +382,15 @@ fn answer(
     inboxes: &mut Query<&mut Inbox>,
     plugin: Entity,
     id: u32,
+    pick: Pick,
     outcome: Result<String, String>,
 ) {
     if let Ok(mut inbox) = inboxes.get_mut(plugin) {
-        inbox.push(Incoming::Picked(PickAnswer { id, outcome }));
+        let answer = PickAnswer { id, outcome };
+        inbox.push(match pick {
+            Pick::File => Incoming::Picked(answer),
+            Pick::Folder => Incoming::FolderPicked(answer),
+        });
     }
 }
 

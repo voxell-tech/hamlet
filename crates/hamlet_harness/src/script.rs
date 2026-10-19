@@ -53,6 +53,9 @@ pub enum Step {
     /// Closes the file dialog a plugin opened with the file at this
     /// path chosen, or with nothing for an empty path.
     ChooseFile(String),
+    /// Closes the folder dialog a plugin opened with the folder at
+    /// this path chosen, or with nothing for an empty path.
+    ChooseFolder(String),
     /// The chief allows a capability the plugin asked for.
     Grant(String),
     /// The chief refuses one.

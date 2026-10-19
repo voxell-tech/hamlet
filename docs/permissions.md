@@ -27,16 +27,19 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 `agent.tool`, `agent.hook`, `ui.canvas` and `world.overlay`. `read.agents`,
 `read.papers`, `read.world`, `ui.menu`, `ui.keys`, `ui.context`,
 `ui.inspector`, `ui.settings`, `ui.canvas`, `world.overlay`, `chat.send`,
-`commands.run`, `world.act`, `net`, `fs.pick`,
+`commands.run`, `world.act`, `net`, `fs.pick`, `fs.folder`,
 `files.read`, `files.write`,
 `db`, `agent.tool`, `agent.hook` and the three below are checked so far; the
 others can be asked for, shown and chosen.
 
-`plugin.use`, `collections.read` and `collections.write` are **scoped**: the
-chief chooses for each target, not once for all. The target of `plugin.use` is a
-plugin id, and of the other two a collection as `plugin/name`. They are what the
-manifest's `imports` name, so Settings has a control for each plugin or
-collection a plugin imports. The ask may carry a `scope` that lists the targets
+`plugin.use`, `collections.read`, `collections.write` and `fs.folder` are
+**scoped**: the chief chooses for each target, not once for all. The target of
+`plugin.use` is a plugin id, of the two collection capabilities a collection as
+`plugin/name`, and of `fs.folder` a folder the chief chose, once for reading
+(`read:<folder>`) and once for writing (`write:<folder>`). The first three are what
+the manifest's `imports` name, so Settings has a control for each plugin or
+collection a plugin imports; it also has one for each target the chief answered for,
+which is how a folder shows. The ask may carry a `scope` that lists the targets
 it can be chosen for (`scope = ["notes"]`); a target outside it is refused. An
 ask with no scope is limited only by the imports. The chief's choice for the
 capability as a whole stays at Ask next time, or is Don't allow, which refuses
@@ -193,8 +196,33 @@ files under `picked/`, its name made a path of that folder, within the folder's
 caps, and the plugin is told the path there; it never learns a path outside
 its folder, and reads the copy with `files.read`. One dialog is open at a time.
 Where the choice is yet to be made the chief is asked and the ask is answered
-with an error. `fs.folder`, working in a hamlet's folder, can be asked for and
-chosen and nothing grants it: no host function uses it.
+with an error.
+
+`fs.folder` lets a plugin work in a folder of the chief's, outside its own (the
+`pick-folder` and `folder` intents, see [`wasm.md`](wasm.md)). The plugin asks, and
+the chief chooses the folder in the system's dialog, the one `fs.pick` uses, whose
+title names the plugin: choosing it is the answer, and `Don't allow` for the
+capability as a whole refuses every dialog. The folder chosen is kept in
+`grants.toml` by its canonical path, as two targets, `read:<folder>` and
+`write:<folder>`, both allowed; a plugin has one folder at a time, so choosing
+another forgets the choices for the first. A folder that holds Hamlet's home, or is
+inside it, is refused. Reading and writing are chosen apart in Settings: either can
+be set to Ask next time, which asks at the next use after a start ("Herald asks to
+use fs.folder for `write:/Users/you/notes`"), or to Don't allow.
+
+- Every path is relative to the folder and checked at each call: it has no `..`,
+  is not absolute, goes through no link and names a file or a folder, and what it
+  names is still inside the folder once its links are read. A write is to a file in
+  a folder that is there; no folder is made.
+- Reading and listing need the target for reading, a write the target for writing.
+  A write then waits for the chief in Needs You ("Herald asks to write `tides.md`
+  in /Users/you/notes (10 bytes). Allow it?", with the start of the text), as an
+  agent's edit does in a hamlet in manual mode, unless the folder is in the folder
+  of a hamlet the chief set to auto. Every write done is noted in the open chat
+  with the plugin's name ("Herald (herald) wrote in the folder notes").
+- `folder_file_bytes`, `folder_list_entries`, `folder_path_bytes` and
+  `folder_calls_in_flight` in `assets/wasm.toml` limit it; the I/O runs off the
+  frame.
 
 ## The web
 

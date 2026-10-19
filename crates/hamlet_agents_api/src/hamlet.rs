@@ -8,4 +8,4 @@ pub use hamlet_rules::commands::RESUME;
 pub use hamlet_rules::hamlet::{HOME, Hamlet, MAYOR};
 pub use hamlet_rules::realm::{Origin, Realm};
 pub use hamlet_rules::vote::{self, Standing};
-pub use hamlet_rules::work::{Mode, Work};
+pub use hamlet_rules::work::{Mode, Work, auto_in};

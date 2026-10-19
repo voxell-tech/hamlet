@@ -335,6 +335,11 @@ interface plugin {
     fetched(fetch-answer),
     // The answer to a `pick-file` this plugin made.
     picked(pick-answer),
+    // The answer to a `pick-folder` this plugin made: the name of the
+    // folder, never its path.
+    folder-picked(pick-answer),
+    // The answer to a `folder` call this plugin made.
+    folder-done(folder-answer),
   }
 
   record published {
@@ -448,6 +453,59 @@ interface plugin {
     // it. It needs the capability `fs.pick`. One dialog is open at a
     // time.
     pick-file(pick-request),
+    // Asks the chief for a folder to work in, in the system's
+    // dialog titled with the plugin's name and `title`. The folder
+    // chosen replaces the one the plugin had, and the answer reaches
+    // a later `step` as `folder-picked`. It needs the capability
+    // `fs.folder`. A folder that holds Hamlet's home, or is inside
+    // it, is refused. One dialog is open at a time.
+    pick-folder(pick-request),
+    // Lists, reads or writes in the folder the chief chose. A path is
+    // relative to it; one that leaves it, goes through a link out of
+    // it or names what is not a file or a folder is refused. Reading
+    // needs `fs.folder` for the folder and writing `fs.folder` for
+    // its writes, each chosen apart. A write waits for the chief
+    // unless the folder is in the folder of a hamlet set to auto.
+    // The answer reaches a later `step` as `folder-done`.
+    folder(folder-request),
+  }
+
+  record folder-request {
+    // The plugin's own number for the call, which the answer names.
+    id: u32,
+    op: folder-op,
+  }
+
+  variant folder-op {
+    // The names in the folder at a path, an empty one for the folder
+    // itself, in order, each folder's with `/` after it.
+    %list(string),
+    // The bytes of the file at a path.
+    read(string),
+    // Sets the file at a path, which may be new, in a folder that is
+    // there.
+    write(folder-file),
+  }
+
+  record folder-file {
+    path: string,
+    data: list<u8>,
+  }
+
+  variant folder-result {
+    listed(list<string>),
+    read(list<u8>),
+    written,
+  }
+
+  record folder-answer {
+    // The `id` of the call it answers.
+    id: u32,
+    // What it gave, or why not: no folder was chosen, `fs.folder` is
+    // not granted (the chief is asked where it is yet to be
+    // decided), the path is refused, a cap was passed, or the chief
+    // did not allow the write.
+    outcome: result<folder-result, string>,
   }
 
   record pick-request {

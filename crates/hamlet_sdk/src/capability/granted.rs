@@ -102,6 +102,14 @@ impl Choices {
         self
     }
 
+    /// These choices, with none for any target of `capability`.
+    pub fn forgetting(mut self, capability: Capability) -> Self {
+        self.targets.retain(|(held, ..)| *held != capability);
+        self.targets_this_run
+            .retain(|(held, _)| *held != capability);
+        self
+    }
+
     /// The chief's choice for `capability`, if it was answered.
     pub fn choice(&self, capability: Capability) -> Option<Choice> {
         self.set

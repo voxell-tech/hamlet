@@ -132,13 +132,14 @@ impl Capability {
     }
 
     /// Whether the chief chooses for it once for each thing it names,
-    /// such as each plugin, and not once for all.
+    /// such as each plugin or folder, and not once for all.
     pub fn scoped(self) -> bool {
         matches!(
             self,
             Capability::PluginUse
                 | Capability::CollectionsRead
                 | Capability::CollectionsWrite
+                | Capability::FsFolder
         )
     }
 
@@ -220,7 +221,10 @@ impl Capability {
             Capability::FsPick => {
                 "Ask for a file with the file dialog"
             }
-            Capability::FsFolder => "Work in a hamlet's folder",
+            Capability::FsFolder => {
+                "Read and write the files of a folder the chief \
+                 chooses"
+            }
             Capability::ModelCall => "Call a model, on the budget",
             Capability::PluginUse => "Use another plugin",
             Capability::CollectionsRead => {
@@ -285,6 +289,14 @@ impl Capability {
                 "The chief picks each file in the system's dialog. \
                  The plugin gets a copy in its own folder, within \
                  its caps, and never a path outside it.",
+            ),
+            Capability::FsFolder => Some(
+                "The chief chooses the folder in the system's \
+                 dialog, and the plugin reaches nothing outside it \
+                 and never Hamlet's home. Reading and writing are \
+                 chosen apart. Each write waits for the chief \
+                 unless the folder is in the folder of a hamlet set \
+                 to auto.",
             ),
             Capability::WorldOverlay => Some(
                 "Hamlet draws its rectangles, lines, circles and \

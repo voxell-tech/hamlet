@@ -109,6 +109,17 @@ pub struct Limits {
     /// How long a plugin whose dialog the chief closed with nothing
     /// waits before it may open another, in milliseconds.
     pub pick_rest_ms: u64,
+    /// The bytes of one file a plugin reads or writes in the folder
+    /// the chief chose for it.
+    pub folder_file_bytes: usize,
+    /// The names one list of a folder the chief chose gives at most.
+    pub folder_list_entries: usize,
+    /// The bytes of a path in the folder the chief chose.
+    pub folder_path_bytes: usize,
+    /// The calls in the folder the chief chose that one plugin may
+    /// have waiting at once, a write the chief is asked about among
+    /// them.
+    pub folder_calls_in_flight: usize,
     /// The bytes of all the tables one plugin keeps in its database.
     pub db_bytes: u64,
     /// The tables one plugin may keep in its database.

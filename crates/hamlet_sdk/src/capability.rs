@@ -20,7 +20,7 @@ use bevy::app::{App, Startup};
 
 pub use self::ask::{Asked, Asks, Scope};
 pub use self::choice::Choice;
-pub use self::decide::Decide;
+pub use self::decide::{Decide, Forget};
 pub use self::gate::allowed;
 pub use self::granted::{Choices, Granted, Verdict};
 pub use self::install::{
@@ -42,6 +42,7 @@ pub fn plugin(app: &mut App) {
     app.add_systems(Startup, store::open_store)
         .add_observer(granted::rebuild)
         .add_observer(decide::decide)
+        .add_observer(decide::forget)
         .add_observer(install::ask)
         .add_observer(install::ask_to_remove)
         .add_observer(petition::more)

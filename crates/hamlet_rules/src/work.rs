@@ -9,6 +9,7 @@ use hamlet_model::log;
 use serde_json::json;
 
 use crate::hamlet::Hamlet;
+use crate::realm::Realm;
 
 /// The way the agents of a hamlet change the folder it works on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -72,6 +73,21 @@ impl Work {
             manual: self.mode == Mode::Manual,
         })
     }
+}
+
+/// Whether what is done in `folder` runs without asking the chief:
+/// it is in the folder of a hamlet of `home` set to auto.
+pub fn auto_in(home: &Path, folder: &Path) -> bool {
+    Realm::new(home.to_path_buf())
+        .hamlets()
+        .iter()
+        .any(|place| {
+            let work = Hamlet::at(home, &place.name).work();
+            work.mode == Mode::Auto
+                && work
+                    .folder
+                    .is_some_and(|at| folder.starts_with(at))
+        })
 }
 
 /// `typed` as a path, with a leading `~` as the chief's own folder.

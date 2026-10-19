@@ -140,7 +140,8 @@ pub fn apply(
                     }
                 }
                 // Between plugins: `interop` carries these out.
-                // As the chief: `acts` does. Over the web: `net`.
+                // As the chief: `acts` does. Over the web: `net`. In
+                // a folder: `pick` and `folder`.
                 (
                     Intent::RunCommand(_)
                     | Intent::Reply(_)
@@ -150,6 +151,8 @@ pub fn apply(
                     | Intent::WorldAct(_)
                     | Intent::Overlay(_)
                     | Intent::PickFile(_)
+                    | Intent::PickFolder(_)
+                    | Intent::Folder(_)
                     | Intent::Fetch(_),
                     _,
                 ) => {}

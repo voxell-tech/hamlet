@@ -24,6 +24,7 @@ pub mod engine;
 pub mod event;
 pub mod fault;
 pub mod files;
+pub mod folder;
 pub mod host;
 pub mod inbox;
 pub mod install;
@@ -72,11 +73,13 @@ pub fn plugin(app: &mut App) {
     .init_resource::<pick::Picking>()
     .init_resource::<acts::Acted>()
     .init_resource::<net::Fetching>()
+    .init_resource::<folder::Folders>()
     .add_message::<run::Done>()
     .add_message::<run::Said>()
     .add_observer(admit::admit)
     .add_observer(enable::restart)
     .add_observer(event::deliver)
+    .add_observer(folder::answered)
     .add_observer(reply::reply)
     .add_observer(stop::stopped)
     .add_observer(stop::schedule)
@@ -136,10 +139,16 @@ pub fn plugin(app: &mut App) {
                 .run_if(pick::waiting),
             (
                 pick::ask.run_if(on_message::<run::Done>),
-                pick::open.run_if(pick::asked),
+                pick::open.run_if(pick::waits),
             )
                 .chain()
                 .in_set(PluginSet::Apply),
+            folder::start
+                .in_set(PluginSet::Apply)
+                .run_if(on_message::<run::Done>),
+            folder::finish
+                .in_set(PluginSet::Collect)
+                .run_if(folder::Folders::any),
             draw::draw.in_set(PluginSet::Draw).run_if(draw::due),
         ),
     );
