@@ -3,7 +3,6 @@
 //! imports and the capabilities `collections.read` and
 //! `collections.write`. What comes back is a copy.
 
-use bevy::log::warn;
 use hamlet_sdk::capability::{Capability, Verdict};
 use hamlet_sdk::plugin::{Collection, Imports, link};
 
@@ -174,9 +173,9 @@ impl State {
                 self.want_for(capability, Some(&target), "");
             }
             let words = capability.name();
-            warn!(
-                "plugin {}: {words} not granted for {target}",
-                self.plugin
+            self.refused(
+                &format!("{words}:{target}"),
+                &format!("{words} not granted for {target}"),
             );
             return Err(format!("{words} not granted"));
         }

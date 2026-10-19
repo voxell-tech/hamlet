@@ -1,7 +1,6 @@
 //! The reads a plugin may make, each needing a grant. What a read
 //! returns is a copy.
 
-use bevy::log::warn;
 use bevy::math::Vec3;
 use hamlet_sdk::capability::{Capability, Verdict};
 
@@ -98,8 +97,8 @@ impl State {
         if verdict == Some(Verdict::Ask) {
             self.want(capability, "");
         }
-        let name = capability.name();
-        warn!("plugin {}: {name} not granted", self.plugin);
-        Err(format!("{name} not granted"))
+        let why = format!("{} not granted", capability.name());
+        self.refused(capability.name(), &why);
+        Err(why)
     }
 }

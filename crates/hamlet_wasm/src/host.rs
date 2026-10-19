@@ -10,6 +10,10 @@ mod keeping;
 mod read;
 mod request;
 
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+use bevy::log::warn;
 use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::Agent;
 use hamlet_sdk::capability::Granted;
@@ -37,6 +41,9 @@ use crate::storage::Storage;
 /// The names of the imported interfaces the linker defines.
 const HOST: &str = "hamlet:plugin/host@";
 const RENDER: &str = "hamlet:plugin/render@";
+
+/// How long a refusal of one kind stays out of the log once logged.
+const WARNED: Duration = Duration::from_secs(60);
 
 /// A line a plugin logged.
 #[derive(Clone, PartialEq, Debug)]
@@ -95,6 +102,8 @@ pub struct State {
     pub(crate) page_bytes: usize,
     /// What the plugin builds in the world.
     pub(crate) render: Kept,
+    /// When a refusal of each kind was last logged.
+    pub(crate) warned: HashMap<String, Instant>,
 }
 
 impl State {
@@ -133,6 +142,22 @@ impl State {
             page_items: limits.collection_page_items,
             page_bytes: limits.collection_page_bytes,
             render: Kept::new(limits),
+            warned: HashMap::new(),
+        }
+    }
+
+    /// Logs that a call of the kind `kind` was refused, saying `why`,
+    /// once a minute for each kind, so that a plugin that keeps
+    /// calling does not flood the log.
+    pub(crate) fn refused(&mut self, kind: &str, why: &str) {
+        let now = Instant::now();
+        let quiet = self
+            .warned
+            .get(kind)
+            .is_some_and(|last| now.duration_since(*last) < WARNED);
+        if !quiet {
+            self.warned.insert(kind.into(), now);
+            warn!("plugin {}: {why}", self.plugin);
         }
     }
 

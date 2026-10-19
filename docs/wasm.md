@@ -929,7 +929,8 @@ The capabilities, the chief's choices and the verdicts are in
 [`permissions.md`](permissions.md). A host function that needs a capability
 checks the plugin's `Granted` component on each call. A call without it
 returns the error `read.agents not granted` and is logged with the plugin's
-id. If the manifest names the capability and the chief has not decided, the
+id, once a minute for each capability (and collection) of each plugin, so a
+plugin that keeps calling does not flood the log. If the manifest names the capability and the chief has not decided, the
 call also notes the capability as wanted, and the host raises the petition
 after the call (`run::want`). `Granted` is replaced by inserting it again,
 and the next call sees it.

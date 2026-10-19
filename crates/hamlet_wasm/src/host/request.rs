@@ -1,6 +1,5 @@
 //! What a plugin asks for that it does not yet hold.
 
-use bevy::log::warn;
 use hamlet_sdk::capability::{Capability, Verdict};
 
 use super::State;
@@ -25,7 +24,7 @@ impl State {
         reason: &str,
     ) -> RequestResult {
         let Ok(capability) = Capability::parse(name) else {
-            warn!("plugin {}: asked for `{name}`", self.plugin);
+            self.refused("request", &format!("asked for `{name}`"));
             return RequestResult::Denied;
         };
         match self.granted.verdict(capability) {
@@ -35,7 +34,7 @@ impl State {
                 RequestResult::Pending
             }
             Some(Verdict::Denied) | None => {
-                warn!("plugin {}: {name} not granted", self.plugin);
+                self.refused(name, &format!("{name} not granted"));
                 RequestResult::Denied
             }
         }
