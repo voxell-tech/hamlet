@@ -9,9 +9,9 @@ pub use plugin_agents::Launch;
 mod layering;
 
 /// Every plugin whose feature is on: the layers from the base up,
-/// the window's frame, the realm, what fills the frame and then the
-/// panels. Add it to the app after Bevy's default plugins and a
-/// `ShowRequests` resource.
+/// the window's frame, the chat and the limits, the realm, what fills
+/// the frame and then the panels. Add it to the app after Bevy's
+/// default plugins and a `ShowRequests` resource.
 pub struct Builtin;
 
 impl PluginGroup for Builtin {
@@ -21,6 +21,11 @@ impl PluginGroup for Builtin {
         // The window reads the agents when it is built.
         #[cfg(feature = "window")]
         let group = group.add(hamlet_ui::UiPlugin);
+        // After the frame, which adds the SDK's plugin.
+        #[cfg(feature = "chat")]
+        let group = group.add(hamlet_chat::plugin);
+        #[cfg(feature = "limits")]
+        let group = group.add(hamlet_limits::plugin);
         // The realm draws into a window, so only an app with one
         // adds it.
         #[cfg(feature = "realm")]
@@ -94,6 +99,10 @@ mod tests {
         let manifests: [Manifest; _] = [
             #[cfg(feature = "agents")]
             plugin_agents::AgentsPlugin::manifest(),
+            #[cfg(feature = "chat")]
+            hamlet_chat::ChatPlugin::manifest(),
+            #[cfg(feature = "limits")]
+            hamlet_limits::LimitsPlugin::manifest(),
             #[cfg(feature = "hamlets")]
             plugin_hamlets::HamletsPlugin::manifest(),
             #[cfg(feature = "inspector")]

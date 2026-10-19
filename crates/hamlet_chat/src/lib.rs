@@ -13,6 +13,9 @@ mod tuning;
 
 use bevy::app::App;
 pub use hamlet_agents_api::roll;
+use hamlet_sdk::plugin::{
+    AppPluginExt, Entry, HamletPlugin, Manifest,
+};
 pub use hamlet_sdk::{
     AnyView, Cx, View, dock, feel, icons, looks, platform, theme,
     with_cx,
@@ -27,5 +30,18 @@ pub fn plugin(app: &mut App) {
         chat::plugin,
         links::plugin,
         pictures::plugin,
-    ));
+    ))
+    .add_hamlet_plugin::<ChatPlugin>();
+}
+
+/// The built-in plugin of the chat. Essential: the chat is where the
+/// chief talks to the agents.
+pub struct ChatPlugin;
+
+impl HamletPlugin for ChatPlugin {
+    fn manifest() -> Manifest {
+        Manifest::built_in("chat").named("Chat").essential()
+    }
+
+    fn entry(_: &mut Entry) {}
 }

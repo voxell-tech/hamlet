@@ -46,7 +46,6 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             SdkPlugin,
-            hamlet_chat::plugin,
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
             (
@@ -57,10 +56,7 @@ impl Plugin for UiPlugin {
                 commands::plugin,
                 remember::plugin,
             ),
-            (
-                hamlet_limits::plugin,
-                hamlet_agents_api::asking::plugin,
-            ),
+            hamlet_agents_api::asking::plugin,
             hover::plugin,
             (
                 theme::plugin,

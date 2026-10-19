@@ -3781,6 +3781,8 @@ dependencies = [
  "bevy",
  "bevy_app",
  "hamlet_agents_api",
+ "hamlet_chat",
+ "hamlet_limits",
  "hamlet_sdk",
  "hamlet_ui",
  "plugin_agents",

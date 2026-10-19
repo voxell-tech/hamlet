@@ -8,11 +8,28 @@ pub mod rules;
 use bevy::app::App;
 pub use hamlet_agents_api::roll;
 pub use hamlet_chat::chat;
+use hamlet_sdk::plugin::{
+    AppPluginExt, Entry, HamletPlugin, Manifest,
+};
 pub use hamlet_sdk::{
     AnyView, Cx, View, icons, looks, platform, with_cx,
 };
 
 /// The panes of the limits. Add it after the SDK's plugin.
 pub fn plugin(app: &mut App) {
-    app.add_plugins((models::plugin, rules::plugin));
+    app.add_plugins((models::plugin, rules::plugin))
+        .add_hamlet_plugin::<LimitsPlugin>();
+}
+
+/// The built-in plugin of the panes of the limits. Essential: the
+/// first-run screen and the Settings choose the models with them, so
+/// a home with no model that answers is put right only through them.
+pub struct LimitsPlugin;
+
+impl HamletPlugin for LimitsPlugin {
+    fn manifest() -> Manifest {
+        Manifest::built_in("limits").named("Limits").essential()
+    }
+
+    fn entry(_: &mut Entry) {}
 }

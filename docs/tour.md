@@ -76,7 +76,8 @@ The plugins are under `plugins/`: `plugins/all` is `hamlet_plugins`, which
 lists them, and each other folder is one plugin crate. The binary is a list
 of plugins: the layers `plugin_agents`, `plugin_hamlets` and `plugin_realm`
 (each wraps the engine crate of the same subject, and none can be switched
-off), then the frame of the window (`hamlet_ui`), what fills the frame
+off), then the frame of the window (`hamlet_ui`), the chat and the limits
+(`hamlet_chat`, `hamlet_limits`, each a plugin too), what fills the frame
 (the realm's view in `plugin_realm`, `plugin_menus`, `plugin_status`,
 `plugin_welcome`) and
 the panels. See [`sdk.md`](sdk.md). A plugin built

@@ -10,6 +10,8 @@ workspace = true
 
 [dependencies]
 bevy_app.workspace = true
+hamlet_chat = { workspace = true, optional = true }
+hamlet_limits = { workspace = true, optional = true }
 hamlet_ui = { workspace = true, optional = true }
 plugin_agents = { workspace = true, optional = true }
 plugin_hamlets = { workspace = true, optional = true }
@@ -32,8 +34,10 @@ toml.workspace = true
 # A plugin is built in when the feature of its name is on.
 default = [
     "agents",
+    "chat",
     "hamlets",
     "inspector",
+    "limits",
     "menus",
     "needs",
     "realm",
@@ -44,16 +48,20 @@ default = [
     "window",
     "world-view",
 ]
-window = ["dep:hamlet_ui"]
+# The frame reads the chat, and the panels that draw the limits' panes
+# need them.
+window = ["dep:hamlet_ui", "chat"]
 agents = ["dep:plugin_agents"]
+chat = ["dep:hamlet_chat"]
 hamlets = ["dep:plugin_hamlets"]
-inspector = ["dep:plugin_inspector"]
+inspector = ["dep:plugin_inspector", "limits"]
+limits = ["dep:hamlet_limits"]
 menus = ["dep:plugin_menus"]
 needs = ["dep:plugin_needs"]
 realm = ["dep:plugin_realm"]
-settings = ["dep:plugin_settings"]
+settings = ["dep:plugin_settings", "limits"]
 skills = ["dep:plugin_skills"]
 status = ["dep:plugin_status"]
-welcome = ["dep:plugin_welcome"]
+welcome = ["dep:plugin_welcome", "limits"]
 # The realm's view is in the realm's crate.
 world-view = ["dep:plugin_realm"]

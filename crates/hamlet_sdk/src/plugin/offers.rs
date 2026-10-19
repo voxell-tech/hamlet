@@ -7,12 +7,14 @@ pub const HOST: &str = "host";
 
 /// The ids no installed plugin may take: the host, the chief and the
 /// plugins compiled into the app.
-pub const RESERVED: [&str; 14] = [
+pub const RESERVED: [&str; 16] = [
     HOST,
     "chief",
     "window",
     "agents",
     "hamlets",
+    "chat",
+    "limits",
     "inspector",
     "menus",
     "needs",

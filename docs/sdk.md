@@ -51,6 +51,10 @@ and its asks go unanswered.
 | `hamlet_chat` | The chat with an agent (`chat`), the markdown in it (`markdown`), selecting words (`select`), links (`links`), pictures (`pictures`), who the chat is with and how it is pointed at another (`me`), and the deeds that ask the chief first (`deed`: `Deed`, `ask`, `stop`). A second plugin needs it: the Inspector draws the chat, the Settings draws markdown and asks before it removes a charter, and the window reads the chat for its sounds, its status bar and its mascot |
 | `hamlet_limits` | The panes of the limits: the home's endpoints and catalogue (`models`) and each hamlet's budget, votes, models and the mayor's leave (`rules`). The Settings shows the home's, the Inspector each hamlet's |
 
+Each is also a built-in plugin, `chat` (`ChatPlugin`) and `limits`
+(`LimitsPlugin`), both essential, which `Builtin` adds after the frame. A
+plugin crate depends on them for their types, and adds neither.
+
 A plugin asks another only through the SDK or an API crate: an event one
 observes (`deed::Ask`, `settings::SetUpAgain`, `settings::AddEndpoint`,
 `confirm::Confirm`), a command it runs (`menus/found`), or a resource one
@@ -332,7 +336,7 @@ listed in these `PluginGroup`s:
 | `Base` | `agents` and `hamlets`, which run with no window. A headless app adds it after `hamlet_sdk::plugin::plugin` |
 | `Frame` | The plugins that fill the window's frame: `world-view`, `menus`, `status` and `welcome` |
 | `Panels` | The plugins that add a panel. The gallery adds it after `SdkPlugin` and the read models of `hamlet_agents_api` |
-| `Builtin` | `Base`, the frame (`hamlet_ui::UiPlugin`, under the `window` feature), `realm`, `Frame` and `Panels`, in that order. The binary adds it after Bevy's default plugins |
+| `Builtin` | `Base`, the frame (`hamlet_ui::UiPlugin`, under the `window` feature), `chat`, `limits`, `realm`, `Frame` and `Panels`, in that order. The binary adds it after Bevy's default plugins |
 
 ### The layers
 
@@ -344,7 +348,9 @@ never depends on one above. `settings` and `needs` are essential too, so the
 chief cannot switch off the Plugins page or the petitions, the two places a
 plugin is put right, and so are `window`, which owns Quit, and `menus`,
 which shows it: the close button sends the app to the background, so Quit
-is the only way out. The inspector, the world's panel,
+is the only way out. `chat` is essential as the place the chief talks to
+the agents, and `limits` as the panes the first-run screen and the
+Settings choose the models with. The inspector, the world's panel,
 the status bar and the first-run screen may be switched off; a panel closed
 for good is opened again from a tab bar's plus.
 
@@ -408,8 +414,8 @@ no one subject:
 | `hover` | The card that follows the pointer over any thing of the world, over every panel and under the menus. It reads the realm only through `hamlet_realm_api` |
 | `sounds`, `widgets` | How every control feels and sounds, and the sounds no single plugin makes: the dock's tabs and drags, a fold, a card, a message sent or failed |
 
-The frame also adds `hamlet_chat`, `hamlet_limits` and the question card of
-`hamlet_agents_api`, which several plugins share. The chat bridges the
+The frame also adds the question card of `hamlet_agents_api`, which
+several plugins share. The chat, a plugin of its own, bridges the
 world's selection to who the chat is with (`hamlet_chat::me`), so that a
 plugin sees the selection as `AgentSelected`, `SelectedAgent` and `Me`, and
 `plugin_realm::view` keeps the mascot beside it.
