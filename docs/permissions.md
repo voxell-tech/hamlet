@@ -328,7 +328,8 @@ function that needs one, and `request`, look at the plugin's verdict:
 The petition is raised after the call, by the SDK's `Wanted` event. It reads
 "Roster asks to use read.agents. Allow it?", with what the capability lets a
 plugin do, the manifest's reason and, from `request`, the plugin's own reason
-(cut to 200 characters). There is at most one open petition for each plugin
+(made one plain line, so it cannot pass for a line of the petition, and cut
+to 200 characters). There is at most one open petition for each plugin
 and capability (and target, for a scoped one), however often the plugin calls. A data plugin's `Query` goes
 through the same gate.
 

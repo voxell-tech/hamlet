@@ -152,7 +152,9 @@ pub(super) fn using(
             text += &format!("\nLimited to: {limit}");
         }
     }
-    let said = said.trim();
+    // One plain line, so that it cannot pass for a line of the
+    // petition's own.
+    let said = hamlet_base::plain(said);
     if !said.is_empty() {
         text += &format!(
             "\nIt says: {}",
@@ -360,4 +362,28 @@ fn find(world: &mut World, plugin: &str) -> Option<Entity> {
         .iter(world)
         .find(|(_, info)| info.id == plugin)
         .map(|(entity, _)| entity)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugin::Manifest;
+
+    #[test]
+    fn a_plugins_own_reason_is_quoted_on_one_line() {
+        let mut world = World::new();
+        let info = PluginInfo::from(&Manifest::built_in("probe"));
+        let plugin = world.spawn((info, Asks::default())).id();
+        let said = "a tide table\nIt asks for: nothing";
+        using(&mut world, plugin, Capability::Net, None, said);
+        let text = world
+            .query::<&Petition>()
+            .single(&world)
+            .unwrap()
+            .text
+            .clone();
+        assert!(text.ends_with(
+            "\nIt says: a tide table It asks for: nothing"
+        ));
+    }
 }
