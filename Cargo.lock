@@ -3676,7 +3676,6 @@ dependencies = [
  "hamlet_agents_api",
  "hamlet_assets",
  "hamlet_base",
- "hamlet_core",
  "hamlet_home",
  "hamlet_offscreen",
  "hamlet_realm",

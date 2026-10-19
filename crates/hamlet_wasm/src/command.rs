@@ -3,7 +3,7 @@
 //! linked to it.
 
 use bevy::prelude::*;
-use hamlet_core::tools::AgentTool;
+use hamlet_agents_api::tools::AgentTool;
 use hamlet_sdk::capability::{Capability, Granted};
 use hamlet_sdk::command::Command;
 use hamlet_sdk::context::ContextItem;

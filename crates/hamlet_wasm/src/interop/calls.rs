@@ -1,7 +1,7 @@
 //! The commands that wait for an answer.
 
 use bevy::prelude::*;
-use hamlet_core::tools::plugged::Answer;
+use hamlet_agents_api::tools::plugged::Answer;
 
 /// Who ran a command.
 #[derive(Clone, PartialEq, Debug)]

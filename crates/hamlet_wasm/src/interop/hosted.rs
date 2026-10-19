@@ -3,7 +3,7 @@
 //! capability each names.
 
 use bevy::prelude::*;
-use hamlet_core::session::{Phase, TurnObserved};
+use hamlet_agents_api::tools::{Phase, TurnObserved};
 use hamlet_sdk::agents::{AgentList, SelectedAgent};
 use hamlet_sdk::capability::{Granted, Uninstalled, Verdict, Wanted};
 use hamlet_sdk::events::{

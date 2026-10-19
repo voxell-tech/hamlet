@@ -1,8 +1,8 @@
 //! What a plugin declares during `entry`.
 
 use bevy_fynix::shortcut::Chord;
-use hamlet_core::tools::AgentTool;
-use hamlet_core::tools::plugged::{FieldKind, ToolField};
+use hamlet_agents_api::tools::AgentTool;
+use hamlet_agents_api::tools::plugged::{FieldKind, ToolField};
 use hamlet_sdk::capability::{Capability, Verdict};
 use hamlet_sdk::command::kind;
 use hamlet_sdk::icons::Glyph;

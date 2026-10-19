@@ -3,7 +3,7 @@
 //! back to the agent as text.
 
 use bevy::prelude::*;
-use hamlet_core::tools::AgentToolCalled;
+use hamlet_agents_api::tools::AgentToolCalled;
 use hamlet_sdk::capability::Capability;
 use hamlet_sdk::plugin::Status;
 

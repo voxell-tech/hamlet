@@ -10,5 +10,6 @@ pub mod convo;
 pub mod papers;
 pub mod petition;
 pub mod roll;
+pub mod tools;
 pub mod waits;
 pub mod words;

@@ -9,8 +9,9 @@ use bevy::ecs::message::{MessageCursor, Messages};
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
-use hamlet_core::session::TurnObserved;
-use hamlet_core::tools::{AgentTool, AgentToolCalled};
+use hamlet_agents_api::tools::{
+    AgentTool, AgentToolCalled, TurnObserved,
+};
 use hamlet_sdk::agents::{Agent, AgentList, SelectedAgent};
 use hamlet_sdk::capability::{
     Asks, Capability, Choice, Decide, Replied,

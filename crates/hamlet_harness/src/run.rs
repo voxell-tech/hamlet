@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use hamlet_core::session::{Phase, TurnObserved};
+use hamlet_agents_api::tools::{Phase, TurnObserved};
 
 use crate::harness::Harness;
 use crate::outline;
