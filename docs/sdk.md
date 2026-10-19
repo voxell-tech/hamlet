@@ -282,10 +282,32 @@ text area are handled where they apply and are not chords.
 ## plugins/
 
 One crate each, named `plugin_<name>`, with `pub fn plugin(app: &mut App)`
-that adds its `HamletPlugin`. `plugins/all` is `hamlet_plugins`: `Builtin`
-is a `PluginGroup`, and each plugin is an optional dependency behind a
-feature of its name, all on by default. The binary and the gallery add
-`Builtin` after `UiPlugin` or `SdkPlugin`.
+that adds its `HamletPlugin`. `plugins/all` is `hamlet_plugins`: each plugin
+is an optional dependency behind a feature of its name, all on by default,
+listed in these `PluginGroup`s:
+
+| Group | What it lists |
+|---|---|
+| `Base` | `agents` and `hamlets`, which run with no window. A headless app adds it after `hamlet_sdk::plugin::plugin` |
+| `Panels` | The plugins that add a panel. The gallery adds it after `SdkPlugin` |
+| `Builtin` | `Base`, the window (`hamlet_ui::UiPlugin`, under the `window` feature), `realm` and `Panels`, in that order. The binary adds it after Bevy's default plugins |
+
+### The layers
+
+Three plugins are the layers the others stand on. Each is `essential`: its
+manifest says so (`Manifest::essential`, `PluginInfo::essential`), `Disable`
+leaves it running, and the Plugins page shows it as Essential with no switch,
+because the app cannot run without it. A layer needs the one below it, and
+never depends on one above.
+
+| Layer | What it wraps |
+|---|---|
+| `plugin_agents` | `hamlet_core`'s `CorePlugin` and `SessionPlugin`: the model, the tools, the agents as entities and the sessions. It starts from `Launch`, a resource the binary inserts and the plugin takes out |
+| `plugin_hamlets` | `hamlet_core`'s `OversightPlugin`: what waits for a chief and the chief's answers over the hamlets' rules. Needs `agents` |
+| `plugin_realm` | `hamlet_realm`'s `RealmPlugin`: the generated world, its ground, sites, camera and effects. Needs `hamlets` |
+
+The engines stay in their crates. A layer's `plugin` adds the engine's Bevy
+plugins and then its own `HamletPlugin`, which adds nothing to the window.
 
 | Plugin | What it adds |
 |---|---|
@@ -297,9 +319,9 @@ feature of its name, all on by default. The binary and the gallery add
 Settings has a Plugins page that lists every `PluginInfo` with a switch
 that sends `Enable` or `Disable`, and shows what each asks for, what it adds
 and what the chief chose ([`permissions.md`](permissions.md)). The window
-and every plugin can be switched off from it, the Settings and the
-Inspector too; the panel of one that is off is gone until it is switched on
-or the app starts again.
+and every plugin but the three layers can be switched off from it, the
+Settings and the Inspector too; the panel of one that is off is gone until it
+is switched on or the app starts again.
 
 ### What stays in the window
 

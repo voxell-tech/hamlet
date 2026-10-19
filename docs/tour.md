@@ -69,9 +69,11 @@ table. The binary and the examples are the root package.
 | `hamlet_harness` | Runs a plugin headlessly against made-up state: clicks, typed text, grants, the tree of each panel as text and a picture of it. Behind its `wasm` feature. See [`authoring.md`](authoring.md) |
 
 The plugins are under `plugins/`: `plugins/all` is `hamlet_plugins`, which
-lists them, and each other folder is one plugin crate. See
-[`sdk.md`](sdk.md). A plugin built for WASM is under `guests/`, in a
-workspace of its own.
+lists them, and each other folder is one plugin crate. The binary is a list
+of plugins: the layers `plugin_agents`, `plugin_hamlets` and `plugin_realm`
+(each wraps the engine crate of the same subject, and none can be switched
+off), then the window and the panels. See [`sdk.md`](sdk.md). A plugin built
+for WASM is under `guests/`, in a workspace of its own.
 
 Inside a crate, a module with several subjects is a file and a folder of
 the same name, and each file opens with a line saying what it holds. Read
@@ -81,10 +83,11 @@ the same name, and each file opens with a line saying what it holds. Read
 (land, towns, houses, roads and traffic from a seed), `keeper/` (the
 robots), `chief/` (the wizard and its Hearth), `hand/` (what the chief does
 by hand), `pick/` (pointing, selecting and the camera) and `sound/`.
-`RealmPlugin` in its `lib.rs` is the one thing the app adds: a flat list of
-the `plugin` of each module, scene first (settings, palette, play, sound,
-debug, sky, stage, keeper, stock), then the generator, then what the chief does in it, then
-`hamlet.rs`. An app that wants only the scene adds the first group itself,
+`RealmPlugin` in its `lib.rs` is a flat list of the `plugin` of each module,
+scene first (settings, palette, play, sound, debug, sky, stage, keeper,
+stock), then the generator, then what the chief does in it, then
+`hamlet.rs`. The app adds it through `plugin_realm`. An app that wants only
+the scene adds the first group itself,
 as the style test does; the town generator adds it with `generator::plugin`
 and an `Origin` for its seed.
 `hamlet_ui` is the window around the world: the dock, the menus, the status
@@ -138,6 +141,7 @@ Paths are under `crates/`.
 | An icon | `hamlet_sdk/src/icons.rs`; [`icons.md`](icons.md) |
 | A plugin, or what a plugin may add | `plugins/<name>/`, `hamlet_sdk/src/plugin/`; [`sdk.md`](sdk.md) |
 | Which plugins are built in | `plugins/all/Cargo.toml` and `src/lib.rs` |
+| What starts the agents, and the layers that cannot be switched off | `plugins/agents/src/lib.rs`, `plugins/hamlets/src/lib.rs`, `plugins/realm/src/lib.rs`; `Manifest::essential` in `hamlet_sdk/src/plugin/manifest.rs` |
 | The Skills panel | `plugins/skills/src/` |
 | The Inspector: an agent's page, a hamlet's overview and rules, a chief's page, the Archive | `plugins/inspector/src/` (`agent.rs`, `overview.rs`, `history.rs`, `folder.rs`, `chief.rs`, `gone.rs`); the rules and models it shows, `hamlet_limits/src/`; its chat, `hamlet_chat/src/chat/` |
 | The Settings panel and its pages | `plugins/settings/src/lib.rs`; the models and the rules of the realm it shows, `hamlet_limits/src/` |
