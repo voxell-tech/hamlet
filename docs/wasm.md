@@ -1224,7 +1224,8 @@ WASM plugin's `interface` is not `interface::VERSION` or an ask cannot be
 granted (a name that is not a capability, one that is never granted, or no
 reason) or it exports typed interfaces without asking for `plugin.export`; the
 reason is logged. The id is a name (as below), is not one of the
-reserved `host`, `chief` and `window`, or the id of a built-in plugin
+reserved `host`, `chief` and `agent` (the senders a plugin is told of that are
+not plugins) and `window`, or the id of a built-in plugin
 (`agents`, `hamlets`, `inspector`, `needs`, `realm`, `settings` and `skills`), the name has at most 64 characters and a reason at most 300.
 A name and a reason are shown as one line without brackets.
 

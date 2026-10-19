@@ -30,8 +30,8 @@ pub use self::interfaces::{
 };
 pub use self::manifest::{Manifest, Need};
 pub use self::offers::{
-    Collection, Exports, HOST, Imports, RESERVED, joinable, link,
-    plain, unlink, valid,
+    AGENT, CHIEF, Collection, Exports, HOST, Imports, RESERVED,
+    joinable, link, plain, unlink, valid,
 };
 pub use self::status::Status;
 pub use self::version::{Range, Version};

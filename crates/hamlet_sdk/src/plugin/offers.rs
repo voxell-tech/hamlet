@@ -5,11 +5,19 @@
 /// may take.
 pub const HOST: &str = "host";
 
-/// The ids no installed plugin may take: the host, the chief and the
-/// plugins compiled into the app.
-pub const RESERVED: [&str; 16] = [
+/// The sender of a command the chief runs, which no plugin may take.
+pub const CHIEF: &str = "chief";
+
+/// The sender of a tool call an agent makes, which no plugin may
+/// take.
+pub const AGENT: &str = "agent";
+
+/// The ids no installed plugin may take: every sender that is not a
+/// plugin, and the plugins compiled into the app.
+pub const RESERVED: [&str; 17] = [
     HOST,
-    "chief",
+    CHIEF,
+    AGENT,
     "window",
     "agents",
     "hamlets",
