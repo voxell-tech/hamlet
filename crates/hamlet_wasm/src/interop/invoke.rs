@@ -3,14 +3,17 @@
 //! under a budget the caller pays for, and the result back, checked
 //! against its type.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{Capability, Granted, Verdict, Wanted};
+use hamlet_sdk::command::Notice;
 use hamlet_sdk::papers::Papers;
-use hamlet_sdk::plugin::{Manifest, PluginInfo, Status, Type};
+use hamlet_sdk::plugin::{
+    Enable, Manifest, PluginInfo, Status, Type,
+};
 
 use super::calls::Calls;
 use super::mail::{Who, send};
@@ -23,14 +26,18 @@ use crate::interface::exports::hamlet::plugin::plugin::{
 use crate::limits::Limits;
 use crate::reach::{self, Sharing};
 use crate::run::{self, Done};
-use crate::stop;
+use crate::stop::{self, Automatic};
 
-/// The calls admitted and not yet given to their targets, and the
-/// fuel each caller's calls used in the last second.
+/// The calls admitted and not yet given to their targets, the fuel
+/// each caller's calls used in the last second, and the callers
+/// barred from a target.
 #[derive(Resource, Default)]
 pub struct Invoking {
     due: Vec<Due>,
     spent: HashMap<Entity, (f32, u64)>,
+    /// Each caller and a plugin one of its calls stopped, which it
+    /// may not call until the chief starts that plugin again.
+    barred: HashSet<(Entity, Entity)>,
 }
 
 /// A call admitted, to be given to its target.
@@ -81,6 +88,8 @@ struct Asking<'a> {
     /// Whether a call of that number waits.
     waiting: bool,
     fuel_left: u64,
+    /// Whether a call of the caller stopped the plugin named.
+    barred: bool,
 }
 
 /// A call that may be made: the interface, the function and the type
@@ -144,6 +153,9 @@ pub(super) fn request(
         in_flight: calls.in_flight(caller),
         waiting: calls.invoking(caller, request.call_id),
         fuel_left: invoking.left(caller, now, limits),
+        barred: target.is_some_and(|(entity, ..)| {
+            invoking.barred.contains(&(caller, entity))
+        }),
     };
     let to = format!("{}/{}", request.plugin, request.function);
     match (admit(&asking, limits), target) {
@@ -249,6 +261,12 @@ fn admit<'a>(
             return Err(refused("plugin.use not granted".into()));
         }
     }
+    if asking.barred {
+        return Err(refused(format!(
+            "a call of this plugin stopped `{plugin}`, which it may \
+             not call until the chief restarts it"
+        )));
+    }
     if request.args.len() > limits.call_bytes {
         return Err(refused(format!(
             "the arguments have {} bytes, the most is {}",
@@ -336,8 +354,8 @@ fn admit<'a>(
 /// Gives each call admitted to its target in a `step` of its own, at
 /// once, with the time of a call of an interface and the fuel its
 /// caller has left. The fuel the `step` uses is charged to the
-/// caller. A target that fails or runs out is stopped, and its caller
-/// answered.
+/// caller. A target that fails or runs out is stopped, its caller
+/// answered and barred from it, and the chief told.
 pub(super) fn deliver(
     mut invoking: ResMut<Invoking>,
     mut calls: ResMut<Calls>,
@@ -360,6 +378,10 @@ pub(super) fn deliver(
     let now = time.map_or(0.0, |time| time.elapsed_secs());
     for due in std::mem::take(&mut invoking.due) {
         let id = due.invocation.call_id;
+        let sender = plugins.get(due.caller.0).map_or_else(
+            |_| due.invocation.sender.clone(),
+            |(info, ..)| info.name.clone(),
+        );
         let fuel = limits.invoke_fuel.min(invoking.left(
             due.caller.0,
             now,
@@ -423,6 +445,13 @@ pub(super) fn deliver(
                     &info.id,
                     &fault,
                 );
+                invoking.barred.insert((due.caller.0, due.target));
+                commands.trigger(Notice(format!(
+                    "A call of {sender} stopped {}: {fault}. \
+                     {sender} may not call it again until you \
+                     restart {}.",
+                    info.name, info.name
+                )));
                 let error = match fault {
                     Fault::OutOfFuel => {
                         InvokeError::OutOfBudget(format!(
@@ -446,6 +475,20 @@ pub(super) fn deliver(
                 }
             }
         }
+    }
+}
+
+/// Lets every caller call the plugin the chief starts again. A start
+/// the host makes by itself lifts nothing.
+pub(super) fn lift(
+    enable: On<Enable>,
+    plugins: Query<(Entity, &PluginInfo), Without<Automatic>>,
+    mut invoking: ResMut<Invoking>,
+) {
+    for (target, _) in
+        plugins.iter().filter(|(_, info)| info.id == enable.0)
+    {
+        invoking.barred.retain(|(_, barred)| *barred != target);
     }
 }
 
@@ -555,6 +598,7 @@ mod tests {
             in_flight: 0,
             waiting: false,
             fuel_left: 1,
+            barred: false,
         };
         admit(&asking, &Limits::default())
             .map(|admitted| admitted.result)

@@ -1,4 +1,6 @@
-use hamlet_sdk::plugin::Status;
+use bevy::prelude::*;
+use hamlet_sdk::command::Notice;
+use hamlet_sdk::plugin::{Disable, Enable, PluginInfo, Status};
 
 use super::interop::said;
 use crate::fixture;
@@ -54,26 +56,65 @@ fn a_function_runs_in_the_plugin_that_exports_it_and_its_result_comes_back()
     assert!(lines.contains(&("caller".into(), ping)), "{lines:?}");
 }
 
+#[derive(Resource, Default)]
+struct Told(Vec<String>);
+
+/// Switches the plugin `id` off and on, as the chief does.
+fn restart(app: &mut App, id: &str) {
+    app.world_mut().trigger(Disable(id.into()));
+    app.world_mut().flush();
+    app.update();
+    app.world_mut().trigger(Enable(id.into()));
+    app.world_mut().flush();
+}
+
 #[test]
-fn a_plugin_that_runs_out_of_the_callers_budget_stops_and_the_caller_is_told()
+fn a_plugin_a_call_stopped_is_not_called_by_that_caller_until_the_chief_restarts_it()
  {
     let scratch = Scratch::new("interfaces_budget");
     let mut app =
         home::app(&scratch, &[caller(), target(fixture::spin())]);
+    home::views(&mut app);
+    app.init_resource::<Told>().add_observer(
+        |notice: On<Notice>, mut told: ResMut<Told>| {
+            told.0.push(notice.0.clone())
+        },
+    );
+    let ran_out = (
+        "caller".to_string(),
+        "`target` ran out of the call's fuel".to_string(),
+    );
 
     let lines = said(&mut app, 8);
 
+    assert!(lines.contains(&ran_out), "{lines:?}");
+    let told = &app.world().resource::<Told>().0;
     assert!(
-        lines.contains(&(
-            "caller".into(),
-            "`target` ran out of the call's fuel".into()
+        told.iter().any(|line| line.starts_with(
+            "A call of caller stopped target: a call used up its \
+             fuel"
         )),
+        "{told:?}"
+    );
+
+    // The host starts the target again by itself, a frame being 50
+    // milliseconds, and that lifts nothing.
+    (0..80).for_each(|_| app.update());
+    let mut plugins =
+        app.world_mut().query::<(&PluginInfo, &Status)>();
+    assert!(plugins.iter(app.world()).any(|(info, status)| {
+        info.id == "target" && *status == Status::Running
+    }));
+    restart(&mut app, "caller");
+    let lines = said(&mut app, 8);
+    assert!(
+        lines.iter().any(|(plugin, line)| plugin == "caller"
+            && line.contains("until the chief restarts it")),
         "{lines:?}"
     );
-    let mut plugins = app
-        .world_mut()
-        .query::<(&hamlet_sdk::plugin::PluginInfo, &Status)>();
-    assert!(plugins.iter(app.world()).any(|(info, status)| {
-        info.id == "target" && *status == Status::Failed
-    }));
+
+    restart(&mut app, "target");
+    restart(&mut app, "caller");
+    let lines = said(&mut app, 8);
+    assert!(lines.contains(&ran_out), "{lines:?}");
 }

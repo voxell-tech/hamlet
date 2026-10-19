@@ -33,6 +33,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(chief::forward)
         .add_observer(tools::called)
         .add_observer(hosted::turn_observed)
+        .add_observer(invoke::lift)
         .add_systems(
             Update,
             (

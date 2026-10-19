@@ -858,7 +858,8 @@ cannot be read, is turned down by the scan.
 3. `Apply` checks, in this order: the function is in the caller's imports and the
    import is from that plugin; it is not the caller itself; the caller holds
    `plugin.use` for the plugin (the petition is raised where the chief is yet to
-   decide); the arguments are within `call_bytes`; the call id is not waiting;
+   decide); no call of the caller stopped the plugin since the chief last started
+   it; the arguments are within `call_bytes`; the call id is not waiting;
    fewer than `calls_in_flight` calls wait; the depth is within `call_depth`; the
    caller has fuel left for calls this second; the arguments are of the import's
    types; the plugin is installed, exports the function with the same types, is
@@ -868,8 +869,11 @@ cannot be read, is turned down by the scan.
    `invoked(call-id, sender, interface, function, args)` alone in its inbox, with
    `invoke_ms` and the fuel of `invoke_fuel` or what the caller has left of
    `invoke_fuel_per_second`, whichever is less. The fuel the `step` uses is
-   charged to the caller. A `step` that runs out stops the implementer as any
-   failed call does.
+   charged to the caller. A `step` that runs out or fails stops the implementer
+   as any failed call does, and its state may be broken. The chief is told which
+   plugin's call stopped which, and that caller's calls of it are refused until
+   the chief restarts it or Hamlet starts again; the host starting it again by
+   itself does not count, so a caller cannot stop a plugin over and over.
 5. The implementer answers with `reply(call-id, outcome)`, in that `step` or a
    later one within `call_frames`, so a function may wait on a call of its own.
    The host checks the bytes against the result type and gives the caller
@@ -880,7 +884,7 @@ Every failure comes back as `returned` with an `invoke-error`, never a stall:
 | Error | When |
 |---|---|
 | `no-implementer` | No plugin of that id is installed, it does not export the function, it is not running, or it does not hold `plugin.export` |
-| `refused` | Not imported, not from that plugin, a call of itself, `plugin.use` not granted, or a limit of calls passed (a result over `call_bytes` among them) |
+| `refused` | Not imported, not from that plugin, a call of itself, `plugin.use` not granted, a call of the caller stopped the plugin, or a limit of calls passed (a result over `call_bytes` among them) |
 | `mismatch` | The arguments or the result are not of the declared types, or the implementer declares the function with other types |
 | `out-of-budget` | The caller used its `invoke_fuel_per_second`, or the implementer ran out of the call's fuel or time |
 | `failed` | The implementer trapped, was switched off, stopped or removed while the call waited, or did not answer within `call_frames` frames |
