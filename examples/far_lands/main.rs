@@ -17,15 +17,14 @@ use std::time::{Duration, Instant};
 use bevy::audio::AudioPlugin;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
-use hamlet_world::generator::land::Land;
-use hamlet_world::generator::society::{Place, Society, TownId};
-use hamlet_world::generator::{GenView, Loading, Tally};
-use hamlet_world::hamlet::HamletPlugin;
-use hamlet_world::moving::{self, Carrying};
-use hamlet_world::pick::Reach;
-use hamlet_world::sky::SkySettings;
-use hamlet_world::sound::SoundSettings;
-use hamlet_world::{Clock, Hour, Stage, WorldCamera};
+use hamlet_realm::generator::land::Land;
+use hamlet_realm::generator::society::{Place, Society, TownId};
+use hamlet_realm::generator::{GenView, Loading, Tally};
+use hamlet_realm::moving::{self, Carrying};
+use hamlet_realm::pick::Reach;
+use hamlet_realm::sky::SkySettings;
+use hamlet_realm::sound::SoundSettings;
+use hamlet_realm::{Clock, Hour, RealmPlugin, Stage, WorldCamera};
 
 use self::offscreen::Target;
 
@@ -277,7 +276,7 @@ fn main() {
     let mut app = App::new();
     app.add_plugins((
         offscreen::plugins(SIZE).disable::<AudioPlugin>(),
-        HamletPlugin,
+        RealmPlugin,
     ));
     Target::insert(&mut app, SIZE, 1.0);
     // A held hour: with the clock running the sky would follow the

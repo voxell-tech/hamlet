@@ -5,12 +5,13 @@ use std::collections::HashMap;
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
+use hamlet_protocol::asking::Pick;
 use hamlet_protocol::v0;
 
 use crate::chats::Chat;
 use crate::outbox::{Outbox, RequestId};
 use crate::realm::address_of;
-use crate::waits::{Choice, Waiting};
+use crate::waits::{Asks, Choice, Waiting};
 
 /// Observers routing the chief's deeds into protocol requests.
 pub fn plugin(app: &mut App) {
@@ -40,6 +41,34 @@ pub fn plugin(app: &mut App) {
                             wait: wait.id.clone(),
                             choice: answer.choice.clone(),
                             text: answer.text.clone(),
+                            picks: None,
+                        })
+                    });
+                }
+            },
+        )
+        .add_observer(
+            |answer: On<Answered>,
+             waits: Query<(&Waiting, &Asks)>,
+             mut outbox: ResMut<Outbox>| {
+                let answer = answer.event();
+                if let Ok((wait, asks)) = waits.get(answer.entity)
+                    && asks.0.answer(&answer.picks).is_ok()
+                {
+                    outbox.send(|id| {
+                        v0::ClientMessage::Answer(v0::Answer {
+                            id,
+                            wait: wait.id.clone(),
+                            choice: Choice::Reply,
+                            text: None,
+                            picks: Some(
+                                answer
+                                    .picks
+                                    .iter()
+                                    .cloned()
+                                    .map(Into::into)
+                                    .collect(),
+                            ),
                         })
                     });
                 }
@@ -93,6 +122,14 @@ pub struct Answer {
     pub wait: Entity,
     pub choice: Choice,
     pub text: Option<String>,
+}
+
+/// A chief's answer to each question of a received need.
+#[derive(EntityEvent, Clone, Debug)]
+pub struct Answered {
+    pub entity: Entity,
+    pub picks: Vec<Pick>,
+    pub chief: String,
 }
 
 /// A stop request for one agent, or every agent when absent.

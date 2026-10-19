@@ -6,9 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Local, Query, Res, ResMut};
-use bevy::state::condition::in_state;
+use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ui::{AlignItems, Overflow, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -27,8 +25,7 @@ use crate::icons::{Glyph, glyph};
 use crate::links::Aimed;
 use crate::looks::{hairline, note};
 use crate::me::Me;
-use crate::needs::Queue;
-use crate::window::Layout;
+use crate::petition::Queue;
 use crate::{AnyView, Cx, View};
 
 /// The side of an icon in the bar.
@@ -36,17 +33,10 @@ const MARK: f32 = 12.0;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Bar>()
-        .init_resource::<Lately>()
-        .add_systems(
-            Update,
-            (
-                update_status,
-                update_lately.run_if(in_state(Layout::Minimal)),
-            ),
-        );
+        .add_systems(Update, update_status);
 }
 
-/// The words of the status bar and the minimal window.
+/// The words of the status bar.
 #[derive(Resource, Default, PartialEq)]
 pub struct Bar {
     /// The open chat's agent has a turn running.
@@ -119,52 +109,11 @@ pub(crate) fn update_status(
     }
 }
 
-/// The last thing the open chat's agent did and how long ago, as the
-/// minimal window says it.
-#[derive(Resource, Default, PartialEq)]
-pub(crate) struct Lately(pub String);
-
-pub(crate) fn update_lately(
-    me: Res<Me>,
-    sessions: Query<&Status>,
-    mut lately: ResMut<Lately>,
-    mut seen: Local<Option<(u64, u64)>>,
-) {
-    let last = sessions
-        .get(me.session)
-        .ok()
-        .and_then(|status| status.last.as_ref());
-    // The words change with the second at the soonest.
-    let now = last
-        .map(|(at, _)| (*at, now_ms().saturating_sub(*at) / 1000));
-    if *seen == now && !lately.0.is_empty() {
-        return;
-    }
-    *seen = now;
-    let next = match last {
-        Some((at, what)) => format!("{what}, {}", ago(*at)),
-        None => "None yet".into(),
-    };
-    if lately.0 != next {
-        lately.0 = next;
-    }
-}
-
 pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
-}
-
-fn ago(since: u64) -> String {
-    let s = now_ms().saturating_sub(since) / 1000;
-    match s {
-        0..=4 => "just now".into(),
-        5..=59 => format!("{s}s ago"),
-        60..=3599 => format!("{} min ago", s / 60),
-        _ => format!("{} h ago", s / 3600),
-    }
 }
 
 /// An icon and the words it stands before.
@@ -321,139 +270,6 @@ mod tests {
     use crate::me::tests::{panel_app, words};
 
     #[test]
-    fn the_minimal_window_shows_the_chats_seconds_ago() {
-        let mut app = panel_app();
-        app.init_resource::<Bar>()
-            .init_resource::<Lately>()
-            .add_systems(Update, update_lately);
-        let chat = app
-            .world()
-            .get::<hamlet_client::chats::Chat>(
-                app.world().resource::<Me>().session,
-            )
-            .unwrap()
-            .0
-            .clone();
-        hamlet_client::receive(
-            app.world_mut(),
-            v0::ServerMessage::Turn(v0::Turn {
-                chat,
-                number: Some(1),
-                ops: vec![v0::Op::Status {
-                    working: false,
-                    pending: 0,
-                    last: Some(v0::OpStatusLast {
-                        at: (now_ms() - 12_000) as i64,
-                        what: "Finished the plan".into(),
-                    }),
-                }],
-            }),
-        );
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
-            app.world_mut(),
-            crate::window::minimal(),
-        );
-        for _ in 0..3 {
-            app.update();
-        }
-        let shown = words(&mut app);
-        let ago = shown
-            .iter()
-            .find_map(|text| {
-                text.strip_prefix(
-                    "Last activity: Finished the plan, ",
-                )
-            })
-            .unwrap_or_else(|| panic!("{shown:?}"));
-        let seconds = ago
-            .strip_suffix("s ago")
-            .unwrap()
-            .parse::<u64>()
-            .unwrap();
-        assert!((12..=17).contains(&seconds), "{ago}");
-    }
-
-    #[test]
-    fn the_minimal_window_shows_recorded_live_late_and_reset_activity()
-     {
-        for recording in [
-            include_str!("../../hamlet_protocol/frames/paging.jsonl"),
-            include_str!("../../hamlet_protocol/frames/turn.jsonl"),
-            include_str!(
-                "../../hamlet_protocol/frames/new-and-resume.jsonl"
-            ),
-            include_str!("../../hamlet_protocol/frames/rewind.jsonl"),
-        ] {
-            let mut app = panel_app();
-            app.init_resource::<Bar>()
-                .init_resource::<Lately>()
-                .add_systems(Update, update_lately);
-            bevy_fynix::mount::<crate::theme::HamletTheme>(
-                app.world_mut(),
-                crate::window::minimal(),
-            );
-            for _ in 0..3 {
-                app.update();
-            }
-            assert!(
-                words(&mut app)
-                    .iter()
-                    .any(|text| text == "Last activity: None yet")
-            );
-            for line in recording.lines() {
-                let frame =
-                    serde_json::from_str::<serde_json::Value>(line)
-                        .unwrap();
-                if frame["from"] != "server" {
-                    continue;
-                }
-                let message =
-                    serde_json::from_value::<v0::ServerMessage>(
-                        frame["message"].clone(),
-                    )
-                    .unwrap();
-                let expected = match &message {
-                    v0::ServerMessage::Transcript(page) => {
-                        page.last.as_ref().map(|last| {
-                            last.as_ref()
-                                .map(|last| last.what.clone())
-                        })
-                    }
-                    v0::ServerMessage::Turn(turn) => turn
-                        .ops
-                        .iter()
-                        .filter_map(|op| match op {
-                            v0::Op::Status { last, .. } => Some(
-                                last.as_ref()
-                                    .map(|last| last.what.clone()),
-                            ),
-                            _ => None,
-                        })
-                        .next_back(),
-                    _ => None,
-                };
-                hamlet_client::receive(app.world_mut(), message);
-                for _ in 0..3 {
-                    app.update();
-                }
-                if let Some(expected) = expected {
-                    let expected = expected.map_or_else(
-                        || "Last activity: None yet".into(),
-                        |what| format!("Last activity: {what}, "),
-                    );
-                    let shown = words(&mut app);
-                    assert!(
-                        shown
-                            .iter()
-                            .any(|text| text.starts_with(&expected)),
-                        "{shown:?}"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
     fn the_mounted_bar_follows_received_sandbox_changes() {
         use bevy_fynix::FynixPlugin;
         use hamlet_assets::Tuning;
@@ -534,7 +350,7 @@ mod tests {
         app.world_mut().entity_mut(session).insert(Usage(usage));
         app.init_resource::<Bar>()
             .init_resource::<crate::links::Aimed>()
-            .add_plugins(crate::needs::plugin)
+            .add_plugins(crate::petition::plugin)
             .add_systems(Update, update_status);
         app.update();
         bevy_fynix::mount::<crate::theme::HamletTheme>(

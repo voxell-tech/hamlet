@@ -23,15 +23,15 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
 use hamlet_client::ViewDir;
 use hamlet_client::messages::UserMessage;
-use hamlet_world::chief::{
+use hamlet_realm::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Light, Look, Player,
     Stands,
 };
-use hamlet_world::generator::society::Place as Ground;
-use hamlet_world::library::{Library, Stood};
-use hamlet_world::moving;
-use hamlet_world::palette::Palette;
-use hamlet_world::pick::{Selected, Thing, focus_on, select};
+use hamlet_realm::generator::society::Place as Ground;
+use hamlet_realm::library::{Library, Stood};
+use hamlet_realm::moving;
+use hamlet_realm::palette::Palette;
+use hamlet_realm::pick::{Selected, Thing, focus_on, select};
 
 use crate::feel::Mood;
 use crate::icons::Glyph;

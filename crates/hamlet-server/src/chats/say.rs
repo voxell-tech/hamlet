@@ -553,7 +553,7 @@ pub(super) async fn say(
             };
             let wait = wait.id.clone();
             let outcome = super::calls::answer_words(
-                service, harnesses, &wait, choice, text,
+                service, harnesses, &wait, choice, text, None,
             )
             .await?;
             return Ok(Some(match outcome {
@@ -570,7 +570,7 @@ pub(super) async fn say(
     {
         let wait = wait.id.clone();
         let outcome = super::calls::answer_words(
-            service, harnesses, &wait, "reply", &text,
+            service, harnesses, &wait, "reply", &text, None,
         )
         .await?;
         return Ok(Some(match outcome {

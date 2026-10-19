@@ -13,7 +13,7 @@ use hamlet_client::realm::{
     self as agents, Chief, Citizen, HOME, MAYOR, Mayor,
 };
 use hamlet_protocol::v0;
-use hamlet_world::pick::{Selected, Thing, select};
+use hamlet_realm::pick::{Selected, Thing, select};
 
 use crate::dock::show_tab;
 
@@ -284,8 +284,14 @@ pub(crate) mod tests {
             app.world_mut(),
             v0::ServerMessage::State(hamlet_testing::realm::state()),
         );
-        app.add_plugins((plugin, crate::roll::plugin));
-        app.init_resource::<bevy_fynix::dock::DockTree>();
+        app.add_plugins((
+            plugin,
+            crate::roll::plugin,
+            crate::asking::plugin,
+        ));
+        app.init_resource::<bevy_fynix::dock::DockTree>()
+            .init_resource::<crate::select::Selecting>()
+            .add_message::<crate::theme::ThemeChanged>();
         app
     }
 
@@ -364,7 +370,7 @@ pub(crate) mod tests {
         let first = app.world().resource::<Me>().session;
         *app.world_mut().resource_mut::<crate::world_menu::Open>() =
             crate::world_menu::Open::Menu(
-                hamlet_world::pick::Thing::Resident(founder),
+                hamlet_realm::pick::Thing::Resident(founder),
                 bevy::math::Vec2::ZERO,
             );
         bevy_fynix::mount::<crate::theme::HamletTheme>(

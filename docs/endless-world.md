@@ -2,7 +2,7 @@
 
 The land has no edge and can always take one more town, and a town or the
 chief's own place can be picked up and set down somewhere else. The code
-is `hamlet_world/src/generator/`.
+is `hamlet_realm/src/generator/`.
 
 `cargo run --release --example far_lands -- --out <dir>` draws the land,
 many towns and a town being moved to stills. `--bench` times it.
@@ -119,7 +119,7 @@ another. A kind of place needs four things:
    sites off it and lets the camera go to it.
 2. **A way to start a move**: `moving::pick_up`. The footprint, the
    colours, the words and the click are the same code for every kind.
-3. **A record**: an arm in `set_down` in `hamlet_world/src/orders.rs`.
+3. **A record**: an arm in `set_down` in `hamlet_realm/src/orders.rs`.
 4. **A way to show it going.** The house-by-house move is for towns.
 
 A claim only keeps towns away. The ground itself is held by `Land::hold`,

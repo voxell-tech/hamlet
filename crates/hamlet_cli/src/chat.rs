@@ -566,6 +566,9 @@ impl Screen {
             ItemKind::Error => {
                 self.line(&format!("\nerror: {}", item.text))?
             }
+            ItemKind::Answered => {
+                self.line(&format!("\n  chief:\n{}", item.text))?
+            }
             ItemKind::User => {}
         }
         Ok(())

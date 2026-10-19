@@ -1061,6 +1061,111 @@
             },
             "additionalProperties": false
         },
+        "Offer": {
+            "type": "object",
+            "required": [
+                "title",
+                "description"
+            ],
+            "properties": {
+                "title": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "Question": {
+            "type": "object",
+            "required": [
+                "question",
+                "description",
+                "options",
+                "text_input"
+            ],
+            "properties": {
+                "question": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Offer"
+                    },
+                    "maxItems": 6
+                },
+                "text_input": {
+                    "type": "boolean"
+                }
+            },
+            "additionalProperties": false
+        },
+        "Questions": {
+            "type": "object",
+            "required": [
+                "message",
+                "questions"
+            ],
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Question"
+                    },
+                    "minItems": 1,
+                    "maxItems": 10
+                }
+            },
+            "additionalProperties": false
+        },
+        "Pick": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "required": [
+                        "kind",
+                        "index"
+                    ],
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "const": "offer"
+                        },
+                        "index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 5
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "required": [
+                        "kind",
+                        "text"
+                    ],
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "const": "words"
+                        },
+                        "text": {
+                            "type": "string"
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            ]
+        },
         "Answer": {
             "type": "object",
             "required": [
@@ -1085,6 +1190,14 @@
                 },
                 "text": {
                     "type": "string"
+                },
+                "picks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Pick"
+                    },
+                    "minItems": 1,
+                    "maxItems": 10
                 }
             },
             "additionalProperties": false
@@ -2401,6 +2514,9 @@
                         },
                         "danger": {
                             "type": "null"
+                        },
+                        "questions": {
+                            "$ref": "#/$defs/Questions"
                         }
                     },
                     "additionalProperties": false
@@ -2995,7 +3111,8 @@
                         "reasoning",
                         "tool",
                         "notice",
-                        "error"
+                        "error",
+                        "answered"
                     ]
                 },
                 "text": {

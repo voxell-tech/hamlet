@@ -6,7 +6,7 @@ const MANIFESTS: [&str; 6] = [
     "Cargo.toml",
     "crates/hamlet_client/Cargo.toml",
     "crates/hamlet_protocol/Cargo.toml",
-    "crates/hamlet_world/Cargo.toml",
+    "crates/hamlet_realm/Cargo.toml",
     "crates/hamlet_ui/Cargo.toml",
     "crates/hamlet_desktop/Cargo.toml",
 ];

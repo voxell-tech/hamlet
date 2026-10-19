@@ -5,7 +5,7 @@ mascot that is them, and a magic that carries the mascot to whoever they
 talk to. The chief is a wizard, so the house wears a pointed hat, the
 mascot carries a bare flame, and its travel is a spell.
 
-The world's side is `hamlet_world/src/chief/`. The panel and the kept look
+The world's side is `hamlet_realm/src/chief/`. The panel and the kept look
 are `hamlet_ui/src/chief.rs`. `cargo run --example chief_sheet -- --out
 <dir>` draws all of it to stills.
 
@@ -76,5 +76,5 @@ laid out, and a look belongs to a person.
 
 ## Settings
 
-`ChiefSettings` in `hamlet_world/src/chief.rs`, from `assets/world.toml`.
+`ChiefSettings` in `hamlet_realm/src/chief.rs`, from `assets/world.toml`.
 The colours are in the world's palette.

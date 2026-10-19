@@ -22,7 +22,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         },
     );
     world.init_resource::<hamlet_desktop::awake::KeepAwake>();
-    world.init_resource::<hamlet_world::sky::Quality>();
+    world.init_resource::<hamlet_realm::sky::Quality>();
     if scene == Scene::Charter {
         world.insert_resource(settings::Charter {
             text: include_str!("../../../../assets/charter.md")

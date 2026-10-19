@@ -558,9 +558,9 @@ pub fn realm() -> AnyView {
             *world.resource_mut::<Part>() = Part::Realm;
             *world.resource_mut::<crate::overview::Page>() =
                 crate::overview::Page::Bylaws;
-            hamlet_world::pick::select(
+            hamlet_realm::pick::select(
                 world,
-                Some(hamlet_world::pick::Thing::Common(home)),
+                Some(hamlet_realm::pick::Thing::Common(home)),
             );
             crate::dock::show_tab(world, "agent");
         }),
@@ -803,7 +803,7 @@ mod tests {
     #[test]
     fn settings_points_to_home_without_retargeting_another_hamlets_edits()
      {
-        use hamlet_world::pick::{Also, Selected, Thing};
+        use hamlet_realm::pick::{Also, Selected, Thing};
 
         use crate::me::tests::press;
         let mut app = panel_app();

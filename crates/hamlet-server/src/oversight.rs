@@ -2,6 +2,7 @@
 //! faults, and questions, each kept until it is answered or lapses.
 
 use anyhow::{Context, Result};
+use hamlet_protocol::asking::Questions;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
@@ -31,6 +32,7 @@ pub(crate) struct Wait {
     /// The exact text the chief reads.
     pub about: String,
     pub change: Option<Value>,
+    pub questions: Option<Questions>,
     pub answers: Vec<String>,
     pub since: i64,
     /// Times it was asked while it waited.
@@ -46,6 +48,7 @@ pub(crate) struct Raising {
     pub agent: Option<AgentRef>,
     pub about: String,
     pub change: Option<Value>,
+    pub questions: Option<Questions>,
     pub answers: Vec<String>,
     pub chat: Option<ChatPlace>,
     pub call: Option<(RuntimeInstance, String)>,
@@ -104,6 +107,7 @@ pub(crate) fn raise_fault(
             agent: Some(agent),
             about,
             change: None,
+            questions: None,
             answers: vec!["dismiss".into()],
             chat,
             call: None,
@@ -113,15 +117,22 @@ pub(crate) fn raise_fault(
 }
 
 fn put(db: &Connection, raising: Raising, at: i64) -> Result<String> {
+    let questions = raising
+        .questions
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
     let same = db
         .query_row(
             "SELECT id FROM wait WHERE open = 1 AND kind = ?1 AND \
-             danger IS ?2 AND by = ?3 AND about = ?4",
+             danger IS ?2 AND by = ?3 AND about = ?4 AND questions \
+             IS ?5",
             params![
                 raising.kind,
                 raising.danger,
                 raising.by,
-                raising.about
+                raising.about,
+                questions,
             ],
             |row| row.get::<_, String>(0),
         )
@@ -146,8 +157,9 @@ fn put(db: &Connection, raising: Raising, at: i64) -> Result<String> {
                 "INSERT INTO wait (id, ordinal, kind, danger, by, \
                  hamlet, number, about, change, answers, since, \
                  asked, chat_hamlet, chat_number, chat_chief, \
-                 chat_session) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, \
-                 ?8, ?9, ?10, ?11, 1, ?12, ?13, ?14, ?15)",
+                 chat_session, questions) VALUES (?1, ?2, ?3, ?4, \
+                 ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12, ?13, ?14, \
+                 ?15, ?16)",
                 params![
                     id,
                     ordinal,
@@ -169,6 +181,7 @@ fn put(db: &Connection, raising: Raising, at: i64) -> Result<String> {
                         .transpose()?,
                     chat.map(|c| c.chief.clone()),
                     chat.map(|c| c.session),
+                    questions,
                 ],
             )?;
             id
@@ -303,7 +316,7 @@ pub(crate) fn ended(db: &Connection, id: &str) -> Result<String> {
 const WAIT: &str = "SELECT id, kind, danger, by, hamlet, number, \
                     about, change, answers, since, asked, \
                     chat_hamlet, chat_number, chat_chief, \
-                    chat_session FROM wait";
+                    chat_session, questions FROM wait";
 
 fn wait_row(
     row: &rusqlite::Row<'_>,
@@ -323,6 +336,7 @@ fn wait_row(
     let chat_number = row.get::<_, Option<i64>>(12)?;
     let chat_chief = row.get::<_, Option<String>>(13)?;
     let chat_session = row.get::<_, Option<i64>>(14)?;
+    let questions = row.get::<_, Option<String>>(15)?;
     Ok((|| {
         Ok(Wait {
             id,
@@ -339,6 +353,9 @@ fn wait_row(
             about,
             change: change
                 .map(|c| serde_json::from_str(&c))
+                .transpose()?,
+            questions: questions
+                .map(|q| serde_json::from_str(&q))
                 .transpose()?,
             answers: serde_json::from_str(&answers)?,
             since,
@@ -497,7 +514,7 @@ pub(crate) fn view(
     } else {
         Value::Null
     };
-    Ok::<_, anyhow::Error>(json!({
+    let mut view = json!({
         "id": wait.id,
         "kind": wait.kind,
         "danger": danger,
@@ -510,6 +527,10 @@ pub(crate) fn view(
         "since": wait.since,
         "asked": wait.asked,
         "chat": chat,
-    }))
-    .context("a wait's view")
+    });
+    if let Some(questions) = &wait.questions {
+        view["questions"] = serde_json::to_value(questions)
+            .context("a wait's questions")?;
+    }
+    Ok(view)
 }

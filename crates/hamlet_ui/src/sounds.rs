@@ -13,7 +13,7 @@ use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
 use hamlet_client::messages::{SessionOutput, UserMessage};
 use hamlet_protocol::v0;
-use hamlet_world::sound::{Cue, Sound};
+use hamlet_realm::sound::{Cue, Sound};
 
 use crate::chat::{ChatError, Unfolded};
 use crate::hover::Card;
@@ -160,7 +160,7 @@ fn failed(output: On<SessionOutput>, mut cues: MessageWriter<Cue>) {
 mod tests {
     use bevy::ecs::message::Messages;
     use bevy::math::Vec2;
-    use hamlet_world::pick::Thing;
+    use hamlet_realm::pick::Thing;
 
     use super::*;
 

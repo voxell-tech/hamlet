@@ -1,7 +1,7 @@
 //! The world in the window: the 3D scene drawn into a dock panel, the
 //! sky's hour.
 
-use bevy::app::{App, PreUpdate, Update};
+use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::asset::{Assets, RenderAssetUsages};
 use bevy::camera::{
     Camera, ImageRenderTarget, NormalizedRenderTarget, RenderTarget,
@@ -16,7 +16,8 @@ use bevy::ecs::system::{
     Commands, Local, Query, Res, ResMut, Single,
 };
 use bevy::ecs::world::World;
-use bevy::image::Image;
+use bevy::image::{Image, ToExtents};
+use bevy::math::UVec2;
 use bevy::picking::pointer::PointerLocation;
 use bevy::render::render_resource::{
     TextureDimension, TextureFormat, TextureUsages,
@@ -24,21 +25,25 @@ use bevy::render::render_resource::{
 use bevy::state::condition::in_state;
 use bevy::state::state::{OnEnter, OnExit};
 use bevy::ui::widget::ViewportNode;
-use bevy::ui::{Display, Node, Overflow, px};
+use bevy::ui::{Display, Node, Overflow, UiSystems, px};
 use bevy::window::{PrimaryWindow, Window};
 use bevy::winit::{UpdateMode, WinitSettings};
-use bevy_fynix::views::{BehaviorExt, frame};
+use bevy_fynix::ViewExt;
+use bevy_fynix::dock::DockWindowKind;
+use bevy_fynix::views::{BehaviorExt, FrameProps, column, frame};
 use chrono::Timelike;
 use hamlet_client::realm::Busy;
 use hamlet_client::waits::Waiting;
-use hamlet_world::bubble::Bubble;
-use hamlet_world::hand::Readout;
-use hamlet_world::needs::NeedTag;
-use hamlet_world::pick::{NameTag, Sign, WorldSurface};
-use hamlet_world::sky::SkySettings;
-use hamlet_world::{Hour, Stage, WorldCamera, WorldSystems};
+use hamlet_realm::bubble::Bubble;
+use hamlet_realm::hand::Readout;
+use hamlet_realm::needs::NeedTag;
+use hamlet_realm::pick::{NameTag, Sign, WorldSurface};
+use hamlet_realm::sky::SkySettings;
+use hamlet_realm::{Hour, Stage, WorldCamera, WorldSystems};
 
-use crate::looks::Fills;
+use crate::dock::PanelAppExt;
+use crate::icons::Glyph;
+use crate::looks::{Fills, ICON};
 use crate::window::WorldShown;
 use crate::{AnyView, Cx};
 
@@ -50,28 +55,38 @@ type WorldCameras<'w, 's> = Query<
 >;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<TimeOfDay>()
-        .insert_resource(hamlet_world::pick::NoNameTag)
-        .add_systems(
-            Update,
-            (
-                drive.before(WorldSystems),
-                pace.run_if(in_state(WorldShown)),
-                adopt_tags,
-                follow_scale,
-                hold_sky.before(WorldSystems),
-            ),
-        )
-        .add_systems(
-            PreUpdate,
-            match_pointer_target
-                .after(bevy::picking::pointer::PointerInput::receive)
-                .before(
-                    bevy::picking::backend::ray::RayMap::repopulate,
-                ),
-        )
-        .add_systems(OnEnter(WorldShown), draw)
-        .add_systems(OnExit(WorldShown), rest);
+    app.add_panel(
+        "world",
+        DockWindowKind::new("REALM", || {
+            column((view(),))
+                .fills_width()
+                .min_height(px(0.0))
+                .gap(0.0)
+                .boxed()
+        })
+        .icon(Glyph::Globe.image(ICON)),
+    )
+    .init_resource::<TimeOfDay>()
+    .insert_resource(hamlet_realm::pick::NoNameTag)
+    .add_systems(
+        Update,
+        (
+            drive.before(WorldSystems),
+            pace.run_if(in_state(WorldShown)),
+            adopt_tags,
+            follow_scale,
+            hold_sky.before(WorldSystems),
+        ),
+    )
+    .add_systems(
+        PreUpdate,
+        match_pointer_target
+            .after(bevy::picking::pointer::PointerInput::receive)
+            .before(bevy::picking::backend::ray::RayMap::repopulate),
+    )
+    .add_systems(PostUpdate, cap_picture.after(UiSystems::PostLayout))
+    .add_systems(OnEnter(WorldShown), draw)
+    .add_systems(OnExit(WorldShown), rest);
 }
 
 /// The camera that draws the world into the panel.
@@ -191,6 +206,32 @@ pub(crate) fn follow_scale(
     }
 }
 
+/// Keeps the world's picture no larger than the window. Bevy sizes it
+/// from the panel's layout, and a minimized window on Windows lays
+/// the panel out at a size far past what the GPU allows, which fails
+/// the bloom texture and every pass after it.
+pub(crate) fn cap_picture(
+    window: Single<&Window, With<PrimaryWindow>>,
+    target: Single<&RenderTarget, With<WorldCamera>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let Some(handle) = target.as_image() else {
+        return;
+    };
+    let Some(image) = images.get(handle) else {
+        return;
+    };
+    let most =
+        UVec2::new(window.physical_width(), window.physical_height())
+            .max(UVec2::ONE);
+    if image.size().cmpgt(most).any() {
+        let size = image.size().min(most);
+        if let Some(mut image) = images.get_mut(handle) {
+            image.resize(size.to_extents());
+        }
+    }
+}
+
 /// Gives the pointer forwarded into the world panel the camera's own
 /// target. Bevy forwards it as if the picture's scale were one, which
 /// names a target no camera has, and nothing in the world could be
@@ -248,8 +289,7 @@ pub fn view() -> AnyView {
 }
 
 /// Hangs every label placed in the camera's viewport off the panel
-/// that shows it. The panel is rebuilt when the layout changes, and
-/// is not there in the minimal view.
+/// that shows it.
 #[allow(clippy::type_complexity)]
 pub(crate) fn adopt_tags(
     mut commands: Commands,
@@ -266,8 +306,8 @@ pub(crate) fn adopt_tags(
     >,
     mut away: Local<Option<Entity>>,
 ) {
-    // With no panel to hang off, as in the minimal view, they are
-    // put away where nothing is drawn.
+    // With no panel to hang off, they are put away where nothing is
+    // drawn.
     let panel = panel.iter().next().unwrap_or_else(|| {
         *away.get_or_insert_with(|| {
             commands

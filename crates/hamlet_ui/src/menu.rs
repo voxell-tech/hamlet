@@ -21,16 +21,15 @@ use bevy_fynix::views::{
     overlay, popup, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, style};
-use hamlet_world::pick::{Orbit, Taken};
+use hamlet_realm::pick::{Orbit, Taken};
 
 use crate::feel::FootLight;
 use crate::icons::{Glyph, glyph};
 use crate::looks::ICON;
 use crate::platform::DisplayText;
 use crate::theme::HamletTheme;
-use crate::window::{self, Layout};
 use crate::world_view::TimeOfDay;
-use crate::{AnyView, Cx, View};
+use crate::{AnyView, Cx, View, window};
 
 /// The height of the menu bar.
 const BAR: f32 = 34.0;
@@ -211,10 +210,7 @@ fn item(
 fn items(menu: Menu, found: bool) -> Vec<AnyView> {
     match menu {
         Menu::App => {
-            let mut items =
-                vec![item(Glyph::Minimal, "Minimal View", |w| {
-                    window::set_layout(w, Layout::Minimal)
-                })];
+            let mut items = Vec::new();
             if found {
                 items.push(item(
                     Glyph::Plus,

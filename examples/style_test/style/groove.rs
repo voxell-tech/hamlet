@@ -2,11 +2,11 @@
 //! the uniforms for each state it can show.
 
 use bevy::prelude::*;
+use hamlet_realm::meshes::Mb;
+use hamlet_realm::sky::Looks;
 use hamlet_vfx::inlay::{
     InlayState, InlayUniform, LIT, current, fault, signal,
 };
-use hamlet_world::meshes::Mb;
-use hamlet_world::sky::Looks;
 
 use super::scene::Terrain;
 

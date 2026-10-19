@@ -10,9 +10,9 @@ use hamlet_client::messages::UserMessage;
 use hamlet_client::realm::{
     self as agents, Busy, HOME, Left, Mayor, Road, Settlement,
 };
-use hamlet_world::generator::society::Place as Ground;
-use hamlet_world::pick::{Also, Selected, Thing, focus_on, select};
-use hamlet_world::{moving, orders};
+use hamlet_realm::generator::society::Place as Ground;
+use hamlet_realm::pick::{Also, Selected, Thing, focus_on, select};
+use hamlet_realm::{moving, orders};
 
 use super::deed::Deed;
 use super::{Open, close, has, restore, stop};

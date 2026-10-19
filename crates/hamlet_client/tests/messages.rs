@@ -96,6 +96,72 @@ struct Observed {
 }
 
 #[test]
+fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
+ {
+    use hamlet_client::waits::Asks;
+    use hamlet_protocol::asking::Pick;
+    use serde_json::json;
+
+    let mut app = app();
+    let world = app.world_mut();
+    let mut initial = state();
+    let mut question = serde_json::to_value(wait("ask")).unwrap();
+    question["kind"] = json!("question");
+    question["danger"] = json!(null);
+    question["answers"] = json!(["reply", "dismiss"]);
+    question["questions"] = json!({"message": "Choose", "questions": [{
+        "question": "Which?", "description": "", "options": [
+            {"title": "Left", "description": ""}, {"title": "Right", "description": ""}
+        ], "text_input": false
+    }]});
+    initial.waits =
+        vec![serde_json::from_value(question.clone()).unwrap()];
+    receive(world, v0::ServerMessage::State(initial.clone()));
+    let entity =
+        world.query::<(Entity, &Asks)>().single(world).unwrap().0;
+    world.trigger(Answered {
+        entity,
+        picks: vec![Pick::Words("Left".into())],
+        chief: "untrusted".into(),
+    });
+    world.flush();
+    assert_eq!(world.resource::<Outbox>().iter().count(), 0);
+    world.trigger(Answered {
+        entity,
+        picks: vec![Pick::Offer(1)],
+        chief: "untrusted".into(),
+    });
+    world.flush();
+    let requests =
+        world.resource_mut::<Outbox>().drain().collect::<Vec<_>>();
+    let [v0::ClientMessage::Answer(answer)] = requests.as_slice()
+    else {
+        panic!("one typed answer")
+    };
+    assert_eq!(answer.wait, "ask");
+    assert_eq!(answer.text, None);
+    assert_eq!(
+        answer.picks,
+        Some(vec![v0::Pick::Offer { index: 1 }])
+    );
+    assert!(
+        !serde_json::to_string(&requests)
+            .unwrap()
+            .contains("untrusted")
+    );
+    // An older server's full state must remove stale question
+    // controls.
+    question.as_object_mut().unwrap().remove("questions");
+    initial.waits = vec![serde_json::from_value(question).unwrap()];
+    receive(world, v0::ServerMessage::State(initial.clone()));
+    assert!(world.get::<Asks>(entity).is_none());
+    assert!(world.get::<Waiting>(entity).is_some());
+    initial.waits.clear();
+    receive(world, v0::ServerMessage::State(initial));
+    assert!(world.get_entity(entity).is_err());
+}
+
+#[test]
 fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
  {
     let mut app = app();

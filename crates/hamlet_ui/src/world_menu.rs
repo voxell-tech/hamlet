@@ -25,8 +25,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::messages::Veto;
 use hamlet_client::realm::{self as agents, Deeds};
-use hamlet_world::orders;
-use hamlet_world::pick::{Asked, AskedGround, Thing};
+use hamlet_realm::orders;
+use hamlet_realm::pick::{Asked, AskedGround, Thing};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
@@ -276,8 +276,8 @@ mod tests {
     use hamlet_client::outbox::Outbox;
     use hamlet_client::realm::{HOME, Settlement};
     use hamlet_protocol::v0;
+    use hamlet_realm::pick::{Also, Selected};
     use hamlet_testing::realm;
-    use hamlet_world::pick::{Also, Selected};
 
     use super::*;
     use crate::me::tests::{panel_app, press, words};

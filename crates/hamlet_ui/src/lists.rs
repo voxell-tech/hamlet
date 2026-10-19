@@ -143,7 +143,7 @@ pub fn card(
 #[cfg(test)]
 mod tests {
     use hamlet_protocol::v0;
-    use hamlet_world::pick::{Selected, Thing};
+    use hamlet_realm::pick::{Selected, Thing};
 
     use super::*;
     use crate::me::tests::{panel_app, words};

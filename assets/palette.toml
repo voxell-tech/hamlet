@@ -1,5 +1,5 @@
 # The colours the world is made of. Each is "#rrggbb", or its parts as
-# numbers. The fields are in crates/hamlet_world/src/palette.rs.
+# numbers. The fields are in crates/hamlet_realm/src/palette.rs.
 
 limestone = "#c9b98f"
 limestone_shade = "#8f8468"

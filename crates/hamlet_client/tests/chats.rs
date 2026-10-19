@@ -701,6 +701,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
         ("reason", v0::ItemKind::Reasoning, "A reason"),
         ("notice", v0::ItemKind::Notice, "A notice"),
         ("error", v0::ItemKind::Error, "An error"),
+        ("answer", v0::ItemKind::Answered, "> Which?\nRight"),
     ] {
         let before =
             app.world().get::<Transcript>(chat).unwrap().shape();
@@ -725,6 +726,9 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     );
     assert!(
         matches!(&said.item("error").unwrap().entry, Entry::Error(text) if text == "An error")
+    );
+    assert!(
+        matches!(&said.item("answer").unwrap().entry, Entry::Answered(text) if text == "> Which?\nRight")
     );
     let shape = said.shape();
     receive(
@@ -754,7 +758,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     assert!(said.shape() > shape);
     assert!(said.item("reason").is_none());
     assert_eq!(said.items().last().unwrap().id, "replacement");
-    assert_eq!(said.items().len(), 4);
+    assert_eq!(said.items().len(), 5);
     let mut tool = item("tool", v0::ItemKind::Tool, "");
     tool.tool = Some(v0::ItemTool {
         name: "write".into(), summary: "file".into(), exit: None, ms: None, failure: None,

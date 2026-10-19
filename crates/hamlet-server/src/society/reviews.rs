@@ -326,6 +326,7 @@ pub(crate) async fn sweep(
                             }
                         ),
                         change: None,
+                        questions: None,
                         answers: if ended {
                             vec!["dismiss".into()]
                         } else {

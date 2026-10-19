@@ -4,8 +4,8 @@ use std::f32::consts::TAU;
 
 use bevy::prelude::*;
 use hamlet_assets::tint::hex;
-use hamlet_world::meshes::{Mb, Rng, noise2, smoothstep};
-use hamlet_world::palette::Palette;
+use hamlet_realm::meshes::{Mb, Rng, noise2, smoothstep};
+use hamlet_realm::palette::Palette;
 
 use super::scene::{Built, Terrain};
 

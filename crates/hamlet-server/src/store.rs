@@ -46,6 +46,8 @@ const MIGRATIONS: &[&str] = &[
     // calls have no recoverable request and cannot authorize a
     // replay.
     "ALTER TABLE gate_call ADD COLUMN digest BLOB;",
+    // 10. The normalized questions and allowed answers of a wait.
+    "ALTER TABLE wait ADD COLUMN questions TEXT;",
 ];
 
 /// A home's realm database, open in this process alone.

@@ -42,11 +42,21 @@ Rust crates live under `crates/`. The root package `hamlet` supplies
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
-| `hamlet_world` | Land, hamlets, houses, roads, robots, chief, sound and camera |
+| `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, sound and camera |
 | `hamlet_ui` | Panels, menus, chat and pointer |
 | `hamlet_vfx` | Visual effects |
 | `hamlet_testing` | Offline fixture values and scratch directories |
 | `hamlet_workspace` | Linux remote-workspace manager/worker reached through the server's workspace-v1 client |
+
+`RealmPlugin` in `hamlet_realm/src/lib.rs` adds the scene modules, then the
+generator, the chief's interactions and the bridge from client entities.
+Examples that only draw a scene add its module plugins themselves; the
+town generator also adds `generator::plugin` and an `Origin` for its seed.
+
+`hamlet_ui/src/screens/` groups the panels drawn from the client's state.
+`widgets/` groups their shared controls: `feel/`, `icons.rs`, `tabs.rs`,
+`platform.rs` and `tuning.rs`. The other panels live beside those folders;
+`theme.rs` and `looks.rs` define their appearance.
 
 ## The server
 
@@ -114,6 +124,8 @@ ordinary tools.
 | Typed commands, command replies | `hamlet-server/src/chats/say.rs`, `society.rs`, `realm/deeds.rs`; advertised deeds in `state.rs` |
 | Conversation stop/retry/resume/rewind | `hamlet-server/src/chats/deeds.rs` and `chats/follow.rs` |
 | Transcript rows, paging and peer watches | `hamlet-server/src/chats/fold.rs`, `chats/watch.rs`; `hamlet_client/src/chats.rs` |
+| Questions and their answer cards | `hamlet_protocol/src/asking.rs`, `hamlet-server/src/chats/calls.rs`, `hamlet_ui/src/asking.rs` |
+| Selecting, quoting and replying to chat text | `hamlet_ui/src/select.rs`, `screens/chat/quote.rs`, `screens/chat/reply.rs` |
 | Agent creation, model choice, departure and merge | `hamlet-server/src/society/agents.rs`, `leaving.rs`, `merging.rs`; rules in `record/` |
 | Letters, questions, votes and library | `hamlet-server/src/society/letters.rs`, `votes.rs`, `library.rs` |
 | Instructions and objections | `hamlet-server/src/society/objections.rs`, `reviews.rs` |
@@ -124,15 +136,15 @@ ordinary tools.
 | CLI process discovery | `hamlet_cli/src/process.rs`; [`cli.md`](cli.md) |
 | Protocol or generated types | `hamlet_protocol/schema/`, then `npm run schema` and `cargo run -p hamlet_protocol_gen`; [`protocol.md`](protocol.md) |
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs` |
-| A panel or right-click menu | `hamlet_ui/src/`, `world_menu/items.rs` |
-| Panels' colors, controls and icons | `assets/theme.toml`; `hamlet_ui/src/theme.rs`, `looks.rs`, `feel/`, `icons.rs` |
+| A panel or right-click menu | `hamlet_ui/src/screens/`, `world_menu/items.rs` |
+| Panels' colors, controls and icons | `assets/theme.toml`; `hamlet_ui/src/theme.rs`, `looks.rs`, `widgets/feel/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
-| Ground, houses and roads | `hamlet_world/src/generator/`; `LandData::surface` is the drawn surface |
-| Robot motion | `hamlet_world/src/keeper/acts/`; [`robots.md`](robots.md) |
-| Wizard, Hearth, camera or sound | `hamlet_world/src/chief/`, `pick/camera.rs`, `sound/` |
+| Ground, houses and roads | `hamlet_realm/src/generator/`; `LandData::surface` is the drawn surface |
+| Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
+| Wizard, Hearth, camera or sound | `hamlet_realm/src/chief/`, `pick/camera.rs`, `sound/` |
 | Window state or editor saves | `hamlet_ui/src/remember.rs`, `window.rs`, `saving.rs`; `hamlet_desktop/src/editor.rs` |
 
-`hamlet_world/src/hamlet.rs` bridges received entities to the generator's
+`hamlet_realm/src/hamlet.rs` bridges received entities to the generator's
 plots and roads. `Citizen` is an agent number in its hamlet, not a name.
 `chief.rs` names the wizard in the world and the chief's panel in the UI;
 `Chief` in `hamlet_client` is the server's chief identity. The window keeps

@@ -24,8 +24,8 @@ use bevy::window::{
     SystemCursorIcon,
 };
 use bevy_fynix::{EntityCursor, Theme};
-use hamlet_world::hand::{Grip, Hand};
-use hamlet_world::pick::{Hovered, Pressable, Steer, Taken, Thing};
+use hamlet_realm::hand::{Grip, Hand};
+use hamlet_realm::pick::{Hovered, Pressable, Steer, Taken, Thing};
 
 pub use self::art::{Inks, face, frames, hot, side};
 use crate::theme::{HamletTheme, Look};

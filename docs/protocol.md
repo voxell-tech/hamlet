@@ -101,7 +101,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `give` (`Give`) | `to: Address`, `skill: {starter: string}` | Give an installed starter skill; `reply`. |
 | `give` (`Give`) | `to: Address`, `skill: {from: Address, name: string}` | Copy another agent's named skill; `reply`. |
 | `give-part` (`GivePart`) | `upload: string`, `path: string`, `offset: integer`, `data: string` | Send base64 bytes at a byte offset in a declared file. `reply` acknowledges the chunk or completed gift. |
-| `answer` (`Answer`) | `wait: string`, `choice: Choice`, `text?: string` | Answer a wait; `reply`. |
+| `answer` (`Answer`) | `wait: string`, `choice: Choice`, `text?: string`, `picks?: Pick[]` | Answer a wait; `reply`. |
 | `stop` (`Stop`) | `agent?: Address` | Stop that agent's work, or all work if omitted; `reply`. |
 | `rewind` (`Rewind`) | `chat: ChatRef`, `item: string` | Take back a chief input and what followed. `reply` with kind `rewound` returns its words; watchers get a reset and replacement transcript. Refused while work is running or queued. |
 | `new` (`New`) | `to: Address` | Start a new numbered chief conversation; the previous queue can finish. `reply`. |
@@ -119,6 +119,30 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 `/new` and `/resume <number>` also exist as typed commands sent through
 `say`. They perform the same conversation changes as the `new` and `resume`
 messages. Both forms are part of the protocol.
+
+### Questions and answers
+
+A question wait may include `questions: Questions`: a `message` and a list
+of one to ten questions. Each question has `question`, `description`, up to
+six `options` (`title` and `description`), and `text_input`. A question with
+no options always accepts custom words. The optional payload is kept across
+server restarts and appears in both full state and wait updates. Older
+captures without it remain readable.
+
+Send `choice: "reply"` and `picks` in question order. Each pick is either
+`{kind: "offer", index: 0}` (zero-based option index) or
+`{kind: "words", text: "custom answer"}`. Every question needs one valid
+answer. Blank words, unavailable options and custom words when
+`text_input` is false are refused without closing the wait. Picks cannot
+accompany `text` or any choice other than `reply`. Plain `text` replies
+remain supported for a single question that accepts words, and for legacy
+waits without the structured payload. `dismiss` needs neither.
+
+The committed result of `ask_chief` produces a transcript item with kind
+`answered`, containing the chief's reply. Structured replies quote each
+question above its answer. Live ops and reopened history use the same item
+ID and text; a dismissed question produces no answered item. Known
+credentials are removed before questions or answers are stored or sent.
 
 ### Edit documents
 

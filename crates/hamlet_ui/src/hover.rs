@@ -33,9 +33,9 @@ use hamlet_client::realm::{
     MergedInto, Mode, Purpose, Roster, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
-use hamlet_world::chief::{Beside, Look};
-use hamlet_world::hand::Proud;
-use hamlet_world::pick::{Following, Hovered, Thing};
+use hamlet_realm::chief::{Beside, Look};
+use hamlet_realm::hand::Proud;
+use hamlet_realm::pick::{Following, Hovered, Thing};
 
 use crate::feel::FeelSettings;
 use crate::overview::standing;

@@ -1,6 +1,6 @@
 # Every tuning value of the world: sizes, speeds, timings and lights.
 # What each one means is written beside its field, in the module its
-# section tunes (crates/hamlet_world/src/settings.rs names them). A colour
+# section tunes (crates/hamlet_realm/src/settings.rs names them). A colour
 # is "#rrggbb" or its parts.
 
 [looks]

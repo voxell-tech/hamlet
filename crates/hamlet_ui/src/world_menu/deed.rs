@@ -16,7 +16,7 @@ use hamlet_client::messages::Rewind;
 use hamlet_client::realm::{
     self as agents, Busy, Citizen, Left, LivesIn, Settlement,
 };
-use hamlet_world::orders;
+use hamlet_realm::orders;
 
 use super::{close, has};
 use crate::feel::Mood;

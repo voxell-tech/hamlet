@@ -75,6 +75,8 @@ pub struct Answer {
     pub choice: Choice,
     pub id: RequestId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picks: Option<Vec<Pick>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     pub wait: String,
 }
@@ -507,6 +509,8 @@ pub enum ItemKind {
     Notice,
     #[serde(rename = "error")]
     Error,
+    #[serde(rename = "answered")]
+    Answered,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -756,6 +760,12 @@ pub struct New {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Offer {
+    pub description: String,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op")]
 pub enum Op {
     #[serde(rename = "add")]
@@ -850,6 +860,19 @@ pub enum Permission {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum Pick {
+    #[serde(rename = "offer")]
+    Offer {
+        index: i64,
+    },
+    #[serde(rename = "words")]
+    Words {
+        text: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Price {
     pub input: f64,
     pub output: f64,
@@ -862,6 +885,20 @@ pub struct ProviderView {
     pub label: String,
     pub methods: Vec<LoginMethod>,
     pub name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Question {
+    pub description: String,
+    pub options: Vec<Offer>,
+    pub question: String,
+    pub text_input: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Questions {
+    pub message: String,
+    pub questions: Vec<Question>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1311,6 +1348,8 @@ pub enum Wait {
         chat: Option<ChatRef>,
         danger: (),
         id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        questions: Option<Questions>,
         says: String,
         since: i64,
     },

@@ -10,8 +10,8 @@ use hamlet_client::{
     ClientPlugin, Connection, ServerAddress, Tokio, ViewDir,
 };
 use hamlet_desktop::DesktopPlugin;
+use hamlet_realm::RealmPlugin;
 use hamlet_ui::{UiPlugin, window_plugin};
-use hamlet_world::hamlet::HamletPlugin;
 
 const USAGE: &str = "\
 usage: hamlet-app [-h]
@@ -82,7 +82,7 @@ fn main() -> Result<()> {
     client(&mut app, |key| std::env::var(key).ok());
     let exit = app
         .add_plugins((
-            HamletPlugin,
+            RealmPlugin,
             UiPlugin,
             DesktopPlugin { window: true },
         ))

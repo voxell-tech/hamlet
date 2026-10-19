@@ -129,6 +129,24 @@ impl Fold {
                 failure,
                 change,
             });
+            if entry.tool.as_deref() == Some("ask_chief")
+                && let Some(text) =
+                    hamlet_protocol::asking::said(&entry.text)
+            {
+                self.add(
+                    Item {
+                        id: format!("{}:0", entry.entry),
+                        at: entry.at,
+                        kind: ItemKind::Answered,
+                        text: text.into(),
+                        author: None,
+                        chief: None,
+                        rewindable: None,
+                        tool: None,
+                    },
+                    None,
+                );
+            }
             return;
         }
         let answer = entry.kind == link::ItemKind::Assistant;

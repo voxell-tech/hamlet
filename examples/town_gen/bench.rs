@@ -4,12 +4,12 @@
 use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
-use hamlet_world::generator::land::Land;
-use hamlet_world::generator::noise::key;
-use hamlet_world::generator::society::Society;
-use hamlet_world::generator::{GenOptions, GenView, Tally, Traffic};
-use hamlet_world::sky::SkySettings;
-use hamlet_world::{Clock, Hour, Stage};
+use hamlet_realm::generator::land::Land;
+use hamlet_realm::generator::noise::key;
+use hamlet_realm::generator::society::Society;
+use hamlet_realm::generator::{GenOptions, GenView, Tally, Traffic};
+use hamlet_realm::sky::SkySettings;
+use hamlet_realm::{Clock, Hour, Stage};
 
 use crate::made_up::{effects, society};
 

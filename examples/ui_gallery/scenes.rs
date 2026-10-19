@@ -17,13 +17,10 @@ use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
 use hamlet_assets::Tuning;
+use hamlet_realm::sound::{Cue, SoundSettings};
 use hamlet_ui::history::History;
 use hamlet_ui::theme::{self, HamletTheme};
-use hamlet_ui::{
-    Bar, Roll, chat, chrome, feel, icons, inspector, links, menu,
-    needs, overview, pictures, platform, settings, welcome,
-};
-use hamlet_world::sound::{Cue, SoundSettings};
+use hamlet_ui::{Bar, Roll, asking, chrome, menu, select, welcome};
 
 use self::dock::{panels, seed_dock};
 use self::sample::{first_run, setup};
@@ -69,6 +66,9 @@ impl Plugin for GalleryPlugin {
             .insert_resource(first_run(self.0))
             .init_resource::<chrome::ChromeSettings>()
             .add_message::<Cue>()
+            // `theme::plugin` owns it; the gallery sets its theme by
+            // hand instead.
+            .add_message::<theme::ThemeChanged>()
             .add_systems(Startup, (setup, chrome::draw_marks))
             .add_systems(
                 PostStartup,
@@ -84,19 +84,11 @@ impl Plugin for GalleryPlugin {
                 ),
             )
             .add_plugins((
-                platform::plugin,
-                icons::plugin,
-                chat::plugin,
-                links::plugin,
-                pictures::plugin,
-                needs::plugin,
-                inspector::plugin,
-                overview::plugin,
-                settings::plugin,
                 hamlet_ui::secret::plugin,
-                feel::plugin,
-                hamlet_ui::tuning::plugin,
-                hamlet_ui::tabs::plugin,
+                hamlet_ui::widgets::plugin,
+                hamlet_ui::screens::plugin,
+                asking::plugin,
+                select::plugin,
             ));
     }
 }

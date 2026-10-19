@@ -255,11 +255,38 @@ export const Give = Type.Union([
 ]);
 export type Give = Static<typeof Give>;
 
+/** A named answer offered by a question. */
+export const Offer = object({
+    title: Type.String(),
+    description: Type.String(),
+});
+/** One question, its options, and whether custom words are allowed. */
+export const Question = object({
+    question: Type.String(),
+    description: Type.String(),
+    options: Type.Array(Offer, { maxItems: 6 }),
+    text_input: Type.Boolean(),
+});
+/** The questions of one ask_chief call. */
+export const Questions = object({
+    message: Type.String(),
+    questions: Type.Array(Question, { minItems: 1, maxItems: 10 }),
+});
+/** One answer, in question order. Option indexes start at zero. */
+export const Pick = Type.Union([
+    object({
+        kind: Type.Literal("offer"),
+        index: Type.Integer({ minimum: 0, maximum: 5 }),
+    }),
+    object({ kind: Type.Literal("words"), text: Type.String() }),
+]);
+
 /** A chief's answer to what waits (H11). */
 export const Answer = request("answer", {
     wait: Type.String(),
     choice: Choice,
     text: Type.Optional(Type.String()),
+    picks: Type.Optional(Type.Array(Pick, { minItems: 1, maxItems: 10 })),
 });
 export type Answer = Static<typeof Answer>;
 
@@ -611,6 +638,7 @@ export const Wait = Type.Union([
         ...waitFields,
         kind: Type.Literal("question"),
         danger: Type.Null(),
+        questions: Type.Optional(Questions),
     }),
     object({
         ...waitFields,
@@ -754,6 +782,7 @@ export const Item = object({
         "tool",
         "notice",
         "error",
+        "answered",
     ]),
     text: Type.String(),
     chief: Type.Optional(Type.String()),
@@ -990,6 +1019,10 @@ const DEFINITIONS: Record<string, TSchema> = {
     Say,
     Give,
     GivePart,
+    Offer,
+    Question,
+    Questions,
+    Pick,
     Answer,
     Stop,
     Rewind,

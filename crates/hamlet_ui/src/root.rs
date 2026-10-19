@@ -11,23 +11,21 @@ use bevy::ecs::schedule::common_conditions::on_message;
 use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
 use bevy::input_focus::tab_navigation::TabGroup;
-use bevy::state::state::State;
 use bevy::ui::{AlignItems, IsDefaultUiCamera, UiRect, percent, px};
 use bevy_fynix::dock::dock;
+use bevy_fynix::resource;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, row,
 };
-use bevy_fynix::{keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::v0;
 
 use crate::icons::Glyph;
-use crate::looks::{Fills, action, filling, hairline, note};
+use crate::looks::{Fills, action, hairline, note};
 use crate::platform::Glow;
 use crate::status::status_bar;
 use crate::theme::{HamletTheme, ThemeChanged};
-use crate::window::{self, Layout};
 use crate::{
     AnyView, Cx, View, chrome, hover, menu, welcome, world_menu,
 };
@@ -35,7 +33,6 @@ use crate::{
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<ConnectionTest>()
         .add_observer(checked)
-        .add_message::<ThemeChanged>()
         .add_systems(Startup, open)
         // Before anything this frame queues work on the panels it
         // would despawn.
@@ -71,19 +68,7 @@ fn root() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         cx.build(
             column((
-                keyed(
-                    resource::<State<Layout>, _>(|s| *s.get()),
-                    |layout| match layout {
-                        Layout::Full => {
-                            AnyView::new(|cx: &mut Cx| {
-                                let full = full(cx);
-                                cx.build(full)
-                            })
-                        }
-                        Layout::Minimal => window::minimal(),
-                    },
-                )
-                .within(filling()),
+                full(cx),
                 menu::open_menu(),
                 world_menu::view(),
                 crate::saving::screen(),
@@ -212,7 +197,7 @@ mod tests {
             .add_plugins(crate::chrome::plugin)
             .init_resource::<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>()
             .init_resource::<crate::links::Aimed>()
-            .init_resource::<crate::needs::Queue>()
+            .init_resource::<crate::petition::Queue>()
             .init_resource::<crate::status::Bar>()
             .init_resource::<crate::welcome::Welcome>();
         app.update();

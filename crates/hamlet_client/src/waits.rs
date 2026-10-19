@@ -3,8 +3,13 @@
 use std::time::Duration;
 
 use bevy_ecs::prelude::*;
+use hamlet_protocol::asking::Questions;
 use hamlet_protocol::v0;
 pub use v0::Choice;
+
+/// The questions of a received ask_chief call.
+#[derive(Component, Clone, Debug)]
+pub struct Asks(pub Questions);
 
 /// The reason a tool call needs approval.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,6 +156,10 @@ pub(crate) fn find(world: &mut World, id: &str) -> Option<Entity> {
 }
 
 pub(crate) fn upsert(world: &mut World, wait: v0::Wait) -> Entity {
+    let questions = match &wait {
+        v0::Wait::Question { questions, .. } => questions.clone(),
+        _ => None,
+    };
     let kind = match &wait {
         v0::Wait::Approval { danger, .. } => {
             Kind::Approval(danger.clone().into())
@@ -217,6 +226,11 @@ pub(crate) fn upsert(world: &mut World, wait: v0::Wait) -> Entity {
         .as_ref()
         .and_then(|agent| crate::realm::agent(world, agent));
     let mut entity = world.entity_mut(entity);
+    if let Some(questions) = questions {
+        entity.insert(Asks(questions.into()));
+    } else {
+        entity.remove::<Asks>();
+    }
     entity.insert(Waiting {
         id,
         kind,

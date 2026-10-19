@@ -1,6 +1,9 @@
 //! The mayor alone: chat, turns, tools, approvals, faults, stops,
 //! rewinds, sessions and paging.
 
+#[path = "mayor/asking.rs"]
+mod asking;
+
 use std::time::Duration;
 
 use hamlet_acceptance::realm::{wait_id, wait_says};

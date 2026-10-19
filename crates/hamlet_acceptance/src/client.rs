@@ -375,6 +375,7 @@ impl Client {
                 id,
                 text,
                 wait,
+                picks: None,
             })
         })
         .await

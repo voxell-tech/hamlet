@@ -143,6 +143,17 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                     text: "The key is by the mill door.".into(),
                 },
             });
+            items.push(Item {
+                id: "reply:0".into(),
+                at: 1_791_374_580_000,
+                entry: Entry::User {
+                    user: "chief".into(),
+                    text: "(Replying to Pip: \"The key is by the \
+                           mill door.\")\n\n> by the mill \
+                           door\nWrite that into the almanac."
+                        .into(),
+                },
+            });
             Transcript::from_items(items)
         }
         _ => conversation(&[

@@ -143,8 +143,8 @@ mod tests {
     fn founding_goes_to_the_first_mayor_even_from_another_chat() {
         let mut app = panel_app();
         app.add_plugins(super::super::plugin)
-            .init_resource::<hamlet_world::pick::Asked>()
-            .init_resource::<hamlet_world::pick::AskedGround>();
+            .init_resource::<hamlet_realm::pick::Asked>()
+            .init_resource::<hamlet_realm::pick::AskedGround>();
         let mut state = realm::state();
         state.deeds = Some(vec!["found".into()]);
         state.agents.push(realm::agent("home", 1, "scout"));

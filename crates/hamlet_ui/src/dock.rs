@@ -7,7 +7,6 @@ use bevy::app::{App, Update};
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{ComputedNode, Overflow, UiRect, px};
-use bevy_fynix::ViewExt;
 use bevy_fynix::dock::{
     DockArea, DockAreaStyle, DockLeaf, DockNode, DockRegistry,
     DockTree, DockWindowKind, Edge, NodeId, SplitAxis,
@@ -15,14 +14,10 @@ use bevy_fynix::dock::{
 use bevy_fynix::views::{BehaviorExt, FrameProps, column};
 
 use crate::feel::Lit;
-use crate::icons::Glyph;
-use crate::looks::{Fills, ICON};
+use crate::looks::Fills;
 use crate::platform::{ClipInside, Glow};
 use crate::theme::HamletTheme;
-use crate::{
-    AnyView, Cx, View, inspector, needs, remember, settings,
-    world_view,
-};
+use crate::{AnyView, Cx, View, remember};
 
 /// The least width a panel keeps, in logical pixels.
 const LEAST: f32 = 300.0;
@@ -32,6 +27,29 @@ pub(crate) const NEEDS_SHARE: f32 = 0.2;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(Update, keep_wide);
+}
+
+/// Registers a panel's dock window from its own plugin.
+pub(crate) trait PanelAppExt {
+    fn add_panel(
+        &mut self,
+        id: &str,
+        kind: DockWindowKind<HamletTheme>,
+    ) -> &mut Self;
+}
+
+impl PanelAppExt for App {
+    fn add_panel(
+        &mut self,
+        id: &str,
+        kind: DockWindowKind<HamletTheme>,
+    ) -> &mut Self {
+        self.init_resource::<DockRegistry<HamletTheme>>();
+        self.world_mut()
+            .resource_mut::<DockRegistry<HamletTheme>>()
+            .register(id, kind);
+        self
+    }
 }
 
 /// A dock panel's contents.
@@ -132,59 +150,6 @@ pub(crate) fn keep_wide(
 
 /// The world in the centre, and the working panels as tabs beside it.
 pub(crate) fn seed(world: &mut World) {
-    let mut registry =
-        world.resource_mut::<DockRegistry<HamletTheme>>();
-    registry.register(
-        "world",
-        DockWindowKind::new("REALM", || {
-            column((world_view::view(),))
-                .fills_width()
-                .min_height(px(0.0))
-                .gap(0.0)
-                .boxed()
-        })
-        .icon(Glyph::Globe.image(ICON)),
-    );
-    registry.register(
-        "needs",
-        DockWindowKind::new("PETITIONS", || {
-            lit_panel(
-                needs::screen(),
-                Lit {
-                    alarm: true,
-                    flash: false,
-                },
-            )
-        })
-        .icon(Glyph::Bell.image(ICON)),
-    );
-    registry.register(
-        "agent",
-        DockWindowKind::new("INSPECTOR", || {
-            lit_panel(
-                inspector::screen(),
-                Lit {
-                    alarm: false,
-                    flash: true,
-                },
-            )
-        })
-        .icon(Glyph::Lens.image(ICON)),
-    );
-    // Closed until asked for from the View menu or a tab bar's plus.
-    registry.register(
-        "skills",
-        DockWindowKind::new("SKILLS", || {
-            panel(inspector::skills_screen())
-        })
-        .icon(Glyph::Book.image(ICON)),
-    );
-    registry.register(
-        "settings",
-        DockWindowKind::new("SETTINGS", || panel(settings::screen()))
-            .icon(Glyph::Sliders.image(ICON)),
-    );
-
     if remember::restore(world) {
         return;
     }

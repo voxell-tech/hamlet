@@ -1,28 +1,20 @@
 //! The command center (I4): a Bevy and fynix window on the client's
 //! state.
 
-pub mod chat;
+pub mod asking;
 mod chief;
 pub mod chrome;
 pub mod cursor;
 mod dock;
-pub mod feel;
 mod folder;
 pub mod history;
 mod hover;
-pub mod icons;
-pub mod inspector;
-pub mod links;
 pub mod lists;
 mod looks;
 mod markdown;
 mod me;
 pub mod menu;
 pub mod models;
-pub mod needs;
-pub mod overview;
-pub mod pictures;
-pub mod platform;
 mod remember;
 mod roll;
 mod root;
@@ -30,13 +22,13 @@ mod saving;
 pub mod secret;
 
 pub mod rules;
-pub mod settings;
+pub mod screens;
+pub mod select;
 mod sounds;
 mod status;
-pub mod tabs;
 pub mod theme;
-pub mod tuning;
 pub mod welcome;
+pub mod widgets;
 mod window;
 mod world_menu;
 mod world_view;
@@ -47,8 +39,7 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::state::state::OnEnter;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::{Bevy, FynixPlugin};
-use hamlet_client::ViewDir;
-use hamlet_world::pick::Selected;
+use hamlet_realm::pick::Selected;
 
 pub use self::dock::{lit_panel, panel};
 pub use self::looks::{
@@ -57,8 +48,12 @@ pub use self::looks::{
 pub use self::me::Me;
 pub use self::roll::Roll;
 pub use self::root::toolbar;
+pub use self::screens::{
+    chat, inspector, links, overview, petition, pictures, settings,
+};
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
+pub use self::widgets::{feel, icons, platform, tabs, tuning};
 pub use self::window::window_plugin;
 
 /// The context a view of the window is built in.
@@ -87,22 +82,17 @@ pub(crate) fn with_cx<V: View>(
     })
 }
 
-/// The app's panels, added after the client's plugin, a [`ViewDir`],
-/// the world's plugin and Bevy's default plugins set with
-/// [`window_plugin`].
+/// The app's panels, added after the client's plugin, a
+/// [`hamlet_client::ViewDir`], the world's plugin and Bevy's default
+/// plugins set with [`window_plugin`].
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(me::plugin);
-        let view = &app.world().resource::<ViewDir>().0;
-        let size = window::saved_size(view);
         app.add_plugins((
+            me::plugin,
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
-        ))
-        .insert_resource(window::FullSize(size))
-        .add_plugins((
             (
                 roll::plugin,
                 root::plugin,
@@ -116,28 +106,20 @@ impl Plugin for UiPlugin {
                 remember::plugin,
             ),
             (
-                inspector::plugin,
-                overview::plugin,
+                screens::plugin,
                 chief::plugin,
                 folder::plugin,
                 rules::plugin,
                 models::plugin,
-                chat::plugin,
-                links::plugin,
-                pictures::plugin,
-                needs::plugin,
+                asking::plugin,
+                select::plugin,
                 history::plugin,
-                settings::plugin,
                 welcome::plugin,
             ),
             (world_view::plugin, world_menu::plugin, hover::plugin),
             (
                 theme::plugin,
-                tuning::plugin,
-                tabs::plugin,
-                platform::plugin,
-                icons::plugin,
-                feel::plugin,
+                widgets::plugin,
                 cursor::plugin,
                 sounds::plugin,
             ),

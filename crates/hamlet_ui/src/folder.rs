@@ -16,8 +16,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_client::realm::{Mode, Works};
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
-use hamlet_world::pick::{Thing, select};
-use hamlet_world::works::Switched;
+use hamlet_realm::pick::{Thing, select};
+use hamlet_realm::works::Switched;
 
 use crate::View;
 use crate::feel::Mood;

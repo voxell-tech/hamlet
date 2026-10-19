@@ -1,7 +1,7 @@
 # The chat
 
 An agent's watched conversation, its rows and the links and pictures they
-hold. The drawing is `hamlet_ui/src/chat/` and `markdown/`. The client
+hold. The drawing is `hamlet_ui/src/screens/chat/` and `markdown/`. The client
 transcript is `hamlet_client/src/chats.rs`; the server keeps the
 conversations through pi-durable. [Protocol v0](protocol.md) describes the
 wire messages, watch rules and page boundaries; this page covers the window.
@@ -101,6 +101,70 @@ was not applied says so with the reason. An edit that waits for the chief
 in manual mode shows the same view in Needs You. A change made by a shell
 command is not shown.
 
+## Replying
+
+A message can answer another, to say which one it is about.
+
+**In the window.** Every message that has words carries a small mark,
+shown while the pointer is on its row. A click puts "Replying to" and
+the start of the message over the field, with a cross to drop it. The
+next message sent is the reply. A reply begun in one chat is dropped
+when another chat is opened.
+
+**What is sent.** The reply is part of the message's own words: a first
+line that names the message it answers, its words as a JSON string, and
+the words of the reply after a blank line:
+
+```
+(Replying to Mayor: "Paper or ebook?\nBoth ship soon.")
+
+Paper.
+```
+
+So the model reads what is answered, and the log, a rewind and a replay
+need nothing new. At most `reply_chars` characters of the message are
+carried (`[chat]` in `assets/ui.toml`). The chief's own bubble draws the
+first line as one dim line, the speaker and the start of the words, and
+only the words after it as the message. A rewind to a reply puts what
+it answered back over the field.
+
+## Quoting
+
+A line the chief types that opens with `> ` is a quote, as in the chat
+apps: the bubble draws it dim beside a bar. It is no more than words,
+with nothing behind it, and the model reads it as a Markdown quote.
+Shift+Enter starts a new line in the field, and the field grows with its
+lines, so a quote can be followed by the chief's own words.
+
+## Selecting words
+
+Any text of the panels is selected where it is drawn, as on a web page:
+a press and a drag, a double-click for a word, a triple-click for a line.
+`hamlet_ui/src/select.rs` holds it. An `Area` is selected as one across
+all its text: the words of a message, and every Markdown document, so a
+drag runs across the paragraphs, lists and code blocks of a reply or of
+the Notes page. Any other text is selected on its own. What a button, a
+field, a menu row or anything with a pointer of its own holds is left to
+it, and a field selects its own words as Bevy's text box does.
+
+Bevy draws text but does not select it, so the selection is made with
+what Bevy keeps of each text node: the parley layout of its words
+(`ComputedTextBlock::buffer`). Parley's `Selection` finds the words under
+the pointer and the boxes they fill. Bevy also breaks that layout at
+other widths while it measures, so it is broken again at the width the
+node is drawn at before it is read.
+
+What is selected is lit, in `chosen` of the palette, on one layer over
+the panels, under a dragged tab, the menus and the tooltips, and cut to
+what clips the text. Selectable text shows the text cursor. Cmd+C copies
+it, Cmd+A selects the whole area and Esc lets it go. The parts of nodes
+on one line, such as a bullet and its item, are joined with a space, and
+those on different lines with a line. The room a bubble keeps for its
+hour is never selected. In the chat, QUOTE, at the end of what is lit,
+puts the words in the field as `> ` lines with a line after them for the
+chief's own words. A press anywhere else, or another chat, lets the
+selection go. A plain click on a link still follows it.
+
 ## Rewind
 
 A conversation can be taken back to before one of the chief's messages.
@@ -150,6 +214,63 @@ size it is shown at. A picture too large to decode safely is refused.
 row that names it shares it. One that is shown is never dropped. Those no
 row shows are kept up to `picture_memory` bytes, the oldest dropped first.
 The limits are `[chat]` in `assets/ui.toml`.
+
+## Questions to the chief
+
+An agent asks the chief with `ask_chief`, and its turn waits for the
+answer. One call holds every question the agent has, so a skill that
+grills the chief asks them all at once:
+
+```json
+{"message": "Before I plan the shelf.",
+ "questions": [
+   {"question": "Paper or ebook?",
+    "description": "Shipping depends on it.",
+    "options": [{"title": "Paper", "description": "Three days"},
+                {"title": "Ebook"}],
+    "text_input": true}]}
+```
+
+A call has 1 to 10 questions, and a question at most 6 options with
+titles of its own. `description` is optional on a question and on an
+option. `text_input` lets the chief answer in words of their own and is
+true unless the agent says otherwise; a question with no options always
+takes words. A call of the older form, `{"question": "..."}`, is one
+question that takes words. `hamlet_protocol/src/asking.rs` reads and
+checks a call, and a call it refuses tells the agent why.
+
+**Where it is answered.** One card, `hamlet_ui/src/asking.rs`, is shown
+in Needs You and over the field of the chat with the agent that asked,
+and both read the same answers, so what is begun in one stands in the
+other. The card shows one question at a time, with "1 of 3" and the way
+between them at its head. The options are a list of rows, each with its
+letter, its title and its description, and the one picked is lit. A
+line under them, Other, takes words. Each question takes one option or
+words, not both, and picking an option moves on to the next question.
+SUBMIT, on the last question, sends the answers when each question has
+one, and otherwise shows the first without one. DISMISS tells the agent
+to go on with its best judgement.
+
+**The answer is the chief's reply.** The agent is given it as words, each
+question quoted over the option picked or the words typed:
+
+```
+The chief answers:
+> Paper or ebook?
+Paper
+```
+
+A line typed to the agent in the chat or the terminal still answers the
+whole card at once, as `The chief answers: ...`. The tool's description
+tells the agent not to write the questions in its reply too, and to take
+them as answered. In the chat the answer is a bubble of the chief's own,
+`Entry::Answered`, made from the `ask_chief` result both as it comes and
+when the log is read back. It has no mark to rewind to, since it is a
+tool's answer and not a message of the log. A card dismissed shows
+nothing.
+
+`[asking] questions` in `limits.toml` counts the calls of one turn, not
+the questions in them.
 
 ## What it costs
 

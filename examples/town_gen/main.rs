@@ -23,14 +23,17 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 use bevy::winit::WinitSettings;
-use hamlet_world::WorldSystems;
-use hamlet_world::debug::DebugSettings;
-use hamlet_world::generator::land::Land;
-use hamlet_world::generator::society::Society;
-use hamlet_world::generator::{
-    GenPlugin, GenView, Loading, Phase, Tally,
+use hamlet_realm::debug::DebugSettings;
+use hamlet_realm::generator::land::Land;
+use hamlet_realm::generator::society::Society;
+use hamlet_realm::generator::{
+    self, GenView, Loading, Origin, Phase, Tally,
 };
-use hamlet_world::sound::SoundSettings;
+use hamlet_realm::sound::SoundSettings;
+use hamlet_realm::{
+    WorldSystems, debug, keeper, palette, play, settings, sky, sound,
+    stage, stock,
+};
 
 use self::bench::{
     BenchRun, MainTime, main_began, main_ended, run_bench,
@@ -78,34 +81,48 @@ fn main() {
     println!("  Esc  quit");
 
     let mut app = App::new();
-    app.add_plugins((
-        DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "hamlet: town generator".into(),
-                resolution: WindowResolution::new(1360, 860)
-                    .with_scale_factor_override(scale),
-                present_mode: if bench {
-                    PresentMode::AutoNoVsync
-                } else {
-                    PresentMode::AutoVsync
-                },
+    app.insert_resource(Origin { seed, ..default() })
+        .add_plugins((
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "hamlet: town generator".into(),
+                    resolution: WindowResolution::new(1360, 860)
+                        .with_scale_factor_override(scale),
+                    present_mode: if bench {
+                        PresentMode::AutoNoVsync
+                    } else {
+                        PresentMode::AutoVsync
+                    },
+                    ..default()
+                }),
                 ..default()
             }),
+            // The scene and the generator, without the chief and the
+            // core's hamlets.
+            (
+                settings::plugin,
+                palette::plugin,
+                play::plugin,
+                sound::plugin,
+                debug::plugin,
+                sky::plugin,
+                stage::plugin,
+                keeper::plugin,
+                stock::plugin,
+            ),
+            generator::plugin,
+        ))
+        .insert_resource(effects(
+            &std::env::var("TOWN_FX").unwrap_or_default(),
+        ))
+        .insert_resource(DebugSettings {
+            shown: std::env::var("TOWN_DEBUG").is_ok(),
             ..default()
-        }),
-        GenPlugin { seed, ..default() },
-    ))
-    .insert_resource(effects(
-        &std::env::var("TOWN_FX").unwrap_or_default(),
-    ))
-    .insert_resource(DebugSettings {
-        shown: std::env::var("TOWN_DEBUG").is_ok(),
-        ..default()
-    })
-    .init_resource::<Hand>()
-    .insert_resource(WinitSettings::continuous())
-    .add_systems(Startup, (spawn_hud, first_world))
-    .add_systems(Update, hud);
+        })
+        .init_resource::<Hand>()
+        .insert_resource(WinitSettings::continuous())
+        .add_systems(Startup, (spawn_hud, first_world))
+        .add_systems(Update, hud);
 
     if let Some(dir) = shots {
         app.insert_resource(ShotRun::into(dir)).add_systems(

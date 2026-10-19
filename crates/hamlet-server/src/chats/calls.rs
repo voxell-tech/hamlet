@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
+use hamlet_protocol::asking::{self, Pick};
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -175,8 +176,21 @@ pub(crate) async fn prepared(
 pub(crate) fn specs() -> Vec<ToolSpec> {
     let parameters = json!({
         "type": "object",
-        "properties": {"question": {"type": "string"}},
-        "required": ["question"],
+        "properties": {
+            "message": {"type": "string"},
+            "question": {"type": "string"},
+            "questions": {"type": "array", "minItems": 1, "maxItems": asking::MOST_QUESTIONS,
+                "items": {"type": "object", "properties": {
+                    "question": {"type": "string"},
+                    "description": {"type": "string"},
+                    "options": {"type": "array", "maxItems": asking::MOST_OPTIONS,
+                        "items": {"anyOf": [{"type": "string"}, {"type": "object", "properties": {
+                            "title": {"type": "string"}, "description": {"type": "string"}},
+                            "required": ["title"]}]}},
+                    "text_input": {"type": "boolean", "description": "Allow custom words. Defaults to true."}},
+                    "required": ["question"]}}
+        },
+        "anyOf": [{"required": ["questions"]}, {"required": ["question"]}],
     });
     vec![ToolSpec {
         name: "ask_chief".into(),
@@ -665,6 +679,7 @@ async fn decide(
             agent: Some(place.agent.clone()),
             about,
             change,
+            questions: None,
             answers: if danger == "destructive"
                 || danger == "reserved"
             {
@@ -1209,8 +1224,9 @@ fn ask(
     let db = service.home.store().connection();
     let row = db
         .query_row(
-            "SELECT wait, how, text, block FROM gate_call WHERE \
-             runtime = ?1 AND key = ?2",
+            "SELECT wait, how, text, block, (SELECT questions IS \
+             NOT NULL FROM wait WHERE id = gate_call.wait) FROM \
+             gate_call WHERE runtime = ?1 AND key = ?2",
             params![runtime.as_str(), key],
             |row| {
                 Ok((
@@ -1218,17 +1234,23 @@ fn ask(
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, Option<String>>(2)?,
                     row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<bool>>(4)?.unwrap_or(false),
                 ))
             },
         )
         .optional()?;
-    if let Some((_, _, _, Some(words))) = &row {
+    if let Some((_, _, _, Some(words), _)) = &row {
         return Ok(Answer::Refusal(words.clone()));
     }
     // A row with no wait is the gate's allowing, before the question.
-    if let Some((Some(_), how, text, _)) = &row {
+    if let Some((Some(_), how, text, _, structured)) = &row {
         match how.as_deref() {
             Some("reply") => {
+                if *structured {
+                    return answered(
+                        text.as_deref().unwrap_or_default(),
+                    );
+                }
                 return answered(&format!(
                     "The chief answers: {}",
                     text.clone().unwrap_or_default()
@@ -1270,23 +1292,28 @@ fn ask(
             "No chief oversees this turn; go on with what you know.",
         );
     }
-    let question = arguments
-        .get("question")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim()
-        .to_owned();
-    if question.is_empty() {
-        return answered("Say what in `question`.");
-    }
+    let questions =
+        match asking::read(&serde_json::to_string(arguments)?) {
+            Ok(questions) => questions,
+            Err(why) => return answered(&why),
+        };
+    let mut questions = serde_json::to_value(questions)?;
+    service.credentials.scrub(&mut questions);
+    let questions =
+        serde_json::from_value::<asking::Questions>(questions)?;
     let limits = service.limits_of(&place.agent.hamlet)?;
     let most = limits["asking"]["questions"].as_i64().unwrap_or(3);
     let db = service.home.store().connection();
     let mut asked = Asked::of(db, binding, input)?;
     if asked.questions >= most {
+        let times = if most == 1 {
+            "once".into()
+        } else {
+            format!("{most} times")
+        };
         return answered(&format!(
-            "You have asked the chief {most} questions this turn; \
-             go on with what you know."
+            "You have asked the chief {times} this turn; go on with \
+             what you know."
         ));
     }
     asked.questions += 1;
@@ -1315,8 +1342,9 @@ fn ask(
             danger: None,
             by: wait_by(&record, &place.agent),
             agent: Some(place.agent.clone()),
-            about: question,
+            about: questions.about(),
             change: None,
+            questions: Some(questions),
             answers: vec!["reply".into(), "dismiss".into()],
             chat: chat_of(&place),
             call: Some((runtime.clone(), key.into())),
@@ -1527,6 +1555,7 @@ pub(super) async fn answer_words(
     id: &str,
     choice: &str,
     text: &str,
+    picks: Option<&[hamlet_protocol::v0::Pick]>,
 ) -> Result<std::result::Result<String, String>> {
     let db = service.home.store().connection();
     let Some(wait) = oversight::find(db, id)? else {
@@ -1551,7 +1580,48 @@ pub(super) async fn answer_words(
             oversight::strip(&wait)
         )));
     }
-    let mut words = Value::String(text.into());
+    let text = if let Some(picks) = picks {
+        if choice != "reply" || !text.is_empty() {
+            return Ok(Err("Use picks only for a reply, without \
+                           text."
+                .into()));
+        }
+        let Some(questions) = &wait.questions else {
+            return Ok(Err("This wait does not take structured \
+                           answers."
+                .into()));
+        };
+        let picks = match picks
+            .iter()
+            .cloned()
+            .map(Pick::try_from)
+            .collect::<std::result::Result<Vec<_>, _>>()
+        {
+            Ok(picks) => picks,
+            Err(why) => return Ok(Err(why)),
+        };
+        match questions.answer(&picks) {
+            Ok(answer) => answer,
+            Err(why) => return Ok(Err(why)),
+        }
+    } else if choice == "reply" {
+        if text.trim().is_empty() {
+            return Ok(Err("Say what to reply.".into()));
+        }
+        if let Some(questions) = &wait.questions {
+            match questions.answer(&[Pick::Words(text.into())]) {
+                Ok(_) => {
+                    format!("{} {}", asking::ANSWERS, text.trim())
+                }
+                Err(why) => return Ok(Err(why)),
+            }
+        } else {
+            text.to_owned()
+        }
+    } else {
+        text.to_owned()
+    };
+    let mut words = Value::String(text);
     service.credentials.scrub(&mut words);
     let text = words.as_str().unwrap_or_default().trim().to_owned();
     let chief = service.chief.clone();
@@ -1983,8 +2053,8 @@ mod tests {
         .unwrap();
         // Reconstruct the version-8 schema on disposable data.
         db.execute_batch(
-            "ALTER TABLE gate_call DROP COLUMN digest; PRAGMA \
-             user_version = 8;",
+            "ALTER TABLE wait DROP COLUMN questions; ALTER TABLE \
+             gate_call DROP COLUMN digest; PRAGMA user_version = 8;",
         )
         .unwrap();
         service.home.close().unwrap();
@@ -2012,7 +2082,7 @@ mod tests {
             db.query_row("PRAGMA user_version", [], |row| row
                 .get::<_, i64>(0))
                 .unwrap(),
-            9
+            10
         );
         assert_eq!(
             db.query_row(

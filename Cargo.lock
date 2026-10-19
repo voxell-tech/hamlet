@@ -3283,10 +3283,10 @@ dependencies = [
  "hamlet_client",
  "hamlet_desktop",
  "hamlet_protocol",
+ "hamlet_realm",
  "hamlet_testing",
  "hamlet_ui",
  "hamlet_vfx",
- "hamlet_world",
  "serde_json",
  "tokio",
  "toml",
@@ -3408,6 +3408,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_realm"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bevy",
+ "chrono",
+ "hamlet_assets",
+ "hamlet_client",
+ "hamlet_protocol",
+ "hamlet_testing",
+ "hamlet_vfx",
+ "libc",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "hamlet_testing"
 version = "0.1.0"
 dependencies = [
@@ -3426,9 +3444,10 @@ dependencies = [
  "hamlet_client",
  "hamlet_desktop",
  "hamlet_protocol",
+ "hamlet_realm",
  "hamlet_testing",
- "hamlet_world",
  "image",
+ "parley",
  "pulldown-cmark",
  "reqwest",
  "serde",
@@ -3471,24 +3490,6 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "uuid",
-]
-
-[[package]]
-name = "hamlet_world"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "bevy",
- "chrono",
- "hamlet_assets",
- "hamlet_client",
- "hamlet_protocol",
- "hamlet_testing",
- "hamlet_vfx",
- "libc",
- "serde",
- "serde_json",
- "toml",
 ]
 
 [[package]]

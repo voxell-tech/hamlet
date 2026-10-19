@@ -3,7 +3,7 @@
 use bevy::ecs::world::World;
 use hamlet_client::realm::Settlement;
 use hamlet_protocol::v0;
-use hamlet_world::pick::{Selected, Thing};
+use hamlet_realm::pick::{Selected, Thing};
 
 use crate::scenes::Scene;
 

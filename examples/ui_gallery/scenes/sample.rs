@@ -15,8 +15,8 @@ use bevy::ecs::world::World;
 use hamlet_client::chats::{Chat, Status, Usage};
 use hamlet_client::{ViewDir, realm};
 use hamlet_protocol::v0;
+use hamlet_realm::pick::{Also, Selected, Thing};
 use hamlet_ui::Me;
-use hamlet_world::pick::{Also, Selected, Thing};
 pub(super) use welcome::first_run;
 
 use super::Scene;
@@ -82,11 +82,11 @@ pub(super) fn setup(world: &mut World) {
         history::setup(world, scene == Scene::Reading);
     }
     if scene == Scene::Chief {
-        let chief = hamlet_world::chief::arrive(
+        let chief = hamlet_realm::chief::arrive(
             world,
             "wren",
-            hamlet_world::chief::Look {
-                hat: hamlet_world::chief::Hat::Hood,
+            hamlet_realm::chief::Look {
+                hat: hamlet_realm::chief::Hat::Hood,
                 ..Default::default()
             },
         );

@@ -21,7 +21,7 @@ hamlet_protocol_gen = { version = "0.1.0", path = "crates/hamlet_protocol_gen" }
 hamlet_desktop = { version = "0.1.0", path = "crates/hamlet_desktop" }
 hamlet_assets = { version = "0.1.0", path = "crates/hamlet_assets" }
 hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
-hamlet_world = { version = "0.1.0", path = "crates/hamlet_world" }
+hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
 
@@ -31,6 +31,8 @@ bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
 # bevy
 bevy_app = { version = "0.19", default-features = false, features = ["std"] }
 bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
+# `system_clipboard` has copy and paste in a text box use the system's
+# clipboard, not one inside the app.
 bevy = { version = "0.19", default-features = false, features = ["2d", "3d", "ui", "mesh_picking", "default_platform", "system_clipboard", "bevy_audio", "bevy_dev_tools", "debug", "serialize"] }
 bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
 
@@ -43,6 +45,9 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 interprocess = "2"
 keyring = "4"
 libc = "0.2"
+# The text layout Bevy's text is built on, for selecting drawn words.
+# Held to the version `bevy_text` uses, so its layouts are this crate's.
+parley = { version = "0.9", default-features = false, features = ["std"] }
 process-wrap = { version = "10.0.1", features = ["tokio1"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
@@ -96,7 +101,7 @@ hamlet_assets.workspace = true
 hamlet_client.workspace = true
 hamlet_desktop.workspace = true
 hamlet_ui.workspace = true
-hamlet_world.workspace = true
+hamlet_realm.workspace = true
 anyhow.workspace = true
 bevy.workspace = true
 bevy_app.workspace = true

@@ -888,6 +888,42 @@ it("checks an edited JSON value directly with the wire edit's diagnostics and co
     });
 });
 
+it("accepts typed picks and rejects ambiguous or out-of-bounds pick shapes", () => {
+    const answer = {
+        type: "answer",
+        id: ID,
+        wait: "question",
+        choice: "reply",
+    };
+    expect(
+        parseClient(JSON.stringify({ ...answer, text: "legacy words" })).ok,
+    ).toBe(true);
+    expect(
+        parseClient(
+            JSON.stringify({
+                ...answer,
+                picks: [
+                    { kind: "offer", index: 1 },
+                    { kind: "words", text: "custom" },
+                ],
+            }),
+        ).ok,
+    ).toBe(true);
+    for (const picks of [
+        [],
+        [{ kind: "offer", index: -1 }],
+        [{ kind: "offer", index: 6 }],
+        [{ kind: "offer", index: 0.5 }],
+        [{ kind: "offer", index: 1, text: "extra" }],
+        [{ kind: "words", text: 9 }],
+        Array.from({ length: 11 }, () => ({ kind: "words", text: "x" })),
+    ]) {
+        expect(parseClient(JSON.stringify({ ...answer, picks })).ok).toBe(
+            false,
+        );
+    }
+});
+
 it("folds streamed text into a durable replacement without changing its source op", () => {
     const items: Item[] = [];
     const status = { working: false, pending: 0 };

@@ -52,3 +52,4 @@ picture_height = 360.0
 picture_wait = 120.0
 picture_bytes = 20_000_000
 picture_memory = 64_000_000
+reply_chars = 600

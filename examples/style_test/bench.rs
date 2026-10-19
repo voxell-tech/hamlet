@@ -6,9 +6,9 @@ use bevy::diagnostic::{
     DiagnosticsStore, FrameTimeDiagnosticsPlugin,
 };
 use bevy::prelude::*;
+use hamlet_realm::Clock;
+use hamlet_realm::keeper::KState;
 use hamlet_vfx::inlay::InlayState;
-use hamlet_world::Clock;
-use hamlet_world::keeper::KState;
 
 use crate::show::{Sets, Show};
 use crate::style::demo::{Demo, View};

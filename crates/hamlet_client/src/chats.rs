@@ -292,6 +292,7 @@ fn received_item(item: v0::Item, chief: &str) -> Item {
         v0::ItemKind::Reasoning => Entry::Reasoning(item.text),
         v0::ItemKind::Notice => Entry::Notice(item.text),
         v0::ItemKind::Error => Entry::Error(item.text),
+        v0::ItemKind::Answered => Entry::Answered(item.text),
         v0::ItemKind::Tool => {
             let tool = item.tool.unwrap_or(v0::ItemTool {
                 name: String::new(),
@@ -397,6 +398,8 @@ pub enum Entry {
     },
     Error(String),
     Notice(String),
+    /// The chief's answers, with each question quoted above them.
+    Answered(String),
     Agent {
         name: String,
         text: String,
@@ -443,6 +446,7 @@ impl Transcript {
                         | Entry::Assistant(shown)
                         | Entry::Reasoning(shown)
                         | Entry::Notice(shown)
+                        | Entry::Answered(shown)
                         | Entry::Error(shown) => shown.push_str(text),
                         Entry::Tool { .. } => {}
                     }

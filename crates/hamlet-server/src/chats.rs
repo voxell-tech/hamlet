@@ -201,6 +201,7 @@ pub(crate) async fn converse(
                     &answer.wait,
                     choice.as_str().unwrap_or_default(),
                     answer.text.as_deref().unwrap_or_default(),
+                    answer.picks.as_deref(),
                 )
                 .await?
                 .map_err(Refusal::Invalid),

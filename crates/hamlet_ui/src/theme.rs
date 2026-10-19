@@ -151,6 +151,9 @@ pub struct Palette {
     /// The plate under code in a reply.
     #[serde(with = "tint")]
     pub plate: Color,
+    /// Words selected in a message, lit behind them.
+    #[serde(with = "tint")]
+    pub chosen: Color,
     /// The warmth that gathers at the foot of a surface.
     #[serde(with = "tint")]
     pub hearth: Color,

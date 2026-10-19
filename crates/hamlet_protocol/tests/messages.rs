@@ -96,6 +96,7 @@ fn chief_requests_carry_addresses_ids_and_choices() {
             wait: "wait-1".into(),
             choice: Choice::Allow,
             text: None,
+            picks: None,
         }),
         json!({"type": "answer", "id": ID, "wait": "wait-1", "choice": "allow"}),
     );
@@ -105,6 +106,7 @@ fn chief_requests_carry_addresses_ids_and_choices() {
             wait: "wait-1".into(),
             choice: Choice::Reply,
             text: Some("Yes".into()),
+            picks: None,
         }),
         json!({"type": "answer", "id": ID, "wait": "wait-1", "choice": "reply", "text": "Yes"}),
     );

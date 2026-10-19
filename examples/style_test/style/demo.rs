@@ -1,9 +1,9 @@
 //! The scene as the keys and the stills set it.
 
 use bevy::prelude::*;
+use hamlet_realm::Stage;
+use hamlet_realm::keeper::KState;
 use hamlet_vfx::inlay::InlayState;
-use hamlet_world::Stage;
-use hamlet_world::keeper::KState;
 
 /// The camera's subject.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]

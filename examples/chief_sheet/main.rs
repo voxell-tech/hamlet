@@ -20,17 +20,19 @@ use hamlet_client::realm::{
     Citizen, Consulted, HOME, Lived, LivesIn, Mayor, Settlement,
     Treasury,
 };
-use hamlet_world::chief::mascot::Doing;
-use hamlet_world::chief::{
+use hamlet_realm::chief::mascot::Doing;
+use hamlet_realm::chief::{
     self, Beside, ChiefSettings, Cloak, Hat, Holds, Light, Look,
     Mascot, Phase, Place, Settled,
 };
-use hamlet_world::generator::{Loading, Robot};
-use hamlet_world::hamlet::{HamletPlugin, Housed};
-use hamlet_world::library::{Librarian, Library, Stood};
-use hamlet_world::pick::{Centre, Glide, Orbit};
-use hamlet_world::sky::{CameraSettings, SkySettings};
-use hamlet_world::{Clock, Hour, Stage, WorldCamera, WorldSystems};
+use hamlet_realm::generator::{Loading, Robot};
+use hamlet_realm::hamlet::Housed;
+use hamlet_realm::library::{Librarian, Library, Stood};
+use hamlet_realm::pick::{Centre, Glide, Orbit};
+use hamlet_realm::sky::{CameraSettings, SkySettings};
+use hamlet_realm::{
+    Clock, Hour, RealmPlugin, Stage, WorldCamera, WorldSystems,
+};
 
 use self::offscreen::Target;
 
@@ -255,7 +257,7 @@ fn main() {
     let view = hamlet_testing::Scratch::new("chief-sheet-view");
     let mut app = App::new();
     app.insert_resource(ViewDir(view.to_path_buf()))
-        .add_plugins((offscreen::plugins(SIZE), HamletPlugin));
+        .add_plugins((offscreen::plugins(SIZE), RealmPlugin));
     Target::insert(&mut app, SIZE, 1.0);
     app.insert_resource(Sheet {
         out,
