@@ -94,4 +94,20 @@ impl Manifest {
             _ => Vec::new(),
         }
     }
+
+    /// Whether `capability` has targets chosen as the plugin runs,
+    /// besides those [`targets`](Self::targets) names: the folders
+    /// of `fs.folder`, and for `plugin.use` the plugins that
+    /// implement an interface imported from any plugin.
+    pub fn chosen_at_run_time(&self, capability: Capability) -> bool {
+        match capability {
+            Capability::FsFolder => true,
+            Capability::PluginUse => self
+                .imports
+                .interfaces
+                .iter()
+                .any(|imported| imported.from.is_empty()),
+            _ => false,
+        }
+    }
 }

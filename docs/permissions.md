@@ -40,8 +40,11 @@ others can be asked for, shown and chosen.
 `plugin/name`, and of `fs.folder` a folder the chief chose, once for reading
 (`read:<folder>`) and once for writing (`write:<folder>`). The first three are what
 the manifest's `imports` name, so Settings has a control for each plugin or
-collection a plugin imports; it also has one for each target the chief answered for,
-which is how a folder shows. The ask may carry a `scope` that lists the targets
+collection a plugin imports. Where the targets are chosen as the plugin runs, it
+also has one for each target the chief answered for: each folder of `fs.folder`,
+and each plugin of `plugin.use` while the manifest imports an interface from any
+plugin (`Manifest::chosen_at_run_time`). An answer for a target the manifest no
+longer names is not shown. The ask may carry a `scope` that lists the targets
 it can be chosen for (`scope = ["notes"]`); a target outside it is refused. An
 ask with no scope is limited only by the imports. The chief's choice for the
 capability as a whole stays at Ask next time, or is Don't allow, which refuses

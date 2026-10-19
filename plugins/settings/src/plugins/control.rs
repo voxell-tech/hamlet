@@ -22,8 +22,9 @@ pub(super) struct Target {
 }
 
 /// The choices for each target `capability` is chosen for one by
-/// one: those `manifest` names, then those the chief answered for
-/// besides, such as a folder chosen in a dialog.
+/// one: those `manifest` names, then, where its targets are chosen
+/// as the plugin runs, those the chief answered for besides, such as
+/// a folder chosen in a dialog.
 pub(super) fn targets(
     manifest: Option<&Manifest>,
     choices: &Choices,
@@ -32,8 +33,14 @@ pub(super) fn targets(
     let mut names = manifest
         .map(|manifest| manifest.targets(capability))
         .unwrap_or_default();
+    // An answer for a target the manifest no longer names is stale.
+    let at_run_time = manifest
+        .map_or(capability == Capability::FsFolder, |manifest| {
+            manifest.chosen_at_run_time(capability)
+        });
     for (held, name, _) in choices.answered_targets() {
-        if *held == capability && !names.contains(name) {
+        if at_run_time && *held == capability && !names.contains(name)
+        {
             names.push(name.clone());
         }
     }
@@ -128,4 +135,52 @@ pub(super) fn target(
         parts.push(note(words).boxed());
     }
     column(parts).gap(4.0).boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_sdk::capability::{Capability, Choice, Choices};
+    use hamlet_sdk::plugin::{Imported, Manifest};
+
+    use super::targets;
+
+    #[test]
+    fn an_answer_the_manifest_does_not_name_shows_only_where_targets_are_chosen_at_run_time()
+     {
+        let choices = Choices::default()
+            .decided_for(
+                Capability::PluginUse,
+                "tides",
+                Choice::Allow,
+                false,
+            )
+            .decided_for(
+                Capability::FsFolder,
+                "read:/notes",
+                Choice::Allow,
+                false,
+            );
+        let names = |manifest: &Manifest, capability| {
+            targets(Some(manifest), &choices, capability)
+                .into_iter()
+                .map(|target| target.name)
+                .collect::<Vec<_>>()
+        };
+        let mut manifest = Manifest::built_in("harbour");
+
+        assert!(names(&manifest, Capability::PluginUse).is_empty());
+        assert_eq!(
+            names(&manifest, Capability::FsFolder),
+            ["read:/notes"]
+        );
+        manifest.imports.interfaces.push(Imported {
+            name: "tide-table".into(),
+            from: Vec::new(),
+            functions: Vec::new(),
+        });
+        assert_eq!(
+            names(&manifest, Capability::PluginUse),
+            ["tides"]
+        );
+    }
 }
