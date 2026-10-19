@@ -239,9 +239,12 @@ reaches the GPU: the host draws what it describes.
    from where the world's camera sees its anchor, and hidden while the anchor is not in sight.
    A tag in the top left corner of the panel, "Drawn by Surveyor", names every plugin that
    draws, so the chief knows whose marks they are. Nothing a plugin gives reaches the GPU
-   but as the panels' own nodes. Boxes, lines and words in the theme's colours can still be
-   laid out to look like the world's own bubbles, name tags or a question put to the chief:
-   the tag is all that tells them apart, and nothing keeps marks off those places yet.
+   but as the panels' own nodes. The marks, the tag and the names over plugins' scenes are a
+   layer under the world's own labels (`ZIndex(-1)`), and a mark or a scene's name that lies
+   over a NEEDS YOU tag is hidden while it does, so a plugin cannot cover a question put to
+   the chief. Boxes, lines and words in the theme's colours can still be laid out to look
+   like the world's own bubbles or name tags elsewhere: the tag is all that tells them
+   apart.
 3. **A scene in the world, built by the host.** `build(scene)` of the `render` interface
    replaces what the plugin builds in the world with a tree of nodes about a site, and a scene
    with no nodes takes it away. The site is named as an overlay's anchor is: an agent's robot,

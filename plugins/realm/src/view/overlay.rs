@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use bevy::text::FontSize;
 use bevy::ui::UiSystems;
 use hamlet_realm::label::Lens;
+use hamlet_realm::needs::NeedTag;
 use hamlet_realm::survey::Whereabouts;
 use hamlet_realm_api::overlay::{
     Anchor, Form, Mark, Overlays, Paint,
@@ -107,6 +108,8 @@ fn marks(
             Pinned(mark.clone()),
             node,
             UiTransform::default(),
+            // Under the host's own tags and names.
+            ZIndex(-1),
             Pickable::IGNORE,
             Visibility::Hidden,
         ));
@@ -142,6 +145,9 @@ fn tag(commands: &mut Commands, by: &[String], palette: &Palette) {
         },
         BackgroundColor(palette.black.with_alpha(0.85)),
         BorderColor::all(palette.seam),
+        // Over the marks, spawned before it, and under the host's
+        // tags that ask for the chief.
+        ZIndex(-1),
         Pickable::IGNORE,
         children![(
             Text::new(format!("Drawn by {}", by.join(", "))),
@@ -163,17 +169,25 @@ fn colour(paint: &Paint, palette: &Palette) -> Color {
 }
 
 /// Keeps each mark where its anchor is seen this frame, and hides one
-/// whose anchor is not in sight.
+/// whose anchor is not in sight or that lies over a tag that asks for
+/// the chief.
+#[allow(clippy::type_complexity)]
 fn place(
     lens: Lens,
     whereabouts: Whereabouts,
+    tags: Query<
+        (&Node, &ComputedNode, &Visibility),
+        (With<NeedTag>, Without<Pinned>),
+    >,
     mut marks: Query<(
         &Pinned,
         &mut Node,
         &mut UiTransform,
         &mut Visibility,
+        &ComputedNode,
     )>,
 ) {
+    let asking = asking(tags.iter());
     let (camera, view) = lens.camera();
     let seen = |anchor: &Anchor| {
         let point = match anchor {
@@ -191,7 +205,9 @@ fn place(
         }?;
         camera.world_to_viewport(&view, point).ok()
     };
-    for (pinned, mut node, mut turn, mut visibility) in &mut marks {
+    for (pinned, mut node, mut turn, mut visibility, computed) in
+        &mut marks
+    {
         let Mark {
             anchor,
             offset,
@@ -213,8 +229,56 @@ fn place(
             continue;
         };
         put(&mut node, &mut turn, form, start, end);
-        visibility.set_if_neq(Visibility::Inherited);
+        let size = computed.size() * computed.inverse_scale_factor();
+        let reach = match form {
+            Form::Rect { w, h } => Some(Rect::from_corners(
+                start,
+                start + Vec2::new(*w, *h),
+            )),
+            Form::Circle { r } => Some(Rect::from_center_half_size(
+                start,
+                Vec2::splat(*r),
+            )),
+            Form::Line { width, .. } => Some(
+                Rect::from_corners(start, end).inflate(width / 2.0),
+            ),
+            // Words not yet measured stay hidden until they are.
+            Form::Text { .. } => (size != Vec2::ZERO)
+                .then(|| Rect::from_corners(start, start + size)),
+        };
+        let shown =
+            reach.is_some_and(|reach| !covers(&asking, reach));
+        visibility.set_if_neq(match shown {
+            true => Visibility::Inherited,
+            false => Visibility::Hidden,
+        });
     }
+}
+
+/// The boxes of the tags that ask for the chief and are shown, in the
+/// pixels of the world's panel.
+pub(super) fn asking<'a>(
+    tags: impl Iterator<
+        Item = (&'a Node, &'a ComputedNode, &'a Visibility),
+    >,
+) -> Vec<Rect> {
+    tags.filter(|(.., shown)| **shown != Visibility::Hidden)
+        .filter_map(|(node, computed, _)| {
+            let (Val::Px(left), Val::Px(top)) = (node.left, node.top)
+            else {
+                return None;
+            };
+            let corner = Vec2::new(left, top);
+            let size =
+                computed.size() * computed.inverse_scale_factor();
+            Some(Rect::from_corners(corner, corner + size))
+        })
+        .collect()
+}
+
+/// Whether `reach` lies over any of the boxes `asking`.
+pub(super) fn covers(asking: &[Rect], reach: Rect) -> bool {
+    asking.iter().any(|tag| !tag.intersect(reach).is_empty())
 }
 
 /// Places the node of `form` from `start`, with the far end of a line

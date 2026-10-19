@@ -14,6 +14,7 @@ use bevy::text::FontSize;
 use bevy::transform::TransformSystems;
 use bevy::ui::UiSystems;
 use hamlet_realm::label::Lens;
+use hamlet_realm::needs::NeedTag;
 use hamlet_realm::survey::Whereabouts;
 use hamlet_realm_api::scene::{
     Anchor, Finish, Lamp, Material as Paint, PluginScene, SceneMesh,
@@ -22,6 +23,7 @@ use hamlet_realm_api::scene::{
 use hamlet_sdk::plugin::PluginInfo;
 use hamlet_sdk::theme::Themed;
 
+use super::overlay;
 use super::shader::{self, PluginMaterial, ShadersOff};
 
 /// The gap between a scene and its name over it, in pixels.
@@ -525,6 +527,9 @@ fn tag(
         },
         BackgroundColor(palette.black.with_alpha(0.85)),
         BorderColor::all(palette.seam),
+        // Its words are the plugin's, so it is under the host's own
+        // tags, as its marks are.
+        ZIndex(-1),
         Pickable::IGNORE,
         Visibility::Hidden,
         children![(
@@ -585,10 +590,16 @@ fn place(
 }
 
 /// Keeps the name of each scene over it where the world's camera sees
-/// it, and hides it while the scene is not in sight.
+/// it, and hides it while the scene is not in sight or the name lies
+/// over a tag that asks for the chief.
+#[allow(clippy::type_complexity)]
 fn name(
     lens: Lens,
     roots: Query<(&Stage, &Transform, &Visibility), Without<Named>>,
+    tags: Query<
+        (&Node, &ComputedNode, &Visibility),
+        (With<NeedTag>, Without<Named>),
+    >,
     mut names: Query<(
         &Named,
         &ComputedNode,
@@ -596,6 +607,7 @@ fn name(
         &mut Visibility,
     )>,
 ) {
+    let asking = overlay::asking(tags.iter());
     let (camera, view) = lens.camera();
     for (named, computed, mut node, mut visibility) in &mut names {
         let seen =
@@ -619,6 +631,12 @@ fn name(
             node.left = left;
             node.top = top;
         }
-        visibility.set_if_neq(Visibility::Inherited);
+        let reach = Rect::from_corners(corner, corner + size);
+        visibility.set_if_neq(
+            match overlay::covers(&asking, reach) {
+                true => Visibility::Hidden,
+                false => Visibility::Inherited,
+            },
+        );
     }
 }
