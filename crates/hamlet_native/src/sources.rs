@@ -1,5 +1,6 @@
-//! The hash of the source files of the SDK and the contract, which
-//! the build script writes into the contract. Shared with `build.rs`.
+//! The hash of the source files of the contract, the SDK and the
+//! path crates under it, which the build script writes into the
+//! contract. Shared with `build.rs`.
 
 use std::io;
 use std::path::{Path, PathBuf};

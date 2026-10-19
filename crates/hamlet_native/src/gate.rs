@@ -66,7 +66,8 @@ pub fn check(host: &Info, found: &Info) -> Result<(), Mismatch> {
     }
     if host.sources != found.sources {
         return mismatch(
-            "SDK sources (hamlet_sdk, hamlet_native)",
+            "SDK sources (hamlet_native, hamlet_sdk, hamlet_base, \
+             hamlet_assets, bevy_fynix)",
             host.sources.to_string(),
             found.sources.to_string(),
         );

@@ -126,8 +126,9 @@ pub struct Info {
     pub profile: String,
     /// The hash of the lock entries of the engine crates.
     pub fingerprint: u64,
-    /// The hash of the source files of `hamlet_sdk` and
-    /// `hamlet_native`.
+    /// The hash of the source files of `hamlet_native`,
+    /// `hamlet_sdk`, `hamlet_base`, `hamlet_assets` and
+    /// `bevy_fynix`.
     pub sources: u64,
     /// The hash of the identities of the types that cross over.
     pub types: u64,

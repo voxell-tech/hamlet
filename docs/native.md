@@ -115,10 +115,13 @@ then a change to `Abi` is caught by its layout, not by a new version.
    lock above the target folder, or the file `HAMLET_LOCK` names, and fails
    the build when there is none; a lock with none of those packages is
    hashed whole;
-6. a hash of the sources of `hamlet_sdk` and `hamlet_native`: every file
-   under their `src`, by its path there and its bytes, in the order of the
-   paths. An edit of either, a comment too, changes it, so a library built
-   against the SDK before the edit is refused (`SDK sources`);
+6. a hash of the sources of `hamlet_native`, `hamlet_sdk` and the path
+   crates under the SDK, `hamlet_base`, `hamlet_assets` and `bevy_fynix`
+   (in `vendor/fynix`): every file under their `src`, by its path there and
+   its bytes, a crate after the other in that order and the files of each
+   in the order of their paths. An edit of any of them, a comment too,
+   changes it, so a library built against the SDK before the edit is
+   refused (`SDK sources`);
 7. a hash of the identities (`TypeId`) of `App`, `World`, the SDK's `Entry`
    and `Declared`.
 
