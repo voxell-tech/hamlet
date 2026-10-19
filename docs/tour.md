@@ -52,7 +52,7 @@ table. The binary and the examples are the root package.
 | `hamlet_sandbox` | Per-platform process sandboxes |
 | `hamlet_model` | The model client, its settings, the catalogue of models, the session log |
 | `hamlet_home` | A home on disk: its layout, charter and prompt, the chief's limits, the starter skills |
-| `hamlet_base` | What every layer shares: `HomeDir`, the home the app opened, `Tokio`, the runtime background work runs on, `Busy`, the mark of an agent at work, and the rules of a plugin's names (`plain`, `joinable`) |
+| `hamlet_base` | What every layer shares: `HomeDir`, the home the app opened, `Tokio`, the runtime background work runs on, `Busy`, the mark of an agent at work, the rules of a plugin's names (`plain`, `joinable`), and the places of a repository neither an agent nor a plugin may write (`locked`) |
 | `hamlet_rules` | The hamlet's record and the rules over it. Plain files and functions, no Bevy |
 | `hamlet_core` | The runtime: agents, sessions, tools and oversight, each module with the `plugin` of its own systems. No rendering |
 | `hamlet_desktop` | The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder and file dialogs and the app's icon |

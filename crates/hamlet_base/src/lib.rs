@@ -1,5 +1,8 @@
 //! What every layer shares: the home the app opened, the runtime
-//! background work runs on, and the rules of a plugin's names.
+//! background work runs on, the rules of a plugin's names, and the
+//! places of a repository no one may write.
+
+use std::path::Path;
 
 use bevy_ecs::component::Component;
 use bevy_ecs::resource::Resource;
@@ -32,6 +35,22 @@ pub fn joinable(name: &str) -> bool {
         && !name.contains(JOIN)
         && !name.starts_with('_')
         && !name.ends_with('_')
+}
+
+/// Whether `rel`, a path under a folder of the chief's, is one of the
+/// places of a git repository that hold what git later runs:
+/// `.git/hooks` and what is in it, and `.git/config`, in any case.
+/// Neither an agent nor a plugin may write there.
+pub fn locked(rel: &Path) -> bool {
+    let parts = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+        .collect::<Vec<_>>();
+    parts.windows(2).enumerate().any(|(i, pair)| {
+        pair[0] == ".git"
+            && (pair[1] == "hooks"
+                || pair[1] == "config" && i + 2 == parts.len())
+    })
 }
 
 /// `text` as one plain line: control characters become spaces and

@@ -279,13 +279,24 @@ use fs.folder for `write:/Users/you/notes`"), or to Don't allow.
   a folder that is there; no folder is made.
 - Reading and listing need the target for reading, a write the target for writing.
   A write then waits for the chief in Needs You ("Herald asks to write `tides.md`
-  in /Users/you/notes (10 bytes). Allow it?", with the start of the text), as an
-  agent's edit does in a hamlet in manual mode, unless the folder is in the folder
-  of a hamlet the chief set to auto. Every write done is noted in the open chat
-  with the plugin's name ("Herald (herald) wrote in the folder notes").
-- `folder_file_bytes`, `folder_list_entries`, `folder_path_bytes` and
-  `folder_calls_in_flight` in `assets/wasm.toml` limit it; the I/O runs off the
-  frame.
+  in /Users/you/notes (10 bytes). Allow it?", with the start of the text in a
+  fenced block of plain lines, so the text cannot pass for Hamlet's own words), as
+  an agent's edit does in a hamlet in manual mode, unless the folder is in the
+  folder of a hamlet the chief set to auto. A write to a path with a name that
+  starts with `.` (`.vscode/tasks.json`, `.cargo/config.toml`) is always put to
+  the chief, auto or not, and `.git/hooks` and `.git/config` are refused, as an
+  agent's own tools refuse them (`hamlet_base::locked`). Every write done is noted
+  in the open chat with the plugin's name ("Herald (herald) wrote in the folder
+  notes").
+- A plugin puts at most `folder_asks_per_minute` writes to the chief in a minute,
+  and after the chief turns one down it rests `folder_rest_ms` before it may put
+  another; a write in that time is answered at once with an error. An allowed
+  write is carried out only if the plugin still holds the target for writing in
+  the same folder: a choice taken back, or another folder chosen, while it waited
+  answers it with an error.
+- `folder_file_bytes`, `folder_list_entries`, `folder_path_bytes`,
+  `folder_calls_in_flight`, `folder_asks_per_minute` and `folder_rest_ms` in
+  `assets/wasm.toml` limit it; the I/O runs off the frame.
 
 ## The web
 

@@ -26,6 +26,7 @@ use crate::interface::exports::hamlet::plugin::plugin::{
     Intent,
 };
 use crate::limits::Limits;
+use crate::rate::Rate;
 use crate::run::Done;
 
 /// The prefix of the target of `fs.folder` that reads in a folder.
@@ -55,6 +56,11 @@ pub struct Folders {
     /// The calls each plugin has waiting, a write put to the chief
     /// among them.
     waiting: HashMap<Entity, usize>,
+    /// The writes each plugin put to the chief lately.
+    asked: Rate,
+    /// When each plugin whose last write the chief turned down may
+    /// ask again, in seconds by the app's clock.
+    resting: HashMap<Entity, f32>,
 }
 
 impl Default for Folders {
@@ -64,6 +70,8 @@ impl Default for Folders {
             tx,
             rx,
             waiting: HashMap::new(),
+            asked: Rate::default(),
+            resting: HashMap::new(),
         }
     }
 }
@@ -302,7 +310,8 @@ impl Caps {
 }
 
 /// Does `op` in `folder`, off the frame. A write in a folder that is
-/// not a hamlet's set to auto is left for the chief.
+/// not a hamlet's set to auto, or to a path with a name that starts
+/// with `.`, is left for the chief.
 fn carry_out(
     op: FolderOp,
     folder: &Path,
@@ -318,22 +327,31 @@ fn carry_out(
         FolderOp::Write(file) => {
             match writable(folder, &file, caps) {
                 Err(why) => Err(why),
-                Ok(()) if !auto_in(home, folder) => {
+                Ok(at) if dotted(&at) || !auto_in(home, folder) => {
                     return Came::Asking(file);
                 }
-                Ok(()) => write(folder, &file, caps),
+                Ok(_) => write(folder, &file, caps),
             }
         }
     })
 }
 
-/// Why `file` cannot be written in `root`, if it cannot, so that the
-/// chief is never asked about a write that would fail.
+/// Whether a name of `rel` starts with `.`: a place tools keep their
+/// settings and what they run, as `.vscode` and `.cargo`.
+fn dotted(rel: &Path) -> bool {
+    rel.components().any(|name| {
+        name.as_os_str().to_string_lossy().starts_with('.')
+    })
+}
+
+/// Where `file` is written in `root`, under it, or why it cannot be,
+/// so that the chief is never asked about a write that would fail.
+/// No write reaches where git keeps what it runs.
 fn writable(
     root: &Path,
     file: &FolderFile,
     caps: Caps,
-) -> Result<(), String> {
+) -> Result<PathBuf, String> {
     let path = &file.path;
     if file.data.len() > caps.file_bytes {
         return Err(format!(
@@ -349,7 +367,14 @@ fn writable(
     if !at.parent().is_some_and(Path::is_dir) {
         return Err(format!("the folder of `{path}` is not there"));
     }
-    Ok(())
+    let rel = at.strip_prefix(root).unwrap_or(&at).to_path_buf();
+    if hamlet_base::locked(&rel) {
+        return Err(format!(
+            "`{path}` is where git keeps what it runs, which no \
+             plugin may write"
+        ));
+    }
+    Ok(rel)
 }
 
 /// `path` in `root`, which is canonical, and whether there is
@@ -510,15 +535,43 @@ fn write(
 }
 
 /// Gives each plugin the answers to its calls in a folder that came
-/// in, and puts a write to the chief where it waits for the chief.
+/// in, and puts a write to the chief where it waits for the chief. A
+/// plugin that asks too often, or soon after the chief turned it
+/// down, is answered at once.
 pub fn finish(
     mut folders: ResMut<Folders>,
     plugins: Query<&PluginInfo>,
+    limits: Res<Limits>,
+    time: Option<Res<Time>>,
     mut inboxes: Query<&mut Inbox>,
     mut commands: Commands,
 ) {
+    let now = time.map_or(0.0, |time| time.elapsed_secs());
     while let Ok((plugin, id, folder, came)) = folders.rx.try_recv() {
         let outcome = match came {
+            Came::Asking(_)
+                if folders
+                    .resting
+                    .get(&plugin)
+                    .is_some_and(|until| now < *until) =>
+            {
+                Err("the chief turned down the last write; ask \
+                     again later"
+                    .to_string())
+            }
+            Came::Asking(_)
+                if !folders.asked.admit(
+                    plugin,
+                    now,
+                    limits.folder_asks_per_minute,
+                ) =>
+            {
+                Err(format!(
+                    "at most {} writes are put to the chief in a \
+                     minute",
+                    limits.folder_asks_per_minute
+                ))
+            }
             Came::Asking(file) => {
                 if let Ok(info) = plugins.get(plugin) {
                     commands.spawn((
@@ -554,34 +607,51 @@ pub fn finish(
     }
 }
 
-/// The question a write puts to the chief.
+/// The question a write puts to the chief, with the start of the text
+/// as a block of plain lines that cannot close itself.
 fn asking(name: &str, folder: &Path, file: &FolderFile) -> String {
     let words = match std::str::from_utf8(&file.data) {
         Ok(text) => {
-            let quoted =
-                text.chars().take(QUOTED).collect::<String>();
-            match text.chars().count() > QUOTED {
-                true => format!("{quoted}\n[and more]"),
-                false => quoted,
-            }
+            let quoted = text
+                .chars()
+                .take(QUOTED)
+                .collect::<String>()
+                .lines()
+                .map(|line| {
+                    hamlet_base::plain(line).replace('`', "'")
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let more = match text.chars().count() > QUOTED {
+                true => "\nand more",
+                false => "",
+            };
+            format!(
+                "The start of the text, as the plugin gave \
+                 it:\n```\n{quoted}\n```{more}"
+            )
         }
-        Err(_) => "[not text]".into(),
+        Err(_) => "It is not text.".into(),
     };
     format!(
         "{name} asks to write `{}` in {} ({} bytes). Allow \
          it?\n{words}",
-        hamlet_base::plain(&file.path),
+        hamlet_base::plain(&file.path).replace('`', "'"),
         folder.display(),
         file.data.len()
     )
 }
 
-/// Carries out the chief's answer to a write a plugin asked for.
+/// Carries out the chief's answer to a write a plugin asked for, if
+/// the plugin still may write in that folder. A Don't allow has the
+/// plugin rest before it asks again.
 pub fn answered(
     answered: On<Answered>,
     asked: Query<&AskedWrite>,
+    plugins: Query<(&Granted, &Choices)>,
     home: Option<Res<HomeDir>>,
     limits: Res<Limits>,
+    time: Option<Res<Time>>,
     tokio: Option<Res<Tokio>>,
     mut folders: ResMut<Folders>,
     mut inboxes: Query<&mut Inbox>,
@@ -590,12 +660,29 @@ pub fn answered(
         return;
     };
     let (plugin, id) = (asked.plugin, asked.id);
-    let Some(home) =
-        home.filter(|_| answered.answer == Answer::Allow)
+    if answered.answer != Answer::Allow {
+        let now = time.map_or(0.0, |time| time.elapsed_secs());
+        let rest = limits.folder_rest_ms as f32 / 1000.0;
+        folders.resting.insert(plugin, now + rest);
+    }
+    let still =
+        plugins.get(plugin).is_ok_and(|(granted, choices)| {
+            current(choices).as_ref() == Some(&asked.folder)
+                && granted.verdict_for(
+                    Capability::FsFolder,
+                    &writing(&asked.folder),
+                ) == Some(Verdict::Allowed)
+        });
+    let Some(home) = home
+        .filter(|_| answered.answer == Answer::Allow)
+        .filter(|_| still)
     else {
         folders.done(plugin);
-        let why = "the chief did not allow the write".to_string();
-        answer(&mut inboxes, plugin, id, Err(why));
+        let why = match answered.answer == Answer::Allow {
+            true => "fs.folder for that folder is no longer granted",
+            false => "the chief did not allow the write",
+        };
+        answer(&mut inboxes, plugin, id, Err(why.to_string()));
         return;
     };
     let (folder, file, home) = (
@@ -712,6 +799,10 @@ mod tests {
             list(&root, "", CAPS),
             Ok(FolderResult::Listed(names)) if names == ["notes/"]
         ));
+        std::fs::create_dir_all(root.join(".GIT/hooks")).unwrap();
+        for path in [".GIT/config", ".GIT/hooks/pre-commit"] {
+            assert!(write(&root, &file(path, "y"), CAPS).is_err());
+        }
         assert!(chosen(&scratch, &root).is_err());
         assert!(chosen(&root, &scratch).is_err());
         let _ = std::fs::remove_dir_all(&scratch);

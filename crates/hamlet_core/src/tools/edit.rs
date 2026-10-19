@@ -10,20 +10,6 @@ use super::Outcome;
 /// The most of a file shown when `old` is not in it.
 const SHOWN: usize = 1200;
 
-/// True when `rel`, a path under a project, is one of the places of a
-/// git repository that hold what git later runs.
-fn guarded(rel: &Path) -> bool {
-    let parts = rel
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
-        .collect::<Vec<_>>();
-    parts.windows(2).enumerate().any(|(i, pair)| {
-        pair[0] == ".git"
-            && (pair[1] == "hooks"
-                || pair[1] == "config" && i + 2 == parts.len())
-    })
-}
-
 /// The folder a path given to `edit` starts from, and the path under
 /// it. A full path may name the project or the workspace. A relative
 /// one is the project's, unless only the workspace has its first
@@ -117,7 +103,8 @@ pub(super) fn edit(
             );
         }
     };
-    if project == Some(base) && real.is_ok_and(|real| guarded(&real))
+    if project == Some(base)
+        && real.is_ok_and(|real| hamlet_base::locked(&real))
     {
         return Outcome::plain(
             1,

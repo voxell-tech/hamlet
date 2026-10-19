@@ -137,6 +137,13 @@ pub struct Limits {
     /// have waiting at once, a write the chief is asked about among
     /// them.
     pub folder_calls_in_flight: usize,
+    /// The writes in the folder the chief chose that one plugin may
+    /// put to the chief in a minute. The rest are answered with an
+    /// error.
+    pub folder_asks_per_minute: u32,
+    /// How long a plugin whose write the chief turned down waits
+    /// before it may put another, in milliseconds.
+    pub folder_rest_ms: u64,
     /// The model calls one plugin may make in a minute.
     pub model_calls_per_minute: u32,
     /// The model calls one plugin may have waiting at once.

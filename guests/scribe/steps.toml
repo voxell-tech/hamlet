@@ -76,6 +76,16 @@ answer = { holds = "asks to write `summary.txt`", allow = false }
 [[step]]
 expect = { panel = "scribe", text = "the chief did not allow the write" }
 
+# Turned down, it rests ten seconds before it may ask again.
+[[step]]
+click = { panel = "scribe", node = "write" }
+
+[[step]]
+expect = { panel = "scribe", text = "ask again later" }
+
+[[step]]
+tick = 200
+
 [[step]]
 click = { panel = "scribe", node = "write" }
 

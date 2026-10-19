@@ -425,11 +425,16 @@ checked when the call is made: no folder chosen, the target not granted or yet
 to be decided (the chief is asked) or `folder_calls_in_flight` calls waiting are
 answered at once. The I/O runs on the app's runtime, off the frame.
 
-A write that would be refused is answered at once; any other waits for the chief
-as a petition in Needs You, with the path, the folder, the size and the start of
-the text, unless the folder is in the folder of a hamlet in auto mode
-(`hamlet_agents_api::hamlet::auto_in`). The chief's Allow writes it; anything
-else answers it with an error. A write done is noted in the open chat with the
+A write that would be refused is answered at once, among them one to `.git/hooks`
+or `.git/config` (`hamlet_base::locked`, which the agents' `edit` shares); any
+other waits for the chief as a petition in Needs You, with the path, the folder,
+the size and the start of the text as a fenced block of plain lines, unless the
+folder is in the folder of a hamlet in auto mode
+(`hamlet_agents_api::hamlet::auto_in`) and no name of the path starts with `.`.
+The chief's Allow writes it, if the plugin still holds the target for writing in
+the same folder; anything else answers it with an error, and after one the chief
+turned down the plugin rests `folder_rest_ms` before another is put to the
+chief. At most `folder_asks_per_minute` are put in a minute. A write done is noted in the open chat with the
 plugin's name. `hamlet_guest::folder` makes the intents and reads the answers.
 
 ## Database
@@ -1044,7 +1049,9 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **A folder the chief chooses.** A file of at most `folder_file_bytes` read or
   written, a list of `folder_list_entries` names, a path of `folder_path_bytes`
   and `folder_calls_in_flight` calls waiting, a write put to the chief among
-  them. A call over one is answered with an error.
+  them; `folder_asks_per_minute` writes put to the chief in a minute, and a rest
+  of `folder_rest_ms` after one turned down. A call over one is answered with an
+  error.
 - **Database.** At most `db_tables` tables, `db_records` records in a table,
   `db_record_bytes` in a record, `db_fields` fields, `db_name_bytes` in a name,
   `db_text_bytes` in an id or a field value, `db_bytes` in all, and a page of
