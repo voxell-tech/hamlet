@@ -494,9 +494,7 @@ impl Agent {
             }
             let words = budget.as_ref().map_or("", |b| b.1.as_str());
             let notes = self.plugged(step, plain, on).await?;
-            let (mut system, defs) =
-                self.brief(model, &faults, words);
-            system.push_str(&notes);
+            let (system, defs) = self.brief(model, &faults, words);
             let system = json!({"role": "system", "content": system});
             let window = self.window(model);
             if let Some(window) = window
@@ -506,6 +504,9 @@ impl Agent {
             }
             let mut request = vec![system];
             request.extend(self.messages.iter().cloned());
+            // The plugins' notes are for this call alone, after the
+            // conversation and never in the system prompt.
+            request.extend(notes);
             let (message, call) = self
                 .complete(&request, &defs, model, payer, on)
                 .await?;
@@ -577,7 +578,7 @@ impl Agent {
                 let spent = call.name == rulings::OBJECT
                     && self.objection != Objection::Open;
                 let who = self.name();
-                // A plugin may only make a call stricter, so it is
+                // A plugin can only hold a call back, so it is
                 // asked before the gate, and a call it holds back
                 // never reaches the chief.
                 let held = match plain {

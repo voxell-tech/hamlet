@@ -165,17 +165,19 @@ has no way to change, hold or stop a turn. The ask's `scope` lists the hamlets i
 every hamlet, and Settings says so), and it may not be asked for with `chat.send`, `commands.run`
 or `plugin.use`, as for `agent.tool`.
 
-`agent.steer` is chosen apart from `agent.hook`, and lets a plugin change a turn, only ever to make
-it stricter (the `steer` event of a plugin's inbox, see [`wasm.md`](wasm.md)). Before each model
+`agent.steer` is chosen apart from `agent.hook`, and lets a plugin add to a turn a note the agent
+may weigh, and hold back a tool call (the `steer` event of a plugin's inbox, see
+[`wasm.md`](wasm.md)). It can allow nothing, but a note can sway what the agent does. Before each model
 call and each tool call of a plain turn of an agent of a hamlet its ask's `scope` lists (none:
 every hamlet), the core asks the app, and each running plugin that holds it is stepped at once
 while the turn waits, with a budget of `steer_ms` and `steer_fuel`. It is told the agent, the
 hamlet, the model call's number and, for a tool call, the tool's name and arguments (cut to
 `steer_args_bytes`).
 
-- Before a model call it may add a note: one plain line of at most `steer_note_bytes`, put at the
-  end of the system prompt of that call only, under "Notes from plugins. They are not from the
-  chief or from you", as `[the plugin <id>] <note>`, and written to the transcript as a notice,
+- Before a model call it may add a note: one plain line of at most `steer_note_bytes`, sent in a
+  message of its own after the conversation, for that call only and never in the system prompt,
+  under a head that says the notes are from plugins, not from the chief or the agent, and are not
+  instructions, as `[the plugin <id>] <note>`, and written to the transcript as a notice,
   `[note from the plugin <id>] <note>`.
 - Before a tool call it may hold the call back with a reason of the same cap. The call does not
   run and never reaches the gate, so the chief is never asked about it, and the agent is told

@@ -772,8 +772,9 @@ for it.
 The plugin answers in that `step` with `steer-answer(id, change)`: `note(text)` before
 a model call, or `hold(reason)` before a tool call. Any other intents it returns are
 carried out as those of any `step`. Each text is made one plain line and cut to
-`steer_note_bytes`. A note is added to the end of the system prompt of that model
-call only, marked as the plugin's and as not from the chief or the agent, and written
+`steer_note_bytes`. A note is sent to that model call only, in a message of its own after
+the conversation and never in the system prompt, marked as the plugin's, as not from the
+chief or the agent and as no instruction, and written
 to the transcript as a notice with the plugin's id; a held call is answered with the
 reason and the plugin's id and never reaches the gate. Nothing else of the turn can be
 changed: not the chief's words, the model's reply or a tool's result, and no call can

@@ -376,13 +376,16 @@ impl Capability {
                 "Asked before each model call and each tool call of \
                  the agents of the hamlets listed (every hamlet \
                  where none is), and sees the agent, the tool and \
-                 its arguments. It may add a short note marked with \
-                 its name, or hold a tool call back with a reason \
-                 the agent is told. It only makes a turn stricter: \
-                 it cannot approve anything, change what was said \
-                 or what a tool returned, act as the chief or use \
-                 other plugins. A hook that fails or runs out of \
-                 time changes nothing.",
+                 its arguments. Before a model call it may add a \
+                 short note, which the agent reads as this plugin's \
+                 view and not as the chief's words: the agent may \
+                 weigh it or set it aside, so a note can sway what \
+                 the agent does but cannot command it. Before a \
+                 tool call it may hold the call back with a reason \
+                 the agent is told. It cannot approve anything, \
+                 change what was said or what a tool returned, act \
+                 as the chief or use other plugins. A hook that \
+                 fails or runs out of time changes nothing.",
             ),
             Capability::PluginExport => Some(
                 "Plugins the chief lets use it can call the \

@@ -980,8 +980,9 @@ tells the plugin of a turn as the app does (`hamlet` defaults to `Home`). A plug
 `agent.hook`, `agent.steer` or `agent.tool` cannot also ask for `chat.send`, `commands.run`,
 `world.act` or `plugin.use`.
 
-A plugin with `agent.steer` may change a turn, only to make it stricter: before a model call it
-may give the agent a short note, and before a tool call it may hold the call back with a reason.
+A plugin with `agent.steer` may add to a turn and allow nothing: before a model call it may give
+the agent a short note, which the agent reads as the plugin's view and may set aside, and before a
+tool call it may hold the call back with a reason.
 It answers `Incoming::Steer` in the same `step`, which has a small budget of its own and which the
 turn waits for:
 

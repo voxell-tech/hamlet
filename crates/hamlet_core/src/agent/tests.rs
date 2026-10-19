@@ -1286,6 +1286,10 @@ async fn a_plugin_that_steers_holds_back_a_call_before_the_gate_and_notes_it()
         Event::Notice(text)
             if text == "[note from the plugin warden] Keep it short."
     )));
+    // A note is for its model call alone.
+    assert!(agent.messages.iter().all(|message| {
+        !message["content"].to_string().contains("Keep it short")
+    }));
 }
 
 #[tokio::test]
