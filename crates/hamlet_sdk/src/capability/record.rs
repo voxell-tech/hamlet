@@ -148,8 +148,8 @@ impl Record {
 
     /// Whether `ask` has a scope other than the one the chief was
     /// asked about. A scope that was never kept counts as changed
-    /// only when the version moved on and the ask names one.
-    fn changed(&self, ask: &Asked, version: &str) -> bool {
+    /// when the ask names one.
+    fn changed(&self, ask: &Asked) -> bool {
         match self.scopes.get(ask.capability.name()) {
             Some(known) => {
                 let sorted = |scope: &[String]| {
@@ -160,9 +160,7 @@ impl Record {
                 };
                 sorted(known) != sorted(&ask.scope.0)
             }
-            None => {
-                self.version != version && !ask.scope.0.is_empty()
-            }
+            None => !ask.scope.0.is_empty(),
         }
     }
 
@@ -219,8 +217,7 @@ pub fn standing(
         .0
         .iter()
         .filter(|ask| {
-            !answered.contains(&ask.capability)
-                || record.changed(ask, version)
+            !answered.contains(&ask.capability) || record.changed(ask)
         })
         .map(|ask| ask.capability)
         .collect::<Vec<_>>();

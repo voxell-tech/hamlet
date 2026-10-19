@@ -21,7 +21,12 @@ const QUOTED: usize = 60;
 
 /// The acts each plugin did lately.
 #[derive(Resource, Default)]
-pub struct Acted(Rate);
+pub struct Acted {
+    done: Rate,
+    /// A warning is logged once a minute for each plugin and kind.
+    refused: Rate,
+    dropped: Rate,
+}
 
 /// Why an act is not done, and whether the chief is to be asked.
 struct Refused {
@@ -82,7 +87,9 @@ pub fn carry_out(
             if let Err(refused) =
                 may(granted, capability, target, text, &limits)
             {
-                warn!("plugin {}: {refused}", info.id);
+                if acted.refused.admit(*plugin, now, 1) {
+                    warn!("plugin {}: {refused}", info.id);
+                }
                 if refused.ask {
                     commands.trigger(Wanted {
                         plugin: *plugin,
@@ -93,11 +100,15 @@ pub fn carry_out(
                 }
                 continue;
             }
-            if !acted.0.admit(*plugin, now, limits.acts_per_minute) {
-                warn!(
-                    "plugin {}: over {} acts a minute, one dropped",
-                    info.id, limits.acts_per_minute
-                );
+            if !acted.done.admit(*plugin, now, limits.acts_per_minute)
+            {
+                if acted.dropped.admit(*plugin, now, 1) {
+                    warn!(
+                        "plugin {}: over {} acts a minute, some \
+                         dropped",
+                        info.id, limits.acts_per_minute
+                    );
+                }
                 continue;
             }
             let (id, name) = (info.id.clone(), info.name.clone());

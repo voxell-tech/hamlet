@@ -1,6 +1,7 @@
 //! `plugins/grants.toml`: the chief's answers for every plugin.
 
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use bevy::ecs::resource::Resource;
@@ -100,11 +101,48 @@ impl Store {
                     std::fs::create_dir_all(folder)
                         .map_err(|e| e.to_string())?;
                 }
-                std::fs::write(&self.path, text)
+                write_whole(&self.path, &text)
                     .map_err(|e| e.to_string())
             });
         if let Err(why) = written {
             warn!("plugins/{FILE}: not written: {why}");
         }
+    }
+}
+
+/// Writes `text` to a file beside `path` and renames it over `path`,
+/// so that a stop in the middle leaves the old file or the new one.
+fn write_whole(path: &Path, text: &str) -> std::io::Result<()> {
+    let part = path.with_extension("toml.part");
+    let mut file = std::fs::File::create(&part)?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&part, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&part);
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_save_leaves_the_file_whole_and_nothing_beside_it() {
+        let folder = std::env::temp_dir()
+            .join(format!("hamlet_store_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        let mut store = Store::open(&folder);
+        store
+            .set("p", Record::declined("1.0.0", &Default::default()));
+        store
+            .set("q", Record::declined("2.0.0", &Default::default()));
+        let names = std::fs::read_dir(&folder)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect::<Vec<_>>();
+        assert_eq!(names, [FILE]);
+        assert!(Store::open(&folder).get("q").is_some());
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 }

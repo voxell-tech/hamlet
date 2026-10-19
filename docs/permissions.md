@@ -136,7 +136,8 @@ from `step` (`send-chat`, `run-as-chief`), carried out by `hamlet_wasm::acts`.
   (herald) ran notes/new". A command goes the way a menu line does, so it runs
   with no arguments.
 - `acts_per_minute` and `act_text_bytes` in `assets/wasm.toml` limit them; the
-  acts over the limit are dropped with a warning.
+  acts over the limit are dropped with a warning. A warning for a refused act or
+  a dropped one is logged once a minute for each plugin.
 - Settings says on both views that the capability acts as the chief and each use
   is marked, and shows the scope of an ask as "Limited to".
 
@@ -354,14 +355,19 @@ asks = ["read.agents"]       # the capabilities the chief was asked about
 "read.agents" = []           # the scope each ask had when the chief was asked
 ```
 
+The file is written to `grants.toml.part` beside it, synced and renamed over
+it, so a stop while it is written leaves the old file or the new one.
+
 - The file is read when the app starts. A plugin in the folder that is not
   recorded as `installed` is not compiled or run.
 - A manifest that asks for a capability not in `asks` (an update) leaves it
   unanswered. A capability the manifest no longer asks for is dropped from
   the record, and the version is brought up to date.
 - A scope that differs from the recorded one makes the capability unanswered
-  again. A file without `scopes` still loads: a version that is the same is
-  trusted, and a newer one that names a scope is asked about.
+  again. A file without `scopes` still loads, and a capability whose
+  manifest names a scope is asked about again, whatever the version: the
+  record cannot say what the chief was shown. It is not written again until
+  the chief answers.
 - A `declined` plugin stays declined while its version and asks are the same
   as the ones that were declined.
 - A file that cannot be read installs nothing and is not written over.

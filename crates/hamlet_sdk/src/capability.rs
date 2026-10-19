@@ -131,7 +131,8 @@ mod tests {
             };
             fresh
         };
-        assert!(unknown("1.0.0").is_empty());
+        // A record that never kept the scope cannot vouch for one.
+        assert_eq!(unknown("1.0.0"), [Capability::Net]);
         assert_eq!(unknown("2.0.0"), [Capability::Net]);
     }
 
@@ -309,7 +310,8 @@ mod tests {
         let open = Granted::of(&ask(&[]), &choices);
         assert_eq!(verdict(&open, "other"), Some(Verdict::Ask));
 
-        let record = Record::installed("1.0.0", &choices);
+        let record =
+            Record::installed("1.0.0", &choices).scoped(&limited);
         let Standing::Installed {
             choices: kept,
             fresh,

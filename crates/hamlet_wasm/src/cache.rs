@@ -28,6 +28,14 @@ fn folder_of(file: &Path) -> Option<PathBuf> {
     Some(home.join(FOLDER).join(plugin.file_name()?))
 }
 
+/// Deletes the cache of the plugin whose install `folder` is
+/// `<home>/plugins/<id>`.
+pub fn drop_cache(folder: &Path) {
+    if let Some(cache) = folder_of(&folder.join("x")) {
+        let _ = std::fs::remove_dir_all(cache);
+    }
+}
+
 /// Where a compiled component came from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Origin {

@@ -40,6 +40,7 @@ pub fn removed(
     if let Err(why) = clear(&watch.folder, removed.keep_data) {
         warn!("plugin {}: not all of it was removed: {why}", info.id);
     }
+    crate::cache::drop_cache(&watch.folder);
     commands.entity(plugin).despawn();
     if let Some(mut store) = store {
         store.remove(&info.id);

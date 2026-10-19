@@ -45,3 +45,20 @@ impl Rate {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_plugin_is_admitted_once_in_a_window_for_each_count() {
+        let mut world = bevy::ecs::world::World::new();
+        let (a, b) =
+            (world.spawn_empty().id(), world.spawn_empty().id());
+        let mut rate = Rate::default();
+        assert!(rate.admit(a, 0.0, 1));
+        assert!(!rate.admit(a, 30.0, 1));
+        assert!(rate.admit(b, 30.0, 1));
+        assert!(rate.admit(a, 61.0, 1));
+    }
+}

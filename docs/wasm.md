@@ -888,7 +888,8 @@ A component is compiled once and kept in
 version and configuration, so a restart or a reload of an unchanged file does
 not compile again. An entry that cannot be read, or that the engine refuses, is
 ignored, removed and made again. Making a new entry removes the others of that
-plugin. The cache can be deleted at any time.
+plugin. The cache can be deleted at any time; removing a plugin deletes its folder
+of it.
 
 The engine trusts an entry it finds under the right name, because loading one
 runs native code. So the cache is never in a plugin's folder, which ships with

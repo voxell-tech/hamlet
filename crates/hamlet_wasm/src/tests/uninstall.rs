@@ -29,6 +29,8 @@ fn removed(scratch: &Scratch, choice: Answer) -> App {
     std::fs::create_dir_all(&db).unwrap();
     std::fs::write(db.join("items.tbl"), b"kept").unwrap();
 
+    assert!(cache_of(scratch).is_dir());
+
     app.world_mut().trigger(AskToRemove {
         plugin: "probe".into(),
     });
@@ -40,6 +42,15 @@ fn removed(scratch: &Scratch, choice: Answer) -> App {
     ));
     answer(&mut app, asked[0].0, choice);
     app
+}
+
+fn cache_of(scratch: &Scratch) -> std::path::PathBuf {
+    scratch
+        .plugins()
+        .parent()
+        .unwrap()
+        .join(crate::cache::FOLDER)
+        .join("probe")
 }
 
 fn plugins(app: &mut App) -> usize {
@@ -56,6 +67,7 @@ fn removing_a_plugin_and_keeping_its_data_leaves_the_data_to_be_found_again()
     let mut app = removed(&scratch, Answer::KeepData);
 
     assert_eq!(plugins(&mut app), 0);
+    assert!(!cache_of(&scratch).exists());
     let folder = scratch.plugins().join("probe");
     let mut left = std::fs::read_dir(&folder)
         .unwrap()

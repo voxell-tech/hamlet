@@ -260,10 +260,14 @@ pub fn put(home: &Scratch, plugins: &[Plugin]) {
     }
     let mut store = Store::open(&folder);
     for plugin in plugins.iter().filter(|plugin| plugin.installed) {
-        store.set(
-            plugin.id,
-            Record::installed("0.1.0", &plugin.choices()),
-        );
+        // As the chief's answer keeps the scope it was asked with.
+        let record = Record::installed("0.1.0", &plugin.choices());
+        let record =
+            match crate::install::read(&folder.join(plugin.id)) {
+                Ok(read) => record.scoped(&read.asks),
+                Err(_) => record,
+            };
+        store.set(plugin.id, record);
     }
 }
 
