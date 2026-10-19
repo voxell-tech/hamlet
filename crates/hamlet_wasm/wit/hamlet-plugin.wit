@@ -309,6 +309,137 @@ interface host {
   state-set: func(state: list<u8>) -> result<_, string>;
 }
 
+// What a plugin builds in the world in 3D. The host builds it from
+// Hamlet's own shapes, materials and lights, or from the meshes and
+// shaders the plugin sent and the host checked; nothing the plugin
+// sends reaches the graphics card but as data and checked WGSL.
+interface render {
+  // A place, a size or a direction, in metres: `x` and `z` along the
+  // ground and `y` up.
+  record vec3 {
+    x: f32,
+    y: f32,
+    z: f32,
+  }
+
+  // Four numbers: a turn as a quaternion, or a value given to a
+  // shader.
+  record vec4 {
+    x: f32,
+    y: f32,
+    z: f32,
+    w: f32,
+  }
+
+  // Where a scene stands: by the robot of the agent of this name, by
+  // the common of the hamlet of this id, or at a point of the world.
+  variant site {
+    agent(string),
+    hamlet(string),
+    point(vec3),
+  }
+
+  // A shape of Hamlet's own, one metre across about its middle, or a
+  // mesh the plugin sent with `mesh`, by its id.
+  variant shape {
+    cube,
+    sphere,
+    cylinder,
+    cone,
+    capsule,
+    plane,
+    torus,
+    custom(string),
+  }
+
+  // How a surface takes the light: lit and opaque, lit and as
+  // see-through as its colour's alpha, or its own colour whatever the
+  // light.
+  enum finish { solid, clear, unlit }
+
+  record surface {
+    finish: finish,
+    // A colour as 0xRRGGBBAA.
+    colour: u32,
+    // How strongly it glows in its colour, from 0 to the host's cap.
+    glow: f32,
+    // 0 to 1 each.
+    roughness: f32,
+    metallic: f32,
+  }
+
+  // A shader the plugin sent with `shader`, by its id, and the values
+  // it reads with `param`, at most four.
+  record shaded {
+    shader: string,
+    params: list<vec4>,
+  }
+
+  variant material {
+    surface(surface),
+    shaded(shaded),
+  }
+
+  // A light at the node: a point light, or a spot light with the half
+  // angle of its cone in radians, shining along the node's -z. The
+  // host caps its lumens and its range, and it casts no shadow.
+  record lamp {
+    // 0xRRGGBB.
+    colour: u32,
+    lumens: f32,
+    range: f32,
+    cone: option<f32>,
+  }
+
+  // A node, placed from its parent's place, or from the scene's site
+  // where it has none. `id` is the plugin's own and names it among
+  // the nodes; `parent` is the id of a node before it.
+  record node {
+    id: u32,
+    parent: option<u32>,
+    translation: vec3,
+    rotation: vec4,
+    scale: vec3,
+    shape: option<shape>,
+    material: material,
+    lamp: option<lamp>,
+  }
+
+  record scene {
+    site: site,
+    nodes: list<node>,
+  }
+
+  // Replaces what the plugin builds in the world with `scene`; one
+  // with no nodes takes it away. It needs the capability
+  // `render.scene`, allowed when the chief lets the plugin in. The
+  // host caps the nodes, the lights, the depth of the tree and the
+  // space about the site every shape and light stays in, limits how
+  // often a plugin replaces its scene, and names the plugin over it.
+  // A scene over a cap is an error and the last one stays.
+  build: func(scene: scene) -> result<_, string>;
+
+  // Sends a mesh of its own, kept by `id` (a few dozen characters of
+  // a-z, 0-9, `.`, `_` and `-`) for the scenes that name it, sent
+  // before the scene that names it, and
+  // replacing one of that id. `indices` are three for each triangle;
+  // `normals` are one for each point, or none. It needs
+  // `render.scene`. The host caps the meshes, their points and their
+  // triangles.
+  mesh: func(id: string, positions: list<vec3>, normals: list<vec3>, indices: list<u32>) -> result<_, string>;
+
+  // Sends a shader of its own, kept by `id` as `mesh` keeps a mesh:
+  // WGSL that defines `fn shade(surface: Surface) -> vec4<f32>`, which
+  // colours a point of a shape. `Surface` holds `uv`, `position` (in
+  // the world), `normal` and `time` (seconds); `param(i)` is the node's
+  // value `i`. The host checks it before it is used and the error
+  // says why it is refused: over its size, with a binding, an entry
+  // point or a `#` of its own, or a loop that is not a `for` over a
+  // counter with fixed bounds. It needs the capability
+  // `render.shader`, and the host caps the shaders.
+  shader: func(id: string, source: string) -> result<_, string>;
+}
+
 interface plugin {
   // What reached the plugin. The events name the panel by the id the
   // plugin gave it, and the node by the id the plugin gave the node.
@@ -861,5 +992,6 @@ interface plugin {
 
 world hamlet {
   import host;
+  import render;
   export plugin;
 }

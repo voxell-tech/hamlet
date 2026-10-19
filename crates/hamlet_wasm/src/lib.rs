@@ -44,6 +44,8 @@ pub mod reach;
 pub mod reload;
 pub mod reply;
 pub mod run;
+pub mod scene;
+pub mod shader;
 pub mod start;
 pub mod steer;
 pub mod stop;
@@ -65,6 +67,7 @@ pub fn plugin(app: &mut App) {
         hamlet_openui::plugin,
         interop::plugin,
         reload::plugin,
+        scene::plugin,
     ))
     .init_resource::<Limits>()
     .init_resource::<Papers>()

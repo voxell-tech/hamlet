@@ -8,6 +8,7 @@ pub mod orders;
 pub mod overlay;
 pub mod palette;
 pub mod pick;
+pub mod scene;
 pub mod sky;
 pub mod sound;
 pub mod survey;

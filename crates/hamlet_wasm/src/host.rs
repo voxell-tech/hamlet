@@ -27,12 +27,15 @@ use crate::files::Files;
 use crate::interface::hamlet::plugin::host::{
     self, Host, Level, RequestResult,
 };
+use crate::interface::hamlet::plugin::render;
 use crate::interface::{VERSION, built_for};
 use crate::limits::{Limiter, Limits};
+use crate::scene::Kept;
 use crate::storage::Storage;
 
-/// The name of the imported interface the linker defines.
+/// The names of the imported interfaces the linker defines.
 const HOST: &str = "hamlet:plugin/host@";
+const RENDER: &str = "hamlet:plugin/render@";
 
 /// A line a plugin logged.
 #[derive(Clone, PartialEq, Debug)]
@@ -89,6 +92,8 @@ pub struct State {
     pub(crate) changes: Vec<(String, String)>,
     pub(crate) page_items: usize,
     pub(crate) page_bytes: usize,
+    /// What the plugin builds in the world.
+    pub(crate) render: Kept,
 }
 
 impl State {
@@ -126,6 +131,7 @@ impl State {
             changes: Vec::new(),
             page_items: limits.collection_page_items,
             page_bytes: limits.collection_page_bytes,
+            render: Kept::new(limits),
         }
     }
 
@@ -399,9 +405,16 @@ pub fn linker(
         |state| state,
     )
     .map_err(Fault::load)?;
+    render::add_to_linker::<State, HasSelf<State>>(
+        &mut linker,
+        |state| state,
+    )
+    .map_err(Fault::load)?;
     let unknown =
         shape.imports(engine).map(|(name, _)| name).find(|name| {
-            !name.starts_with("wasi:") && !name.starts_with(HOST)
+            !name.starts_with("wasi:")
+                && !name.starts_with(HOST)
+                && !name.starts_with(RENDER)
         });
     if let Some(name) = unknown {
         return Err(Fault::Load(format!(

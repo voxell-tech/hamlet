@@ -217,6 +217,37 @@ pub struct Limits {
     /// The times one plugin may replace its marks over the world in
     /// a second. The rest are dropped.
     pub overlay_updates_per_second: u32,
+    /// The nodes of one plugin's scene in the world.
+    pub scene_nodes: usize,
+    /// The lights of one plugin's scene.
+    pub scene_lights: usize,
+    /// The levels the tree of a scene may nest.
+    pub scene_depth: usize,
+    /// The radius in metres about a scene's site that its shapes and
+    /// lights stay within.
+    pub scene_radius: f32,
+    /// The times one plugin may replace its scene in a second. A
+    /// change sent sooner waits, and only the last is kept.
+    pub scene_updates_per_second: u32,
+    /// The brightest light of a scene, in lumens.
+    pub scene_lumens: f32,
+    /// The farthest a light of a scene reaches, in metres.
+    pub scene_light_range: f32,
+    /// The strongest glow of a scene's surface.
+    pub scene_glow: f32,
+    /// The meshes one plugin may send.
+    pub scene_meshes: usize,
+    /// The points of one mesh.
+    pub scene_mesh_points: usize,
+    /// The triangles of one mesh.
+    pub scene_mesh_triangles: usize,
+    /// The shaders one plugin may send.
+    pub shaders: usize,
+    /// The bytes of one shader's source.
+    pub shader_bytes: usize,
+    /// The times the loops of a shader may run for one point,
+    /// counted as the product of the loops one is in.
+    pub shader_loop_runs: u64,
 }
 
 /// The time one call may take, in milliseconds, for runs on a busy

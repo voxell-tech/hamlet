@@ -87,7 +87,7 @@ impl State {
     /// Whether the plugin holds `capability`. A refusal is logged
     /// with the plugin's id, and where the chief is yet to decide
     /// it is noted as wanted.
-    pub(super) fn require(
+    pub(crate) fn require(
         &mut self,
         capability: Capability,
     ) -> Result<(), String> {

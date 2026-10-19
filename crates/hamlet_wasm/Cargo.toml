@@ -20,6 +20,7 @@ bevy.workspace = true
 postcard.workspace = true
 bevy_fynix.workspace = true
 futures.workspace = true
+naga.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 sha2.workspace = true

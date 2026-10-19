@@ -80,6 +80,9 @@ keyring = "4"
 libc = "0.2"
 # Opens a native plugin's library. Only `hamlet_native` names it.
 libloading = "0.8"
+# Reads and checks a plugin's shader. Held to the version Bevy's
+# renderer uses, so it is the same crate.
+naga = { version = "29", default-features = false, features = ["wgsl-in"] }
 # The text layout Bevy's text is built on, for selecting drawn words.
 # Held to the version `bevy_text` uses, so its layouts are this crate's.
 parley = { version = "0.9", default-features = false, features = ["std"] }

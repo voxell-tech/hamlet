@@ -84,6 +84,20 @@ world_agents = 256
 overlay_marks = 64
 overlay_text_bytes = 4096
 overlay_updates_per_second = 10
+scene_nodes = 64
+scene_lights = 4
+scene_depth = 8
+scene_radius = 6.0
+scene_updates_per_second = 10
+scene_lumens = 20000.0
+scene_light_range = 10.0
+scene_glow = 8.0
+scene_meshes = 8
+scene_mesh_points = 4096
+scene_mesh_triangles = 8192
+shaders = 4
+shader_bytes = 16384
+shader_loop_runs = 256
 
 [reload]
 poll_ms = 500
