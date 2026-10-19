@@ -10,7 +10,7 @@ use hamlet_rules::civic::Civic;
 use super::mail::{Letter, mirror};
 use super::{
     Reply, SessionKey, SessionOutput, Status, TalksTo, Transcript,
-    Usage, reopen,
+    Usage, reopen, turns,
 };
 use crate::agent::Event as AgentEvent;
 use crate::agents::{
@@ -229,6 +229,7 @@ pub(super) fn output(
         world.get::<Status>(session).is_some_and(|s| s.pending > 1);
     note_record(world, session, &reply);
     note_work(world, session, working, &reply);
+    turns::note(world, session, &reply);
     if let Reply::Event(AgentEvent::Agent { name, event }) = &reply {
         mirror(world, session, name, event);
     }

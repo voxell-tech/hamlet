@@ -1,0 +1,22 @@
+[package]
+name = "diary"
+version = "0.1.0"
+edition = "2024"
+description = "A plugin built for WASM that keeps count of the agents' turns and tools"
+
+# Built for wasm32-wasip2 by build.sh, so it is not a member of the
+# root workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+hamlet_guest = { path = "../../crates/hamlet_guest" }
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+panic = "abort"

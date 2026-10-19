@@ -29,6 +29,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Flow>()
         .add_observer(chief::forward)
         .add_observer(tools::called)
+        .add_observer(hosted::turn_observed)
         .add_systems(
             Update,
             (

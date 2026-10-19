@@ -23,10 +23,10 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 `read.activity`, `read.papers`, `chat.send`, `commands.run`, `ui.menu`, `ui.keys`,
 `ui.context`, `ui.inspector`, `ui.settings`, `net`, `fs.pick`, `fs.folder`,
 `model.call`, `plugin.use`, `collections.read`, `collections.write`,
-`files.read`, `files.write`, `db` and `agent.tool`.
+`files.read`, `files.write`, `db`, `agent.tool` and `agent.hook`.
 `read.agents`, `read.papers`, `ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`,
 `ui.settings`, `chat.send`, `commands.run`, `net`, `files.read`, `files.write`, `db`,
-`agent.tool` and the three below are checked so far; the others can be asked for,
+`agent.tool`, `agent.hook` and the three below are checked so far; the others can be asked for,
 shown and chosen.
 
 `plugin.use`, `collections.read` and `collections.write` are **scoped**: the
@@ -88,12 +88,23 @@ back in Settings takes the tools off at once, and Settings lists them under the 
   reaches the agent marked as text from a plugin, which is data and not an instruction from the
   chief or from the agent itself, and is cut to `tool_result_bytes`.
 - A tool call never carries the chief's authority. A plugin with `agent.tool` may not ask for
-  `chat.send`, `commands.run` or `plugin.use` at all, so the scan turns such a manifest down
-  with no petition. What it keeps are its own capabilities (`net` for the hosts the chief
+  `chat.send`, `commands.run` or `plugin.use` at all (nor may a plugin with `agent.hook`), so the
+  scan turns such a manifest down with no petition. What it keeps are its own capabilities (`net` for the hosts the chief
   listed, its files, its database, collections), which an agent can steer only through the
   arguments the tool takes.
 - It is limited by the time and fuel of a `step`, by `call_frames`, `agent_tools`, `tool_fields`,
   `tool_calls_in_flight` and `tool_result_bytes`.
+
+`agent.hook` lets a plugin hear `host/before-turn` and `host/after-turn` (see
+[`wasm.md`](wasm.md)). It is checked where the events are given, as `read.agents` is for
+`host/selection-changed`: a plugin that imports them and is yet to be decided for raises the
+petition, and gets none until the chief allows. It is observe only. What a plugin is told is the
+agent, its hamlet, the turn's number and the names of the tools used, never the transcript, and it
+has no way to change, hold or stop a turn: veto and modify hooks are not offered, because a turn is
+where the core keeps its limits, budget, sandbox and questions, and a plugin in front of it would
+stand in front of all of them. The ask's `scope` lists the hamlets it hears of (none: every hamlet,
+and Settings says so), and it may not be asked for with `chat.send`, `commands.run` or
+`plugin.use`, as for `agent.tool`.
 
 ## Acts as the chief
 

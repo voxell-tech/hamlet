@@ -42,10 +42,11 @@ pub enum Capability {
     FilesWrite,
     Db,
     AgentTool,
+    AgentHook,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 22] = [
+    pub const ALL: [Capability; 23] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -68,12 +69,15 @@ impl Capability {
         Capability::FilesWrite,
         Capability::Db,
         Capability::AgentTool,
+        Capability::AgentHook,
     ];
 
-    /// What a plugin that holds this one may not also ask for, since
+    /// What a plugin that holds a capability that [faces the
+    /// agents](Capability::agent_facing) may not also ask for, since
     /// together they would hand the chief's authority to whatever an
-    /// agent writes: a tool an agent calls, with a way to act as the
-    /// chief or to work through another plugin that does.
+    /// agent does: a tool an agent calls, or a turn it takes, with a
+    /// way to act as the chief or to work through another plugin that
+    /// does.
     pub const AGENT_FACING: [Capability; 3] = [
         Capability::ChatSend,
         Capability::CommandsRun,
@@ -82,7 +86,7 @@ impl Capability {
 
     /// Whether what the plugin does is set off by an agent.
     pub fn agent_facing(self) -> bool {
-        matches!(self, Capability::AgentTool)
+        matches!(self, Capability::AgentTool | Capability::AgentHook)
     }
 
     /// The name a manifest and the grants file know it by.
@@ -110,6 +114,7 @@ impl Capability {
             Capability::FilesWrite => "files.write",
             Capability::Db => "db",
             Capability::AgentTool => "agent.tool",
+            Capability::AgentHook => "agent.hook",
         }
     }
 
@@ -154,7 +159,7 @@ impl Capability {
             (true, true) => {
                 Some("nothing, the ask names no scope".into())
             }
-            (true, false) if self == Capability::AgentTool => {
+            (true, false) if self.agent_facing() => {
                 Some("every hamlet, the ask names none".into())
             }
             (true, false) => None,
@@ -210,6 +215,9 @@ impl Capability {
             Capability::AgentTool => {
                 "Give the agents tools that it carries out"
             }
+            Capability::AgentHook => {
+                "Be told when an agent's turn begins and ends"
+            }
         }
     }
 
@@ -231,6 +239,14 @@ impl Capability {
                  with the plugin's name, and what a tool returns is \
                  shown to them as text from a plugin. It cannot \
                  also act as the chief or use other plugins.",
+            ),
+            Capability::AgentHook => Some(
+                "Told of each turn of the agents of the hamlets \
+                 listed (every hamlet where none is): the agent, \
+                 the turn's number and the names of the tools it \
+                 used, never what was said. It only watches, it \
+                 cannot change or stop a turn, and it cannot also \
+                 act as the chief or use other plugins.",
             ),
             _ => None,
         }

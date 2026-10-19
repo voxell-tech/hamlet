@@ -32,5 +32,26 @@ pub const AGENTS_CHANGED: HostEvent = HostEvent {
     words: "An agent came, left, was renamed or moved",
 };
 
+/// An agent's turn began. The payload is lines of `key=value`: the
+/// `agent`, its `hamlet`, the `turn` and no `tools` yet. It tells of
+/// the turn and cannot change or stop it.
+pub const BEFORE_TURN: HostEvent = HostEvent {
+    topic: "before-turn",
+    capability: Capability::AgentHook,
+    words: "An agent's turn began: its name, hamlet and the turn's \
+            number",
+};
+
+/// An agent's turn ended. The payload is as `before-turn` with the
+/// names of the tools the turn used, in order, as `tools`. It never
+/// holds what was said or what a tool was given or returned.
+pub const AFTER_TURN: HostEvent = HostEvent {
+    topic: "after-turn",
+    capability: Capability::AgentHook,
+    words: "An agent's turn ended: its name, hamlet, the turn's \
+            number and the names of the tools it used",
+};
+
 /// Every event of the catalogue.
-pub const ALL: [HostEvent; 2] = [SELECTION_CHANGED, AGENTS_CHANGED];
+pub const ALL: [HostEvent; 4] =
+    [SELECTION_CHANGED, AGENTS_CHANGED, BEFORE_TURN, AFTER_TURN];

@@ -293,6 +293,7 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 | `expect = { panel = "main", text = "2 agents" }` | Fails unless a node of the panel shows the text |
 | `expect-told = "ran notes/new"` | Fails unless a notice the chief was given in the chat holds the text, such as the one that tells of an act done as the chief. The harness has no chat and no network, so a message ends in "sent nothing" and a fetch to a listed host in "there is no network" |
 | `call-tool = { tool = "height", args = '{"port": "Dover"}', shows = "6.1 metres" }` | Has an agent call a tool the plugin gave, the way the app carries a call, and fails unless the text returned holds `shows`. `hamlet` (default `Home`) is the agent's hamlet, `fails = true` expects an error and checks `shows` in it, and `offered = false` checks the tool is not offered (before `grant = "agent.tool"`, or to another hamlet) and calls nothing |
+| `turn = { phase = "after", agent = "Juniper", number = 2, tools = ["bash"] }` | Tells the plugins that an agent's turn began (`before`) or ended (`after`), as the app does, to those that hold `agent.hook` and import the host event. `hamlet` defaults to `Home`; a plugin whose ask lists other hamlets does not hear of it |
 | `restart = true` | Quits the app and starts it again on the same home. What the plugins kept on disk (storage, files, database) and what the chief decided is there; what they held in memory, including the state the host keeps for them, is not |
 
 `panel` is the id the plugin gave the panel (`main`), and `node` the id it gave
@@ -743,6 +744,34 @@ tool call never carries the chief's authority. The call has the time and fuel of
 `step`, waits at most `call_frames` frames for a reply, and what it returns is cut to
 `tool_result_bytes`. The `call-tool` step of the script puts a call through the same
 path, and checks the tool is held back until the chief allows `agent.tool`.
+
+## Watching the agents
+
+A plugin with `agent.hook` is told when an agent's turn begins and ends, and only told:
+it cannot change or stop the turn, and it never hears what was said. `guests/diary` is
+the example: it imports the host events and reads each with `hamlet_guest::events::turn`.
+
+```toml
+[imports]
+events = ["host/before-turn", "host/after-turn"]
+
+[[asks]]
+capability = "agent.hook"
+reason = "To keep a count of the turns the agents of Home take and the tools they use."
+scope = ["Home"]        # the hamlets it hears of; none lists all
+```
+
+```rust
+if let Incoming::Event(event) = incoming
+    && let Some(turn) = hamlet_guest::events::turn(&event)
+{
+    // turn.agent, turn.hamlet, turn.number and, after, turn.tools (names only)
+}
+```
+
+The script's `turn = { phase = "after", agent = "Juniper", number = 2, tools = ["bash"] }`
+tells the plugin of a turn as the app does (`hamlet` defaults to `Home`). A plugin with
+`agent.hook` or `agent.tool` cannot also ask for `chat.send`, `commands.run` or `plugin.use`.
 
 ## Limits
 

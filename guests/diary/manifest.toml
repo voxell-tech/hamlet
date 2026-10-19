@@ -1,0 +1,21 @@
+id = "diary"
+name = "Diary"
+version = "0.1.0"
+interface = "0.9.0"
+
+# It only answers what is sent to it, so it wants no ticks.
+ticks = false
+
+# The host tells it when a turn of an agent begins and ends. That is
+# all it hears: the agent, its hamlet, the turn's number and the names
+# of the tools used.
+[imports]
+events = ["host/before-turn", "host/after-turn"]
+
+# The scope lists the hamlets whose agents it hears of; with none, all
+# of them. A plugin that watches the agents cannot also ask for
+# chat.send, commands.run or plugin.use.
+[[asks]]
+capability = "agent.hook"
+reason = "To keep a count of the turns the agents of Home take and the tools they use, and never what they say."
+scope = ["Home"]

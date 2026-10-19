@@ -73,6 +73,10 @@ pub enum Step {
     /// Has an agent call a tool the plugin gave, as the app carries
     /// a call of an agent's, and checks what comes back.
     CallTool(ToolCall),
+    /// Tells the plugins that an agent's turn began or ended, as the
+    /// app does for each turn, to those that hold `agent.hook` and
+    /// import `host/before-turn` or `host/after-turn`.
+    Turn(Turned),
 }
 
 impl Step {
@@ -83,6 +87,26 @@ impl Step {
             Step::Render(_) | Step::Section(_) | Step::Page(_)
         )
     }
+}
+
+/// A turn of an agent, as the plugins are told of it.
+#[derive(Deserialize, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Turned {
+    /// `before` or `after`.
+    pub phase: String,
+    pub agent: String,
+    #[serde(default = "a_hamlet")]
+    pub hamlet: String,
+    #[serde(default = "first")]
+    pub number: u64,
+    /// The names of the tools the turn used, for `after`.
+    #[serde(default)]
+    pub tools: Vec<String>,
+}
+
+fn first() -> u64 {
+    1
 }
 
 /// A call of a tool of the plugin in front, by an agent.

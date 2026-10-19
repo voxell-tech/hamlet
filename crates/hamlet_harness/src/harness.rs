@@ -9,6 +9,7 @@ use bevy::ecs::message::{MessageCursor, Messages};
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
+use hamlet_core::session::TurnObserved;
 use hamlet_core::tools::{AgentTool, AgentToolCalled};
 use hamlet_sdk::agents::{Agent, AgentList, SelectedAgent};
 use hamlet_sdk::capability::{
@@ -299,6 +300,14 @@ impl Harness {
             ButtonInput::default();
         self.frames(SETTLE);
         Ok(())
+    }
+
+    /// Tells the plugins that the turn of `agent` began or ended, as
+    /// the app does.
+    pub fn observe_turn(&mut self, turn: TurnObserved) {
+        self.app.world_mut().trigger(turn);
+        self.app.world_mut().flush();
+        self.frames(SETTLE);
     }
 
     /// Whether an agent of the hamlet `hamlet` is offered the tool

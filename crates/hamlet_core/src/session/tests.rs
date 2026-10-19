@@ -52,6 +52,37 @@ fn with_librarian(home: &Place) -> Hamlet {
 }
 
 #[test]
+fn a_turn_is_told_of_at_both_ends_with_the_names_of_its_tools() {
+    #[derive(Resource, Default)]
+    struct Seen(Vec<TurnObserved>);
+
+    let rt = Runtime::new().unwrap();
+    let (mut app, _home) =
+        app("observed", &rt, vec![bash("true"), says("done")]);
+    app.init_resource::<Seen>().add_observer(
+        |seen: On<TurnObserved>, mut all: ResMut<Seen>| {
+            all.0.push(seen.event().clone());
+        },
+    );
+    say(&mut app, "go");
+    settle(&mut app);
+
+    let seen = &app.world().resource::<Seen>().0;
+    let ends = seen
+        .iter()
+        .map(|s| (s.phase, s.number, s.tools.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ends,
+        [
+            (Phase::Before, 1, vec![]),
+            (Phase::After, 1, vec!["bash".to_string()])
+        ]
+    );
+    shutdown(app.world_mut());
+}
+
+#[test]
 fn a_turn_runs_through_the_worker_into_the_transcript() {
     let rt = Runtime::new().unwrap();
     let (mut app, home) =

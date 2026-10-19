@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use hamlet_core::session::{Phase, TurnObserved};
+
 use crate::harness::Harness;
 use crate::outline;
 use crate::script::{Picture, Script, Step};
@@ -113,6 +115,9 @@ fn describe(step: &Step) -> String {
         }
         Step::ExpectTold(text) => format!("expect-told {text:?}"),
         Step::CallTool(call) => format!("call-tool {}", call.tool),
+        Step::Turn(turn) => {
+            format!("turn {} of {}", turn.phase, turn.agent)
+        }
     }
 }
 
@@ -205,6 +210,26 @@ fn apply(
                     e.panel, e.text
                 )),
             }
+        }
+        Step::Turn(turn) => {
+            let phase = match turn.phase.as_str() {
+                "before" => Phase::Before,
+                "after" => Phase::After,
+                other => {
+                    return Err(format!(
+                        "the phase is `before` or `after`, not \
+                         `{other}`"
+                    ));
+                }
+            };
+            harness.observe_turn(TurnObserved {
+                phase,
+                agent: turn.agent.clone(),
+                hamlet: turn.hamlet.clone(),
+                number: turn.number,
+                tools: turn.tools.clone(),
+            });
+            Ok(())
         }
         Step::CallTool(call) if !call.offered => {
             match harness.offers(&call.hamlet, &call.tool) {

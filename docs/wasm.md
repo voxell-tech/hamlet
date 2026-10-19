@@ -24,6 +24,7 @@ The host is behind the `wasm` feature of the binary:
 | `guests/herald` | Herald: a panel with buttons that send a message to an agent (`chat.send`), run `notes/new` (`commands.run`), keep, read and try to escape a draft in its folder (`files.write`, `files.read`) and fetch a page (`net`, limited to one host). Its `steps.toml` checks each, with the harness's `expect-told` step |
 | `guests/pantry` | Pantry: a panel with buttons that add things to a table of its database, find the drinks by a field and remove one (`db`). Its `steps.toml` restarts the app, with the harness's `restart` step, to see the records are still there |
 | `guests/clipper` | Clipper: sends the selected agent's name to Notes with its command, lists the titles of the notes it reads from Notes' collection and counts the `note-saved` events. Its command `clip` sends the name of the agent whose menu item "Clip name to Notes" was chosen. It needs Notes. The pair is the example of [`authoring.md`](authoring.md#two-plugins-working-together) |
+| `guests/diary` | Diary: keeps a count of each agent's turns and the tools it used, from `host/before-turn` and `host/after-turn`, behind `agent.hook`. Its `steps.toml` tells it of turns with the harness's `turn` step |
 | `guests/tides` | Tides: gives the agents a tool, `height`, behind `agent.tool` (see Tools for the agents below). Its `steps.toml` checks it with the harness's `call-tool` step |
 | `assets/wasm.toml` | The limits, and how often the plugins' files are looked at |
 
@@ -461,9 +462,32 @@ plugin imports them as `host/<topic>`. The payload is text.
 |---|---|---|
 | `host/selection-changed` | `read.agents` | The selected agent's name, empty when none is selected |
 | `host/agents-changed` | `read.agents` | Empty: read the list with `agents()` |
+| `host/before-turn` | `agent.hook` | Lines of `key=value`: `agent`, `hamlet`, `turn` (the number of turns the agent's session has had, this one included) and an empty `tools` |
+| `host/after-turn` | `agent.hook` | The same, with the names of the tools the turn used in `tools`, in order, joined by commas |
 
 The catalogue is `hamlet_sdk::events`. An event is given when the model changes,
-and once when the app starts.
+and once when the app starts. The turn events are given when a turn begins and ends.
+
+### Hooks on the turns of the agents
+
+`host/before-turn` and `host/after-turn` let a plugin watch the agents work. The core
+(`session/turns.rs`) tells of a turn when a session's worker begins it and when its
+`Done` or `Error` lands on the app thread, as a `hamlet_core::session::TurnObserved`;
+`interop/hosted.rs` gives it to each running plugin that imports the event and holds
+`agent.hook`. A plugin hears of the hamlets its ask's `scope` lists, or of every
+hamlet where it lists none. It is told the agent's name, its hamlet, the number of the
+turn and the names of the tools used (at most 32), and never a word that was said
+or what any tool was given or returned: not the transcript. `hamlet_guest::events::turn`
+reads one.
+
+The hooks only watch. A hook cannot change a turn, hold it, veto a tool call or answer
+for the agent, and none is offered, for the core's sake: a turn is the one place the
+limits, the budget, the sandbox and the chief's questions meet, and a plugin that
+could stand in front of it would be a plugin that could take the place of all of
+them, and one that runs for a time the turn would have to wait for. What the
+chief wants to hold or refuse is the work of the gate, the rules and the limits of
+the core, not a plugin. So a plugin with `agent.hook` cannot also act as the chief or
+use other plugins (see Tools for the agents).
 
 ### Tools for the agents
 

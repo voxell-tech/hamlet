@@ -1,0 +1,40 @@
+# Run from the Hamlet checkout, after building Diary into a folder:
+#   guests/diary/build.sh <dir>/diary
+#   cargo run --example plugin_check --features wasm -- \
+#     <dir>/diary --script guests/diary/steps.toml --out <pictures>
+#
+# The plugin is installed with its ask unanswered. It hears of the
+# turns of the agents only while the chief allows agent.hook, and
+# only of the hamlets the ask lists.
+
+[[step]]
+tick = 2
+
+# Not allowed yet: the host tells it nothing.
+[[step]]
+turn = { phase = "after", agent = "Juniper", number = 1, tools = ["bash"] }
+
+[[step]]
+expect = { panel = "diary", text = "No turn yet." }
+
+[[step]]
+grant = "agent.hook"
+
+[[step]]
+turn = { phase = "before", agent = "Juniper", number = 2 }
+
+[[step]]
+turn = { phase = "after", agent = "Juniper", number = 2, tools = ["bash", "edit", "bash"] }
+
+[[step]]
+expect = { panel = "diary", text = "Juniper: 2 turns. bash x2, edit x1" }
+
+# The ask lists Home, so another hamlet's turns are not told.
+[[step]]
+turn = { phase = "after", agent = "Hazel", hamlet = "Elsewhere", tools = ["bash"] }
+
+[[step]]
+expect = { panel = "diary", text = "Juniper: 2 turns" }
+
+[[step]]
+render = { panel = "diary", file = "diary.png" }

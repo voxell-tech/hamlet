@@ -12,6 +12,7 @@ mod plug;
 mod rewind;
 mod told;
 mod transcript;
+mod turns;
 mod usage;
 mod worker;
 
@@ -38,6 +39,7 @@ use self::plug::serve;
 pub use self::rewind::{Rewind, Rewound};
 pub use self::told::prompt_of;
 pub use self::transcript::{Began, Entry, Item, Transcript};
+pub use self::turns::{Phase, TurnObserved};
 pub use self::usage::Usage;
 use self::worker::{Inbox, Jobs, Msg, Workers};
 use crate::agent::Event as AgentEvent;
@@ -399,11 +401,14 @@ fn drain(world: &mut World) {
                 session,
                 instruction,
                 task,
-            } => world.trigger(TurnStarted {
-                session,
-                instruction,
-                task,
-            }),
+            } => {
+                world.trigger(TurnStarted {
+                    session,
+                    instruction,
+                    task,
+                });
+                turns::begin(world, session);
+            }
             Msg::Archived { session, resumed } => {
                 let key = world.get::<SessionKey>(session).cloned();
                 let said = match key {
