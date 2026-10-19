@@ -88,7 +88,10 @@ pub fn plugin(app: &mut App) {
             Drawing.after(PluginSet::Draw),
         ),
     )
-    .add_systems(Startup, load::installed)
+    .add_systems(
+        Startup,
+        load::installed.after(hamlet_sdk::capability::open_store),
+    )
     .add_systems(
         Update,
         (

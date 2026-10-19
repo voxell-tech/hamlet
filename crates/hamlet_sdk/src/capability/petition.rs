@@ -17,7 +17,7 @@ use super::dependency::{needed, needing};
 use super::install::{self, Removed, Uninstalled};
 use super::name::Capability;
 use super::subject::Subject;
-use crate::plugin::PluginInfo;
+use crate::plugin::{FullAccess, PluginInfo};
 
 /// Puts the question whether to install the plugin `plugin` in the
 /// queue, unless it is already there.
@@ -32,7 +32,16 @@ pub(super) fn install(world: &mut World, plugin: Entity) {
         plugin: info.id.clone(),
     };
     let head = format!("Install {} {}?", info.name, info.version);
-    let text = listing(&head, &asks.0) + &needing(world, plugin);
+    let text = match world.get::<FullAccess>(plugin) {
+        Some(access) => format!(
+            "{head}\nFULL ACCESS: this plugin runs as Hamlet with \
+             no limits. It can read and change anything Hamlet can, \
+             and nothing here can take that back until it is \
+             removed and Hamlet is started again.\nLibrary: {}",
+            access.0
+        ),
+        None => listing(&head, &asks.0) + &needing(world, plugin),
+    };
     raise(
         world,
         &info,

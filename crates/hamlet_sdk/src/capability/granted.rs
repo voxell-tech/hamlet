@@ -3,11 +3,13 @@
 use bevy::ecs::component::Component;
 use bevy::ecs::lifecycle::Insert;
 use bevy::ecs::observer::On;
+use bevy::ecs::query::Without;
 use bevy::ecs::system::{Commands, Query};
 
 use super::ask::Asks;
 use super::choice::Choice;
 use super::name::Capability;
+use crate::plugin::FullAccess;
 
 /// What a host function does with a call that needs a capability the
 /// manifest names.
@@ -236,6 +238,11 @@ impl Granted {
         }
     }
 
+    /// A plugin that is allowed every capability, as a native one is.
+    pub fn full() -> Self {
+        Self::allowing(&Capability::ALL)
+    }
+
     /// This, with `targets` of the scoped `capability` allowed.
     pub fn allowing_targets(
         mut self,
@@ -320,7 +327,7 @@ impl Granted {
 /// are put in.
 pub(super) fn rebuild(
     insert: On<Insert, (Asks, Choices)>,
-    plugins: Query<(&Asks, &Choices)>,
+    plugins: Query<(&Asks, &Choices), Without<FullAccess>>,
     mut commands: Commands,
 ) {
     if let Ok((asks, choices)) = plugins.get(insert.entity) {

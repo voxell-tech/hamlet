@@ -13,7 +13,7 @@ use super::granted::Choices;
 use super::petition;
 use super::record::Record;
 use super::store::Store;
-use crate::plugin::PluginInfo;
+use crate::plugin::{FullAccess, PluginInfo};
 
 /// On the entity of a plugin that is in the install folder and not
 /// installed: nothing of it is compiled or run.
@@ -91,10 +91,13 @@ pub(super) fn admit(world: &mut World, plugin: Entity) {
         return;
     };
     let choices = Choices::allowing(&asks.capabilities());
+    let hash = world.get::<FullAccess>(plugin).map(|a| a.0.clone());
     if let Some(mut store) = world.get_resource_mut::<Store>() {
         store.set(
             &info.id,
-            Record::installed(&info.version, &choices).scoped(&asks),
+            Record::installed(&info.version, &choices)
+                .scoped(&asks)
+                .hashed(hash.as_deref()),
         );
     }
     world
@@ -111,8 +114,11 @@ pub(super) fn decline(world: &mut World, plugin: Entity) {
     else {
         return;
     };
-    let (id, record) =
-        (info.id.clone(), Record::declined(&info.version, asks));
+    let hash = world.get::<FullAccess>(plugin).map(|a| a.0.as_str());
+    let (id, record) = (
+        info.id.clone(),
+        Record::declined(&info.version, asks).hashed(hash),
+    );
     if let Some(mut store) = world.get_resource_mut::<Store>() {
         store.set(&id, record);
     }

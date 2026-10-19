@@ -1,6 +1,7 @@
 //! The plugin frame: what a plugin is, how it is added to the app
 //! and how it is switched on and off while the app runs.
 
+mod access;
 mod add;
 mod blocked;
 mod contribution;
@@ -16,6 +17,7 @@ mod version;
 use bevy::app::{App, Update};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 
+pub use self::access::{Declared, FullAccess, NotLoaded, is_native};
 pub use self::add::AppPluginExt;
 pub use self::blocked::{Blocked, present};
 pub use self::contribution::{ContributedBy, Contributions};

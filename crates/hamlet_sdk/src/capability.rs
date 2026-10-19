@@ -16,7 +16,7 @@ mod store;
 mod subject;
 mod wanted;
 
-use bevy::app::App;
+use bevy::app::{App, Startup};
 
 pub use self::ask::{Asked, Asks, Scope};
 pub use self::choice::Choice;
@@ -29,7 +29,7 @@ pub use self::install::{
 pub use self::name::{Capability, NEVER, Refusal};
 pub use self::petition::{AskForMore, Replied};
 pub use self::record::{Installation, Record, Standing, standing};
-pub use self::store::Store;
+pub use self::store::{Store, open_store};
 pub use self::subject::Subject;
 pub use self::wanted::Wanted;
 
@@ -37,7 +37,8 @@ pub use self::wanted::Wanted;
 /// [`Choices`], applies the chief's [`Decide`] and carries out the
 /// chief's answers to a plugin's petitions.
 pub fn plugin(app: &mut App) {
-    app.add_observer(granted::rebuild)
+    app.add_systems(Startup, store::open_store)
+        .add_observer(granted::rebuild)
         .add_observer(decide::decide)
         .add_observer(install::ask)
         .add_observer(install::ask_to_remove)

@@ -31,13 +31,15 @@ const DATA_ICON: Glyph = Glyph::Book;
 /// installed is brought up as an entity. Any other is held as an
 /// entity with nothing of it compiled or read, and the chief is asked
 /// to install it unless it was declined as it is. A plugin of code
-/// needs the engine; one of a panel does not.
+/// needs the engine; one of a panel does not. It runs after the
+/// records are opened.
 pub fn installed(
     home: Res<HomeDir>,
     host: Option<Res<Host>>,
     limits: Res<Limits>,
     agents: Res<AgentList>,
     papers: Res<Papers>,
+    mut store: ResMut<Store>,
     mut commands: Commands,
 ) {
     let setting = host.as_deref().map(|host| Setting {
@@ -47,7 +49,6 @@ pub fn installed(
         papers: &papers,
     });
     let folder = home.0.plugins();
-    let mut store = Store::open(&folder);
     let mut found = Vec::new();
     for scanned in install::scan(&folder) {
         match scanned {
@@ -117,7 +118,6 @@ pub fn installed(
             }
         }
     }
-    commands.insert_resource(store);
 }
 
 /// The installed plugins of code that cannot start, each with the

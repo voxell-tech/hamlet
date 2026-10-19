@@ -9,6 +9,7 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ui::AlignItems;
+use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
@@ -21,7 +22,8 @@ use hamlet_sdk::context::ContextItems;
 use hamlet_sdk::inspector::InspectorSections;
 use hamlet_sdk::keys::Keys;
 use hamlet_sdk::plugin::{
-    Blocked, Disable, Enable, PluginInfo, Status,
+    Blocked, Disable, Enable, FullAccess, NotLoaded, PluginInfo,
+    Status,
 };
 use hamlet_sdk::reload::{Reload, Rollback};
 use hamlet_sdk::settings::SettingsPages;
@@ -48,6 +50,12 @@ pub(super) fn plugin(app: &mut App) {
     );
 }
 
+/// What a native plugin's line says under its name.
+const NATIVE_WARNING: &str = "! FULL ACCESS: runs as Hamlet with no \
+                              limits. A changed or removed library, \
+                              and its own systems, take effect when \
+                              Hamlet starts again.";
+
 /// One plugin, as its page shows it.
 #[derive(Clone, PartialEq)]
 struct Line {
@@ -56,6 +64,8 @@ struct Line {
     version: String,
     builtin: bool,
     essential: bool,
+    /// Its code runs as Hamlet, with no limits.
+    native: bool,
     status: Status,
     installed: bool,
     /// The capabilities its manifest asks for.
@@ -85,6 +95,8 @@ fn list(
         Option<&Reload>,
         Option<&Blocked>,
         Option<&Granted>,
+        Has<FullAccess>,
+        Option<&NotLoaded>,
     )>,
     everyone: Everyone,
     from: Contributed,
@@ -102,12 +114,15 @@ fn list(
                 reload,
                 blocked,
                 granted,
+                native,
+                not_loaded,
             )| Line {
                 id: info.id.clone(),
                 name: info.name.clone(),
                 version: info.version.clone(),
                 builtin: info.builtin,
                 essential: info.essential,
+                native,
                 status: *status,
                 installed: !uninstalled,
                 asks: asks.map_or(0, |asks| asks.0.len()),
@@ -115,6 +130,7 @@ fn list(
                     .and_then(|reload| reload.note.clone())
                     .into_iter()
                     .chain(blocked.map(|blocked| blocked.0.clone()))
+                    .chain(not_loaded.map(|why| why.0.clone()))
                     .collect(),
                 rollback: reload
                     .is_some_and(|reload| reload.rollback),
@@ -137,9 +153,10 @@ fn line(line: &Line) -> AnyView {
         (_, Status::Disabled) => "Disabled",
         (_, Status::Failed) => "Failed",
     };
-    let kind = match (line.essential, line.builtin) {
-        (true, _) => "Essential",
-        (_, true) => "Built in",
+    let kind = match (line.essential, line.builtin, line.native) {
+        (true, ..) => "Essential",
+        (_, true, _) => "Built in",
+        (.., true) => "NATIVE",
         _ => "Installed",
     };
     let mut words = vec![
@@ -150,6 +167,14 @@ fn line(line: &Line) -> AnyView {
             .boxed(),
         note(format!("{} - {kind} - {status}", line.version)).boxed(),
     ];
+    if line.native {
+        words.push(
+            label(NATIVE_WARNING)
+                .size(12.0)
+                .tone(Tone::Critical)
+                .boxed(),
+        );
+    }
     words.extend(links::lines(&line.links));
     words.extend(adds::lines(&line.adds));
     for why in &line.notes {

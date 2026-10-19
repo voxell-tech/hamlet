@@ -45,6 +45,11 @@ pub struct Record {
     /// same as an empty scope.
     #[serde(default)]
     pub scopes: BTreeMap<String, Vec<String>>,
+    /// The hash of the library the chief let in or turned down, for
+    /// a native plugin. A library with another hash is asked about
+    /// again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
 }
 
 /// What a record says about a plugin whose manifest is now `asked`.
@@ -91,7 +96,20 @@ impl Record {
                 ))
                 .collect(),
             scopes: BTreeMap::new(),
+            hash: None,
         }
+    }
+
+    /// This record, for the library with this hash.
+    pub fn hashed(mut self, hash: Option<&str>) -> Self {
+        self.hash = hash.map(str::to_string);
+        self
+    }
+
+    /// Whether the record was made for a library with another hash
+    /// than `hash`, so that the chief is to be asked again.
+    pub fn stale(&self, hash: &str) -> bool {
+        self.hash.as_deref() != Some(hash)
     }
 
     /// This record, with the scope in `asked` for each capability it
@@ -124,6 +142,7 @@ impl Record {
                 .collect(),
             choices: BTreeMap::new(),
             scopes: BTreeMap::new(),
+            hash: None,
         }
     }
 

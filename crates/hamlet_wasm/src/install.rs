@@ -173,6 +173,13 @@ fn only_data(folder: &Path) -> bool {
     })
 }
 
+/// Whether `folder` holds a native plugin, which `hamlet_native`
+/// loads.
+fn is_native(folder: &Path) -> bool {
+    std::fs::read_to_string(folder.join(MANIFEST))
+        .is_ok_and(|text| hamlet_sdk::plugin::is_native(&text))
+}
+
 /// Every folder of the install folder `plugins`, read, the plugins
 /// whose needs go in a circle turned down. A missing install folder
 /// holds no plugins.
@@ -183,7 +190,9 @@ pub fn scan(plugins: &Path) -> Vec<Result<Installed, Rejected>> {
     let mut folders = entries
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
-        .filter(|path| path.is_dir() && !only_data(path))
+        .filter(|path| {
+            path.is_dir() && !only_data(path) && !is_native(path)
+        })
         .collect::<Vec<_>>();
     folders.sort();
     let found = folders.iter().map(|folder| read(folder));

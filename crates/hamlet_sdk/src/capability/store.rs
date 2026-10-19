@@ -4,7 +4,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use bevy::ecs::resource::Resource;
+use bevy::ecs::system::{Commands, Res};
 use bevy::log::warn;
+use hamlet_core::core::HomeDir;
 
 use super::record::Record;
 
@@ -25,6 +27,17 @@ pub struct Store {
     path: PathBuf,
     records: BTreeMap<String, Record>,
     locked: bool,
+}
+
+/// Opens the records of the home, once, for whoever holds plugins
+/// to read and write them. Those systems run after it.
+pub fn open_store(
+    home: Option<Res<HomeDir>>,
+    mut commands: Commands,
+) {
+    if let Some(home) = home {
+        commands.insert_resource(Store::open(&home.0.plugins()));
+    }
 }
 
 impl Store {
