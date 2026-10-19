@@ -15,6 +15,9 @@ const PANEL: &str = "main";
 
 const TABLE: &str = "tide-table";
 
+/// The port asked about until another is typed.
+const PORT: &str = "Kettlebay";
+
 /// What the panel shows, which the host keeps across a reload.
 #[derive(Default, Serialize, Deserialize)]
 struct Model {
@@ -52,7 +55,7 @@ impl Plugin for Harbour {
     fn panel_view(_panel: &str) -> View {
         let model = State::<Model>::load();
         let port = match model.port.is_empty() {
-            true => "Dover",
+            true => PORT,
             false => &model.port,
         };
         let found = match model.found.is_empty() {
@@ -106,7 +109,7 @@ fn handle(
         }
         Incoming::Click(press) => {
             let port = match model.port.is_empty() {
-                true => "Dover".to_string(),
+                true => PORT.to_string(),
                 false => model.port.clone(),
             };
             let called = match press.id.strip_prefix("ask.") {

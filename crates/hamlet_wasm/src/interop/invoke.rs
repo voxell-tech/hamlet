@@ -566,16 +566,16 @@ mod tests {
             .allowing_targets(Capability::PluginUse, &["tides"]);
         let undecided = Granted::default()
             .allowing_targets(Capability::PluginUse, &[]);
-        let dover =
-            request(postcard::to_allocvec(&("Dover",)).unwrap());
+        let port =
+            request(postcard::to_allocvec(&("Kettlebay",)).unwrap());
         let deepest = Limits::default().call_depth;
 
         assert_eq!(
-            admitted(&allowed, &dover, deepest),
+            admitted(&allowed, &port, deepest),
             Ok(Type::parse("option<f64>").unwrap())
         );
         assert_eq!(
-            admitted(&undecided, &dover, 1),
+            admitted(&undecided, &port, 1),
             Err(Refused {
                 error: InvokeError::Refused(
                     "plugin.use not granted".into()
@@ -584,7 +584,7 @@ mod tests {
             })
         );
         assert!(matches!(
-            admitted(&allowed, &dover, deepest + 1),
+            admitted(&allowed, &port, deepest + 1),
             Err(Refused { error: InvokeError::Refused(why), ask: None })
                 if why.contains("would cross")
         ));

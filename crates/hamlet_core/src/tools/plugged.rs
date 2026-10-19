@@ -355,9 +355,11 @@ mod tests {
         );
         assert!(tool.offered_to("Home") && !tool.offered_to("Away"));
         assert_eq!(
-            tool.arguments(r#"{"port":"Dover","feet":true,"x":1}"#),
+            tool.arguments(
+                r#"{"port":"Kettlebay","feet":true,"x":1}"#
+            ),
             Ok(vec![
-                ("port".into(), "Dover".into()),
+                ("port".into(), "Kettlebay".into()),
                 ("feet".into(), "true".into())
             ])
         );

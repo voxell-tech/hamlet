@@ -27,7 +27,7 @@ attention. Keep it under about 60 lines.
 # Notes
 
 ## Users
-- Alice: Toronto, metric units, prefers short answers.
+- Alice: Kettlebay, metric units, prefers short answers.
 
 ## Lessons
 - Check `skills/` before writing a new script.

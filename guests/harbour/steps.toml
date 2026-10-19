@@ -52,16 +52,16 @@ grant = "plugin.use:tides"
 click = { panel = "main", node = "ask.tides" }
 
 [[step]]
-expect = { panel = "main", text = "Dover: 6.1 metres" }
+expect = { panel = "main", text = "Kettlebay: 6.1 metres" }
 
 [[step]]
-type = { panel = "main", node = "port", text = "Atlantis" }
+type = { panel = "main", node = "port", text = "Fogbottom" }
 
 [[step]]
 click = { panel = "main", node = "ask.tides" }
 
 [[step]]
-expect = { panel = "main", text = "Atlantis: no table" }
+expect = { panel = "main", text = "Fogbottom: no table" }
 
 # A number where the port goes does not match the declared types, and
 # the host refuses it before Tides is called.

@@ -404,9 +404,12 @@ mod tests {
             Type::parse("option<list<tuple<string, f64>>>").unwrap();
         let numbers = Type::parse("tuple<s32, u64, bytes>").unwrap();
 
-        assert_eq!(height.check(&bytes(&("Dover", true))), Ok(()));
         assert_eq!(
-            ports.check(&bytes(&Some(vec![("Hull", 7.4)]))),
+            height.check(&bytes(&("Kettlebay", true))),
+            Ok(())
+        );
+        assert_eq!(
+            ports.check(&bytes(&Some(vec![("Puddlewick", 7.4)]))),
             Ok(())
         );
         assert_eq!(
@@ -414,12 +417,14 @@ mod tests {
             Ok(())
         );
         assert!(height.check(&bytes(&(7u32, true))).is_err());
-        assert!(height.check(&bytes(&("Dover", true, 1u8))).is_err());
-        assert!(height.check(&bytes(&("Dover",))).is_err());
+        assert!(
+            height.check(&bytes(&("Kettlebay", true, 1u8))).is_err()
+        );
+        assert!(height.check(&bytes(&("Kettlebay",))).is_err());
         assert!(Type::U32.check(&bytes(&u64::MAX)).is_err());
         assert!(
             ports
-                .check(&bytes(&Some(vec![("Hull", 7.4f32)])))
+                .check(&bytes(&Some(vec![("Puddlewick", 7.4f32)])))
                 .is_err()
         );
     }

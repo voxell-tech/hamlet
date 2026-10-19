@@ -12,7 +12,8 @@ use hamlet_guest::{Incoming, Intent, Level, Plugin, State};
 use serde::{Deserialize, Serialize};
 
 /// The ports and the height of their high tide, in metres.
-const PORTS: [(&str, f64); 2] = [("Dover", 6.1), ("Hull", 7.4)];
+const PORTS: [(&str, f64); 2] =
+    [("Kettlebay", 6.1), ("Puddlewick", 7.4)];
 
 const FEET_IN_A_METRE: f64 = 3.28084;
 
@@ -33,7 +34,7 @@ impl Plugin for Tides {
             &[
                 text(
                     "port",
-                    "The port, such as Dover or Hull.",
+                    "The port, such as Kettlebay or Puddlewick.",
                     true,
                 ),
                 flag("feet", "Answer in feet, not metres.", false),

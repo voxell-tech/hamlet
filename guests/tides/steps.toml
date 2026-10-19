@@ -18,15 +18,15 @@ call-tool = { tool = "height", offered = false }
 grant = "agent.tool"
 
 [[step]]
-call-tool = { tool = "height", args = '{"port": "Dover"}', shows = "6.1 metres" }
+call-tool = { tool = "height", args = '{"port": "Kettlebay"}', shows = "6.1 metres" }
 
 [[step]]
-call-tool = { tool = "height", args = '{"port": "Hull", "feet": true}', shows = "24 feet" }
+call-tool = { tool = "height", args = '{"port": "Puddlewick", "feet": true}', shows = "24 feet" }
 
 # The plugin says why it cannot answer, and the agent is told. A
 # missing argument never reaches the plugin.
 [[step]]
-call-tool = { tool = "height", args = '{"port": "Atlantis"}', fails = true, shows = "no table" }
+call-tool = { tool = "height", args = '{"port": "Fogbottom"}', fails = true, shows = "no table" }
 
 [[step]]
 call-tool = { tool = "height", fails = true, shows = "missing `port`" }

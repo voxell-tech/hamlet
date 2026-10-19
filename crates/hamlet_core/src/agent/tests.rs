@@ -1190,7 +1190,7 @@ async fn the_text_a_plugins_tool_returns_is_marked_as_the_plugins() {
     let home = place("agent-plugged");
     let hamlet = hamlet_of_two(&home);
     let replies = vec![
-        call("tide__height", json!({"port": "Dover"})),
+        call("tide__height", json!({"port": "Kettlebay"})),
         says("ok"),
     ];
     let mut agent = mayor(&home, &hamlet, replies);
