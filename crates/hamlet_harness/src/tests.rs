@@ -45,7 +45,7 @@ fn folder_of(name: &str, id: &str) -> PathBuf {
 }
 
 #[test]
-fn a_click_changes_the_tree_and_a_render_writes_a_picture() {
+fn a_click_changes_the_tree() {
     let plugin = folder("click");
     let mut harness = Harness::open(&plugin).unwrap();
     assert!(
@@ -60,7 +60,14 @@ fn a_click_changes_the_tree_and_a_render_writes_a_picture() {
             .outline("main")
             .contains(&"  label \"after\" #count".into())
     );
+    let _ = std::fs::remove_dir_all(&plugin);
+}
 
+#[test]
+#[ignore = "needs a GPU"]
+fn a_render_writes_a_picture() {
+    let plugin = folder("render");
+    let mut harness = Harness::open(&plugin).unwrap();
     let picture = plugin.join("main.png");
     harness.render("main", &picture).unwrap();
     let bytes = std::fs::read(&picture).unwrap();
