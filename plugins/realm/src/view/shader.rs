@@ -70,16 +70,18 @@ fn recover(
         .collect::<Vec<_>>();
     if shaded.is_empty() {
         error!(
-            "quitting after a {:?} error of the renderer",
-            error.ty
+            "quitting after a {:?} error of the renderer: {}",
+            error.ty, error.description
         );
         main.write_message(AppExit::error());
         return RenderErrorPolicy::StopRendering;
     }
-    warn!(
+    // The error may be of Hamlet's own drawing, so it is logged in
+    // full whoever caused it.
+    error!(
         "a {:?} error of the renderer while plugins' shaders were \
-         drawn: they are drawn plain until Hamlet starts again",
-        error.ty
+         drawn, which are drawn plain until Hamlet starts again: {}",
+        error.ty, error.description
     );
     main.insert_resource(ShadersOff);
     let plain = main

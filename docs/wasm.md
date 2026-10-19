@@ -316,7 +316,8 @@ reaches the GPU: the host draws what it describes.
    while `render.shader` is not held, is drawn in a plain material. An error of the renderer
    while a plugin's shader is drawn (a pipeline that fails, a lost device) does not end
    Hamlet: every plugin's shape is drawn plain until Hamlet starts again, the chief is told,
-   and a lost device is made again. An error while none is drawn ends the app, as Bevy's own
+   and a lost device is made again. The error is logged in full either way, since it may be
+   of Hamlet's own drawing. An error while none is drawn ends the app, as Bevy's own
    handler does.
 5. **Render passes and compute are only for native plugins.** A pass of a plugin's own, a
    compute shader or a texture is not something a WASM plugin can have. A manifest that asks
