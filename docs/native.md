@@ -256,10 +256,19 @@ fn declare(entry: &mut hamlet_sdk::plugin::Entry) {
 }
 ```
 
-- `entry` gets the real app's world: resources, systems, observers and
-  plugins added there are the app's. It runs inside `Startup` (or when the
-  chief installs the plugin), so add systems to `Update` or later, not to
-  `Startup`, whose schedule is being run.
+- `entry` gets the real `App` while it is built, before it runs: the
+  native host is the last plugin the binary adds, and it opens the
+  libraries `grants.toml` records as installed (for the library that is
+  there) from its `build`. Resources, systems, observers and plugins added
+  there are the app's; the plugins are in its registry, so their `finish`
+  and `cleanup` run, and the sub-apps (the render app) are there to reach.
+  `Startup` has not run yet.
+- A plugin the chief installs while Hamlet runs is loaded at once, into an
+  `App` of its own that holds the running world: what it adds runs, but
+  that app has none of the app's plugins or sub-apps, is never finished,
+  and its `Startup` systems never run. Its line on the Plugins page says it
+  gets the full app when Hamlet starts again, which is when the next start
+  loads it as above.
 - `hamlet_native::declare` hands the host the function that adds what goes
   through the SDK's `Entry`: panels, commands, menu lines, keys, context
   items, inspector sections, settings pages. Those carry `ContributedBy`
@@ -317,7 +326,7 @@ and the one at fault can be removed before a start without it.
 | The compiler, and the kit a plugin outside the checkout builds with | `rust-toolchain.toml`, `scripts/make-native-sdk.sh`, `scripts/fetch-native-sdk.sh`, `templates/native-plugin/outside/`, `.github/workflows/release.yml` |
 | Opening a library, and the private copy it is opened from | `hamlet_native/src/library.rs`, `cache.rs` |
 | The folder and its manifest | `hamlet_native/src/install.rs`, `manifest.rs` |
-| The scan at start, safe mode, loading the plugin just let in | `hamlet_native/src/load.rs`, `marker.rs`, `guard.rs`, `assets/native.toml` |
+| Opening the granted libraries while the app is built, the scan at start, safe mode, loading the plugin just let in | `hamlet_native/src/load.rs`, `marker.rs`, `guard.rs`, `assets/native.toml` |
 | Removing | `hamlet_native/src/remove.rs` |
 | What the SDK knows of a native plugin: `FullAccess`, `NotLoaded`, `Declared`, the hash in a record, the petition text | `hamlet_sdk/src/plugin/access.rs`, `capability/record.rs`, `petition.rs` |
 | The NATIVE line on the Plugins page | `plugins/settings/src/plugins/list.rs` |

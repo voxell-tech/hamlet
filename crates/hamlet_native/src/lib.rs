@@ -35,11 +35,13 @@ pub use bevy::app::App;
 pub use self::abi::{ABI, Abi, declare};
 
 /// Loads the installed native plugins and the one the chief lets in.
-/// Add it after the core and the SDK.
+/// Add it after every other plugin and after `HomeDir`: the libraries
+/// the chief let in run their entries on the app while it is built.
 #[cfg(feature = "host")]
 pub fn plugin(app: &mut App) {
     app.add_plugins(guard::plugin)
         .add_observer(load::admit)
         .add_observer(remove::removed)
         .add_systems(Startup, load::installed.after(open_store));
+    load::granted(app);
 }

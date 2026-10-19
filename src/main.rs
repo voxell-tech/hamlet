@@ -179,16 +179,6 @@ fn main() -> Result<()> {
     }
     #[cfg(feature = "wasm")]
     app.add_plugins(hamlet_wasm::plugin);
-    #[cfg(feature = "native")]
-    {
-        app.add_plugins(hamlet_native::plugin);
-        if safe_mode {
-            app.insert_resource(hamlet_native::load::SafeMode::Asked);
-        }
-    }
-    // Without the feature no library is opened anyway.
-    #[cfg(not(feature = "native"))]
-    let _ = safe_mode;
     let tick = ScheduleRunnerPlugin::run_loop(TICK);
     match mode {
         Mode::Repl => {
@@ -200,7 +190,7 @@ fn main() -> Result<()> {
                 hamlet_sdk::tree::plugin,
                 hamlet_sdk::capability::plugin,
             ));
-            app.add_plugins((tick, TerminalPlugin)).run();
+            app.add_plugins((tick, TerminalPlugin));
         }
         Mode::Headless => {
             eprintln!("hamlet: running headless; Ctrl-C stops");
@@ -213,11 +203,10 @@ fn main() -> Result<()> {
             // The plugins' log lines have nowhere to go without it.
             #[cfg(any(feature = "wasm", feature = "native"))]
             app.add_plugins(bevy::log::LogPlugin::default());
-            app.add_plugins((tick, TerminalCtrlCHandlerPlugin)).run();
+            app.add_plugins((tick, TerminalCtrlCHandlerPlugin));
         }
         Mode::Window => {
-            let exit = app
-                .insert_resource(ShowRequests(show_requests))
+            app.insert_resource(ShowRequests(show_requests))
                 // A window draws far more often than the records
                 // change.
                 .insert_resource(WatchEvery(Duration::from_millis(
@@ -226,12 +215,26 @@ fn main() -> Result<()> {
                 .add_plugins((
                     DefaultPlugins.set(window_plugin(&root)),
                     Builtin,
-                ))
-                .run();
-            if let AppExit::Error(code) = exit {
-                bail!("the window exited with code {code}");
-            }
+                ));
         }
+    }
+    // Last: the libraries the chief let in run on the app built so
+    // far.
+    #[cfg(feature = "native")]
+    {
+        if safe_mode {
+            app.insert_resource(hamlet_native::load::SafeMode::Asked);
+        }
+        app.add_plugins(hamlet_native::plugin);
+    }
+    // Without the feature no library is opened anyway.
+    #[cfg(not(feature = "native"))]
+    let _ = safe_mode;
+    let exit = app.run();
+    if mode == Mode::Window
+        && let AppExit::Error(code) = exit
+    {
+        bail!("the window exited with code {code}");
     }
     // Tasks still running are abandoned.
     rt.shutdown_background();

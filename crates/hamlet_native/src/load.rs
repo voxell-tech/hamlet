@@ -1,8 +1,9 @@
-//! Bringing native plugins up: the scan at startup, and the plugin
-//! the chief has just let in.
+//! Bringing native plugins up: the libraries the chief let in, opened
+//! and run on the app while it is built, the scan at startup, and the
+//! plugin the chief lets in while the app runs.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
 use hamlet_base::HomeDir;
@@ -14,9 +15,11 @@ use hamlet_sdk::plugin::{
     Declared, Enable, Entry, EntryPoint, Exports, FullAccess,
     Imports, Manifest, NotLoaded, PluginInfo, Status, plain,
 };
+use hamlet_sdk::reload::Reload;
 
 use crate::guard::{Guard, Settling};
 use crate::install::{Found, scan};
+use crate::library::EntryFn;
 use crate::{cache, library, marker};
 
 /// On the entity of a native plugin: where its files are.
@@ -36,23 +39,73 @@ pub enum SafeMode {
     Stopped(Vec<String>),
 }
 
-/// Scans the install folder. A plugin that `grants.toml` records as
-/// installed, for the library that is there, is loaded. Any other is
-/// held with nothing of it opened, and the chief is asked to install
-/// it unless it was declined as it is. It runs after the records are
-/// opened.
-pub fn installed(world: &mut World) {
-    let Some(home) =
-        world.get_resource::<HomeDir>().map(|h| h.0.clone())
+/// The plugins found when the app was built, for the scan at
+/// startup.
+#[derive(Resource)]
+struct Scanned(Vec<Found>);
+
+/// What the entry of each library opened while the app was built
+/// gave: what it declared, or why it is not loaded.
+#[derive(Resource, Default)]
+struct Opened(Vec<(String, Result<fn(&mut Entry), String>)>);
+
+impl Opened {
+    fn take(
+        &mut self,
+        id: &str,
+    ) -> Option<Result<fn(&mut Entry), String>> {
+        let at =
+            self.0.iter().position(|(opened, _)| opened == id)?;
+        Some(self.0.swap_remove(at).1)
+    }
+}
+
+/// Opens the libraries that `grants.toml` records as installed, for
+/// the library that is there, and runs their entries on `app` while
+/// it is built, so that what they add has the app's plugins, its
+/// sub-apps and the steps that finish it. It is called last in the
+/// plugin, which is added after every other.
+pub fn granted(app: &mut App) {
+    let Some((root, plugins)) = app
+        .world()
+        .get_resource::<HomeDir>()
+        .map(|h| (h.0.root.clone(), h.0.plugins()))
     else {
         return;
     };
-    if !world.contains_resource::<Store>() {
-        warn!("native plugins: no records of the chief's answers");
-        return;
+    let found = prepare(app.world_mut(), &root, &plugins);
+    let mut opened = Opened::default();
+    if !app.world().contains_resource::<SafeMode>() {
+        let store = Store::open(&plugins);
+        for plugin in &found {
+            if !matches!(
+                standing_of(&store, plugin),
+                Standing::Installed { .. }
+            ) {
+                continue;
+            }
+            let id = &plugin.manifest.id;
+            let outcome =
+                open(&root, id, &plugin.library, &plugin.hash)
+                    .and_then(|entry| {
+                        let ran = run_on(app, entry);
+                        settle(app.world_mut(), &root, id, ran)
+                    });
+            opened.0.push((id.clone(), outcome));
+        }
     }
+    app.insert_resource(Scanned(found)).insert_resource(opened);
+}
+
+/// Scans the install folder and decides whether this run is in safe
+/// mode.
+fn prepare(
+    world: &mut World,
+    root: &Path,
+    plugins: &Path,
+) -> Vec<Found> {
     let mut found = Vec::new();
-    for scanned in scan(&home.plugins()) {
+    for scanned in scan(plugins) {
         match scanned {
             Ok(plugin) => found.push(plugin),
             Err(rejected) => {
@@ -60,14 +113,13 @@ pub fn installed(world: &mut World) {
             }
         }
     }
-    let (culprits, gone) = marker::pending(&home.root)
-        .into_iter()
-        .partition::<Vec<_>, _>(|id| {
-            found.iter().any(|plugin| plugin.manifest.id == *id)
-        });
+    let (culprits, gone) =
+        marker::pending(root).into_iter().partition::<Vec<_>, _>(
+            |id| found.iter().any(|plugin| plugin.manifest.id == *id),
+        );
     // A plugin that is gone cannot be the one that stopped it.
     for id in &gone {
-        marker::settled(&home.root, id);
+        marker::settled(root, id);
     }
     if !culprits.is_empty() {
         warn!(
@@ -79,22 +131,50 @@ pub fn installed(world: &mut World) {
     } else if world.contains_resource::<SafeMode>() {
         warn!("native plugins: --safe-mode, no library is opened");
     }
+    found
+}
+
+/// Where the chief stands on `plugin`, for the library that is there.
+fn standing_of(store: &Store, plugin: &Found) -> Standing {
+    match store.get(&plugin.manifest.id) {
+        Some(record) if record.stale(&plugin.hash) => {
+            Standing::Unknown
+        }
+        record => standing(
+            record,
+            &plugin.manifest.version,
+            &Asks::default(),
+        ),
+    }
+}
+
+/// Spawns an entity for each plugin found. One the chief installed
+/// gets what its entry declared when the app was built, or is loaded
+/// now if it was not opened then. Any other is held with nothing of
+/// it opened, and the chief is asked to install it unless it was
+/// declined as it is. It runs after the records are opened.
+pub fn installed(world: &mut World) {
+    let Some((root, plugins)) = world
+        .get_resource::<HomeDir>()
+        .map(|h| (h.0.root.clone(), h.0.plugins()))
+    else {
+        return;
+    };
+    if !world.contains_resource::<Store>() {
+        warn!("native plugins: no records of the chief's answers");
+        return;
+    }
+    let found = match world.remove_resource::<Scanned>() {
+        Some(scanned) => scanned.0,
+        None => prepare(world, &root, &plugins),
+    };
+    let mut opened =
+        world.remove_resource::<Opened>().unwrap_or_default();
     let safe = world.get_resource::<SafeMode>().cloned();
     for plugin in found {
         let id = plugin.manifest.id.clone();
-        let standing = {
-            let store = world.resource::<Store>();
-            match store.get(&id) {
-                Some(record) if record.stale(&plugin.hash) => {
-                    Standing::Unknown
-                }
-                record => standing(
-                    record,
-                    &plugin.manifest.version,
-                    &Asks::default(),
-                ),
-            }
-        };
+        let standing =
+            standing_of(world.resource::<Store>(), &plugin);
         let entity = spawn(world, &plugin);
         match standing {
             Standing::Installed { .. } => {
@@ -125,7 +205,12 @@ pub fn installed(world: &mut World) {
                     Some(SafeMode::Asked) => {
                         not_loaded(world, entity, ASKED)
                     }
-                    None => start(world, entity),
+                    None => match opened.take(&id) {
+                        Some(outcome) => {
+                            loaded(world, entity, &id, outcome)
+                        }
+                        None => start(world, entity),
+                    },
                 }
             }
             Standing::Declined => {
@@ -155,6 +240,11 @@ const STOPPED: &str = "Hamlet stopped before this was trusted, so \
 const ASKED: &str = "Not loaded: Hamlet was started with \
                      --safe-mode. Start it without to load native \
                      plugins.";
+
+/// What a plugin let in while the app runs is told.
+const LATE: &str = "Loaded into the running app: the steps that \
+                    finish an app, and the render app, reach what \
+                    it adds when Hamlet starts again.";
 
 /// Spawns the entity of a native plugin, switched off, with nothing
 /// of its library opened.
@@ -191,11 +281,91 @@ fn not_loaded(world: &mut World, plugin: Entity, why: &str) {
     world.entity_mut(plugin).insert(NotLoaded(why.into()));
 }
 
+/// Copies the library `file` of the plugin `id`, marks it as loading
+/// and opens it. The marker goes again when it is refused.
+fn open(
+    root: &Path,
+    id: &str,
+    file: &Path,
+    granted: &str,
+) -> Result<EntryFn, String> {
+    let copy = cache::private_copy(root, id, file, granted)
+        .map_err(|why| format!("Not loaded: {why}"))?;
+    marker::begin(root, id).map_err(|e| {
+        format!(
+            "Not loaded: the `loading` file cannot be written: {e}"
+        )
+    })?;
+    library::open(&copy).map_err(|refusal| {
+        marker::settled(root, id);
+        format!("Not loaded: {refusal}")
+    })
+}
+
+/// Runs `entry` on `app`. A panic in it is caught; one in a library
+/// is caught by the library, which gives false.
+pub fn run_on(app: &mut App, entry: EntryFn) -> Result<bool, String> {
+    // Whatever an earlier entry left is not this one's.
+    app.world_mut().remove_resource::<Declared>();
+    catch_unwind(AssertUnwindSafe(|| entry(app)))
+        .map_err(|_| "its entry panicked".to_string())
+}
+
+/// Takes what the entry of the plugin `id` declared, once it `ran`.
+/// The marker stays while the library's systems run their first
+/// clean frames, those of an entry that panicked too.
+fn settle(
+    world: &mut World,
+    root: &Path,
+    id: &str,
+    ran: Result<bool, String>,
+) -> Result<fn(&mut Entry), String> {
+    let declared = world.remove_resource::<Declared>();
+    let frames = world
+        .get_resource::<Guard>()
+        .cloned()
+        .unwrap_or_default()
+        .clean_frames;
+    if frames == 0 {
+        marker::settled(root, id);
+    } else {
+        world.resource_mut::<Settling>().add(id, frames);
+    }
+    match ran {
+        Ok(true) => Ok(declared.map_or(nothing, |d| d.0)),
+        Ok(false) | Err(_) => {
+            Err("Not loaded: its entry panicked".into())
+        }
+    }
+}
+
+/// Switches the plugin on with what its entry declared, or marks it
+/// failed with why it is not loaded.
+fn loaded(
+    world: &mut World,
+    plugin: Entity,
+    id: &str,
+    outcome: Result<fn(&mut Entry), String>,
+) {
+    match outcome {
+        Ok(declared) => {
+            world.entity_mut(plugin).insert(EntryPoint(declared));
+            info!("native plugin {id}: loaded");
+            world.trigger(Enable(id.into()));
+            world.flush();
+        }
+        Err(why) => {
+            world.entity_mut(plugin).insert(Status::Failed);
+            not_loaded(world, plugin, &why);
+        }
+    }
+}
+
 /// Opens the library of the plugin `plugin` and runs its entry with
-/// the app. What the entry declares is switched on by the plugin
-/// frame, as for any plugin.
+/// the running world, in an app of its own. What the entry declared
+/// is switched on by the plugin frame, as for any plugin.
 pub fn start(world: &mut World, plugin: Entity) {
-    let (Some(info), Some(file), Some(granted), Some(home)) = (
+    let (Some(info), Some(file), Some(granted), Some(root)) = (
         world.get::<PluginInfo>(plugin).cloned(),
         world.get::<Library>(plugin).map(|l| l.file.clone()),
         world.get::<FullAccess>(plugin).map(|a| a.0.clone()),
@@ -203,82 +373,28 @@ pub fn start(world: &mut World, plugin: Entity) {
     ) else {
         return;
     };
-    // Whatever an earlier entry left is not this one's.
-    world.remove_resource::<Declared>();
-    let copy =
-        match cache::private_copy(&home, &info.id, &file, &granted) {
-            Ok(copy) => copy,
-            Err(why) => {
-                world.entity_mut(plugin).insert(Status::Failed);
-                not_loaded(
-                    world,
-                    plugin,
-                    &format!("Not loaded: {why}"),
-                );
-                return;
-            }
-        };
-    if let Err(e) = marker::begin(&home, &info.id) {
-        let why = format!(
-            "Not loaded: the `loading` file cannot be written: {e}"
-        );
-        world.entity_mut(plugin).insert(Status::Failed);
-        not_loaded(world, plugin, &why);
-        return;
+    let outcome =
+        open(&root, &info.id, &file, &granted).and_then(|entry| {
+            world.remove_resource::<Declared>();
+            let ran = with_app(world, entry);
+            settle(world, &root, &info.id, ran)
+        });
+    if outcome.is_ok() {
+        world.entity_mut(plugin).insert(Reload {
+            note: Some(LATE.into()),
+            rollback: false,
+        });
     }
-    let entry = match library::open(&copy) {
-        Ok(entry) => entry,
-        Err(refusal) => {
-            marker::settled(&home, &info.id);
-            world.entity_mut(plugin).insert(Status::Failed);
-            not_loaded(
-                world,
-                plugin,
-                &format!("Not loaded: {refusal}"),
-            );
-            return;
-        }
-    };
-    let ran = with_app(world, entry);
-    let declared = world.remove_resource::<Declared>();
-    // The marker stays while the library's systems run, those of an
-    // entry that panicked too.
-    let frames = world
-        .get_resource::<Guard>()
-        .cloned()
-        .unwrap_or_default()
-        .clean_frames;
-    if frames == 0 {
-        marker::settled(&home, &info.id);
-    } else {
-        world.resource_mut::<Settling>().add(&info.id, frames);
-    }
-    match ran {
-        Ok(true) => {
-            let declared =
-                declared.map_or(nothing as fn(&mut Entry), |d| d.0);
-            world.entity_mut(plugin).insert(EntryPoint(declared));
-            info!("native plugin {}: loaded", info.id);
-            world.trigger(Enable(info.id));
-            world.flush();
-        }
-        Ok(false) | Err(_) => {
-            world.entity_mut(plugin).insert(Status::Failed);
-            not_loaded(
-                world,
-                plugin,
-                "Not loaded: its entry panicked",
-            );
-        }
-    }
+    loaded(world, plugin, &info.id, outcome);
 }
 
 fn nothing(_: &mut Entry) {}
 
 /// Runs `run` with an app that holds this world, so that code written
 /// for an app can add its systems, observers and resources to a world
-/// that is running. A panic in it is caught and the world is put
-/// back; one in a library is caught by the library.
+/// that is running. That app has none of the running app's plugins
+/// and sub-apps, and is never finished. A panic in it is caught and
+/// the world is put back; one in a library is caught by the library.
 pub fn with_app<R>(
     world: &mut World,
     run: impl FnOnce(&mut App) -> R,
@@ -349,8 +465,13 @@ mod tests {
     }
 
     /// An app over a scratch home that holds the native plugin
-    /// `spark`, whose library is not a real one.
-    fn home_with_spark(name: &str, record: bool) -> (App, PathBuf) {
+    /// `spark`, whose library is not a real one. `before` runs on the
+    /// home and the app before the native plugin is added.
+    fn home_with_spark(
+        name: &str,
+        record: bool,
+        before: impl FnOnce(&Path, &mut App),
+    ) -> (App, PathBuf) {
         let root = std::env::temp_dir()
             .join(format!("hamlet_{name}_{}", std::process::id()));
         let folder = root.join("plugins/spark");
@@ -381,8 +502,9 @@ mod tests {
         app.insert_resource(HomeDir(hamlet_home::Home {
             root: root.clone(),
             workspace: root.join("workspace"),
-        }))
-        .add_plugins((
+        }));
+        before(&root, &mut app);
+        app.add_plugins((
             MinimalPlugins,
             hamlet_sdk::capability::plugin,
             hamlet_sdk::plugin::plugin,
@@ -406,9 +528,30 @@ mod tests {
     }
 
     #[test]
+    fn a_granted_library_is_opened_while_the_app_is_built() {
+        let (mut app, root) =
+            home_with_spark("built", true, |_, _| {});
+        // Refused when the app was built, before any frame ran.
+        assert!(matches!(
+            app.world().resource::<Opened>().0.as_slice(),
+            [(id, Err(why))] if id == "spark"
+                && why.contains("cannot be opened")
+        ));
+        app.update();
+        let (uninstalled, why, status) = spark(&mut app);
+        assert!(!uninstalled);
+        assert_eq!(status, Status::Failed);
+        assert!(why.unwrap().contains("cannot be opened"));
+        assert!(marker::pending(&root).is_empty());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn after_a_stop_while_loading_no_library_is_opened() {
-        let (mut app, root) = home_with_spark("safe", true);
-        marker::begin(&root, "spark").unwrap();
+        let (mut app, root) =
+            home_with_spark("safe", true, |root, _| {
+                marker::begin(root, "spark").unwrap();
+            });
         app.update();
         let (uninstalled, why, status) = spark(&mut app);
         assert!(!uninstalled);
@@ -425,8 +568,10 @@ mod tests {
 
     #[test]
     fn safe_mode_on_demand_opens_no_library() {
-        let (mut app, root) = home_with_spark("asked", true);
-        app.insert_resource(SafeMode::Asked);
+        let (mut app, root) =
+            home_with_spark("asked", true, |_, app| {
+                app.insert_resource(SafeMode::Asked);
+            });
         app.update();
         let (uninstalled, why, status) = spark(&mut app);
         assert!(!uninstalled);
@@ -438,7 +583,8 @@ mod tests {
 
     #[test]
     fn a_library_the_chief_did_not_see_is_asked_about() {
-        let (mut app, root) = home_with_spark("changed", false);
+        let (mut app, root) =
+            home_with_spark("changed", false, |_, _| {});
         app.update();
         let (uninstalled, why, _) = spark(&mut app);
         assert!(uninstalled);

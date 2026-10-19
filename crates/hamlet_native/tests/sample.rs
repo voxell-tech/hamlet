@@ -36,11 +36,21 @@ fn the_sample_builds_and_loads_through_the_gate() {
     let entry = library::open(&file).unwrap_or_else(|why| {
         panic!("the sample was turned down: {why}")
     });
+    // On an app being built, as at start.
+    let mut app = App::new();
+    app.add_plugins(bevy::MinimalPlugins);
+    assert_eq!(load::run_on(&mut app, entry), Ok(true));
+    assert!(app.world().contains_resource::<Declared>());
+    app.finish();
+    app.cleanup();
+    // Its system runs with the others.
+    app.update();
+
+    // On a running world, as for a plugin let in while Hamlet runs.
     let mut app = App::new();
     app.add_plugins(bevy::MinimalPlugins);
     app.update();
     assert!(load::with_app(app.world_mut(), entry).unwrap());
     assert!(app.world().contains_resource::<Declared>());
-    // Its system runs with the others.
     app.update();
 }
