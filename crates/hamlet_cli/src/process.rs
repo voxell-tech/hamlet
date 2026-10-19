@@ -188,47 +188,28 @@ fn repo() -> PathBuf {
 
 #[cfg(unix)]
 fn server_command(
+    server: &Path,
     home: &Path,
     port: u16,
     faux: Option<&str>,
-) -> Result<Command> {
-    let dir = nonempty("HAMLET_SERVER_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| repo().join("server"));
-    anyhow::ensure!(
-        dir.join("bin/hamlet-server").is_file(),
-        "Cannot find the agent server. Set HAMLET_SERVER_DIR to its \
-         package directory."
-    );
-    anyhow::ensure!(
-        dir.join("node_modules").is_dir(),
-        "Server dependencies are missing. Run npm ci --prefix {} \
-         with the Node version in server/.nvmrc.",
-        dir.display()
-    );
-    let mut command = Command::new(
-        nonempty("HAMLET_NODE").unwrap_or_else(|| "node".into()),
-    );
+) -> Command {
+    let mut command = Command::new(server);
     command
-        .args([
-            "--enable-experimental-regexp-engine",
-            "--disable-warning=ExperimentalWarning",
-        ])
-        .arg(absolute(&dir.join("bin/hamlet-server"))?)
         .arg("--port")
         .arg(port.to_string())
         .env("HAMLET_HOME", home);
     if let Some(faux) = faux {
         command.arg("--faux").arg(faux);
     }
-    Ok(command)
+    command
 }
 
 #[cfg(unix)]
 pub fn serve(port: u16, faux: Option<&str>) -> Result<i32> {
-    Err(server_command(&home()?, port, faux)?.exec()).context(
-        "Cannot start Node; use the version in server/.nvmrc or set \
-         HAMLET_NODE",
+    let server = find_binary("hamlet-server", "HAMLET_SERVER_BIN")?;
+    Err(server_command(&server, &home()?, port, faux).exec()).context(
+        "Cannot start hamlet-server; build it or set \
+         HAMLET_SERVER_BIN",
     )
 }
 
@@ -264,15 +245,15 @@ fn executable(path: &Path) -> bool {
     }
 }
 
-fn find_app() -> Result<PathBuf> {
-    if let Some(app) = nonempty("HAMLET_APP") {
-        return Ok(app.into());
+fn find_binary(name: &str, variable: &str) -> Result<PathBuf> {
+    if let Some(path) = nonempty(variable) {
+        return Ok(path.into());
     }
-    // Prefer the app built beside this CLI, before an unrelated
+    // Prefer the binary built beside this CLI, before an unrelated
     // installation on PATH.
     if let Some(dir) = env::current_exe()?.parent() {
-        let path = dir
-            .join(format!("hamlet-app{}", env::consts::EXE_SUFFIX));
+        let path =
+            dir.join(format!("{name}{}", env::consts::EXE_SUFFIX));
         if executable(&path) {
             return Ok(path);
         }
@@ -280,15 +261,15 @@ fn find_app() -> Result<PathBuf> {
     for dir in
         env::split_paths(&env::var_os("PATH").unwrap_or_default())
     {
-        let path = dir
-            .join(format!("hamlet-app{}", env::consts::EXE_SUFFIX));
+        let path =
+            dir.join(format!("{name}{}", env::consts::EXE_SUFFIX));
         if executable(&path) {
             return Ok(path);
         }
     }
     bail!(
-        "No hamlet-app found. Build it with cargo build --bin \
-         hamlet-app, or set HAMLET_APP."
+        "No {name} found. Build it with cargo build --bin {name}, \
+         or set {variable}."
     )
 }
 
@@ -302,7 +283,10 @@ fn window_command(app: &Path, address: &ServerAddress) -> Command {
 
 fn open_detached(address: &ServerAddress) -> Result<()> {
     let opened = (|| -> Result<()> {
-        let mut command = window_command(&find_app()?, address);
+        let mut command = window_command(
+            &find_binary("hamlet-app", "HAMLET_APP")?,
+            address,
+        );
         session(&mut command);
         command
             .stdin(Stdio::null())
@@ -333,7 +317,7 @@ fn exit_code(status: ExitStatus) -> i32 {
 }
 
 pub async fn window() -> Result<i32> {
-    let app = find_app()?;
+    let app = find_binary("hamlet-app", "HAMLET_APP")?;
     let command = window_command(&app, &address(&home()?)?);
     Ok(exit_code(
         tokio::process::Command::from(command)
@@ -428,14 +412,15 @@ async fn ensure(home: &Path) -> Result<(Record, ServerAddress)> {
         .mode(0o600)
         .open(home.join("server.log"))?;
     let log_start = log.metadata()?.len();
-    let mut command = server_command(home, 0, None)?;
+    let server = find_binary("hamlet-server", "HAMLET_SERVER_BIN")?;
+    let mut command = server_command(&server, home, 0, None);
     session(&mut command);
     command
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log);
     let mut child = command.spawn().context(
-        "Cannot start the server process; check HAMLET_NODE",
+        "Cannot start the server process; check HAMLET_SERVER_BIN",
     )?;
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline {
@@ -599,14 +584,14 @@ fn dev_home(chosen: Option<&str>) -> Result<PathBuf> {
 }
 
 #[cfg(unix)]
-async fn dev_app() -> Result<PathBuf> {
-    if let Some(app) = nonempty("HAMLET_APP") {
-        return Ok(app.into());
+async fn dev_binary(name: &str, variable: &str) -> Result<PathBuf> {
+    if let Some(path) = nonempty(variable) {
+        return Ok(path.into());
     }
     let root = repo();
     anyhow::ensure!(
         root.join("Cargo.toml").is_file(),
-        "hamlet dev needs a source checkout or HAMLET_APP."
+        "hamlet dev needs a source checkout or {variable}."
     );
     let mut command = tokio::process::Command::new("cargo");
     command
@@ -614,30 +599,29 @@ async fn dev_app() -> Result<PathBuf> {
         .args([
             "build",
             "--bin",
-            "hamlet-app",
+            name,
             "--message-format=json-render-diagnostics",
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
-    let output = command
-        .output()
-        .await
-        .context("Cannot build the window; install Rust and Cargo")?;
+    let output = command.output().await.with_context(|| {
+        format!("Cannot build {name}; install Rust and Cargo")
+    })?;
     anyhow::ensure!(
         output.status.success(),
-        "The window build failed; no server was started."
+        "The {name} build failed; no server was started."
     );
     for line in output.stdout.split(|b| *b == b'\n') {
         if let Ok(value) =
             serde_json::from_slice::<serde_json::Value>(line)
             && value["reason"] == "compiler-artifact"
-            && value["target"]["name"] == "hamlet-app"
+            && value["target"]["name"] == name
             && let Some(path) = value["executable"].as_str()
         {
             return Ok(path.into());
         }
     }
-    bail!("Cargo did not report the built hamlet-app executable.")
+    bail!("Cargo did not report the built {name} executable.")
 }
 
 #[cfg(unix)]
@@ -659,11 +643,13 @@ pub async fn develop(
 ) -> Result<i32> {
     use tokio::signal::unix::{SignalKind, signal as listen};
     let home = dev_home(chosen)?;
-    let app = dev_app().await?;
+    let server =
+        dev_binary("hamlet-server", "HAMLET_SERVER_BIN").await?;
+    let app = dev_binary("hamlet-app", "HAMLET_APP").await?;
     let mut interrupt = listen(SignalKind::interrupt())?;
     let mut terminate = listen(SignalKind::terminate())?;
     let mut hangup = listen(SignalKind::hangup())?;
-    let mut command = server_command(&home, port, faux)?;
+    let mut command = server_command(&server, &home, port, faux);
     session(&mut command);
     command.stdin(Stdio::null());
     let mut server =

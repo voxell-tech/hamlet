@@ -1,317 +1,166 @@
 # A tour of the code
 
-Where things are and where to change them. For what Hamlet is and how to
-run it, read [`README.md`](../README.md) first. For the rules of working
-here, [`AGENTS.md`](../AGENTS.md).
-
-## The idea in one paragraph
-
-Agents run on the TypeScript server in `server/`, on pi-durable, with their
-conversations and records in the home's storage and their writable files
-in houses. The Rust window is a client: `hamlet_client` fills Bevy entities
-from [protocol v0](protocol.md) over one authenticated WebSocket. The world
-and panels read those entities and send the chief's deeds back to the server. The
-server owns the rules and the truth; the window keeps only its own view
-files, and closing it stops no agent. The server is moving to Rust, with
-conversations in harnesses beside it:
-[`proposals/rust-server.md`](proposals/rust-server.md).
+Where things are and where to change them. Start with
+[`README.md`](../README.md) for running Hamlet and [`AGENTS.md`](../AGENTS.md)
+for the checks and conventions.
 
 ## How a change travels
 
-```mermaid
-flowchart TD
-    typed([You type a line])
-    chat["hamlet_ui: chat"]
-    outgoing["hamlet_client: messages, Outbox,<br/>connection"]
-    server["server/: commands, agent turns,<br/>tools, storage and rules"]
-    incoming["hamlet_client: receive,<br/>realm, waits and chats"]
-    entities["Entities: Settlement, Citizen,<br/>Mayor, Busy, Waiting, Transcript ..."]
-    society["Society: towns, agents on plots, roads"]
-    drawn["Ground, houses, roads,<br/>robots, light, sound"]
-    panels["Panels: hamlet_ui"]
+The Rust server owns the realm and permissions. Its Node pi harness owns
+conversations and model calls. The window and CLI are protocol v0 clients;
+neither opens the server's database nor runs an agent.
 
-    typed --> chat
-    chat -- UserMessage --> outgoing
-    outgoing -- "say" --> server
-    server -- "state / change / turn / transcript" --> incoming
-    incoming --> entities
-    entities -- "hamlet_world: hamlet<br/>the bridge" --> society
-    society -- "hamlet_world: generator" --> drawn
-    entities --> panels
+```text
+Window / terminal -- protocol v0 --> hamlet-server -- private link --> pi
+                                          |                          |
+                                   realm.sqlite                 harness store
+                                   houses, sandbox              conversations
 ```
 
-## The crates
+A typed line reaches `chats::converse` through `runtime::serve`. Commands
+change server-owned records or documents; ordinary words become a durable
+harness input. Pi asks the server for its prompt, tool permissions and
+model budget. The server checks calls again when executing them, including
+replayed calls. Kept harness updates feed watched transcripts and the
+server's state. `hamlet_client` turns `state`, `change`, `transcript` and
+`turn` into Bevy entities; world and panels read them.
 
-All are under `crates/`. The `hamlet-app` binary and the examples are the
-root package, `hamlet`. The window's crates are:
+## The crates and packages
 
-| Crate | What it is |
+Rust crates live under `crates/`. The root package `hamlet` supplies
+`hamlet-app` and the visual examples.
+
+| Crate or package | Owns |
 |---|---|
-| `hamlet_cli` | The `hamlet` command: process management and terminal clients, without Bevy |
-| `hamlet-server` | The Rust server: claims a home as the TypeScript server does, keeps its realm database `realm.sqlite`, and runs operations once each with the marker of their outcome. `src/harness.rs` and `harness/` start and watch harness runtimes and answer them over the harness link |
-| `hamlet_protocol_gen` | Generates Rust types from `server/protocol.schema.json` and `harnesses/pi/link.schema.json`; run with `cargo run -p hamlet_protocol_gen` |
-| `hamlet_protocol` | Checked-in protocol v0 types in `src/v0.rs`, with a test that catches schema drift, and the recorded sessions in `frames/` |
-| `hamlet_acceptance` | The acceptance suite: scenarios against a server process, through protocol v0 and the `hamlet` command |
-| `hamlet_client` | The client core: the connection, Outbox, received realm, waits and watched chats. Bevy app/ECS, no rendering |
-| `hamlet_desktop` | The window's machine: kept awake while a received agent is busy, file and link openers, temporary editor files, the folder dialog and the app's icon |
-| `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
-| `hamlet_vfx` | The visual effects: what each is and how it plays |
-| `hamlet_world` | The 3D world, drawn from the client's entities |
-| `hamlet_ui` | The window: panels, menus, chat and pointer around the world |
-| `hamlet_testing` | Scratch folders and protocol-value builders for offline tests |
-| `hamlet_workspace` | The remote workspace's manager and the worker in each actor, one Linux binary |
-
-The Rust runtime crates remain compiled and tested until the Rust server
-replaces `server/`
-([step 7](proposals/rust-server.md#order-of-work)). No window
-crate depends on them; `tests/window_is_a_client.rs` guards that boundary.
-They are porting references, described in [`core.md`](core.md):
-
-| Crate | Retained runtime part |
-|---|---|
-| `hamlet_sandbox` | Per-platform process sandboxes |
-| `hamlet_model` | Model clients, settings, catalogue and session logs |
-| `hamlet_home` | The Rust home's layout, charter, prompt, limits and starter skills |
-| `hamlet_rules` | Records and rules over them, without Bevy |
-| `hamlet_core` | Runtime plugins: agents, sessions, tools and oversight |
-
-## The pi harness
-
-`harnesses/pi/` is the Node package that runs conversations on pi-durable
-for the Rust server, one runtime process per store under
-`<home>/harnesses/<instance>/`. The server starts it with `--runtime`,
-`--store` and `--link stdio`, and the two speak the harness link, one JSON
-message per line on its standard input and output.
-
-| Where | What |
-|---|---|
-| `src/link.ts` | The link's messages in TypeBox; `npm run schema` writes `link.schema.json`, from which `hamlet_protocol_gen` makes `crates/hamlet-server/src/harness/link.rs` |
-| `src/runtime.ts` | The handshake, the `hamlet` extension (tools as operations, the prompt seam, early asks), conversations by key, admitting inputs by request ID, cancel, history and committed updates |
-| `src/models.ts` | Every model call allowed by the server first and charged before pi keeps its answer; endpoints through pi-ai |
-| `src/faux.ts` | The acceptance suite's faux script, answered per agent |
-| `src/faults.ts` | Points where a crash test stops the runtime |
-
-The server's side of the crash tests is `crates/hamlet-server/tests/harness/`,
-built with the `harness` feature and driven by the
-`hamlet-harness-driver` binary.
+| `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
+| `hamlet-server` | `hamlet-server`: realm, permissions, tools, records, credentials and harness supervision |
+| `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
+| `hamlet_protocol/schema/` | TypeBox source and offline schema checks, a separate Node package |
+| `hamlet_protocol_gen` | Generates Rust types from `crates/hamlet_protocol/schema.json` and `harnesses/pi/link.schema.json` |
+| `hamlet_protocol` | Generated v0 types, schema drift checks and recorded frames |
+| `hamlet_acceptance` | Real-process protocol and CLI scenarios on scratch homes |
+| `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities |
+| `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
+| `hamlet_assets` | Embedded assets and Bevy asset loading |
+| `hamlet_world` | Land, hamlets, houses, roads, robots, chief, sound and camera |
+| `hamlet_ui` | Panels, menus, chat and pointer |
+| `hamlet_vfx` | Visual effects |
+| `hamlet_testing` | Offline fixture values and scratch directories |
+| `hamlet_workspace` | Linux remote-workspace manager/worker reached through the server's workspace-v1 client |
 
 ## The server
 
-The active runtime is `server/`, its own Node package. Paths in this
-section are under `server/src/`. Recorded faux sessions in
-`crates/hamlet_protocol/frames/` are checked by the server tests and
-replayed by the Rust client tests. `crates/hamlet_acceptance` starts a
-server process and checks what it does through protocol v0 alone; its
-README says how a server is started for it.
+Paths below are under `crates/hamlet-server/src/`. Modules use a file and
+same-named directory rather than `mod.rs`. Most domain APIs are internal;
+the public test boundary is protocol v0 or the process command line.
 
-Each concept has an entry `<name>.ts` and, when needed, implementation
-files in `<name>/`. Outside code imports the entry; internals import
-siblings and other entries. Entries use named re-exports, with no
-`index.ts`. Tests stay flat in `server/test/` and may exercise internals.
-The directly importable dependency leaves and shared conversation core
-are listed in
-[`server/docs/coding-standards.md`](../server/docs/coding-standards.md#modules-and-folders).
-Their value dependencies cannot reach composed entries, even indirectly.
-The structure test checks that boundary and forbids value-import cycles.
-
-| Entry and folder | Owns | Interface |
-|---|---|---|
-| `home.ts`, `home/` | Composition, layout, credentials, lock, clock and part lifetimes | `openHome` returns a `Home` with the harness and owned capabilities; `Part` installs work and its close handle |
-| `record.ts`, `record/` | Agent identity, membership, names, local roads, the office and votes' records | Transactional `admit`, `depart`, `restore`, `moveMember`, `layRoad`, `takeUpRoad`, `seat` and `mayDecide`; typed refusals and memoised mayor tools |
-| `agents.ts`, `agents/` | Agent creation and model choices, departure, restoration, erasure, merging and splitting | `Agents`, `Leaving`, `Merging` parts and the chief's agent and road deeds |
-| `realm.ts`, `realm/` | Places, chief access, addresses, founding, closing and agreements across hamlets | Realm deeds and views; `livingAgent` for chiefs, `resolveAddress` for tools and `findInState` for clients |
-| `letters.ts`, `letters/` | Letters, questions, peer conversations and their counts | `Letters`, `askAgent`, `conversationViews` and `PeerStatistics` |
-| `votes.ts`, `votes/` | Calling votes, hearings, ballots and execution | `Votes`, `vote`, `votes`, `overturn` and `mayor`; record views re-exported from `record.ts` |
-| `library.ts`, `library/` | Shared skills, starters, librarian calls and publication | `Librarian`, `unshelve`, `libraryView`, `installStarters` and `libraryPart` |
-| `house.ts`, `house/` | House notes, skill papers, gifts and confined tree work | Home-owned `Houses.of` readers; `uploads`, `give`, `giftSkill`, `stage`, `deliver`, `list`, `remove` and `erase` |
-| `environment.ts`, `environment/` | Tool reach, cached environments, the work folder and its mode | `Confinement`, `agentEnv`, `houseReader`, `treeWorker`, `toolRunner`, `insideHouse`, `folder` and `setMode` |
-| `sandbox.ts`, `sandbox/` | File helpers and platform confinement with Seatbelt or bubblewrap | `SandboxEnv`, `Sandbox`, `platformSandbox` and `probeSandbox`; policies are built by `environment.ts` |
-| `scrub.ts`, `scrub/` | Credential scrubbing of stored text, values, streams and shell output | `secretsFrom` builds `Home.secrets`; `words`, `value` and `shell` scrub through the capability; `Scrubber` handles streams |
-| `oversight.ts`, `oversight/` | Waits, rulings, refusal history, trust, questions and objections | `open`, `forAgent`, `forChat`, `ended` and `view` query waits; `raise`, `settle`, `lapse` and `Objections` change them |
-| `gate.ts`, `gate/` | Tool admission, standing permissions and chief answers | `Gate`, `answer`, `answerWords` and `closeGate`; the hook uses the pure `rule` in `gate/rule.ts` |
-| `chats.ts`, `chats/` | Conversations, their deeds, configuration, turns, errands, reflection and follow-up work | `current`, `past`, `history`, `start`, `resume`, `carryOn`, `takeBack`, `stop`, `reflect` and `runErrand`; `Talk` supplies `Home.follow.settled` |
-| `transcript.ts`, `transcript/` | Watched and paged conversations, their item fold and read-only peers | `watchChat`, `pageChat`, `turnTools`, `agentConversation` and `requireWritable` |
-| `state.ts`, `state/` | Realm state and changes composed from owners' views, plus activity | `stateOf` and `watchState`; watch failures go to the supplied reporter |
-| `spend.ts`, `spend/` | Ledger, accounting, budgets, affordability and spend reports | `booksIn` counts within a transaction, `booksOf` reads through a commit, `canSpend` checks hamlet and task caps; `Budget`, `reportOf` and `chargeRoad` |
-| `limits.ts`, `limits/` | Hamlet limits and their editing | `LimitsSchema`, `parseLimits`, `limitsOf` and `editLimits` |
-| `models.ts`, `models/` | Model links, provider state, catalogue, settings, credentials' use and sign-ins | Home-owned `ModelHome` syncs, refreshes, edits, lists providers, signs in and checks connections; `models/faux.ts` supplies offline models |
-| `prompt.ts`, `prompt/` | Charter, character, notes, skills, hamlet brief and prompt inspection | `Prompt`, `HamletBrief`, `editCharter`, `charterOf` and `told` |
-| `tools.ts`, `tools/` | The six built-in file and shell tools, confined runs and tool failures | `Tools`, `runConfined`, `leaveFor`, `toolFailureText` and `toolDefect` |
-| `hand.ts`, `hand/` | Tools added by hand, manifest parsing and watching | `Hand`, `parseManifest`, `manifestFaultText`, `reservedNames` and `ManifestsDoc` |
-| `say.ts` | Dispatch of the chief's typed line | `say` returns a receipt or typed chief failure, or admits agent work without an immediate outcome |
-| `server.ts`, `server/` | Protocol request routing, reads, edits, envelopes and sign-in sessions | `serveHome`; `server/envelope.ts` correlates, renders and scrubs receipts and failures with `replyFor` and `faultFor` |
-| `runtime.ts` | Server startup, published address and shutdown | `serve` opens the home and serves until signalled; `server/bin/hamlet-server` invokes it |
-| `protocol.ts` | Protocol v0 schemas, types and parsing | `parseClient`, `parseServer`, `checkEdit`, `protocolSchema` and the shared transcript `applyOp` |
-| `connection.ts` | Authenticated WebSocket transport and the connection defect path | `serve`, `connect` and `Client` |
-| `commands.ts` | The advertised command table and typed command parsing | `COMMANDS`, `readCommand` and `commandFailureText` |
-| `settings.ts` | Settings, environment overrides, pure model choice and the workspace connection | `SettingsDoc`, `settingsOf`, `readOverrides`, `modelRef`, `choose` and `workspaceConnection` |
-| `change.ts` | Bounded edit previews and text excerpts | `changeOf`, `changeBetween`, `linesOf` and Unicode `clip` |
-| `result.ts` | The shared success or failure shape | `Result`, `ok` and `err` |
-
-`crates/hamlet_cli/src/process.rs` owns bare start, stop, status, development
-builds and window launch. It checks the published process and authenticates
-with the home's token before reusing or stopping it. Detached servers append
-output to `<home>/server.log`; startup errors include a scrubbed log tail.
-`runtime.ts` publishes the Node process's URL, PID and ISO `started` time
-in `server.json`, and closes the server on SIGTERM. The home lock and agent
-shutdown remain server-owned.
-
-The CLI's `client.rs` owns its authenticated protocol connection; `chat.rs`
-streams conversations, and `terminal.rs` edits documents, signs in and
-queries models. These use `hamlet_protocol` without the window's Bevy core.
-`server/test/cli-support.ts` runs the Rust executable against real scratch
-servers; the CLI contract tests cover lifecycle, chat, editors and login.
-
-The record's operations live in `record/membership.ts`, `roads.ts` and
-`office.ts`; `document.ts` holds the records and stable identities,
-`names.ts` their words and realm-wide name uniqueness, `refusals.ts` the
-refusal family and `tools.ts` the replay-safe tool wrappers. Agent lifecycle work composes these operations.
-Merge planning is in `agents/merge-plan.ts`, confined file application and
-journal recovery in `agents/merge-files.ts`, and tools, deeds and house
-holds in `agents/merging.ts`. Votes keep their durable phases in
-`votes/task.ts` and pure wording, tallying and evidence checks in
-`votes/words.ts`.
-
-Conversation deeds live in `chats/deeds.ts`; `chats/follow.ts` owns the
-follow pipeline and its close work. Call `Home.follow.settled` to wait for
-admitted follow-up work. Closing that part calls `gate.ts`'s `closeGate`
-to refuse new reflection approvals. Model and role configuration lives in
-`chats/configure.ts`; pure model selection lives in `settings.ts`.
-
-`Home.confinement` owns cached tool environments; `Home.houses` owns the
-read-only notes and skill readers and closes them with the home. `House.notes`
-returns a classified read; `House.notesText` supplies optional prompt text,
-and `House.build` constructs its house. `realm/founding.ts` owns the shared
-hamlet-count cap for founding and restoration. `sandbox/policy.ts` names
-process resource limits `executionLimits`; `limitsOf` belongs to hamlet
-limits.
-`Home.modelHome` owns model state; `Home.models` exposes its pi-ai models
-to the harness. `server/sign-in.ts` owns each client's interactive sign-in
-sessions and cancellation, using `ModelHome.login`.
-
-The state includes departed agents, roads, votes and closed hamlets.
-Changes to the shelf, the closed list or the set of hamlets shrinking
-replace the whole state; the client reconciles it without losing surviving
-entities.
-
-## Inside the Rust crates
-
-Inside a crate, a module with several subjects is a file and a folder of
-the same name, and each file opens with a line saying what it holds. Read
-`lib.rs` for the list.
-
-`hamlet_world` has one folder for each thing in the world: `generator/`
-(land, towns, houses, roads and traffic from a seed), `keeper/` (the
-robots), `chief/` (the wizard and its Hearth), `hand/` (what the chief does
-by hand), `pick/` (pointing, selecting and the camera) and `sound/`.
-`hamlet_ui` has one file or folder for each panel, and `theme.rs`,
-`looks.rs`, `feel/` and `icons.rs` for how they look.
-
-Names to keep apart:
-
-- `hamlet_client/src/realm.rs` holds the received hamlets and agents;
-  `chats.rs` holds the watched conversations.
-- `server/src/record.ts` holds the server's hamlet record and agent identity.
-  `hamlet_world/src/hamlet.rs` is the bridge that puts received hamlets
-  into the world.
-- `chief.rs` is the wizard in `hamlet_world` and the chief's panel in
-  `hamlet_ui`; `Chief` in `hamlet_client` is the server's chief name.
-- `hand.rs` is the hand in `hamlet_world`; `orders.rs` sends its deeds to
-  the server.
-
-## Where do I change...
-
-Rust crate paths are under `crates/`; `server/` paths are from the
-repository root.
-
-| To change | Go to |
+| Module | Responsibility and interface |
 |---|---|
-| What an agent is told every turn | `server/src/prompt.ts`, `prompt/`; composition is in `home/parts.ts`; the charter is `server/assets/charter.md` |
-| The tools an agent has | `server/src/tools.ts`, `tools/`; the mayor's tools in `server/src/agents/mayor.ts` |
-| A chief's slash command | `server/src/commands.ts`; the server advertises supported deeds in `state.deeds` |
-| A conversation deed or follow-up work | `server/src/chats/deeds.ts`, `chats/follow.ts`; wait through `Home.follow.settled` |
-| Membership, names, road or office invariants | `server/src/record.ts`, `record/membership.ts`, `record/names.ts`, `record/roads.ts`, `record/office.ts` |
-| Chief-facing failure wording and reply kinds | `server/src/server/envelope.ts` chooses the owner's renderer and scrubs the envelope |
-| Notes, skill readers or gifts | `server/src/house.ts`, `house/skills.ts`, `house/gifts.ts`, `house/trees.ts`; readers belong to `Home.houses` |
-| The command or terminal clients | `crates/hamlet_cli/src/main.rs`, `process.rs`, `client.rs`, `chat.rs`, `terminal.rs`; Node startup is `server/src/runtime.ts`; [`cli.md`](cli.md) |
-| What needs the chief's approval | `server/src/gate.ts`, `gate/call.ts`, `gate/rule.ts`, `gate/standing.ts`; waits and queries in `oversight.ts` |
-| What an agent's commands may touch | `server/src/environment.ts` builds confinement; `sandbox.ts`, `sandbox/` run it; [`sandbox.md`](sandbox.md) describes the reach policy |
-| The folder a hamlet works on | `server/src/environment.ts`, `environment/work.ts`; the panel is `hamlet_ui/src/folder.rs` |
-| The workbench and its clockwork on a common | `hamlet_world/src/works.rs` |
-| Agents, roads and model choices | `server/src/agents.ts`, `agents/mayor.ts`; membership and road rules in `record/`, model choice in `settings.ts` |
-| Letters, questions and watching peer chats | `server/src/letters.ts`, `letters/peers.ts`, `transcript.ts`; `hamlet_ui/src/inspector/conversations.rs` |
-| Removal, merging and restoration | `server/src/agents.ts`, `agents/leaving.ts`, `agents/merging.ts`, `agents/merge-plan.ts`, `agents/merge-files.ts`; `hamlet_client/src/realm.rs` supplies departure components |
-| Votes and the mayor's office | `server/src/votes.ts`, `votes/task.ts`, `votes/words.ts`; office rules and vote records in `record/office.ts`; the window's `hamlet_ui/src/overview/record.rs` |
-| The shared library | `server/src/library.ts`, `library/librarian.ts`; `hamlet_ui/src/inspector/gone.rs` |
-| Instructions and objections | `server/src/chats/instructions.ts`, `oversight/objections.ts` |
-| Founding, closing and dealings across hamlets | `server/src/realm/founding.ts`, `dealings.ts`; [`society.md`](society.md) |
-| Spending and limits | `server/src/spend.ts`, `spend/afford.ts` (`canSpend`), `spend/ledger.ts` (`booksIn`); limits in `limits.ts`, `limits/edit.ts` |
-| Models, their prices and who may run them | `server/src/models.ts` (`ModelHome`), `models/catalogue.ts`, `models/providers.ts`; pure choice in `settings.ts` |
-| The model harness | `server/src/home.ts`, `chats/turn.ts`; pi-durable owns the model calls |
-| Signing in with ChatGPT to run models on the chief's plan | `server/src/server/sign-in.ts` for client sessions; `models.ts`, `models/logins.ts`, `home/credentials.ts` for providers and credentials |
-| A starter skill | `server/assets/starters/<name>/SKILL.md` |
-| The protocol or its Rust types | `server/src/protocol.ts`; export with `npm run schema`, then `cargo run -p hamlet_protocol_gen` |
-| Connection, reconnection or received components | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs` |
-| A panel | Its file in `hamlet_ui/src/` |
-| The right-click menu | `hamlet_ui/src/world_menu/items.rs` |
-| A colour in the panels | `assets/theme.toml`, its fields in `hamlet_ui/src/theme.rs` |
-| How a control looks or feels | `hamlet_ui/src/looks.rs`, `feel/`; [`ui-warmth.md`](ui-warmth.md) |
-| An icon | `hamlet_ui/src/icons.rs`; [`icons.md`](icons.md) |
-| A colour in the world | `assets/palette.toml` |
-| A size, speed or timing | `assets/world.toml`, `vfx.toml`, `ui.toml`. What each value means is beside its field in the code |
-| The height something stands at | `LandData::surface`: the ground as it is drawn, never the smooth `height` |
-| How a house looks | `hamlet_world/src/generator/house.rs` |
-| How a robot moves | `hamlet_world/src/keeper/acts/`; [`robots.md`](robots.md) |
-| An effect | `hamlet_vfx/src/`; when it is set off, `hamlet_world/src/generator/magic.rs` |
-| A sound or the music | `hamlet_world/src/sound/`; [`sound.md`](sound.md) |
-| The camera | `hamlet_world/src/pick/camera.rs` |
-| The wizard or the Hearth | `hamlet_world/src/chief/`; [`chief.md`](chief.md) |
-| The window's saved layout, size and look | `hamlet_ui/src/remember.rs`, `window.rs`, `hamlet_world/src/chief/look.rs`; files under `HAMLET_VIEW` |
-| Final editor saves and closing the window | `hamlet_desktop/src/editor.rs`, `hamlet_ui/src/saving.rs`, `window.rs` |
-| The server's settings or chief documents | `server/src/settings.ts`, `server/src/server/reads.ts`, `server/src/server/edits.ts`; the panels send protocol requests |
-| The local or remote workspace agents' tools run in | `server/src/workspace.ts`, `house/remote.ts`; the choice in `settings.ts` and `home/credentials.ts`; moving the houses in `house/move.ts`; its page in `hamlet_ui/src/settings/workspace.rs`; the manager in `hamlet_workspace/`; [`sandbox.md`](sandbox.md) |
+| `home.rs`, `claim.rs` | `Home::open` claims a path, opens its `Store` and checks the `realm.id` pair. `Layout` names storage, credentials and harness directories |
+| `store.rs`, `schema.sql` | Ordered schema migrations and the `realm.sqlite` connection, with WAL, FULL sync and foreign keys |
+| `operation.rs` | `OperationId` identifies runtime plus call key; `Store::run` commits an operation's result marker with its record effects |
+| `service.rs` | `Service` owns the claimed home, credentials, houses, models, chats and uploads; `handle` routes chief requests |
+| `runtime.rs` | `serve` probes the sandbox, starts the harness, publishes `server.json`, authenticates connections and closes in order |
+| `protocol.rs` | `Protocol::parse` validates client input against v0; reply and fault rendering |
+| `record.rs`, `record/` | Agent identity, membership, names, roads, office, constraints and typed refusals. `RecordOperation` is a transactional change |
+| `documents.rs`, `settings.rs`, `limits.rs` | Chief edits and reads, stored settings plus process overrides, JSON limit validation |
+| `chats.rs`, `chats/` | Chief and peer watches, durable inputs, follow-up work, reflection, stop, retry, resume and rewind |
+| `chats/calls.rs`, `gate.rs`, `oversight.rs` | Request digest/binding checks, approval rules, waits, standing grants and execution. Marked outcomes survive replay; changed requests are refused |
+| `harness.rs`, `harness/` | Start/watch runtime processes, bind conversations, admit inputs, carry link messages, acknowledge updates and retain owed cancellation |
+| `tools.rs`, `tools/`, `hand.rs` | Built-in tools, their confined file/shell execution and hand-added manifests |
+| `sandbox.rs`, `sandbox/` | Bubblewrap/Seatbelt policies, subprocess limits and termination |
+| `papers.rs`, `papers/tree.rs` | Descriptor-relative house access, notes, bounded no-follow tree operations and recoverable snapshots |
+| `workspace.rs`, `papers/files.rs`, `papers/moving.rs` | Authenticated remote execution, local/remote house files and background copies to the next-start backend |
+| `gifts.rs`, `gifts/` | Connection-owned upload staging, manifest limits, confined delivery and skill gifts |
+| `prompt.rs`, `prompt/` | `sections` composes charter, machine, project, character, notes, shelf, hamlet and realm |
+| `starters.rs` | Shipped starter content from `crates/hamlet-server/assets/starters/` |
+| `models.rs`, `credentials.rs`, `scrub.rs` | Catalogue and provider requests, atomic credential files, sign-ins and secret removal before publication or harness persistence |
+| `spend.rs` | Budget reservations and usage charges deduplicated by model attempt, plus agent/task/hamlet accounting |
+| `society.rs`, `society/` | Role-specific tool schemas, letters/questions, instructions/objections, votes, library and recoverable merge/departure work |
+| `realm.rs`, `realm/` | Living/closed places, cross-hamlet addresses, founding, agreements and pending house moves |
+| `state.rs` | Composes protocol state from the owning records and live activity |
 
-## Tuning while the app runs
+`realm.sqlite` holds server-owned records, chief and society documents,
+bindings, inputs, waits, charges and operation markers. It does not hold
+pi's authoritative transcript. Each runtime opens only its own store under
+`harnesses/<instance>/`; the server consumes committed updates through the
+link. House files stay files. See [`home.md`](home.md).
 
-The files under `assets/` are built into the app. With the `hot-reload`
-feature they are also watched: save a change and the running app takes it.
+## The pi harness
+
+`harnesses/pi/src/main.ts` is the Node entry. The server starts it with
+`--runtime`, `--store` and `--link stdio`. The private link is versioned
+JSON lines on stdin/stdout; diagnostics go to stderr.
+
+| File under `harnesses/pi/src/` | Owns |
+|---|---|
+| `link.ts` | TypeBox messages; `npm run schema` exports `link.schema.json` |
+| `channel.ts` | Correlated link requests and replies |
+| `runtime.ts` | Handshake, conversations, input admission, tools, prompt/configure hooks, cancellation, history and updates |
+| `models.ts` | Provider calls admitted and charged by the server; asks it to scrub snapshots and final responses |
+| `faux.ts` | Offline scripts, with separate agent and errand queues |
+| `faults.ts` | Exact process-crash pauses used by tests |
+
+Credentials belong to `Service`; the harness receives only what an
+authorized provider attempt needs, in memory. Its scrub requests go back
+to the server. Role changes use configure/configured before the next
+request. Ballots have only `cast_ballot`; other one-off errands have no
+ordinary tools.
+
+## Where to change behavior
+
+| Change | Owner |
+|---|---|
+| Typed commands, command replies | `hamlet-server/src/chats/say.rs`, `society.rs`, `realm/deeds.rs`; advertised deeds in `state.rs` |
+| Conversation stop/retry/resume/rewind | `hamlet-server/src/chats/deeds.rs` and `chats/follow.rs` |
+| Transcript rows, paging and peer watches | `hamlet-server/src/chats/fold.rs`, `chats/watch.rs`; `hamlet_client/src/chats.rs` |
+| Agent creation, model choice, departure and merge | `hamlet-server/src/society/agents.rs`, `leaving.rs`, `merging.rs`; rules in `record/` |
+| Letters, questions, votes and library | `hamlet-server/src/society/letters.rs`, `votes.rs`, `library.rs` |
+| Instructions and objections | `hamlet-server/src/society/objections.rs`, `reviews.rs` |
+| Founding and cross-hamlet agreements | `hamlet-server/src/realm/deeds.rs`, `dealings.rs` |
+| A prompt or chief document | `hamlet-server/src/prompt/`, `documents.rs`; default charter in `hamlet-server/assets/charter.md` |
+| A model connection, login or price | `hamlet-server/src/models.rs`, `credentials.rs`; provider implementation in pi |
+| Folder, mode or tool reach | `hamlet-server/src/documents.rs`, `tools.rs`, `sandbox/`; [`sandbox.md`](sandbox.md) |
+| CLI process discovery | `hamlet_cli/src/process.rs`; [`cli.md`](cli.md) |
+| Protocol or generated types | `hamlet_protocol/schema/`, then `npm run schema` and `cargo run -p hamlet_protocol_gen`; [`protocol.md`](protocol.md) |
+| Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs` |
+| A panel or right-click menu | `hamlet_ui/src/`, `world_menu/items.rs` |
+| Panels' colors, controls and icons | `assets/theme.toml`; `hamlet_ui/src/theme.rs`, `looks.rs`, `feel/`, `icons.rs` |
+| World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
+| Ground, houses and roads | `hamlet_world/src/generator/`; `LandData::surface` is the drawn surface |
+| Robot motion | `hamlet_world/src/keeper/acts/`; [`robots.md`](robots.md) |
+| Wizard, Hearth, camera or sound | `hamlet_world/src/chief/`, `pick/camera.rs`, `sound/` |
+| Window state or editor saves | `hamlet_ui/src/remember.rs`, `window.rs`, `saving.rs`; `hamlet_desktop/src/editor.rs` |
+
+`hamlet_world/src/hamlet.rs` bridges received entities to the generator's
+plots and roads. `Citizen` is an agent number in its hamlet, not a name.
+`chief.rs` names the wizard in the world and the chief's panel in the UI;
+`Chief` in `hamlet_client` is the server's chief identity. The window keeps
+only its own view files under `HAMLET_VIEW`.
+
+## Tuning and previewing the window
+
+Assets are embedded. The `hot-reload` feature also watches their source:
 
 ```sh
 cargo build --bin hamlet-app --features hot-reload
 HAMLET_HOME=/tmp/hamlet-try HAMLET_APP="$PWD/target/debug/hamlet-app" cargo run -p hamlet_cli -- dev
 ```
 
-Three things do not follow a saved change: the `[generator]` section of
-`world.toml`, since the land keeps the settings it was built from; the
-colour of a mesh that is already built; and the charter, which is owned by
-the server and edited through its protocol.
+The generator section of `world.toml` and existing mesh colors do not
+change an already-built world. The charter is a server document, edited
+through the protocol rather than asset hot reload. An unreadable asset
+reports an error and keeps the last good values.
 
-A file that cannot be read is reported and the last good values stay.
-
-## Seeing your work without a window
-
-These draw to files and open nothing:
-
-| Command | Shows |
+| Command | Output |
 |---|---|
-| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | One panel scene. `examples/ui_gallery/main.rs` lists the scenes |
-| `cargo run --release --example far_lands -- --out <dir>` | The land, many towns, a town being moved; `--bench` times it |
-| `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library |
-| `cargo run --example cursor_sheet` | Every cursor |
-| `cargo run --release --example sound_sheet` | Every sound and the music, as WAV files |
+| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | Panel scenes listed in `examples/ui_gallery/main.rs` |
+| `cargo run --release --example far_lands -- --out <dir>` | Land and town images; `--bench` measures it |
+| `cargo run --example chief_sheet -- --out <dir>` | Wizard, Wickstep and library |
+| `cargo run --example cursor_sheet` | Cursor sheet |
+| `cargo run --release --example sound_sheet` | Generated sound WAVs |
 
-`style_test` (one fixed scene and the robots' motions) and `town_gen` (the
-generated world, grown from the keyboard) open a window.
-
-Run the pair against a scratch home, never your own:
-
-```sh
-HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
-```
-
-`npm ci --prefix server` installs the server's dependencies; use its
-`.nvmrc` Node version. `make install` does that too and installs `hamlet`
-and `hamlet-app` on PATH; the `Makefile` lists its other targets. `hamlet dev` sets
-`HAMLET_VIEW=<home>/window`; when opening a window yourself, set a scratch
-`HAMLET_VIEW` too. A server can outlive any number of windows; Ctrl-C in
-the `hamlet dev` terminal stops the server.
+`style_test` and `town_gen` open windows. For live work use
+`HAMLET_HOME=/tmp/hamlet-try make dev`; it builds both Rust processes and
+sets `HAMLET_VIEW=<home>/window`. Closing the window leaves the server;
+Ctrl-C in the dev terminal stops it. Use Node from `harnesses/pi/.nvmrc`.

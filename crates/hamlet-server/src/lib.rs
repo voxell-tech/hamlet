@@ -29,11 +29,14 @@ pub mod service;
 mod settings;
 mod society;
 pub mod spend;
+mod starters;
 mod state;
 mod store;
 mod tools;
+mod workspace;
 
 pub use claim::Held;
+pub use credentials::Credentials;
 pub use home::{Home, Layout};
 pub use operation::{
     Operation, OperationId, Outcome, Reply, RuntimeInstance,

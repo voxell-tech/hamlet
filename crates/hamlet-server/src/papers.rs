@@ -1,5 +1,8 @@
 //! Notes confined to houses, and the chief's prompt material.
 
+pub(crate) mod copy;
+pub(crate) mod files;
+pub(crate) mod moving;
 pub(crate) mod tree;
 
 use std::fs::File;
@@ -8,18 +11,28 @@ use std::path::Path;
 
 use anyhow::{Result, ensure};
 
-pub(crate) const CHARTER: &str =
-    include_str!("../../../server/assets/charter.md");
+pub(crate) const CHARTER: &str = include_str!("../assets/charter.md");
 
 /// The opened home directory anchors every notes read and write.
 pub(crate) struct Houses {
     root: File,
+    pub workspace: Option<crate::credentials::Workspace>,
+    skills: std::collections::BTreeMap<
+        (String, u64),
+        (std::time::Instant, Vec<String>),
+    >,
+    reading: std::collections::BTreeSet<(String, u64)>,
+    readers: tokio::task::JoinSet<(String, u64, Vec<String>)>,
 }
 
 impl Houses {
     pub fn open(root: &Path) -> Result<Self> {
         Ok(Self {
             root: File::open(root)?,
+            workspace: None,
+            skills: Default::default(),
+            reading: Default::default(),
+            readers: tokio::task::JoinSet::new(),
         })
     }
 
@@ -35,6 +48,11 @@ impl Houses {
         create: bool,
     ) -> Result<File> {
         use rustix::fs::{Mode, OFlags, mkdirat, openat};
+        ensure!(
+            self.workspace.is_none(),
+            "{}",
+            crate::workspace::unavailable("open a local house")
+        );
         ensure!(
             !hamlet.is_empty()
                 && hamlet.bytes().all(|b| b.is_ascii_lowercase()
@@ -155,6 +173,131 @@ impl Houses {
         self.notes(hamlet, number, false)?
             .read_to_string(&mut text)?;
         Ok(text)
+    }
+
+    pub fn remote(
+        &self,
+        hamlet: &str,
+        number: u64,
+        read_only: bool,
+    ) -> Result<Option<crate::workspace::Remote>> {
+        self.workspace
+            .as_ref()
+            .map(|connection| {
+                crate::workspace::Remote::new(
+                    connection.clone(),
+                    crate::record::AgentRef {
+                        hamlet: hamlet.into(),
+                        number,
+                    },
+                    false,
+                    false,
+                    read_only,
+                )
+            })
+            .transpose()
+    }
+
+    pub fn files(
+        &self,
+        hamlet: &str,
+        number: u64,
+    ) -> Result<files::Files> {
+        match self.remote(hamlet, number, false)? {
+            Some(env) => Ok(files::Files::Remote {
+                env,
+                path: "/house".into(),
+            }),
+            None => self
+                .house(hamlet, number, false)
+                .map(files::Files::Local),
+        }
+    }
+
+    pub fn skill_names(
+        &mut self,
+        hamlet: &str,
+        number: u64,
+        local: &Path,
+    ) -> Result<Vec<String>> {
+        let Some(remote) = self.remote(hamlet, number, true)? else {
+            return Ok(crate::prompt::skill_names(local));
+        };
+        while let Some(Ok((hamlet, number, names))) =
+            self.readers.try_join_next()
+        {
+            self.reading.remove(&(hamlet.clone(), number));
+            self.skills.insert(
+                (hamlet, number),
+                (std::time::Instant::now(), names),
+            );
+        }
+        let key = (hamlet.to_string(), number);
+        let cached = self.skills.get(&key);
+        if cached.is_none_or(|(at, _)| at.elapsed().as_secs() >= 1)
+            && self.reading.insert(key.clone())
+        {
+            self.readers.spawn(async move {
+                let names =
+                    crate::prompt::shelf::remote_skills(&remote)
+                        .await
+                        .into_iter()
+                        .map(|skill| skill.folder)
+                        .collect();
+                (key.0, number, names)
+            });
+        }
+        Ok(cached.map(|(_, names)| names.clone()).unwrap_or_default())
+    }
+
+    pub async fn initialize(
+        &self,
+        hamlet: &str,
+        number: u64,
+    ) -> Result<()> {
+        match self.remote(hamlet, number, false)? {
+            Some(remote) => {
+                remote.initialize().await.map_err(Into::into)
+            }
+            None => self.build(hamlet, number),
+        }
+    }
+
+    pub async fn read_notes(
+        &self,
+        hamlet: &str,
+        number: u64,
+    ) -> Result<String> {
+        match self.remote(hamlet, number, true)? {
+            Some(remote) => {
+                let bytes = remote
+                    .read("/house/NOTES.md", true)
+                    .await
+                    .map_err(|error| {
+                        anyhow::anyhow!("{}", error.message)
+                    })?;
+                String::from_utf8(bytes).map_err(Into::into)
+            }
+            None => self.read(hamlet, number),
+        }
+    }
+
+    pub async fn write_notes(
+        &self,
+        hamlet: &str,
+        number: u64,
+        text: &str,
+    ) -> Result<()> {
+        match self.remote(hamlet, number, false)? {
+            Some(remote) => {
+                let files = files::Files::Remote {
+                    env: remote,
+                    path: "/house".into(),
+                };
+                files.replace("NOTES.md", text.as_bytes()).await
+            }
+            None => self.write(hamlet, number, text),
+        }
     }
 
     pub fn move_house(

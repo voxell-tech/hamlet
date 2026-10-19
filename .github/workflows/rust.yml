@@ -92,7 +92,8 @@ jobs:
           RUSTDOCFLAGS: -D warnings
 
   test:
-    runs-on: ubuntu-latest
+    # This image permits bubblewrap's unprivileged user namespaces.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,10 +104,19 @@ jobs:
         with:
           shared-key: test
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-      # Without --all-features: live-tests reaches a model server and the
-      # internet.
-      - run: cargo test --workspace --all-targets
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: harnesses/pi/.nvmrc
+      - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev bubblewrap
+      - run: npm ci --prefix harnesses/pi
+      - run: npm ci --prefix crates/hamlet_protocol/schema
+      - run: npm run check --prefix harnesses/pi
+      - run: npm test --prefix harnesses/pi
+      - run: npm run check --prefix crates/hamlet_protocol/schema
+      - run: npm test --prefix crates/hamlet_protocol/schema
+      - run: cargo build --locked -p hamlet_cli -p hamlet-server
+      # Faux and loopback providers only, including real harness processes.
+      - run: cargo test --workspace --all-targets --features hamlet-server/harness,hamlet_acceptance/acceptance
 
   # Note: cargo test --all-targets disables doc tests, so we have to add this to test docs
   doctest:

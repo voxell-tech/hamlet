@@ -65,7 +65,7 @@ pub struct Protocol {
 impl Protocol {
     pub fn new() -> Result<Self> {
         let schema = serde_json::from_str::<Value>(include_str!(
-            "../../../server/protocol.schema.json"
+            "../../hamlet_protocol/schema.json"
         ))?;
         let definitions = &schema["$defs"];
         let mut forms = Vec::new();

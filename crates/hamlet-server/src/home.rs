@@ -76,7 +76,9 @@ impl Home {
         if layout.root.join(NODE_STORE).try_exists()? {
             bail!(
                 "{} holds the TypeScript server's storage, which \
-                 this server cannot open.",
+                 this server cannot open. Choose a fresh \
+                 HAMLET_HOME for the Rust server; the old files \
+                 have not been erased.",
                 layout.root.display()
             );
         }

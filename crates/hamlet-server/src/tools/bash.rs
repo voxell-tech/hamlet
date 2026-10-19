@@ -172,3 +172,122 @@ pub(super) async fn run(
         diagnostics,
     }
 }
+
+pub(super) async fn remote(
+    env: &crate::workspace::Remote,
+    place: &Place,
+    secrets: &[String],
+    arguments: &Map<String, Value>,
+) -> Outcome {
+    let args = Arguments::new("bash", arguments);
+    let (command, timeout) = match (
+        args.string("command"),
+        args.number("timeout"),
+        args.boolean("network"),
+    ) {
+        (Ok(command), Ok(timeout), Ok(_)) => (command, timeout),
+        (Err(invalid), ..)
+        | (_, Err(invalid), _)
+        | (.., Err(invalid)) => return invalid,
+    };
+    let wall =
+        timeout.unwrap_or(WALL_SECS as f64).min(WALL_SECS as f64);
+    if !(wall.is_finite() && wall > 0.0) {
+        return Outcome::failed(
+            "Error: Invalid timeout: must be a finite number of \
+             seconds. Inspect the output before trying again, or \
+             tell the chief.",
+        );
+    }
+    match env.info(env.cwd()).await {
+        Ok(info) if info.kind == FileKind::Directory => {}
+        Err(error) if error.code != "not_found" => {
+            return Outcome::failed(error.message);
+        }
+        _ => {
+            return Outcome::failed(format!(
+                "Error: the folder {} is gone. Tell the chief.",
+                env.cwd()
+            ));
+        }
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Ran {
+        exit_code: i32,
+        stdout: String,
+        stderr: String,
+    }
+    let ran = env
+        .call::<Ran>(
+            json!({"kind":"exec", "argv":["/bin/bash","-c",command],
+        "cwd":env.cwd(), "timeout_ms":(wall * 1000.0).ceil() as u64}),
+        )
+        .await;
+    let mut kept = Tail::default();
+    let mut diagnostics = Vec::new();
+    let mut exit = -1;
+    match ran {
+        Ok(ran) => {
+            let output = scrub_text(
+                secrets,
+                &format!("{}{}", ran.stdout, ran.stderr),
+            );
+            if output.len() > MAX_BYTES
+                || output.lines().count() > MAX_LINES
+            {
+                let dir = format!(
+                    "/house/.tmp/bash-{}",
+                    uuid::Uuid::new_v4()
+                );
+                let path = format!("{dir}/output.txt");
+                let spill = async {
+                    env.call::<()>(json!({"kind":"mkdir", "path":dir, "recursive":true})).await?;
+                    env.write(&path, output.as_bytes()).await.map_err(|error| anyhow::anyhow!("{}", error.message))
+                }.await;
+                if let Err(error) = spill {
+                    return Outcome::thrown(
+                        "tool_error",
+                        format!(
+                            "The command ran but its full output \
+                             could not be saved: {error}. Inspect \
+                             its files before repeating it."
+                        ),
+                    );
+                }
+                diagnostics.push(diagnostic(
+                    DiagnosticSeverity::Info,
+                    "full_output",
+                    format!("Full output: {path}"),
+                ));
+            }
+            kept.push(&output);
+            exit = ran.exit_code;
+            if exit != 0 {
+                diagnostics.push(diagnostic(
+                    DiagnosticSeverity::Error,
+                    "exit_code",
+                    format!("Command exited with code {exit}"),
+                ));
+                if REFUSED.iter().any(|words| output.contains(words))
+                {
+                    kept.push(if place.folder.is_none() {
+                        OUTSIDE
+                    } else {
+                        OUTSIDE_PROJECT
+                    });
+                }
+            }
+        }
+        Err(error) if error.code == "timeout" => kept.push(&format!(
+            "\n[timed out after {}s]",
+            number_words(wall)
+        )),
+        Err(error) => kept.push(&format!(
+            "Error: {error}. Inspect the output before trying \
+             again, or tell the chief."
+        )),
+    }
+    Outcome { text:kept.text(), error:exit != 0,
+        details:json!({"exitCode":exit,"policy":env.policy(),"degraded":false}).as_object().cloned(), diagnostics }
+}

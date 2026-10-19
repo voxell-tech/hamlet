@@ -292,7 +292,9 @@ pub(super) async fn deed(
             Ok(value["text"].as_str().unwrap_or_default().into())
         }
         Outcome::Done(RecordResult::Restored { text, .. }) => {
-            super::merging::finish(service)?;
+            if service.houses.workspace.is_none() {
+                super::merging::finish(service).await?;
+            }
             Ok(text)
         }
         Outcome::Refused(refusal) => {

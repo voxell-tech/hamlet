@@ -1,6 +1,7 @@
 //! Whole-file credentials and scrubbing at the protocol boundary
 //! (S7).
 
+use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -32,13 +33,18 @@ pub(crate) struct Workspace {
     pub token: String,
 }
 
-pub(crate) struct Credentials {
+/// The home's credential file and its in-memory secret history.
+pub struct Credentials {
     file: PathBuf,
     stored: Stored,
     api_key: Option<String>,
+    workspace_token: Option<String>,
+    transient: Vec<String>,
+    revisions: HashMap<String, u64>,
 }
 
 impl Credentials {
+    /// Opens the credential owner for a home held by this process.
     pub fn open(root: &Path) -> Result<Self> {
         let file = root.join("credentials.json");
         let stored = match fs::read(&file) {
@@ -71,8 +77,17 @@ impl Credentials {
         };
         let credentials = Self {
             file,
+            revisions: HashMap::new(),
+            transient: stored
+                .workspace
+                .iter()
+                .map(|w| w.token.clone())
+                .collect(),
             stored,
             api_key: std::env::var("HAMLET_API_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            workspace_token: std::env::var("HAMLET_WORKSPACE_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
         };
@@ -84,7 +99,7 @@ impl Credentials {
         Ok(credentials)
     }
 
-    pub fn accepts(&self, token: &str) -> bool {
+    pub(crate) fn accepts(&self, token: &str) -> bool {
         // Both hashes are fixed length, independent of the token's
         // spelling.
         let a = Sha256::digest(token.as_bytes());
@@ -94,11 +109,27 @@ impl Credentials {
         ring::constant_time::verify_slices_are_equal(&a, &b).is_ok()
     }
 
-    pub fn workspace_url(&self) -> Option<&str> {
-        self.stored.workspace.as_ref().map(|w| w.url.as_str())
+    pub(crate) fn workspace_url(&self) -> Option<&str> {
+        self.workspace().map(|w| w.url.as_str())
     }
 
-    pub fn model(
+    pub(crate) fn workspace(&self) -> Option<&Workspace> {
+        self.stored.workspace.as_ref()
+    }
+
+    pub(crate) fn installation_id(&self) -> &str {
+        &self.stored.installation_id
+    }
+
+    pub(crate) fn remember(&mut self, secret: &str) {
+        if !secret.is_empty()
+            && !self.transient.iter().any(|s| s == secret)
+        {
+            self.transient.push(secret.into());
+        }
+    }
+
+    pub(crate) fn model(
         &self,
         provider: &str,
         serving: &str,
@@ -113,16 +144,31 @@ impl Credentials {
         self.stored.models.get(provider).cloned()
     }
 
-    pub fn configured(&self, provider: &str) -> bool {
+    pub(crate) fn configured(&self, provider: &str) -> bool {
         self.stored.models.contains_key(provider)
     }
 
-    pub fn save_model(
+    pub(crate) fn revision(&self, provider: &str) -> u64 {
+        self.revisions.get(provider).copied().unwrap_or_default()
+    }
+
+    pub(crate) fn remember_model(&mut self, value: &Value) {
+        for key in ["key", "access", "refresh"] {
+            if let Some(secret) = value[key].as_str() {
+                self.remember(secret);
+            }
+        }
+    }
+
+    pub(crate) fn save_model(
         &mut self,
         provider: &str,
         credential: Option<Value>,
     ) -> Result<()> {
         let previous = self.stored.models.get(provider).cloned();
+        for value in previous.iter().chain(credential.iter()) {
+            self.remember_model(value);
+        }
         match credential {
             Some(value) => {
                 self.stored.models.insert(provider.into(), value);
@@ -142,15 +188,22 @@ impl Credentials {
             }
             return Err(error);
         }
+        *self.revisions.entry(provider.into()).or_default() += 1;
         Ok(())
     }
 
-    pub fn choose_workspace(
+    pub(crate) fn choose_workspace(
         &mut self,
         workspace: Option<Workspace>,
     ) -> Result<()> {
+        if let Some(target) = &workspace {
+            self.remember(&target.token);
+        }
         let previous =
             std::mem::replace(&mut self.stored.workspace, workspace);
+        if let Some(active) = &previous {
+            self.remember(&active.token);
+        }
         if let Err(error) = self.write() {
             self.stored.workspace = previous;
             return Err(error);
@@ -170,6 +223,8 @@ impl Credentials {
     pub fn secrets(&self) -> Vec<String> {
         let mut secrets = vec![self.stored.connection.token.as_str()];
         secrets.extend(self.api_key.as_deref());
+        secrets.extend(self.workspace_token.as_deref());
+        secrets.extend(self.transient.iter().map(String::as_str));
         secrets.extend(
             self.stored.workspace.as_ref().map(|w| w.token.as_str()),
         );
@@ -183,12 +238,48 @@ impl Credentials {
         secrets.into_iter().map(String::from).collect()
     }
 
-    pub fn scrub(&self, value: &mut Value) {
+    pub(crate) fn scrub(&self, value: &mut Value) {
         let secrets = self.secrets();
         let secrets =
             secrets.iter().map(String::as_str).collect::<Vec<_>>();
         scrub_value(value, &secrets);
     }
+}
+
+pub(crate) fn pack(
+    mut value: Value,
+) -> Result<crate::harness::link::Credential> {
+    if value["type"] == "oauth" {
+        let mut extra =
+            value.as_object().context("OAuth credential")?.clone();
+        for key in ["type", "access", "refresh", "expires"] {
+            extra.remove(key);
+        }
+        let fields =
+            value.as_object_mut().context("OAuth credential")?;
+        fields.retain(|key, _| {
+            ["type", "access", "refresh", "expires"]
+                .contains(&key.as_str())
+        });
+        fields.insert("extra".into(), Value::Object(extra));
+    }
+    Ok(serde_json::from_value(value)?)
+}
+
+pub(crate) fn unpack(
+    credential: crate::harness::link::Credential,
+) -> Result<Value> {
+    let mut value = serde_json::to_value(credential)?;
+    if value["type"] == "oauth" {
+        let fields =
+            value.as_object_mut().context("OAuth credential")?;
+        if let Some(Value::Object(extra)) = fields.remove("extra") {
+            for (key, item) in extra {
+                fields.entry(key).or_insert(item);
+            }
+        }
+    }
+    Ok(value)
 }
 
 fn scrub_value(value: &mut Value, secrets: &[&str]) {
@@ -251,4 +342,63 @@ pub(crate) fn write_whole(file: &Path, bytes: &[u8]) -> Result<()> {
         let _ = fs::remove_file(&temporary);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_testing::Scratch;
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn active_and_retired_credentials_stay_scrubbed_after_replacement_and_logout()
+     {
+        let dir = Scratch::new("credential-retention");
+        let mut credentials = Credentials::open(&dir).unwrap();
+        credentials.workspace_token =
+            Some("environment-workspace-token".into());
+        credentials
+            .choose_workspace(Some(Workspace {
+                url: "https://first.invalid".into(),
+                token: "startup-workspace-token".into(),
+            }))
+            .unwrap();
+        drop(credentials);
+        let mut credentials = Credentials::open(&dir).unwrap();
+        credentials.workspace_token =
+            Some("environment-workspace-token".into());
+        credentials
+            .choose_workspace(Some(Workspace {
+                url: "https://second.invalid".into(),
+                token: "target-workspace-token".into(),
+            }))
+            .unwrap();
+        credentials.save_model("chatgpt", Some(json!({"type":"oauth","access":"before-access-token","refresh":"before-refresh-token","expires":0}))).unwrap();
+        credentials.save_model("chatgpt", Some(json!({"type":"oauth","access":"after-access-token","refresh":"after-refresh-token","expires":9}))).unwrap();
+        let mut text = json!(
+            "startup-workspace-token target-workspace-token \
+             environment-workspace-token before-access-token \
+             before-refresh-token after-access-token \
+             after-refresh-token untouched"
+        );
+        credentials.scrub(&mut text);
+        assert_eq!(
+            text,
+            "[REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] \
+             [REDACTED] [REDACTED] untouched"
+        );
+        credentials.choose_workspace(None).unwrap();
+        credentials.save_model("chatgpt", None).unwrap();
+        let mut retired = json!({"before-refresh-token":"startup-workspace-token target-workspace-token after-access-token environment-workspace-token"});
+        credentials.scrub(&mut retired);
+        assert_eq!(
+            retired,
+            json!({"[REDACTED]":"[REDACTED] [REDACTED] [REDACTED] [REDACTED]"})
+        );
+        let disk =
+            fs::read_to_string(dir.join("credentials.json")).unwrap();
+        assert!(!disk.contains("workspace-token"));
+        assert!(!disk.contains("access-token"));
+    }
 }

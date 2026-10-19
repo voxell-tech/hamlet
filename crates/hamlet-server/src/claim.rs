@@ -6,11 +6,12 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use hamlet_home::instance::socket_name;
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::{
-    ListenerNonblockingMode, ListenerOptions, Stream,
+    GenericFilePath, GenericNamespaced, ListenerNonblockingMode,
+    ListenerOptions, Name, Stream,
 };
+use sha2::{Digest, Sha256};
 
 /// The interval between accepting probes and checking for release.
 const POLL: Duration = Duration::from_millis(50);
@@ -68,6 +69,26 @@ pub(crate) fn resolved_path(dir: &Path) -> Result<PathBuf> {
         }
     }
     Ok(resolved)
+}
+
+fn socket_name(home: &Path) -> Result<Name<'static>> {
+    if GenericNamespaced::is_supported() {
+        let digest =
+            Sha256::digest(home.to_string_lossy().as_bytes());
+        let tag = digest
+            .iter()
+            .take(6)
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        Ok(format!("hamlet-{tag}.sock")
+            .to_ns_name::<GenericNamespaced>()?
+            .into_owned())
+    } else {
+        Ok(home
+            .join("hamlet.sock")
+            .to_fs_name::<GenericFilePath>()?
+            .into_owned())
+    }
 }
 
 /// The listener on one spelling's socket, served by a thread of its

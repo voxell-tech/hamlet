@@ -1,4 +1,4 @@
-# Release builds of Hamlet for macOS, Windows and Linux.
+# Complete installations for macOS/Linux and the Windows remote-client window.
 #
 # Runs when a version tag is pushed (v0.1.0) and when started by hand
 # from the Actions tab, and at no other time. A tag publishes a GitHub
@@ -32,12 +32,12 @@ jobs:
           - name: macOS (Apple Silicon)
             os: macos-14
             target: aarch64-apple-darwin
-          - name: Windows (x64)
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
           - name: Linux (x64)
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+          - name: Windows (x64, window only)
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,6 +47,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - uses: actions/setup-node@v4
+        if: runner.os != 'Windows'
+        with:
+          node-version-file: harnesses/pi/.nvmrc
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -61,6 +66,11 @@ jobs:
             libwayland-dev libxkbcommon-dev
 
       - name: Build
+        if: runner.os != 'Windows'
+        run: cargo build --release --locked -p hamlet_cli -p hamlet-server -p hamlet --bin hamlet --bin hamlet-server --bin hamlet-app --target ${{ matrix.target }}
+
+      - name: Build the Windows window
+        if: runner.os == 'Windows'
         run: cargo build --release --locked -p hamlet --bin hamlet-app --target ${{ matrix.target }}
 
       - name: Package

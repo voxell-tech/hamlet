@@ -703,7 +703,11 @@ async fn composes_project_instructions_skills_and_unicode_cuts() {
         .await;
     let prompt = s.chief.prompt(mayor()).await;
     for text in [
-        "System: Linux.",
+        if cfg!(target_os = "macos") {
+            "System: macOS, whose shell tools are the BSD ones."
+        } else {
+            "System: Linux."
+        },
         "Network for tools: on.",
         "git worktree",
         "The chief approves each edit",

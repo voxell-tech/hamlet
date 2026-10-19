@@ -4,14 +4,15 @@
 use serde_json::{Map, Value, json};
 use unicode_normalization::UnicodeNormalization;
 
+use super::environment::Files;
 use super::truncate::{
     MAX_BYTES, character_end, format_size, truncate_head,
 };
 use super::{
-    Arguments, Outcome, Place, diagnostic, diff, footed, number_words,
+    Arguments, Outcome, Place, diagnostic, diff, number_words,
 };
 use crate::harness::link::DiagnosticSeverity;
-use crate::sandbox::{Env, FileError, FileKind};
+use crate::sandbox::{FileError, FileKind};
 
 /// A call that threw, with the words of what it threw.
 type Thrown = String;
@@ -30,7 +31,7 @@ fn outcome(result: Result<Outcome, Thrown>) -> Outcome {
 
 /// The path pi's tools open for `path`: unusual spaces made plain and
 /// a leading `@` dropped.
-fn tool_path(env: &Env, path: &str) -> String {
+fn tool_path(env: &Files<'_>, path: &str) -> String {
     let plain = path
         .chars()
         .map(|c| match c {
@@ -47,8 +48,8 @@ fn tool_path(env: &Env, path: &str) -> String {
 
 /// pi's `read`: a text file's lines, at most 2000 or 50KB from
 /// `offset`, with remarks on what was left out.
-pub(super) fn read(
-    env: &Env,
+pub(super) async fn read(
+    env: &Files<'_>,
     place: &Place,
     arguments: &Map<String, Value>,
 ) -> Outcome {
@@ -65,12 +66,17 @@ pub(super) fn read(
             return invalid;
         }
     };
-    let path = footed(path, place);
-    outcome(read_text(env, &path, offset, limit))
+    outcome(
+        async {
+            let path = env.footing(path, place).await?;
+            read_text(env, &path, offset, limit).await
+        }
+        .await,
+    )
 }
 
-fn read_text(
-    env: &Env,
+async fn read_text(
+    env: &Files<'_>,
     path: &str,
     offset: Option<f64>,
     limit: Option<f64>,
@@ -90,13 +96,13 @@ fn read_text(
         if tried.contains(&variant) {
             continue;
         }
-        if env.exists(&variant)? {
+        if env.exists(&variant).await? {
             absolute = variant;
             break;
         }
         tried.push(variant);
     }
-    let bytes = env.read_file(&absolute)?;
+    let bytes = env.read_file(&absolute).await?;
     if let Some(mime) = image_type(&bytes) {
         return Ok(Outcome {
             diagnostics: vec![diagnostic(
@@ -304,24 +310,27 @@ fn animated_png(bytes: &[u8]) -> bool {
 
 /// The policy's check of a file a write or an edit changes, as pi's
 /// queue of changes to one file resolves it.
-fn queued(env: &Env, path: &str) -> Result<(), Thrown> {
-    match env.canonical_path(path) {
-        Ok(_) => Ok(()),
-        Err(error) if error.code == "not_found" => {
-            let parent = crate::sandbox::path::join(&[path, ".."]);
-            if parent == path || !path.starts_with(&parent) {
-                Ok(())
-            } else {
-                queued(env, &parent)
+async fn queued(env: &Files<'_>, path: &str) -> Result<(), Thrown> {
+    let mut path = path.to_owned();
+    loop {
+        match env.canonical_path(&path).await {
+            Ok(_) => return Ok(()),
+            Err(error) if error.code == "not_found" => {
+                let parent =
+                    crate::sandbox::path::join(&[&path, ".."]);
+                if parent == path || !path.starts_with(&parent) {
+                    return Ok(());
+                }
+                path = parent;
             }
+            Err(error) => return Err(error.message),
         }
-        Err(error) => Err(error.message),
     }
 }
 
 /// pi's `write`.
-pub(super) fn write(
-    env: &Env,
+pub(super) async fn write(
+    env: &Files<'_>,
     place: &Place,
     arguments: &Map<String, Value>,
 ) -> Outcome {
@@ -331,13 +340,16 @@ pub(super) fn write(
             (Ok(path), Ok(content)) => (path, content),
             (Err(invalid), _) | (_, Err(invalid)) => return invalid,
         };
-    let path = footed(path, place);
-    outcome((|| {
-        let absolute = tool_path(env, &path);
-        queued(env, &absolute)?;
-        env.write_file(&absolute, content)?;
-        Ok(Outcome::text(format!("Successfully wrote to {path}")))
-    })())
+    outcome(
+        async {
+            let path = env.footing(path, place).await?;
+            let absolute = tool_path(env, &path);
+            queued(env, &absolute).await?;
+            env.write_file(&absolute, content).await?;
+            Ok(Outcome::text(format!("Successfully wrote to {path}")))
+        }
+        .await,
+    )
 }
 
 /// One replacement of an edit.
@@ -347,8 +359,8 @@ struct Replace {
 }
 
 /// pi's `edit`.
-pub(super) fn edit(
-    env: &Env,
+pub(super) async fn edit(
+    env: &Files<'_>,
     place: &Place,
     arguments: &Map<String, Value>,
 ) -> Outcome {
@@ -376,12 +388,17 @@ pub(super) fn edit(
             }
         }
     }
-    let path = footed(path, place);
-    outcome(edited(env, &path, &replaces))
+    outcome(
+        async {
+            let path = env.footing(path, place).await?;
+            edited(env, &path, &replaces).await
+        }
+        .await,
+    )
 }
 
-fn edited(
-    env: &Env,
+async fn edited(
+    env: &Files<'_>,
     path: &str,
     replaces: &[Replace],
 ) -> Result<Outcome, Thrown> {
@@ -397,14 +414,14 @@ fn edited(
         )
     };
     let absolute = tool_path(env, path);
-    queued(env, &absolute)?;
-    let info = env.file_info(&absolute).map_err(access)?;
+    queued(env, &absolute).await?;
+    let info = env.file_info(&absolute).await.map_err(access)?;
     if !matches!(info.kind, FileKind::File | FileKind::Symlink) {
         return Err(format!(
             "Could not edit file: {path}. Path is not a file."
         ));
     }
-    let content = env.read_text(&absolute).map_err(access)?;
+    let content = env.read_text(&absolute).await.map_err(access)?;
     let (bom, content) = match content.strip_prefix('\u{feff}') {
         Some(rest) => ("\u{feff}", rest),
         None => ("", content.as_str()),
@@ -418,6 +435,7 @@ fn edited(
         new.clone()
     };
     env.write_file(&absolute, &format!("{bom}{written}"))
+        .await
         .map_err(access)?;
     let (diff, first) = diff::diff_string(&base, &new);
     let mut details = Map::from_iter([

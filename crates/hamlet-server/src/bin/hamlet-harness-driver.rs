@@ -16,7 +16,7 @@ use hamlet_server::harness::{
     answers,
 };
 use hamlet_server::record::AgentRef;
-use hamlet_server::{Home, RuntimeInstance};
+use hamlet_server::{Credentials, Home, RuntimeInstance};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -48,9 +48,9 @@ fn listed(name: &str, tool: &str) -> bool {
 
 async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
     let mut home = Home::open(&dir)?;
+    let mut credentials = Credentials::open(&dir)?;
     let layout = home.layout().clone();
     let mut config = Config::from_env(faux)?;
-    let secrets = config.api_key.iter().cloned().collect::<Vec<_>>();
     for tool in &mut config.tools {
         if listed("HAMLET_UNSAFE_TOOLS", &tool.name) {
             tool.replay = ToolSpecReplay::Unsafe;
@@ -64,7 +64,8 @@ async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
     loop {
         tokio::select! {
             event = harnesses.next() => {
-                let notices = harnesses.handle(home.store(), event, &secrets).await?;
+                let notices = harnesses.handle(home.store(), event, &credentials.secrets()).await?;
+                harnesses.credentials(&mut credentials).await;
                 answer(&mut harnesses, &mut home, notices).await?;
             }
             line = lines.next_line() => {
@@ -253,6 +254,7 @@ fn print(notices: &[Notice]) {
 fn notice_json(notice: &Notice) -> Value {
     match notice {
         Notice::Provider(_) => json!({"kind":"provider"}),
+        Notice::ProviderEvent(_) => json!({"kind":"provider_event"}),
         Notice::Started { runtime, pid } => {
             json!({"kind": "started", "runtime": runtime.as_str(), "pid": pid})
         }

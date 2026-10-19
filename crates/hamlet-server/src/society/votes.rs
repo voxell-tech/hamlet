@@ -317,6 +317,9 @@ pub(super) async fn operation(
         }
     };
     sweep(service, harnesses).await?;
+    if service.house_work.founding.contains(&(hamlet.clone(), id)) {
+        return Ok(None);
+    }
     let v = read(service.home.store().connection(), hamlet)?
         .into_iter()
         .find(|v| v.id == id)
@@ -508,6 +511,13 @@ pub(crate) async fn sweep(
             .expect("vote's record");
         for index in 0..votes.len() {
             let mut v = votes[index].clone();
+            if service
+                .house_work
+                .founding
+                .contains(&(hamlet.clone(), v.id))
+            {
+                continue;
+            }
             if !v.announced {
                 announce(
                     service,
@@ -801,32 +811,36 @@ pub(crate) async fn sweep(
                 tx.commit()?;
                 if v.standing == "passed" && v.kind == "found_hamlet"
                 {
-                    service.houses.build(&v.destination, 0)?;
+                    if let Some(remote) = service.houses.remote(
+                        &v.destination,
+                        0,
+                        false,
+                    )? {
+                        let hamlet = hamlet.clone();
+                        let vote = v.id;
+                        service
+                            .house_work
+                            .founding
+                            .insert((hamlet.clone(), vote));
+                        service.house_work.tasks.spawn(async move {
+                            let result = remote
+                                .initialize()
+                                .await
+                                .map_err(Into::into);
+                            super::work::Completed::Founded {
+                                hamlet,
+                                vote,
+                                result,
+                            }
+                        });
+                        continue;
+                    }
+                    service
+                        .houses
+                        .initialize(&v.destination, 0)
+                        .await?;
                 }
-                super::reconfigure(service, harnesses).await?;
-                let owners = service
-                    .home
-                    .store()
-                    .connection()
-                    .prepare(
-                        "SELECT runtime,key FROM society_call WHERE \
-                         tool='call_vote'",
-                    )?
-                    .query_map([], |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                        ))
-                    })?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                for (runtime, key) in owners {
-                    harnesses
-                        .wake(
-                            &crate::RuntimeInstance::new(runtime)?,
-                            &key,
-                        )
-                        .await;
-                }
+                changed(service, harnesses).await?;
             }
             if v.standing != "open" && !v.reported {
                 announce(
@@ -844,6 +858,31 @@ pub(crate) async fn sweep(
         }
         save(service.home.store().connection(), &hamlet, &votes)?;
         cancel_closed(service, harnesses, &hamlet, &votes).await?;
+    }
+    Ok(())
+}
+
+pub(super) async fn changed(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+) -> Result<()> {
+    super::reconfigure(service, harnesses).await?;
+    let owners = service
+        .home
+        .store()
+        .connection()
+        .prepare(
+            "SELECT runtime,key FROM society_call WHERE \
+             tool='call_vote'",
+        )?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (runtime, key) in owners {
+        harnesses
+            .wake(&crate::RuntimeInstance::new(runtime)?, &key)
+            .await;
     }
     Ok(())
 }

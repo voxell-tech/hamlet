@@ -1,25 +1,40 @@
 // Provider work requested over the link; credentials and lists live only in memory (S7).
-import type { Model } from "@earendil-works/pi-ai";
+import type {
+    AuthInteraction,
+    CredentialStore,
+    Model,
+} from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import {
     createModels,
     createProvider,
     type Provider,
 } from "@earendil-works/pi-ai/models";
-import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ProviderRequest, ProviderResult } from "./link.ts";
+import { providers as supportedProviders } from "./provider-set.ts";
 
 type Result = Omit<ProviderResult, "v" | "id" | "type" | "re">;
 
 /** Runs one provider operation without a credentials or models store. */
 export async function providerWork(
     request: ProviderRequest,
+    context: {
+        credentials: CredentialStore;
+        interaction: AuthInteraction;
+        providers?: Provider[];
+    },
     faux?: Provider,
 ): Promise<Result> {
+    const secrets: string[] = [];
+    const signal = (timeout: number) =>
+        AbortSignal.any([
+            AbortSignal.timeout(timeout),
+            ...(context.interaction.signal === undefined
+                ? []
+                : [context.interaction.signal]),
+        ]);
     try {
-        const builtins = builtinProviders().filter(
-            (p) => p.id !== "zai" && p.id !== "zai-coding-cn",
-        );
+        const builtins = context.providers ?? supportedProviders();
         if (request.action === "describe") {
             const providers = faux === undefined ? builtins : [faux];
             return {
@@ -27,6 +42,9 @@ export async function providerWork(
                     id: p.id,
                     name: p.name,
                     key: p.auth.apiKey?.login !== undefined,
+                    subscription:
+                        ["chatgpt", "openrouter"].includes(p.id) &&
+                        p.auth.oauth !== undefined,
                 })),
                 models: providers.flatMap((p) =>
                     p.getModels().map((m) => ({ ...m })),
@@ -41,38 +59,45 @@ export async function providerWork(
                   : compatible(request);
         if (provider === undefined)
             throw new Error(`Unknown provider: ${request.provider}`);
-        if (request.action === "key") {
-            if (provider.auth.apiKey?.login === undefined)
-                throw new Error(
-                    `Signing in with ${request.provider} is not offered. Use an API key.`,
-                );
-            const credential = await provider.auth.apiKey.login({
-                signal: AbortSignal.timeout(90_000),
-                prompt: async () => request.value ?? "",
-                notify: () => {},
-            });
-            return {
-                credential: { type: "api_key", key: credential.key ?? "" },
-            };
-        }
         const models = createModels({
             authContext: {
                 env: async () => undefined,
                 fileExists: async () => false,
             },
-            credentials: {
-                read: async () => request.credential,
-                list: async () => [],
-                modify: async () => {},
-                delete: async () => {},
-            },
+            credentials: context.credentials,
         });
         models.setProvider(provider);
+        if (request.action === "login") {
+            if (
+                request.method === "subscription" &&
+                !["chatgpt", "openrouter"].includes(provider.id)
+            )
+                throw new Error(
+                    `Signing in with ${provider.id} is not offered. Use an API key.`,
+                );
+            await models.login(
+                provider.id,
+                request.method === "subscription" ? "oauth" : "api_key",
+                {
+                    ...context.interaction,
+                    prompt: async (prompt) => {
+                        const value = await context.interaction.prompt(prompt);
+                        secrets.push(value);
+                        return value;
+                    },
+                },
+                {
+                    agentName: "Hamlet",
+                    getDeviceId: () => request.installationId ?? "",
+                },
+            );
+            return {};
+        }
         if (request.action === "refresh") {
             const refreshed = await models.refresh({
                 providers: [provider.id],
                 force: true,
-                signal: AbortSignal.timeout(10_000),
+                signal: signal(10_000),
             });
             const error = refreshed.errors.get(provider.id);
             if (error !== undefined) throw error;
@@ -95,7 +120,7 @@ export async function providerWork(
                     },
                 ],
             },
-            { signal: AbortSignal.timeout(90_000), maxRetries: 0 },
+            { signal: signal(90_000), maxRetries: 0 },
         );
         const text = answer.content
             .flatMap((p) => (p.type === "text" ? [p.text] : []))
@@ -112,7 +137,7 @@ export async function providerWork(
         return { text };
     } catch (error) {
         let text = String(error);
-        for (const secret of [request.credential?.key, request.value])
+        for (const secret of secrets)
             if (secret) text = text.split(secret).join("[REDACTED]");
         return { error: text };
     }

@@ -8,6 +8,7 @@
 
 pub mod answers;
 mod bindings;
+mod credentials;
 // Generated, so formatted as the generator writes it.
 #[rustfmt::skip]
 pub mod link;
@@ -104,16 +105,29 @@ impl Config {
         } else {
             None
         };
+        let entry = if let Some(path) = set("HAMLET_PI_HARNESS") {
+            PathBuf::from(path)
+        } else {
+            let executable = std::env::current_exe()?;
+            let directory = executable
+                .parent()
+                .context("Cannot locate the server's directory")?;
+            [
+                directory.join("pi/src/main.ts"),
+                directory.join("../Resources/pi/src/main.ts"),
+            ]
+            .into_iter()
+            .find(|path| path.is_file())
+            .unwrap_or_else(|| {
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../harnesses/pi/src/main.ts")
+            })
+        };
         Ok(Self {
             node: set("HAMLET_NODE")
                 .unwrap_or_else(|| "node".into())
                 .into(),
-            entry: set("HAMLET_PI_HARNESS")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| {
-                    Path::new(env!("CARGO_MANIFEST_DIR"))
-                        .join("../../harnesses/pi/src/main.ts")
-                }),
+            entry,
             faux,
             model,
             api_key: set("HAMLET_API_KEY"),
@@ -133,6 +147,7 @@ impl Config {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Notice {
     Provider(link::ProviderResult),
+    ProviderEvent(link::ProviderEvent),
     Started {
         runtime: RuntimeInstance,
         pid: u32,
@@ -339,6 +354,7 @@ pub struct Harnesses {
     next: u64,
     pending: HashMap<String, (usize, Pending)>,
     provider_requests: HashMap<usize, Vec<link::ProviderRequest>>,
+    credentials: credentials::Authority,
     /// Set once the harnesses close, so no runtime starts again.
     closing: bool,
 }
@@ -367,6 +383,7 @@ impl Harnesses {
             next: 1,
             pending: HashMap::new(),
             provider_requests: HashMap::new(),
+            credentials: credentials::Authority::default(),
             closing: false,
         };
         let mut notices = Vec::new();
@@ -419,6 +436,8 @@ impl Harnesses {
         let runtime = store.runtime_for(DEFAULT_HARNESS)?;
         let index =
             self.index(&runtime).unwrap_or_else(|| self.add(runtime));
+        self.credentials
+            .grant(index, &request.id, &request.provider);
         self.provider_requests
             .entry(index)
             .or_default()
@@ -429,6 +448,49 @@ impl Harnesses {
             self.launch(store, index)?;
         }
         self.flush(store, index, false).await
+    }
+
+    pub(crate) async fn provider_control(
+        &mut self,
+        control: link::ProviderControl,
+    ) {
+        let indices = (0..self.runtimes.len())
+            .filter(|index| {
+                self.credentials.owns(*index, &control.scope)
+            })
+            .collect::<Vec<_>>();
+        for index in indices {
+            if control.cancel {
+                self.credentials.finish(index, &control.scope);
+            }
+            self.send(index, |_, _| {
+                ServerMessage::ProviderControl(control.clone())
+            })
+            .await;
+        }
+    }
+
+    /// Services provider credential requests using the host's
+    /// credential owner.
+    pub async fn credentials(
+        &mut self,
+        credentials: &mut crate::credentials::Credentials,
+    ) {
+        let serving = self
+            .config
+            .model
+            .as_ref()
+            .map_or("", |m| m.provider.as_str());
+        for (index, mut answer) in
+            self.credentials.flush(credentials, serving)
+        {
+            self.send(index, |v, id| {
+                answer.v = v;
+                answer.id = id;
+                ServerMessage::CredentialResult(answer)
+            })
+            .await;
+        }
     }
 
     /// The next event to handle.
@@ -918,6 +980,7 @@ impl Harnesses {
     }
 
     async fn closed(&mut self, index: usize) -> Vec<Notice> {
+        self.credentials.gone(index);
         let runtime = &mut self.runtimes[index];
         let status = match runtime.process.take() {
             Some(process) => process.stop(STOP_GRACE).await,
@@ -1129,7 +1192,19 @@ impl Harnesses {
             }
             RuntimeMessage::Statuses(_) => Ok(Vec::new()),
             RuntimeMessage::ProviderResult(result) => {
+                self.credentials.finish(index, &result.re);
                 Ok(vec![Notice::Provider(result)])
+            }
+            RuntimeMessage::ProviderEvent(event) => {
+                Ok(if self.credentials.owns(index, &event.scope) {
+                    vec![Notice::ProviderEvent(event)]
+                } else {
+                    Vec::new()
+                })
+            }
+            RuntimeMessage::CredentialRequest(request) => {
+                self.credentials.request(index, request);
+                Ok(Vec::new())
             }
             RuntimeMessage::Allow(allow) => {
                 let call = Call::Allow {
@@ -1256,12 +1331,13 @@ impl Harnesses {
                     .await;
                     return Ok(Vec::new());
                 }
-                let credential = self
-                    .credential(&selected_ref.provider)
-                    .map(|key| link::Credential {
-                        key,
-                        type_: link::CredentialType::ApiKey,
-                    });
+                self.credentials.grant(
+                    index,
+                    &attempt.key,
+                    &selected_ref.provider,
+                );
+                let credential =
+                    self.credential(&selected_ref.provider);
                 let model = selected
                     .as_object()
                     .map(|m| m.clone().into_iter().collect());
@@ -1297,6 +1373,7 @@ impl Harnesses {
                 Ok(Vec::new())
             }
             RuntimeMessage::Usage(report) => {
+                self.credentials.finish(index, &report.key);
                 let runtime = self.runtimes[index].id.clone();
                 let charged = answers::charge(
                     store,
@@ -1802,7 +1879,7 @@ impl Harnesses {
     /// The key a model call of `provider` is made with:
     /// `HAMLET_API_KEY` for an endpoint, else the stored
     /// credential.
-    fn credential(&self, provider: &str) -> Option<String> {
+    fn credential(&self, provider: &str) -> Option<link::Credential> {
         if provider == "faux" {
             return None;
         }
@@ -1813,15 +1890,16 @@ impl Harnesses {
                 .as_ref()
                 .is_some_and(|m| m.provider == provider)
         {
-            return Some(key.clone());
+            return Some(link::Credential::ApiKey {
+                key: Some(key.clone()),
+                env: None,
+            });
         }
         let text = std::fs::read_to_string(self.layout.credentials())
             .ok()?;
         let stored = serde_json::from_str::<Value>(&text).ok()?;
         let credential = &stored["models"][provider];
-        (credential["type"] == "api_key")
-            .then(|| credential["key"].as_str().map(str::to_owned))
-            .flatten()
+        crate::credentials::pack(credential.clone()).ok()
     }
 }
 
@@ -1944,6 +2022,8 @@ fn same_fields(a: &Value, b: &Value) -> bool {
 fn id_of(message: &RuntimeMessage) -> String {
     match message {
         RuntimeMessage::ProviderResult(m) => m.id.clone(),
+        RuntimeMessage::ProviderEvent(m) => m.id.clone(),
+        RuntimeMessage::CredentialRequest(m) => m.id.clone(),
         RuntimeMessage::Hello(m) => m.id.clone(),
         RuntimeMessage::Created(m) => m.id.clone(),
         RuntimeMessage::Admitted(m) => m.id.clone(),

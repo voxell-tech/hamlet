@@ -11,6 +11,7 @@ pub(crate) mod merging;
 mod objections;
 pub(crate) mod reviews;
 pub(crate) mod votes;
+pub(crate) mod work;
 
 use std::collections::BTreeMap;
 
@@ -410,7 +411,9 @@ pub(crate) async fn operation(
                 None => return Ok(letters::waiting()),
             }
         }
-        "create_agent" => agents::create(service, &caller, &args)?,
+        "create_agent" => {
+            agents::create(service, &caller, &args).await?
+        }
         "set_model" => agents::set_model(service, &caller, &args)?,
         "submit_skill" | "ask_librarian" => {
             match library::consult(
@@ -462,6 +465,12 @@ pub(crate) async fn operation(
         once(service.home.store(), &caller.id, tool, |_| {
             Ok(outcome)
         })?;
+    if service.house_work.pending.contains(&(
+        caller.id.runtime.as_str().into(),
+        caller.id.key.clone(),
+    )) {
+        return Ok(letters::waiting());
+    }
     Ok(result(&outcome))
 }
 

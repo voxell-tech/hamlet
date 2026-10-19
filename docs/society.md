@@ -25,9 +25,11 @@ as the chief. See [`chat.md`](chat.md) for paging and watches.
 ## Leaving and returning
 
 Removal keeps the agent's house where it is and archives its record.
-A merge keeps the absorbed house too, copies its files into the kept
-house through the sandbox, and keeps a manifest in storage for splitting.
-Clashing files are kept aside and the notes are combined. A chief's
+A merge keeps the absorbed house too, delivers bounded file snapshots
+through descriptor-relative no-follow tree operations, and keeps hashes
+for splitting. Clashing files are kept aside; differing skills receive
+usable `-from-<agent>` names. Original note bytes are saved before joining
+the text; a non-UTF-8 kept note file is refused. A chief's
 unfinished instruction protects an agent from a mayor's removal or merge.
 
 A chief can remove, merge, restore, split or erase through the agent's
@@ -78,7 +80,10 @@ even after erasure, and living agent names are unique across the realm.
 to it, and `/agent <name>` finds a living agent anywhere in the realm.
 
 Mayors have roads to one another. Another road, or an agent's move,
-requires both hamlets' mayors to agree. A move carries the agent's house,
+requires both hamlets' mayors to agree. Assent belongs to the hamlet and
+survives an office change; only its current mayor can add new assent.
+Open votes hold new agreements, including a move affecting the other
+hamlet. A move carries the agent's house,
 character and conversations to the next number in its new hamlet. It keeps
 only the roads both mayors named and takes back its lasting permissions.
 The record commit precedes the house rename; a pending rename is finished

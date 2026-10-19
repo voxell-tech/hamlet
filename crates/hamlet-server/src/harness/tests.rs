@@ -702,6 +702,7 @@ async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
         next: 1,
         pending: Default::default(),
         provider_requests: Default::default(),
+        credentials: Default::default(),
         closing: false,
     };
     let bad = harnesses.add(binding.runtime.clone());

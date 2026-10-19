@@ -4,6 +4,7 @@
 
 mod bash;
 mod diff;
+mod environment;
 mod files;
 mod find;
 mod search;
@@ -306,13 +307,12 @@ pub async fn run(
                         );
                     }
                 };
-                match tool.as_str() {
-                    "read" => files::read(&env, &place, &arguments),
-                    "write" => files::write(&env, &place, &arguments),
-                    "edit" => files::edit(&env, &place, &arguments),
-                    "search" => search::run(&env, &arguments),
-                    _ => find::run(&env, &arguments),
-                }
+                futures::executor::block_on(file_run(
+                    &environment::Files::Local(&env),
+                    &place,
+                    &tool,
+                    &arguments,
+                ))
             })
             .await
             .unwrap_or_else(|error| {
@@ -333,6 +333,59 @@ pub async fn run(
     };
     scrub(secrets, &mut outcome);
     outcome
+}
+
+pub(crate) async fn run_remote(
+    remote: &crate::workspace::Remote,
+    sandbox: &Sandbox,
+    place: &Place,
+    net: bool,
+    secrets: &[String],
+    tool: &str,
+    arguments: &Map<String, Value>,
+) -> Outcome {
+    let mut outcome = match tool {
+        "bash" => {
+            bash::remote(remote, place, secrets, arguments).await
+        }
+        "read" | "write" | "edit" | "search" | "find" => {
+            file_run(
+                &environment::Files::Remote(remote),
+                place,
+                tool,
+                arguments,
+            )
+            .await
+        }
+        _ => {
+            crate::hand::run(
+                sandbox,
+                &place.home,
+                net,
+                secrets,
+                tool,
+                arguments,
+            )
+            .await
+        }
+    };
+    scrub(secrets, &mut outcome);
+    outcome
+}
+
+async fn file_run(
+    env: &environment::Files<'_>,
+    place: &Place,
+    tool: &str,
+    arguments: &Map<String, Value>,
+) -> Outcome {
+    match tool {
+        "read" => files::read(env, place, arguments).await,
+        "write" => files::write(env, place, arguments).await,
+        "edit" => files::edit(env, place, arguments).await,
+        "search" => search::run(env, arguments).await,
+        _ => find::run(env, arguments).await,
+    }
 }
 
 /// `outcome` without `secrets`, as a hook takes them out of every

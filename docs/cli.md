@@ -2,24 +2,31 @@
 
 The Rust crate `hamlet_cli` supplies `hamlet`. It manages the server and
 the window as separate processes and uses [protocol v0](protocol.md) for
-everything it asks the server. With the Node version in `server/.nvmrc`,
-run `npm ci --prefix server`. From the repository root:
+everything it asks the server. With the Node version in `harnesses/pi/.nvmrc`,
+run `npm ci --prefix harnesses/pi`. From the repository root:
 
 ```sh
 HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
 ```
 
-This builds the window and starts the server as a separate Node process.
-`cargo install --path crates/hamlet_cli` puts the command on PATH.
-`HAMLET_SERVER_DIR` selects a server package outside the source checkout;
-`HAMLET_NODE` selects Node. Neither Node nor the server is bundled in the CLI.
+This builds the Rust server and window. The server starts its Node pi
+harness as a child process. `make install` installs all three binaries;
+installing only `hamlet_cli` does not install the server or window.
+
+The CLI selects `HAMLET_SERVER_BIN`, then a sibling `hamlet-server`, then
+PATH. The server selects `HAMLET_PI_HARNESS` (the path to `src/main.ts`),
+then sibling `pi/src/main.ts`, then the macOS app's
+`Contents/Resources/pi/src/main.ts`, then the harness in its build checkout.
+`HAMLET_NODE` selects Node. Node is installed separately; the release
+archive includes the pi package and its production dependencies.
 
 Bare `hamlet` starts the home's server in the background, or reuses its
 running server, and opens a window. The home is `HAMLET_HOME`, else
 `~/.hamlet`; the background server appends output to `<home>/server.log`.
 Closing the window or terminal stops no agent. `hamlet stop` stops the
-server, and `hamlet status` reports it. Opening the app from Finder starts
-no server.
+server, and `hamlet status` reports it. The packaged macOS app runs this
+CLI entry, so opening it also starts or reuses the server. Running
+`hamlet-app` directly starts only the window.
 
 | Command | Does |
 |---|---|
@@ -44,9 +51,10 @@ that client's submissions and triggers no reflection.
 
 ## Typed commands
 
-The command table in `server/src/commands.ts` lists every supported deed,
-including roads, removal, merging, restoration, votes, founding and closing
-hamlets, the record and the library. `/undo` reverses the latest reversible
+The server advertises supported deeds in `state.rs`; `chats/say.rs`,
+`society.rs` and `realm/deeds.rs` dispatch them, including roads, removal,
+merging, restoration, votes, founding and closing hamlets, the record and
+library. `/undo` reverses the latest reversible
 removal or merge. The server parses commands; the terminal handles only
 `/agent` and `/hamlet` as address changes. `/agent` finds a living agent
 anywhere in the realm, and `/hamlet` reaches that hamlet's mayor. The CLI
@@ -59,12 +67,15 @@ See [`society.md`](society.md) for the society and realm's surface.
 `hamlet dev` chooses its home from `--home`, then `HAMLET_HOME`, then a
 per-user temporary folder kept between runs. It refuses `~/.hamlet` and
 sets `HAMLET_VIEW=<home>/window`. Closing its window keeps the server
-running; Ctrl-C stops both. `dev` builds the checkout's window and uses
-Cargo's reported executable path, unless `HAMLET_APP` selects an existing
-window. `hamlet window` finds the app by `HAMLET_APP`, then beside the CLI,
+running; Ctrl-C stops both. `dev` builds the checkout's server and window
+and uses Cargo's reported executable paths, unless `HAMLET_SERVER_BIN`
+or `HAMLET_APP` selects the corresponding existing binary.
+`hamlet window` finds the app by `HAMLET_APP`, then beside the CLI,
 then PATH. It passes the server address and token through the environment,
 never argv. Players still open an app called Hamlet; only its executable is
-named `hamlet-app`. Release archives contain the window, not the server.
+named `hamlet-app`. Release archives contain all three binaries and pi.
+On macOS, Finder may not inherit the shell's Node PATH: run the bundle's
+`Contents/MacOS/hamlet` from a terminal with `HAMLET_NODE` set if needed.
 
 The window has no home claim and runs no agent. It finds a local server
 through the home's `server.json` and connection token, or uses

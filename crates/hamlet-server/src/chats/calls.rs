@@ -60,6 +60,117 @@ pub(super) struct Running {
     abort: AbortHandle,
 }
 
+pub(super) struct Preparing {
+    binding: BindingId,
+    abort: AbortHandle,
+}
+
+pub(crate) struct PreparedCall {
+    id: uuid::Uuid,
+    binding: BindingId,
+    re: Re,
+    call: Call,
+    signature: Value,
+    result: Preparation,
+}
+
+enum Preparation {
+    Prompt(Result<Vec<Section>>),
+    Preview(std::result::Result<Option<String>, String>),
+}
+
+pub(crate) async fn prepared(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    ready: PreparedCall,
+) -> Result<()> {
+    if service.chats.preparations.remove(&ready.id).is_none() {
+        return Ok(());
+    }
+    let input = match &ready.call {
+        Call::Allow { input, .. }
+        | Call::Operation { input, .. }
+        | Call::Prompt { input }
+        | Call::Yield { input, .. } => input.as_deref(),
+    };
+    if service.home.store().cancelling(ready.binding)? {
+        harnesses
+            .answer(
+                ready.re,
+                Answer::Refusal(
+                    crate::harness::answers::STOPPED_WORDS.into(),
+                ),
+            )
+            .await;
+        return Ok(());
+    }
+    if crate::society::reviews::held(service, ready.binding, input)? {
+        harnesses
+            .answer(
+                ready.re,
+                Answer::Waiting(
+                    "The chief is considering an objection.".into(),
+                ),
+            )
+            .await;
+        return Ok(());
+    }
+    match ready.result {
+        Preparation::Prompt(result) => {
+            if prompt(service, ready.binding, input)?.signature()
+                != ready.signature
+            {
+                return call(
+                    service,
+                    harnesses,
+                    ready.binding,
+                    ready.re,
+                    ready.call,
+                )
+                .await;
+            }
+            let mut sections = result?;
+            for section in &mut sections {
+                let mut text =
+                    Value::String(std::mem::take(&mut section.text));
+                service.credentials.scrub(&mut text);
+                section.text =
+                    text.as_str().unwrap_or_default().into();
+            }
+            harnesses
+                .answer(ready.re, Answer::Sections(sections))
+                .await;
+        }
+        Preparation::Preview(result) => {
+            let Some(bound) =
+                service.home.store().binding(ready.binding)?
+            else {
+                return Ok(());
+            };
+            if service.work(&bound.agent.hamlet)? != ready.signature {
+                return call(
+                    service,
+                    harnesses,
+                    ready.binding,
+                    ready.re,
+                    ready.call,
+                )
+                .await;
+            }
+            call_prepared(
+                service,
+                harnesses,
+                ready.binding,
+                ready.re,
+                ready.call,
+                Some(result),
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
 /// The tools the server adds to every conversation's own.
 pub(crate) fn specs() -> Vec<ToolSpec> {
     let parameters = json!({
@@ -90,12 +201,44 @@ pub(super) async fn call(
     re: Re,
     call: Call,
 ) -> Result<()> {
+    call_prepared(service, harnesses, binding, re, call, None).await
+}
+
+async fn call_prepared(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    binding: BindingId,
+    re: Re,
+    call: Call,
+    preview: Option<std::result::Result<Option<String>, String>>,
+) -> Result<()> {
     let input = match &call {
         Call::Allow { input, .. }
         | Call::Operation { input, .. }
         | Call::Prompt { input }
         | Call::Yield { input, .. } => input.clone(),
     };
+    if !matches!(call, Call::Yield { .. })
+        && let Some(bound) = service.home.store().binding(binding)?
+        && !bound.errand
+        && service.merges.held(&bound.agent)
+    {
+        if matches!(call, Call::Prompt { .. }) {
+            harnesses.cancel(service.home.store(), binding).await?;
+        }
+        harnesses
+            .answer(
+                re,
+                Answer::Refusal(
+                    "This house is being merged or split. Wait for \
+                     its files to finish, then ask the chief to \
+                     send a new instruction."
+                        .into(),
+                ),
+            )
+            .await;
+        return Ok(());
+    }
     if input.is_some() {
         super::conversation(service, binding)?
             .turn
@@ -132,6 +275,94 @@ pub(super) async fn call(
             .await;
         return Ok(());
     }
+    if let Call::Prompt { .. } = &call {
+        let prepared = prompt(service, binding, input.as_deref())?;
+        let signature = prepared.signature();
+        let id = uuid::Uuid::new_v4();
+        let abort = service.chats.preparing.spawn(async move {
+            PreparedCall {
+                id,
+                binding,
+                re,
+                call,
+                signature,
+                result: Preparation::Prompt(prepared.render().await),
+            }
+        });
+        service
+            .chats
+            .preparations
+            .insert(id, Preparing { binding, abort });
+        return Ok(());
+    }
+    if preview.is_none()
+        && let Call::Allow {
+            key,
+            tool,
+            arguments,
+            ..
+        }
+        | Call::Operation {
+            key,
+            tool,
+            arguments,
+            ..
+        } = &call
+        && tool == "write"
+        && let Some(bound) = service.home.store().binding(binding)?
+        && same_request(
+            service,
+            bound.runtime.as_str(),
+            key,
+            binding,
+            input.as_deref(),
+            tool,
+            arguments,
+        )?
+        && kept(service, bound.runtime.as_str(), key)?.is_none()
+        && !service.home.store().cancelling(binding)?
+        && let Some(remote) =
+            service.remote_tools(&bound.agent, false)?
+        && let Some(path) = arguments
+            .get("path")
+            .and_then(Value::as_str)
+            .map(String::from)
+    {
+        let signature = service.work(&bound.agent.hamlet)?;
+        let id = uuid::Uuid::new_v4();
+        let abort = service.chats.preparing.spawn(async move {
+            let result = async {
+                let full = remote
+                    .footing(&path)
+                    .await
+                    .map_err(|e| e.message)?;
+                Ok(match remote.read(&full, false).await {
+                    Ok(bytes) => Some(
+                        String::from_utf8_lossy(&bytes).into_owned(),
+                    ),
+                    Err(error) if error.code == "not_found" => None,
+                    Err(_) => Some(
+                        "[a file that could not be read as text]"
+                            .into(),
+                    ),
+                })
+            }
+            .await;
+            PreparedCall {
+                id,
+                binding,
+                re,
+                call,
+                signature,
+                result: Preparation::Preview(result),
+            }
+        });
+        service
+            .chats
+            .preparations
+            .insert(id, Preparing { binding, abort });
+        return Ok(());
+    }
     let answer = match call {
         Call::Allow {
             key,
@@ -146,7 +377,10 @@ pub(super) async fn call(
                 input.as_deref(),
                 &tool,
                 &arguments,
-            )? {
+                preview.as_ref(),
+            )
+            .await?
+            {
                 Decision::Run { .. } => Answer::Allowed,
                 Decision::Block(words) => Answer::Refusal(words),
                 Decision::Wait => Answer::Waiting(WAITING.into()),
@@ -166,7 +400,10 @@ pub(super) async fn call(
                 input.as_deref(),
                 &tool,
                 &arguments,
-            )? {
+                preview.as_ref(),
+            )
+            .await?
+            {
                 Step::Answer(answer) => answer,
                 Step::Running => return Ok(()),
                 Step::Society(bound) => {
@@ -183,11 +420,7 @@ pub(super) async fn call(
                 }
             }
         }
-        Call::Prompt { .. } => Answer::Sections(prompt(
-            service,
-            binding,
-            input.as_deref(),
-        )?),
+        Call::Prompt { .. } => unreachable!("prompt prepared above"),
         Call::Yield {
             answer,
             history,
@@ -217,13 +450,14 @@ enum Decision {
 
 /// The gate's decision of the call `key`: the one kept, else one
 /// made now and kept, raising a wait when it asks a chief.
-fn decide(
+async fn decide(
     service: &mut Service,
     binding: BindingId,
     key: &str,
     input: Option<&str>,
     tool: &str,
     arguments: &BTreeMap<String, Value>,
+    preview: Option<&std::result::Result<Option<String>, String>>,
 ) -> Result<Decision> {
     let Some(bound) = service.home.store().binding(binding)? else {
         return Ok(Decision::Block(NOBODY.into()));
@@ -284,6 +518,7 @@ fn decide(
         };
     }
     let at = places(service, &place.agent)?;
+    let remote = service.remote_tools(&place.agent, false)?;
     if let gate::Call::Edit {
         write: true,
         path,
@@ -291,11 +526,29 @@ fn decide(
         created,
         ..
     } = &mut call
-        && let Ok(full) = tools::footing(path, &at)
-        && let Some(before) = before(service, &at, &full)
     {
-        *old = before;
-        *created = false;
+        let previous = if remote.is_some() {
+            match preview {
+                Some(Ok(before)) => before.clone(),
+                Some(Err(words)) => {
+                    return Ok(Decision::Block(words.clone()));
+                }
+                None => {
+                    return Ok(Decision::Block(
+                        "The remote edit preview is not available."
+                            .into(),
+                    ));
+                }
+            }
+        } else {
+            tools::footing(path, &at)
+                .ok()
+                .and_then(|full| before(service, &at, &full))
+        };
+        if let Some(previous) = previous {
+            *old = previous;
+            *created = false;
+        }
     }
     let change = match &call {
         gate::Call::Edit {
@@ -325,6 +578,7 @@ fn decide(
     let by = wait_by(&record, &place.agent);
     let mut standing = standing(service, &place, &record)?;
     if let gate::Call::Edit { path, .. } = &call
+        && remote.is_none()
         && let Ok(full) = tools::footing(path, &at)
         && crate::sandbox::within(&full, &at.house)
     {
@@ -675,7 +929,7 @@ enum Step {
 
 /// Carries out the call `key`: its marked result when it ran, else as
 /// the gate decides now.
-fn operation(
+async fn operation(
     service: &mut Service,
     binding: BindingId,
     re: &Re,
@@ -683,6 +937,7 @@ fn operation(
     input: Option<&str>,
     tool: &str,
     arguments: &BTreeMap<String, Value>,
+    preview: Option<&std::result::Result<Option<String>, String>>,
 ) -> Result<Step> {
     let Some(bound) = service.home.store().binding(binding)? else {
         return Ok(Step::Answer(Answer::result(NOBODY, true)));
@@ -699,6 +954,11 @@ fn operation(
     if let Some(running) = service.chats.running.get_mut(&id) {
         running.res.push(re.clone());
         return Ok(Step::Running);
+    }
+    if service.house_work.pending.contains(&id) {
+        return Ok(Step::Answer(Answer::Waiting(
+            "The house work is still running.".into(),
+        )));
     }
     let db = service.home.store().connection();
     let marked = db
@@ -759,8 +1019,10 @@ fn operation(
         .map(Step::Answer);
     }
     let net = match decide(
-        service, binding, key, input, tool, arguments,
-    )? {
+        service, binding, key, input, tool, arguments, preview,
+    )
+    .await?
+    {
         Decision::Run { net } => net,
         Decision::Block(words) => {
             return Ok(Step::Answer(Answer::Refusal(words)));
@@ -818,6 +1080,7 @@ fn operation(
         )?;
     }
     let place = places(service, &bound.agent)?;
+    let remote = service.remote_tools(&bound.agent, net)?;
     let sandbox = service.chats.sandbox;
     let secrets = service.credentials.secrets();
     let arguments =
@@ -825,10 +1088,18 @@ fn operation(
     let name = tool.to_owned();
     let (task_runtime, task_key) = id.clone();
     let abort = service.chats.tools.spawn(async move {
-        let mut outcome = tools::run(
-            &sandbox, &place, net, &secrets, &name, &arguments,
-        )
-        .await;
+        let mut outcome = if let Some(remote) = &remote {
+            tools::run_remote(
+                remote, &sandbox, &place, net, &secrets, &name,
+                &arguments,
+            )
+            .await
+        } else {
+            tools::run(
+                &sandbox, &place, net, &secrets, &name, &arguments,
+            )
+            .await
+        };
         if let Some(change) = change
             .and_then(|c| serde_json::from_str::<Value>(&c).ok())
         {
@@ -888,6 +1159,14 @@ pub(crate) async fn ran(
 
 /// Stops the tool calls running for `binding`.
 pub(crate) fn stop_tools(service: &mut Service, binding: BindingId) {
+    service.chats.preparations.retain(|_, preparing| {
+        if preparing.binding == binding {
+            preparing.abort.abort();
+            false
+        } else {
+            true
+        }
+    });
     service.chats.running.retain(|_, running| {
         if running.binding == binding {
             running.abort.abort();
@@ -1053,9 +1332,9 @@ fn prompt(
     service: &mut Service,
     binding: BindingId,
     input: Option<&str>,
-) -> Result<Vec<Section>> {
+) -> Result<crate::prompt::Prepared> {
     let Some(bound) = service.home.store().binding(binding)? else {
-        return Ok(Vec::new());
+        return Ok(crate::prompt::Prepared::fixed(Vec::new()));
     };
     if bound.errand {
         let text = service
@@ -1069,14 +1348,15 @@ fn prompt(
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
-        return Ok(text
-            .map(|text| {
+        return Ok(crate::prompt::Prepared::fixed(
+            text.map(|text| {
                 vec![Section {
                     name: "errand".into(),
                     text,
                 }]
             })
-            .unwrap_or_default());
+            .unwrap_or_default(),
+        ));
     }
     let agent = bound.agent.clone();
     let request = request_of(service, binding, input)?;
@@ -1099,7 +1379,7 @@ fn prompt(
         });
     let Some(record) = service.home.store().record(&agent.hamlet)?
     else {
-        return Ok(Vec::new());
+        return Ok(crate::prompt::Prepared::fixed(Vec::new()));
     };
     let Some(member) = record
         .agents
@@ -1107,7 +1387,7 @@ fn prompt(
         .find(|a| a.number == agent.number)
         .cloned()
     else {
-        return Ok(Vec::new());
+        return Ok(crate::prompt::Prepared::fixed(Vec::new()));
     };
     let settings = service.settings()?;
     let limits = service.limits_of(&agent.hamlet)?;
@@ -1131,7 +1411,7 @@ fn prompt(
         task: task.as_deref(),
         conversation: Some(binding),
     };
-    let mut sections = crate::prompt::sections(service, &subject)?;
+    let mut prepared = crate::prompt::prepare(service, &subject)?;
     let held = input
         .map(|input| {
             records::budget_words(
@@ -1157,11 +1437,11 @@ fn prompt(
             words
         }
     };
-    sections.push(Section {
+    prepared.sections.push(Section {
         name: "budget".into(),
         text: budget,
     });
-    Ok(sections)
+    Ok(prepared)
 }
 
 /// Whether a final answer stands: one with no words and no call
@@ -1410,6 +1690,19 @@ mod tests {
 
     use super::*;
     use crate::harness::link::ModelRef;
+
+    fn decide(
+        service: &mut Service,
+        binding: BindingId,
+        key: &str,
+        input: Option<&str>,
+        tool: &str,
+        arguments: &BTreeMap<String, Value>,
+    ) -> Result<Decision> {
+        futures::executor::block_on(super::decide(
+            service, binding, key, input, tool, arguments, None,
+        ))
+    }
 
     /// A service on a scratch home, with the founder's conversation
     /// bound to a runtime.

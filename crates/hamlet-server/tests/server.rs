@@ -16,6 +16,14 @@ use tokio_tungstenite::tungstenite::Message;
 #[path = "server/society.rs"]
 mod society;
 
+#[cfg(feature = "harness")]
+#[path = "server/oauth.rs"]
+mod oauth;
+
+#[cfg(feature = "harness")]
+#[path = "server/remote.rs"]
+mod remote;
+
 #[test]
 fn the_server_holds_its_home_until_terminated() {
     let dir = Scratch::new("server-binary");

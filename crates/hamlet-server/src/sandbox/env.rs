@@ -1212,7 +1212,7 @@ mod tests {
         let env = Env::new(
             &text(&folder),
             open_policy(&folder, &house, &home, &[]),
-            Sandbox::BWRAP,
+            Sandbox::platform(),
         )
         .unwrap();
         let link = folder.join("link");

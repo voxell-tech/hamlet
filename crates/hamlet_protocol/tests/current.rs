@@ -2,10 +2,8 @@
 
 #[test]
 fn generated_types_match_the_schema() {
-    let schema = serde_json::from_str(include_str!(
-        "../../../server/protocol.schema.json"
-    ))
-    .unwrap();
+    let schema =
+        serde_json::from_str(include_str!("../schema.json")).unwrap();
     let expected = hamlet_protocol_gen::generate(&schema).unwrap();
     assert_eq!(
         include_str!("../src/v0.rs"),

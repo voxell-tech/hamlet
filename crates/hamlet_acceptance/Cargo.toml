@@ -9,8 +9,8 @@ description = "A black-box acceptance suite for Hamlet's server, driven through 
 workspace = true
 
 [features]
-# Compiles the scenarios, which start a server process: today the
-# TypeScript server, so Node and `npm ci --prefix server` are needed.
+# Compiles real-process scenarios, which need the CLI, Rust server
+# and Node with `npm ci --prefix harnesses/pi`.
 acceptance = []
 
 [dependencies]
@@ -58,4 +58,8 @@ required-features = ["acceptance"]
 
 [[test]]
 name = "sandbox"
+required-features = ["acceptance"]
+
+[[test]]
+name = "frames"
 required-features = ["acceptance"]

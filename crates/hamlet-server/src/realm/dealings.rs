@@ -40,9 +40,7 @@ pub(crate) async fn operation(
             let own = record::read(db, &from.hamlet)?;
             if !realm.lives(&from.hamlet)
                 || realm.live().count() < 2
-                || !own
-                    .as_ref()
-                    .is_some_and(|r| r.mayor == from.number)
+                || own.as_ref().is_none_or(|r| r.mayor != from.number)
             {
                 return Ok(outcome(
                     "Only a mayor of a living hamlet can do that.",

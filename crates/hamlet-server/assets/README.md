@@ -1,15 +1,21 @@
 # Protocol validation inputs
 
-`limits.schema.json` is the TypeScript server's `LimitsSchema`, including
-its defaults. `provider-names.json` holds the reserved built-in endpoint
-names. Regenerate them from the repository root after `npm ci --prefix
-server`, using the Node version in `server/.nvmrc`:
+`limits.schema.json` defines the chief's limits, including defaults and
+constraints. `src/limits.rs` uses it for validation and filling defaults.
+Edit it here when changing a limit; keep protocol v0's limits shape in
+`crates/hamlet_protocol/schema/` consistent.
+
+`provider-names.json` holds the reserved built-in endpoint names. Regenerate
+it from the repository root after `npm ci --prefix harnesses/pi`, using
+the Node version in `harnesses/pi/.nvmrc`:
 
 ```sh
-node --input-type=module -e 'import { LimitsSchema } from "./server/src/limits/rules.ts"; console.log(JSON.stringify(LimitsSchema, null, 2))' > crates/hamlet-server/assets/limits.schema.json
-node --input-type=module -e 'import { builtinProviders } from "./server/node_modules/@earendil-works/pi-ai/dist/providers/all.js"; console.log(JSON.stringify([...builtinProviders().map(p => p.id), "chatgpt"], null, 2))' > crates/hamlet-server/assets/provider-names.json
+node --input-type=module -e 'import { builtinProviders } from "./harnesses/pi/node_modules/@earendil-works/pi-ai/dist/providers/all.js"; console.log(JSON.stringify([...builtinProviders().map(p => p.id), "chatgpt"], null, 2))' > crates/hamlet-server/assets/provider-names.json
 ```
 
-The wire-message schema stays in `server/protocol.schema.json`, shared
+The wire-message schema lives in `crates/hamlet_protocol/schema.json`, shared
 with `hamlet_protocol_gen`. `protocol.rs` validates against it before
 decoding the generated Rust types.
+
+`charter.md` and `starters/` are embedded in the server binary. The starter
+installer in `src/starters.rs` preserves chiefs' edits and deletions.

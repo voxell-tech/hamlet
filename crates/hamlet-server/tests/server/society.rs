@@ -393,13 +393,14 @@ async fn withdrawal_recovers_after_ruling_before_cancellation() {
         Some(&script),
     );
     let (mut socket, _) = server.connect().await;
-    let id = send(&mut socket, json!({"type":"open","chat":{"with":{"hamlet":"home","agent":"kept"}}})).await;
-    let page = until(&mut socket, |v| v["to"] == id).await;
-    assert!(
-        page.to_string()
-            .contains("The chief withdrew the instruction: Keep it"),
-        "{page}"
-    );
+    send(&mut socket, json!({"type":"open","chat":{"with":{"hamlet":"home","agent":"kept"}}})).await;
+    until(&mut socket, |value| {
+        matches!(value["type"].as_str(), Some("transcript" | "turn"))
+            && value.to_string().contains(
+                "The chief withdrew the instruction: Keep it",
+            )
+    })
+    .await;
     assert!(!home.join("houses/home/1/lost.txt").exists());
     let (_, state) = server.connect().await;
     assert_eq!(state["waits"], json!([]));

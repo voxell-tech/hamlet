@@ -8,7 +8,6 @@
   to change what. Start there.
 - [Comment convention](docs/comment_convention.md)
 - [Code convention](docs/code_convention.md)
-- [`server/AGENTS.md`](server/AGENTS.md) before working in `server/`.
 - The design is in [`docs/spec/`](docs/spec/). Code refers to its
   requirements by ID (C1, H10, ...). Read it before non-trivial changes.
   Decisions that are hard to reverse are in [`docs/adr/`](docs/adr/), and
@@ -26,20 +25,24 @@
 
 ## Running safely
 
-The Rust CLI is `hamlet` in `crates/hamlet_cli`; the Rust window is
-`hamlet-app`. Use the Node version in `server/.nvmrc` and install server
-dependencies with `npm ci --prefix server`. No global npm command is needed.
+The Rust binaries are `hamlet` in `crates/hamlet_cli`, `hamlet-server` in
+`crates/hamlet-server`, and the window `hamlet-app`. Use the Node version
+in `harnesses/pi/.nvmrc` and install the harness with
+`npm ci --prefix harnesses/pi`. No global npm command is needed.
 For local work:
 
 ```sh
 HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
 ```
 
-`dev` builds the checkout's window before starting the server. `HAMLET_APP`
-selects an existing window and skips that build. Use `cargo run -p hamlet_cli
--- <command>` for other commands, or install the CLI and the window with
-`make install`. An installed CLI still needs the server package and Node;
-`HAMLET_SERVER_DIR` overrides the package path and `HAMLET_NODE` selects Node.
+`dev` builds the checkout's server and window. `HAMLET_SERVER_BIN` and
+`HAMLET_APP` select existing binaries and skip their respective builds.
+Use `cargo run -p hamlet_cli -- <command>` for other commands, or install
+all three with `make install`. That source install keeps using the
+checkout's pi package. Packaged archives include pi beside the binaries
+on Linux, or in `Contents/Resources/pi` in the macOS app.
+`HAMLET_PI_HARNESS` selects pi's `src/main.ts`; `HAMLET_NODE` selects Node.
+`HAMLET_SERVER` is a remote URL, never a server executable path.
 
 Bare `hamlet` uses `~/.hamlet` by default and leaves a server running in
 the background. Agents run `hamlet` only with `HAMLET_HOME` set to a scratch
@@ -58,7 +61,8 @@ window ends only its process; agents keep working on the server. Stop
 
 All four must be clean before a commit. Formatting needs nightly, because
 `rustfmt.toml` uses unstable options. `make check` runs these and the
-server's two checks below in order, and `make fmt` formats both.
+feature-gated and Node checks below. `make fmt` formats Rust and both Node
+packages.
 
 ```sh
 cargo +nightly fmt
@@ -68,16 +72,14 @@ cargo test
 ```
 
 The root commands cover every crate. To work on one, add `-p <crate>`, for
-example `cargo test -p hamlet_rules`.
+example `cargo test -p hamlet-server`.
 
-`cargo test` never contacts a model server or the internet. The tests that
-do are compiled only with `cargo test -p hamlet_core --features live-tests`;
-run them only when the owner asks.
+Offline tests use faux models or loopback fixtures. Do not run live-provider
+or remote-infrastructure tests unless the owner explicitly asks.
 
-The agent server in `server/` has two checks of its own, run in that folder
-with the Node version in `server/.nvmrc`. They must be clean before a
-commit too, and `npm test` never contacts a model server or the internet
-either.
+Both `harnesses/pi/` and `crates/hamlet_protocol/schema/` are Node packages.
+Run `npm ci` in each, then these checks with the Node version in
+`harnesses/pi/.nvmrc`. They must be clean before a commit too:
 
 ```sh
 npm run check   # TypeScript and Biome
@@ -86,13 +88,13 @@ npm test
 
 The acceptance suite in `crates/hamlet_acceptance` starts real server
 processes on scratch homes and drives them through protocol v0, so plain
-`cargo test` compiles none of it. It needs the built CLI and
-`npm ci --prefix server`, and must be clean before a commit too. It never
+`cargo test` compiles none of it. It needs the built CLI and Rust server,
+and `npm ci --prefix harnesses/pi`. It must be clean before a commit too. It never
 contacts a model server or the internet: models are faux, or a loopback
 fake of its own. `make check` runs it; by hand, at the root:
 
 ```sh
-cargo build -p hamlet_cli
+cargo build -p hamlet_cli -p hamlet-server
 cargo clippy -p hamlet_acceptance --all-targets --features acceptance
 cargo test -p hamlet_acceptance --features acceptance
 ```
@@ -115,13 +117,13 @@ generated as protocol v0's are: after changing `harnesses/pi/src/link.ts`,
 run `npm run schema` in `harnesses/pi/`, then
 `cargo run -p hamlet_protocol_gen` at the root.
 
-`npm test` builds the Rust CLI before running the server and CLI contract
-tests. For direct Vitest runs, build `hamlet_cli` first. `HAMLET_CLI` selects
-a CLI binary outside `target/debug/hamlet`.
+`HAMLET_CLI` selects a CLI binary outside `target/debug/hamlet` for the
+acceptance suite. `HAMLET_ACCEPTANCE_SERVER` selects an explicit server
+command; otherwise it tests the default `hamlet server` path.
 
 Protocol v0's Rust types in `crates/hamlet_protocol/src/v0.rs` are
 generated, never edited by hand. After changing the protocol, export its
-schema with `npm run schema` in `server/`, then regenerate the Rust types
+schema with `npm run schema` in `crates/hamlet_protocol/schema/`, then regenerate the Rust types
 at the root:
 
 ```sh
@@ -130,16 +132,10 @@ cargo run -p hamlet_protocol_gen
 
 Update `docs/protocol.md` when the protocol changes.
 
-The client tests replay the faux server sessions in
-`crates/hamlet_protocol/frames/`. To re-record them offline, run in
-`server/`:
-
-```sh
-HAMLET_RECORD_FRAMES=1 npx vitest --run test/frames.test.ts
-```
+The client tests replay the faux sessions in `crates/hamlet_protocol/frames/`.
+See `docs/protocol.md` for their recording workflow.
 
 On Linux, tools run under bubblewrap rather than Seatbelt. After changing
-`server/src/sandbox/`, run the tests there too with
-`server/scripts/test-linux.sh`, in the OrbStack machine `hamlet-sandbox`
-(Debian with Rust, bubblewrap, git, curl, python3 and the Node of
-`.nvmrc`).
+`crates/hamlet-server/src/sandbox/`, run the real sandbox acceptance tests
+on Linux with working bubblewrap, git, curl and Python 3. Linux checks do
+not prove macOS Seatbelt behavior. Windows has no server sandbox.

@@ -31,7 +31,7 @@ trusting memory: the engine moves every release.
 | The need | The tool | Here |
 |---|---|---|
 | A fact about one thing | A component | `Citizen`, `Busy`, `Housed` |
-| A fact nothing may edit in place | `#[component(immutable)]`, replaced by inserting it again | Everything the record decides (`docs/core.md`) |
+| A fact nothing may edit in place | `#[component(immutable)]`, replaced by inserting it again | Server facts projected into client entities (`docs/tour.md`) |
 | One thing points at another, and the other should know | A relationship | `LivesIn` and `Citizens`, `TalksTo`, `RaisedBy`, `About` |
 | A link kept as a bare `Entity` and found by scanning | Make it a relationship, with `linked_spawn` where one goes with the other | `Sign` and `Signed` |
 | One of a kind for the whole app | A resource | `Society`, `Stage`, `Selected` |

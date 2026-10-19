@@ -4,28 +4,29 @@ Rebuild the server in Rust, as the crate `hamlet-server`, and run agents'
 conversations in harnesses apart from it. The decision is
 [ADR 0001](../adr/0001-agents-run-on-a-rust-server-and-harnesses-run-their-conversations.md).
 The concepts and rules stay as [`docs/spec/`](../spec/README.md) states
-them. Today's server is TypeScript, in `server/`, with Hamlet's rules and
-pi-durable in one Node process
-([below](#todays-server)). It is the reference for how Hamlet behaves until
-the Rust server replaces it.
+them. Rust is now the default server; [the tour](../tour.md) maps its
+current implementation. This proposal retains the development design and
+comparisons to the former TypeScript reference. Paths under `server/` and
+the former runtime crates below are historical references, not build inputs.
 
 ## The end
 
-A Rust server and no TypeScript server. Everything that works today works
-with `hamlet-server` and, beside it, Node processes running the pi
-harness. The pi harness is a package of its own, for example
+A Rust server and no TypeScript server. The goal is to preserve the former
+server's behavior with `hamlet-server` and, beside it, Node processes running
+the pi harness. The pi harness is a package of its own, for example
 `harnesses/pi/`, and `server/` is deleted.
 
-It is done when the acceptance suite passes against the Rust server. The
-suite is black-box: it starts a server process on a scratch home and drives
-it through protocol v0 with faux scripts, knowing nothing of how the server
-is built. It passes against the TypeScript server first, and the same run
-passing against the Rust server is the bar for deleting `server/`.
+The black-box acceptance suite starts a server process on a scratch home
+and drives protocol v0 with faux scripts or loopback providers. It was run
+against both implementations during the port and must pass against Rust
+before `server/` is removed. Passing cases are behavioral evidence, not
+proof of exhaustive parity. The TypeScript server was never deployed;
+all its homes were disposable tests. No import or rollback implementation
+is required.
 
-The proposal is work to build, starting from the crate's foundation. The
-old Rust runtime crates (`hamlet_core`, `hamlet_rules`, `hamlet_model`,
-`hamlet_home`, `hamlet_sandbox`) are material to reuse where it fits, not
-code assumed to match the TypeScript server.
+The old Rust runtime crates (`hamlet_core`, `hamlet_rules`, `hamlet_model`,
+`hamlet_home`, `hamlet_sandbox`) supplied reusable material during the port
+and are removed from the current workspace.
 
 ## The shape
 
@@ -120,7 +121,7 @@ instruction does not owe another receipt when the model finishes.
 
 Skill gifts copy a bounded no-follow tree, including empty folders and
 ordinary permission bits, without setuid or setgid. Starters use the
-embedded `hamlet_home` assets, whose bytes match the TypeScript assets,
+embedded `hamlet-server/assets/starters/`, whose bytes match the TypeScript assets,
 independently of edits to the shared library. Successful skill gifts keep
 a `SkillGiven` decision with the resolved giver, refresh the client state,
 and cause no conversation turn. Recipient resolution, including a farewell
@@ -258,9 +259,9 @@ server with the runtime killed before and after pi admitted an input.
 Every tool call and every change to the record is an operation the
 runtime asks the server for. The server then:
 
-1. finds a marker for the identity and, if there is one, returns its
-   result;
-2. refuses the identity if it was used with a different request;
+1. checks the identity against its binding and request digest, refusing
+   changed or unverifiable requests;
+2. finds a marker for the verified identity and returns its result;
 3. checks the request against the authority, permissions, waits, limits
    and budget as they are now;
 4. commits the change, its charge and the marker of its result in one
@@ -461,8 +462,8 @@ it.
 The prompt is composed in the server for each model call, as
 `server/src/prompt/` composes it, and the budget words are held for the
 whole turn of an input. A final answer with no words and no call fails
-its turn. An answer cut off for room fails at once, with the words of a
-failed summary, because the link has no compaction (C28).
+its turn. A cut-off answer follows the guarded summary and retry path
+described under compaction and model changes (C28).
 
 Each tool call is one operation the server carries out. The runtime holds
 no tool, not even a file operation. The gate decides at `allow` and keeps
@@ -543,40 +544,34 @@ carries out (see [Conversations](#conversations-step-4a)).
 
 ## Protocol v0
 
-The window and the `hamlet` command keep protocol v0 as it is. The TypeBox
-definition in `server/src/protocol.ts`, with its exported schema and the
-Rust types generated from it, stays the source of the protocol while
-`server/` exists.
+The window and the `hamlet` command keep protocol v0. TypeBox lives in
+`crates/hamlet_protocol/schema/`, exports `crates/hamlet_protocol/schema.json`,
+and remains the source for generated Rust types.
 
-The acceptance suite (see [The end](#the-end)) is the check that the Rust
-server speaks it and behaves as the TypeScript server does. The recorded
-sessions that `hamlet_client` replays move out of `server/test/frames/`,
-so they outlive `server/`.
+The acceptance suite (see [The end](#the-end)) checks externally observable
+behavior. Recorded sessions for `hamlet_client` live in
+`crates/hamlet_protocol/frames/`; they do not depend on the former server.
 
-## Moving homes and moving back
+## Fresh homes
 
-Development uses scratch homes only. For a home the TypeScript server made:
+Development uses fresh scratch homes. The TypeScript server never rolled
+out, and all homes made by it were disposable tests. The Rust server
+refuses `home.sqlite`; select a new `HAMLET_HOME`. There is no home-import,
+rollback, or migration gate for making Rust the default.
 
-- Moving is offline, with no server running, and leaves the original
-  home as it was.
-- Conversations keep their IDs and numbers. What waits, inputs not yet
-  answered and the links between chats and conversations are kept. Nothing
-  pending is dropped without a word.
-- The records are checked after import and before the home is served.
-- Moving back restores the server's store and the runtimes' stores
-  together, never one alone.
-- The old and new servers never open one home at once (S2).
+Rust's internal SQLite schema versions and ordered upgrades remain. They
+are an implementation detail of its own store, distinct from importing a
+TypeScript home. The home identity and single-process claim remain safety
+invariants (S2, S25).
 
-No home is switched until moving and moving back are tested.
+## Former reference server
 
-## Today's server
+`server/` held Hamlet's rules as pi-durable extensions in one Node
+process over one pi-durable storage, `home.sqlite`,
+before the port. The table records how its concepts mapped onto pi-durable;
+[`tour.md`](../tour.md#the-server) describes the current Rust modules.
 
-`server/` holds Hamlet's rules as pi-durable extensions in one Node
-process over one pi-durable storage, `home.sqlite`
-([`home.md`](../home.md)); [`tour.md`](../tour.md#the-server) maps its
-modules. Each concept below has to keep its behaviour when it moves.
-
-| Hamlet (spec) | In today's server, on pi-durable |
+| Hamlet (spec) | In the former server, on pi-durable |
 |---|---|
 | A conversation (C22) | A conversation; the chief's, the letters' and the questions' each one |
 | The prompt's parts (C11) | Sections of Hamlet's extensions, rendered before each request; the budget section reads words fixed at the turn's start |
@@ -596,13 +591,13 @@ modules. Each concept below has to keep its behaviour when it moves.
 | Taking a conversation back (C27) | A fork from the entry before the message, with the conversation pointed at the fork (ADR 0002) |
 | What the window watches (S5) | `watchEvents()` per open conversation, and the documents' changes for the realm's state |
 
-Its tests in `server/test/` include offline proofs against pi-durable 1.2.0
+Its tests in `server/test/` included offline proofs against pi-durable 1.2.0
 with a fake provider: sections and `configure()` reaching the next request,
 a budget check ending a run cleanly, a `beforeTool` wait surviving a
 restart, a question surviving a restart on either side, the sandbox passing
 `registerEnvConformance`, and a record change committed with its marker.
 
-What it does not yet meet, and the Rust server must:
+Requirements it did not fully meet, which the Rust port addresses:
 
 - C31: first-token timing is not recorded for every call; raw provider
   usage and each summarising call's timing, billed charge and end reason
@@ -631,15 +626,12 @@ What it does not yet meet, and the Rust server must:
 5. **The society and the realm.** Letters, questions, votes, the library,
    leaving and merging, and founding hamlets, each recovering across
    runtimes.
-6. **Moving homes.** Moving a TypeScript home and moving it back, both
-   tested.
-7. **Switching.** The whole acceptance suite passes against the Rust
-   server. The `hamlet` command starts `hamlet-server`, `server/` is
+6. **Switching.** The `hamlet` command starts `hamlet-server`, `server/` is
    deleted, and the old Rust runtime crates are removed. The pi harness
-   package stays, in its own folder.
+   package stays, in its own folder. Build, install, packaging and docs use
+   Rust by default; acceptance tests keep checking behavior.
 
-Steps 6 and 7 are apart because no home may switch before moving back is
-tested, and the suite's whole pass is its own gate.
+There is no moving-homes step: existing homes were disposable tests.
 
 ## The prototype
 
@@ -669,8 +661,7 @@ task IDs need the runtime's ID beside them.
 
 It did not show:
 
-- Hamlet's behaviour as a whole in Rust, or moving an existing home and
-  moving it back.
+- Hamlet's behaviour as a whole in Rust.
 - A second harness, or two harnesses working together.
 - Admitting inputs across a crash, or letters, questions and votes
   recovering.
@@ -698,8 +689,6 @@ endpoint beside them.
 - Behaviour drifts while two servers exist. The TypeScript server stays the
   reference, and the acceptance suite and the spec are the checks.
 - Markers kept for good grow without bound.
-- A migrated home has no `home.sqlite`. Nothing yet stops the TypeScript
-  server, run later on that home, from founding a fresh one beside it.
 - The server still needs Node and the pi harness package installed.
 - `node:sqlite` is marked experimental in Node 24.
 - OpenAI's login listens on port 1455, which the Codex CLI uses too; a clash
@@ -717,19 +706,8 @@ endpoint beside them.
 - Whether markers are ever cleared, and when.
 - How letters, questions and votes recover when the two agents are in
   different runtimes.
-- The format and order of moving a home: whether the pi runtime's store is
-  built from `home.sqlite`'s conversations or begins as a copy of it.
-- Moving back once both stores have changed since the move.
-- What stops the TypeScript server from founding a fresh home on a migrated
-  one.
 - Whether protocol v0 shows an agent's harness and a harness's
   capabilities, as optional fields.
-- Where the protocol's TypeBox source lives once `server/` is deleted.
-- Where the acceptance suite and the recorded frames live, and how the
-  suite selects the server it starts.
-- Whether to import homes of the retained Rust runtime
-  ([`core.md`](../core.md#the-retained-runtimes-home)), decided before
-  step 7.
 
 ## Left for later
 

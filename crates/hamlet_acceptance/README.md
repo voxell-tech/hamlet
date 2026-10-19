@@ -4,16 +4,16 @@ The acceptance suite for Hamlet's server. Each scenario starts a server
 process on a scratch home and checks what it does from outside: through
 protocol v0 over the authenticated WebSocket, with `hamlet_protocol`'s
 generated types, and through the `hamlet` command. It knows nothing about
-how the server is built, so the same scenarios judge the TypeScript server
-in `server/` and the Rust server that replaces it.
+how the server is built. The default is the Rust `hamlet server` path;
+the same scenarios judged the former TypeScript reference during the port.
 
-Passing these scenarios is not yet sufficient to delete `server/`.
-The coverage map below includes untested observable behaviour, including
-gate edge cases, accounting rollover and CLI lifecycle.
-Home migration and rollback also need their own checks before switching,
-as required by the Rust-server proposal. `covered` means the named TS
-test's observable assertions are represented, not that its entire domain
-is proved. Neither file counts nor a green run waive the gaps.
+Passing these scenarios does not establish exhaustive behavior or platform
+coverage. The map below retains untested observable cases, including gate
+edge cases and accounting rollover. CLI lifecycle regressions exercise
+detached start/reuse/status/stop and dev with explicit binary overrides.
+Earlier TypeScript homes were disposable tests; no import/rollback or
+cutover gate is required. `covered` means the named reference assertions
+are represented, not that an entire domain is proved.
 
 Every message a server sends is parsed into `ServerMessage`, written back
 and compared with what arrived, so a field outside protocol v0 fails the
@@ -23,11 +23,11 @@ scenario that received it.
 
 The scenarios are compiled only with the `acceptance` feature, so plain
 `cargo test` neither builds nor runs them. They need the built `hamlet`
-command and, for today's default server, Node and
-`npm ci --prefix server`. `make check` runs them. By hand, at the root:
+and `hamlet-server`, Node from `harnesses/pi/.nvmrc`, and
+`npm ci --prefix harnesses/pi`. `make check` runs them. By hand, at the root:
 
 ```sh
-CARGO_INCREMENTAL=0 cargo build -p hamlet_cli
+CARGO_INCREMENTAL=0 cargo build -p hamlet_cli -p hamlet-server
 CARGO_INCREMENTAL=0 cargo test -p hamlet_acceptance --features acceptance
 ```
 
@@ -40,7 +40,7 @@ loopback endpoint in `src/openai.rs`.
 | `HAMLET_CLI` | The `hamlet` command, for the default server and the CLI scenarios. Unset: `target/debug/hamlet`. |
 
 A relative executable path is resolved against the workspace root. To
-judge the Rust server with the same scenarios:
+start the Rust server directly rather than through the CLI:
 
 ```sh
 CARGO_INCREMENTAL=0 cargo build -p hamlet-server -p hamlet_cli
@@ -238,11 +238,17 @@ in protocol v0, but can be checked in the next model request when needed.
 | `tests/cli.rs` | `hamlet chat` on stdin and stdout, approvals across a crash, switching agents and hamlets, `hamlet edit`, `hamlet models`, `hamlet login` |
 | `tests/sandbox.rs` | Linux read/write/network confinement, symlinks and missing roots, house versus project files, resource limits, timeout cleanup and hand-added tools |
 
-## Coverage of the server's tests
+## Coverage against the former reference tests
 
-Every file in `server/test/` with what it checks that a client of protocol
-v0 or the `hamlet` command could see. A file name in Where, such as
-`mayor.rs`, is a file in `tests/`, followed by its scenarios.
+The first column preserves filenames from the former `server/test/`
+inventory, not paths in the current checkout. It records what a client of
+protocol v0 or `hamlet` could observe. A Rust filename in Where, such as
+`mayor.rs`, is under `tests/`. This inventory is not a count of current
+Rust tests. Additional society/realm scenarios cover usable merge skill
+names, non-UTF-8 note preservation, canceled library resubmissions and
+librarian NOTES, vote-held agreements, assent across office changes, and
+mayor-review recovery. Process-crash controls live separately under
+`crates/hamlet-server/tests/`.
 
 Status:
 - `covered`: a scenario asserts the observable behaviour.
@@ -315,7 +321,7 @@ Status:
 | models.test.ts | Real endpoint: retry, overrides not kept, billed usage, estimates | partly | `models.rs` billed usage, explicit zero, unreported usage estimates including history/tools, 503 retry with identical body, failed attempt at zero spend, held request across restart and Bearer header. Missing: overrides not persisted, stored endpoint restored without overrides and unusable overrides. |
 | objections.test.ts | `object`/`ask_chief`, mayor review, waits, limits, restarts | partly | `society.rs` holds_an_instruction_for_an_objection_then_goes_or_withdraws; `mayor.rs` answers_a_question_the_mayor_asks. Missing: three questions a turn and a dismissal, the objection after a restart, mayor review (now scriptable with errands), late and outlived objections, two objections, another hamlet's `by`, a letter receiver held, retry that asks. Remote-mode reviews need a non-loopback endpoint. |
 | ollama.live.test.ts | One real tool call against a live local model | not yet | Needs a live Ollama model; deliberately outside this offline suite. |
-| one-command.test.ts | Bare `hamlet`, `stop`, `status`: detached server, window, stale records | not yet | Needs bare `hamlet`, `hamlet stop` and `hamlet status` with a fake `HAMLET_APP` window. No scenario runs them. |
+| one-command.test.ts | Bare `hamlet`, `stop`, `status`: detached server, window, stale records | partly | CLI lifecycle cases use a fake window and real Rust server to exercise detached startup, reuse, status and stop. Exhaustive stale-publication and platform cases remain separate. |
 | oversight.test.ts | Waits store queries, ordering, past-chat projection | internal-only | `raiseFault`/`settle` in transactions, fake clocks. |
 | prompt.test.ts | Prompt sections in order; environment, project, character, notes, skills | partly | `documents.rs` section order, project CLAUDE/AGENTS precedence, git/manual words, skill commands, Unicode 4000/8000 cuts, binary notes, HAMLET_NET and OS; `sandbox.rs` failed-tool diagnostic; `models.rs` displayed prompt equals actual request. Missing: H33 library failure. |
 | protocol-doc.test.ts | Every message type is named in docs/protocol.md | internal-only | A static documentation check. |
@@ -358,7 +364,7 @@ Status:
 | votes.test.ts | Vote rules, passing, overturn, refusals, grounding, ballots, resume | partly | `society.rs` holds_decisions_during_a_vote_follows_the_new_office_and_overturns, refuses_votes_that_cannot_be_held; `realm.rs` founds_a_hamlet_by_vote_has_the_asker_pay_and_overturns_it. Missing: silence is not a yes, grounding and sealing, three requests per ballot, stopping an open vote, one vote at a time, a recent failed vote, resume after a restart, the first ballot only. Ballot timeouts need minutes. |
 | waits.test.ts | Wait joined across chats, kept across restart, lapses, faults asked again | partly | `mayor.rs` same wait/since across crash, allow/stopped closes and repeated fault `asked:2`. Missing: rewound wait and joining from another chief's chat. |
 | watch-failure.test.ts | Watch and page refusals; a departed agent's chat faults with farewell | partly | `documents.rs` refuses_requests_for_hamlets_and_agents_that_do_not_exist (past 99, unknown item); `society.rs` carries_a_letter_and_its_reply_then_asks_a_question (read-only peer), removes_restores_and_erases_an_agent_by_command (current chat of a departed agent). Missing: the past and peer forms of a departed agent's chat. |
-| window.test.ts | `hamlet dev` and `hamlet window`: signals, app lookup, home safety | not yet | Needs a fake `HAMLET_APP`. No scenario runs `hamlet dev` or `hamlet window`. |
+| window.test.ts | `hamlet dev` and `hamlet window`: signals, app lookup, home safety | partly | CLI lifecycle cases run dev with server/window overrides and ordered stop. They do not prove graphical startup, every PATH/bundle layout, or every platform. |
 | words.test.ts | Wait wording: clip, says, line, strip, waited | internal-only | Pure wording. The `says` and strip texts are asserted in `mayor.rs` keeps_words_from_a_waiting_mayor_and_answers_by_command and holds_a_command_and_an_edit_for_approval_in_manual_mode. |
 | work.test.ts | `/folder` and `/mode` replies, earlier folders, restart, refusals | partly | `documents.rs` points_the_hamlet_at_a_folder_and_switches_its_mode. Missing: the folder and mode kept across a restart, a repeated `/folder` changing nothing, `/folder ~`, refusals for a child of, parent of or link to the home. |
 | workspace.live.test.ts | Remote GKE workspace tools end to end | not yet | Needs a remote workspace (opt-in `HAMLET_WORKSPACE_GKE_URL`). |
@@ -369,8 +375,8 @@ Status:
 | Status | Files |
 |---|---|
 | covered | 14 |
-| partly | 71 |
-| not yet | 5 |
+| partly | 73 |
+| not yet | 3 |
 | internal-only | 21 |
 | total | 111 |
 
@@ -382,9 +388,38 @@ Status:
 - **An OAuth fake is needed.** ChatGPT/subscription sign-in, codes and scrubbed failures (logins, logins-connection, models-cli).
 - **A pty is needed.** The tty prompt, Ctrl-D, the terminal editor and hidden key input (chat, documents-cli, models-cli).
 - **Other environments.**
-  - A fake `HAMLET_APP` window for bare `hamlet`, `stop`, `status`, `dev` and `window` (one-command, window).
+  - Real graphical window startup and platform-specific bundle behavior; fake-window CLI lifecycle scenarios already run offline.
   - A remote workspace (workspace.live, workspace).
   - A live Ollama model (ollama.live).
   - A host without bubblewrap for unavailable-sandbox probe messages.
 - **Internal-only assertions.** Exact commit-boundary crashes (record replay and the after-answer question window), private loader-slot replacement, ledger storage shape and direct sandbox policy/helper races cannot be driven or distinguished through protocol v0, the CLI or workspace files. Their public consequences are checked where possible; the suite does not import server modules or inspect its database.
 - **Ordinary tool output is absent from protocol v0.** It can still be checked through files or the next request to the loopback model. Missing search, letter and librarian result wording is not reclassified as internal-only just because it is absent from chat items.
+
+## Recording protocol frames
+
+`tests/frames/` records 18 real Rust server sessions through protocol v0,
+including file gifts in chunks. It uses scratch homes, faux responses and
+a loopback login endpoint, never a live provider. Both wire directions are
+saved as JSONL; connection tokens and the fake login key are redacted.
+IDs, timestamps and stream boundaries come from the running server.
+
+From the repository root, using the Node version in `harnesses/pi/.nvmrc`:
+
+```sh
+npm ci --prefix harnesses/pi
+npm ci --prefix crates/hamlet_protocol/schema
+cargo build -p hamlet-server
+HAMLET_ACCEPTANCE_SERVER="$PWD/target/debug/hamlet-server" \
+  cargo test -p hamlet_acceptance --features acceptance --test frames -- --ignored
+npm test --prefix crates/hamlet_protocol/schema
+cargo test -p hamlet_protocol -p hamlet_client
+```
+
+For a custom Cargo target directory, set `HAMLET_ACCEPTANCE_SERVER` to the
+absolute path of that build's server. Recording overwrites
+`crates/hamlet_protocol/frames/*.jsonl`; ordinary tests never do. To inspect
+new captures without replacing the historical fixtures, set
+`HAMLET_FRAME_DIR` to an absolute scratch directory for the recorder and
+the schema package's `npm test`. Rust client replay reads the checked-in
+fixtures. Review replacements before keeping them; changing server code
+does not by itself require fixture churn.

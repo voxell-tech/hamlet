@@ -86,6 +86,16 @@ impl Cli {
         stdin.flush().await.unwrap();
     }
 
+    /// Sends SIGINT, as Ctrl-C does, without waiting.
+    pub fn interrupt(&mut self) {
+        let pid = self.child.id().expect("the command is running");
+        // SAFETY: `pid` is our own child, which has not been reaped.
+        assert_eq!(
+            unsafe { libc::kill(pid as i32, libc::SIGINT) },
+            0
+        );
+    }
+
     /// Waits until stdout shows `text`.
     pub async fn out_shows(&mut self, text: &str) {
         self.until(text, |cli| cli.out().contains(text)).await;

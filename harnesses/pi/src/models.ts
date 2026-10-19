@@ -1,16 +1,22 @@
 import {
     type Api,
     type AssistantMessage,
+    type CredentialStore,
     createAssistantMessageEventStream,
     type Model,
+    type ModelAuth,
     type ProviderStreams,
     type StreamFunction,
     type StreamOptions,
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
-import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
+import {
+    createModels,
+    createProvider,
+    type Provider,
+} from "@earendil-works/pi-ai/models";
 import type { ModelRef, Usage } from "./link.ts";
+import { providers } from "./provider-set.ts";
 
 /** The context an endpoint that lists no window size is given. */
 const DEFAULT_WINDOW = 32_768;
@@ -38,6 +44,10 @@ export interface Gate {
     charge(key: string, usage: Usage): Promise<void>;
     /** Removes every credential known to the server before pi sees provider output. */
     scrub<T>(value: T): Promise<T>;
+    /** The host's serialized store for this attempt's provider alone. */
+    credentials?(key: string, provider: string): CredentialStore;
+    /** Ends credential authority, without abandoning an already started rotation. */
+    finished?(key: string): Promise<void>;
     /** Refreshes the context policy from the server's selected model. */
     selected?(model: Model<Api>): void;
 }
@@ -46,20 +56,23 @@ export interface Gate {
 export function allowedStreams(
     streams: ProviderStreams,
     gate: Gate,
+    available: readonly Provider[] = providers(),
 ): ProviderStreams {
     return {
-        stream: allowed(streams.stream, gate),
-        streamSimple: allowed(streams.streamSimple, gate),
+        stream: allowed(streams.stream, gate, available),
+        streamSimple: allowed(streams.streamSimple, gate, available),
     };
 }
 
 function allowed<O extends StreamOptions>(
     stream: StreamFunction<Api, O>,
     gate: Gate,
+    available: readonly Provider[],
 ): StreamFunction<Api, O> {
     return (model, context, options) => {
         const out = createAssistantMessageEventStream();
         let secret: string | undefined;
+        let allowedKey: string | undefined;
         const clean = <T>(value: T): Promise<T> =>
             // Provider partials are mutable; the request must own its snapshot.
             gate.scrub(structuredClone(scrub(value, secret)));
@@ -75,6 +88,54 @@ function allowed<O extends StreamOptions>(
             }
             secret = permit.apiKey;
             const selected = { ...model, ...permit.model } as Model<Api>;
+            if (selected.provider !== "faux") allowedKey = permit.key;
+            let auth: ModelAuth = {};
+            let env: Record<string, string> = {};
+            if (
+                gate.credentials !== undefined &&
+                selected.provider !== "faux"
+            ) {
+                const models = createModels({
+                    credentials: gate.credentials(
+                        permit.key,
+                        selected.provider,
+                    ),
+                    authContext: {
+                        env: async () => undefined,
+                        fileExists: async () => false,
+                    },
+                });
+                models.setProvider(
+                    available.find((p) => p.id === selected.provider) ??
+                        createProvider({
+                            id: selected.provider,
+                            models: [selected],
+                            api: openAICompletionsApi(),
+                            auth: {
+                                apiKey: {
+                                    name: selected.provider,
+                                    resolve: async ({ credential }) => ({
+                                        auth: {
+                                            apiKey:
+                                                credential?.key ??
+                                                "hamlet-keyless",
+                                        },
+                                    }),
+                                },
+                            },
+                        }),
+                );
+                const resolved = await models.getAuth(
+                    selected,
+                    options?.signal === undefined
+                        ? {}
+                        : { signal: options.signal },
+                );
+                auth = resolved?.auth ?? { apiKey: "hamlet-keyless" };
+                env = resolved?.env ?? {};
+                secret = auth.apiKey;
+                if (auth.baseUrl !== undefined) selected.baseUrl = auth.baseUrl;
+            }
             model.contextWindow = selected.contextWindow;
             model.maxTokens = selected.maxTokens;
             gate.selected?.(selected);
@@ -92,6 +153,8 @@ function allowed<O extends StreamOptions>(
                           ...(permit.apiKey === undefined
                               ? {}
                               : { apiKey: permit.apiKey }),
+                          ...auth,
+                          env,
                           onProviderStreamEvent: async (
                               event: unknown,
                               called: Model<Api>,
@@ -142,16 +205,21 @@ function allowed<O extends StreamOptions>(
                 out.push(event);
             }
             out.end(await clean(await source.result()));
-        })().catch(async (error: unknown) => {
-            // The answer is not kept, so the call is made again under a new attempt.
-            let words = "The server could not scrub model output.";
-            try {
-                words = await clean(
-                    `The server did not allow or charge this call: ${error instanceof Error ? error.message : String(error)}`,
-                );
-            } catch {}
-            fail(out, model, words);
-        });
+        })()
+            .catch(async (error: unknown) => {
+                // The answer is not kept, so the call is made again under a new attempt.
+                let words = "The server could not scrub model output.";
+                try {
+                    words = await clean(
+                        `The server did not allow or charge this call: ${error instanceof Error ? error.message : String(error)}`,
+                    );
+                } catch {}
+                fail(out, model, words);
+            })
+            .finally(async () => {
+                if (allowedKey !== undefined) await gate.finished?.(allowedKey);
+            })
+            .catch(() => {});
         return out;
     };
 }
@@ -240,9 +308,12 @@ function refusedMessage(model: Model<Api>, words: string): AssistantMessage {
 }
 
 /** A provider whose calls use only the server's per-attempt model and credential. */
-export function modelProvider(ref: ModelRef, gate: Gate): Provider {
+export function modelProvider(
+    ref: ModelRef,
+    gate: Gate,
+    builtins: readonly Provider[] = providers(),
+): Provider {
     const baseUrl = ref.baseUrl ?? "";
-    const builtins = builtinProviders();
     const compatible = openAICompletionsApi();
     const model: Model<"openai-completions"> = {
         id: ref.id,
@@ -298,6 +369,7 @@ export function modelProvider(ref: ModelRef, gate: Gate): Provider {
                 },
             },
             gate,
+            builtins,
         ),
     });
 }

@@ -38,10 +38,6 @@ enum Kind {
 }
 
 impl Sandbox {
-    /// Linux bubblewrap.
-    #[cfg(test)]
-    pub(crate) const BWRAP: Self = Self(Kind::Bwrap);
-
     /// The sandbox of this machine's platform (C18).
     pub fn platform() -> Self {
         Self(if cfg!(target_os = "macos") {

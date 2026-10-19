@@ -71,7 +71,7 @@ fn setup() -> (Scratch, Service) {
     (dir, service)
 }
 
-fn begin(service: &mut Service, to: &Address) -> String {
+async fn begin(service: &mut Service, to: &Address) -> String {
     match service
         .gift_begin(
             1,
@@ -82,6 +82,7 @@ fn begin(service: &mut Service, to: &Address) -> String {
                 size: 1,
             }],
         )
+        .await
         .unwrap()
         .unwrap()
     {
@@ -100,8 +101,8 @@ fn part(upload: &str) -> GivePart {
     }
 }
 
-#[test]
-fn copies_whole_skills_records_the_giver_and_keeps_modes_across_restart()
+#[tokio::test]
+async fn copies_whole_skills_records_the_giver_and_keeps_modes_across_restart()
  {
     let (dir, mut service) = setup();
     let source = dir.join("houses/home/1/skills/maps");
@@ -120,6 +121,7 @@ fn copies_whole_skills_records_the_giver_and_keeps_modes_across_restart()
     assert_eq!(
         service
             .gift_skill(&mayor(), "maps", Some(&scout()))
+            .await
             .unwrap()
             .unwrap(),
         "Gave `mayor` the skill `maps`."
@@ -150,6 +152,7 @@ fn copies_whole_skills_records_the_giver_and_keeps_modes_across_restart()
     assert_eq!(
         service
             .gift_skill(&mayor(), "maps", Some(&scout()))
+            .await
             .unwrap()
             .unwrap_err()
             .text(),
@@ -157,11 +160,11 @@ fn copies_whole_skills_records_the_giver_and_keeps_modes_across_restart()
     );
 }
 
-#[test]
-fn refuses_departed_recipients_and_a_recipient_that_leaves_during_upload()
+#[tokio::test]
+async fn refuses_departed_recipients_and_a_recipient_that_leaves_during_upload()
  {
     let (dir, mut service) = setup();
-    let upload = begin(&mut service, &scout());
+    let upload = begin(&mut service, &scout()).await;
     change(
         &mut service,
         Change::Depart {
@@ -178,6 +181,7 @@ fn refuses_departed_recipients_and_a_recipient_that_leaves_during_upload()
     assert_eq!(
         service
             .gift_skill(&scout(), "weather", None)
+            .await
             .unwrap()
             .unwrap_err()
             .text(),
@@ -193,25 +197,26 @@ fn refuses_departed_recipients_and_a_recipient_that_leaves_during_upload()
                 size: 0,
             }],
         )
+        .await
         .unwrap();
     assert!(matches!(refused, Err(e) if e.text() == farewell));
-    let refused = service.gift_part(1, &part(&upload)).unwrap();
+    let refused = service.gift_part(1, &part(&upload)).await.unwrap();
     assert!(matches!(refused, Err(e) if e.text() == farewell));
     assert!(!dir.join("houses/home/1/inbox/note").exists());
     assert_eq!(fs::read_dir(dir.join(".gifts")).unwrap().count(), 0);
 }
 
-#[test]
-fn refuses_linked_receivers_and_cleans_abandoned_and_expired_uploads()
-{
+#[tokio::test]
+async fn refuses_linked_receivers_and_cleans_abandoned_and_expired_uploads()
+ {
     let (dir, mut service) = setup();
     let outside = Scratch::new("gift-canary");
     fs::write(outside.join("note"), "untouched").unwrap();
     let inbox = dir.join("houses/home/0/inbox");
-    let upload = begin(&mut service, &mayor());
+    let upload = begin(&mut service, &mayor()).await;
     fs::remove_dir(&inbox).unwrap();
     symlink(&*outside, &inbox).unwrap();
-    let outcome = service.gift_part(1, &part(&upload)).unwrap();
+    let outcome = service.gift_part(1, &part(&upload)).await.unwrap();
     assert!(matches!(outcome, Err(e) if e.text() == DELIVERY));
     assert_eq!(
         fs::read_to_string(outside.join("note")).unwrap(),
@@ -228,18 +233,19 @@ fn refuses_linked_receivers_and_cleans_abandoned_and_expired_uploads()
                     size: 1
                 }]
             )
+            .await
             .unwrap()
             .is_err()
     );
     fs::remove_file(&inbox).unwrap();
     fs::create_dir(&inbox).unwrap();
-    let upload = begin(&mut service, &mayor());
+    let upload = begin(&mut service, &mayor()).await;
     service.gifts.pending.get_mut(&upload).unwrap().touched =
         Instant::now() - Duration::from_secs(61);
     assert!(
-        matches!(service.gift_part(1, &part(&upload)).unwrap(), Err(e) if e.text() == UNKNOWN)
+        matches!(service.gift_part(1, &part(&upload)).await.unwrap(), Err(e) if e.text() == UNKNOWN)
     );
-    begin(&mut service, &mayor());
+    begin(&mut service, &mayor()).await;
     service.gifts.gone(1);
     assert_eq!(fs::read_dir(dir.join(".gifts")).unwrap().count(), 0);
     fs::create_dir_all(dir.join(".gifts/abandoned/deep")).unwrap();
@@ -252,8 +258,9 @@ fn refuses_linked_receivers_and_cleans_abandoned_and_expired_uploads()
     );
 }
 
-#[test]
-fn refuses_unsafe_or_overfull_skills_without_partial_delivery() {
+#[tokio::test]
+async fn refuses_unsafe_or_overfull_skills_without_partial_delivery()
+{
     let (dir, mut service) = setup();
     let source = dir.join("houses/home/1/skills/maps");
     fs::create_dir_all(&source).unwrap();
@@ -263,6 +270,7 @@ fn refuses_unsafe_or_overfull_skills_without_partial_delivery() {
     assert_eq!(
         service
             .gift_skill(&mayor(), "maps", Some(&scout()))
+            .await
             .unwrap()
             .unwrap_err()
             .text(),
@@ -274,6 +282,7 @@ fn refuses_unsafe_or_overfull_skills_without_partial_delivery() {
     assert_eq!(
         service
             .gift_skill(&mayor(), "maps", Some(&scout()))
+            .await
             .unwrap()
             .unwrap_err()
             .text(),
@@ -287,6 +296,7 @@ fn refuses_unsafe_or_overfull_skills_without_partial_delivery() {
     assert_eq!(
         service
             .gift_skill(&mayor(), "maps", Some(&scout()))
+            .await
             .unwrap()
             .unwrap_err()
             .text(),
@@ -298,6 +308,7 @@ fn refuses_unsafe_or_overfull_skills_without_partial_delivery() {
     assert_eq!(
         service
             .gift_skill(&mayor(), "maps", Some(&scout()))
+            .await
             .unwrap()
             .unwrap_err()
             .text(),
@@ -311,12 +322,14 @@ fn refuses_unsafe_or_overfull_skills_without_partial_delivery() {
     assert_eq!(fs::read_dir(dir.join(".gifts")).unwrap().count(), 0);
     service
         .gift_skill(&mayor(), "weather", None)
+        .await
         .unwrap()
         .unwrap();
 }
 
-#[test]
-fn rolls_back_roots_when_numbering_would_collide_with_another_root() {
+#[tokio::test]
+async fn rolls_back_roots_when_numbering_would_collide_with_another_root()
+ {
     let (dir, mut service) = setup();
     let inbox = dir.join("houses/home/0/inbox");
     fs::write(inbox.join("a.txt"), "earlier").unwrap();
@@ -326,7 +339,7 @@ fn rolls_back_roots_when_numbering_would_collide_with_another_root() {
             size: 0,
         });
     assert!(
-        matches!(service.gift_begin(1, "gift", &mayor(), &files).unwrap(), Err(e) if e.text() == DELIVERY)
+        matches!(service.gift_begin(1, "gift", &mayor(), &files).await.unwrap(), Err(e) if e.text() == DELIVERY)
     );
     assert_eq!(
         fs::read_to_string(inbox.join("a.txt")).unwrap(),
@@ -336,32 +349,34 @@ fn rolls_back_roots_when_numbering_would_collide_with_another_root() {
     assert_eq!(fs::read_dir(dir.join(".gifts")).unwrap().count(), 0);
 }
 
-#[test]
-fn refuses_malformed_parts_and_preserves_the_owners_upload_on_a_foreign_part()
+#[tokio::test]
+async fn refuses_malformed_parts_and_preserves_the_owners_upload_on_a_foreign_part()
  {
     let (dir, mut service) = setup();
     for data in ["", "%%", "QQ", "QR==", "QUE="] {
-        let upload = begin(&mut service, &mayor());
+        let upload = begin(&mut service, &mayor()).await;
         assert!(
-            matches!(service.gift_part(2, &part(&upload)).unwrap(), Err(e) if e.text() == UNKNOWN)
+            matches!(service.gift_part(2, &part(&upload)).await.unwrap(), Err(e) if e.text() == UNKNOWN)
         );
         let mut bad = part(&upload);
         bad.data = data.into();
         assert!(
-            matches!(service.gift_part(1, &bad).unwrap(), Err(e) if e.text() == MISMATCH)
+            matches!(service.gift_part(1, &bad).await.unwrap(), Err(e) if e.text() == MISMATCH)
         );
         assert!(
-            matches!(service.gift_part(1, &part(&upload)).unwrap(), Err(e) if e.text() == UNKNOWN)
+            matches!(service.gift_part(1, &part(&upload)).await.unwrap(), Err(e) if e.text() == UNKNOWN)
         );
         assert_eq!(
             fs::read_dir(dir.join(".gifts")).unwrap().count(),
             0
         );
     }
-    let upload = begin(&mut service, &mayor());
-    assert!(service.gift_part(2, &part(&upload)).unwrap().is_err());
+    let upload = begin(&mut service, &mayor()).await;
+    assert!(
+        service.gift_part(2, &part(&upload)).await.unwrap().is_err()
+    );
     assert!(matches!(
-        service.gift_part(1, &part(&upload)).unwrap(),
+        service.gift_part(1, &part(&upload)).await.unwrap(),
         Ok(Progress::Delivered { .. })
     ));
     assert_eq!(
@@ -370,8 +385,9 @@ fn refuses_malformed_parts_and_preserves_the_owners_upload_on_a_foreign_part()
     );
 }
 
-#[test]
-fn starter_files_equal_the_shipped_assets_and_ignore_library_edits() {
+#[tokio::test]
+async fn starter_files_equal_the_shipped_assets_and_ignore_library_edits()
+ {
     let (dir, mut service) = setup();
     fs::write(
         dir.join("library/web-search/SKILL.md"),
@@ -380,12 +396,13 @@ fn starter_files_equal_the_shipped_assets_and_ignore_library_edits() {
     .unwrap();
     service
         .gift_skill(&mayor(), "web-search", None)
+        .await
         .unwrap()
         .unwrap();
     for path in ["SKILL.md", "scripts/search.py"] {
         let shipped =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../server/assets/starters/web-search")
+                .join("assets/starters/web-search")
                 .join(path);
         assert_eq!(
             fs::read(

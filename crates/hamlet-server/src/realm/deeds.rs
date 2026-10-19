@@ -91,7 +91,7 @@ pub(crate) async fn deed(
                 tx.commit()?;
             }
         }
-        service.houses.build(id, 0)?;
+        service.houses.initialize(id, 0).await?;
         society::reconfigure(service, harnesses).await?;
         let notice = format!(
             "The hamlet `{id}` was founded under the mayor `{}`. \

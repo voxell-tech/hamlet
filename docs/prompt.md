@@ -1,14 +1,14 @@
 # What an agent is told
 
 The system prompt built before every model request, where each part comes
-from, and how the chief reads and edits it. The server builds it;
-`hamlet_core` is only the retained Rust runtime.
+from, and how the chief reads and edits it. The Rust server builds the
+sections; the pi harness asks for them before each request.
 
 ## The parts, in order
 
 | Part | Where it comes from | Who changes it |
 |---|---|---|
-| The charter | The home's stored charter, else `server/assets/charter.md` | A chief |
+| The charter | The home's stored charter, else `crates/hamlet-server/assets/charter.md` | A chief |
 | The machine | The sandbox, network, model, house and any tools that failed to load | The settings |
 | The project | The hamlet's work folder, with its `AGENTS.md` or `CLAUDE.md` | A chief |
 | The character | The agent's stored character, at most 4000 characters | A chief; the mayor once at creation |
@@ -19,8 +19,9 @@ from, and how the chief reads and edits it. The server builds it;
 | The realm | Other hamlets, their mayors and pending agreements, or the agent's roads out | The realm's record |
 | The budget | The hamlet's spend and the task's caps | The ledger and limits |
 
-`server/src/prompt.ts` builds the first seven parts. `prompt/brief.ts`
-adds the hamlet, `realm/founding.ts` the realm, and `spend/budget.ts` the budget.
+`crates/hamlet-server/src/prompt.rs` composes the sections; `prompt/brief.rs`
+renders the hamlet and `prompt/shelf.rs` the skill shelves. `prompt::budget`
+reads the spend ledger; `chats/calls.rs` retains its words for the input.
 The budget's words stay fixed for a turn; the other parts are built again
 before each request. A realm with one hamlet has no realm section.
 

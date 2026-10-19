@@ -11,13 +11,7 @@ const MANIFESTS: [&str; 6] = [
     "crates/hamlet_desktop/Cargo.toml",
 ];
 
-const RUNTIME: [&str; 5] = [
-    "hamlet_core",
-    "hamlet_rules",
-    "hamlet_home",
-    "hamlet_model",
-    "hamlet_sandbox",
-];
+const RUNTIME: [&str; 1] = ["hamlet-server"];
 
 fn runtime_dependencies(manifest: &str) -> Vec<String> {
     fn visit(table: &toml::Table, found: &mut Vec<String>) {
@@ -100,8 +94,8 @@ fn runtime_dependencies_are_caught_in_every_manifest_and_dependency_section()
     }
     assert!(
         runtime_dependencies(
-            "[workspace.dependencies]\nhamlet_core = { path = \
-             'crates/hamlet_core' }\n"
+            "[workspace.dependencies]\nhamlet-server = { path = \
+             'crates/hamlet-server' }\n"
         )
         .is_empty()
     );

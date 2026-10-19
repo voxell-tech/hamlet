@@ -1,4 +1,4 @@
-//! The tools under bubblewrap, on scratch houses.
+//! The tools under the platform sandbox, on scratch houses.
 
 use std::fs;
 use std::time::{Duration, Instant};
@@ -31,7 +31,7 @@ async fn call(
     let Value::Object(args) = args else {
         panic!("arguments are an object");
     };
-    run(&Sandbox::BWRAP, place, net, &secrets, tool, &args).await
+    run(&Sandbox::platform(), place, net, &secrets, tool, &args).await
 }
 
 #[tokio::test]
@@ -183,8 +183,19 @@ async fn a_dropped_call_stops_the_command_and_all_it_started() {
         }
     });
     let tick = place.house.join("tick.txt");
-    while size(&tick) == 0 {
-        tokio::time::sleep(Duration::from_millis(50)).await;
+    if tokio::time::timeout(Duration::from_secs(10), async {
+        while size(&tick) == 0 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .is_err()
+    {
+        running.abort();
+        panic!(
+            "the command did not write tick.txt: {:?}",
+            running.await
+        );
     }
 
     running.abort();

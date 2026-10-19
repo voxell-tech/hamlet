@@ -384,33 +384,30 @@ that the tunneled application is HTTP.
 
 ## Local acceptance
 
-From the root, run `cargo test -p hamlet_workspace` and
-`cargo build -p hamlet_workspace`. From `server/`, with the pinned Node
-version and dependencies installed:
+From the root, with the Node version in `harnesses/pi/.nvmrc`:
 
 ```sh
-HAMLET_WORKSPACE_BIN=../target/debug/hamlet-workspace npx vitest --run test/workspace.test.ts
+cargo test -p hamlet_workspace
+npm ci --prefix harnesses/pi
+CARGO_INCREMENTAL=0 cargo test -p hamlet-server --features harness --test server remote::
 ```
 
-This runs a real Harness conversation with the faux model, the real
-manager and the real confined file/process worker. Only the Substrate
-control and router are doubled. It covers ordinary tools, isolation,
-cancellation before admission across restart, house consumers, gifts,
-merge/split, archive/restore, library publication/read-only execution/removal,
-peer questions, objections, votes and manager restart after a real append's
-reply is lost. It does not prove
-Substrate snapshots: the local worker stays running during recovery.
-The Rust manager tests use an offline control double for lifecycle
-races, uncertain creation/suspension and UID-checked deletion.
+The server checks start the Rust server and Pi with faux model responses.
+An authenticated loopback manager double records workspace-v1 requests
+and operates disposable file trees. These checks cover remote house notes,
+prompts, file and skill gifts, agent creation, merge/split, library publication
+and removal, backend copies, manual house-write approval, network grants,
+library snapshots, cancellation by request ID, uncertain results and refusal
+of host paths without local fallback. Copies check binary contents, modes,
+empty directories and skipped links. Backend selection stays fixed until
+restart even when the Settings target changes.
 
-After deployment approval, `server/test/workspace.live.test.ts` can
-exercise the real service with no control double or live model. Set
-`HAMLET_WORKSPACE_GKE_URL` and `HAMLET_WORKSPACE_GKE_TOKEN` to the
-address and token of a dedicated disposable home, and run `npx vitest --run --mode live test/workspace.live.test.ts`.
-It provisions through the manager and leaves the test actor and files
-for operator inspection. Cluster network and snapshot/recovery tests
-still require the operator's separate acceptance matrix. Never run
-`npm run test:live` for this check: that includes model-server tests.
+The manager's separate Rust tests use an offline control double for lifecycle
+races, uncertain creation/suspension and UID-checked deletion. Neither suite
+proves the server-to-deployed-worker path, Substrate snapshots, cluster network
+isolation or recovery on real infrastructure. Those need a separately approved
+deployment and an operator's acceptance matrix on a disposable home. No live
+infrastructure test is run by the commands above.
 
 ## Not established
 

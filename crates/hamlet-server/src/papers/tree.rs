@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 use anyhow::{Result, ensure};
 use rustix::fs::{
@@ -57,7 +57,22 @@ pub(crate) fn read(
     let mut files = BTreeMap::new();
     let mut left = cap;
     let mut remaining = entries;
-    scan(root, "", &mut files, &mut left, &mut remaining)?;
+    scan(root, "", &mut files, &mut left, &mut remaining, false)?;
+    Ok(files)
+}
+
+pub(crate) fn library(
+    root: &File,
+) -> Result<BTreeMap<String, Entry>> {
+    let mut files = BTreeMap::new();
+    scan(
+        root,
+        "",
+        &mut files,
+        &mut (4 * 1024 * 1024),
+        &mut 1024,
+        true,
+    )?;
     Ok(files)
 }
 
@@ -136,11 +151,15 @@ fn scan(
     files: &mut BTreeMap<String, Entry>,
     left: &mut u64,
     remaining: &mut usize,
+    hidden: bool,
 ) -> Result<()> {
     for entry in Dir::read_from(dir)? {
         let entry = entry?;
         let name = entry.file_name().to_str()?;
-        if name == "." || name == ".." {
+        if name == "."
+            || name == ".."
+            || hidden && name.starts_with('.')
+        {
             continue;
         }
         ensure!(
@@ -157,6 +176,7 @@ fn scan(
                 files,
                 left,
                 remaining,
+                false,
             )?,
             FileType::RegularFile => {
                 let file = File::from(openat(
@@ -222,7 +242,7 @@ pub(crate) fn put(
     path: &str,
     entry: &Entry,
 ) -> Result<()> {
-    use rustix::fs::{RenameFlags, fchmod, renameat_with};
+    use rustix::fs::{RenameFlags, renameat_with};
     let bytes = &entry.bytes;
     let (dir, name) = parent(root, path, true)?;
     let temporary = format!(".incoming-{}", uuid::Uuid::new_v4());
@@ -237,7 +257,9 @@ pub(crate) fn put(
         Mode::from_raw_mode(0o600),
     )?);
     file.write_all(bytes)?;
-    fchmod(&file, Mode::from_raw_mode(entry.mode & 0o777))?;
+    file.set_permissions(std::fs::Permissions::from_mode(
+        entry.mode & 0o777,
+    ))?;
     file.sync_all()?;
     let renamed = renameat_with(
         &dir,

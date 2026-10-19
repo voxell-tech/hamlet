@@ -54,23 +54,68 @@ export const ModelRef = object({
 export type ModelRef = Static<typeof ModelRef>;
 
 /** A secret the server hands over for one model call, held in memory alone. */
-export const Credential = object({
-    type: Type.Literal("api_key"),
-    key: Type.String(),
-});
+export const Credential = Type.Union([
+    object({
+        type: Type.Literal("api_key"),
+        key: Type.Optional(Type.String()),
+        env: Type.Optional(Type.Record(Type.String(), Type.String())),
+    }),
+    object({
+        type: Type.Literal("oauth"),
+        access: Type.String(),
+        refresh: Type.String(),
+        expires: Type.Number(),
+        extra: Type.Record(Type.String(), Type.Unknown()),
+    }),
+]);
 export type Credential = Static<typeof Credential>;
 
 /** Provider work requested by the server, with no provider state written by the runtime. */
 export const ProviderRequest = message("provider_request", {
-    action: Type.Enum(["describe", "refresh", "hello", "key"]),
+    action: Type.Enum(["describe", "refresh", "hello", "login"]),
     provider: Type.String(),
     baseUrl: Type.Optional(Type.String()),
     model: Type.Optional(Type.String()),
     models: Type.Array(Type.Record(Type.String(), Type.Unknown())),
     credential: Type.Optional(Credential),
-    value: Type.Optional(Type.String()),
+    method: Type.Optional(Type.Enum(["key", "subscription"])),
+    installationId: Type.Optional(Type.String()),
 });
 export type ProviderRequest = Static<typeof ProviderRequest>;
+
+/** A connection-owned sign-in's reply or cancellation. */
+export const ProviderControl = message("provider_control", {
+    scope: Type.String(),
+    prompt: Type.Optional(Type.String()),
+    value: Type.Optional(Type.String()),
+    cancel: Type.Boolean(),
+});
+export type ProviderControl = Static<typeof ProviderControl>;
+
+/** Transient sign-in steps, never conversation entries. */
+export const ProviderEvent = message("provider_event", {
+    scope: Type.String(),
+    step: Type.Record(Type.String(), Type.Unknown()),
+    prompt: Type.Optional(Type.String()),
+});
+export type ProviderEvent = Static<typeof ProviderEvent>;
+
+/** Reads and serialized modifications are restricted to an authorized provider scope. */
+export const CredentialRequest = message("credential_request", {
+    scope: Type.String(),
+    action: Type.Enum(["read", "acquire", "commit", "release", "end"]),
+    lease: Type.Optional(Type.String()),
+    credential: Type.Optional(Credential),
+});
+export type CredentialRequest = Static<typeof CredentialRequest>;
+
+/** The latest credential under the host's provider lease, or a refusal. */
+export const CredentialResult = reply("credential_result", {
+    lease: Type.Optional(Type.String()),
+    credential: Type.Optional(Credential),
+    error: Type.Optional(Type.String()),
+});
+export type CredentialResult = Static<typeof CredentialResult>;
 
 /** Provider results go only to the server; a returned credential is never recorded here. */
 export const ProviderResult = reply("provider_result", {
@@ -83,6 +128,7 @@ export const ProviderResult = reply("provider_result", {
                 id: Type.String(),
                 name: Type.String(),
                 key: Type.Boolean(),
+                subscription: Type.Boolean(),
             }),
         ),
     ),
@@ -490,6 +536,8 @@ export type Verdict = Static<typeof Verdict>;
 /** Every message the server sends a runtime. */
 export const ServerMessage = Type.Union([
     ProviderRequest,
+    ProviderControl,
+    CredentialResult,
     Welcome,
     Tools,
     Refused,
@@ -520,6 +568,8 @@ export type ServerMessage = Static<typeof ServerMessage>;
 /** Every message a runtime sends the server. */
 export const RuntimeMessage = Type.Union([
     ProviderResult,
+    ProviderEvent,
+    CredentialRequest,
     Hello,
     Created,
     Admitted,
@@ -545,6 +595,10 @@ export type RuntimeMessage = Static<typeof RuntimeMessage>;
 const DEFINITIONS: Record<string, TSchema> = {
     ProviderRequest,
     ProviderResult,
+    ProviderControl,
+    ProviderEvent,
+    CredentialRequest,
+    CredentialResult,
     Capability,
     ModelRef,
     Credential,

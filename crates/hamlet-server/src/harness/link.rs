@@ -186,16 +186,61 @@ pub struct Created {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Credential {
-    pub key: String,
-    #[serde(rename = "type")]
-    pub type_: CredentialType,
+#[serde(tag = "type")]
+pub enum Credential {
+    #[serde(rename = "api_key")]
+    ApiKey {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        env: Option<std::collections::BTreeMap<String, String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<String>,
+    },
+    #[serde(rename = "oauth")]
+    Oauth {
+        access: String,
+        expires: f64,
+        extra: std::collections::BTreeMap<String, serde_json::Value>,
+        refresh: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum CredentialType {
-    #[serde(rename = "api_key")]
-    ApiKey,
+pub struct CredentialRequest {
+    pub action: CredentialRequestAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<Credential>,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease: Option<String>,
+    pub scope: String,
+    pub v: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum CredentialRequestAction {
+    #[serde(rename = "read")]
+    Read,
+    #[serde(rename = "acquire")]
+    Acquire,
+    #[serde(rename = "commit")]
+    Commit,
+    #[serde(rename = "release")]
+    Release,
+    #[serde(rename = "end")]
+    End,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CredentialResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<Credential>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease: Option<String>,
+    pub re: String,
+    pub v: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -393,6 +438,28 @@ pub struct Prompt {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProviderControl {
+    pub cancel: bool,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    pub scope: String,
+    pub v: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProviderEvent {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    pub scope: String,
+    pub step: std::collections::BTreeMap<String, serde_json::Value>,
+    pub v: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRequest {
     pub action: ProviderRequestAction,
     #[serde(rename = "baseUrl")]
@@ -401,13 +468,16 @@ pub struct ProviderRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential: Option<Credential>,
     pub id: String,
+    #[serde(rename = "installationId")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<ProviderRequestMethod>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     pub models: Vec<std::collections::BTreeMap<String, serde_json::Value>>,
     pub provider: String,
     pub v: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub value: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -418,8 +488,16 @@ pub enum ProviderRequestAction {
     Refresh,
     #[serde(rename = "hello")]
     Hello,
+    #[serde(rename = "login")]
+    Login,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ProviderRequestMethod {
     #[serde(rename = "key")]
     Key,
+    #[serde(rename = "subscription")]
+    Subscription,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -444,6 +522,7 @@ pub struct ProviderResultProviders {
     pub id: String,
     pub key: bool,
     pub name: String,
+    pub subscription: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -480,6 +559,10 @@ pub struct Result {
 pub enum RuntimeMessage {
     #[serde(rename = "provider_result")]
     ProviderResult(ProviderResult),
+    #[serde(rename = "provider_event")]
+    ProviderEvent(ProviderEvent),
+    #[serde(rename = "credential_request")]
+    CredentialRequest(CredentialRequest),
     #[serde(rename = "hello")]
     Hello(Hello),
     #[serde(rename = "created")]
@@ -552,6 +635,10 @@ pub struct Sections {
 pub enum ServerMessage {
     #[serde(rename = "provider_request")]
     ProviderRequest(ProviderRequest),
+    #[serde(rename = "provider_control")]
+    ProviderControl(ProviderControl),
+    #[serde(rename = "credential_result")]
+    CredentialResult(CredentialResult),
     #[serde(rename = "welcome")]
     Welcome(Welcome),
     #[serde(rename = "tools")]

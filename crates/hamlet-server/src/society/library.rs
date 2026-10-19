@@ -39,6 +39,12 @@ pub(super) async fn consult(
     args: &Value,
 ) -> Result<Option<Value>> {
     retire(service)?;
+    let identity = (
+        caller.id.runtime.as_str().to_owned(),
+        caller.id.key.clone(),
+    );
+    let offered = service.house_work.offers.remove(&identity);
+    let cleaned = service.house_work.cleaned.remove(&identity);
     let key = serde_json::to_string(&(
         caller.id.runtime.as_str(),
         &caller.id.key,
@@ -129,17 +135,38 @@ pub(super) async fn consult(
                     true,
                 )));
             }
-            let house = service.houses.house(
-                &record.id,
-                caller.place.agent.number,
-                false,
-            )?;
-            let skills = tree::directory(&house, "skills", false)?;
-            let files = tree::read(
-                &tree::directory(&skills, name, false)?,
-                CAP,
-                1024,
-            )?;
+            let house = service
+                .houses
+                .files(&record.id, caller.place.agent.number)?;
+            let files = if let Some(offered) = offered {
+                offered?
+            } else if service.houses.workspace.is_some() {
+                let name = name.to_owned();
+                let id = caller.id.clone();
+                service.house_work.pending.insert(identity);
+                service.house_work.tasks.spawn(async move {
+                    let result = async {
+                        house
+                            .directory("skills", false)
+                            .await?
+                            .directory(&name, false)
+                            .await?
+                            .read(CAP, 1024)
+                            .await
+                    }
+                    .await;
+                    super::work::Completed::Offered { id, result }
+                });
+                return Ok(None);
+            } else {
+                house
+                    .directory("skills", false)
+                    .await?
+                    .directory(name, false)
+                    .await?
+                    .read(CAP, 1024)
+                    .await?
+            };
             let paper = files
                 .get("SKILL.md")
                 .map(|f| {
@@ -258,18 +285,24 @@ pub(super) async fn consult(
                 )?;
                 tx.commit()?;
             }
-            let house = service.houses.house(
+            let house = service.houses.files(
                 &caller.place.agent.hamlet,
                 caller.place.agent.number,
-                false,
             )?;
-            let skills = tree::directory(&house, "skills", false)?;
-            let unchanged = tree::directory(&skills, name, false)
-                .and_then(|dir| tree::read(&dir, CAP, 1024))
-                .is_ok_and(|present| present == files);
-            if unchanged {
-                tree::erase(&skills, name)?;
-            }
+            let unchanged = if let Some(cleaned) = cleaned {
+                cleaned?
+            } else if service.houses.workspace.is_some() {
+                let name = name.clone();
+                let id = caller.id.clone();
+                service.house_work.pending.insert(identity);
+                service.house_work.tasks.spawn(async move {
+                    let result = clean(house, &name, &files).await;
+                    super::work::Completed::Cleaned { id, result }
+                });
+                return Ok(None);
+            } else {
+                clean(house, name, &files).await?
+            };
             format!(
                 "The librarian took `{name}`: {answer} It is in the \
                  library now. {} Use the library's, as every agent \
@@ -309,6 +342,44 @@ pub(super) async fn consult(
     Ok(Some(outcome(&result, false)))
 }
 
+async fn clean(
+    house: crate::papers::files::Files,
+    name: &str,
+    files: &std::collections::BTreeMap<String, tree::Entry>,
+) -> Result<bool> {
+    let skills = house.directory("skills", false).await?;
+    let unchanged = match skills.directory(name, false).await {
+        Ok(dir) => dir
+            .read(CAP, 1024)
+            .await
+            .is_ok_and(|present| present == *files),
+        Err(_) => false,
+    };
+    if unchanged {
+        skills.remove(name, true).await?;
+    }
+    Ok(unchanged)
+}
+
+pub(super) fn active(
+    db: &Connection,
+    runtime: &str,
+    call: &str,
+) -> Result<bool> {
+    Ok(db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM gate_call g JOIN \
+         harness_binding b ON b.id=g.binding JOIN harness_input i \
+         ON i.binding=g.binding AND i.submission=g.input WHERE \
+         g.runtime=?1 AND g.key=?2 AND b.cancelling=0 AND \
+         i.state!='dropped' AND coalesce(i.status,'queued') NOT IN \
+         ('done','unanswered') AND NOT EXISTS(SELECT 1 FROM marker \
+         m WHERE m.runtime=g.runtime AND m.key=g.key AND \
+         m.kind='tool' AND m.outcome!=''))",
+        params![runtime, call],
+        |row| row.get(0),
+    )?)
+}
+
 pub(super) fn retire(service: &mut Service) -> Result<()> {
     let jobs = service
         .home
@@ -327,20 +398,11 @@ pub(super) fn retire(service: &mut Service) -> Result<()> {
         if job.result.is_none() {
             let (runtime, call) =
                 serde_json::from_str::<(String, String)>(&key)?;
-            let active =
-                service.home.store().connection().query_row(
-                    "SELECT EXISTS(SELECT 1 FROM gate_call g JOIN \
-                     harness_binding b ON b.id=g.binding JOIN \
-                     harness_input i ON i.binding=g.binding AND \
-                     i.submission=g.input WHERE g.runtime=?1 AND \
-                     g.key=?2 AND b.cancelling=0 AND \
-                     i.state!='dropped' AND \
-                     coalesce(i.status,'queued') NOT IN \
-                     ('done','unanswered'))",
-                    params![runtime, call],
-                    |row| row.get::<_, bool>(0),
-                )?;
-            if active {
+            if active(
+                service.home.store().connection(),
+                &runtime,
+                &call,
+            )? {
                 continue;
             }
             job.result = Some(

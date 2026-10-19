@@ -39,7 +39,9 @@ fn subject(number: i64, instructions: &[Instruction]) -> Subject<'_> {
 }
 
 fn told(service: &mut Service, subject: &Subject) -> String {
-    let mut sections = sections(service, subject).unwrap();
+    let mut sections =
+        futures::executor::block_on(sections(service, subject))
+            .unwrap();
     sections.push(Section {
         name: "budget".into(),
         text: budget(service, subject).unwrap(),
@@ -207,7 +209,11 @@ fn cuts_the_notes_and_lists_the_house_skills() {
     std::fs::write(house.join("NOTES.md"), "\u{1f33b}".repeat(8001))
         .unwrap();
 
-    let sections = sections(&mut service, &subject(0, &[])).unwrap();
+    let sections = futures::executor::block_on(sections(
+        &mut service,
+        &subject(0, &[]),
+    ))
+    .unwrap();
     let text = |name| {
         sections
             .iter()

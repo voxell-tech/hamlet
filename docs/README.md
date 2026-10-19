@@ -15,8 +15,8 @@ not built. What is left for later is kept outside this repository.
 3. [`../AGENTS.md`](../AGENTS.md): the checks to run before a commit and
    the rules of working here.
 
-Run `HAMLET_HOME=/tmp/hamlet-try make dev`. It installs the server's
-dependencies, then the Rust CLI builds the window, starts a scratch server
+Run `HAMLET_HOME=/tmp/hamlet-try make dev`. It installs pi's dependencies,
+then the Rust CLI builds the server and window, starts a scratch server
 and opens the window with its own scratch view folder.
 Closing the window leaves the server running; Ctrl-C stops it. The full
 setup is in [`../README.md`](../README.md#running).
@@ -27,7 +27,6 @@ Then read the page for the part you are about to touch.
 
 | Page | What it explains |
 |---|---|
-| [`core.md`](core.md) | The retained Rust runtime and its home, kept as a porting reference; the window's client core is mapped in `tour.md` |
 | [`home.md`](home.md) | The server's home on disk: its storage, credentials, houses and claim |
 | [`cli.md`](cli.md) | The `hamlet` command: serving, stopping, chatting, editing, signing in, and finding the server and the window |
 | [`sandbox.md`](sandbox.md) | What an agent's tools can reach: the sandbox, the network, a folder a hamlet works on, manual and auto |
@@ -43,7 +42,7 @@ Then read the page for the part you are about to touch.
 | [`chat.md`](chat.md) | Watched conversations, paging, drawing, local links and pictures, and rewinds through the server |
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
 | [`cursors.md`](cursors.md) | The pointer and its modes |
-| [`releases.md`](releases.md) | How a release is built and published for the three platforms |
+| [`releases.md`](releases.md) | Packaging the CLI, Rust server, window and pi for Linux and macOS |
 
 ## The rules
 

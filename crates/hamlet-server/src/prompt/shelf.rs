@@ -22,6 +22,10 @@ pub(super) fn skills(house: &Path) -> String {
     } else {
         Vec::new()
     };
+    skills_text(house, &found)
+}
+
+pub(super) fn skills_text(house: &Path, found: &[Skill]) -> String {
     let quoted = house.display().to_string().replace('\'', "'\\''");
     let lines = found
         .iter()
@@ -61,6 +65,13 @@ pub(super) fn names(house: &Path) -> Vec<String> {
 /// The library's part: where it is, and each skill with the command
 /// that runs it from there. None while it has no skills.
 pub(crate) fn library(root: &Path) -> Option<String> {
+    library_at(root, root)
+}
+
+pub(super) fn library_at(
+    root: &Path,
+    shown: &Path,
+) -> Option<String> {
     let skills = if real_dir(root) {
         shelf(root)
     } else {
@@ -69,7 +80,7 @@ pub(crate) fn library(root: &Path) -> Option<String> {
     if skills.is_empty() {
         return None;
     }
-    let root = root.display();
+    let root = shown.display();
     let mut lines = vec![format!(
         "# Library\nSkills every agent shares, kept in {root}. Use \
          one as it stands: read it and run it from there, and do \
@@ -97,6 +108,33 @@ pub(crate) fn library(root: &Path) -> Option<String> {
 
 fn real_dir(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
+}
+
+pub(crate) async fn remote_skills(
+    remote: &crate::workspace::Remote,
+) -> Vec<Skill> {
+    let Ok(entries) = remote.list("/house/skills").await else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for entry in entries {
+        if entry.kind != crate::sandbox::FileKind::Directory {
+            continue;
+        }
+        let path = format!("/house/skills/{}/SKILL.md", entry.name);
+        if let Ok(bytes) = remote.read(&path, true).await {
+            found.push(skill(
+                entry.name,
+                &String::from_utf8_lossy(
+                    &bytes[..bytes.len().min(64 * 1024)],
+                ),
+            ));
+        }
+    }
+    found.sort_by(|a, b| {
+        a.folder.encode_utf16().cmp(b.folder.encode_utf16())
+    });
+    found
 }
 
 /// The skills of `dir`, one folder each whose `SKILL.md` is a

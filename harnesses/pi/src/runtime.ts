@@ -42,6 +42,7 @@ import type {
     ServerReply,
     ServerRequest,
 } from "./channel.ts";
+import { linkCredentials } from "./credentials.ts";
 import { fault } from "./faults.ts";
 import { FAUX, readScript, scriptedProvider } from "./faux.ts";
 import {
@@ -56,8 +57,10 @@ import {
     type Usage,
 } from "./link.ts";
 import { allowedStreams, type Gate, modelProvider } from "./models.ts";
+import { providers } from "./provider-set.ts";
 import { providerWork } from "./providers.ts";
 import { RecoveryDoc, recoveryTask } from "./recovery.ts";
+import { signIn } from "./sign-in.ts";
 
 /** The adapter's name and version, which the server keeps in each binding. */
 export const ADAPTER = "hamlet-pi 0.1.0";
@@ -124,6 +127,7 @@ export type RuntimeOptions = {
 export async function run(
     options: RuntimeOptions,
     channel: Channel,
+    available: Provider[] = providers(),
 ): Promise<void> {
     const context = BACKGROUND_CONTEXT;
     const exists = existsSync(options.store);
@@ -163,7 +167,7 @@ export async function run(
         refusedExit(reply);
         return;
     }
-    const runtime = new Runtime(harness, registry, models, channel);
+    const runtime = new Runtime(harness, registry, models, channel, available);
     await runtime.start(
         reply.tools,
         options.faux,
@@ -226,6 +230,9 @@ class Runtime {
     readonly #waits = new Map<string, () => void>();
     readonly #gate: Gate;
     readonly #recovery: ReturnType<typeof recoveryTask>;
+    readonly #signins = new Map<string, ReturnType<typeof signIn>>();
+    readonly #credentialJobs = new Set<Promise<unknown>>();
+    readonly #providers: Provider[];
     #providerFaux: Provider | undefined;
 
     constructor(
@@ -233,13 +240,24 @@ class Runtime {
         registry: Registry,
         models: MutableModels,
         channel: Channel,
+        available: Provider[],
     ) {
         this.#harness = harness;
         this.#registry = registry;
         this.#models = models;
         this.#channel = channel;
+        this.#providers = available;
         this.#recovery = recoveryTask(harness, channel);
         this.#gate = {
+            credentials: (scope, provider) =>
+                linkCredentials(channel, scope, provider, this.#credentialJobs),
+            finished: async (scope) => {
+                await channel.request({
+                    type: "credential_request",
+                    scope,
+                    action: "end",
+                });
+            },
             selected: (model) => {
                 SETTINGS.compaction = {
                     reserveTokens: Math.round(model.contextWindow * 0.2),
@@ -273,7 +291,8 @@ class Runtime {
                             ...("model" in answer
                                 ? { model: answer.model }
                                 : {}),
-                            ...(answer.credential === undefined
+                            ...(answer.credential?.type !== "api_key" ||
+                            answer.credential.key === undefined
                                 ? {}
                                 : { apiKey: answer.credential.key }),
                         };
@@ -530,7 +549,9 @@ class Runtime {
             bound.model.provider !== FAUX.provider &&
             this.#models.getProvider(bound.model.provider) === undefined
         )
-            this.#models.setProvider(modelProvider(bound.model, this.#gate));
+            this.#models.setProvider(
+                modelProvider(bound.model, this.#gate, this.#providers),
+            );
         return known;
     }
 
@@ -822,6 +843,12 @@ class Runtime {
 
     /** Handles `request` after the earlier requests of its conversation. */
     #serve(request: ServerRequest): void {
+        if (request.type === "provider_control") {
+            this.#signins.get(request.scope)?.control(request);
+            return;
+        }
+        if (request.type === "provider_request")
+            this.#signins.set(request.id, signIn(this.#channel, request.id));
         const line =
             request.type === "provider_request"
                 ? request.id
@@ -856,10 +883,37 @@ class Runtime {
                 this.#registry.install(this.#extension(request.tools));
                 return;
             case "provider_request": {
-                const result = await providerWork(request, this.#providerFaux);
-                this.#channel.send({ type: "provider_result", re, ...result });
+                const session = this.#signins.get(re);
+                if (session === undefined)
+                    throw new Error("Missing provider session");
+                try {
+                    const result = await providerWork(
+                        request,
+                        {
+                            interaction: session.interaction,
+                            providers: this.#providers,
+                            credentials: linkCredentials(
+                                this.#channel,
+                                re,
+                                request.provider,
+                                this.#credentialJobs,
+                            ),
+                        },
+                        this.#providerFaux,
+                    );
+                    this.#channel.send({
+                        type: "provider_result",
+                        re,
+                        ...result,
+                    });
+                } finally {
+                    session.stop();
+                    this.#signins.delete(re);
+                }
                 return;
             }
+            case "provider_control":
+                return;
             case "create": {
                 const known = await this.#create(request, context);
                 this.#channel.send({
@@ -1027,7 +1081,10 @@ class Runtime {
             }
             case "close": {
                 // Running work is signalled and waited on; what it did not finish carries on in the next runtime.
+                for (const session of this.#signins.values()) session.stop();
                 await this.#harness.close(context).catch(() => {});
+                while (this.#credentialJobs.size)
+                    await Promise.allSettled([...this.#credentialJobs]);
                 process.exit(0);
                 return;
             }

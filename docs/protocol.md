@@ -3,8 +3,8 @@
 The window, `hamlet chat` and the CLI use one authenticated WebSocket to
 Hamlet's server. There is no HTTP API. The wire carries JSON messages.
 
-The contract is [`server/src/protocol.ts`](../server/src/protocol.ts),
-exported as [`server/protocol.schema.json`](../server/protocol.schema.json).
+The contract is [`crates/hamlet_protocol/schema/src/protocol.ts`](../crates/hamlet_protocol/schema/src/protocol.ts),
+exported as [`crates/hamlet_protocol/schema.json`](../crates/hamlet_protocol/schema.json).
 The names below, such as `Hello` and `ClientMessage`, are its schema names.
 `?` means optional; `null` is an explicit value. Objects reject extra fields.
 
@@ -42,7 +42,8 @@ A client-to-server WebSocket message holds at most **1,048,576 bytes**
 The server applies no matching outbound limit to state or transcript pages.
 File gifts have a separate
 **32 MiB** limit and travel in chunks (`Give`, `GivePart`). A server shutdown
-closes clients with **1001**. These rules are in `connection.ts`'s `serve`.
+closes clients with **1001**. These rules are in
+[`crates/hamlet-server/src/runtime.rs`](../crates/hamlet-server/src/runtime.rs).
 
 ## Shared shapes
 
@@ -70,12 +71,13 @@ The answer's `to` matches it. Do not confuse that with `Say.to`, which is an
 `Address`. An opening `transcript` has `to`; live updates need no request ID.
 A `reply` settles the request, not necessarily all work in a conversation.
 
-The durable conversation inputs have separate request IDs. `chiefInput`
-uses `chief:<say id>` to admit a chief's line once in that conversation.
-`retryInput` uses `retry:<UUID>`; this UUID is independent of the wire
-`retry` request's `id`. `reflectionInput` uses
+The durable conversation inputs have separate request IDs. A chief's line
+uses `chief:<say id>` to admit it once in that conversation.
+A retry uses `retry:<UUID>`; this UUID is independent of the wire
+`retry` request's `id`. A reflection uses
 `reflect:<conversation number>:<ordinal>`. Clients send UUIDs, not these
-internal IDs. These constructors are in `server/src/chats/conversations.ts`.
+internal IDs. The Rust server constructs them in `chats/say.rs`,
+`chats/deeds.rs` and `chats/follow.rs`.
 
 `State.epoch` identifies the running state watcher, using the server clock
 at its start. Revision starts at zero and increases when the realm state
@@ -223,11 +225,11 @@ several watches. It receives live `turn` operations only for those chats.
 `close {chat}` ends that connection's watch; disconnect ends all its watches.
 
 A page holds at most **40 items**, not 40 turns or durable entries.
-`transcript.ts`'s `transcriptOf` takes the last 40 folded items before the
+`chats/watch.rs` takes the last 40 folded items before the
 cursor, or before the end when `before` is omitted. Pages are fetched newest
 first, but **items inside each page stay in entry and content-block order,
-oldest to newest**, not reverse timestamp order. The backing read batches
-500 durable entries at a time; that is not the wire page size.
+oldest to newest**, not reverse timestamp order. Harness history batches
+are separate from the wire page size.
 
 `earlier` is the first returned item's ID if older items remain, else
 `null`. Send `open {chat, before: earlier}` to fetch the preceding page,
@@ -237,7 +239,7 @@ watch leaves its live subscription running, even if the page request fails.
 Peer conversations (`from` and `kind`) are read-only. `say`, `stop`,
 `rewind`, `new`, `resume` and `retry` cannot edit a peer conversation.
 `rewind` explicitly refuses a peer or past `ChatRef` through
-`requireWritable`. The other five messages take an agent `Address`, not a
+`chats/deeds.rs`. The other five messages take an agent `Address`, not a
 peer `ChatRef`, and act on the chief conversation or agent. Adding peer chat
 fields to them is malformed. Opening a peer watch does not retarget writes.
 
@@ -290,24 +292,30 @@ readable `text`; neither carries a machine error code.
 
 | Envelope | Use |
 |---|---|
-| `reply`, kind `error`, with `to` | An ordinary requested operation is refused: an edit, read, answer, gift, check or conversation action. Some typed command refusals are rendered as kind `notice` instead (`replyFor`). |
+| `reply`, kind `error`, with `to` | An ordinary requested operation is refused: an edit, read, answer, gift, check or conversation action. Some typed command refusals are rendered as kind `notice` instead (`chats/say.rs`). |
 | `fault` with `to` | A malformed request with a recoverable UUID, an open/page refusal, a watch failure still associated with its opening request, or an unexpected request-handler failure. |
 | `fault` without `to` | A handshake or connection failure, input with no valid request ID, or a watch failure after its opening request has been answered. |
 
 A fault does not itself imply disconnect. Malformed input after hello,
 second hello and request-handler failures leave the connection open.
 Handshake refusals, message size violations and unexpected connection
-failures close it as described above. `parseClient`, `replyFor`, `faultFor`
-and `connection.ts`'s `serve` own these paths. Watch failures use `faultFor`,
+failures close it as described above. The Rust server's `protocol.rs`
+and `runtime.rs` own these paths. Watch failures use the `fault` envelope,
 even when their cause is an ordinary access refusal.
 
 ## Changing the protocol
 
-1. Edit `server/src/protocol.ts`, the authority for both directions.
-2. In `server/`, run `npm run schema` to export `protocol.schema.json`.
+1. Edit `crates/hamlet_protocol/schema/src/protocol.ts`, the authority for
+   both directions. The package has no server-domain dependencies.
+2. In `crates/hamlet_protocol/schema/`, use the Node version in `.nvmrc`,
+   run `npm ci`, then `npm run schema` to export `../schema.json`.
+   `npm run check` and `npm test` check the source, exported schema,
+   documentation and recorded sessions. `npm run format` formats the package.
 3. At the root, run `cargo run -p hamlet_protocol_gen` to generate
    `crates/hamlet_protocol/src/v0.rs`. Do not edit generated files by hand.
 4. Re-record `crates/hamlet_protocol/frames/` when the wire sessions
-   change. The offline command is in [`AGENTS.md`](../AGENTS.md).
-5. Update this page. `server/test/protocol-doc.test.ts` checks that every
-   client and server message type in the exported schema is named here.
+   change. The offline Rust recorder's command is in the
+   [acceptance README](../crates/hamlet_acceptance/README.md#recording-protocol-frames).
+   Ordinary tests only read these fixtures.
+5. Update this page. `schema/test/protocol-doc.test.ts` in the protocol crate
+   checks that every client and server message type is named here.

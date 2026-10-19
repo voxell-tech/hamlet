@@ -28,7 +28,7 @@
                     "minLength": 1
                 },
                 "action": {
-                    "enum": ["describe", "refresh", "hello", "key"]
+                    "enum": ["describe", "refresh", "hello", "login"]
                 },
                 "provider": {
                     "type": "string"
@@ -51,7 +51,10 @@
                 "credential": {
                     "$ref": "#/$defs/Credential"
                 },
-                "value": {
+                "method": {
+                    "enum": ["key", "subscription"]
+                },
+                "installationId": {
                     "type": "string"
                 }
             },
@@ -91,7 +94,7 @@
                     "type": "array",
                     "items": {
                         "type": "object",
-                        "required": ["id", "name", "key"],
+                        "required": ["id", "name", "key", "subscription"],
                         "properties": {
                             "id": {
                                 "type": "string"
@@ -100,6 +103,9 @@
                                 "type": "string"
                             },
                             "key": {
+                                "type": "boolean"
+                            },
+                            "subscription": {
                                 "type": "boolean"
                             }
                         },
@@ -111,6 +117,135 @@
                 },
                 "text": {
                     "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "ProviderControl": {
+            "type": "object",
+            "required": ["type", "v", "id", "scope", "cancel"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "provider_control"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                },
+                "cancel": {
+                    "type": "boolean"
+                }
+            },
+            "additionalProperties": false
+        },
+        "ProviderEvent": {
+            "type": "object",
+            "required": ["type", "v", "id", "scope", "step"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "provider_event"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "step": {
+                    "type": "object",
+                    "patternProperties": {
+                        "^.*$": {}
+                    }
+                },
+                "prompt": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "CredentialRequest": {
+            "type": "object",
+            "required": ["type", "v", "id", "scope", "action"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "credential_request"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "action": {
+                    "enum": ["read", "acquire", "commit", "release", "end"]
+                },
+                "lease": {
+                    "type": "string"
+                },
+                "credential": {
+                    "$ref": "#/$defs/Credential"
+                }
+            },
+            "additionalProperties": false
+        },
+        "CredentialResult": {
+            "type": "object",
+            "required": ["type", "v", "id", "re"],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "credential_result"
+                },
+                "v": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                },
+                "id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "re": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "lease": {
+                    "type": "string"
+                },
+                "credential": {
+                    "$ref": "#/$defs/Credential"
                 },
                 "error": {
                     "type": "string"
@@ -149,18 +284,62 @@
             "additionalProperties": false
         },
         "Credential": {
-            "type": "object",
-            "required": ["type", "key"],
-            "properties": {
-                "type": {
-                    "type": "string",
-                    "const": "api_key"
+            "anyOf": [
+                {
+                    "type": "object",
+                    "required": ["type"],
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "api_key"
+                        },
+                        "key": {
+                            "type": "string"
+                        },
+                        "env": {
+                            "type": "object",
+                            "patternProperties": {
+                                "^.*$": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "additionalProperties": false
                 },
-                "key": {
-                    "type": "string"
+                {
+                    "type": "object",
+                    "required": [
+                        "type",
+                        "access",
+                        "refresh",
+                        "expires",
+                        "extra"
+                    ],
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "const": "oauth"
+                        },
+                        "access": {
+                            "type": "string"
+                        },
+                        "refresh": {
+                            "type": "string"
+                        },
+                        "expires": {
+                            "type": "number"
+                        },
+                        "extra": {
+                            "type": "object",
+                            "patternProperties": {
+                                "^.*$": {}
+                            }
+                        }
+                    },
+                    "additionalProperties": false
                 }
-            },
-            "additionalProperties": false
+            ]
         },
         "Usage": {
             "type": "object",
@@ -1782,6 +1961,12 @@
                     "$ref": "#/$defs/ProviderRequest"
                 },
                 {
+                    "$ref": "#/$defs/ProviderControl"
+                },
+                {
+                    "$ref": "#/$defs/CredentialResult"
+                },
+                {
                     "$ref": "#/$defs/Welcome"
                 },
                 {
@@ -1859,6 +2044,12 @@
             "anyOf": [
                 {
                     "$ref": "#/$defs/ProviderResult"
+                },
+                {
+                    "$ref": "#/$defs/ProviderEvent"
+                },
+                {
+                    "$ref": "#/$defs/CredentialRequest"
                 },
                 {
                     "$ref": "#/$defs/Hello"

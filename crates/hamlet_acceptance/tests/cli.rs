@@ -2,6 +2,9 @@
 //! stdout, approvals, switching agents and hamlets, documents in
 //! EDITOR, and models.
 
+#[path = "cli/processes.rs"]
+mod processes;
+
 use std::path::PathBuf;
 
 use hamlet_acceptance::*;
@@ -43,8 +46,8 @@ fn cost_editor(
     to: i32,
 ) -> Editor {
     let code = format!(
-        "sed -i 's/\"cost\": {from}\\(\\.0\\)\\?,/\"cost\": {to},/' \
-         \"$1\""
+        "sed -E 's/\"cost\": {from}(\\.0)?,/\"cost\": {to},/' \
+         \"$1\" > \"$1.next\" && mv \"$1.next\" \"$1\""
     );
     editor(s, name, &code)
 }
@@ -447,7 +450,8 @@ async fn edits_settings_as_whole_json_without_credentials() {
     let wrong = editor(
         &s,
         "wrong",
-        "sed -i 's/\"allowNet\"/\"allowNte\"/' \"$1\"",
+        "sed 's/\"allowNet\"/\"allowNte\"/' \"$1\" > \"$1.next\" && \
+         mv \"$1.next\" \"$1\"",
     );
     let refused = edit(&s, &["settings"], &wrong).await;
     assert_eq!(refused.code(), Some(1));

@@ -21,17 +21,18 @@ const USAGE: &str = "usage: hamlet
 
 Bare hamlet starts or reuses a background server and opens a window.
 Closing a window stops no agent. hamlet stop stops the local server.
-dev builds the checkout's window and serves a scratch home; Ctrl-C \
-                     stops both.
+dev builds the checkout's server and window and serves a scratch \
+                     home; Ctrl-C stops both.
 server serves in the foreground; Ctrl-C stops it.
 
 env: HAMLET_HOME (~/.hamlet), HAMLET_SERVER and HAMLET_TOKEN (remote \
                      clients),
      HAMLET_APP (window executable), HAMLET_VIEW (window settings),
-     HAMLET_SERVER_DIR (server package), HAMLET_NODE (Node \
-                     executable).
-Use Node from server/.nvmrc and npm ci --prefix server before \
-                     starting a server.";
+     HAMLET_SERVER_BIN (server executable), HAMLET_NODE (Node \
+                     executable),
+     HAMLET_PI_HARNESS (Pi harness entry).
+Use Node from harnesses/pi/.nvmrc and npm ci --prefix harnesses/pi \
+                     before starting a server from source.";
 
 enum Command {
     Help,

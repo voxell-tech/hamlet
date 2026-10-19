@@ -22,7 +22,7 @@ use tokio::task::JoinSet;
 
 use self::activity::Activity;
 pub(crate) use self::activity::words;
-pub(crate) use self::calls::{Ran, ran, specs, stop_tools};
+pub(crate) use self::calls::{Ran, prepared, ran, specs, stop_tools};
 pub(crate) use self::deeds::stop_agent;
 use self::fold::Fold;
 use self::records::Place;
@@ -46,6 +46,8 @@ pub(crate) struct Chats {
     /// The tool calls running for runtimes.
     pub tools: JoinSet<Ran>,
     running: HashMap<(String, String), calls::Running>,
+    pub preparing: JoinSet<calls::PreparedCall>,
+    preparations: HashMap<uuid::Uuid, calls::Preparing>,
     /// The notice of a stop, written once its runtime stopped the
     /// turn.
     stopping: HashMap<BindingId, String>,
@@ -105,6 +107,8 @@ impl Chats {
             outbox: Vec::new(),
             tools: JoinSet::new(),
             running: HashMap::new(),
+            preparing: JoinSet::new(),
+            preparations: HashMap::new(),
             stopping: HashMap::new(),
             closing: false,
             sandbox,
@@ -121,6 +125,8 @@ impl Chats {
     pub fn stop_tools(&mut self) {
         self.tools.abort_all();
         self.running.clear();
+        self.preparing.abort_all();
+        self.preparations.clear();
     }
 }
 
@@ -332,7 +338,7 @@ pub(crate) async fn start(
     for (binding, request) in service.home.store().unfollowed()? {
         follow::follow(service, harnesses, binding, &request).await?;
     }
-    crate::society::merging::finish(service)?;
+    crate::society::merging::finish(service).await?;
     crate::society::errands::sweep(service, harnesses).await?;
     crate::society::reconfigure(service, harnesses).await?;
     crate::society::letters::resume(service, harnesses).await

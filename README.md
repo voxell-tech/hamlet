@@ -38,19 +38,17 @@ and a robot. Free and open-source forever.
 - **Any model**: Any OpenAI-compatible endpoint, a local
   [Ollama](https://ollama.com) by default.
 
-**Status:** early and moving fast. Agents run on a server on pi-durable
-that the window connects to. Agents, roads, letters, votes, the shared
-library and several hamlets work through it, alongside approvals, budgets,
-models and logins. The window reads the server's state and can watch
-agents' conversations read-only. Next, the server moves to Rust, with
-conversations in harnesses beside it
-([the plan](docs/proposals/rust-server.md#order-of-work)).
-The picture above shows the earlier Rust runtime's realm.
+**Status:** early and moving fast. The Rust `hamlet-server` owns the
+agents, roads, letters, votes, library, approvals and budgets. Node processes
+running the pi harness own conversations and model calls. The window is a
+protocol client; closing it stops no agent. Tests use faux and loopback
+providers, but do not establish exhaustive behavior or platform coverage.
+The picture above shows the earlier runtime's realm.
 
 ## Running
 
-Use Rust, git and the Node version in `server/.nvmrc`. From the repository
-root, install the `hamlet` command and its window, and start Hamlet on your
+Use Rust, git and Node **24.1.0**, as pinned in `harnesses/pi/.nvmrc`.
+From the repository root, install the CLI, server and window, and start on your
 home, `~/.hamlet`:
 
 ```sh
@@ -58,24 +56,34 @@ make install
 hamlet
 ```
 
-`make install` fetches the vendored fynix, installs the server's packages
-and puts `hamlet` and `hamlet-app` in `~/.cargo/bin`. The installed `hamlet`
-runs the server from this checkout, so keep the checkout and run
-`make install` again after pulling. `make` alone builds without installing,
-`make uninstall` removes both commands, and `make dev` tries the checkout on
+`make install` fetches the vendored fynix, installs pi's packages and puts
+`hamlet`, `hamlet-server` and `hamlet-app` in `~/.cargo/bin`. This source
+installation uses the checkout's `harnesses/pi/`, so keep the checkout and
+run `make install` again after pulling. Linux/macOS release archives contain
+all three binaries and a `pi/` package with production dependencies; they
+need installed Node but no checkout or npm install. Windows has a separate
+window-only archive for connecting to a remote server, without Node or Pi.
+See [releases](docs/releases.md).
+`make` alone builds without installing, `make uninstall` removes all three
+binaries, and `make dev` tries the checkout on
 a scratch home without installing:
 
 ```sh
 HAMLET_HOME=/tmp/hamlet-try make dev
 ```
 
-`dev` builds the local window, starts a separate TypeScript server on a
-free port, and opens the window. No `npm link` is needed.
+`dev` builds the local Rust server and window, starts the server on a free
+port, and opens the window. No global npm command is needed.
 The home is kept between runs; the window's files go in `<home>/window`.
-The welcome offers API keys, Continue with ChatGPT, OpenRouter sign-in or
-a local model endpoint on the server's machine. Credentials stay on the
-server. Tools need Seatbelt on macOS or bubblewrap on Linux; the server
-cannot start on Windows, and there is no `--insecure` mode.
+Use an API key, a local model endpoint, or sign in with ChatGPT or OpenRouter.
+Credentials stay on the server; subscription refreshes are saved there
+before the harness continues. Local tools need Seatbelt on macOS or working
+bubblewrap on Linux. Settings can select a remote workspace for tools and
+houses; it takes effect on restart and never falls back to local execution.
+There is no `--insecure` mode or Windows server. The window can connect to
+another machine's server, including from Windows.
+Earlier homes were experimental and disposable: use a fresh home, not an
+import or rollback workflow.
 
 Closing the window leaves `hamlet dev` serving; Ctrl-C stops it. Use
 `cargo run -p hamlet_cli -- <command>` without installing. If you previously
@@ -90,12 +98,15 @@ HAMLET_HOME=/tmp/hamlet-try HAMLET_VIEW=/tmp/hamlet-try/window hamlet window
 ```
 
 `hamlet chat` is the terminal client. `hamlet --help` lists the commands.
-`HAMLET_APP` selects an existing `hamlet-app` and skips `dev`'s build.
-Other window commands prefer an app beside the CLI, then one on PATH.
-The installed CLI still needs Node and the server package; it uses the
-source checkout unless `HAMLET_SERVER_DIR` names another package directory.
-`HAMLET_NODE` selects a Node executable. Release archives contain the window, not the server;
-Hamlet.app still opens as Hamlet while its executable is `hamlet-app`.
+`HAMLET_SERVER_BIN` selects an existing server and `HAMLET_APP` an existing
+window; each skips the corresponding `dev` build. Otherwise installed
+commands look beside the CLI, then on PATH. `HAMLET_SERVER` still means a
+remote WebSocket URL, not an executable. `HAMLET_PI_HARNESS` selects pi's
+`src/main.ts`; the server otherwise prefers sibling `pi/src/main.ts`, then
+the macOS bundle's `Contents/Resources/pi/src/main.ts`, then the build
+checkout's harness. `HAMLET_NODE` selects a Node executable.
+The macOS bundle launches the CLI, which starts or reuses the server and
+opens its sibling window.
 
 The server's default home is `~/.hamlet`; use a scratch `HAMLET_HOME` when
 trying things out. The window keeps its own size, layout and look in
@@ -109,12 +120,17 @@ and right-click anything for what can be done to it.
 ## Working on the code
 
 ```sh
+npm ci --prefix harnesses/pi
+npm ci --prefix crates/hamlet_protocol/schema
 cargo +nightly fmt
 cargo build --all-targets
 cargo clippy --all-targets
 cargo test
-(cd server && npm run check && npm test)
+(cd harnesses/pi && npm run check && npm test)
+(cd crates/hamlet_protocol/schema && npm run check && npm test)
 ```
+
+`make check` also runs the real-process harness and acceptance suites.
 
 [`docs/tour.md`](docs/tour.md) is the map of the code,
 [`docs/`](docs/README.md) lists every page, and [`AGENTS.md`](AGENTS.md)

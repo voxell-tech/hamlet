@@ -6,7 +6,7 @@ use std::path::Path;
 /// Each schema with the Rust file generated from it.
 const TARGETS: &[(&str, &str)] = &[
     (
-        "server/protocol.schema.json",
+        "crates/hamlet_protocol/schema.json",
         "crates/hamlet_protocol/src/v0.rs",
     ),
     (

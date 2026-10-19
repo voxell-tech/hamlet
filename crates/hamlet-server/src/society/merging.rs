@@ -1,6 +1,8 @@
 //! Merge manifests retained before house changes and replayed at
 //! startup.
 
+pub(crate) mod remote;
+
 use std::collections::BTreeMap;
 
 use anyhow::Result;
@@ -39,13 +41,36 @@ fn substance(text: &str) -> String {
         .into()
 }
 
-fn prepare(
+async fn prepare(
     service: &mut Service,
     hamlet: &str,
     actor: Actor,
     args: &Value,
     task: Option<String>,
 ) -> Result<std::result::Result<Plan, String>> {
+    match preparing(service, hamlet, actor, args, task)? {
+        Ok(preparing) => preparing.run().await,
+        Err(error) => Ok(Err(error)),
+    }
+}
+
+struct Preparing {
+    operation: RecordOperation,
+    kept: record::Agent,
+    gone: record::Agent,
+    args: Value,
+    root: std::fs::File,
+    mine: crate::papers::files::Files,
+    theirs: crate::papers::files::Files,
+}
+
+fn preparing(
+    service: &mut Service,
+    hamlet: &str,
+    actor: Actor,
+    args: &Value,
+    task: Option<String>,
+) -> Result<std::result::Result<Preparing, String>> {
     let r = service
         .home
         .store()
@@ -66,7 +91,7 @@ fn prepare(
     let Some(gone) = r.named(absorb).cloned() else {
         return Ok(Err(format!("no agent named `{absorb}`")));
     };
-    let mut operation = RecordOperation {
+    let operation = RecordOperation {
         hamlet: hamlet.into(),
         actor,
         at: super::now(),
@@ -98,203 +123,224 @@ fn prepare(
     if let Outcome::Refused(refusal) = checked {
         return Ok(Err(refusal.text(record::Audience::Chief)));
     }
-    let mine = tree::read(
-        &service.houses.house(hamlet, kept.number, false)?,
-        CAP,
-        2048,
-    )?;
-    let theirs = tree::read(
-        &service.houses.house(hamlet, gone.number, false)?,
-        CAP,
-        2048,
-    )?;
-    let notes = |files: &BTreeMap<String, Entry>| {
-        files.get("NOTES.md").cloned().unwrap_or(Entry {
-            bytes: b"# Notes\n".to_vec(),
-            mode: 0o600,
-        })
-    };
-    let before_bytes = notes(&mine);
-    let Ok(before) = String::from_utf8(before_bytes.bytes.clone())
-    else {
-        return Ok(Err(format!(
-            "The merge cannot use the kept agent's NOTES.md \
-             ({hamlet}#{}): it is not UTF-8 text. NOTES.md was not \
-             replaced.",
-            kept.number
-        )));
-    };
-    let other_bytes = notes(&theirs);
-    let other =
-        String::from_utf8_lossy(&other_bytes.bytes).into_owned();
-    let joined = if substance(&other).is_empty() {
-        before.trim_end().to_owned()
-    } else {
-        format!(
-            "{}\n\n## From {absorb}\n{}",
-            before.trim_end(),
-            substance(&other)
-        )
-    };
-    let after = format!(
-        "{}\n\n## Merged\n- `{absorb}` was merged into me. Its \
-         purpose was: {} Its notes as they were are in \
-         merged/{absorb}/NOTES.md and mine in \
-         merged/{absorb}/NOTES.before.md. Files of its that \
-         differed from mine of the same name are under \
-         merged/{absorb}/.\n",
-        joined.trim_end(),
-        gone.purpose
-    );
-    let mut files = BTreeMap::new();
-    let mut clashes = Vec::new();
-    let base = format!("merged/{absorb}");
-    if mine.keys().any(|path| {
-        path == &base || path.starts_with(&format!("{base}/"))
-    }) {
-        return Ok(Err(format!(
-            "The kept house already has `{base}`. Inspect it before \
-             merging again."
-        )));
-    }
-    files.insert(format!("{base}/NOTES.before.md"), before_bytes);
-    files.insert(format!("{base}/NOTES.md"), other_bytes);
-    let mut renamed = BTreeMap::new();
-    for path in theirs.keys() {
-        let Some((skill, _)) = path
-            .strip_prefix("skills/")
-            .and_then(|path| path.split_once('/'))
+    Ok(Ok(Preparing {
+        mine: service.houses.files(hamlet, kept.number)?,
+        theirs: service.houses.files(hamlet, gone.number)?,
+        root: service.houses.root().try_clone()?,
+        operation,
+        kept,
+        gone,
+        args: args.clone(),
+    }))
+}
+
+impl Preparing {
+    async fn run(self) -> Result<std::result::Result<Plan, String>> {
+        let Self {
+            mut operation,
+            kept,
+            gone,
+            args,
+            root,
+            mine,
+            theirs,
+        } = self;
+        let hamlet = operation.hamlet.clone();
+        let keep = args["keep"].as_str().unwrap_or_default();
+        let absorb = args["absorb"].as_str().unwrap_or_default();
+        let mine = mine.read(CAP, 2048).await?;
+        let theirs = theirs.read(CAP, 2048).await?;
+        let notes = |files: &BTreeMap<String, Entry>| {
+            files.get("NOTES.md").cloned().unwrap_or(Entry {
+                bytes: b"# Notes\n".to_vec(),
+                mode: 0o600,
+            })
+        };
+        let before_bytes = notes(&mine);
+        let Ok(before) =
+            String::from_utf8(before_bytes.bytes.clone())
         else {
-            continue;
+            return Ok(Err(format!(
+                "The merge cannot use the kept agent's NOTES.md \
+                 ({hamlet}#{}): it is not UTF-8 text. NOTES.md was \
+                 not replaced.",
+                kept.number
+            )));
         };
-        if renamed.contains_key(skill) {
-            continue;
-        }
-        let prefix = format!("skills/{skill}/");
-        let own = mine
-            .iter()
-            .filter(|(path, _)| path.starts_with(&prefix))
-            .collect::<Vec<_>>();
-        let other = theirs
-            .iter()
-            .filter(|(path, _)| path.starts_with(&prefix))
-            .collect::<Vec<_>>();
-        let same = own.len() == other.len()
-            && other.iter().all(|(path, entry)| {
-                mine.get(*path)
-                    .is_some_and(|file| file.bytes == entry.bytes)
-            });
-        let name = if same {
-            String::new()
-        } else if own.is_empty() {
-            skill.into()
+        let other_bytes = notes(&theirs);
+        let other =
+            String::from_utf8_lossy(&other_bytes.bytes).into_owned();
+        let joined = if substance(&other).is_empty() {
+            before.trim_end().to_owned()
         } else {
-            let name = format!("{skill}-from-{absorb}");
-            clashes.push(format!(
-                "skill `{skill}` (the absorbed one is `{name}`)"
-            ));
-            name
+            format!(
+                "{}\n\n## From {absorb}\n{}",
+                before.trim_end(),
+                substance(&other)
+            )
         };
-        renamed.insert(skill.to_string(), name);
-    }
-    for (path, mut entry) in theirs {
-        if path == "NOTES.md" {
-            continue;
+        let after = format!(
+            "{}\n\n## Merged\n- `{absorb}` was merged into me. Its \
+             purpose was: {} Its notes as they were are in \
+             merged/{absorb}/NOTES.md and mine in \
+             merged/{absorb}/NOTES.before.md. Files of its that \
+             differed from mine of the same name are under \
+             merged/{absorb}/.\n",
+            joined.trim_end(),
+            gone.purpose
+        );
+        let mut files = BTreeMap::new();
+        let mut clashes = Vec::new();
+        let base = format!("merged/{absorb}");
+        if mine.keys().any(|path| {
+            path == &base || path.starts_with(&format!("{base}/"))
+        }) {
+            return Ok(Err(format!(
+                "The kept house already has `{base}`. Inspect it \
+                 before merging again."
+            )));
         }
-        let target = if let Some((skill, rest)) = path
-            .strip_prefix("skills/")
-            .and_then(|path| path.split_once('/'))
-        {
-            let name = &renamed[skill];
-            if name.is_empty() {
+        files.insert(format!("{base}/NOTES.before.md"), before_bytes);
+        files.insert(format!("{base}/NOTES.md"), other_bytes);
+        let mut renamed = BTreeMap::new();
+        for path in theirs.keys() {
+            let Some((skill, _)) = path
+                .strip_prefix("skills/")
+                .and_then(|path| path.split_once('/'))
+            else {
+                continue;
+            };
+            if renamed.contains_key(skill) {
                 continue;
             }
-            if name != skill {
-                entry.bytes =
-                    renamed_skill(&entry.bytes, skill, name);
-            }
-            format!("skills/{name}/{rest}")
-        } else if let Some(current) = mine.get(&path) {
-            if current.bytes == entry.bytes {
+            let prefix = format!("skills/{skill}/");
+            let own = mine
+                .iter()
+                .filter(|(path, _)| path.starts_with(&prefix))
+                .collect::<Vec<_>>();
+            let other = theirs
+                .iter()
+                .filter(|(path, _)| path.starts_with(&prefix))
+                .collect::<Vec<_>>();
+            let same = own.len() == other.len()
+                && other.iter().all(|(path, entry)| {
+                    mine.get(*path)
+                        .is_some_and(|file| file.bytes == entry.bytes)
+                });
+            let name = if same {
+                String::new()
+            } else if own.is_empty() {
+                skill.into()
+            } else {
+                let name = format!("{skill}-from-{absorb}");
+                clashes.push(format!(
+                    "skill `{skill}` (the absorbed one is `{name}`)"
+                ));
+                name
+            };
+            renamed.insert(skill.to_string(), name);
+        }
+        for (path, mut entry) in theirs {
+            if path == "NOTES.md" {
                 continue;
             }
-            clashes.push(format!(
-                "file `{path}` (the absorbed one is `{base}/{path}`)"
-            ));
-            format!("{base}/{path}")
-        } else {
-            path
-        };
-        if mine.contains_key(&target)
-            || files.contains_key(&target)
-            || mine.keys().chain(files.keys()).any(|path| {
-                target.starts_with(&format!("{path}/"))
+            let target = if let Some((skill, rest)) = path
+                .strip_prefix("skills/")
+                .and_then(|path| path.split_once('/'))
+            {
+                let name = &renamed[skill];
+                if name.is_empty() {
+                    continue;
+                }
+                if name != skill {
+                    entry.bytes =
+                        renamed_skill(&entry.bytes, skill, name);
+                }
+                format!("skills/{name}/{rest}")
+            } else if let Some(current) = mine.get(&path) {
+                if current.bytes == entry.bytes {
+                    continue;
+                }
+                clashes.push(format!(
+                    "file `{path}` (the absorbed one is \
+                     `{base}/{path}`)"
+                ));
+                format!("{base}/{path}")
+            } else {
+                path
+            };
+            if mine.contains_key(&target)
+                || files.contains_key(&target)
+                || mine.keys().chain(files.keys()).any(|path| {
+                    target.starts_with(&format!("{path}/"))
+                        || path.starts_with(&format!("{target}/"))
+                })
+            {
+                return Ok(Err(format!(
+                    "The merge cannot safely deliver `{target}`; \
+                     its destination is already taken."
+                )));
+            }
+            files.insert(target, entry);
+        }
+        if let Some(target) = files.keys().find(|target| {
+            mine.keys().any(|path| {
+                path == *target
+                    || target.starts_with(&format!("{path}/"))
                     || path.starts_with(&format!("{target}/"))
             })
-        {
+        }) {
             return Ok(Err(format!(
                 "The merge cannot safely deliver `{target}`; its \
                  destination is already taken."
             )));
         }
-        files.insert(target, entry);
+        let brought = files
+            .iter()
+            .map(|(path, entry)| BroughtFile {
+                path: path.clone(),
+                sha256: format!("{:x}", Sha256::digest(&entry.bytes)),
+            })
+            .collect();
+        let rewrite = matches!(operation.actor, Actor::Mayor(_))
+            && !substance(&before).is_empty()
+            && !substance(&other).is_empty();
+        let prompt = rewrite.then(|| {
+            format!(
+                "You are {keep}. Merge these notes under purpose \
+                 {}. Preserve every fact and disagreement with \
+                 attribution. Reply only with NOTES.md beginning # \
+                 Notes.\nYour notes:\n{before}\nNotes from \
+                 {absorb}:\n{other}",
+                args["purpose"].as_str().unwrap_or(&kept.purpose)
+            )
+        });
+        if let Change::Depart {
+            how: Departure::Merged { files, .. },
+            ..
+        } = &mut operation.change
+        {
+            *files = MergeFiles {
+                notes_before: before,
+                notes_after: after,
+                brought,
+                clashes,
+            };
+        }
+        Ok(Ok(Plan {
+            operation,
+            snapshot: tree::snapshot(&root, &files)?,
+            gone: AgentRef {
+                hamlet: hamlet.clone(),
+                number: gone.number,
+            },
+            kept: AgentRef {
+                hamlet,
+                number: kept.number,
+            },
+            prompt,
+        }))
     }
-    if let Some(target) = files.keys().find(|target| {
-        mine.keys().any(|path| {
-            path == *target
-                || target.starts_with(&format!("{path}/"))
-                || path.starts_with(&format!("{target}/"))
-        })
-    }) {
-        return Ok(Err(format!(
-            "The merge cannot safely deliver `{target}`; its \
-             destination is already taken."
-        )));
-    }
-    let brought = files
-        .iter()
-        .map(|(path, entry)| BroughtFile {
-            path: path.clone(),
-            sha256: format!("{:x}", Sha256::digest(&entry.bytes)),
-        })
-        .collect();
-    let rewrite = matches!(operation.actor, Actor::Mayor(_))
-        && !substance(&before).is_empty()
-        && !substance(&other).is_empty();
-    let prompt = rewrite.then(|| {
-        format!(
-            "You are {keep}. Merge these notes under purpose {}. \
-             Preserve every fact and disagreement with attribution. \
-             Reply only with NOTES.md beginning # Notes.\nYour \
-             notes:\n{before}\nNotes from {absorb}:\n{other}",
-            args["purpose"].as_str().unwrap_or(&kept.purpose)
-        )
-    });
-    if let Change::Depart {
-        how: Departure::Merged { files, .. },
-        ..
-    } = &mut operation.change
-    {
-        *files = MergeFiles {
-            notes_before: before,
-            notes_after: after,
-            brought,
-            clashes,
-        };
-    }
-    Ok(Ok(Plan {
-        operation,
-        snapshot: tree::snapshot(service.houses.root(), &files)?,
-        gone: AgentRef {
-            hamlet: hamlet.into(),
-            number: gone.number,
-        },
-        kept: AgentRef {
-            hamlet: hamlet.into(),
-            number: kept.number,
-        },
-        prompt,
-    }))
 }
 
 fn renamed_skill(bytes: &[u8], old: &str, name: &str) -> Vec<u8> {
@@ -333,6 +379,23 @@ fn commit(
         super::leaving::guards(db, &plan.operation.hamlet)?;
         let mut operation = plan.operation.clone();
         operation.at = super::now();
+        if let Change::Depart { name, .. } = &operation.change {
+            let current = record::read(db, &operation.hamlet)?;
+            if !current.as_ref().is_some_and(|record| {
+                record.named(name).is_some_and(|agent| {
+                    agent.number == plan.gone.number
+                }) && record
+                    .agents
+                    .iter()
+                    .any(|agent| agent.number == plan.kept.number)
+            }) {
+                return Ok(outcome(
+                    "The agents changed while their merge was \
+                     prepared. No replacement agent was merged.",
+                    true,
+                ));
+            }
+        }
         match record::change(db, &operation)? {
             Outcome::Refused(refusal) => Ok(outcome(
                 &refusal.text(record::Audience::Agent),
@@ -385,6 +448,12 @@ pub(super) async fn operation(
     caller: &Caller<'_>,
     args: &Value,
 ) -> Result<Option<Value>> {
+    let remote = service.houses.workspace.is_some();
+    if remote && !service.merges.owns(&caller.id) {
+        remote::offer(service, caller, args)?;
+        return Ok(None);
+    }
+    let ready = service.merges.take(&caller.id);
     let key = serde_json::to_string(&(
         caller.id.runtime.as_str(),
         &caller.id.key,
@@ -400,13 +469,19 @@ pub(super) async fn operation(
                 service.home.store().connection(),
                 &caller.place.agent,
             )?;
-            match prepare(
-                service,
-                &caller.place.agent.hamlet,
-                actor,
-                args,
-                caller.task.clone(),
-            )? {
+            let prepared = if remote {
+                ready.expect("completed merge preparation")
+            } else {
+                prepare(
+                    service,
+                    &caller.place.agent.hamlet,
+                    actor,
+                    args,
+                    caller.task.clone(),
+                )
+                .await?
+            };
+            match prepared {
                 Ok(plan) => {
                     super::keep(
                         service.home.store().connection(),
@@ -416,7 +491,12 @@ pub(super) async fn operation(
                     )?;
                     plan
                 }
-                Err(text) => return Ok(Some(outcome(&text, true))),
+                Err(text) => {
+                    if remote {
+                        remote::release(service, &caller.id);
+                    }
+                    return Ok(Some(outcome(&text, true)));
+                }
             }
         }
     };
@@ -454,7 +534,21 @@ pub(super) async fn operation(
             &plan.gone.hamlet,
             plan.gone.number,
         )?;
-        finish(service)?;
+        if remote {
+            if remote::apply_call(
+                service,
+                &caller.id,
+                &plan.kept.hamlet,
+                result["archive"].as_str().expect("merge archive"),
+            )? {
+                return Ok(None);
+            }
+        } else {
+            finish(service).await?;
+        }
+    }
+    if remote {
+        remote::release(service, &caller.id);
     }
     Ok(Some(result))
 }
@@ -478,7 +572,9 @@ pub(super) async fn deed(
         Actor::Chief(service.chief.clone()),
         &args,
         None,
-    )? {
+    )
+    .await?
+    {
         Ok(plan) => plan,
         Err(text) => return Ok(Err(Refusal::Invalid(text))),
     };
@@ -492,7 +588,7 @@ pub(super) async fn deed(
         },
         &plan,
     )?;
-    finish(service)?;
+    finish(service).await?;
     if result["error"] == true {
         Ok(Err(Refusal::Invalid(
             result["text"].as_str().unwrap_or_default().into(),
@@ -502,7 +598,7 @@ pub(super) async fn deed(
     }
 }
 
-pub(crate) fn finish(service: &mut Service) -> Result<()> {
+pub(crate) async fn finish(service: &mut Service) -> Result<()> {
     super::library::retire(service)?;
     for mut r in
         crate::service::records(service.home.store().connection())?
@@ -521,16 +617,30 @@ pub(crate) fn finish(service: &mut Service) -> Result<()> {
             else {
                 continue;
             };
-            finished.push(plan.snapshot.clone());
             if merge.applied {
+                finished.push(plan.snapshot.clone());
                 continue;
             }
+            if service.houses.workspace.is_some() {
+                if super::document::<Option<bool>>(
+                    service.home.store().connection(),
+                    "remote-merge-attempt",
+                    &key,
+                )?
+                .is_some()
+                {
+                    continue;
+                }
+                super::keep(
+                    service.home.store().connection(),
+                    "remote-merge-attempt",
+                    &key,
+                    &true,
+                )?;
+            }
             crate::fault::point("after_merge_record");
-            let house = service.houses.house(
-                &r.id,
-                merge.kept.number,
-                false,
-            )?;
+            let house =
+                service.houses.files(&r.id, merge.kept.number)?;
             if entry.back.is_none() {
                 let snapshots = tree::directory(
                     service.houses.root(),
@@ -547,17 +657,20 @@ pub(crate) fn finish(service: &mut Service) -> Result<()> {
                     4096,
                 )?;
                 for (path, file) in &files {
-                    tree::put(&house, path, file)?;
+                    house.put(path, file).await?;
                     crate::fault::point("during_merge_files");
                 }
-                let current =
-                    service.houses.read(&r.id, merge.kept.number)?;
+                let current = service
+                    .houses
+                    .read_notes(&r.id, merge.kept.number)
+                    .await?;
                 if current == merge.files.notes_before {
-                    tree::replace(
-                        &house,
-                        "NOTES.md",
-                        merge.files.notes_after.as_bytes(),
-                    )?;
+                    house
+                        .replace(
+                            "NOTES.md",
+                            merge.files.notes_after.as_bytes(),
+                        )
+                        .await?;
                     crate::fault::point("after_merge_notes");
                 } else if current != merge.files.notes_after {
                     anyhow::bail!(
@@ -566,28 +679,42 @@ pub(crate) fn finish(service: &mut Service) -> Result<()> {
                     );
                 }
             } else {
-                let present = tree::read(&house, CAP, 4096)?;
+                let present = house.read(CAP, 4096).await?;
                 for file in &merge.files.brought {
                     if present.get(&file.path).is_some_and(|f| {
                         format!("{:x}", Sha256::digest(&f.bytes))
                             == file.sha256
                     }) {
-                        tree::remove(&house, &file.path)?;
+                        house.remove(&file.path, false).await?;
                     }
                 }
-                if service.houses.read(&r.id, merge.kept.number)?
+                if service
+                    .houses
+                    .read_notes(&r.id, merge.kept.number)
+                    .await?
                     == merge.files.notes_after
                 {
-                    tree::replace(
-                        &house,
-                        "NOTES.md",
-                        merge.files.notes_before.as_bytes(),
-                    )?;
+                    house
+                        .replace(
+                            "NOTES.md",
+                            merge.files.notes_before.as_bytes(),
+                        )
+                        .await?;
                 }
             }
             merge.applied = true;
+            finished.push(plan.snapshot.clone());
         }
         record::write(service.home.store().connection(), &r)?;
+        for entry in r.archive.iter().filter(|entry| {
+            entry.merge.as_ref().is_some_and(|merge| merge.applied)
+        }) {
+            service.home.store().connection().execute(
+                "DELETE FROM society_document WHERE \
+                 kind='remote-merge-attempt' AND key=?1",
+                [format!("{}:{}", r.id, entry.id)],
+            )?;
+        }
         if !finished.is_empty() {
             let snapshots = tree::directory(
                 service.houses.root(),

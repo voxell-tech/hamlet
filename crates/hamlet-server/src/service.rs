@@ -26,6 +26,9 @@ pub struct Service {
     pub(crate) models: crate::models::Models,
     pub(crate) chats: crate::chats::Chats,
     pub(crate) gifts: crate::gifts::Uploads,
+    pub(crate) moving: crate::papers::moving::Moving,
+    pub(crate) house_work: crate::society::work::Work,
+    pub(crate) merges: crate::society::merging::remote::Merges,
 }
 
 impl Service {
@@ -34,11 +37,16 @@ impl Service {
     pub fn new(mut home: Home, faux: bool) -> Result<Self> {
         let root = home.layout().root().to_owned();
         let credentials = Credentials::open(&root)?;
-        ensure!(
-            credentials.workspace_url().is_none(),
-            "This server does not yet support running in a remote \
-             workspace."
-        );
+        let overrides = Overrides::from_env(faux)?;
+        let workspace = overrides
+            .workspace
+            .as_ref()
+            .or(credentials.workspace())
+            .cloned();
+        if let Some(connection) = &workspace {
+            crate::settings::check_workspace(connection)
+                .map_err(anyhow::Error::msg)?;
+        }
         let chief = home
             .store()
             .record("home")?
@@ -72,14 +80,22 @@ impl Service {
                 "the first hamlet could not be founded"
             );
         }
-        let houses = Houses::open(&root)?;
+        let mut houses = Houses::open(&root)?;
+        houses.workspace = workspace;
         let mut realm =
             crate::realm::read(home.store().connection())?;
         for place in realm.hamlets.iter().filter(|place| place.erased)
         {
-            houses.erase_hamlet(&place.id)?;
+            if houses.workspace.is_none() {
+                houses.erase_hamlet(&place.id)?;
+            }
         }
         if let Some(pending) = &realm.pending {
+            ensure!(
+                houses.workspace.is_none(),
+                "An unfinished local house move needs the original \
+                 local backend. Remote houses were not changed."
+            );
             for binding in crate::chats::records::conversations_of(
                 home.store().connection(),
                 &pending.to,
@@ -96,7 +112,9 @@ impl Service {
                 continue;
             }
             for agent in record.agents {
-                houses.build(&record.id, agent.number)?;
+                if houses.workspace.is_none() {
+                    houses.build(&record.id, agent.number)?;
+                }
             }
         }
         for directory in ["library", "tools", "librarian"] {
@@ -109,12 +127,16 @@ impl Service {
             credentials,
             houses,
             limits: Rules::new()?,
-            overrides: Overrides::from_env(faux)?,
+            overrides,
             models: crate::models::Models::open(&root, faux)?,
             chats: crate::chats::Chats::new(
                 crate::sandbox::Sandbox::platform(),
             ),
             gifts: crate::gifts::Uploads::default(),
+            moving: crate::papers::moving::Moving::default(),
+            house_work: crate::society::work::Work::default(),
+            merges: crate::society::merging::remote::Merges::default(
+            ),
         })
     }
 
@@ -129,7 +151,7 @@ impl Service {
 
     /// Handles one authenticated request; an unsupported owner
     /// returns a typed refusal.
-    pub fn handle(
+    pub async fn handle(
         &mut self,
         message: ClientMessage,
     ) -> Result<Option<ServerMessage>> {
@@ -142,8 +164,10 @@ impl Service {
                 fault(None, "This connection said hello already.")
             }
             ClientMessage::Close(_) => return Ok(None),
-            ClientMessage::Edit(edit) => reply(id, self.edit(edit)?),
-            ClientMessage::Read(read) => self.read(read)?,
+            ClientMessage::Edit(edit) => {
+                reply(id, self.edit(edit).await?)
+            }
+            ClientMessage::Read(read) => self.read(read).await?,
             // The runtime hands these to the chats first.
             ClientMessage::Say(_)
             | ClientMessage::Open(_)
@@ -161,18 +185,9 @@ impl Service {
             ClientMessage::Login(_) => unsupported("sign-ins"),
             ClientMessage::Check(_) => unsupported("model checks"),
             ClientMessage::MoveHouses { .. } => {
-                if self.credentials.workspace_url().is_none() {
-                    reply(
-                        id,
-                        Err(Refusal::Invalid(
-                            "Hamlet already works in the workspace \
-                             chosen in Settings, so there are no \
-                             houses to move."
-                                .into(),
-                        )),
-                    )
-                } else {
-                    unsupported("moving houses")
+                match self.start_move(0, id)? {
+                    Ok(()) => return Ok(None),
+                    Err(error) => reply(id, Err(error)),
                 }
             }
         }))
@@ -257,6 +272,61 @@ impl Service {
         Ok(self.overrides.apply(stored))
     }
 
+    pub(crate) fn remote_tools(
+        &mut self,
+        agent: &record::AgentRef,
+        network: bool,
+    ) -> Result<Option<crate::workspace::Remote>> {
+        let project = !self.work(&agent.hamlet)?["folder"].is_null();
+        self.houses
+            .workspace
+            .as_ref()
+            .map(|connection| {
+                crate::workspace::Remote::new(
+                    connection.clone(),
+                    agent.clone(),
+                    project,
+                    network,
+                    false,
+                )
+                .map(|remote| {
+                    remote.with_library(
+                        self.home.layout().root().join("library"),
+                    )
+                })
+            })
+            .transpose()
+    }
+
+    pub(crate) async fn initialize_houses(&mut self) -> Result<()> {
+        if self.houses.workspace.is_none() {
+            return Ok(());
+        }
+        let live =
+            crate::realm::live(self.home.store().connection())?;
+        for record in records(self.home.store().connection())? {
+            if !live.contains(&record.id) {
+                continue;
+            }
+            for agent in record.agents {
+                if let Err(error) = self
+                    .houses
+                    .initialize(&record.id, agent.number)
+                    .await
+                {
+                    let mut words = Value::String(error.to_string());
+                    self.credentials.scrub(&mut words);
+                    eprintln!(
+                        "hamlet: could not initialize remote house: \
+                         {}",
+                        words.as_str().unwrap_or_default()
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn limits_of(
         &mut self,
         hamlet: &str,
@@ -273,11 +343,11 @@ impl Service {
         Ok(document(self.home.store().connection(), "work", hamlet)?.unwrap_or_else(|| json!({"folder":null, "mode":"manual", "before":[]})))
     }
 
-    pub(crate) fn read(
+    pub(crate) async fn read(
         &mut self,
         read: Read,
     ) -> Result<ServerMessage> {
-        crate::documents::read(self, read)
+        crate::documents::read(self, read).await
     }
 }
 

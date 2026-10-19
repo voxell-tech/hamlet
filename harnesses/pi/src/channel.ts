@@ -16,6 +16,7 @@ export type Outgoing = RuntimeMessage extends infer M
 
 type RequestType =
     | "provider_request"
+    | "provider_control"
     | "tools"
     | "create"
     | "submit"
@@ -114,6 +115,7 @@ function sort(
 ): { request: ServerRequest } | { reply: ServerReply } {
     switch (message.type) {
         case "provider_request":
+        case "provider_control":
         case "tools":
         case "create":
         case "submit":
@@ -136,6 +138,7 @@ function sort(
         case "stopped":
         case "charged":
         case "scrubbed":
+        case "credential_result":
         case "sections":
         case "verdict":
         case "error":

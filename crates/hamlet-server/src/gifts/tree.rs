@@ -323,11 +323,11 @@ fn copy_entry(
                 }
                 copy_entry(&source, &target, name, entries, bytes)?;
             }
-            target
-                .set_permissions(std::fs::Permissions::from_mode(
-                    info.st_mode & 0o777,
-                ))
-                .map_err(|_| REFUSED)?;
+            rustix::fs::fchmod(
+                &target,
+                Mode::from_raw_mode(info.st_mode & 0o777),
+            )
+            .map_err(|_| REFUSED)?;
         }
         FileType::RegularFile => {
             let file = File::from(

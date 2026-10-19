@@ -269,6 +269,35 @@ pub(super) async fn say(
     let notice = |text: String| Ok(Some(reply(id, Ok(text))));
     match &command {
         Some(Command::Deed(deed, rest)) => {
+            if service.houses.workspace.is_some() {
+                if ["merge", "restore", "undo"].contains(deed) {
+                    crate::society::merging::remote::chief(
+                        service, client, id, hamlet, deed, rest,
+                    )?;
+                    return Ok(None);
+                }
+                let operation = match *deed {
+                    "erase" => {
+                        Some("erase an archived agent's house")
+                    }
+                    "found" => Some("found a hamlet"),
+                    "move-hamlet" => {
+                        Some("move a hamlet between workspaces")
+                    }
+                    "remove-hamlet" => Some("remove a hamlet"),
+                    "restore-hamlet" => Some("restore a hamlet"),
+                    "erase-hamlet" => Some("erase a hamlet"),
+                    _ => None,
+                };
+                if let Some(operation) = operation {
+                    return Ok(Some(reply(
+                        id,
+                        Err(Refusal::Invalid(
+                            crate::workspace::unavailable(operation),
+                        )),
+                    )));
+                }
+            }
             if let Some(done) = crate::society::deed(
                 service, harnesses, hamlet, deed, rest,
             )
@@ -363,13 +392,25 @@ pub(super) async fn say(
                 agent: name.into(),
                 hamlet: hamlet.into(),
             };
-            return Ok(Some(reply(
-                id,
-                service.gift_skill(
+            if service.houses.workspace.is_some() {
+                return crate::gifts::remote::skill(
+                    service,
+                    client,
+                    id,
                     &address(agent),
                     skill,
                     from.as_deref().map(address).as_ref(),
-                )?,
+                );
+            }
+            return Ok(Some(reply(
+                id,
+                service
+                    .gift_skill(
+                        &address(agent),
+                        skill,
+                        from.as_deref().map(address).as_ref(),
+                    )
+                    .await?,
             )));
         }
         Some(Command::Stop(None)) => {

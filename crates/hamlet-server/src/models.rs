@@ -1,4 +1,4 @@
-//! The chief's catalogue, provider requests and connection-owned key
+//! The chief's catalogue, provider requests and connection-owned
 //! sign-ins (S7).
 
 use std::collections::{BTreeMap, HashMap};
@@ -14,7 +14,8 @@ use serde_json::{Value, json};
 
 use crate::credentials::write_whole;
 use crate::harness::link::{
-    ProviderRequest, ProviderRequestAction, ProviderResult,
+    ProviderControl, ProviderEvent, ProviderRequest,
+    ProviderRequestAction, ProviderRequestMethod, ProviderResult,
 };
 use crate::protocol::{Refusal, reply};
 use crate::service::{Service, document, save};
@@ -26,6 +27,7 @@ pub(crate) struct Models {
     pending: HashMap<String, Pending>,
     logins: HashMap<String, SignIn>,
     pub outgoing: Vec<ProviderRequest>,
+    pub controls: Vec<ProviderControl>,
     faux: bool,
 }
 
@@ -36,12 +38,13 @@ struct Pending {
     action: ProviderRequestAction,
     login: Option<String>,
     read: bool,
-    expires: Instant,
+    expires: Option<Instant>,
 }
 struct SignIn {
     client: u64,
     id: String,
-    provider: String,
+    scope: String,
+    prompt: Option<String>,
 }
 
 impl Models {
@@ -62,6 +65,7 @@ impl Models {
             pending: HashMap::new(),
             logins: HashMap::new(),
             outgoing: Vec::new(),
+            controls: Vec::new(),
             faux,
         })
     }
@@ -71,6 +75,13 @@ impl Models {
     }
 
     pub fn disconnect(&mut self, client: u64) {
+        for (scope, _) in self
+            .pending
+            .iter()
+            .filter(|(_, s)| s.client == Some(client))
+        {
+            self.controls.push(control(scope, None, None));
+        }
         self.logins.retain(|_, s| s.client != client);
         self.pending.retain(|_, s| s.client != Some(client));
     }
@@ -90,7 +101,9 @@ impl Models {
     pub fn expired(&self) -> Vec<ProviderResult> {
         self.pending
             .iter()
-            .filter(|(_, p)| Instant::now() >= p.expires)
+            .filter(|(_, p)| {
+                p.expires.is_some_and(|end| Instant::now() >= end)
+            })
             .map(|(key, _)| ProviderResult {
                 v: 1,
                 id: "timeout".into(),
@@ -169,7 +182,7 @@ impl Service {
         let credential = self
             .credentials
             .model(provider, serving)
-            .map(serde_json::from_value)
+            .map(crate::credentials::pack)
             .transpose()?;
         let key = format!("provider:{}", uuid::Uuid::new_v4());
         self.models.pending.insert(
@@ -181,13 +194,15 @@ impl Service {
                 action: action.clone(),
                 login,
                 read,
-                expires: Instant::now()
-                    + Duration::from_secs(match action {
-                        ProviderRequestAction::Describe
-                        | ProviderRequestAction::Refresh => 12,
-                        ProviderRequestAction::Hello
-                        | ProviderRequestAction::Key => 95,
-                    }),
+                expires: match action {
+                    ProviderRequestAction::Describe
+                    | ProviderRequestAction::Refresh => Some(12),
+                    ProviderRequestAction::Hello => Some(95),
+                    ProviderRequestAction::Login => None,
+                }
+                .map(|seconds| {
+                    Instant::now() + Duration::from_secs(seconds)
+                }),
             },
         );
         self.models.outgoing.push(ProviderRequest {
@@ -198,7 +213,10 @@ impl Service {
             base_url,
             model,
             credential,
-            value: None,
+            method: None,
+            installation_id: Some(
+                self.credentials.installation_id().into(),
+            ),
             models: self
                 .models
                 .lists
@@ -287,32 +305,78 @@ impl Service {
             ClientMessage::Login(login) => match login {
                 Login::Start { id, start } => {
                     let key = uuid::Uuid::new_v4().to_string();
-                    let known = self
+                    let provider = self
                         .provider_views()?
-                        .iter()
-                        .any(|p| p["id"] == start.provider);
-                    let step = if !known {
-                        json!({"failed":format!("Unknown provider: {}", start.provider)})
-                    } else if start.method != LoginMethod::Key {
-                        json!({"failed":format!("Signing in with {} is not offered. Use an API key.", start.provider)})
+                        .into_iter()
+                        .find(|p| p["id"] == start.provider);
+                    let method = if start.method == LoginMethod::Key {
+                        "key"
                     } else {
+                        "subscription"
+                    };
+                    let failure = if let Some(provider) = &provider {
+                        (!provider["methods"].as_array().is_some_and(
+                            |methods| {
+                                methods.iter().any(|m| m == method)
+                            },
+                        ))
+                        .then(|| {
+                            format!(
+                                "Signing in with {} is not offered. \
+                                 Use an API key.",
+                                start.provider
+                            )
+                        })
+                    } else {
+                        Some(format!(
+                            "Unknown provider: {}",
+                            start.provider
+                        ))
+                    };
+                    if let Some(failure) = failure {
+                        answers.push(login_step(
+                            id,
+                            &key,
+                            json!({"failed":failure}),
+                        )?);
+                    } else {
+                        self.ask_provider(
+                            Some(client),
+                            id,
+                            &start.provider,
+                            ProviderRequestAction::Login,
+                            None,
+                            Some(key.clone()),
+                            false,
+                        )?;
+                        let request = self
+                            .models
+                            .outgoing
+                            .last_mut()
+                            .context("login request")?;
+                        request.method = Some(
+                            if start.method == LoginMethod::Key {
+                                ProviderRequestMethod::Key
+                            } else {
+                                ProviderRequestMethod::Subscription
+                            },
+                        );
                         self.models.logins.insert(
-                            key.clone(),
+                            key,
                             SignIn {
                                 client,
                                 id: id.clone(),
-                                provider: start.provider.clone(),
+                                scope: request.id.clone(),
+                                prompt: None,
                             },
                         );
-                        json!({"prompt":"Paste your key.","secret":true})
-                    };
-                    answers.push(login_step(id, &key, step)?);
+                    }
                 }
                 Login::Reply { id, reply: answer } => {
                     let Some(signin) = self
                         .models
                         .logins
-                        .get(&answer.login)
+                        .get_mut(&answer.login)
                         .filter(|s| s.client == client)
                     else {
                         return Ok(Some(vec![reply(
@@ -324,11 +388,7 @@ impl Service {
                             )),
                         )]));
                     };
-                    let provider = signin.provider.clone();
-                    let origin = signin.id.clone();
-                    if self.models.pending.values().any(|p| {
-                        p.login.as_ref() == Some(&answer.login)
-                    }) {
+                    let Some(prompt) = signin.prompt.take() else {
                         return Ok(Some(vec![reply(
                             id,
                             Err(Refusal::Invalid(
@@ -337,21 +397,13 @@ impl Service {
                                     .into(),
                             )),
                         )]));
-                    }
-                    self.ask_provider(
-                        Some(client),
-                        &origin,
-                        &provider,
-                        ProviderRequestAction::Key,
-                        None,
-                        Some(answer.login.clone()),
-                        false,
-                    )?;
-                    self.models
-                        .outgoing
-                        .last_mut()
-                        .context("key request")?
-                        .value = Some(answer.value.clone());
+                    };
+                    self.credentials.remember(&answer.value);
+                    self.models.controls.push(control(
+                        &signin.scope,
+                        Some(prompt),
+                        Some(answer.value.clone()),
+                    ));
                     answers.push(reply(
                         id,
                         Ok("Sign-in answer received.".into()),
@@ -378,6 +430,11 @@ impl Service {
                         cancel,
                         json!({"failed":"Sign-in cancelled."}),
                     )?);
+                    self.models.controls.push(control(
+                        &signin.scope,
+                        None,
+                        None,
+                    ));
                     self.models.logins.remove(cancel);
                     self.models.pending.retain(|_, p| {
                         p.login.as_ref() != Some(cancel)
@@ -393,6 +450,36 @@ impl Service {
         Ok(Some(answers))
     }
 
+    pub(crate) fn provider_event(
+        &mut self,
+        event: ProviderEvent,
+    ) -> Result<Vec<(u64, ServerMessage)>> {
+        let Some(pending) = self.models.pending.get(&event.scope)
+        else {
+            return Ok(Vec::new());
+        };
+        let Some(login) = &pending.login else {
+            return Ok(Vec::new());
+        };
+        let Some(signin) = self.models.logins.get_mut(login) else {
+            return Ok(Vec::new());
+        };
+        if let Some(prompt) = event.prompt {
+            signin.prompt = (!prompt.is_empty()).then_some(prompt);
+        }
+        if event.step.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(vec![(
+            signin.client,
+            login_step(
+                &signin.id,
+                login,
+                serde_json::to_value(event.step)?,
+            )?,
+        )])
+    }
+
     pub(crate) fn provider_result(
         &mut self,
         result: ProviderResult,
@@ -401,16 +488,17 @@ impl Service {
         else {
             return Ok(Vec::new());
         };
+        if result.id == "timeout" {
+            self.models
+                .controls
+                .push(control(&result.re, None, None));
+        }
         let mut answers = Vec::new();
         if let Some(login) = pending.login {
             if self.models.logins.remove(&login).is_none() {
                 return Ok(answers);
             }
-            let step = if let Some(credential) = result.credential {
-                self.credentials.save_model(
-                    &pending.provider,
-                    Some(serde_json::to_value(credential)?),
-                )?;
+            let step = if result.error.is_none() {
                 json!({"done":pending.provider})
             } else {
                 json!({"failed":result.error.unwrap_or_else(||"Sign-in failed.".into())})
@@ -578,7 +666,14 @@ impl Service {
         }
         providers
             .sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
-        Ok(providers.iter().map(|p|json!({"id":p["id"],"name":p["name"],"configured":self.credentials.model(p["id"].as_str().unwrap_or_default(),serving).is_some(),"methods":if p["key"] == true {vec!["key"]}else{vec![]},"label":p["name"]})).collect())
+        Ok(providers.iter().map(|p| {
+            let id = p["id"].as_str().unwrap_or_default();
+            let mut methods = Vec::new();
+            if p["key"] == true { methods.push("key"); }
+            if p["subscription"] == true && ["chatgpt", "openrouter"].contains(&id) { methods.push("subscription"); }
+            let label = match id { "chatgpt" => "Continue with ChatGPT", "openrouter" => "Sign in with OpenRouter", _ => p["name"].as_str().unwrap_or_default() };
+            json!({"id":id,"name":p["name"],"configured":self.credentials.model(id,serving).is_some(),"methods":methods,"label":label})
+        }).collect())
     }
 
     fn take_models(
@@ -705,6 +800,21 @@ impl Service {
             &cards,
         )?;
         Ok(Ok("Saved.".into()))
+    }
+}
+
+fn control(
+    scope: &str,
+    prompt: Option<String>,
+    value: Option<String>,
+) -> ProviderControl {
+    ProviderControl {
+        v: 1,
+        id: uuid::Uuid::new_v4().to_string(),
+        scope: scope.into(),
+        cancel: value.is_none(),
+        prompt,
+        value,
     }
 }
 

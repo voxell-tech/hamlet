@@ -129,7 +129,7 @@ server, and opens a window. Closing the window or terminal stops no agent.
 | `status` | Reports whether the home's server runs |
 | `server` | Serves the home; stopping it closes in order, and a second stop signal exits at once |
 | `chat [--to <agent>]` | Chats with the mayor or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
-| `dev [--port <n>] [--faux <script.json>] [--home <dir>]` | Builds the checkout's window unless `HAMLET_APP` selects one, serves a scratch home and opens its window; closing the window leaves the server running, and stopping the command closes both in order |
+| `dev [--port <n>] [--faux <script.json>] [--home <dir>]` | Builds the checkout's Rust server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them respectively, serves a scratch home and opens its window; closing the window leaves the server running, and stopping the command closes both in order |
 | `window` | Opens a window connected to a running server |
 | `edit <charter\|character\|notes\|limits\|settings>` | Opens the chief's document in `$EDITOR` and saves it through the server |
 | `login <provider> [--key]` | Gives a key, or follows an offered sign-in |

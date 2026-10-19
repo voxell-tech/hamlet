@@ -808,7 +808,7 @@ fn a_real_endpoint_gets_the_credential_the_server_hands_over_and_nothing_keeps_i
             ..Default::default()
         },
     ]);
-    let credentials = json!({"models": {"endpoint": {"type": "api_key", "key": "sk-held"}}});
+    let credentials = json!({"installationId":"harness-test", "connection":{"token":"harness-test-connection"}, "models": {"endpoint": {"type": "api_key", "key": "sk-held"}}});
     std::fs::write(
         realm.home.join("credentials.json"),
         credentials.to_string(),

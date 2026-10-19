@@ -1,77 +1,95 @@
 # The home
 
-Everything the server keeps is in one folder, `~/.hamlet`. `HAMLET_HOME`
-moves it elsewhere; development uses a scratch home. The server opens a
-fresh home and does not import a home of the retained Rust runtime
-([`core.md`](core.md#the-retained-runtimes-home)). The layout is
-`server/src/home/layout.ts`.
+The Rust server keeps one home, `~/.hamlet` unless `HAMLET_HOME` or
+`hamlet-server --home` selects another. Use a fresh scratch home for
+development. `crates/hamlet-server/src/home.rs` defines `Home` and `Layout`.
 
-| Path under the home | Holds |
+| Path under the home | Owner and contents |
 |---|---|
-| `home.sqlite` | pi-durable's storage: conversations, characters, the hamlet's record, oversight, spend, limits, settings and the catalogue |
-| `credentials.json` | The installation ID, connection token and model credentials |
-| `models.json` | pi-ai's stored model lists |
-| `server.json` | The running server's URL, process ID and start time, with no token |
-| `server.log` | A background server's output |
-| `houses/<hamlet>/<number>/` | The agent's writable files: `NOTES.md`, `skills/` and `inbox/` |
-| `library/` | Shared skills, starting with the starters, readable by agents |
-| `librarian/` | The librarian's own notes |
-| `tools/` | Tools added by hand, readable by agents |
-| `.gifts/`, `.erasing/` | Private staging for gifts, and houses being erased |
+| `realm.sqlite`, its WAL and shared-memory files | Rust `Store`: records, chief/society documents, bindings, pending inputs, oversight, spend and operation markers |
+| `realm.id` | The identity also recorded in `realm.sqlite` |
+| `harnesses/<instance>/` | That runtime's own store: conversations, checkpoints, model responses and input admission |
+| `credentials.json` | Server-owned installation ID, connection token and provider credentials |
+| `models.json` | Server-owned fetched model listings; chief catalogue overrides live in `chief_document` |
+| `server.json` | Running server's URL, PID and start time, never its token |
+| `server.log` | Detached server's output, written by the CLI's process launch |
+| `houses/<hamlet>/<number>/` | Agent files: `NOTES.md`, `skills/`, `inbox/` |
+| `library/` | Shared skills, read-only to agent tools |
+| `librarian/NOTES.md` | Instructions included in librarian consultations |
+| `tools/` | Hand-added tool manifests and scripts |
+| `.gifts/`, `.society-files/`, `.library-staging/` | Private staging and recoverable file snapshots, outside agents' reach |
 
-The first hamlet is `home`. Its founder is agent number 0, named `founder`,
-with house `houses/home/0/`; `mayor` addresses the office it holds.
-Character and conversations are in storage, not writable files in the
-house.
+The first hamlet is `home`, its founder agent 0, named `founder`.
+`mayor` addresses the current office. Characters are server records;
+authoritative transcripts belong to the harness, not house files.
 
-One process holds the home's claim: a local socket named from the home's
-path, as the Rust app names it, for both the path as given and its
-canonical form (`server/src/home/lock.ts`). A second server on the same
-home, by any spelling of its path, is refused (S2).
+## Claim and storage
 
-The Rust server keeps its record in `realm.sqlite`, paired with `realm.id`.
-It checks that both name the same home before serving it. A missing or
-mismatched part is refused; restore the complete home from backup rather
-than deleting an identity to open it. Pre-identity Rust databases acquire
-the pair on their first successful open. A TypeScript `home.sqlite` is
-refused even when a `realm.sqlite` is beside it.
+`claim.rs` takes local socket claims for both the supplied and canonical
+home paths. A second server cannot open the same home under another
+spelling. The claim outlives the open store and its harness processes.
 
-## Credentials
+`Store::open` checks SQLite's application ID and schema version and applies
+its ordered internal migrations. `Home::open` checks the `realm.id` and
+database identity pair. A missing or mismatched part is an error, not a
+reason to make a fresh database. Restore a complete matching backup.
 
-`credentials.json` has mode 0600 and is replaced whole through a temporary
-file and a rename. It holds `installationId`, `connection: {token}` and
-`models: {provider: credential}`, and the remote workspace's token when one
-is chosen. pi-ai receives no ambient credentials; `HAMLET_API_KEY` is held
-in memory only. ChatGPT uses its own `chatgpt` provider and credential,
-beside an `openai` key, with Hamlet's installation ID and name. ChatGPT and
-OpenRouter are the offered sign-ins; other providers use keys.
+An experimental TypeScript `home.sqlite` is refused even beside a Rust
+database. Those homes were never deployed; there is no import or rollback
+tool. Choose a new `HAMLET_HOME` for the Rust server. This does not remove
+the Rust store's own versioned schema upgrades.
 
-Tool results, protocol messages and the oversight record are scrubbed of
-known credentials.
+`Store::run` keeps record changes and their result marker in one
+transaction. Calls are identified by runtime and key; tool admission also
+checks the bound conversation and request digest. File effects have their
+own staging/recovery paths. An interrupted shell command is not replayed
+as if it were a transactional record change.
 
-## The Rust server's record and documents
+## Credentials and documents
 
-`hamlet-server --home <folder> --port 0` serves protocol v0 on a free
-loopback port and publishes `server.json`. It uses the same claim,
-credentials shape and stable connection token. `HAMLET_HOME` selects the
-home when `--home` is absent. SIGTERM or the first SIGINT closes clients
-with code 1001 and removes the publication; a second SIGINT exits 130.
+`credentials.json` is mode 0600 and replaced whole via a temporary file and
+rename. It holds `installationId`, `connection: {token}` and provider
+credentials. Provider attempts receive needed credentials over the private
+link in memory. Pi asks the server to scrub text before keeping provider
+snapshots or final answers; tool output and client messages are scrubbed too.
+`HAMLET_API_KEY` is an in-memory override, not a file update.
 
-Its `realm.sqlite` holds the record and chief documents. Characters
-belong to recorded agents; `chief_document` holds the charter, limits,
-settings and work-folder choices. A limits edit commits its document and
-the record's constraints together. Notes stay in house files, opened
-relative to the claimed home without following links. `HAMLET_MODEL`,
-`HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and `HAMLET_NET` override this
-process's settings without changing their stored values.
+ChatGPT and OpenRouter support subscription sign-in. ChatGPT credentials
+are separate from OpenAI API keys. The server serializes credential
+refreshes per provider and saves a rotation before acknowledging it.
+An already-started refresh can finish after its client disconnects;
+logout or a newer sign-in invalidates its result. Retired credentials and
+transient sign-in answers remain in memory for scrubbing, not on disk.
 
-`crates/hamlet-server/src/service.rs` composes requests and record-backed
-state; `runtime.rs` owns authentication, ordered connections and
-shutdown. The Node harness script's path is retained in `runtime::Options`
-as `faux`. The CLI's default server selection remains in
-`hamlet_cli/src/process.rs`.
+`chief_document` holds the charter, limits, settings and work-folder
+choices. A limits edit commits its document and record constraints
+together. Character belongs to the recorded agent. House notes are opened
+relative to the retained home descriptor without following links.
+`HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and `HAMLET_NET`
+override stored settings for this process.
+
+Settings selects the workspace for the next start. The active connection
+and its token stay fixed until restart, even after Settings changes.
+`HAMLET_WORKSPACE_URL` and `HAMLET_WORKSPACE_TOKEN` override that selection
+for this process. Remote houses live at the workspace manager; records,
+credentials, transcripts and the shared library remain under this home.
+Moving houses copies the living agents' files to the selected target;
+restart selects it. See [remote workspaces](sandbox.md#remote-workspaces).
+
+## Starting and stopping
+
+`hamlet-server --home <folder> --port 0` publishes a free loopback address.
+`runtime::serve` owns authentication, ordered connections and shutdown;
+`Service` composes domain owners. `--faux` selects an offline response script,
+not a harness entry. `HAMLET_PI_HARNESS` selects that entry instead.
+
+SIGTERM or the first SIGINT closes clients with code 1001, settles shutdown
+work and removes `server.json`. A second SIGINT exits 130. Closing a client
+or window does not stop the server.
 
 ## Starter skills
 
-`server/assets/starters/` holds the starter skills. The library starts
-with them, and a chief gives one to an agent through `give`.
+`crates/hamlet-server/assets/starters/` supplies the embedded skills through
+`src/starters.rs`; `assets/charter.md` is the default charter. Library
+initialization installs starters once, preserving later chief changes.
+The chief can also give an agent a starter through the protocol.

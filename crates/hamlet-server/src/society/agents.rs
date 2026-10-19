@@ -49,7 +49,7 @@ fn arguments<T: serde::de::DeserializeOwned>(
 }
 
 /// The mayor's `create_agent`: an agent with its own house (H27).
-pub(super) fn create(
+pub(super) async fn create(
     service: &mut Service,
     caller: &Caller<'_>,
     args: &Value,
@@ -127,16 +127,24 @@ pub(super) fn create(
     if let Some(agent) = record
         .as_ref()
         .and_then(|r| r.named(&tidy_name(&given.name)))
-        && let Err(error) =
-            service.houses.build(&place.hamlet, agent.number)
     {
-        // The agent is recorded; its house is prepared again at the
-        // next start.
-        eprintln!(
-            "hamlet-server: could not prepare the house of agent {} \
-             in {}: {error}",
-            agent.number, place.hamlet
-        );
+        if let Some(remote) = service.houses.remote(
+            &place.hamlet,
+            agent.number,
+            false,
+        )? {
+            service.house_work.initialize(caller.id.clone(), remote);
+        } else if let Err(error) =
+            service.houses.build(&place.hamlet, agent.number)
+        {
+            // The agent is recorded; its house is prepared again at
+            // the next start.
+            eprintln!(
+                "hamlet-server: could not prepare the house of \
+                 agent {} in {}: {error}",
+                agent.number, place.hamlet
+            );
+        }
     }
     Ok(outcome)
 }

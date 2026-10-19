@@ -3,12 +3,13 @@
 use regex::Regex;
 use serde_json::{Map, Value};
 
+use super::environment::Files;
 use super::walk::{
-    FOUND, Failure, reached, report, shown, under, walk, wanted,
+    FOUND, Failure, Walk, reached, report, shown, under, wanted,
 };
 use super::{Arguments, Outcome};
 use crate::change::{clip, js_space, lines_of};
-use crate::sandbox::{Env, FileKind};
+use crate::sandbox::FileKind;
 
 pub(super) const DESCRIPTION: &str =
     "Search the contents of files under a folder for a regular \
@@ -22,8 +23,8 @@ const WIDTH: usize = 300;
 /// The largest file a search reads, in bytes.
 const LARGEST: u64 = 1024 * 1024;
 
-pub(super) fn run(
-    env: &Env,
+pub(super) async fn run(
+    env: &Files<'_>,
     arguments: &Map<String, Value>,
 ) -> Outcome {
     let args = Arguments::new("search", arguments);
@@ -42,7 +43,7 @@ pub(super) fn run(
         | (_, _, Err(invalid), _)
         | (.., Err(invalid)) => return invalid,
     };
-    match search(env, pattern, path, name, ignore_case) {
+    match search(env, pattern, path, name, ignore_case).await {
         Ok(found) => Outcome::text(found),
         Err(failure) => Outcome::failed(failure.words()),
     }
@@ -52,8 +53,8 @@ pub(super) fn run(
 /// pattern runs in linear time, so none can stall the server; a file
 /// over 1 MiB, one that is not UTF-8 and one holding NUL are passed
 /// over.
-fn search(
-    env: &Env,
+async fn search(
+    env: &Files<'_>,
     pattern: &str,
     path: Option<&str>,
     name: Option<&str>,
@@ -63,9 +64,9 @@ fn search(
         return Err(Failure::PatternEmpty);
     }
     let matches = compile(pattern, ignore_case)?;
-    let (root, info) = reached(env, path)?;
+    let (root, info) = reached(env, path).await?;
     let mut found = Vec::new();
-    let mut look = |at: &str, size: u64| {
+    let mut look = async |at: &str, size: u64| {
         if let Some(name) = name.filter(|name| !name.is_empty())
             && !wanted(name, &under(&root, at))
         {
@@ -74,7 +75,7 @@ fn search(
         if size > LARGEST {
             return true;
         }
-        let Ok(text) = env.read_text(at) else {
+        let Ok(text) = env.read_text(at).await else {
             return true;
         };
         if text.contains('\0') {
@@ -103,9 +104,15 @@ fn search(
     };
     let mut capped = false;
     if info.kind == FileKind::Directory {
-        capped = walk(env, &root, |at, file| look(at, file.size));
+        let mut walk = Walk::new(&root);
+        while let Some((at, file)) = walk.next(env).await {
+            if !look(&at, file.size).await {
+                break;
+            }
+        }
+        capped = walk.capped;
     } else {
-        look(&root, info.size);
+        look(&root, info.size).await;
     }
     Ok(report(&found, capped, "no match"))
 }

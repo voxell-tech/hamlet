@@ -19,6 +19,7 @@ pub(crate) struct Overrides {
     base_url: Option<String>,
     reflect_every: Option<u64>,
     allow_net: Option<bool>,
+    pub workspace: Option<Workspace>,
 }
 
 impl Overrides {
@@ -44,6 +45,23 @@ impl Overrides {
             base_url: get("HAMLET_BASE_URL"),
             reflect_every,
             allow_net: get("HAMLET_NET").map(|v| v == "1"),
+            workspace: match (
+                get("HAMLET_WORKSPACE_URL"),
+                get("HAMLET_WORKSPACE_TOKEN"),
+            ) {
+                (None, None) => None,
+                (Some(url), Some(token)) => {
+                    let workspace = Workspace { url, token };
+                    check_workspace(&workspace)
+                        .map_err(anyhow::Error::msg)?;
+                    Some(workspace)
+                }
+                _ => bail!(
+                    "HAMLET_WORKSPACE_URL and \
+                     HAMLET_WORKSPACE_TOKEN are set together, or \
+                     neither is."
+                ),
+            },
         })
     }
 
@@ -84,37 +102,12 @@ pub(crate) fn validate(
         None => None,
         Some(None) => Some(None),
         Some(Some(workspace)) => {
-            let address =
-                Url::parse(&workspace.url).ok().filter(|u| {
-                    (u.scheme() == "https"
-                        || (u.scheme() == "http"
-                            && matches!(
-                                u.host_str(),
-                                Some(
-                                    "localhost"
-                                        | "127.0.0.1"
-                                        | "[::1]"
-                                )
-                            )))
-                        && u.username().is_empty()
-                        && u.password().is_none()
-                        && u.query().is_none()
-                        && u.fragment().is_none()
-                        && u.port() != Some(0)
-                });
-            if address.is_none() {
-                return Err(invalid("The workspace address must start with https://, or http:// for localhost, and have no password or query."));
-            }
-            if workspace.token.encode_utf16().count() < 16 {
-                return Err(invalid(
-                    "The workspace token needs at least 16 \
-                     characters.",
-                ));
-            }
-            Some(Some(Workspace {
+            let connection = Workspace {
                 url: workspace.url.clone(),
                 token: workspace.token.clone(),
-            }))
+            };
+            check_workspace(&connection).map_err(invalid)?;
+            Some(Some(connection))
         }
     };
     if set
@@ -158,4 +151,31 @@ pub(crate) fn validate(
         }
     }
     Ok(workspace)
+}
+
+pub(crate) fn check_workspace(
+    workspace: &Workspace,
+) -> Result<(), &'static str> {
+    let valid = Url::parse(&workspace.url).ok().is_some_and(|url| {
+        (url.scheme() == "https"
+            || (url.scheme() == "http"
+                && matches!(
+                    url.host_str(),
+                    Some("localhost" | "127.0.0.1" | "[::1]")
+                )))
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && url.port() != Some(0)
+    });
+    if !valid {
+        return Err("The workspace address must start with https://, or http:// for localhost, and have no password or query.");
+    }
+    if workspace.token.encode_utf16().count() < 16 {
+        return Err(
+            "The workspace token needs at least 16 characters."
+        );
+    }
+    Ok(())
 }

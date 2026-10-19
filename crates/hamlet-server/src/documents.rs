@@ -17,7 +17,29 @@ use crate::service::{Service, document, save};
 use crate::{Operation, Outcome};
 
 impl Service {
-    pub(crate) fn edit(
+    pub(crate) fn prepare_notes(
+        &mut self,
+        agent: &Address,
+        text: &str,
+    ) -> Result<
+        std::result::Result<
+            (crate::papers::files::Files, String),
+            Refusal,
+        >,
+    > {
+        let member = match self.agent(agent, "read or edit papers")? {
+            Ok(agent) => agent,
+            Err(error) => return Ok(Err(error)),
+        };
+        let mut text = Value::String(text.into());
+        self.credentials.scrub(&mut text);
+        Ok(Ok((
+            self.houses.files(&agent.hamlet, member.number)?,
+            text.as_str().context("paper text")?.into(),
+        )))
+    }
+
+    pub(crate) async fn edit(
         &mut self,
         edit: Edit,
     ) -> Result<std::result::Result<String, Refusal>> {
@@ -39,10 +61,10 @@ impl Service {
                 )?;
             }
             Edit::Character { agent, text, .. } => {
-                return self.edit_papers(&agent, &text, true);
+                return self.edit_papers(&agent, &text, true).await;
             }
             Edit::Notes { agent, text, .. } => {
-                return self.edit_papers(&agent, &text, false);
+                return self.edit_papers(&agent, &text, false).await;
             }
             Edit::Limits(edit) => {
                 let (hamlet, reason) = match &edit {
@@ -201,7 +223,7 @@ impl Service {
         Ok(Ok("Saved.".into()))
     }
 
-    pub(crate) fn edit_papers(
+    pub(crate) async fn edit_papers(
         &mut self,
         agent: &Address,
         text: &str,
@@ -237,7 +259,8 @@ impl Service {
             tx.commit()?;
         } else if self
             .houses
-            .write(&agent.hamlet, member.number, text)
+            .write_notes(&agent.hamlet, member.number, text)
+            .await
             .is_err()
         {
             return Ok(Err(Refusal::Invalid(
@@ -319,6 +342,16 @@ impl Service {
         }
         let folder = if tail == "none" {
             Value::Null
+        } else if self.houses.workspace.is_some() {
+            if tail != "/project" {
+                return Ok(Err(Refusal::Invalid(
+                    "Remote workspaces accept only `/folder \
+                     /project` or `/folder none`. Local folders are \
+                     not uploaded or synchronized."
+                        .into(),
+                )));
+            }
+            Value::String("/project".into())
         } else {
             let expanded = if tail == "~" || tail.starts_with("~/") {
                 PathBuf::from(
@@ -383,26 +416,85 @@ pub(crate) fn mode_words(mode: &str) -> &'static str {
     }
 }
 
-pub(crate) fn read(
+pub(crate) async fn read(
     service: &mut Service,
     read: Read,
 ) -> Result<ServerMessage> {
+    prepare_read(service, read)?.render().await
+}
+
+pub(crate) enum Reading {
+    Ready(ServerMessage),
+    Papers {
+        id: String,
+        papers: Value,
+        remote: Option<crate::workspace::Remote>,
+        full: bool,
+    },
+    Prompt {
+        id: String,
+        prompt: crate::prompt::Prepared,
+    },
+}
+
+impl Reading {
+    pub async fn render(self) -> Result<ServerMessage> {
+        match self {
+            Self::Ready(message) => Ok(message),
+            Self::Papers {
+                id,
+                mut papers,
+                remote,
+                full,
+            } => {
+                if let Some(remote) = remote {
+                    let bytes = remote
+                        .read("/house/NOTES.md", true)
+                        .await
+                        .unwrap_or_default();
+                    let notes =
+                        String::from_utf8(bytes).unwrap_or_default();
+                    papers["notes"] = if full {
+                        notes
+                    } else {
+                        cut(trim(&notes), 6000, "")
+                    }
+                    .into();
+                }
+                Ok(serde_json::from_value(
+                    json!({"type":"read","to":id,"papers":papers}),
+                )?)
+            }
+            Self::Prompt { id, prompt } => {
+                let sections = prompt.render().await?;
+                Ok(serde_json::from_value(
+                    json!({"type":"read","to":id,"prompt":crate::prompt::text(&sections)}),
+                )?)
+            }
+        }
+    }
+}
+
+pub(crate) fn prepare_read(
+    service: &mut Service,
+    read: Read,
+) -> Result<Reading> {
     let (address, id, full, prompt) = match read {
         Read::Charter { id } => {
             let (text, own) = service.charter()?;
-            return Ok(serde_json::from_value(
+            return Ok(Reading::Ready(serde_json::from_value(
                 json!({"type":"read", "to":id, "charter":{"text":text,"own":own}}),
-            )?);
+            )?));
         }
         Read::Models { id, .. } => {
-            return service.catalogue_read(&id);
+            return service.catalogue_read(&id).map(Reading::Ready);
         }
         Read::History { agent, id } => {
             let error = service
                 .agent(&agent, "read or edit papers")?
                 .err()
                 .unwrap_or(Refusal::Unsupported("conversations"));
-            return Ok(reply(&id, Err(error)));
+            return Ok(Reading::Ready(reply(&id, Err(error))));
         }
         Read::Papers { agent, id, full } => {
             (agent, id, full.unwrap_or(false), false)
@@ -412,13 +504,24 @@ pub(crate) fn read(
     let agent =
         match service.agent(&address, "read or edit papers")? {
             Ok(agent) => agent,
-            Err(error) => return Ok(reply(&id, Err(error))),
+            Err(error) => {
+                return Ok(Reading::Ready(reply(&id, Err(error))));
+            }
         };
-    let notes = service
-        .houses
-        .read(&address.hamlet, agent.number)
-        .unwrap_or_default();
     if !prompt {
+        let remote = service.houses.remote(
+            &address.hamlet,
+            agent.number,
+            true,
+        )?;
+        let notes = if remote.is_some() {
+            String::new()
+        } else {
+            service
+                .houses
+                .read(&address.hamlet, agent.number)
+                .unwrap_or_default()
+        };
         let character = if full {
             agent.character
         } else {
@@ -429,9 +532,12 @@ pub(crate) fn read(
         } else {
             cut(trim(&notes), 6000, "")
         };
-        return Ok(serde_json::from_value(
-            json!({"type":"read", "to":id, "papers":{"character":character,"notes":notes,"skills":[]}}),
-        )?);
+        return Ok(Reading::Papers {
+            id,
+            papers: json!({"character":character,"notes":notes,"skills":[]}),
+            remote,
+            full,
+        });
     }
     let settings = service.settings()?;
     let limits = service.limits_of(&address.hamlet)?;
@@ -458,12 +564,10 @@ pub(crate) fn read(
         task: None,
         conversation: None,
     };
-    let mut sections = crate::prompt::sections(service, &subject)?;
-    sections.push(crate::harness::link::Section {
+    let mut prompt = crate::prompt::prepare(service, &subject)?;
+    prompt.sections.push(crate::harness::link::Section {
         name: "budget".into(),
         text: crate::prompt::budget(service, &subject)?,
     });
-    Ok(serde_json::from_value(
-        json!({"type":"read", "to":id, "prompt":crate::prompt::text(&sections)}),
-    )?)
+    Ok(Reading::Prompt { id, prompt })
 }

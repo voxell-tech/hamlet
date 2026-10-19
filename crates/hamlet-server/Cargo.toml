@@ -29,7 +29,6 @@ faults = []
 harness = ["faults"]
 
 [dependencies]
-hamlet_home.workspace = true
 hamlet_protocol.workspace = true
 anyhow.workspace = true
 base64.workspace = true
@@ -38,6 +37,7 @@ futures.workspace = true
 interprocess.workspace = true
 jsonschema = { version = "0.33", default-features = false }
 regex.workspace = true
+reqwest.workspace = true
 ring.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
