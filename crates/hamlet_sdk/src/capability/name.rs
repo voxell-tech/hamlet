@@ -225,7 +225,10 @@ impl Capability {
                 "Read and write the files of a folder the chief \
                  chooses"
             }
-            Capability::ModelCall => "Call a model, on the budget",
+            Capability::ModelCall => {
+                "Ask the model the agents run, on the first hamlet's \
+                 budget"
+            }
             Capability::PluginUse => "Use another plugin",
             Capability::CollectionsRead => {
                 "Read a collection another plugin shares"
@@ -289,6 +292,13 @@ impl Capability {
                 "The chief picks each file in the system's dialog. \
                  The plugin gets a copy in its own folder, within \
                  its caps, and never a path outside it.",
+            ),
+            Capability::ModelCall => Some(
+                "Spends money: each call is charged to the first \
+                 hamlet's budget under the plugin's name and \
+                 refused once the budget is spent, within a count a \
+                 minute and a size. It never sees a key or an \
+                 address.",
             ),
             Capability::FsFolder => Some(
                 "The chief chooses the folder in the system's \

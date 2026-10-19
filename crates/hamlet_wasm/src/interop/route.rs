@@ -95,6 +95,7 @@ pub(super) fn route(
                 | Intent::PickFile(_)
                 | Intent::PickFolder(_)
                 | Intent::Folder(_)
+                | Intent::ModelCall(_)
                 | Intent::Fetch(_) => {}
             }
         }

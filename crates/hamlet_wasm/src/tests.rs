@@ -10,6 +10,7 @@ mod hooks;
 mod interop;
 mod limits;
 mod manifest;
+mod model;
 mod needs;
 mod net;
 mod overlay;

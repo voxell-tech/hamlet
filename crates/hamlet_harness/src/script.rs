@@ -56,6 +56,10 @@ pub enum Step {
     /// Closes the folder dialog a plugin opened with the folder at
     /// this path chosen, or with nothing for an empty path.
     ChooseFolder(String),
+    /// Makes these the replies of the model, in order, to the model
+    /// calls of the plugins. No server is reached; until this step
+    /// there is no model.
+    ModelReplies(Vec<String>),
     /// The chief allows a capability the plugin asked for.
     Grant(String),
     /// The chief refuses one.

@@ -19,6 +19,7 @@ pub mod draw;
 pub mod events;
 pub mod files;
 pub mod folder;
+pub mod model;
 pub mod net;
 pub mod overlay;
 pub mod state;

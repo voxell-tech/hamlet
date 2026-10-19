@@ -34,6 +34,7 @@ pub mod interop;
 pub mod limits;
 pub mod load;
 pub mod manifest;
+pub mod model;
 pub mod net;
 pub mod overlay;
 pub mod panel;
@@ -74,6 +75,7 @@ pub fn plugin(app: &mut App) {
     .init_resource::<acts::Acted>()
     .init_resource::<net::Fetching>()
     .init_resource::<folder::Folders>()
+    .init_resource::<model::Calling>()
     .add_message::<run::Done>()
     .add_message::<run::Said>()
     .add_observer(admit::admit)
@@ -149,6 +151,12 @@ pub fn plugin(app: &mut App) {
             folder::finish
                 .in_set(PluginSet::Collect)
                 .run_if(folder::Folders::any),
+            model::start
+                .in_set(PluginSet::Apply)
+                .run_if(on_message::<run::Done>),
+            model::finish
+                .in_set(PluginSet::Collect)
+                .run_if(model::Calling::any),
             draw::draw.in_set(PluginSet::Draw).run_if(draw::due),
         ),
     );

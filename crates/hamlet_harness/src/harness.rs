@@ -9,6 +9,7 @@ use bevy::ecs::message::{MessageCursor, Messages};
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
+use hamlet_agents_api::model::Model;
 use hamlet_agents_api::tools::{
     AgentTool, AgentToolCalled, TurnObserved,
 };
@@ -256,6 +257,16 @@ impl Harness {
         picking.choose(path.map(Path::to_path_buf));
         self.frames(SETTLE);
         Ok(())
+    }
+
+    /// Makes `replies` the answers of the model, in order, to the
+    /// model calls the plugins make. No server is reached.
+    pub fn set_model_replies(&mut self, replies: &[String]) {
+        let replies =
+            replies.iter().map(String::as_str).collect::<Vec<_>>();
+        self.app
+            .world_mut()
+            .insert_resource(Model::answering(&replies));
     }
 
     /// The lines of what the plugin `id` draws over the world, one

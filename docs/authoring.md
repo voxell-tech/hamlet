@@ -300,6 +300,7 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 | `set-selected = "Juniper"` | Selects the agent of that name in the world, or none for `""`; a plugin that imports `host/selection-changed` and may read the agents hears of it |
 | `set-world = { hamlets = [{ id = "home", name = "Pear Tree", at = [0, 0, 0] }], agents = [{ name = "Juniper", hamlet = "home", at = [4, 0, 2], busy = true }], selected = "agent:Juniper", hour = 9.5 }` | Replaces the realm a plugin that may read it (`read.world`) sees: its hamlets, its agents and where each stands, the thing selected as `kind:name` and the hour |
 | `choose-file = "tide.csv"` | Closes the file dialog a plugin opened with `pick-file` with this file chosen, a path from where the check runs, or with nothing for `""`. No dialog is shown; it fails where no plugin asked for a file |
+| `model-replies = ["noon"]` | Makes these the replies of the model, in order, to the plugins' `model-call`s. No server is reached, and until this step there is no model |
 | `choose-folder = "notes"` | Closes the folder dialog a plugin opened with `pick-folder` with this folder chosen, or with nothing for `""`, as `choose-file` does |
 | `plugin = "clipper"` | Puts a plugin in front, where several were opened: the steps after it are done to that one |
 | `grant = "read.agents"` | The chief allows a capability the manifest asks for. For a scoped capability, `plugin.use:notes` or `collections.read:notes/notes` |

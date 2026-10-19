@@ -7,6 +7,7 @@ pub mod agent;
 pub mod agents;
 pub mod catalogue;
 pub mod core;
+pub mod model_call;
 pub mod oversight;
 pub mod session;
 pub mod terminal;

@@ -340,6 +340,8 @@ interface plugin {
     folder-picked(pick-answer),
     // The answer to a `folder` call this plugin made.
     folder-done(folder-answer),
+    // The answer to a `model-call` this plugin made.
+    model-answered(model-answer),
   }
 
   record published {
@@ -468,6 +470,41 @@ interface plugin {
     // unless the folder is in the folder of a hamlet set to auto.
     // The answer reaches a later `step` as `folder-done`.
     folder(folder-request),
+    // Asks the model the chief runs, with no tools. It needs the
+    // capability `model.call`. The call is charged to the first
+    // hamlet's budget under the plugin's name and refused once that
+    // budget is spent; the host caps the calls a minute and the
+    // tokens of a call, and cuts the reply off at its tokens. The
+    // plugin never sees a key or an address. The answer reaches a
+    // later `step` as `model-answered`.
+    model-call(model-request),
+  }
+
+  enum model-role { user, assistant }
+
+  record model-message {
+    role: model-role,
+    text: string,
+  }
+
+  record model-request {
+    // The plugin's own number for the call, which the answer names.
+    id: u32,
+    system: string,
+    messages: list<model-message>,
+    // The most tokens of the reply. None, or more than the host
+    // allows, is what the host allows.
+    max-tokens: option<u32>,
+  }
+
+  record model-answer {
+    // The `id` of the call it answers.
+    id: u32,
+    // The text of the reply, or why there is none: `model.call` is
+    // not granted (the chief is asked where it is yet to be
+    // decided), a limit was passed, the budget is spent or the model
+    // did not answer.
+    outcome: result<string, string>,
   }
 
   record folder-request {

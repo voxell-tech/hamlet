@@ -103,6 +103,9 @@ fn describe(step: &Step) -> String {
         Step::ChooseFolder(folder) => {
             format!("choose-folder {folder:?}")
         }
+        Step::ModelReplies(replies) => {
+            format!("model-replies ({} replies)", replies.len())
+        }
         Step::SetWorld(world) => format!(
             "set-world ({} hamlets, {} agents)",
             world.hamlets.len(),
@@ -192,6 +195,10 @@ fn apply(
             Some(Path::new(folder))
                 .filter(|folder| !folder.as_os_str().is_empty()),
         ),
+        Step::ModelReplies(replies) => {
+            harness.set_model_replies(replies);
+            Ok(())
+        }
         Step::Grant(capability) => harness.grant(capability),
         Step::Deny(capability) => harness.deny(capability),
         Step::Restart(true) => {

@@ -3890,6 +3890,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
+ "futures",
  "hamlet_agents_api",
  "hamlet_assets",
  "hamlet_base",

@@ -27,7 +27,7 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 `agent.tool`, `agent.hook`, `ui.canvas` and `world.overlay`. `read.agents`,
 `read.papers`, `read.world`, `ui.menu`, `ui.keys`, `ui.context`,
 `ui.inspector`, `ui.settings`, `ui.canvas`, `world.overlay`, `chat.send`,
-`commands.run`, `world.act`, `net`, `fs.pick`, `fs.folder`,
+`commands.run`, `world.act`, `net`, `fs.pick`, `fs.folder`, `model.call`,
 `files.read`, `files.write`,
 `db`, `agent.tool`, `agent.hook` and the three below are checked so far; the
 others can be asked for, shown and chosen.
@@ -248,6 +248,29 @@ or `host:port` for a port other than 443. An ask with no hosts reaches none.
 
 The test of the host never goes to the internet: the address check is tested on its
 own, and the transfer against a server on the loopback.
+
+## The model
+
+`model.call` lets a plugin ask the model the agents run (the `model-call` intent,
+see [`wasm.md`](wasm.md)): a system text, messages and the most tokens of the reply,
+with no tools. It spends money, so the caution in the petition and in Settings says
+so.
+
+- The call goes through the core's own client (`hamlet_agents_api::model::call_model`)
+  with the model the first hamlet runs for whoever nobody chose one for. The plugin
+  never sees a key, an address or a credential, only the text of the reply.
+- It is charged to the budget of the first hamlet, in its books under the name
+  `plugin <id>`, and refused once that budget is spent, as an agent's call is. Each
+  call is its own task, and is written to the app's log with the plugin.
+- `model_calls_per_minute`, `model_calls_in_flight`, `model_call_tokens` (what it
+  sends and the most its reply may have, at four characters a token) and
+  `model_reply_tokens` in `assets/wasm.toml` limit it. A call over one is answered at
+  once with an error, and a reply is cut off at its tokens.
+- Like `net`, it is allowed when the chief lets the plugin in, the install petition
+  being the question. Where the choice is Ask next time or unanswered, the call is
+  answered with `model.call is yet to be decided` and the chief is asked.
+
+The tests never reach a model server: they answer from `Model::answering`.
 
 `ui.keys` is not `keys`. `keys` in the list of what is never granted below means
 keys and model credentials; `ui.keys` is the keyboard shortcuts of a plugin.

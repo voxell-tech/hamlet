@@ -120,6 +120,17 @@ pub struct Limits {
     /// have waiting at once, a write the chief is asked about among
     /// them.
     pub folder_calls_in_flight: usize,
+    /// The model calls one plugin may make in a minute.
+    pub model_calls_per_minute: u32,
+    /// The model calls one plugin may have waiting at once.
+    pub model_calls_in_flight: usize,
+    /// The tokens of one model call, what it sends and the most its
+    /// reply may have, counted as four characters a token. A call
+    /// over it is refused.
+    pub model_call_tokens: u64,
+    /// The tokens of the reply to one model call, at most. A reply
+    /// is cut off there.
+    pub model_reply_tokens: u32,
     /// The bytes of all the tables one plugin keeps in its database.
     pub db_bytes: u64,
     /// The tables one plugin may keep in its database.

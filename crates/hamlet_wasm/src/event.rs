@@ -71,7 +71,8 @@ pub fn panel_of(incoming: &Incoming) -> Option<&str> {
         | Incoming::Fetched(_)
         | Incoming::Picked(_)
         | Incoming::FolderPicked(_)
-        | Incoming::FolderDone(_) => None,
+        | Incoming::FolderDone(_)
+        | Incoming::ModelAnswered(_) => None,
         Incoming::Click(press) => Some(&press.panel),
         Incoming::Toggled(toggle) => Some(&toggle.panel),
         Incoming::TextChanged(typed) => Some(&typed.panel),

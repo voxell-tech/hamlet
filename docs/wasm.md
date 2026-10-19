@@ -36,7 +36,7 @@ In `hamlet_wasm/src/`, a file for each part:
 | Part | Files |
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
-| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `host/folder.rs` and `files.rs` (the folder of files), `pick.rs` (a file or a folder the chief picks), `folder.rs` (the folder the chief chose), `host/database.rs` and `db.rs` (the database), `acts.rs` (a message or a command as the chief), `net.rs` (fetches), `rate.rs` (a count a minute), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
+| What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `host/folder.rs` and `files.rs` (the folder of files), `pick.rs` (a file or a folder the chief picks), `folder.rs` (the folder the chief chose), `model.rs` (a model call), `host/database.rs` and `db.rs` (the database), `acts.rs` (a message or a command as the chief), `net.rs` (fetches), `rate.rs` (a count a minute), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
 | The install folder | `manifest.rs`, `install.rs` (which also turns down plugins whose needs go in a circle), `cache.rs` (the compiled components kept in the home) |
 | Plugins working together | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `chief.rs` (a command the chief runs), `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `tools.rs` (a call of an agent), `mail.rs`. Also `command.rs` (a plugin's commands, menu lines, context items, inspector tabs, settings pages and keys as entities), `reach.rs` and `host/collections.rs` (the shared collections) |
 | Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
@@ -129,7 +129,8 @@ The plugin exports:
   Drawing below), `pick-file` (see Files below), whose answer reaches a later
   `step` as `picked(id, outcome)`, `pick-folder` and `folder` (see A folder the
   chief chooses below), answered as `folder-picked(id, outcome)` and
-  `folder-done(id, outcome)`, and `fetch` (see
+  `folder-done(id, outcome)`, `model-call` (see Asking the model below),
+  answered as `model-answered(id, outcome)`, and `fetch` (see
   The web below), the answer to which reaches a later `step` as `fetched(id,
   outcome)`.
 - `panel-view(panel) -> view`, which returns the panel as it is now: a
@@ -446,6 +447,22 @@ up by the host before the transfer, and the client is pinned to the answer
 check) with the loopback, private, link-local, unique-local, shared, multicast
 and unspecified addresses taken out, unless the ask lists that address
 itself. A name with no address left is answered with an error.
+
+## Asking the model
+
+`model-call(id, system, messages, max-tokens)` asks the model the agents run, with
+no tools, and the answer is `model-answered(id, outcome)` in a later `step`: the text
+of the reply, or why there is none. It needs `model.call`
+([`permissions.md`](permissions.md)). `model.rs` checks the grant, the tokens of the
+call (what it sends at four characters a token, and the reply it may have, which is
+`max-tokens` held to `model_reply_tokens`) against `model_call_tokens`, the calls
+waiting against `model_calls_in_flight` and the calls of the last minute against
+`model_calls_per_minute`, and answers a refusal at once. A call that passes runs on
+the app's runtime through the core's `model_call::call_model`, with the provider of
+the `Model` resource the agents use: it is refused once the first hamlet has spent
+its budget, cut off where the reply passes its tokens, and charged to that hamlet's
+books under `plugin <id>`. With no runtime, as in the harness, it is made on the
+frame. `hamlet_guest::model` makes the intent and reads the answer.
 
 ## Plugins working together
 
@@ -818,6 +835,9 @@ each means. They apply to every plugin alike, whatever it is granted.
   `fetch_request_bytes` and reads at most `fetch_response_bytes`. A plugin has
   at most `fetches_in_flight` waiting and starts at most `fetches_per_minute`.
   A fetch over one is answered at once with an error.
+- **The model.** At most `model_calls_per_minute` calls in a minute,
+  `model_calls_in_flight` waiting and `model_call_tokens` in a call, a reply of
+  `model_reply_tokens` at most. A call over one is answered at once with an error.
 - **Files.** At most `files_count` files in the plugin's folder of files,
   `files_bytes` in all, `file_bytes` in one and `file_path_bytes` in a path. A
   write over one returns an error to the plugin.

@@ -117,6 +117,18 @@ impl Model {
         }
     }
 
+    /// A model that answers with `replies` in order and reaches no
+    /// server, for tests and the plugin harness.
+    pub fn answering(replies: &[&str]) -> Model {
+        let replies = replies
+            .iter()
+            .map(|reply| {
+                serde_json::json!({"role": "assistant", "content": reply})
+            })
+            .collect();
+        Model::new(&Config::default(), Path::new(""), Some(replies))
+    }
+
     pub fn provider(&self) -> Arc<dyn Provider> {
         self.provider.clone()
     }
