@@ -18,7 +18,11 @@ pub fn plugin(app: &mut App) {
     .add_systems(Update, settle.run_if(unsettled))
     .add_systems(
         Last,
-        settle_all.run_if(unsettled.and_then(on_message::<AppExit>)),
+        (
+            settle_all
+                .run_if(unsettled.and_then(on_message::<AppExit>)),
+            exited.run_if(on_message::<AppExit>),
+        ),
     );
 }
 
@@ -29,6 +33,9 @@ pub struct Guard {
     /// The frames the app runs, after a library's entry returned,
     /// before the library is trusted and its marker goes.
     pub clean_frames: u32,
+    /// The runs in a row that opened a library and did not exit by
+    /// themselves, after which a start opens none. 0 never does.
+    pub unclean_starts: u32,
 }
 
 /// The sections of `assets/native.toml`.
@@ -95,6 +102,14 @@ fn settle(
         if let Some(home) = &home {
             marker::settled(&home.0.root, &id);
         }
+    }
+}
+
+/// The app is exiting by itself: the count of unclean runs starts
+/// again.
+fn exited(home: Option<Res<HomeDir>>) {
+    if let Some(home) = home {
+        marker::exited(&home.0.root);
     }
 }
 

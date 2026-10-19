@@ -339,12 +339,32 @@ What the guard covers, from the moment the library is opened:
 - a crash of any kind: a panic in one of its systems aborts the process, as
   a signal ends it, and none of them lets the marker go.
 
-An exit of the app by itself (the window closed, Ctrl-C headless) before
-the clean frames trusts the libraries still waiting, as nothing stopped it.
-A library that crashes after its clean frames is not guarded: it is the
-app's code, and the chief starts Hamlet with **`--safe-mode`** to open no
-native library in that run. The plugins are listed with a note saying so,
-and the one at fault can be removed before a start without it.
+An exit of the app by itself (the window closed, Quit, Ctrl-C headless)
+before the clean frames trusts the libraries still waiting, as nothing
+stopped it.
+
+A library that crashes after its clean frames is the app's code, and the
+marker does not see it. A count does: the file `unclean` in the home holds
+how many runs in a row opened a library and did not exit by themselves. A
+run adds one before it opens its first library, and an exit by itself
+removes the file. When a start finds `unclean_starts` (`[guard]`, 2) or
+more:
+
+- that start is in safe mode: no native library is opened;
+- each plugin is listed with a note saying why, and the chief is told in
+  the chat;
+- an exit of that run by itself removes the file, so the next start opens
+  the libraries again. The one at fault is removed from the Plugins page
+  in between.
+
+The chief can also start Hamlet with **`--safe-mode`** to open no native
+library in that run. The plugins are listed with a note saying so. Holding
+a key at launch does not enter safe mode: the window's events start only
+once the app runs, after the libraries are opened, and reading the
+keyboard before that takes a call of each system.
+
+Both files are written whole: to a file beside them, synced, then renamed
+over them.
 
 ## Where it is in the code
 
@@ -361,9 +381,9 @@ and the one at fault can be removed before a start without it.
 | What the SDK knows of a native plugin: `FullAccess`, `NotLoaded`, `Declared`, the hash in a record, the petition text | `hamlet_sdk/src/plugin/access.rs`, `capability/record.rs`, `petition.rs` |
 | The NATIVE line on the Plugins page | `plugins/settings/src/plugins/list.rs` |
 
-The binary's `native` feature (on by default) adds `hamlet_native::plugin`;
-`cargo run --no-default-features` never opens a library, nor does a run
-with `--safe-mode`.
+The binary's `native` feature (on by default) adds `hamlet_native::plugin`,
+after every other plugin; `cargo run --no-default-features` never opens a
+library, nor does a run with `--safe-mode`.
 
 The test that builds the sample and loads it is ignored by default:
 `cargo test -p hamlet_native --test sample -- --ignored`.

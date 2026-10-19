@@ -11,6 +11,7 @@ use hamlet_sdk::capability::{
     AskToInstall, AskToRemove, Asks, Choices, Granted, Installed,
     Record, Standing, Store, Uninstalled, standing,
 };
+use hamlet_sdk::command::Notice;
 use hamlet_sdk::plugin::{
     Declared, Enable, Entry, EntryPoint, Exports, FullAccess,
     Imports, Manifest, NotLoaded, PluginInfo, Status, plain,
@@ -37,7 +38,14 @@ pub enum SafeMode {
     Asked,
     /// The last run ended before these plugins were trusted.
     Stopped(Vec<String>),
+    /// This many runs in a row opened a library and did not exit by
+    /// themselves.
+    Crashed(u32),
 }
+
+/// Present once this run is counted as unclean until it exits.
+#[derive(Resource)]
+struct Counted;
 
 /// The plugins found when the app was built, for the scan at
 /// startup.
@@ -85,6 +93,7 @@ pub fn granted(app: &mut App) {
                 continue;
             }
             let id = &plugin.manifest.id;
+            count(app.world_mut(), &root);
             let outcome =
                 open(&root, id, &plugin.library, &plugin.hash)
                     .and_then(|entry| {
@@ -130,8 +139,34 @@ fn prepare(
         world.insert_resource(SafeMode::Stopped(culprits));
     } else if world.contains_resource::<SafeMode>() {
         warn!("native plugins: --safe-mode, no library is opened");
+    } else {
+        let unclean = marker::unclean(root);
+        let limit = world
+            .get_resource::<Guard>()
+            .cloned()
+            .unwrap_or_default()
+            .unclean_starts;
+        if limit > 0 && unclean >= limit {
+            warn!(
+                "native plugins: the last {unclean} runs with a \
+                 library open did not exit, so no library is opened"
+            );
+            world.insert_resource(SafeMode::Crashed(unclean));
+        }
     }
     found
+}
+
+/// Counts this run as unclean until it exits by itself, once, before
+/// its first library is opened.
+fn count(world: &mut World, root: &Path) {
+    if world.contains_resource::<Counted>() {
+        return;
+    }
+    if let Err(e) = marker::opening(root) {
+        warn!("native plugins: `unclean` cannot be written: {e}");
+    }
+    world.insert_resource(Counted);
 }
 
 /// Where the chief stands on `plugin`, for the library that is there.
@@ -205,6 +240,9 @@ pub fn installed(world: &mut World) {
                     Some(SafeMode::Asked) => {
                         not_loaded(world, entity, ASKED)
                     }
+                    Some(SafeMode::Crashed(runs)) => {
+                        not_loaded(world, entity, &crashed(*runs))
+                    }
                     None => match opened.take(&id) {
                         Some(outcome) => {
                             loaded(world, entity, &id, outcome)
@@ -226,7 +264,21 @@ pub fn installed(world: &mut World) {
             }
         }
     }
+    if let Some(SafeMode::Crashed(runs)) = safe {
+        world.trigger(Notice(crashed(runs)));
+    }
     world.flush();
+}
+
+/// What the chief and each plugin are told in a run that opens no
+/// library after `runs` runs in a row did not exit.
+fn crashed(runs: u32) -> String {
+    format!(
+        "Not loaded: Hamlet stopped without exiting the last {runs} \
+         times it ran with native plugins, so none is loaded in \
+         this run. Remove the one at fault from the Plugins page; \
+         the next start loads them again."
+    )
 }
 
 /// What the plugin that was loading when the last run stopped is
@@ -373,6 +425,7 @@ pub fn start(world: &mut World, plugin: Entity) {
     ) else {
         return;
     };
+    count(world, &root);
     let outcome =
         open(&root, &info.id, &file, &granted).and_then(|entry| {
             world.remove_resource::<Declared>();
@@ -427,6 +480,10 @@ pub fn admit(
                 SafeMode::Stopped(_) => {
                     "Not loaded: native plugins are off after a stop \
                      while loading one. Restart Hamlet."
+                }
+                SafeMode::Crashed(_) => {
+                    "Not loaded: native plugins are off in this run, \
+                     after runs that did not exit. Restart Hamlet."
                 }
             };
             commands.entity(plugin).insert(NotLoaded(why.into()));
@@ -543,6 +600,30 @@ mod tests {
         assert_eq!(status, Status::Failed);
         assert!(why.unwrap().contains("cannot be opened"));
         assert!(marker::pending(&root).is_empty());
+        // Counted until it exits by itself.
+        assert_eq!(marker::unclean(&root), 1);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn after_runs_that_did_not_exit_no_library_is_opened() {
+        let (mut app, root) =
+            home_with_spark("crashed", true, |root, _| {
+                marker::opening(root).unwrap();
+                marker::opening(root).unwrap();
+            });
+        app.update();
+        let (_, why, status) = spark(&mut app);
+        assert_eq!(status, Status::Disabled);
+        assert_eq!(why, Some(crashed(2)));
+        assert_eq!(
+            app.world().resource::<SafeMode>(),
+            &SafeMode::Crashed(2)
+        );
+        // An exit by itself starts the count again.
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert_eq!(marker::unclean(&root), 0);
         std::fs::remove_dir_all(&root).unwrap();
     }
 
