@@ -19,19 +19,19 @@ fn info(id: &str, name: &str, version: &str) -> PluginInfo {
 
 pub(super) fn put(world: &mut World) {
     world.spawn((
-        info("roster", "Roster", "0.2.0"),
+        info("roster", "Roster", "0.1.0"),
         Status::Running,
         Reload {
             note: Some(
-                "could not load: built for interface 0.1.0, this \
-                 Hamlet speaks 0.9.0"
+                "could not load: built for interface 0.0.1, this \
+                 Hamlet speaks 0.1.0"
                     .into(),
             ),
             rollback: true,
         },
     ));
     world.spawn((
-        info("almanac", "Almanac", "0.3.0"),
+        info("almanac", "Almanac", "0.1.0"),
         Status::Running,
         Reload {
             note: Some(
@@ -43,7 +43,7 @@ pub(super) fn put(world: &mut World) {
         },
     ));
     world.spawn((
-        info("tides", "Tides", "1.2.0"),
+        info("tides", "Tides", "0.1.0"),
         Status::Running,
         Reload::default(),
     ));

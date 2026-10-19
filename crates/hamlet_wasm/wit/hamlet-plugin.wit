@@ -1,4 +1,4 @@
-package hamlet:plugin@0.9.0;
+package hamlet:plugin@0.1.0;
 
 interface host {
   enum level { info, warn, error }

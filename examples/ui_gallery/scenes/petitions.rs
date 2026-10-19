@@ -49,7 +49,7 @@ pub(super) fn put(world: &mut World) {
         plugin: "roster".into(),
     });
     world.spawn((
-        info("almanac", "Almanac", "0.3.0"),
+        info("almanac", "Almanac", "0.1.0"),
         asks(&[
             (
                 "read.papers",
@@ -67,7 +67,7 @@ pub(super) fn put(world: &mut World) {
     // decide.
     let tides = world
         .spawn((
-            info("tides", "Tides", "1.2.0"),
+            info("tides", "Tides", "0.1.0"),
             asks(&[(
                 "net",
                 "To fetch the tide table from the harbour.",

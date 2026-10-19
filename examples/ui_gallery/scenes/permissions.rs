@@ -45,7 +45,7 @@ fn info(id: &str, name: &str, version: &str) -> PluginInfo {
 pub(super) fn installed_line(world: &mut World) {
     let almanac = world
         .spawn((
-            info("almanac", "Almanac", "0.3.0"),
+            info("almanac", "Almanac", "0.1.0"),
             Granted::allowing(&[Capability::UiMenu]),
             Status::Running,
         ))
@@ -102,7 +102,7 @@ pub(super) fn put(world: &mut World, scene: Scene) {
     ));
     let almanac = world
         .spawn((
-            info("almanac", "Almanac", "0.3.0"),
+            info("almanac", "Almanac", "0.1.0"),
             asks(&[
                 (
                     ReadPapers,
@@ -123,7 +123,7 @@ pub(super) fn put(world: &mut World, scene: Scene) {
     ));
     world.spawn((chorded("look"), ContributedBy(almanac)));
     world.spawn((
-        info("tides", "Tides", "1.2.0"),
+        info("tides", "Tides", "0.1.0"),
         asks(&[(Net, "To fetch the tide table from the harbour.")]),
         Choices::default(),
         Status::Disabled,

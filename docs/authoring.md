@@ -98,7 +98,7 @@ scripts/new-plugin.sh wasm tide_table /tmp/tide_table
 ```
 
 ```
-/tmp/tide_table is ready: wasm plugin tide_table, interface 0.9.0
+/tmp/tide_table is ready: wasm plugin tide_table, interface 0.1.0
 build:  /tmp/tide_table/build.sh /tmp/tide_table/build/tide_table
 check:  cd <the source folder> && cargo run --example plugin_check \
           --features wasm -- /tmp/tide_table/build/tide_table --script /tmp/tide_table/steps.toml
@@ -232,7 +232,7 @@ shows them.
 id = "tide_table"
 name = "Tide Table"
 version = "0.1.0"
-interface = "0.9.0"
+interface = "0.1.0"
 
 [[asks]]
 capability = "read.agents"
