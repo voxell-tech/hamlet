@@ -15,7 +15,8 @@ it elsewhere.
     NOTES.md      its memory, shown to it every turn
     skills/       its skills, one folder each with a SKILL.md
   plugins/        installed plugins, one folder each, and grants.toml, the chief's answers for them (see permissions.md)
-  loading         only while a native plugin's library is loading, or after a stop in it (see native.md)
+  loading         only while a native plugin's library is not yet trusted, or after a stop in it (see native.md)
+  native-cache/   the copies of the native libraries that are opened, one folder each; can be deleted
   plugins-cache/  the compiled plugins, one folder each; can be deleted
   tools/          tools added by hand; read-only to the agent
   sessions/       the mayor's logs, one JSONL file per session

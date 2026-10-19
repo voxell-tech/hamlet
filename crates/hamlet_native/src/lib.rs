@@ -14,6 +14,8 @@ pub mod abi;
 pub mod cache;
 pub mod gate;
 #[cfg(feature = "host")]
+pub mod guard;
+#[cfg(feature = "host")]
 pub mod install;
 #[cfg(feature = "host")]
 pub mod library;
@@ -34,7 +36,8 @@ pub use self::abi::{ABI, Abi, declare};
 /// Add it after the core and the SDK.
 #[cfg(feature = "host")]
 pub fn plugin(app: &mut App) {
-    app.add_observer(load::admit)
+    app.add_plugins(guard::plugin)
+        .add_observer(load::admit)
         .add_observer(remove::removed)
         .add_systems(Startup, load::installed.after(open_store));
 }

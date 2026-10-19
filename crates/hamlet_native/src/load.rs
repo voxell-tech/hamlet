@@ -15,6 +15,7 @@ use hamlet_sdk::plugin::{
     Imports, Manifest, NotLoaded, PluginInfo, Status, plain,
 };
 
+use crate::guard::{Guard, Settling};
 use crate::install::{Found, scan};
 use crate::{cache, library, marker};
 
@@ -26,10 +27,10 @@ pub struct Library {
     pub file: PathBuf,
 }
 
-/// Present when the last run ended while a library was loading:
-/// the plugin it was, and no library is opened in this run.
+/// Present when the last run ended before a library was trusted:
+/// the plugins that were not, and no library is opened in this run.
 #[derive(Resource, Clone, PartialEq, Eq, Debug)]
-pub struct SafeMode(pub String);
+pub struct SafeMode(pub Vec<String>);
 
 /// Scans the install folder. A plugin that `grants.toml` records as
 /// installed, for the library that is there, is loaded. Any other is
@@ -55,20 +56,23 @@ pub fn installed(world: &mut World) {
             }
         }
     }
-    let culprit = marker::pending(&home.root);
-    let safe = culprit.filter(|id| {
-        found.iter().any(|plugin| plugin.manifest.id == *id)
-    });
-    if safe.is_none() {
-        // A plugin that is gone cannot be the one that stopped it.
-        marker::end(&home.root);
+    let (culprits, gone) = marker::pending(&home.root)
+        .into_iter()
+        .partition::<Vec<_>, _>(|id| {
+            found.iter().any(|plugin| plugin.manifest.id == *id)
+        });
+    // A plugin that is gone cannot be the one that stopped it.
+    for id in &gone {
+        marker::settled(&home.root, id);
     }
-    if let Some(id) = &safe {
+    let safe = (!culprits.is_empty()).then_some(culprits);
+    if let Some(ids) = &safe {
         warn!(
-            "native plugins: the last run stopped while `{id}` was \
-             loading, so no library is opened"
+            "native plugins: the last run stopped before `{}` was \
+             trusted, so no library is opened",
+            ids.join("`, `")
         );
-        world.insert_resource(SafeMode(id.clone()));
+        world.insert_resource(SafeMode(ids.clone()));
     }
     for plugin in found {
         let id = plugin.manifest.id.clone();
@@ -97,16 +101,17 @@ pub fn installed(world: &mut World) {
                     .hashed(Some(&plugin.hash)),
                 );
                 match &safe {
-                    Some(culprit) if *culprit == id => {
+                    Some(culprits) if culprits.contains(&id) => {
                         not_loaded(world, entity, STOPPED);
                         world.trigger(AskToRemove { plugin: id });
                     }
-                    Some(culprit) => not_loaded(
+                    Some(culprits) => not_loaded(
                         world,
                         entity,
                         &format!(
-                            "Not loaded: the last run stopped while \
-                             `{culprit}` was loading."
+                            "Not loaded: the last run stopped \
+                             before `{}` was trusted.",
+                            culprits.join("`, `")
                         ),
                     ),
                     None => start(world, entity),
@@ -130,8 +135,8 @@ pub fn installed(world: &mut World) {
 
 /// What the plugin that was loading when the last run stopped is
 /// told.
-const STOPPED: &str = "Hamlet stopped while this was loading, so no \
-                       native plugin was loaded. Remove it, or \
+const STOPPED: &str = "Hamlet stopped before this was trusted, so \
+                       no native plugin was loaded. Remove it, or \
                        delete the file `loading` in the home to try \
                        again.";
 
@@ -208,10 +213,22 @@ pub fn start(world: &mut World, plugin: Entity) {
     let opened = library::open(&copy)
         .map_err(|refusal| refusal.to_string())
         .and_then(|entry| with_app(world, entry));
-    marker::end(&home);
     let declared = world.remove_resource::<Declared>();
     match opened {
         Ok(()) => {
+            // The marker stays while the library's systems run.
+            let frames = world
+                .get_resource::<Guard>()
+                .cloned()
+                .unwrap_or_default()
+                .clean_frames;
+            if frames == 0 {
+                marker::settled(&home, &info.id);
+            } else {
+                world
+                    .resource_mut::<Settling>()
+                    .add(&info.id, frames);
+            }
             let declared =
                 declared.map_or(nothing as fn(&mut Entry), |d| d.0);
             world.entity_mut(plugin).insert(EntryPoint(declared));
@@ -220,6 +237,7 @@ pub fn start(world: &mut World, plugin: Entity) {
             world.flush();
         }
         Err(why) => {
+            marker::settled(&home, &info.id);
             world.entity_mut(plugin).insert(Status::Failed);
             not_loaded(world, plugin, &format!("Not loaded: {why}"));
         }
@@ -366,10 +384,10 @@ mod tests {
         assert!(why.unwrap().contains("Hamlet stopped"));
         assert_eq!(
             app.world().resource::<SafeMode>(),
-            &SafeMode("spark".into())
+            &SafeMode(vec!["spark".into()])
         );
         // The marker stays until the plugin is removed.
-        assert_eq!(marker::pending(&root), Some("spark".into()));
+        assert_eq!(marker::pending(&root), ["spark"]);
         std::fs::remove_dir_all(&root).unwrap();
     }
 

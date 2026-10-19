@@ -1,0 +1,5 @@
+# The guard on the native plugins' libraries. What each value means is
+# written beside its field in crates/hamlet_native/src/guard.rs.
+
+[guard]
+clean_frames = 60

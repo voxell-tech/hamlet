@@ -5,6 +5,7 @@ use hamlet_core::core::HomeDir;
 use hamlet_sdk::capability::{Removed, Store};
 use hamlet_sdk::plugin::{FullAccess, PluginInfo};
 
+use crate::guard::Settling;
 use crate::load::Library;
 use crate::{cache, marker};
 
@@ -16,6 +17,7 @@ pub fn removed(
     removed: On<Removed>,
     plugins: Query<(Entity, &PluginInfo, &Library), With<FullAccess>>,
     home: Res<HomeDir>,
+    mut settling: ResMut<Settling>,
     store: Option<ResMut<Store>>,
     mut commands: Commands,
 ) {
@@ -54,9 +56,8 @@ pub fn removed(
     if let Some(mut store) = store {
         store.remove(&info.id);
     }
-    if marker::pending(&home.0.root).as_deref() == Some(&info.id) {
-        marker::end(&home.0.root);
-    }
+    marker::settled(&home.0.root, &info.id);
+    settling.forget(&info.id);
     info!(
         "native plugin {}: removed; its systems run until Hamlet \
          starts again",

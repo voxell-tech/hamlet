@@ -183,21 +183,27 @@ fn declare(entry: &mut hamlet_sdk::plugin::Entry) {
 - `native/spark/` is the sample: a resource that counts frames and a panel
   that shows the count.
 
-## When the app stops while a library loads
+## When the app stops while a library is new
 
 Before it opens a library, the host writes the file `loading` in the home,
-holding the plugin's id, and removes it when the entry returns. A `loading`
-found at the next start means the process died in that library, and:
+with the plugin's id on a line. The id goes when the entry has returned and
+the app has run `clean_frames` frames since (`[guard]` in
+`assets/native.toml`, 60), because a library can also fail in the systems its
+entry added. A `loading` found at the next start means the process died
+before those plugins were trusted, and:
 
 - that start is in **safe mode**: no native library is opened;
-- the plugin is listed with a note saying Hamlet stopped while it loaded,
-  and a removal petition for it is raised in Needs You;
-- the file stays, so each start is in safe mode, until the plugin is removed
-  (which deletes it) or the chief deletes the file `loading` by hand. A
-  `loading` that names a plugin no longer installed is deleted at start.
+- each plugin named is listed with a note saying Hamlet stopped before it was
+  trusted, and a removal petition for it is raised in Needs You (when
+  several libraries load in one start, all of them are named, as any could
+  be the one);
+- the file stays, so each start is in safe mode, until the plugins are
+  removed (which takes their lines) or the chief deletes the file `loading`
+  by hand. A line that names a plugin no longer installed is dropped at
+  start.
 
-A library that crashes later, after its entry returned, is not guarded: it
-is the app's code.
+A library that crashes after its clean frames is not guarded: it is the
+app's code.
 
 ## Where it is in the code
 
@@ -207,7 +213,7 @@ is the app's code.
 | Comparing two builds | `hamlet_native/src/gate.rs` |
 | Opening a library, and the private copy it is opened from | `hamlet_native/src/library.rs`, `cache.rs` |
 | The folder and its manifest | `hamlet_native/src/install.rs`, `manifest.rs` |
-| The scan at start, safe mode, loading the plugin just let in | `hamlet_native/src/load.rs`, `marker.rs` |
+| The scan at start, safe mode, loading the plugin just let in | `hamlet_native/src/load.rs`, `marker.rs`, `guard.rs`, `assets/native.toml` |
 | Removing | `hamlet_native/src/remove.rs` |
 | What the SDK knows of a native plugin: `FullAccess`, `NotLoaded`, `Declared`, the hash in a record, the petition text | `hamlet_sdk/src/plugin/access.rs`, `capability/record.rs`, `petition.rs` |
 | The NATIVE line on the Plugins page | `plugins/settings/src/plugins/list.rs` |

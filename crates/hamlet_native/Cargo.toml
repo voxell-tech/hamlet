@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 hamlet_sdk.workspace = true
 bevy.workspace = true
+hamlet_assets = { workspace = true, optional = true }
 hamlet_core = { workspace = true, optional = true }
 libloading = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
@@ -26,6 +27,7 @@ default = ["host"]
 # The loader. A native plugin leaves it off: it only needs the
 # contract.
 host = [
+    "dep:hamlet_assets",
     "dep:hamlet_core",
     "dep:libloading",
     "dep:serde",
