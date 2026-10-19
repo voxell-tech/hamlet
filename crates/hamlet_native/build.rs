@@ -1,9 +1,15 @@
 //! Finds what a native plugin and the host must agree on before the
-//! plugin's Rust is called: the compiler, the profile, and a hash of
-//! the lock entries of the engine crates.
+//! plugin's Rust is called: the compiler, the profile, a hash of the
+//! lock entries of the engine crates and a hash of the sources of
+//! the SDK and of this crate.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+#[path = "src/sources.rs"]
+mod sources;
+
+use sources::{FNV_OFFSET, fnv};
 
 /// The packages whose exact version, source and dependencies decide
 /// the layout of what is shared.
@@ -46,6 +52,17 @@ fn main() {
     println!("cargo:rustc-env=HAMLET_NATIVE_RUSTC={}", rustc());
     let profile = std::env::var("PROFILE").unwrap_or_default();
     println!("cargo:rustc-env=HAMLET_NATIVE_PROFILE={profile}");
+
+    let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let folders = [here.join("src"), here.join("../hamlet_sdk/src")];
+    for folder in &folders {
+        println!("cargo:rerun-if-changed={}", folder.display());
+    }
+    let folders = folders.each_ref().map(PathBuf::as_path);
+    let sources = sources::hash(&folders).unwrap_or_else(|e| {
+        panic!("the sources of hamlet_sdk cannot be read: {e}")
+    });
+    println!("cargo:rustc-env=HAMLET_NATIVE_SOURCES={sources}");
 }
 
 /// The `Cargo.lock` the build uses: the one named by `HAMLET_LOCK`,
@@ -76,16 +93,6 @@ fn fingerprint(lock: &str) -> u64 {
         if named.is_some_and(|name| WATCHED.contains(&name)) {
             hash = fnv(hash, entry.trim().as_bytes());
         }
-    }
-    hash
-}
-
-const FNV_OFFSET: u64 = 0xcbf29ce484222325;
-
-fn fnv(mut hash: u64, bytes: &[u8]) -> u64 {
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
     }
     hash
 }

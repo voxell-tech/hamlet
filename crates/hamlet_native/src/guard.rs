@@ -15,7 +15,11 @@ pub fn plugin(app: &mut App) {
     )
     .init_resource::<Guard>()
     .init_resource::<Settling>()
-    .add_systems(Update, settle.run_if(unsettled));
+    .add_systems(Update, settle.run_if(unsettled))
+    .add_systems(
+        Last,
+        settle_all.run_if(unsettled.and_then(on_message::<AppExit>)),
+    );
 }
 
 /// The guard on the libraries.
@@ -88,6 +92,18 @@ fn settle(
     home: Option<Res<HomeDir>>,
 ) {
     for id in settling.frame() {
+        if let Some(home) = &home {
+            marker::settled(&home.0.root, &id);
+        }
+    }
+}
+
+/// The app is exiting by itself, so no library stopped it.
+fn settle_all(
+    mut settling: ResMut<Settling>,
+    home: Option<Res<HomeDir>>,
+) {
+    for (id, _) in std::mem::take(&mut settling.0) {
         if let Some(home) = &home {
             marker::settled(&home.0.root, &id);
         }

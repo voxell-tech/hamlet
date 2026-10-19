@@ -6,12 +6,13 @@
 #   HAMLET_SDK=<kit> ./build.sh [folder] [release]
 #
 # The kit is made from the Hamlet that loads the plugin, with
-# scripts/make-native-sdk.sh of its checkout. It holds that build's
+# scripts/make-native-sdk.sh of its checkout, or fetched for a release
+# with scripts/fetch-native-sdk.sh. It holds that build's
 # compiled engine and SDK, and the plugin links those very crates, so
 # Hamlet's gate lets it through. A kit of another build is turned
 # down by the gate, and one of another compiler by the compiler.
 set -e
-: "${HAMLET_SDK:?set HAMLET_SDK to a kit made by scripts/make-native-sdk.sh}"
+: "${HAMLET_SDK:?set HAMLET_SDK to a kit made by scripts/make-native-sdk.sh or fetched by scripts/fetch-native-sdk.sh}"
 dest=
 release=
 for arg in "$@"; do
@@ -27,8 +28,15 @@ if [ -z "$dest" ]; then
 fi
 here=$(cd "$(dirname "$0")" && pwd)
 kit=$(cd "$HAMLET_SDK" && pwd)
-toolchain=$(cat "$kit/toolchain")
-target=$(cat "$kit/target")
+value() {
+    sed -n "s/^$1 = \"\(.*\)\"/\1/p" "$kit/sdk.toml"
+}
+toolchain=$(value toolchain)
+target=$(value target)
+[ -n "$toolchain" ] && [ -n "$target" ] || {
+    echo "$kit/sdk.toml names no toolchain or target: not a kit" >&2
+    exit 1
+}
 
 set -- -L "dependency=$kit/deps"
 while IFS= read -r line; do
@@ -36,12 +44,19 @@ while IFS= read -r line; do
 done < "$kit/externs"
 
 cd "$here"
-cargo "+$toolchain" rustc --lib --target "$target" $release -- "$@"
+built=${CARGO_TARGET_DIR:-$here/target}
 profile=debug
 [ -n "$release" ] && profile=release
+# Cargo does not see the kit's files change, so a plugin built with
+# another kit is built again.
+stamp=$built/sdk-$profile.toml
+if ! cmp -s "$kit/sdk.toml" "$stamp"; then
+    cargo "+$toolchain" clean -p {{name}} --target "$target" $release
+fi
+cargo "+$toolchain" rustc --lib --target "$target" $release -- "$@"
+cp "$kit/sdk.toml" "$stamp"
 mkdir -p "$dest"
-cp "${CARGO_TARGET_DIR:-$here/target}/$target/$profile/{{library}}" \
-    "$dest/{{library}}"
+cp "$built/$target/$profile/{{library}}" "$dest/{{library}}"
 cp "$here/manifest.toml" "$dest/manifest.toml"
 echo "built into $dest"
 echo "Hamlet asks before it loads this, and loads it when it starts."

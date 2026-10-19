@@ -39,7 +39,7 @@ fn the_sample_builds_and_loads_through_the_gate() {
     let mut app = App::new();
     app.add_plugins(bevy::MinimalPlugins);
     app.update();
-    load::with_app(app.world_mut(), entry).unwrap();
+    assert!(load::with_app(app.world_mut(), entry).unwrap());
     assert!(app.world().contains_resource::<Declared>());
     // Its system runs with the others.
     app.update();

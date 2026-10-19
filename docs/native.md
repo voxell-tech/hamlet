@@ -95,7 +95,7 @@ symbols (the `hamlet_native::export!` macro writes them):
 |---|---|---|
 | `hamlet_native_abi_version` | `extern "C" fn() -> u32` | The version of this contract. Read first; a library of another one is turned down before anything else of it is read |
 | `hamlet_native_abi` | `extern "C" fn() -> Abi` | What the library was built with, below |
-| `hamlet_native_entry` | `fn(&mut App)` | Called once, with the app |
+| `hamlet_native_entry` | `fn(&mut App) -> bool` | Called once, with the app; false when the entry panicked |
 
 `Abi` is `repr(C)` and holds, in this order:
 
@@ -111,17 +111,24 @@ symbols (the `hamlet_native::export!` macro writes them):
    lock above the target folder, or the file `HAMLET_LOCK` names, and fails
    the build when there is none; a lock with none of those packages is
    hashed whole;
-6. a hash of the identities (`TypeId`) of `App`, `World`, the SDK's `Entry`
+6. a hash of the sources of `hamlet_sdk` and `hamlet_native`: every file
+   under their `src`, by its path there and its bytes, in the order of the
+   paths. An edit of either, a comment too, changes it, so a library built
+   against the SDK before the edit is refused (`SDK sources`);
+7. a hash of the identities (`TypeId`) of `App`, `World`, the SDK's `Entry`
    and `Declared`.
 
 The host reads the library's values and compares them with its own in that
 order, and refuses at the first difference, saying which field, the host's
 value and the library's, in the plugin's line on the Plugins page and in the
-log. The last field is what the others cannot see: a crate built from other
-sources, with other features or other settings is a different type to the
-host, whatever it looks like. The gate has no way of knowing how a library
-was built beyond these, and a library that lies about them is a library the
-chief gave full access.
+log. The last field is what the others cannot see: a crate built with other
+features or other settings is a different type to the host, whatever it
+looks like. Sources the gate does not hash (the engine's, or another crate
+of the checkout) are not seen when they change under the same lock. The
+gate has no way of knowing how a library was built beyond these, and a
+library that lies about them is a library the chief gave full access.
+
+`hamlet --native-abi` prints the host's values, as TOML.
 
 Opening the file (`dlopen`) runs the library's initializers before any check
 is possible; that is why only a library the chief let in is opened.
@@ -168,15 +175,36 @@ A kit is the compiled crates of one build of Hamlet. The plugin is compiled
 against them, so it links the very engine and SDK that build has, and
 nothing of the engine is compiled again.
 
-- `scripts/make-native-sdk.sh <kit> [cargo build options]` runs the build of
-  the Hamlet that will load the plugins, with its options (none for
-  `cargo build`, `--release` for `cargo build --release`), and copies into
-  `<kit>`:
-  - `deps/`: every library the build compiled, and the procedural macros;
-  - `externs`: the crates a plugin names and their files: `bevy`, each
-    `bevy_*` (the engine's derives write paths such as `bevy_ecs::`),
-    `hamlet_sdk` and `hamlet_native`;
-  - `toolchain` and `target`: the compiler and the target of the build.
+Getting one:
+
+- For a release of Hamlet,
+  `scripts/fetch-native-sdk.sh <version> <target> <kit>` downloads the kit
+  published with it (`hamlet-sdk-<version>-<target>.tar.gz`, see
+  [`releases.md`](releases.md)) and unpacks it into `<kit>`.
+  The target is the triple of the Hamlet the plugin is for:
+  `aarch64-apple-darwin`, `x86_64-pc-windows-msvc` or
+  `x86_64-unknown-linux-gnu`.
+- For a Hamlet built from a checkout,
+  `scripts/make-native-sdk.sh <kit> [cargo build options]` runs the build
+  of the Hamlet that will load the plugins, with its options (none for `cargo build`, `--release` for
+  `cargo build --release`), and makes the kit from it. The release is made
+  with `--release --locked -p hamlet --target <target>`.
+
+A kit holds:
+
+- `deps/`: the libraries of the engine, the SDK and the contract and of
+  everything they depend on in that build, and the procedural macros among
+  them (what a macro depends on is inside its own library). The rest of
+  the app is left out: `cargo tree` of the same packages, features and
+  target says what they depend on;
+- `externs`: the crates a plugin names and their files: `bevy`, each
+  `bevy_*` (the engine's derives write paths such as `bevy_ecs::`),
+  `hamlet_sdk` and `hamlet_native`;
+- `sdk.toml`: the toolchain, the target, and the values the gate compares,
+  as `hamlet --native-abi` of that build prints them.
+
+Building with one:
+
 - `scripts/new-native-plugin.sh <name> <folder>` makes the plugin in that
   folder, a workspace of its own with no dependencies (the files of
   `templates/native-plugin/outside` replace their namesakes).
@@ -184,12 +212,16 @@ nothing of the engine is compiled again.
   `cargo +<toolchain> rustc --lib --target <target>` with
   `-L dependency=<kit>/deps` and an `--extern` for each line of `externs`,
   and puts the manifest and the library in the folder. It takes seconds.
+  The plugin is built again from nothing when the kit's `sdk.toml` is not
+  the one it was last built with, as cargo does not see the kit's files.
 
 What must match:
 
 - The kit is of the build that loads the plugin. Make it again whenever
   that Hamlet is built again; a kit of another build is refused by the gate
-  (a debug kit's plugin in a release Hamlet: its profile differs).
+  (a debug kit's plugin in a release Hamlet: its profile differs). Compare
+  the kit's `sdk.toml` with `hamlet --native-abi` of the Hamlet to see
+  which.
 - The compiler is the kit's. Another one refuses the kit's crates when the
   plugin is compiled (`E0514`, compiled by an incompatible version of
   rustc).
@@ -198,16 +230,12 @@ What must match:
   fine inside the plugin, never for a value it hands to Hamlet.
 
 What the plugin says to the gate is the kit's own `hamlet_native`, so its
-profile is the kit's whatever the plugin was built with. The gate cannot
-see the sources of a build: a kit made before an edit of the SDK, for a
-Hamlet built again with the same lock, features and compiler, passes and
-is wrong. Editors do not see the kit's crates, as the plugin's
-`Cargo.toml` names none. The kit holds every library of the build: on
-macOS 5.5 GB for a debug build of the app, 1.7 GB for a release one.
-
-For a release, the kit is made by the job that builds it, with the same
-options: `scripts/make-native-sdk.sh <kit> --release --locked -p hamlet
---target <triple>`.
+profile is the kit's whatever the plugin was built with. A kit made before
+an edit of the SDK, for a Hamlet built again with the same lock, features
+and compiler, makes plugins the gate refuses for their `SDK sources`.
+Editors do not see the kit's crates, as the plugin's `Cargo.toml` names
+none. On macOS a release kit is 1.1 GB (1.3 GB with the libraries of the
+whole app), and about 0.3 GB as the release's archive.
 
 ## Writing one
 
@@ -234,8 +262,9 @@ fn declare(entry: &mut hamlet_sdk::plugin::Entry) {
   as everything a plugin adds does, so switching the plugin off despawns
   them and switching it on runs the function again. Anything the entry adds
   to the app directly is not tracked and stays until restart.
-- A panic in the entry is caught; the plugin is marked failed with the
-  reason. A crash is not (see below).
+- A panic in the entry is caught inside the library (`export!` does it),
+  and the plugin is marked failed. A panic anywhere else in the library
+  is foreign to Hamlet's runtime and aborts the process (see below).
 - `native/spark/` is the sample: a resource that counts frames and a panel
   that shows the count.
 
@@ -258,16 +287,30 @@ before those plugins were trusted, and:
   by hand. A line that names a plugin no longer installed is dropped at
   start.
 
+What the guard covers, from the moment the library is opened:
+
+- its initializers and its entry;
+- its systems, observers and anything else it added, for the first
+  `clean_frames` frames of the app after the entry returned, a panicking
+  entry's too (about two seconds headless, about one in the window);
+- a crash of any kind: a panic in one of its systems aborts the process, as
+  a signal ends it, and none of them lets the marker go.
+
+An exit of the app by itself (the window closed, Ctrl-C headless) before
+the clean frames trusts the libraries still waiting, as nothing stopped it.
 A library that crashes after its clean frames is not guarded: it is the
-app's code.
+app's code, and the chief starts Hamlet with **`--safe-mode`** to open no
+native library in that run. The plugins are listed with a note saying so,
+and the one at fault can be removed before a start without it.
 
 ## Where it is in the code
 
 | What | Where |
 |---|---|
 | The contract: `Abi`, `export!`, `declare`, the type hash | `hamlet_native/src/abi.rs`, `build.rs` |
+| The hash of the SDK's sources | `hamlet_native/src/sources.rs`, run by `build.rs` |
 | Comparing two builds | `hamlet_native/src/gate.rs` |
-| The compiler, and the kit a plugin outside the checkout builds with | `rust-toolchain.toml`, `scripts/make-native-sdk.sh`, `templates/native-plugin/outside/` |
+| The compiler, and the kit a plugin outside the checkout builds with | `rust-toolchain.toml`, `scripts/make-native-sdk.sh`, `scripts/fetch-native-sdk.sh`, `templates/native-plugin/outside/`, `.github/workflows/release.yml` |
 | Opening a library, and the private copy it is opened from | `hamlet_native/src/library.rs`, `cache.rs` |
 | The folder and its manifest | `hamlet_native/src/install.rs`, `manifest.rs` |
 | The scan at start, safe mode, loading the plugin just let in | `hamlet_native/src/load.rs`, `marker.rs`, `guard.rs`, `assets/native.toml` |
@@ -276,7 +319,8 @@ app's code.
 | The NATIVE line on the Plugins page | `plugins/settings/src/plugins/list.rs` |
 
 The binary's `native` feature (on by default) adds `hamlet_native::plugin`;
-`cargo run --no-default-features` never opens a library.
+`cargo run --no-default-features` never opens a library, nor does a run
+with `--safe-mode`.
 
 The test that builds the sample and loads it is ignored by default:
 `cargo test -p hamlet_native --test sample -- --ignored`.

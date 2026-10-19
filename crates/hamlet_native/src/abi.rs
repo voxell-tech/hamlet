@@ -10,7 +10,8 @@ use bevy::ecs::world::World;
 use hamlet_sdk::plugin::{Declared, Entry};
 
 /// The version of the contract between the host and a library: the
-/// symbols below and the shape of [`Abi`]. It moves when either does.
+/// symbols below and the shape of [`Abi`]. It stays at 1 until Hamlet
+/// 0.1.0 is published, and moves after that when either does.
 pub const ABI: u32 = 1;
 
 /// The name of the symbol that gives [`ABI`] and nothing else, so
@@ -25,6 +26,8 @@ pub const ABI_SYMBOL: &str = "hamlet_native_abi";
 pub const ENTRY_SYMBOL: &str = "hamlet_native_entry";
 
 const FINGERPRINT: u64 = parse(env!("HAMLET_NATIVE_FINGERPRINT"));
+
+const SOURCES: u64 = parse(env!("HAMLET_NATIVE_SOURCES"));
 
 const fn parse(digits: &str) -> u64 {
     let bytes = digits.as_bytes();
@@ -74,6 +77,7 @@ pub struct Abi {
     rustc: Text,
     profile: Text,
     fingerprint: u64,
+    sources: u64,
     types: u64,
 }
 
@@ -89,6 +93,9 @@ pub struct Info {
     pub profile: String,
     /// The hash of the lock entries of the engine crates.
     pub fingerprint: u64,
+    /// The hash of the source files of `hamlet_sdk` and
+    /// `hamlet_native`.
+    pub sources: u64,
     /// The hash of the identities of the types that cross over.
     pub types: u64,
 }
@@ -102,6 +109,7 @@ impl Abi {
             rustc: Text::of(env!("HAMLET_NATIVE_RUSTC")),
             profile: Text::of(env!("HAMLET_NATIVE_PROFILE")),
             fingerprint: FINGERPRINT,
+            sources: SOURCES,
             types: types(),
         }
     }
@@ -118,6 +126,7 @@ impl Abi {
                 rustc: self.rustc.read(),
                 profile: self.profile.read(),
                 fingerprint: self.fingerprint,
+                sources: self.sources,
                 types: self.types,
             }
         }
@@ -129,6 +138,22 @@ impl Info {
     pub fn ours() -> Self {
         // SAFETY: it is this build's own, in this build's memory.
         unsafe { Abi::ours().read() }
+    }
+
+    /// The values as TOML, the hashes as strings.
+    pub fn toml(&self) -> String {
+        format!(
+            "abi = {}\nhamlet = {:?}\nrustc = {:?}\nprofile = \
+             {:?}\nfingerprint = \"{}\"\nsources = \"{}\"\ntypes = \
+             \"{}\"\n",
+            self.abi,
+            self.hamlet,
+            self.rustc,
+            self.profile,
+            self.fingerprint,
+            self.sources,
+            self.types
+        )
     }
 }
 
@@ -174,9 +199,14 @@ macro_rules! export {
             $crate::Abi::ours()
         }
 
+        // The library's own runtime catches its panic: to the host's
+        // it is a foreign one, which aborts the process.
         #[unsafe(no_mangle)]
-        pub fn hamlet_native_entry(app: &mut $crate::App) {
-            $entry(app)
+        pub fn hamlet_native_entry(app: &mut $crate::App) -> bool {
+            ::std::panic::catch_unwind(
+                ::std::panic::AssertUnwindSafe(|| $entry(app)),
+            )
+            .is_ok()
         }
     };
 }

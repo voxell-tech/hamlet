@@ -81,8 +81,9 @@ off), then the frame of the window (`hamlet_ui`), what fills the frame
 the panels. See [`sdk.md`](sdk.md). A plugin built
 for WASM is under `guests/`, in a workspace of its own. A native plugin is
 a member of the workspace under `native/`, left out of the default members,
-or a folder outside built against an SDK kit (`scripts/make-native-sdk.sh`).
-`rust-toolchain.toml` pins the compiler, which a native plugin shares.
+or a folder outside built against an SDK kit (`scripts/make-native-sdk.sh`,
+or `scripts/fetch-native-sdk.sh` for a release). `rust-toolchain.toml` pins
+the compiler, which a native plugin and every CI and release job share.
 
 Inside a crate, a module with several subjects is a file and a folder of
 the same name, and each file opens with a line saying what it holds. Read
