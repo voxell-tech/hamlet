@@ -308,8 +308,9 @@ it is one question, "FULL ACCESS: this plugin runs as Hamlet with no
 limits", and **Allow** or **Don't allow** is the whole answer. The record in
 `grants.toml` holds the SHA-256 of the library file as well; a library with
 another hash is asked about again, and is not opened until the chief
-answers. There is no signing: the trust is the answer and the file it was
-for. Removing it is the removal above, with the difference that its code
+answers. A record whose library's entry panicked holds `failed = true`, and
+that library is asked about again too. There is no signing: the trust is the
+answer and the file it was for. Removing it is the removal above, with the difference that its code
 stays loaded until Hamlet starts again.
 
 ## First use

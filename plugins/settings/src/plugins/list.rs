@@ -194,7 +194,10 @@ fn line(line: &Line) -> AnyView {
             },
         ));
     }
-    if line.installed && line.status == Status::Failed {
+    // A native plugin that failed is loaded again only by a new
+    // start.
+    if line.installed && line.status == Status::Failed && !line.native
+    {
         let id = id.clone();
         actions.push(action(
             Glyph::Restore,

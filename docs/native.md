@@ -312,8 +312,12 @@ fn declare(entry: &mut hamlet_sdk::plugin::Entry) {
   them and switching it on runs the function again. Anything the entry adds
   to the app directly is not tracked and stays until restart.
 - A panic in the entry is caught inside the library (`export!` does it),
-  and the plugin is marked failed. A panic anywhere else in the library
-  is foreign to Hamlet's runtime and aborts the process (see below).
+  and the plugin is marked failed and not loaded. What the entry added
+  before the panic stays and runs until Hamlet restarts; the Plugins page
+  and the chat say so. Its record in `grants.toml` is marked `failed`, so
+  the next start does not open it and asks the chief to install it again.
+  A panic anywhere else in the library is foreign to Hamlet's runtime and
+  aborts the process (see below).
 - `native/spark/` is the sample: a resource that counts frames and a panel
   that shows the count.
 

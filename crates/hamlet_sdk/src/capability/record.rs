@@ -50,6 +50,10 @@ pub struct Record {
     /// again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
+    /// The entry of a native plugin's library panicked. It is not
+    /// opened again until the chief lets it in again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub failed: bool,
 }
 
 /// What a record says about a plugin whose manifest is now `asked`.
@@ -97,7 +101,14 @@ impl Record {
                 .collect(),
             scopes: BTreeMap::new(),
             hash: None,
+            failed: false,
         }
+    }
+
+    /// This record, for a library whose entry panicked.
+    pub fn failed(mut self) -> Self {
+        self.failed = true;
+        self
     }
 
     /// This record, for the library with this hash.
@@ -143,6 +154,7 @@ impl Record {
             choices: BTreeMap::new(),
             scopes: BTreeMap::new(),
             hash: None,
+            failed: false,
         }
     }
 

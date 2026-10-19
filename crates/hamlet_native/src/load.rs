@@ -55,13 +55,21 @@ struct Scanned(Vec<Found>);
 /// What the entry of each library opened while the app was built
 /// gave: what it declared, or why it is not loaded.
 #[derive(Resource, Default)]
-struct Opened(Vec<(String, Result<fn(&mut Entry), String>)>);
+struct Opened(Vec<(String, Outcome)>);
+
+type Outcome = Result<fn(&mut Entry), Failure>;
+
+/// Why a library is not loaded.
+#[derive(Debug)]
+enum Failure {
+    /// Turned down before its entry ran, so nothing of it runs.
+    Refused(String),
+    /// Its entry panicked, and what it added before that stays.
+    Panicked,
+}
 
 impl Opened {
-    fn take(
-        &mut self,
-        id: &str,
-    ) -> Option<Result<fn(&mut Entry), String>> {
+    fn take(&mut self, id: &str) -> Option<Outcome> {
         let at =
             self.0.iter().position(|(opened, _)| opened == id)?;
         Some(self.0.swap_remove(at).1)
@@ -96,6 +104,7 @@ pub fn granted(app: &mut App) {
             count(app.world_mut(), &root);
             let outcome =
                 open(&root, id, &plugin.library, &plugin.hash)
+                    .map_err(Failure::Refused)
                     .and_then(|entry| {
                         let ran = run_on(app, entry);
                         settle(app.world_mut(), &root, id, ran)
@@ -170,9 +179,12 @@ fn count(world: &mut World, root: &Path) {
 }
 
 /// Where the chief stands on `plugin`, for the library that is there.
+/// One whose entry panicked is asked about again.
 fn standing_of(store: &Store, plugin: &Found) -> Standing {
     match store.get(&plugin.manifest.id) {
-        Some(record) if record.stale(&plugin.hash) => {
+        Some(record)
+            if record.stale(&plugin.hash) || record.failed =>
+        {
             Standing::Unknown
         }
         record => standing(
@@ -256,9 +268,18 @@ pub fn installed(world: &mut World) {
                 world.entity_mut(entity).insert(Uninstalled);
             }
             Standing::Unknown => {
-                info!(
-                    "native plugin {id}: not installed, not loaded"
-                );
+                if world
+                    .resource::<Store>()
+                    .get(&id)
+                    .is_some_and(|record| record.failed)
+                {
+                    not_loaded(world, entity, FAILED);
+                } else {
+                    info!(
+                        "native plugin {id}: not installed, not \
+                         loaded"
+                    );
+                }
                 world.entity_mut(entity).insert(Uninstalled);
                 world.trigger(AskToInstall { plugin: id });
             }
@@ -292,6 +313,16 @@ const STOPPED: &str = "Hamlet stopped before this was trusted, so \
 const ASKED: &str = "Not loaded: Hamlet was started with \
                      --safe-mode. Start it without to load native \
                      plugins.";
+
+/// What the chief and a plugin whose entry panicked are told.
+const PANICKED: &str = "Not loaded: its entry panicked. What it \
+                        added before that runs until Hamlet \
+                        restarts, and the next start does not open \
+                        it until you install it again.";
+
+/// What a plugin whose entry panicked in an earlier run is told.
+const FAILED: &str = "Not loaded: its entry panicked in an earlier \
+                      run. Install it again to load it.";
 
 /// What a plugin let in while the app runs is told.
 const LATE: &str = "Loaded into the running app: the steps that \
@@ -371,7 +402,7 @@ fn settle(
     root: &Path,
     id: &str,
     ran: Result<bool, String>,
-) -> Result<fn(&mut Entry), String> {
+) -> Outcome {
     let declared = world.remove_resource::<Declared>();
     let frames = world
         .get_resource::<Guard>()
@@ -385,19 +416,18 @@ fn settle(
     }
     match ran {
         Ok(true) => Ok(declared.map_or(nothing, |d| d.0)),
-        Ok(false) | Err(_) => {
-            Err("Not loaded: its entry panicked".into())
-        }
+        Ok(false) | Err(_) => Err(Failure::Panicked),
     }
 }
 
 /// Switches the plugin on with what its entry declared, or marks it
-/// failed with why it is not loaded.
+/// failed with why it is not loaded. One whose entry panicked is
+/// recorded, so that the next start asks the chief before opening it.
 fn loaded(
     world: &mut World,
     plugin: Entity,
     id: &str,
-    outcome: Result<fn(&mut Entry), String>,
+    outcome: Outcome,
 ) {
     match outcome {
         Ok(declared) => {
@@ -406,9 +436,22 @@ fn loaded(
             world.trigger(Enable(id.into()));
             world.flush();
         }
-        Err(why) => {
+        Err(Failure::Refused(why)) => {
             world.entity_mut(plugin).insert(Status::Failed);
             not_loaded(world, plugin, &why);
+        }
+        Err(Failure::Panicked) => {
+            world.entity_mut(plugin).insert(Status::Failed);
+            not_loaded(world, plugin, PANICKED);
+            if let Some(mut store) = world.get_resource_mut::<Store>()
+                && let Some(record) = store.get(id).cloned()
+            {
+                store.set(id, record.failed());
+            }
+            let name = world
+                .get::<PluginInfo>(plugin)
+                .map_or(id.to_string(), |info| info.name.clone());
+            world.trigger(Notice(format!("{name}: {PANICKED}")));
         }
     }
 }
@@ -426,8 +469,9 @@ pub fn start(world: &mut World, plugin: Entity) {
         return;
     };
     count(world, &root);
-    let outcome =
-        open(&root, &info.id, &file, &granted).and_then(|entry| {
+    let outcome = open(&root, &info.id, &file, &granted)
+        .map_err(Failure::Refused)
+        .and_then(|entry| {
             world.remove_resource::<Declared>();
             let ran = with_app(world, entry);
             settle(world, &root, &info.id, ran)
@@ -591,7 +635,7 @@ mod tests {
         // Refused when the app was built, before any frame ran.
         assert!(matches!(
             app.world().resource::<Opened>().0.as_slice(),
-            [(id, Err(why))] if id == "spark"
+            [(id, Err(Failure::Refused(why)))] if id == "spark"
                 && why.contains("cannot be opened")
         ));
         app.update();
@@ -675,6 +719,42 @@ mod tests {
             s,
             Subject::Install { plugin } if plugin == "spark"
         )));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_panicked_entry_is_not_opened_until_installed_again() {
+        let (mut app, root) =
+            home_with_spark("panicked", true, |_, _| {});
+        app.update();
+        let plugin = app
+            .world_mut()
+            .query::<(Entity, &PluginInfo)>()
+            .iter(app.world())
+            .find(|(_, info)| info.id == "spark")
+            .unwrap()
+            .0;
+        loaded(
+            app.world_mut(),
+            plugin,
+            "spark",
+            Err(Failure::Panicked),
+        );
+        assert!(
+            app.world()
+                .resource::<Store>()
+                .get("spark")
+                .unwrap()
+                .failed
+        );
+
+        let (mut again, _) =
+            home_with_spark("panicked", false, |_, _| {});
+        assert!(again.world().resource::<Opened>().0.is_empty());
+        again.update();
+        let (uninstalled, why, _) = spark(&mut again);
+        assert!(uninstalled);
+        assert_eq!(why.as_deref(), Some(FAILED));
         std::fs::remove_dir_all(&root).unwrap();
     }
 
