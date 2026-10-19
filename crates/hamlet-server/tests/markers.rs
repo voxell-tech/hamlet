@@ -142,7 +142,7 @@ fn refused(refusal: Refused) -> Reply<Spent, Refused> {
 /// A home whose purse `well` holds 10 coins, held by `ada`.
 fn seeded(tag: &str) -> (Scratch, Home) {
     let dir = Scratch::new(tag);
-    let mut home = Home::open(&dir).unwrap();
+    let mut home = open(&dir);
     home.store()
         .connection()
         .execute_batch(
@@ -181,6 +181,24 @@ fn is_held(dir: &Path) -> bool {
     match Home::open(dir) {
         Ok(_) => false,
         Err(error) => error.downcast_ref::<Held>().is_some(),
+    }
+}
+
+/// Opens `dir`, waiting briefly while it is still held.
+fn open(dir: &Path) -> Home {
+    // A child that another test spawns shares this process's sockets
+    // until it execs, so a claim just closed can still answer.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match Home::open(dir) {
+            Err(error)
+                if error.downcast_ref::<Held>().is_some()
+                    && Instant::now() < deadline =>
+            {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            home => return home.unwrap(),
+        }
     }
 }
 
@@ -261,7 +279,7 @@ fn a_failure_before_the_commit_leaves_nothing() {
 fn a_held_home_refuses_another_claim_by_any_spelling() {
     let scratch = Scratch::new("server-claim");
     let dir = scratch.join("home");
-    let home = Home::open(&dir).unwrap();
+    let home = open(&dir);
     std::os::unix::fs::symlink(&dir, scratch.join("link")).unwrap();
     for spelling in [
         dir.clone(),
@@ -275,7 +293,7 @@ fn a_held_home_refuses_another_claim_by_any_spelling() {
         );
     }
     home.close().unwrap();
-    Home::open(&scratch.join("link")).unwrap();
+    open(&scratch.join("link"));
 }
 
 #[cfg(unix)]
@@ -284,10 +302,10 @@ fn a_trailing_slash_claim_also_holds_the_canonical_spelling() {
     let scratch = Scratch::new("server-trailing-slash");
     let dir = scratch.join("home");
     let spelling = PathBuf::from(format!("{}/", dir.display()));
-    let home = Home::open(&spelling).unwrap();
+    let home = open(&spelling);
     assert!(is_held(&dir));
     home.close().unwrap();
-    Home::open(&dir).unwrap();
+    open(&dir);
 }
 
 #[cfg(unix)]
@@ -300,10 +318,10 @@ fn a_parent_after_a_symlink_resolves_as_the_typescript_home_does() {
     std::fs::create_dir_all(b.join("child")).unwrap();
     std::os::unix::fs::symlink(b.join("child"), a.join("link"))
         .unwrap();
-    let home = Home::open(&a.join("link/..")).unwrap();
+    let home = open(&a.join("link/.."));
     assert_eq!(home.layout().root(), a);
     assert!(is_held(&a));
-    Home::open(&b).unwrap().close().unwrap();
+    open(&b).close().unwrap();
     home.close().unwrap();
 }
 
@@ -311,8 +329,8 @@ fn a_parent_after_a_symlink_resolves_as_the_typescript_home_does() {
 fn a_home_refuses_a_missing_or_substituted_store_or_identity() {
     let a = Scratch::new("server-home-a");
     let b = Scratch::new("server-home-b");
-    Home::open(&a).unwrap().close().unwrap();
-    Home::open(&b).unwrap().close().unwrap();
+    open(&a).close().unwrap();
+    open(&b).close().unwrap();
     std::fs::rename(a.join("realm.sqlite"), a.join("kept.sqlite"))
         .unwrap();
     assert!(Home::open(&a).is_err());
@@ -322,7 +340,7 @@ fn a_home_refuses_a_missing_or_substituted_store_or_identity() {
     assert!(Home::open(&a).is_err());
     std::fs::rename(a.join("kept.sqlite"), a.join("realm.sqlite"))
         .unwrap();
-    Home::open(&a).unwrap().close().unwrap();
+    open(&a).close().unwrap();
     std::fs::remove_file(a.join("realm.id")).unwrap();
     assert!(Home::open(&a).is_err());
 }
@@ -390,7 +408,7 @@ fn migrations_keep_old_markers_and_roll_back_failed_steps() {
     );
     db.execute_batch("DROP TABLE record_name").unwrap();
     drop(db);
-    let mut home = Home::open(&dir).unwrap();
+    let mut home = open(&dir);
     assert_eq!(count(&mut home, "PRAGMA user_version"), 7);
     assert_eq!(count(&mut home, "SELECT count(*) FROM marker"), 1);
     assert_eq!(
@@ -405,13 +423,13 @@ fn migrations_keep_old_markers_and_roll_back_failed_steps() {
         "{\"done\":{\"left\":7}}"
     );
     home.close().unwrap();
-    Home::open(&dir).unwrap().close().unwrap();
+    open(&dir).close().unwrap();
 }
 
 #[test]
 fn a_store_from_a_newer_server_is_refused() {
     let dir = Scratch::new("server-newer");
-    let mut home = Home::open(&dir).unwrap();
+    let mut home = open(&dir);
     set(&mut home, "PRAGMA user_version = 99");
     home.close().unwrap();
     assert!(Home::open(&dir).is_err());
@@ -431,7 +449,7 @@ fn a_home_of_the_typescript_server_is_refused() {
     assert!(Home::open(&dir).is_err());
     assert!(!dir.join("realm.sqlite").exists());
     let mixed = Scratch::new("server-mixed-home");
-    Home::open(&mixed).unwrap().close().unwrap();
+    open(&mixed).close().unwrap();
     std::fs::write(mixed.join("home.sqlite"), "").unwrap();
     assert!(Home::open(&mixed).is_err());
 }
@@ -482,7 +500,7 @@ fn crashed(tag: &str, pause: &str) -> (Scratch, Home) {
     assert!(is_held(&dir), "the child does not hold the home");
     child.kill().unwrap();
     child.wait().unwrap();
-    let home = Home::open(&dir).unwrap();
+    let home = open(&dir);
     (dir, home)
 }
 
@@ -492,7 +510,7 @@ fn child() {
     let Some(dir) = std::env::var_os(CHILD_HOME) else {
         return;
     };
-    let mut home = Home::open(Path::new(&dir)).unwrap();
+    let mut home = open(Path::new(&dir));
     let reply = home.store().run(&id("pi-1", "7"), &spend("ada", 3));
     pause_at("reply");
     println!("{:?}", reply.unwrap());

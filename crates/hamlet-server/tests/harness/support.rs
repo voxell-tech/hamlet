@@ -113,10 +113,12 @@ impl Realm {
     }
 
     pub fn paused(&self, process: &str) -> Option<String> {
+        // An empty file is a pause still being written.
         std::fs::read_to_string(
             self.faults().join(format!("{process}-paused")),
         )
         .ok()
+        .filter(|point| !point.is_empty())
     }
 
     /// Waits until the process `process` (`server` or `runtime`)
