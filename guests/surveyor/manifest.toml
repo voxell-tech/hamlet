@@ -1,0 +1,21 @@
+id = "surveyor"
+name = "Surveyor"
+version = "0.1.0"
+interface = "0.1.0"
+
+# A tick reads the world again; the marks are sent only when the busy
+# agents change, since the host keeps each where its agent is seen.
+
+[[asks]]
+capability = "read.world"
+reason = "To list the hamlets, the agents and where each stands."
+
+[[asks]]
+capability = "world.overlay"
+reason = "To mark the agents at work over the world, with a line to their hamlet."
+
+# Asked at its first use, and only for the agents of the first hamlet.
+[[asks]]
+capability = "world.act"
+reason = "To bring the camera to an agent you choose in its panel."
+scope = ["home"]

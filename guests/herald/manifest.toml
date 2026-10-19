@@ -27,6 +27,10 @@ capability = "files.read"
 reason = "To show the draft it kept."
 
 [[asks]]
+capability = "fs.pick"
+reason = "To keep a copy of a file you pick."
+
+[[asks]]
 capability = "net"
 reason = "To fetch its greeting page."
 scope = ["api.example.com"]

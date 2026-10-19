@@ -43,6 +43,7 @@ the chief answers one question for them, not "everything".
 | `guests/notes/` | A plugin to read after the template: `model.rs` (what it keeps), `storage.rs` (the notes on disk), `update.rs` (what an event does, and the commands it answers), its menu line, shortcut, settings page and inspector tab in `lib.rs`, `view.rs` (the panels), and its `steps.toml` |
 | `guests/pantry/` | A plugin to read for the database: `lib.rs` keeps records in a table (`hamlet_guest::db::Table`), finds them by a field and draws what the table holds; its `steps.toml` restarts the app to see they are kept |
 | `guests/herald/` | A plugin to read for what a plugin may do outside its panel: `lib.rs` sends a message and runs a command as the chief (`hamlet_guest::send_chat`, `run_as_chief`), keeps a draft in its folder of files (`hamlet_guest::files`) and fetches a page (`hamlet_guest::net`); its `manifest.toml` lists the hosts and commands in the `scope` of its asks, and its `steps.toml` answers each ask |
+| `guests/surveyor/` | A plugin to read for the world: `lib.rs` reads the realm (`hamlet_guest::world::view`), marks the agents at work over it (`hamlet_guest::overlay`) and brings the camera to one (`hamlet_guest::world::focus`); its `steps.toml` makes up a world with `set-world` |
 | `guests/clipper/` | A plugin that uses Notes: its `manifest.toml` (what it needs, imports and asks), `update.rs` (the call, the reply, the events and the command a context menu item runs) and `steps.toml`, a script for the two plugins together |
 
 The template plugin has a panel, a button that counts in its state and one read
@@ -817,7 +818,10 @@ most `canvas_px` pixels a side and the tree `canvas_shapes` shapes. Until the ch
 
 A plugin with `world.overlay` gives the host a list of marks, and the host draws them over the
 REALM panel each frame where their anchors are seen: a robot by its agent's name, a hamlet's
-common by its id, or a point of the world.
+common by its id, or a point of the world. `guests/surveyor` is the example: it reads the world
+with `read.world`, marks the agents at work, and with `world.act` brings the camera to one
+(`hamlet_guest::world::focus`, `follow` and `select`, which the chief allows at the first use and
+for the hamlets the ask's `scope` lists).
 
 ```toml
 [[asks]]
@@ -843,7 +847,8 @@ the camera is; a mark whose anchor is out of sight is not drawn. Each `draw` rep
 most a few times a second, and the marks, their words and the changes a second are capped
 ([`wasm.md`](wasm.md)). The panel's corner says "Drawn by" and the plugin's name while it draws. The
 script's `expect-overlay` checks a mark as the transcript writes it, such as `circle 5 at
-agent:Juniper +0,-40 lamp`.
+agent:Juniper +0,-40 lamp`, and `set-world` makes up the world a plugin reads. The gallery scene
+`plugin-overlay` shows Surveyor's marks over a picture of the world.
 
 ## Watching the agents
 

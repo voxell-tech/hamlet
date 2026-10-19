@@ -1,0 +1,53 @@
+# Run from the Hamlet checkout, after building Surveyor into a folder:
+#   guests/surveyor/build.sh <dir>/surveyor
+#   cargo run --example plugin_check --features wasm -- \
+#     <dir>/surveyor --script guests/surveyor/steps.toml --out <pictures>
+#
+# The plugin is installed with its asks unanswered. It reads nothing
+# until the chief allows read.world, draws nothing over the world
+# until world.overlay, and moves the camera only after world.act,
+# which is asked at its first use.
+
+[[step]]
+set-world = { hamlets = [{ id = "home", name = "Pear Tree", at = [0, 0, 0] }], agents = [{ name = "Juniper", hamlet = "home", at = [4, 0, 2], busy = true }, { name = "Hawk", hamlet = "home", at = [-3, 0, 1] }], selected = "agent:Juniper", hour = 9.5 }
+
+[[step]]
+expect = { panel = "main", text = "Waiting for the chief to allow read.world" }
+
+[[step]]
+grant = "read.world"
+
+[[step]]
+expect = { panel = "main", text = "Juniper of home, busy, at 4, 2" }
+
+[[step]]
+expect = { panel = "main", text = "The sky shows 9:30" }
+
+[[step]]
+expect = { panel = "main", text = "Selected: agent Juniper" }
+
+# The marks wait for world.overlay.
+[[step]]
+grant = "world.overlay"
+
+[[step]]
+expect-overlay = "circle 5 at agent:Juniper +0,-40 lamp"
+
+[[step]]
+expect-overlay = "line 1.5 at agent:Juniper +0,-30 to hamlet:home +0,+0 seam"
+
+# The first press asks the chief, and does nothing.
+[[step]]
+click = { panel = "main", node = "focus.Juniper" }
+
+[[step]]
+grant = "world.act"
+
+[[step]]
+click = { panel = "main", node = "focus.Juniper" }
+
+[[step]]
+expect-told = "Surveyor (surveyor) focused on Juniper"
+
+[[step]]
+render = { panel = "main", file = "surveyor.png" }

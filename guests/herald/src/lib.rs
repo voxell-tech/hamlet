@@ -82,6 +82,7 @@ impl Plugin for Herald {
                 button("Save a draft").id("save"),
                 button("Read the draft").id("read"),
                 button("Escape the folder").id("escape"),
+                button("Pick a file").id("pick"),
             ]),
             row([
                 button("Fetch a page").id("fetch"),
@@ -103,6 +104,20 @@ fn handle(
     model: &mut Model,
     out: &mut Vec<Intent>,
 ) {
+    if let Some((_, outcome)) = files::picked(&incoming) {
+        model.say(
+            match outcome.map(|path| (path, files::read(path))) {
+                Ok((path, Ok(bytes))) => {
+                    format!("Picked {path}, {} bytes", bytes.len())
+                }
+                Ok((path, Err(why))) => {
+                    format!("Picked {path}: {why}")
+                }
+                Err(why) => format!("Not picked: {why}"),
+            },
+        );
+        return;
+    }
     if let Some((id, outcome)) = net::answer(&incoming) {
         model.say(match outcome {
             Ok(FetchResponse { status, body, .. }) => {
@@ -160,6 +175,10 @@ fn click(id: &str, model: &mut Model, out: &mut Vec<Intent>) {
                 Ok(_) => "Read outside the folder".to_string(),
                 Err(why) => format!("Refused: {why}"),
             })
+        }
+        "pick" => {
+            out.push(files::pick(1, "a file to keep a copy of"));
+            model.say("Asked the chief for a file");
         }
         "fetch" => {
             out.push(net::get(PAGE, ADDRESS));

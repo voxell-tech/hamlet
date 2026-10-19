@@ -22,7 +22,8 @@ The host is behind the `wasm` feature of the binary, on by default beside
 | `guests/hello` | A plugin that logs on every tick. A workspace of its own, since it is built for `wasm32-wasip2` |
 | `guests/roster` | A plugin with a panel that lists the agents, behind the grant `read.agents` |
 | `guests/notes` | Notes: a search, a list of notes and a text area or markdown view of the open one, kept in the plugin's storage; a button copies the selected agent's notes, behind the grant `read.papers`. It exports the commands `add` and `new`, the event `note-saved` and the collection `notes`, and has a HAMLET menu line and the shortcut Cmd+Shift+N for `new`, a page NOTES in the Settings with the checkbox "Open notes in preview", and a NOTES tab of the inspector's page of an agent that lists the notes that mention it |
-| `guests/herald` | Herald: a panel with buttons that send a message to an agent (`chat.send`), run `notes/new` (`commands.run`), keep, read and try to escape a draft in its folder (`files.write`, `files.read`) and fetch a page (`net`, limited to one host). Its `steps.toml` checks each, with the harness's `expect-told` step |
+| `guests/herald` | Herald: a panel with buttons that send a message to an agent (`chat.send`), run `notes/new` (`commands.run`), keep, read and try to escape a draft in its folder (`files.write`, `files.read`), keep a copy of a file the chief picks (`fs.pick`) and fetch a page (`net`, limited to one host). Its `steps.toml` checks each, with the harness's `expect-told` and `choose-file` steps |
+| `guests/surveyor` | Surveyor: lists the hamlets and the agents and where each stands (`read.world`), marks the agents at work over the world with a line to their hamlet (`world.overlay`) and brings the camera to an agent chosen in its panel (`world.act`, limited to `home`). Its `steps.toml` checks each, with the harness's `set-world`, `expect-overlay` and `expect-told` steps |
 | `guests/pantry` | Pantry: a panel with buttons that add things to a table of its database, find the drinks by a field and remove one (`db`). Its `steps.toml` restarts the app, with the harness's `restart` step, to see the records are still there |
 | `guests/clipper` | Clipper: sends the selected agent's name to Notes with its command, lists the titles of the notes it reads from Notes' collection and counts the `note-saved` events. Its command `clip` sends the name of the agent whose menu item "Clip name to Notes" was chosen. It needs Notes. The pair is the example of [`authoring.md`](authoring.md#two-plugins-working-together) |
 | `guests/charts` | Charts: a bar chart on a canvas, behind `ui.canvas`, with a Shuffle button that draws other numbers. Its `steps.toml` checks it held back and then drawn |
@@ -229,7 +230,9 @@ A plugin draws in levels. The WASM host offers the first two and no other.
 
 `hamlet_guest::ui::canvas` and `hamlet_guest::draw` make the node and its shapes, and
 `guests/charts` is the example. The gallery scene `plugin-canvas` draws its panel.
-`hamlet_guest::overlay` makes the marks and the intent.
+`hamlet_guest::overlay` makes the marks and the intent, `guests/surveyor` is the example,
+and the gallery scene `plugin-overlay` draws its marks over a picture of the world as the
+realm's view does.
 
 ## How a panel is drawn
 

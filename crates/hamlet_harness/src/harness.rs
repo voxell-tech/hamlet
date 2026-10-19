@@ -607,14 +607,18 @@ fn marked(mark: &Mark) -> String {
         };
         format!("{thing} {:+},{:+}", offset.x, offset.y)
     };
-    let shape = match &mark.form {
-        Form::Rect { w, h } => format!("rect {w}x{h}"),
-        Form::Circle { r } => format!("circle {r}"),
+    let (shape, to) = match &mark.form {
+        Form::Rect { w, h } => {
+            (format!("rect {w}x{h}"), String::new())
+        }
+        Form::Circle { r } => (format!("circle {r}"), String::new()),
         Form::Line { to, end, width } => {
             let to = to.as_ref().unwrap_or(&mark.anchor);
-            format!("line {width} to {}", at(to, *end))
+            (format!("line {width}"), format!(" to {}", at(to, *end)))
         }
-        Form::Text { text, size } => format!("text {text:?} {size}"),
+        Form::Text { text, size } => {
+            (format!("text {text:?} {size}"), String::new())
+        }
     };
     let paint = match &mark.paint {
         Paint::Theme(name) => name.clone(),
@@ -622,5 +626,8 @@ fn marked(mark: &Mark) -> String {
             format!("#{r:02x}{g:02x}{b:02x}{a:02x}")
         }
     };
-    format!("{shape} at {} {paint}", at(&mark.anchor, mark.offset))
+    format!(
+        "{shape} at {}{to} {paint}",
+        at(&mark.anchor, mark.offset)
+    )
 }

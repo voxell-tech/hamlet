@@ -64,6 +64,20 @@ click = { panel = "herald", node = "escape" }
 [[step]]
 expect = { panel = "herald", text = "is not a path" }
 
+# A file from outside comes in only as the chief picks it, copied
+# into the folder. The script picks in the place of the dialog.
+[[step]]
+grant = "fs.pick"
+
+[[step]]
+click = { panel = "herald", node = "pick" }
+
+[[step]]
+choose-file = "guests/herald/manifest.toml"
+
+[[step]]
+expect = { panel = "herald", text = "Picked picked/manifest.toml" }
+
 # A fetch goes only to the host the ask lists.
 [[step]]
 click = { panel = "herald", node = "fetch" }

@@ -6,6 +6,7 @@ mod contributions;
 mod dock;
 mod greeter;
 mod notes;
+mod overlay;
 mod pages;
 mod permissions;
 mod petitions;
@@ -111,6 +112,18 @@ impl Plugin for GalleryPlugin {
                     .after(plugin_inspector::come_forward),
             )
             .add_systems(Startup, (setup, chrome::draw_marks))
+            .add_systems(
+                Startup,
+                overlay::draw.run_if(|scene: Res<Scene>| {
+                    *scene == Scene::PluginOverlay
+                }),
+            )
+            .add_systems(
+                Update,
+                overlay::place.run_if(|scene: Res<Scene>| {
+                    *scene == Scene::PluginOverlay
+                }),
+            )
             .add_systems(
                 PostStartup,
                 (seed_dock, mount_scene).chain(),
@@ -248,6 +261,9 @@ pub enum Scene {
     PluginRoster,
     /// The panel of the charts plugin, with a canvas of shapes.
     PluginCanvas,
+    /// The marks a plugin draws over the world, with the tag that
+    /// names it.
+    PluginOverlay,
     /// The panel of the greeter data plugin, drawn from its program.
     PluginOpenui,
     /// The panel of the Notes plugin, with its open note to edit.
