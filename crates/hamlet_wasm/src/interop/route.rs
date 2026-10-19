@@ -32,6 +32,7 @@ pub(super) fn route(
         plugin,
         intents,
         changes,
+        ..
     } in done.read()
     {
         let mut spent = 0;

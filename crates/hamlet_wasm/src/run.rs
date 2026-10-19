@@ -18,6 +18,7 @@ use crate::inbox::Inbox;
 use crate::instance::Instance;
 use crate::interface::exports::hamlet::plugin::plugin::Intent;
 use crate::interface::hamlet::plugin::host::Level;
+use crate::interop::Calls;
 use crate::limits::Limits;
 use crate::reach::{self, Sharing};
 use crate::{event, stop};
@@ -30,6 +31,9 @@ pub struct Done {
     /// The collections that changed in the call, each as the plugin
     /// that shares it and its name.
     pub changes: Vec<(String, String)>,
+    /// The plugins whose calls the plugin was answering when it was
+    /// stepped. An act as the chief needs their grant too.
+    pub callers: Vec<Entity>,
 }
 
 /// Calls `step` on each running plugin that has mail, once. A plugin
@@ -50,6 +54,7 @@ pub fn step(
         &mut Dirty,
     )>,
     sharing: Sharing,
+    calls: Res<Calls>,
     mut done: MessageWriter<Done>,
     mut commands: Commands,
 ) {
@@ -71,6 +76,7 @@ pub fn step(
         instance.see_world(granted, &survey);
         instance.reach(reach::of(manifest, &sharing, &limits));
         let mail = inbox.take();
+        let callers = calls.callers(plugin);
         match instance.step(&limits, &mail) {
             Ok(output) => {
                 output.logs.iter().for_each(|line| {
@@ -85,6 +91,7 @@ pub fn step(
                     plugin,
                     intents: output.intents,
                     changes: output.changes,
+                    callers,
                 });
             }
             Err(fault) => {

@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use hamlet_agents_api::oversight::Choice as Answer;
 use hamlet_realm_api::pick::{Gesture, Named, PointAt};
 use hamlet_realm_api::survey::{Survey, SurveyedAgent};
-use hamlet_sdk::capability::{Capability, Subject};
+use hamlet_sdk::capability::{Capability, Granted, Subject};
 use hamlet_sdk::command::{Notice, RunCommand};
 use hamlet_sdk::plugin::PluginInfo;
 
@@ -49,6 +49,16 @@ pub(super) fn open(scratch: &Scratch, plugin: Plugin) -> App {
 
 /// The plugin does `intents` in a frame.
 pub(super) fn does(app: &mut App, intents: Vec<Intent>) {
+    answering(app, intents, Vec::new());
+}
+
+/// The plugin does `intents` in a frame, answering the calls of
+/// `callers`.
+fn answering(
+    app: &mut App,
+    intents: Vec<Intent>,
+    callers: Vec<Entity>,
+) {
     let plugin = app
         .world_mut()
         .query::<(Entity, &PluginInfo)>()
@@ -60,6 +70,7 @@ pub(super) fn does(app: &mut App, intents: Vec<Intent>) {
         plugin,
         intents,
         changes: Vec::new(),
+        callers,
     });
     app.update();
 }
@@ -127,6 +138,47 @@ fn acts_are_limited_to_the_scope_of_the_ask_and_to_so_many_a_minute()
     let most =
         crate::limits::Limits::default().acts_per_minute as usize;
     assert_eq!(ran(&app).len(), most);
+}
+
+#[test]
+fn an_act_answering_a_call_needs_the_callers_grant_too() {
+    let scratch = Scratch::new("act_borrowed");
+    let mut app = open(
+        &scratch,
+        probe()
+            .asking(&["commands.run"])
+            .granted(&["commands.run"])
+            .limited_to(&[("commands.run", &["notes/new"])]),
+    );
+    let info = |id: &str| PluginInfo {
+        id: id.into(),
+        name: id.into(),
+        version: "0.1.0".into(),
+        builtin: false,
+        essential: false,
+    };
+    let bare =
+        app.world_mut().spawn((info("bare"), Granted::default()));
+    let bare = bare.id();
+    // As the probe itself is granted.
+    let held = app
+        .world_mut()
+        .query::<(&PluginInfo, &Granted)>()
+        .iter(app.world())
+        .find(|(info, _)| info.id == "probe")
+        .map(|(_, granted)| granted.clone())
+        .unwrap();
+    let able = app.world_mut().spawn((info("able"), held)).id();
+
+    answering(&mut app, run("notes/new"), vec![bare]);
+    assert!(ran(&app).is_empty());
+    answering(&mut app, run("notes/new"), vec![able]);
+    assert_eq!(ran(&app), ["notes/new"]);
+    let told = app.world().resource::<Seen>().told.clone();
+    assert_eq!(
+        told[0],
+        "probe (probe), called by able, ran notes/new"
+    );
 }
 
 #[test]

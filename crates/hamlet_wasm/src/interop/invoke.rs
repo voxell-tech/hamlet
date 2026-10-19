@@ -418,6 +418,7 @@ pub(super) fn deliver(
         instance.see_world(granted, &survey);
         instance.reach(reach::of(manifest, &sharing, &limits));
         let budget = limits.invoking(limits.invoke_fuel);
+        let callers = calls.callers(due.target);
         let stepped = instance
             .step(&budget, &[Incoming::Invoked(due.invocation)]);
         invoking.charge(
@@ -435,6 +436,7 @@ pub(super) fn deliver(
                     plugin: due.target,
                     intents: output.intents,
                     changes: output.changes,
+                    callers,
                 });
             }
             Err(fault) => {

@@ -16,6 +16,7 @@ use crate::instance::Instance;
 use crate::interface::exports::hamlet::plugin::plugin::{
     Incoming, Intent, SteerChange, SteerPoint, SteerTool,
 };
+use crate::interop::Calls;
 use crate::limits::Limits;
 use crate::reach::{self, Sharing};
 use crate::run::{self, Done};
@@ -45,6 +46,7 @@ pub fn steer(
         &mut Instance,
     )>,
     sharing: Sharing,
+    calls: Res<Calls>,
     mut done: MessageWriter<Done>,
     mut commands: Commands,
 ) {
@@ -99,6 +101,7 @@ pub fn steer(
                     plugin,
                     intents: output.intents,
                     changes: output.changes,
+                    callers: calls.callers(plugin),
                 });
                 answer.and_then(|change| {
                     made(change, point.tool.is_some(), &limits)

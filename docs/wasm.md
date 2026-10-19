@@ -489,7 +489,15 @@ chief lets a plugin in. Each act is limited to what the ask's `scope` lists,
 counted against `acts_per_minute`, and noted in the open chat with the plugin's
 name; a message reaches the agent as `[sent by plugin <id>] <text>`
 ([`permissions.md`](permissions.md)). `hamlet_guest::send_chat` and
-`run_as_chief` make the intents. `hamlet_agents_api::convo::send_as_chief` is the
+`run_as_chief` make the intents.
+
+A `step` of a plugin that is answering a command or a call of an interface of
+other plugins (one still waiting for its answer when the `step` began) is
+`Done` with those callers, and an act it asks for needs each of them to hold the
+capability for that target too, so a plugin without `chat.send` cannot have
+another send for it. Such an act is noted with both: "Herald (herald), called
+by clipper, sent to scout: ...", and a message reaches the agent as `[sent by
+plugin herald, called by clipper] <text>`. `hamlet_agents_api::convo::send_as_chief` is the
 function behind a message.
 
 `world-act(order)` does to a thing of the world what the chief does with a

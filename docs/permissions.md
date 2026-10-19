@@ -213,6 +213,11 @@ from `step` (`send-chat`, `run-as-chief`), carried out by `hamlet_wasm::acts`.
   the plugin's name and id: "Herald (herald) sent to scout: Hello..." or "Herald
   (herald) ran notes/new". A command goes the way a menu line does, so it runs
   with no arguments.
+- No plugin acts as the chief through another. An act of a plugin that is
+  answering the commands or interface calls of other plugins needs the same
+  capability, for the same target, of each of them too; where it is yet to be
+  decided for one, the chief is asked about that plugin, and the act is dropped. The notice and the
+  message name both ("Herald (herald), called by clipper, ran notes/new").
 - `acts_per_minute` and `act_text_bytes` in `assets/wasm.toml` limit them; the
   acts over the limit are dropped with a warning. A warning for a refused act or
   a dropped one is logged once a minute for each plugin.

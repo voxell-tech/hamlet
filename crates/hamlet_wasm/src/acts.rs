@@ -63,7 +63,10 @@ struct Act {
     said: String,
 }
 
-/// Carries out the acts the plugins that were stepped asked for.
+/// Carries out the acts the plugins that were stepped asked for. An
+/// act of a plugin answering the calls of others needs the grant of
+/// each of them too, so that no plugin acts as the chief through
+/// another, and is noted with their names.
 pub fn carry_out(
     mut done: MessageReader<Done>,
     plugins: Query<(&PluginInfo, &Granted)>,
@@ -75,12 +78,19 @@ pub fn carry_out(
 ) {
     let now = time.map_or(0.0, |time| time.elapsed_secs());
     for Done {
-        plugin, intents, ..
+        plugin,
+        intents,
+        callers,
+        ..
     } in done.read()
     {
         let Ok((info, granted)) = plugins.get(*plugin) else {
             continue;
         };
+        let callers = callers
+            .iter()
+            .map(|caller| (*caller, plugins.get(*caller).ok()))
+            .collect::<Vec<_>>();
         for intent in intents {
             let act = match intent {
                 Intent::SendChat(message) => Ok(Act {
@@ -118,6 +128,31 @@ pub fn carry_out(
                     }
                 },
             );
+            let checked = checked.and_then(|act| {
+                for (caller, found) in &callers {
+                    let Some((by, granted)) = found else {
+                        return Err(Refused::because(
+                            "it answers a plugin that is gone",
+                        ));
+                    };
+                    if let Err(refused) = may(granted, &act, &limits)
+                    {
+                        if refused.ask {
+                            commands.trigger(Wanted {
+                                plugin: *caller,
+                                capability: act.capability,
+                                target: None,
+                                reason: act.said.clone(),
+                            });
+                        }
+                        return Err(Refused::because(format!(
+                            "it answers {}, which may not: {refused}",
+                            by.id
+                        )));
+                    }
+                }
+                Ok(act)
+            });
             let act = match checked {
                 Ok(act) => act,
                 Err(refused) => {
@@ -138,7 +173,27 @@ pub fn carry_out(
                 }
                 continue;
             }
-            let (id, name) = (info.id.clone(), info.name.clone());
+            let by = callers
+                .iter()
+                .filter_map(|(_, found)| {
+                    found.map(|(by, _)| by.id.as_str())
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            // The plugin, and those whose calls it answers.
+            let (id, who) = match by.is_empty() {
+                true => (
+                    info.id.clone(),
+                    format!("{} ({})", info.name, info.id),
+                ),
+                false => (
+                    format!("{}, called by {by}", info.id),
+                    format!(
+                        "{} ({}), called by {by},",
+                        info.name, info.id
+                    ),
+                ),
+            };
             match intent {
                 Intent::SendChat(message) => {
                     let message = message.clone();
@@ -151,15 +206,12 @@ pub fn carry_out(
                         );
                         world.trigger(Notice(match sent {
                             Ok(()) => format!(
-                                "{name} ({id}) sent to {}: {}",
+                                "{who} sent to {}: {}",
                                 message.agent,
                                 quoted(&message.text)
                             ),
                             Err(why) => {
-                                format!(
-                                    "{name} ({id}) sent nothing: \
-                                     {why}"
-                                )
+                                format!("{who} sent nothing: {why}")
                             }
                         }));
                     });
@@ -167,14 +219,14 @@ pub fn carry_out(
                 Intent::RunAsChief(command) => {
                     info!("plugin {id}: runs {command} as the chief");
                     commands.trigger(Notice(format!(
-                        "{name} ({id}) ran {command}"
+                        "{who} ran {command}"
                     )));
                     commands.trigger(RunCommand::of(command.clone()));
                 }
                 Intent::WorldAct(order) => {
                     info!("plugin {id}: {} as the chief", act.said);
                     commands.trigger(Notice(format!(
-                        "{name} ({id}) {}",
+                        "{who} {}",
                         done_words(order)
                     )));
                     commands.trigger(point_at(order));

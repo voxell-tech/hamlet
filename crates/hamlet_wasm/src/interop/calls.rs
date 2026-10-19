@@ -111,6 +111,23 @@ impl Calls {
             .any(|call| call.invoked_by(caller) == Some(id))
     }
 
+    /// The plugins whose commands or calls of interfaces `target` is
+    /// answering, each once.
+    pub fn callers(&self, target: Entity) -> Vec<Entity> {
+        let mut callers = Vec::new();
+        for call in
+            self.open.iter().filter(|call| call.target == target)
+        {
+            if let Caller::Plugin { entity, .. }
+            | Caller::Invoker { entity, .. } = call.caller
+                && !callers.contains(&entity)
+            {
+                callers.push(entity);
+            }
+        }
+        callers
+    }
+
     /// The depth of a call `caller` runs now: one more than the
     /// deepest call it is answering.
     pub fn depth_of(&self, caller: Entity) -> usize {
