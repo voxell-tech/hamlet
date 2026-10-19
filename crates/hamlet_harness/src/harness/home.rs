@@ -1,8 +1,9 @@
 //! The scratch home a plugin is installed in, and the app that loads
 //! it.
 
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
@@ -24,16 +25,24 @@ pub struct Scratch(PathBuf);
 
 impl Scratch {
     pub fn new() -> Result<Self, String> {
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map_or(0, |since| since.as_nanos());
-        let folder = std::env::temp_dir().join(format!(
-            "hamlet-harness-{}-{nanos}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&folder)
-            .map_err(|e| format!("{}: {e}", folder.display()))?;
-        Ok(Self(folder))
+        let mut n = 0;
+        loop {
+            let folder = std::env::temp_dir().join(format!(
+                "hamlet-harness-{}-{n}",
+                std::process::id()
+            ));
+            // `create_dir` fails on a folder that is there, so two
+            // harnesses never share one, even made at the same time.
+            match std::fs::create_dir(&folder) {
+                Ok(()) => return Ok(Self(folder)),
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+                    n += 1
+                }
+                Err(e) => {
+                    return Err(format!("{}: {e}", folder.display()));
+                }
+            }
+        }
     }
 
     pub fn path(&self) -> &Path {

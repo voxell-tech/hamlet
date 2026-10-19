@@ -122,10 +122,12 @@ mod tests {
     fn stale_socket_from_a_dead_run_is_replaced() {
         let home = Scratch::new("instance-stale");
         // A listener that is gone without cleaning up, like a process
-        // that exited.
+        // that exited. An earlier run with this pid may have left one
+        // already.
         let stale = ListenerOptions::new()
             .name(name(&home).unwrap())
             .reclaim_name(false)
+            .try_overwrite(true)
             .create_sync()
             .unwrap();
         drop(stale);
