@@ -138,6 +138,7 @@ fn describe(step: &Step) -> String {
         Step::ExpectOverlay(text) => {
             format!("expect-overlay {text:?}")
         }
+        Step::ExpectScene(text) => format!("expect-scene {text:?}"),
         Step::CallTool(call) => format!("call-tool {}", call.tool),
         Step::Turn(turn) => {
             format!("turn {} of {}", turn.phase, turn.agent)
@@ -347,6 +348,17 @@ fn apply(
                 )),
             }
         }
+        Step::ExpectScene(text) => {
+            let id = harness.id().to_owned();
+            let built = harness.scene_of(&id);
+            match built.iter().any(|line| line.contains(text)) {
+                true => Ok(()),
+                false => Err(format!(
+                    "the plugin builds nothing with {text:?}; it \
+                     builds {built:?}"
+                )),
+            }
+        }
         Step::ExpectTold(text) => {
             match harness
                 .told()
@@ -446,22 +458,28 @@ fn show(
                 None => seen.push((name, now)),
             }
         }
-        let now = harness.overlay_of(&id);
-        let name = match several {
-            true => format!("overlay {id}"),
-            false => "overlay".into(),
-        };
-        let was = seen.iter().position(|(shown, _)| *shown == name);
-        if was.is_some_and(|at| seen[at].1 == now)
-            || (was.is_none() && now.is_empty())
-        {
-            continue;
-        }
-        lines.push(format!("  {name}"));
-        lines.extend(now.iter().map(|line| format!("    {line}")));
-        match was {
-            Some(at) => seen[at].1 = now,
-            None => seen.push((name, now)),
+        for (what, now) in [
+            ("overlay", harness.overlay_of(&id)),
+            ("scene", harness.scene_of(&id)),
+        ] {
+            let name = match several {
+                true => format!("{what} {id}"),
+                false => what.into(),
+            };
+            let was =
+                seen.iter().position(|(shown, _)| *shown == name);
+            if was.is_some_and(|at| seen[at].1 == now)
+                || (was.is_none() && now.is_empty())
+            {
+                continue;
+            }
+            lines.push(format!("  {name}"));
+            lines
+                .extend(now.iter().map(|line| format!("    {line}")));
+            match was {
+                Some(at) => seen[at].1 = now,
+                None => seen.push((name, now)),
+            }
         }
     }
 }

@@ -22,6 +22,7 @@ pub mod folder;
 pub mod model;
 pub mod net;
 pub mod overlay;
+pub mod render;
 pub mod state;
 pub mod steer;
 pub mod storage;

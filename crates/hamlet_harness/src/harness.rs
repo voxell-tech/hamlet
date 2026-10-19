@@ -18,6 +18,7 @@ use hamlet_desktop::file::Pick;
 use hamlet_realm_api::overlay::{
     Anchor, Form, Mark, Overlays, Paint,
 };
+use hamlet_realm_api::scene::{self, Material, PluginScene};
 use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::{Agent, AgentList, SelectedAgent};
 use hamlet_sdk::capability::{
@@ -317,6 +318,18 @@ impl Harness {
         world.despawn(*entity);
         self.frames(SETTLE);
         Ok(())
+    }
+
+    /// The lines of what the plugin `id` builds in the world: its
+    /// site, each node, mesh and shader.
+    pub fn scene_of(&mut self, id: &str) -> Vec<String> {
+        let world = self.app.world_mut();
+        let mut scenes = world.query::<(&PluginInfo, &PluginScene)>();
+        scenes
+            .iter(world)
+            .filter(|(info, _)| info.id == id)
+            .flat_map(|(_, scene)| built(scene))
+            .collect()
     }
 
     /// The chief allows `capability`, which the manifest asks for.
@@ -688,17 +701,74 @@ impl Harness {
     }
 }
 
+/// The thing an anchor names, as `kind:name`.
+fn anchored(anchor: &Anchor) -> String {
+    match anchor {
+        Anchor::Agent(name) => format!("agent:{name}"),
+        Anchor::Hamlet(id) => format!("hamlet:{id}"),
+        Anchor::Point(p) => format!("point:{},{},{}", p.x, p.y, p.z),
+    }
+}
+
+/// A scene as lines: its site, then each node, mesh and shader.
+fn built(scene: &PluginScene) -> Vec<String> {
+    let mut lines = vec![format!("site {}", anchored(&scene.site))];
+    for node in &scene.nodes {
+        let mut line = format!("node {}", node.id);
+        if let Some(parent) = node.parent {
+            line.push_str(&format!(" under {parent}"));
+        }
+        if let Some(shape) = &node.shape {
+            let paint = match &node.material {
+                Material::Surface {
+                    finish,
+                    colour: [r, g, b, a],
+                    ..
+                } => format!(
+                    "{} #{r:02x}{g:02x}{b:02x}{a:02x}",
+                    format!("{finish:?}").to_lowercase()
+                ),
+                Material::Shader { id, .. } => format!("shader:{id}"),
+            };
+            let shape = match shape {
+                scene::Shape::Custom(id) => format!("mesh:{id}"),
+                other => format!("{other:?}").to_lowercase(),
+            };
+            line.push_str(&format!(" {shape} {paint}"));
+        }
+        let at = node.translation;
+        line.push_str(&format!(" at {},{},{}", at.x, at.y, at.z));
+        if let Some(lamp) = &node.lamp {
+            let [r, g, b] = lamp.colour;
+            let kind = match lamp.cone {
+                Some(_) => "spot",
+                None => "point",
+            };
+            line.push_str(&format!(
+                " {kind} light #{r:02x}{g:02x}{b:02x} {} lm {} m",
+                lamp.lumens, lamp.range
+            ));
+        }
+        lines.push(line);
+    }
+    lines.extend(scene.meshes.iter().map(|mesh| {
+        format!(
+            "mesh {} {} points {} triangles",
+            mesh.id,
+            mesh.positions.len(),
+            mesh.indices.len() / 3
+        )
+    }));
+    lines.extend(scene.shaders.iter().map(|shader| {
+        format!("shader {} {} bytes", shader.id, shader.source.len())
+    }));
+    lines
+}
+
 /// One mark as a line: its shape, where it hangs and its paint.
 fn marked(mark: &Mark) -> String {
     let at = |anchor: &Anchor, offset: Vec2| {
-        let thing = match anchor {
-            Anchor::Agent(name) => format!("agent:{name}"),
-            Anchor::Hamlet(id) => format!("hamlet:{id}"),
-            Anchor::Point(p) => {
-                format!("point:{},{},{}", p.x, p.y, p.z)
-            }
-        };
-        format!("{thing} {:+},{:+}", offset.x, offset.y)
+        format!("{} {:+},{:+}", anchored(anchor), offset.x, offset.y)
     };
     let (shape, to) = match &mark.form {
         Form::Rect { w, h } => {
