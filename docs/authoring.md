@@ -126,7 +126,7 @@ already a plugin folder.
 
 **3. Check, with pictures.** `plugin_check` installs the folder in a scratch
 home, puts the plugin through a script and prints a transcript. It needs the
-`wasm` feature, and the first run builds Hamlet's crates.
+`wasm` feature (on by default), and the first run builds Hamlet's crates.
 
 ```sh
 cargo run --example plugin_check --features wasm -- \
@@ -181,7 +181,7 @@ scratch home and run Hamlet against it, never your own home:
 
 ```sh
 HAMLET_HOME=/tmp/hamlet-try /tmp/tide_table/build.sh
-HAMLET_HOME=/tmp/hamlet-try cargo run --features wasm
+HAMLET_HOME=/tmp/hamlet-try cargo run
 ```
 
 Hamlet finds the folder at start and asks, in Needs You, "Install Tide Table

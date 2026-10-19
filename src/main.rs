@@ -1,4 +1,7 @@
 //! The hamlet binary: picks a mode and runs the app.
+// The linker of macOS says the unwind tables of a binary with the
+// WASM engine are too large to compact. Unwinding still works.
+#![allow(linker_messages)]
 
 use std::path::PathBuf;
 use std::time::Duration;

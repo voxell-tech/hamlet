@@ -6,8 +6,9 @@ once a frame with what happened and draws the panels it declares. A plugin
 never sees Bevy or the world. The built-in plugins of [`sdk.md`](sdk.md)
 are Rust in the binary and do not pass through it.
 
-The host is behind the `wasm` feature of the binary:
-`cargo run --features wasm`. Without it the engine is not compiled.
+The host is behind the `wasm` feature of the binary, on by default beside
+`native`. Without it the engine is not compiled:
+`cargo run --no-default-features --features native`.
 
 ## The crates
 
@@ -942,7 +943,7 @@ To build it into a home and run the app, which asks the chief to install it
 ```sh
 rustup target add wasm32-wasip2
 HAMLET_HOME=/tmp/hamlet-try guests/roster/build.sh
-HAMLET_HOME=/tmp/hamlet-try cargo run --features wasm
+HAMLET_HOME=/tmp/hamlet-try cargo run
 ```
 
 The default `cargo build`, `clippy` and `test` need neither the target nor

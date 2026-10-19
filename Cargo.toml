@@ -164,10 +164,10 @@ bevy_fynix.workspace = true
 serde_json.workspace = true
 
 [features]
-default = ["native"]
+default = ["native", "wasm"]
 # Loads the installed native plugins, dynamic libraries that run as
 # Hamlet with no limits. Without it a library in the home is never
-# opened: `cargo run --no-default-features`.
+# opened: `cargo run --no-default-features --features wasm`.
 native = ["dep:hamlet_native"]
 # Tests that reach a real model server or the internet. Off unless asked
 # for: `cargo test --features live-tests`.
@@ -175,8 +175,9 @@ live-tests = ["hamlet_core/live-tests"]
 # A saved change to a file under assets/ reaches the running app:
 # `cargo run --features hot-reload`.
 hot-reload = ["hamlet_assets/hot-reload"]
-# Runs the installed WASM plugins: `cargo run --features wasm`.
-wasm = ["dep:hamlet_wasm", "hamlet_harness/wasm"]
+# Runs the installed WASM plugins. Without it the WASM engine is not
+# compiled: `cargo run --no-default-features --features native`.
+wasm =["dep:hamlet_wasm", "hamlet_harness/wasm"]
 
 [[example]]
 name = "style_test"

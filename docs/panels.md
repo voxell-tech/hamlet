@@ -133,8 +133,8 @@ A data plugin is scanned, installed (`grants.toml`) and switched with
 titled with its name; its grants are the chief's choices for what its manifest
 asks for ([`permissions.md`](permissions.md)). The file is read when the plugin is brought up, and again on `Enable` and
 when it is saved (see Reload in [`wasm.md`](wasm.md)). Like the other
-installed plugins it is loaded by the host behind `--features wasm`, though
-it needs no engine.
+installed plugins it is loaded by the host behind the `wasm` feature (on
+by default), though it needs no engine.
 
 ## A WASM plugin that returns the language
 
@@ -150,7 +150,7 @@ plugin later returns a tree, the panel goes back to the tree.
 ```sh
 mkdir -p /tmp/hamlet-try/plugins/greeter_ui
 cp guests/greeter_ui/* /tmp/hamlet-try/plugins/greeter_ui/
-HAMLET_HOME=/tmp/hamlet-try cargo run --features wasm
+HAMLET_HOME=/tmp/hamlet-try cargo run
 ```
 
 The app asks the chief to install it; Allow gives it `read.agents`.
