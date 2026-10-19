@@ -241,6 +241,36 @@ Editors do not see the kit's crates, as the plugin's `Cargo.toml` names
 none. On macOS a release kit is 1.1 GB (1.3 GB with the libraries of the
 whole app), and about 0.3 GB as the release's archive.
 
+## Its own copy of the engine
+
+A library is a `cdylib`: it holds its own copy of every crate it uses,
+`std` and Bevy among them. The gate makes the types the same on both
+sides; the statics are not, as each copy has its own:
+
+- the task pools: a library that reaches them through `ComputeTaskPool`,
+  `AsyncComputeTaskPool` or `IoTaskPool` finds its copy's, which nothing
+  set up, while the app's systems it adds are run by the host's;
+- the tracing dispatcher: the library's `info!` and `warn!` go to its own,
+  which nothing set, so its log lines are lost unless it sets one;
+- the panic hook and the panic runtime: a panic is caught on the side
+  that raised it or not at all (that is why `export!` catches the
+  entry's), and the host's hook does not see the library's;
+- the interners: a label with fields interned on one side is another label
+  to the other. A label with none, such as `Update` or the render app's,
+  is the same on both.
+
+Memory crosses in both directions (a `Box` of a system, a `String` in a
+resource), and is freed by the other side's code. Both sides must use the
+`System` allocator, which is Rust's own when no `#[global_allocator]` is
+set: Hamlet sets none, and a native plugin must set none either.
+
+Building Bevy as one shared library that both sides link against would
+give one copy of each static. Hamlet does not offer it: that library would
+have to ship with every Hamlet and be the very file each plugin was linked
+against, Rust's `dylib` has no stable ABI either, so it adds a file to
+match without removing a check, and the app would no longer be one
+binary.
+
 ## Writing one
 
 ```rust
