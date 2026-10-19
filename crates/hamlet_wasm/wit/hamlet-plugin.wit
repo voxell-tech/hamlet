@@ -342,6 +342,30 @@ interface plugin {
     folder-done(folder-answer),
     // The answer to a `model-call` this plugin made.
     model-answered(model-answer),
+    // A point of an agent's turn, given to a plugin that holds
+    // `agent.steer` for the agent's hamlet: before a model call, or
+    // before a tool call. The `step` it comes in runs at once while
+    // the turn waits, with a small budget of time and fuel; the
+    // plugin answers in it with `steer-answer`, or with nothing to
+    // change nothing. A `step` that fails or runs out changes nothing.
+    steer(steer-point),
+  }
+
+  record steer-point {
+    // The host's number for it, which the answer names.
+    id: u64,
+    agent: string,
+    hamlet: string,
+    // The model call of the turn, from 1.
+    step: u32,
+    // The tool call about to run, or none before a model call.
+    tool: option<steer-tool>,
+  }
+
+  record steer-tool {
+    name: string,
+    // The arguments as the model wrote them, cut to a cap.
+    args: string,
   }
 
   record published {
@@ -478,6 +502,27 @@ interface plugin {
     // plugin never sees a key or an address. The answer reaches a
     // later `step` as `model-answered`.
     model-call(model-request),
+    // What the plugin makes of a `steer` in the same `step`. It needs
+    // the capability `agent.steer`. A note is for a point before a
+    // model call: a few words the agent is given, marked as the
+    // plugin's and not the chief's. A hold is for a point before a
+    // tool call: the call does not run and the agent is told the
+    // reason, marked with the plugin. Neither can approve anything,
+    // or change what the chief or the model said or what a tool
+    // returned. The host cuts the words to a cap; an answer to
+    // another point, or of the wrong kind, changes nothing.
+    steer-answer(steer-reply),
+  }
+
+  variant steer-change {
+    note(string),
+    hold(string),
+  }
+
+  record steer-reply {
+    // The `id` of the point it answers.
+    id: u64,
+    change: steer-change,
   }
 
   enum model-role { user, assistant }

@@ -92,6 +92,38 @@ pub enum Step {
     /// app does for each turn, to those that hold `agent.hook` and
     /// import `host/before-turn` or `host/after-turn`.
     Turn(Turned),
+    /// Puts a point of an agent's turn to the plugins that hold
+    /// `agent.steer`, as the app does before a model call or a tool
+    /// call, and checks what the plugin in front made of it.
+    Steer(Steering),
+}
+
+/// A point of an agent's turn, and what the plugin in front is to
+/// make of it.
+#[derive(Deserialize, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Steering {
+    #[serde(default = "an_agent")]
+    pub agent: String,
+    #[serde(default = "a_hamlet")]
+    pub hamlet: String,
+    /// The tool about to be called, or none for a point before a
+    /// model call.
+    #[serde(default)]
+    pub tool: String,
+    /// Its arguments as a model writes them, in JSON.
+    #[serde(default = "no_arguments")]
+    pub args: String,
+    /// `note`, `hold`, `failed` or `none`.
+    pub expect: String,
+    /// Fails unless the note, the reason or why it failed holds
+    /// this.
+    #[serde(default)]
+    pub shows: String,
+}
+
+fn an_agent() -> String {
+    "Juniper".into()
 }
 
 impl Step {

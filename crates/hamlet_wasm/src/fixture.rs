@@ -12,10 +12,14 @@ use wit_parser::Resolve;
 
 pub use self::tree::{Item, Widget};
 
+/// The bytes of an `incoming` in the list a `step` is given. Its
+/// payload is at 8.
+const INCOMING: usize = 56;
+
 /// The parts every test plugin shares: the import of `log`, a memory,
 /// a bump allocator for the canonical ABI, and a static `outgoing`
 /// at 0 holding one `log-line` that reads "hello world" at 32. An
-/// `intent` is 40 bytes with its payload at 8, and an `incoming` too.
+/// `intent` is 40 bytes with its payload at 8.
 const COMMON: &str = r#"
   (import "hamlet:plugin/host@0.1.0" "log" (func $log (param i32 i32 i32)))
   (import "hamlet:plugin/host@0.1.0" "command"
@@ -328,7 +332,7 @@ pub fn commanding(plugin: &str, command: &str, args: &str) -> String {
         (local.set $out (i32.const 512))))
     (local.set $at (local.get 0))
     (local.set $end
-      (i32.add (local.get 0) (i32.mul (local.get 1) (i32.const 40))))
+      (i32.add (local.get 0) (i32.mul (local.get 1) (i32.const {INCOMING}))))
     (block $done
       (loop $each
         (br_if $done (i32.ge_u (local.get $at) (local.get $end)))
@@ -340,7 +344,7 @@ pub fn commanding(plugin: &str, command: &str, args: &str) -> String {
                   (i32.load8_u (i32.add (local.get $at) (i32.const 16)))))
               (i32.load (i32.add (local.get $at) (i32.const 20)))
               (i32.load (i32.add (local.get $at) (i32.const 24))))))
-        (local.set $at (i32.add (local.get $at) (i32.const 40)))
+        (local.set $at (i32.add (local.get $at) (i32.const {INCOMING})))
         (br $each)))
     (local.get $out)))"#
     )
@@ -378,13 +382,13 @@ pub fn contributing() -> String {
     (local $at i32) (local $end i32)
     (local.set $at (local.get 0))
     (local.set $end
-      (i32.add (local.get 0) (i32.mul (local.get 1) (i32.const 40))))
+      (i32.add (local.get 0) (i32.mul (local.get 1) (i32.const {INCOMING}))))
     (block $done
       (loop $each
         (br_if $done (i32.ge_u (local.get $at) (local.get $end)))
         (if (i32.eq (i32.load8_u (local.get $at)) (i32.const 6))
           (then (call $log (i32.const 0) (i32.const 32) (i32.const 11))))
-        (local.set $at (i32.add (local.get $at) (i32.const 40)))
+        (local.set $at (i32.add (local.get $at) (i32.const {INCOMING})))
         (br $each)))
     {NOTHING}))"#
     )
@@ -406,7 +410,7 @@ pub fn answering() -> String {
     (local.set $out {NOTHING})
     (local.set $at (local.get 0))
     (local.set $end
-      (i32.add (local.get 0) (i32.mul (local.get 1) (i32.const 40))))
+      (i32.add (local.get 0) (i32.mul (local.get 1) (i32.const {INCOMING}))))
     (block $done
       (loop $each
         (br_if $done (i32.ge_u (local.get $at) (local.get $end)))
@@ -423,7 +427,7 @@ pub fn answering() -> String {
             (i32.store (i32.const 552)
               (i32.load (i32.add (local.get $at) (i32.const 36))))
             (local.set $out (i32.const 512))))
-        (local.set $at (i32.add (local.get $at) (i32.const 40)))
+        (local.set $at (i32.add (local.get $at) (i32.const {INCOMING})))
         (br $each)))
     (local.get $out)))"#
     )
@@ -461,7 +465,7 @@ pub fn listening() -> String {
     (local $at i32) (local $end i32)
     (local.set $at (local.get 0))
     (local.set $end
-      (i32.add (local.get 0) (i32.mul (local.get 1) (i32.const 40))))
+      (i32.add (local.get 0) (i32.mul (local.get 1) (i32.const {INCOMING}))))
     (block $done
       (loop $each
         (br_if $done (i32.ge_u (local.get $at) (local.get $end)))
@@ -470,7 +474,7 @@ pub fn listening() -> String {
             (call $log (i32.const 0)
               (i32.load (i32.add (local.get $at) (i32.const 24)))
               (i32.load (i32.add (local.get $at) (i32.const 28))))))
-        (local.set $at (i32.add (local.get $at) (i32.const 40)))
+        (local.set $at (i32.add (local.get $at) (i32.const {INCOMING})))
         (br $each)))
     {NOTHING}))"#
     )

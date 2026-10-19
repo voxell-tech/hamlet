@@ -23,6 +23,7 @@ pub mod model;
 pub mod net;
 pub mod overlay;
 pub mod state;
+pub mod steer;
 pub mod storage;
 pub mod subject;
 pub mod tool;

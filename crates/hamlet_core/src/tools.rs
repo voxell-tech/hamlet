@@ -18,7 +18,9 @@ use serde_json::{Value, json};
 pub use self::change::Change;
 use self::custom::{CustomTool, reserved};
 use self::edit::edit;
-pub use self::plugged::{AgentTool, AgentToolCalled, Offered};
+pub use self::plugged::{
+    AgentTool, AgentToolCalled, Offered, Steer, Steered, Steering,
+};
 use self::reading::Sight;
 use self::shell::Shell;
 

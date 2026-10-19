@@ -234,6 +234,62 @@ impl Waiting {
     }
 }
 
+/// What a plugin that steers the agents made of a point of a turn.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Steered {
+    /// A short note for the agent, before a model call.
+    Note(String),
+    /// The tool call is held back, for this reason.
+    Hold(String),
+    /// The plugin failed or ran out of time, and nothing changed.
+    Failed(String),
+}
+
+/// What one plugin made of a point of a turn.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Steer {
+    /// The id of the plugin.
+    pub plugin: String,
+    pub steered: Steered,
+}
+
+/// A point of an agent's turn at which the plugins that steer the
+/// agents of its hamlet are asked: before a model call, or before a
+/// tool call. Each observer adds what its plugins made of it to
+/// `steers`, and sets `watched` where one may steer that hamlet.
+#[derive(Event, Debug)]
+pub struct Steering {
+    pub agent: String,
+    pub hamlet: String,
+    /// The model call of the turn, from 1.
+    pub step: u32,
+    /// The name and the arguments of the tool call about to run, or
+    /// none before a model call.
+    pub tool: Option<(String, String)>,
+    pub steers: Vec<Steer>,
+    pub watched: bool,
+}
+
+impl Steering {
+    /// The point of the turn of `agent` of `hamlet` at its model call
+    /// `step`, before the tool call `tool` where there is one.
+    pub fn at(
+        agent: &str,
+        hamlet: &str,
+        step: u32,
+        tool: Option<(String, String)>,
+    ) -> Self {
+        Self {
+            agent: agent.into(),
+            hamlet: hamlet.into(),
+            step,
+            tool,
+            steers: Vec::new(),
+            watched: false,
+        }
+    }
+}
+
 impl AgentToolCalled {
     /// The call of `tool` of `plugin` by `agent` of `hamlet`, and
     /// where its answer comes.

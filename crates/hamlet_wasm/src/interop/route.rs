@@ -96,6 +96,7 @@ pub(super) fn route(
                 | Intent::PickFolder(_)
                 | Intent::Folder(_)
                 | Intent::ModelCall(_)
+                | Intent::SteerAnswer(_)
                 | Intent::Fetch(_) => {}
             }
         }

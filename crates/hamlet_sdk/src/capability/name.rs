@@ -45,12 +45,13 @@ pub enum Capability {
     Db,
     AgentTool,
     AgentHook,
+    AgentSteer,
     UiCanvas,
     WorldOverlay,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 27] = [
+    pub const ALL: [Capability; 28] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -76,6 +77,7 @@ impl Capability {
         Capability::Db,
         Capability::AgentTool,
         Capability::AgentHook,
+        Capability::AgentSteer,
         Capability::UiCanvas,
         Capability::WorldOverlay,
     ];
@@ -95,7 +97,12 @@ impl Capability {
 
     /// Whether what the plugin does is set off by an agent.
     pub fn agent_facing(self) -> bool {
-        matches!(self, Capability::AgentTool | Capability::AgentHook)
+        matches!(
+            self,
+            Capability::AgentTool
+                | Capability::AgentHook
+                | Capability::AgentSteer
+        )
     }
 
     /// The name a manifest and the grants file know it by.
@@ -126,6 +133,7 @@ impl Capability {
             Capability::Db => "db",
             Capability::AgentTool => "agent.tool",
             Capability::AgentHook => "agent.hook",
+            Capability::AgentSteer => "agent.steer",
             Capability::UiCanvas => "ui.canvas",
             Capability::WorldOverlay => "world.overlay",
         }
@@ -249,6 +257,10 @@ impl Capability {
             Capability::AgentHook => {
                 "Be told when an agent's turn begins and ends"
             }
+            Capability::AgentSteer => {
+                "Add a note to an agent's turn, or hold back a tool \
+                 call it is about to make"
+            }
             Capability::UiCanvas => {
                 "Draw 2D shapes in a canvas of its panels"
             }
@@ -322,6 +334,18 @@ impl Capability {
                  used, never what was said. It only watches, it \
                  cannot change or stop a turn, and it cannot also \
                  act as the chief or use other plugins.",
+            ),
+            Capability::AgentSteer => Some(
+                "Asked before each model call and each tool call of \
+                 the agents of the hamlets listed (every hamlet \
+                 where none is), and sees the agent, the tool and \
+                 its arguments. It may add a short note marked with \
+                 its name, or hold a tool call back with a reason \
+                 the agent is told. It only makes a turn stricter: \
+                 it cannot approve anything, change what was said \
+                 or what a tool returned, act as the chief or use \
+                 other plugins. A hook that fails or runs out of \
+                 time changes nothing.",
             ),
             _ => None,
         }

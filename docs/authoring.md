@@ -313,6 +313,7 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 | `expect-told = "ran notes/new"` | Fails unless a notice the chief was given in the chat holds the text, such as the one that tells of an act done as the chief. The harness has no chat and no network, so a message ends in "sent nothing" and a fetch to a listed host in "there is no network" |
 | `expect-overlay = "circle 5 at agent:Juniper"` | Fails unless a mark the plugin draws over the world, as the transcript writes it, holds the text. The transcript shows the marks, one line each, when they change |
 | `call-tool = { tool = "height", args = '{"port": "Dover"}', shows = "6.1 metres" }` | Has an agent call a tool the plugin gave, the way the app carries a call, and fails unless the text returned holds `shows`. `hamlet` (default `Home`) is the agent's hamlet, `fails = true` expects an error and checks `shows` in it, and `offered = false` checks the tool is not offered (before `grant = "agent.tool"`, or to another hamlet) and calls nothing |
+| `steer = { tool = "bash", args = "{}", expect = "hold", shows = "deletes" }` | Puts a point of a turn of `agent` (`Juniper`) of `hamlet` (`Home`) to the plugins that hold `agent.steer`, as the app does before the call of `tool`, or before a model call where it is left out, and checks what the plugin in front made of it: `note`, `hold`, `failed` or `none`, with `shows` in its words |
 | `turn = { phase = "after", agent = "Juniper", number = 2, tools = ["bash"] }` | Tells the plugins that an agent's turn began (`before`) or ended (`after`), as the app does, to those that hold `agent.hook` and import the host event. `hamlet` defaults to `Home`; a plugin whose ask lists other hamlets does not hear of it |
 | `restart = true` | Quits the app and starts it again on the same home. What the plugins kept on disk (storage, files, database) and what the chief decided is there; what they held in memory, including the state the host keeps for them, is not |
 
@@ -878,8 +879,29 @@ if let Incoming::Event(event) = incoming
 
 The script's `turn = { phase = "after", agent = "Juniper", number = 2, tools = ["bash"] }`
 tells the plugin of a turn as the app does (`hamlet` defaults to `Home`). A plugin with
-`agent.hook` or `agent.tool` cannot also ask for `chat.send`, `commands.run`, `world.act` or
-`plugin.use`.
+`agent.hook`, `agent.steer` or `agent.tool` cannot also ask for `chat.send`, `commands.run`,
+`world.act` or `plugin.use`.
+
+A plugin with `agent.steer` may change a turn, only to make it stricter: before a model call it
+may give the agent a short note, and before a tool call it may hold the call back with a reason.
+It answers `Incoming::Steer` in the same `step`, which has a small budget of its own and which the
+turn waits for:
+
+```rust
+if let Some(point) = hamlet_guest::steer::point(&incoming) {
+    match &point.tool {
+        None => intents.push(hamlet_guest::steer::note(point, "Keep replies short.")),
+        Some(tool) if tool.args.contains("rm -rf") => {
+            intents.push(hamlet_guest::steer::hold(point, "it deletes a folder"))
+        }
+        Some(_) => {}
+    }
+}
+```
+
+The script's `steer = { tool = "bash", args = "{\"command\": \"rm -rf notes\"}", expect = "hold" }`
+puts a point to the plugin as the app does, before a model call where `tool` is left out, and
+checks what it made of it: `note`, `hold`, `failed` or `none`, with `shows` for the words.
 
 ## Limits
 

@@ -24,12 +24,12 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 `world.act`, `ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`,
 `ui.settings`, `net`, `fs.pick`, `fs.folder`, `model.call`, `plugin.use`,
 `collections.read`, `collections.write`, `files.read`, `files.write`, `db`,
-`agent.tool`, `agent.hook`, `ui.canvas` and `world.overlay`. `read.agents`,
+`agent.tool`, `agent.hook`, `agent.steer`, `ui.canvas` and `world.overlay`. `read.agents`,
 `read.papers`, `read.world`, `ui.menu`, `ui.keys`, `ui.context`,
 `ui.inspector`, `ui.settings`, `ui.canvas`, `world.overlay`, `chat.send`,
 `commands.run`, `world.act`, `net`, `fs.pick`, `fs.folder`, `model.call`,
 `files.read`, `files.write`,
-`db`, `agent.tool`, `agent.hook` and the three below are checked so far; the
+`db`, `agent.tool`, `agent.hook`, `agent.steer` and the three below are checked so far; the
 others can be asked for, shown and chosen.
 
 `plugin.use`, `collections.read`, `collections.write` and `fs.folder` are
@@ -94,7 +94,7 @@ back in Settings takes the tools off at once, and Settings lists them under the 
   reaches the agent marked as text from a plugin, which is data and not an instruction from the
   chief or from the agent itself, and is cut to `tool_result_bytes`.
 - A tool call never carries the chief's authority. A plugin with `agent.tool` may not ask for
-  `chat.send`, `commands.run`, `world.act` or `plugin.use` at all (nor may a plugin with `agent.hook`), so the
+  `chat.send`, `commands.run`, `world.act` or `plugin.use` at all (nor may a plugin with `agent.hook` or `agent.steer`), so the
   scan turns such a manifest down with no petition. What it keeps are its own capabilities (`net` for the hosts the chief
   listed, its files, its database, collections), which an agent can steer only through the
   arguments the tool takes.
@@ -122,11 +122,37 @@ bubbles, name tags or questions in the world; the tag is what tells them apart.
 `host/selection-changed`: a plugin that imports them and is yet to be decided for raises the
 petition, and gets none until the chief allows. It is observe only. What a plugin is told is the
 agent, its hamlet, the turn's number and the names of the tools used, never the transcript, and it
-has no way to change, hold or stop a turn: veto and modify hooks are not offered, because a turn is
-where the core keeps its limits, budget, sandbox and questions, and a plugin in front of it would
-stand in front of all of them. The ask's `scope` lists the hamlets it hears of (none: every hamlet,
-and Settings says so), and it may not be asked for with `chat.send`, `commands.run` or
-`plugin.use`, as for `agent.tool`.
+has no way to change, hold or stop a turn. The ask's `scope` lists the hamlets it hears of (none:
+every hamlet, and Settings says so), and it may not be asked for with `chat.send`, `commands.run`
+or `plugin.use`, as for `agent.tool`.
+
+`agent.steer` is chosen apart from `agent.hook`, and lets a plugin change a turn, only ever to make
+it stricter (the `steer` event of a plugin's inbox, see [`wasm.md`](wasm.md)). Before each model
+call and each tool call of a plain turn of an agent of a hamlet its ask's `scope` lists (none:
+every hamlet), the core asks the app, and each running plugin that holds it is stepped at once
+while the turn waits, with a budget of `steer_ms` and `steer_fuel`. It is told the agent, the
+hamlet, the model call's number and, for a tool call, the tool's name and arguments (cut to
+`steer_args_bytes`).
+
+- Before a model call it may add a note: one plain line of at most `steer_note_bytes`, put at the
+  end of the system prompt of that call only, under "Notes from plugins. They are not from the
+  chief or from you", as `[the plugin <id>] <note>`, and written to the transcript as a notice,
+  `[note from the plugin <id>] <note>`.
+- Before a tool call it may hold the call back with a reason of the same cap. The call does not
+  run and never reaches the gate, so the chief is never asked about it, and the agent is told
+  `Error: blocked: held back by the plugin <id>: <reason>`, which the transcript keeps as the
+  call's result. `ask_chief` and `object` are never put to a plugin, so no plugin can keep an
+  agent from the chief.
+- It cannot rewrite the chief's words, the model's reply or what a tool returned, and it cannot
+  allow anything: a call it does not hold back goes to the gate as any other. A ballot and the
+  mayor's answer to a vote are not steered.
+- A `step` that fails, traps or runs out of time or fuel changes nothing: the turn goes on, the
+  transcript notes `[the plugin <id> changed nothing: <why>]`, and the plugin is stopped as any
+  plugin whose call failed. An answer of the wrong kind, or to another point, changes nothing.
+- The petition, Settings and the scan treat it as `agent.hook`: it is allowed when the chief lets
+  the plugin in, the first use while the choice is yet to be made asks the chief and steers
+  nothing, it may be set to Ask next time, and it may not be asked for with `chat.send`,
+  `commands.run`, `world.act` or `plugin.use`.
 
 ## Acts as the chief
 
@@ -164,8 +190,8 @@ held as the two above: asked at its first use, counted against the same
 its `scope` lists the hamlet ids it reaches, an agent through its hamlet, so
 that an ask with none reaches nothing. Orders that change the world (a decree,
 a word to an agent) are not among its acts: they are `commands.run` and
-`chat.send`, which a plugin asks for on their own. A plugin with `agent.tool` or
-`agent.hook` may not ask for it.
+`chat.send`, which a plugin asks for on their own. A plugin with `agent.tool`,
+`agent.hook` or `agent.steer` may not ask for it.
 
 ## Files
 

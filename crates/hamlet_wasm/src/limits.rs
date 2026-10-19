@@ -175,6 +175,18 @@ pub struct Limits {
     /// The bytes of what a tool returns to an agent. A longer text
     /// is cut.
     pub tool_result_bytes: usize,
+    /// The time the `step` that answers a point of an agent's turn
+    /// may take, in milliseconds. The turn waits for it.
+    pub steer_ms: u64,
+    /// The work the `step` that answers a point of an agent's turn
+    /// may do, in wasmtime's fuel.
+    pub steer_fuel: u64,
+    /// The bytes of a note or of the reason for a hold a plugin that
+    /// steers an agent gives. A longer one is cut.
+    pub steer_note_bytes: usize,
+    /// The bytes of the arguments of a tool call a plugin that
+    /// steers an agent is shown. Longer ones are cut.
+    pub steer_args_bytes: usize,
     /// The calls of agents one plugin may have waiting at once.
     pub tool_calls_in_flight: usize,
     /// The plugins a call may cross, one running a command whose
@@ -217,7 +229,18 @@ impl Limits {
     pub fn patient(self) -> Self {
         Self {
             call_ms: PATIENT_MS,
+            steer_ms: PATIENT_MS,
             ..self
+        }
+    }
+
+    /// These limits with the time and fuel of a `step` that answers
+    /// a point of an agent's turn.
+    pub fn steering(&self) -> Self {
+        Self {
+            call_ms: self.steer_ms,
+            call_fuel: self.steer_fuel,
+            ..self.clone()
         }
     }
 

@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use bevy::math::Vec3;
-use hamlet_agents_api::tools::{Phase, TurnObserved};
+use hamlet_agents_api::tools::{Phase, Steered, TurnObserved};
 use hamlet_realm_api::survey::{
     Spotted, Survey, SurveyedAgent, SurveyedHamlet,
 };
@@ -137,6 +137,12 @@ fn describe(step: &Step) -> String {
         Step::Turn(turn) => {
             format!("turn {} of {}", turn.phase, turn.agent)
         }
+        Step::Steer(point) => match point.tool.as_str() {
+            "" => {
+                format!("steer {} before a model call", point.agent)
+            }
+            tool => format!("steer {} before {tool}", point.agent),
+        },
     }
 }
 
@@ -265,6 +271,31 @@ fn apply(
                 tools: turn.tools.clone(),
             });
             Ok(())
+        }
+        Step::Steer(point) => {
+            let tool = (!point.tool.is_empty())
+                .then(|| (point.tool.clone(), point.args.clone()));
+            let made =
+                harness.steer(&point.agent, &point.hamlet, tool);
+            let (kind, words) = match &made {
+                None => ("none", String::new()),
+                Some(Steered::Note(text)) => ("note", text.clone()),
+                Some(Steered::Hold(why)) => ("hold", why.clone()),
+                Some(Steered::Failed(why)) => ("failed", why.clone()),
+            };
+            lines.push(format!("  steered {kind} {words:?}"));
+            match (kind == point.expect, words.contains(&point.shows))
+            {
+                (true, true) => Ok(()),
+                (true, false) => Err(format!(
+                    "the plugin did not say {:?}",
+                    point.shows
+                )),
+                (false, _) => Err(format!(
+                    "the plugin made {kind} of it, not {}",
+                    point.expect
+                )),
+            }
         }
         Step::CallTool(call) if !call.offered => {
             match harness.offers(&call.hamlet, &call.tool) {

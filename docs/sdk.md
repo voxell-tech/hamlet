@@ -142,7 +142,7 @@ core, and the layers add its plugins (below).
 | `change` | The core's `Change`, its `Line` and `Mark`, and `DrawChange`, set by the window to the function that draws the edit an approval holds as the chat draws it, so a plugin shows an edit the same way |
 | `waits` | `Waits`, how many things wait for the chief, for the status bar and any plugin |
 | `petition` | Puts the SDK's `Petition` in the core's queue and passes the chief's answer back as `Answered` |
-| `tools` | The core's tools a plugin gives the agents, the sandbox they run in (`Sandboxing`) and the turns a plugin is told of, for a host of plugins |
+| `tools` | The core's tools a plugin gives the agents, the sandbox they run in (`Sandboxing`), the turns a plugin is told of (`TurnObserved`) and the points of a turn a plugin steers (`Steering`, and `Steer` and `Steered`, what it made of one), for a host of plugins |
 
 ### A panel
 

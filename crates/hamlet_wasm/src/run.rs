@@ -158,6 +158,9 @@ pub fn apply(
                     | Intent::Fetch(_),
                     _,
                 ) => {}
+                // Taken where the point was put, by `steer`; one
+                // given in any other `step` answers nothing.
+                (Intent::SteerAnswer(_), _) => {}
             }
         }
     }

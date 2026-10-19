@@ -11,7 +11,7 @@ use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
 use hamlet_agents_api::model::Model;
 use hamlet_agents_api::tools::{
-    AgentTool, AgentToolCalled, TurnObserved,
+    AgentTool, AgentToolCalled, Steered, Steering, TurnObserved,
 };
 use hamlet_desktop::file::Pick;
 use hamlet_realm_api::overlay::{
@@ -378,6 +378,28 @@ impl Harness {
         self.app.world_mut().trigger(turn);
         self.app.world_mut().flush();
         self.frames(SETTLE);
+    }
+
+    /// Puts a point of the turn of `agent` of `hamlet` to the plugins
+    /// that steer, as the app does before a model call, or before
+    /// the call of `tool` with its name and arguments. What the
+    /// plugin in front made of it, if anything.
+    pub fn steer(
+        &mut self,
+        agent: &str,
+        hamlet: &str,
+        tool: Option<(String, String)>,
+    ) -> Option<Steered> {
+        let step = 1;
+        let mut point = Steering::at(agent, hamlet, step, tool);
+        self.app.world_mut().trigger_ref(&mut point);
+        self.app.world_mut().flush();
+        self.frames(SETTLE);
+        point
+            .steers
+            .into_iter()
+            .find(|steer| steer.plugin == self.id)
+            .map(|steer| steer.steered)
     }
 
     /// Whether an agent of the hamlet `hamlet` is offered the tool

@@ -20,6 +20,7 @@ mod pick;
 mod reads;
 mod reload;
 mod state;
+mod steer;
 mod stopped;
 mod storage;
 mod tools;

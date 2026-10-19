@@ -82,6 +82,8 @@ pub struct Agent {
     pub(crate) gate: Option<Gate>,
     /// The way to the tools installed plugins give it.
     pub(crate) plug: Option<Plug>,
+    /// Some plugin may steer it, as the app last said.
+    steered: bool,
     pub(crate) objection: Objection,
     /// A chief answers its gate, so it can be asked a question.
     pub(crate) overseen: bool,
@@ -122,6 +124,7 @@ impl Agent {
             awaited: false,
             gate: None,
             plug: None,
+            steered: false,
             objection: Objection::Closed,
             overseen: false,
             unreflected: 0,
@@ -446,7 +449,9 @@ impl Agent {
         // The conversation was summarised for a reply that had no
         // room.
         let mut squeezed = false;
+        let mut step = 0u32;
         for _ in 0..steps {
+            step = step.saturating_add(1);
             // It may have been removed or merged since its last
             // step, or the office may have changed hands.
             self.stop_if_gone()?;
@@ -488,8 +493,10 @@ impl Agent {
                     Some((self.mayor, words.unwrap_or_default()));
             }
             let words = budget.as_ref().map_or("", |b| b.1.as_str());
-            self.plugged().await;
-            let (system, defs) = self.brief(model, &faults, words);
+            let notes = self.plugged(step, plain, on).await?;
+            let (mut system, defs) =
+                self.brief(model, &faults, words);
+            system.push_str(&notes);
             let system = json!({"role": "system", "content": system});
             let window = self.window(model);
             if let Some(window) = window
@@ -570,7 +577,17 @@ impl Agent {
                 let spent = call.name == rulings::OBJECT
                     && self.objection != Objection::Open;
                 let who = self.name();
+                // A plugin may only make a call stricter, so it is
+                // asked before the gate, and a call it holds back
+                // never reaches the chief.
+                let held = match plain {
+                    true => self.held(step, &call, on).await?,
+                    false => None,
+                };
                 let ruling = match &mut self.gate {
+                    _ if let Some(why) = &held => {
+                        Ruling::Deny(why.clone())
+                    }
                     _ if spent => Ruling::Deny(
                         "you may not object to this instruction \
                          now; carry it out"

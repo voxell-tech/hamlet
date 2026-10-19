@@ -38,7 +38,7 @@ In `hamlet_wasm/src/`, a file for each part:
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
 | What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `host/folder.rs` and `files.rs` (the folder of files), `pick.rs` (a file or a folder the chief picks), `folder.rs` (the folder the chief chose), `model.rs` (a model call), `host/database.rs` and `db.rs` (the database), `acts.rs` (a message or a command as the chief), `net.rs` (fetches), `rate.rs` (a count a minute), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
 | The install folder | `manifest.rs`, `install.rs` (which also turns down plugins whose needs go in a circle), `cache.rs` (the compiled components kept in the home) |
-| Plugins working together | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `chief.rs` (a command the chief runs), `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `tools.rs` (a call of an agent), `mail.rs`. Also `command.rs` (a plugin's commands, menu lines, context items, inspector tabs, settings pages and keys as entities), `reach.rs` and `host/collections.rs` (the shared collections) |
+| Plugins working together, and the agents | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `chief.rs` (a command the chief runs), `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `tools.rs` (a call of an agent), `mail.rs`. Also `command.rs` (a plugin's commands, menu lines, context items, inspector tabs, settings pages and keys as entities), `reach.rs` and `host/collections.rs` (the shared collections), and `steer.rs` (a point of an agent's turn put to the plugins that steer it) |
 | Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
 | Bringing up and the frame | `load.rs`, `admit.rs` (a plugin the chief just let in), `start.rs`, `enable.rs`, `inbox.rs`, `reply.rs` (an answer to a request), `run.rs`, `stop.rs` |
 | The panels | `panel.rs`, `wire.rs` (a returned tree made into nodes), `draw.rs`, `event.rs` |
@@ -132,7 +132,9 @@ The plugin exports:
   `folder-done(id, outcome)`, `model-call` (see Asking the model below),
   answered as `model-answered(id, outcome)`, and `fetch` (see
   The web below), the answer to which reaches a later `step` as `fetched(id,
-  outcome)`.
+  outcome)`. A plugin that steers the agents is given `steer(point)` in a `step`
+  of its own and answers it in that `step` with `steer-answer` (see Steering a
+  turn below).
 - `panel-view(panel) -> view`, which returns the panel as it is now: a
   `tree`, or `lang`, a program in Hamlet's panel language that the host
   draws (see [`panels.md`](panels.md)).
@@ -629,14 +631,38 @@ turn and the names of the tools used (at most 32), and never a word that was sai
 or what any tool was given or returned: not the transcript. `hamlet_guest::events::turn`
 reads one.
 
-The hooks only watch. A hook cannot change a turn, hold it, veto a tool call or answer
-for the agent, and none is offered, for the core's sake: a turn is the one place the
-limits, the budget, the sandbox and the chief's questions meet, and a plugin that
-could stand in front of it would be a plugin that could take the place of all of
-them, and one that runs for a time the turn would have to wait for. What the
-chief wants to hold or refuse is the work of the gate, the rules and the limits of
-the core, not a plugin. So a plugin with `agent.hook` cannot also act as the chief or
-use other plugins (see Tools for the agents).
+These hooks only watch, and run in the plugin's own time: the turn does not wait
+for them. A plugin with `agent.hook` cannot also act as the chief or use other
+plugins (see Tools for the agents). Changing a turn is `agent.steer`, below.
+
+### Steering a turn
+
+A plugin with `agent.steer` is asked at two points of each plain turn of an agent of
+a hamlet its ask's `scope` lists (every hamlet where it lists none): before each
+model call and before each tool call ([`permissions.md`](permissions.md)). The agent's
+worker asks the app thread over the way it asks for the tools of plugins
+(`hamlet_core/src/agent/plug.rs` and `session/plug.rs`): the point before a model call
+travels with the ask for the tools, and the answer says whether any plugin steers
+that hamlet, so that a tool call is put to the plugins only where one does. The core
+triggers `Steering` (`hamlet_agents_api::tools`), and `steer.rs` steps each running
+plugin that holds `agent.steer` at once, with `steer(point)` alone in its inbox: a
+number of the host's, the agent, the hamlet, the model call's number from 1, and for a
+tool call its name and its arguments cut to `steer_args_bytes`. The `step` has
+`steer_ms` and `steer_fuel` in place of a call's time and fuel, and the turn waits
+for it.
+
+The plugin answers in that `step` with `steer-answer(id, change)`: `note(text)` before
+a model call, or `hold(reason)` before a tool call. Any other intents it returns are
+carried out as those of any `step`. Each text is made one plain line and cut to
+`steer_note_bytes`. A note is added to the end of the system prompt of that model
+call only, marked as the plugin's and as not from the chief or the agent, and written
+to the transcript as a notice with the plugin's id; a held call is answered with the
+reason and the plugin's id and never reaches the gate. Nothing else of the turn can be
+changed: not the chief's words, the model's reply or a tool's result, and no call can
+be let through. `ask_chief` and `object` are not put to a plugin. A `step` that
+fails, traps or runs out changes nothing and is noted in the transcript, and the
+plugin stops as for any failed call. `hamlet_guest::steer` reads the point and makes
+the answers.
 
 ### Tools for the agents
 
@@ -867,6 +893,9 @@ each means. They apply to every plugin alike, whatever it is granted.
   `overlay_text_bytes` of words and names, and is replaced at most
   `overlay_updates_per_second` times a second; the rest are dropped with a
   warning.
+- **Steering a turn.** The `step` that answers a point of a turn has `steer_ms` and
+  `steer_fuel`; a note or a reason is cut to `steer_note_bytes`, and the arguments a
+  plugin is shown to `steer_args_bytes`.
 - **Tools for the agents.** At most `agent_tools` tools of `tool_fields` fields
   declared, `tool_calls_in_flight` calls of agents waiting on a plugin, and a
   returned text of `tool_result_bytes` (a longer one is cut). A call is bounded by

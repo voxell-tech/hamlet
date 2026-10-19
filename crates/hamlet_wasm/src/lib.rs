@@ -45,6 +45,7 @@ pub mod reload;
 pub mod reply;
 pub mod run;
 pub mod start;
+pub mod steer;
 pub mod stop;
 pub mod storage;
 pub mod survey;
@@ -76,6 +77,7 @@ pub fn plugin(app: &mut App) {
     .init_resource::<net::Fetching>()
     .init_resource::<folder::Folders>()
     .init_resource::<model::Calling>()
+    .init_resource::<steer::Points>()
     .add_message::<run::Done>()
     .add_message::<run::Said>()
     .add_observer(admit::admit)
@@ -83,6 +85,7 @@ pub fn plugin(app: &mut App) {
     .add_observer(event::deliver)
     .add_observer(folder::answered)
     .add_observer(reply::reply)
+    .add_observer(steer::steer)
     .add_observer(stop::stopped)
     .add_observer(stop::schedule)
     .add_observer(uninstall::removed)
