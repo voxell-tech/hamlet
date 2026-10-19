@@ -20,12 +20,13 @@ pub fn plugin(app: &mut App) {
     app.add_hamlet_plugin::<Window>();
 }
 
-/// The built-in plugin that owns the window's commands.
+/// The built-in plugin that owns the window's commands. Essential:
+/// Quit is always there.
 pub struct Window;
 
 impl HamletPlugin for Window {
     fn manifest() -> Manifest {
-        Manifest::built_in("window").named("Window")
+        Manifest::built_in("window").named("Window").essential()
     }
 
     fn entry(entry: &mut Entry) {

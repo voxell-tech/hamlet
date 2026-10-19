@@ -340,8 +340,9 @@ leaves it running, and the Plugins page shows it as Essential with no switch,
 because the app cannot run without it. A layer needs the one below it, and
 never depends on one above. `settings` and `needs` are essential too, so the
 chief cannot switch off the Plugins page or the petitions, the two places a
-plugin is put right, and so is `menus`, the only way to quit: the close
-button sends the app to the background. The inspector, the world's panel,
+plugin is put right, and so are `window`, which owns Quit, and `menus`,
+which shows it: the close button sends the app to the background, so Quit
+is the only way out. The inspector, the world's panel,
 the status bar and the first-run screen may be switched off; a panel closed
 for good is opened again from a tab bar's plus.
 
