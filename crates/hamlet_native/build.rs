@@ -1,7 +1,7 @@
 //! Finds what a native plugin and the host must agree on before the
 //! plugin's Rust is called: the compiler, the profile, a hash of the
-//! lock entries of the engine crates and a hash of the sources of
-//! this crate, the SDK and the path crates under it.
+//! lock entries of the engine crates and a hash of the manifests and
+//! sources of this crate, the SDK and the path crates under it.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -54,19 +54,28 @@ fn main() {
     println!("cargo:rustc-env=HAMLET_NATIVE_PROFILE={profile}");
 
     let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fynix = here.join("../../vendor/fynix/crates");
     // In this order, each walked in the order of its paths.
-    let folders = [
-        here.join("src"),
-        here.join("../hamlet_sdk/src"),
-        here.join("../hamlet_base/src"),
-        here.join("../hamlet_assets/src"),
-        here.join("../../vendor/fynix/crates/bevy_fynix/src"),
+    let crates = [
+        here.clone(),
+        here.join("../hamlet_sdk"),
+        here.join("../hamlet_base"),
+        here.join("../hamlet_home"),
+        here.join("../hamlet_assets"),
+        fynix.join("bevy_fynix"),
+        fynix.join("fynix"),
+        fynix.join("fynix_macros"),
     ];
-    for folder in &folders {
-        println!("cargo:rerun-if-changed={}", folder.display());
+    for root in &crates {
+        for part in ["Cargo.toml", "src"] {
+            println!(
+                "cargo:rerun-if-changed={}",
+                root.join(part).display()
+            );
+        }
     }
-    let folders = folders.each_ref().map(PathBuf::as_path);
-    let sources = sources::hash(&folders).unwrap_or_else(|e| {
+    let crates = crates.each_ref().map(PathBuf::as_path);
+    let sources = sources::hash(&crates).unwrap_or_else(|e| {
         panic!("the sources the contract hashes cannot be read: {e}")
     });
     println!("cargo:rustc-env=HAMLET_NATIVE_SOURCES={sources}");

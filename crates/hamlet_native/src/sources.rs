@@ -1,6 +1,6 @@
-//! The hash of the source files of the contract, the SDK and the
-//! path crates under it, which the build script writes into the
-//! contract. Shared with `build.rs`.
+//! The hash of the manifests and source files of the contract, the
+//! SDK and the path crates under it, which the build script writes
+//! into the contract. Shared with `build.rs`.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -15,13 +15,15 @@ pub fn fnv(mut hash: u64, bytes: &[u8]) -> u64 {
     hash
 }
 
-/// The hash of every file under `folders`, of its path in the folder
-/// and its bytes, in the order of the paths.
-pub fn hash(folders: &[&Path]) -> io::Result<u64> {
+/// The hash of each crate of `crates`: its `Cargo.toml` and every
+/// file under its `src`, each of its path in the crate and its bytes,
+/// in the order of the paths.
+pub fn hash(crates: &[&Path]) -> io::Result<u64> {
     let mut hash = FNV_OFFSET;
-    for folder in folders {
-        let mut files = Vec::new();
-        collect(folder, String::new(), &mut files)?;
+    for root in crates {
+        let mut files =
+            vec![("Cargo.toml".to_string(), root.join("Cargo.toml"))];
+        collect(&root.join("src"), "src/".into(), &mut files)?;
         files.sort();
         for (name, file) in files {
             let bytes = std::fs::read(&file)?;
@@ -73,21 +75,38 @@ mod tests {
             }
             hash(&[folder.as_path()]).unwrap()
         };
-        let files =
-            [("lib.rs", "// a\n"), ("plugin/entry.rs", "fn f() {}")];
+        let files = [
+            ("Cargo.toml", "[package]\n"),
+            ("src/lib.rs", "// a\n"),
+            ("src/plugin/entry.rs", "fn f() {}"),
+        ];
         let first = write("first", &files);
-        let backwards = write("backwards", &[files[1], files[0]]);
+        let backwards =
+            write("backwards", &[files[2], files[1], files[0]]);
         assert_eq!(first, backwards);
         let comment = write(
             "comment",
-            &[("lib.rs", "// b\n"), ("plugin/entry.rs", "fn f() {}")],
+            &[files[0], ("src/lib.rs", "// b\n"), files[2]],
         );
         assert_ne!(first, comment);
         let moved = write(
             "moved",
-            &[("lib.rs", "// a\n"), ("plugin/start.rs", "fn f() {}")],
+            &[
+                files[0],
+                files[1],
+                ("src/plugin/start.rs", "fn f() {}"),
+            ],
         );
         assert_ne!(first, moved);
+        let manifest = write(
+            "manifest",
+            &[
+                ("Cargo.toml", "[package]\n[features]\n"),
+                files[1],
+                files[2],
+            ],
+        );
+        assert_ne!(first, manifest);
         std::fs::remove_dir_all(&root).unwrap();
     }
 }
