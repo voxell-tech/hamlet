@@ -1,0 +1,16 @@
+id = "beacon"
+name = "Beacon"
+version = "0.1.0"
+interface = "0.1.0"
+
+# It builds when it starts and when the chief answers; it needs no
+# ticks, as its shader moves by the time the host gives it.
+ticks = false
+
+[[asks]]
+capability = "render.scene"
+reason = "To build a small beacon of stone and light beside your first hamlet."
+
+[[asks]]
+capability = "render.shader"
+reason = "To make the beacon's light shimmer with a shader of its own."

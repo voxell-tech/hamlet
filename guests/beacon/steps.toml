@@ -1,0 +1,48 @@
+# Run from the Hamlet checkout, after building Beacon into a folder:
+#   guests/beacon/build.sh <dir>/beacon
+#   cargo run --example plugin_check --features wasm -- \
+#     <dir>/beacon --script guests/beacon/steps.toml --out <pictures>
+#
+# The plugin is installed with its asks unanswered, so it builds
+# nothing until the chief allows render.scene, and its orb has no
+# shader of its own until render.shader.
+
+[[step]]
+expect = { panel = "main", text = "The beacon was refused: render.scene not granted" }
+
+[[step]]
+grant = "render.shader"
+
+[[step]]
+expect = { panel = "main", text = "The shader was taken." }
+
+[[step]]
+grant = "render.scene"
+
+[[step]]
+expect-scene = "site hamlet:home"
+
+[[step]]
+expect-scene = "node 2 under 1 cube solid #8a8478ff"
+
+[[step]]
+expect-scene = "node 4 under 1 sphere shader:glow at 0,2.3,0 point light #ffd080 6000 lm 8 m"
+
+[[step]]
+expect-scene = "node 6 under 1 mesh:spire unlit"
+
+[[step]]
+expect-scene = "mesh spire 5 points 6 triangles"
+
+[[step]]
+expect-scene = "shader glow"
+
+# A shader whose loop has no count is refused, and says why.
+[[step]]
+click = { panel = "main", node = "runaway" }
+
+[[step]]
+expect = { panel = "main", text = "The runaway shader was refused: a loop must be a `for`" }
+
+[[step]]
+render = { panel = "main", file = "beacon.png" }
