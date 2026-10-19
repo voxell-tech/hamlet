@@ -5,6 +5,9 @@
 call_ms = 50
 call_fuel = 50000000
 tick_ms = 5
+plugin_ms_per_second = 100
+plugin_fuel_per_second = 250000000
+frame_ms = 8
 tick_hz = 30
 restart_retries = 1
 restart_backoff_ms = 3000

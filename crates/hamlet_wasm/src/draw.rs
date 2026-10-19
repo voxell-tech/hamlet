@@ -2,6 +2,7 @@
 //! they return.
 
 use bevy::prelude::*;
+use bevy_fynix::dock::DockTree;
 use hamlet_openui::Source;
 use hamlet_openui::source::Program;
 use hamlet_realm_api::survey::Survey;
@@ -15,6 +16,7 @@ use hamlet_sdk::plugin::{
 use hamlet_sdk::tree::id::local_id;
 use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 
+use crate::budget::{self, Frame};
 use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::reach::{self, Sharing};
@@ -62,14 +64,35 @@ pub fn regrant(
     }
 }
 
+/// Whether the panel `dock` is a tab of the dock that another tab is
+/// in front of. A panel that is not in the dock may be shown in a
+/// page of another, and is drawn.
+fn behind(tree: Option<&DockTree>, dock: &str) -> bool {
+    let Some(tree) = tree else {
+        return false;
+    };
+    let Some(leaf) = tree.find_leaf_with_window(dock) else {
+        return false;
+    };
+    let tab = tree.leaf(leaf).and_then(|leaf| {
+        leaf.tabs()
+            .find(|(window, _)| *window == dock)
+            .map(|(_, tab)| tab)
+    });
+    tab.is_some() && tree.active(leaf) != tab
+}
+
 /// Whether any plugin has a panel to draw.
 pub fn due(plugins: Query<&Dirty>) -> bool {
     plugins.iter().any(|dirty| !dirty.is_empty())
 }
 
 /// Calls `panel-view` for each panel that is due, once, and keeps
-/// the tree it returns, or hands the panel the program it returns. A
-/// plugin whose call fails is marked failed.
+/// the tree it returns, or hands the panel the program it returns,
+/// while the frame has time, the plugin served longest ago first. A
+/// panel behind another tab of the dock, and the panels of a plugin
+/// that spent its time or fuel of this second, stay due. A plugin
+/// whose call fails is marked failed.
 pub fn draw(
     limits: Res<Limits>,
     agents: Res<AgentList>,
@@ -86,22 +109,33 @@ pub fn draw(
     )>,
     sharing: Sharing,
     panels: Query<(Entity, &Panel, Option<&Source>)>,
+    tree: Option<Res<DockTree>>,
     mut trees: ResMut<PluginTrees>,
+    mut frame: ResMut<Frame>,
     mut commands: Commands,
 ) {
-    for (
-        plugin,
-        info,
-        manifest,
-        status,
-        granted,
-        mut dirty,
-        mut instance,
-    ) in &mut plugins
-    {
-        if *status != Status::Running || dirty.is_empty() {
+    let due = plugins
+        .iter()
+        .filter_map(|(plugin, _, _, status, _, dirty, instance)| {
+            (*status == Status::Running
+                && !dirty.is_empty()
+                && !instance.spent.over(&limits))
+            .then_some((plugin, instance.spent.served))
+        })
+        .collect::<Vec<_>>();
+    for plugin in budget::turns(due) {
+        let Ok((
+            plugin,
+            info,
+            manifest,
+            _,
+            granted,
+            mut dirty,
+            mut instance,
+        )) = plugins.get_mut(plugin)
+        else {
             continue;
-        }
+        };
         instance.see(granted, &agents, &papers);
         instance.see_world(granted, &survey);
         instance.reach(reach::of(manifest, &sharing, &limits));
@@ -109,7 +143,15 @@ pub fn draw(
             let Some(local) = local_id(&info.id, &dock) else {
                 continue;
             };
-            match instance.panel_view(&limits, local) {
+            if !frame.open(&limits) || behind(tree.as_deref(), &dock)
+            {
+                dirty.mark(&dock);
+                continue;
+            }
+            let drawn = instance.panel_view(&limits, local);
+            frame.charge(instance.spent.took);
+            instance.spent.served = frame.number();
+            match drawn {
                 Ok(drawing) => {
                     drawing.logs.iter().for_each(|line| {
                         run::say(&mut commands, &info.id, line)

@@ -1,6 +1,8 @@
 //! Calling a plugin: `entry` once, `step` for each inbox and
 //! `panel-view` for each panel to draw, each under the time limit.
 
+use std::time::Instant;
+
 use hamlet_sdk::capability::{Capability, Verdict};
 use wasmtime::Store;
 
@@ -143,8 +145,13 @@ impl Instance {
         self.store.set_epoch_deadline(limits.call_ticks());
         self.store.set_fuel(limits.call_fuel).map_err(Fault::load)?;
         self.store.set_hostcall_fuel(limits.lift_bytes);
-        let returned = call(&self.exports, &mut self.store)
-            .map_err(Fault::call)?;
+        // What the host functions do in the call, files written among
+        // it, is charged to the plugin with the rest.
+        let started = Instant::now();
+        let returned = call(&self.exports, &mut self.store);
+        let fuel = self.fuel_used(limits);
+        self.spent.charge(started.elapsed(), fuel);
+        let returned = returned.map_err(Fault::call)?;
         let state = self.store.data_mut();
         let output = Output {
             intents: Vec::new(),

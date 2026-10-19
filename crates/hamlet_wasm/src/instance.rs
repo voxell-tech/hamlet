@@ -11,6 +11,7 @@ use hamlet_sdk::papers::Papers;
 use wasmtime::component::Component as Compiled;
 use wasmtime::{Engine, PoolConcurrencyLimitError, Store};
 
+use crate::budget::Spent;
 use crate::cache;
 use crate::db::{self, Db};
 use crate::fault::Fault;
@@ -27,6 +28,8 @@ use crate::storage::{Caps, Storage};
 pub struct Instance {
     pub(crate) store: Store<State>,
     pub(crate) exports: Hamlet,
+    /// What its calls spent lately.
+    pub spent: Spent,
 }
 
 impl Instance {
@@ -55,7 +58,11 @@ impl Instance {
                         false => Fault::load(error),
                     }
                 })?;
-        Ok(Self { store, exports })
+        Ok(Self {
+            store,
+            exports,
+            spent: Spent::default(),
+        })
     }
 
     /// This, for the plugin of this id, whose name its host

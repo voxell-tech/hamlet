@@ -23,6 +23,17 @@ pub struct Limits {
     /// The interval between two ticks of the engine's epoch. A
     /// call's time is counted in these.
     pub tick_ms: u64,
+    /// The time all of one plugin's calls may take in a second, in
+    /// milliseconds: its steps, its panels, its answers to calls and
+    /// to the agents' turns, with what the host does for them. A
+    /// plugin past it waits for the next second.
+    pub plugin_ms_per_second: u64,
+    /// The fuel all of one plugin's calls may use in a second.
+    pub plugin_fuel_per_second: u64,
+    /// The time the steps and panels of all the plugins may take in
+    /// one frame, in milliseconds. The plugins left out go first in
+    /// the next frame.
+    pub frame_ms: u64,
     /// The ticks one plugin that wants them is given in a second at
     /// most. None at all when it is 0.
     pub tick_hz: u32,
@@ -299,6 +310,8 @@ impl Limits {
             call_ms: PATIENT_MS,
             steer_ms: PATIENT_MS,
             invoke_ms: PATIENT_MS,
+            plugin_ms_per_second: PATIENT_MS,
+            frame_ms: PATIENT_MS,
             ..self
         }
     }

@@ -398,6 +398,14 @@ pub(super) fn deliver(
             Some(_) if left < limits.invoke_fuel => {
                 Some(out_of_budget(&limits))
             }
+            Some((info, _, _, instance))
+                if instance.spent.over(&limits) =>
+            {
+                Some(InvokeError::OutOfBudget(format!(
+                    "`{}` spent its time for this second",
+                    info.id
+                )))
+            }
             Some(_) => None,
         };
         let (Some((info, manifest, granted, mut instance)), None) =

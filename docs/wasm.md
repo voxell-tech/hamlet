@@ -356,12 +356,16 @@ order.
 1. `Collect` puts a `tick` in the inbox of every running plugin that wants
    ticks and is due one (see Limits).
 2. `Step` runs only while some inbox holds something. It calls `step` once
-   for each running plugin that has mail. A call that fails fails the plugin.
+   for each running plugin that has mail, within the time of the frame and of
+   the plugin's second (see Limits). A call that fails fails the plugin.
 3. `Apply` runs when a plugin was stepped and carries out its intents: a
    `log-line` is written to the app's log, labelled with the plugin's id, and
    a `redraw` marks the panel due. A `run-command`, `reply` and `publish`
    put a message in the inbox of another plugin (below).
-4. `Draw` runs when a panel is due and calls `panel-view`.
+4. `Draw` runs when a panel is due and calls `panel-view`, within the same
+   time. A panel behind another tab of the dock stays due until it is in
+   front; one that is not in the dock may be shown in a page of another panel,
+   and is drawn.
 
 What a plugin passes to `log` is written to the log the same way, labelled
 with the id. A headless run (`--headless`) installs the log only with the
@@ -1015,6 +1019,15 @@ each means. They apply to every plugin alike, whatever it is granted.
   wasmtime's fuel, about one for each instruction. A call that uses it up traps
   as `Fault::OutOfFuel`. The time depends on how busy the machine is and the
   fuel does not, so a runaway loop ends the same way everywhere.
+- **A plugin's second and the frame.** All the calls of one plugin, its steps,
+  its panels and its answers to calls of interfaces and to the agents' turns,
+  with what the host does in them (the files and the database it writes among
+  it), may take `plugin_ms_per_second` and use `plugin_fuel_per_second` in a
+  second (`budget.rs`). Past either, its mail and its panels wait for the next
+  second, a call of an interface to it is answered `out-of-budget`, and a point
+  of a turn changes nothing. The steps and panels of all the plugins may take
+  `frame_ms` in a frame; the plugins left out go first in the next, the one
+  served longest ago first. A call already begun runs to its own `call_ms`.
 - **Ticks.** A plugin is given a `tick` only if its manifest wants them (`ticks`,
   true when the manifest does not say, so every plugin written before the field
   keeps its ticks), and at most `tick_hz` in a second. A plugin that only answers

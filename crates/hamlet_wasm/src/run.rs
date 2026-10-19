@@ -13,6 +13,7 @@ use hamlet_sdk::plugin::{
 };
 use hamlet_sdk::tree::id::dock_id;
 
+use crate::budget::{self, Frame};
 use crate::draw::Dirty;
 use crate::host::{Logged, Want};
 use crate::inbox::Inbox;
@@ -39,10 +40,12 @@ pub struct Done {
     pub callers: Vec<Entity>,
 }
 
-/// Calls `step` on each running plugin that has mail, once. A plugin
-/// whose call fails is marked failed, and where all its mail was one
-/// other plugin's commands and events, that plugin may not reach it
-/// until the chief starts it again.
+/// Calls `step` on each running plugin that has mail, once, while the
+/// frame has time, the one served longest ago first. A plugin that
+/// spent its time or fuel of this second keeps its mail for the next.
+/// A plugin whose call fails is marked failed, and where all its mail
+/// was one other plugin's commands and events, that plugin may not
+/// reach it until the chief starts it again.
 pub fn step(
     limits: Res<Limits>,
     agents: Res<AgentList>,
@@ -61,29 +64,47 @@ pub fn step(
     sharing: Sharing,
     named: Query<(Entity, &PluginInfo)>,
     mut calls: ResMut<Calls>,
+    mut frame: ResMut<Frame>,
     mut done: MessageWriter<Done>,
     mut commands: Commands,
 ) {
-    for (
-        plugin,
-        info,
-        manifest,
-        status,
-        granted,
-        mut inbox,
-        mut instance,
-        mut dirty,
-    ) in &mut plugins
-    {
-        if *status != Status::Running || inbox.is_empty() {
-            continue;
+    let due = plugins
+        .iter()
+        .filter_map(
+            |(plugin, _, _, status, _, inbox, instance, _)| {
+                (*status == Status::Running
+                    && !inbox.is_empty()
+                    && !instance.spent.over(&limits))
+                .then_some((plugin, instance.spent.served))
+            },
+        )
+        .collect::<Vec<_>>();
+    for plugin in budget::turns(due) {
+        if !frame.open(&limits) {
+            break;
         }
+        let Ok((
+            plugin,
+            info,
+            manifest,
+            _,
+            granted,
+            mut inbox,
+            mut instance,
+            mut dirty,
+        )) = plugins.get_mut(plugin)
+        else {
+            continue;
+        };
         instance.see(granted, &agents, &papers);
         instance.see_world(granted, &survey);
         instance.reach(reach::of(manifest, &sharing, &limits));
         let mail = inbox.take();
         let callers = calls.callers(plugin);
-        match instance.step(&limits, &mail) {
+        let stepped = instance.step(&limits, &mail);
+        frame.charge(instance.spent.took);
+        instance.spent.served = frame.number();
+        match stepped {
             Ok(output) => {
                 output.logs.iter().for_each(|line| {
                     say(&mut commands, &info.id, line)

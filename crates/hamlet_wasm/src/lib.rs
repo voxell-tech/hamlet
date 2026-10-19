@@ -14,6 +14,7 @@ use self::limits::{Limits, WasmTuning};
 
 pub mod acts;
 pub mod admit;
+pub mod budget;
 pub mod cache;
 pub mod call;
 pub mod command;
@@ -66,6 +67,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins((
         TuningPlugin::<WasmTuning>::default(),
         hamlet_openui::plugin,
+        budget::plugin,
         compile::plugin,
         interop::plugin,
         reload::plugin,

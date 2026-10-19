@@ -1,6 +1,9 @@
+use std::time::Duration;
+
 use bevy::ecs::entity::Entity;
 use wasmtime::ResourceLimiter;
 
+use crate::budget::Spent;
 use crate::inbox::{Inbox, Ticks};
 use crate::interface::exports::hamlet::plugin::plugin::{
     Canvas, CircleShape, Incoming, Node, Paint, RectShape, Shape,
@@ -128,6 +131,20 @@ fn the_memories_of_a_plugin_share_one_limit() {
     assert!(limiter.memory_growing(0, 600 << 10, None).is_ok());
     assert!(limiter.memory_growing(0, 600 << 10, None).is_err());
     assert!(limiter.memory_growing(0, 400 << 10, None).is_ok());
+}
+
+#[test]
+fn a_plugin_that_spent_its_second_waits_for_the_next() {
+    let limits = Limits::default();
+    let mut spent = Spent::default();
+    assert!(!spent.over(&limits));
+    spent.charge(
+        Duration::from_millis(limits.plugin_ms_per_second / 2),
+        0,
+    );
+    assert!(!spent.over(&limits));
+    spent.charge(Duration::ZERO, limits.plugin_fuel_per_second);
+    assert!(spent.over(&limits));
 }
 
 #[test]

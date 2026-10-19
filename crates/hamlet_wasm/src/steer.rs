@@ -75,6 +75,17 @@ pub fn steer(
             Some(Verdict::Denied) | None => continue,
         }
         point.watched = true;
+        // A plugin that spent its time of this second changes
+        // nothing.
+        if instance.spent.over(&limits) {
+            point.steers.push(Steer {
+                plugin: info.id.clone(),
+                steered: Steered::Failed(
+                    "it spent its time for this second".into(),
+                ),
+            });
+            continue;
+        }
         points.0 += 1;
         let id = points.0;
         instance.see(granted, &agents, &papers);
