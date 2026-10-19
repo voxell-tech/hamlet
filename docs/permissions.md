@@ -467,8 +467,9 @@ folder, a page the plugin `settings` adds as any plugin adds one) shows it
 two ways, on two tabs:
 
 - **By plugin.** Each plugin with its version and status, its switch, the
-  plugins it needs and the plugins that need it, why it is held back where it
-  is, and a PERMISSIONS button that opens its detail: every capability its
+  plugins it needs and the plugins that need it, the typed interfaces it exports
+  (each with its functions) and imports (each with the plugins it calls them of,
+  or any plugin), why it is held back where it is, and a PERMISSIONS button that opens its detail: every capability its
   manifest asks for, what the capability lets it do, its reason, and a control
   of three buttons (Allow, Ask next time, Don't allow) with the current choice
   lit. For a scoped capability there is a control for each plugin or collection
