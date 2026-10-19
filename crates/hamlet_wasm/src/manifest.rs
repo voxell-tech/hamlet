@@ -1,6 +1,6 @@
 //! `manifest.toml`: what an installed plugin says about itself.
 
-use hamlet_sdk::capability::{Asked, Asks, Refusal};
+use hamlet_sdk::capability::{Asked, Asks, Capability, Refusal};
 use hamlet_sdk::plugin::{
     Exports, Imports, Need, RESERVED, Range, joinable, plain, valid,
 };
@@ -92,6 +92,20 @@ impl Manifest {
             .or_else(|| self.identity())
             .or_else(|| self.exports.problem())
             .or_else(|| self.imports.problem())
+            .or_else(|| self.unasked_export())
+    }
+
+    /// Why the interfaces it exports cannot be published: it does not
+    /// ask for `plugin.export`.
+    fn unasked_export(&self) -> Option<String> {
+        let asked = self.asks.iter().any(|ask| {
+            ask.capability == Capability::PluginExport.name()
+        });
+        (!self.exports.interfaces.is_empty() && !asked).then(|| {
+            "it exports interfaces and does not ask for \
+             `plugin.export`"
+                .into()
+        })
     }
 
     /// Why the id, the name or a reason cannot be, if they cannot.

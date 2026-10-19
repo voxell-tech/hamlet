@@ -55,10 +55,11 @@ pub enum Capability {
     WorldOverlay,
     RenderScene,
     RenderShader,
+    PluginExport,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 30] = [
+    pub const ALL: [Capability; 31] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -89,6 +90,7 @@ impl Capability {
         Capability::WorldOverlay,
         Capability::RenderScene,
         Capability::RenderShader,
+        Capability::PluginExport,
     ];
 
     /// What a plugin that holds a capability that [faces the
@@ -147,6 +149,7 @@ impl Capability {
             Capability::WorldOverlay => "world.overlay",
             Capability::RenderScene => "render.scene",
             Capability::RenderShader => "render.shader",
+            Capability::PluginExport => "plugin.export",
         }
     }
 
@@ -284,6 +287,9 @@ impl Capability {
             Capability::RenderShader => {
                 "Colour its 3D scenes with shaders of its own"
             }
+            Capability::PluginExport => {
+                "Let other plugins call the interfaces it exports"
+            }
         }
     }
 
@@ -377,6 +383,12 @@ impl Capability {
                  or what a tool returned, act as the chief or use \
                  other plugins. A hook that fails or runs out of \
                  time changes nothing.",
+            ),
+            Capability::PluginExport => Some(
+                "Plugins the chief lets use it can call the \
+                 functions it exports. Each call is checked against \
+                 the types it declares, and the caller pays for the \
+                 work.",
             ),
             _ => None,
         }

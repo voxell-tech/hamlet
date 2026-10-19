@@ -8,6 +8,7 @@ mod contribution;
 mod enable;
 mod entry;
 mod info;
+mod interfaces;
 mod manifest;
 pub mod needs;
 mod offers;
@@ -24,6 +25,9 @@ pub use self::contribution::{ContributedBy, Contributions};
 pub use self::enable::{Disable, Enable};
 pub use self::entry::{Entry, EntryPoint};
 pub use self::info::PluginInfo;
+pub use self::interfaces::{
+    Function, Imported, Interface, Signature, Type,
+};
 pub use self::manifest::{Manifest, Need};
 pub use self::offers::{
     Collection, Exports, HOST, Imports, RESERVED, joinable, link,

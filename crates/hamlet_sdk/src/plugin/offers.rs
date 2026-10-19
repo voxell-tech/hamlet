@@ -28,6 +28,8 @@ pub const RESERVED: [&str; 16] = [
 
 pub use hamlet_base::{joinable, plain};
 
+use super::interfaces::{Imported, Interface};
+
 /// A collection a plugin offers: the keys of its storage that start
 /// with `prefix`.
 #[derive(Clone, PartialEq, Eq, Debug, serde::Deserialize)]
@@ -40,8 +42,8 @@ pub struct Collection {
     pub writable: bool,
 }
 
-/// The commands, events and collections a plugin offers, each by a
-/// name of its own.
+/// The commands, events, collections and typed interfaces a plugin
+/// offers, each by a name of its own.
 #[derive(
     Clone, PartialEq, Eq, Default, Debug, serde::Deserialize,
 )]
@@ -50,10 +52,11 @@ pub struct Exports {
     pub commands: Vec<String>,
     pub events: Vec<String>,
     pub collections: Vec<Collection>,
+    pub interfaces: Vec<Interface>,
 }
 
 /// The commands, events and collections a plugin uses, each as
-/// `plugin/name`.
+/// `plugin/name`, and the typed interfaces it calls.
 #[derive(
     Clone, PartialEq, Eq, Default, Debug, serde::Deserialize,
 )]
@@ -62,6 +65,7 @@ pub struct Imports {
     pub commands: Vec<String>,
     pub events: Vec<String>,
     pub collections: Vec<String>,
+    pub interfaces: Vec<Imported>,
 }
 
 /// `name` of the plugin `plugin`, as an import lists it.
@@ -97,7 +101,12 @@ impl Exports {
                 .chain(self.events.iter().map(|name| ("event", name)))
                 .chain(self.collections.iter().map(|collection| {
                     ("collection", &collection.name)
-                }));
+                }))
+                .chain(
+                    self.interfaces.iter().map(|interface| {
+                        ("interface", &interface.name)
+                    }),
+                );
         let mut seen = Vec::new();
         for (kind, name) in names {
             if !valid(name) {
@@ -110,15 +119,20 @@ impl Exports {
             }
             seen.push((kind, name));
         }
-        self.collections.iter().find_map(|collection| {
-            (!valid(&collection.prefix)).then(|| {
-                format!(
-                    "the prefix `{}` of the collection `{}` is not \
-                     a key start",
-                    collection.prefix, collection.name
-                )
+        self.collections
+            .iter()
+            .find_map(|collection| {
+                (!valid(&collection.prefix)).then(|| {
+                    format!(
+                        "the prefix `{}` of the collection `{}` is \
+                         not a key start",
+                        collection.prefix, collection.name
+                    )
+                })
             })
-        })
+            .or_else(|| {
+                self.interfaces.iter().find_map(Interface::problem)
+            })
     }
 
     pub fn collection(&self, name: &str) -> Option<&Collection> {
@@ -126,11 +140,18 @@ impl Exports {
             .iter()
             .find(|collection| collection.name == name)
     }
+
+    pub fn interface(&self, name: &str) -> Option<&Interface> {
+        self.interfaces
+            .iter()
+            .find(|interface| interface.name == name)
+    }
 }
 
 impl Imports {
     /// Why the imports cannot be, if they cannot.
     pub fn problem(&self) -> Option<String> {
+        let mut seen = Vec::new();
         self.commands
             .iter()
             .chain(&self.events)
@@ -139,26 +160,48 @@ impl Imports {
             .map(|import| {
                 format!("the import `{import}` is not `plugin/name`")
             })
+            .or_else(|| {
+                self.interfaces.iter().find_map(|interface| {
+                    if seen.contains(&&interface.name) {
+                        return Some(format!(
+                            "the interface `{}` is twice",
+                            interface.name
+                        ));
+                    }
+                    seen.push(&interface.name);
+                    interface.problem()
+                })
+            })
     }
 
     /// The plugins any import is of, once each, in order. The host is
-    /// not a plugin.
+    /// not a plugin, and an interface any plugin may implement names
+    /// none.
     pub fn plugins(&self) -> Vec<&str> {
         let mut plugins = Vec::new();
-        for import in self
+        let named = self
             .commands
             .iter()
             .chain(&self.events)
             .chain(&self.collections)
-        {
-            if let Some((plugin, _)) = unlink(import)
-                && plugin != HOST
-                && !plugins.contains(&plugin)
-            {
+            .filter_map(|import| Some(unlink(import)?.0));
+        let from = self
+            .interfaces
+            .iter()
+            .flat_map(|interface| &interface.from)
+            .map(String::as_str);
+        for plugin in named.chain(from) {
+            if plugin != HOST && !plugins.contains(&plugin) {
                 plugins.push(plugin);
             }
         }
         plugins
+    }
+
+    pub fn interface(&self, name: &str) -> Option<&Imported> {
+        self.interfaces
+            .iter()
+            .find(|interface| interface.name == name)
     }
 
     pub fn command(&self, plugin: &str, name: &str) -> bool {

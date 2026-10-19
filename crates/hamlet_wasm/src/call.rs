@@ -120,6 +120,13 @@ impl Instance {
         })
     }
 
+    /// The fuel the last call used of the `call_fuel` of `limits` it
+    /// was given.
+    pub fn fuel_used(&self, limits: &Limits) -> u64 {
+        let left = self.store.get_fuel().unwrap_or(0);
+        limits.call_fuel.saturating_sub(left)
+    }
+
     fn run<T>(
         &mut self,
         limits: &Limits,

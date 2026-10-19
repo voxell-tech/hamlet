@@ -6,10 +6,11 @@ use hamlet_sdk::command::Notice;
 use hamlet_sdk::plugin::{PluginInfo, Status};
 
 use super::calls::{Call, Caller, Calls};
+use super::invoke;
 use super::mail::send;
 use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::{
-    CallAnswer, Incoming,
+    CallAnswer, Incoming, InvokeError,
 };
 use crate::limits::Limits;
 
@@ -62,6 +63,18 @@ pub(super) fn settle(
                     }),
                 );
             }
+            Caller::Invoker { entity, id, .. } => {
+                warn!(
+                    "plugin {}: the call to {} ended: {why}",
+                    caller_name(*entity, &plugins),
+                    call.target_id
+                );
+                invoke::answer(
+                    &mut inboxes,
+                    (*entity, *id),
+                    Err(InvokeError::Failed(why)),
+                );
+            }
             Caller::Agent => calls.tell_agent(call.id, Err(why)),
             Caller::Chief(command) => {
                 let words = format!(
@@ -91,7 +104,8 @@ fn ending(
     plugins: &Query<(&PluginInfo, &Status)>,
     limits: &Limits,
 ) -> Option<End> {
-    if let Caller::Plugin { entity, .. } = call.caller
+    if let Caller::Plugin { entity, .. }
+    | Caller::Invoker { entity, .. } = call.caller
         && !matches!(plugins.get(entity), Ok((_, Status::Running)))
     {
         return Some(End::Quietly);

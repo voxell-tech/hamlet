@@ -5,6 +5,7 @@ mod collections;
 mod database;
 mod declare;
 mod folder;
+mod interfaces;
 mod keeping;
 mod read;
 mod request;
@@ -368,6 +369,13 @@ impl Host for State {
         key: String,
     ) -> Result<(), String> {
         self.collection_remove(&plugin, &name, &key)
+    }
+
+    fn implementers(
+        &mut self,
+        interface: String,
+    ) -> Result<Vec<String>, String> {
+        self.implementers_of(&interface)
     }
 
     fn state_get(&mut self) -> Vec<u8> {

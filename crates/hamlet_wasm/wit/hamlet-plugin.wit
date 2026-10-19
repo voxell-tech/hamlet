@@ -300,6 +300,14 @@ interface host {
   // Removes `key`, under the same conditions as `collection-put`.
   collection-delete: func(plugin: string, name: string, key: string) -> result<_, string>;
 
+  // The plugins that implement `interface`, which the manifest lists
+  // under `imports.interfaces`: those running that export it with
+  // the functions the import names, of the same types, and hold
+  // `plugin.export`, among the plugins the import names in `from`
+  // where it names any. A copy, in the order of their ids. Calling
+  // one needs `plugin.use` for it.
+  implementers: func(%interface: string) -> result<list<string>, string>;
+
   // A blob the host holds for the plugin in memory. It is kept
   // across a reload and across a disable and enable, and is empty
   // after the host restarts.
@@ -480,6 +488,72 @@ interface plugin {
     // plugin answers in it with `steer-answer`, or with nothing to
     // change nothing. A `step` that fails or runs out changes nothing.
     steer(steer-point),
+    // Another plugin calls a function of a typed interface this one
+    // exports under `exports.interfaces`. The `step` it comes in runs
+    // at once, alone, with a budget of time and fuel the caller pays
+    // for. The plugin answers with a `reply` that names `call-id`, in
+    // that `step` or a later one, whose bytes are the result written
+    // with postcard.
+    invoked(invocation),
+    // The answer to an `invoke` this plugin made.
+    returned(invoke-answer),
+  }
+
+  record invocation {
+    // The host's number for the call, which the reply gives back.
+    call-id: u64,
+    // The id of the plugin that calls.
+    sender: string,
+    %interface: string,
+    function: string,
+    // The arguments, written with postcard as the tuple of the
+    // function's parameters and checked against their types.
+    args: list<u8>,
+  }
+
+  record invoke-request {
+    // The caller's own number for the call, which is not the number
+    // of any of its calls of interfaces still waiting. The answer
+    // names it.
+    call-id: u64,
+    // The id of the plugin that implements the interface.
+    plugin: string,
+    // The interface and its function, as `interface/function`.
+    function: string,
+    // The arguments, written with postcard as the tuple of the
+    // function's parameters.
+    args: list<u8>,
+  }
+
+  // Why a call of a typed interface has no result.
+  variant invoke-error {
+    // The plugin is not installed or not running, does not export
+    // the interface or the function, or does not hold
+    // `plugin.export`.
+    no-implementer(string),
+    // The manifest does not import it from that plugin, `plugin.use`
+    // is not granted for it (the chief is asked where it is yet to be
+    // decided), or a limit of calls was passed.
+    refused(string),
+    // The arguments or the result are not of the declared types, or
+    // the two plugins declare the function with other types.
+    mismatch(string),
+    // The caller spent its fuel for calls, or the call ran out of its
+    // fuel or time, which stops the plugin that ran out.
+    out-of-budget(string),
+    // The plugin trapped, stopped or was removed, or did not answer
+    // in time.
+    failed(string),
+    // The plugin answered with an error of its own.
+    error(string),
+  }
+
+  record invoke-answer {
+    // The `call-id` of the call it answers.
+    call-id: u64,
+    // The result, written with postcard and checked against its type,
+    // or why there is none.
+    outcome: result<list<u8>, invoke-error>,
   }
 
   record steer-point {
@@ -643,6 +717,13 @@ interface plugin {
     // returned. The host cuts the words to a cap; an answer to
     // another point, or of the wrong kind, changes nothing.
     steer-answer(steer-reply),
+    // Calls a function of a typed interface another plugin exports,
+    // which the manifest lists under `imports.interfaces`. It needs
+    // `plugin.use` for that plugin, checked on every call, and the
+    // host checks the arguments and the result against the declared
+    // types. The answer reaches a later `step` as `returned`,
+    // whatever happened.
+    invoke(invoke-request),
   }
 
   variant steer-change {

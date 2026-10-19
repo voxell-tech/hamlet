@@ -7,6 +7,7 @@ mod events;
 mod files;
 mod folder;
 mod hooks;
+mod interfaces;
 mod interop;
 mod limits;
 mod manifest;

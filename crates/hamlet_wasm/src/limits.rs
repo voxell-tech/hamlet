@@ -200,6 +200,15 @@ pub struct Limits {
     pub call_frames: u64,
     /// The bytes of the arguments of a call, and of a reply.
     pub call_bytes: usize,
+    /// The time the `step` that is given a call of an interface may
+    /// take, in milliseconds.
+    pub invoke_ms: u64,
+    /// The work the `step` that is given a call of an interface may
+    /// do, in wasmtime's fuel. The caller pays for it.
+    pub invoke_fuel: u64,
+    /// The fuel the calls of interfaces one plugin makes may use in
+    /// a second. A call over it is answered with an error.
+    pub invoke_fuel_per_second: u64,
     /// The items of one page of a collection another plugin shares.
     pub collection_page_items: usize,
     /// The bytes of the values of one page. A page holds at least
@@ -261,7 +270,18 @@ impl Limits {
         Self {
             call_ms: PATIENT_MS,
             steer_ms: PATIENT_MS,
+            invoke_ms: PATIENT_MS,
             ..self
+        }
+    }
+
+    /// These limits with the time of a `step` that is given a call of
+    /// an interface, and `fuel`.
+    pub fn invoking(&self, fuel: u64) -> Self {
+        Self {
+            call_ms: self.invoke_ms,
+            call_fuel: fuel,
+            ..self.clone()
         }
     }
 

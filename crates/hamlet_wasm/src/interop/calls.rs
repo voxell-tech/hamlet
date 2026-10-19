@@ -2,14 +2,23 @@
 
 use bevy::prelude::*;
 use hamlet_agents_api::tools::plugged::Answer;
+use hamlet_sdk::plugin::Type;
 
-/// Who ran a command.
+/// Who ran a command, or called a function of an interface.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Caller {
     Plugin {
         entity: Entity,
         /// The plugin's own number for the call.
         id: u64,
+    },
+    /// A plugin, calling a function of an interface. The answer is
+    /// checked against `result`.
+    Invoker {
+        entity: Entity,
+        /// The plugin's own number for the call.
+        id: u64,
+        result: Type,
     },
     /// The chief, by the command of this name.
     Chief(String),
@@ -45,10 +54,23 @@ pub struct Calls {
 }
 
 impl Call {
-    /// The plugin's own number for the call, if `plugin` ran it.
+    /// The plugin's own number for the command, if `plugin` ran it.
     fn numbered_by(&self, plugin: Entity) -> Option<u64> {
         match self.caller {
             Caller::Plugin { entity, id } if entity == plugin => {
+                Some(id)
+            }
+            _ => None,
+        }
+    }
+
+    /// The plugin's own number for the call of an interface, if
+    /// `plugin` made it.
+    fn invoked_by(&self, plugin: Entity) -> Option<u64> {
+        match self.caller {
+            Caller::Invoker { entity, id, .. }
+                if entity == plugin =>
+            {
                 Some(id)
             }
             _ => None,
@@ -62,19 +84,31 @@ impl Calls {
         !calls.open.is_empty()
     }
 
-    /// The calls `caller` has waiting.
+    /// The calls `caller` has waiting, of commands and of interfaces.
     pub fn in_flight(&self, caller: Entity) -> usize {
         self.open
             .iter()
-            .filter(|call| call.numbered_by(caller).is_some())
+            .filter(|call| {
+                call.numbered_by(caller)
+                    .or(call.invoked_by(caller))
+                    .is_some()
+            })
             .count()
     }
 
-    /// Whether `caller` has a call waiting that it numbered `id`.
+    /// Whether `caller` has a command waiting that it numbered `id`.
     pub fn waiting(&self, caller: Entity, id: u64) -> bool {
         self.open
             .iter()
             .any(|call| call.numbered_by(caller) == Some(id))
+    }
+
+    /// Whether `caller` has a call of an interface waiting that it
+    /// numbered `id`.
+    pub fn invoking(&self, caller: Entity, id: u64) -> bool {
+        self.open
+            .iter()
+            .any(|call| call.invoked_by(caller) == Some(id))
     }
 
     /// The depth of a call `caller` runs now: one more than the
@@ -101,6 +135,25 @@ impl Calls {
         let caller = Caller::Plugin {
             entity: caller.0,
             id: caller.1,
+        };
+        self.push(caller, target, depth, wait)
+    }
+
+    /// Notes a call of an interface, whose result is to be of the
+    /// type `result`, to be given up `wait` frames from now, and
+    /// returns its number.
+    pub fn open_invoke(
+        &mut self,
+        caller: (Entity, u64),
+        target: (Entity, &str),
+        result: Type,
+        depth: usize,
+        wait: u64,
+    ) -> u64 {
+        let caller = Caller::Invoker {
+            entity: caller.0,
+            id: caller.1,
+            result,
         };
         self.push(caller, target, depth, wait)
     }

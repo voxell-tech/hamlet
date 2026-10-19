@@ -304,8 +304,30 @@ const NOTHING: &str = "(i32.const 48)";
 /// its first `step`, as call 7, and logs what each reply to it holds:
 /// at info for what the command returned, at error for why not.
 pub fn commanding(plugin: &str, command: &str, args: &str) -> String {
+    calling((2, 7, 20), plugin, command, args.as_bytes())
+}
+
+/// Calls `function` (`interface/function`) of the plugin `plugin`
+/// with `args` in its first `step`, as call 7, and logs what each
+/// answer to it holds, as [`commanding`] does.
+pub fn invoking(plugin: &str, function: &str, args: &[u8]) -> String {
+    calling((16, 16, 24), plugin, function, args)
+}
+
+/// A plugin that returns the intent of tag `intent` once, and logs
+/// the incoming of tag `answer`, whose error text is at `why`.
+fn calling(
+    (intent, answer, why): (u8, u8, u8),
+    plugin: &str,
+    command: &str,
+    args: &[u8],
+) -> String {
     let (plugin_len, command_len, args_len) =
         (plugin.len(), command.len(), args.len());
+    let args = args
+        .iter()
+        .map(|byte| format!("\\{byte:02x}"))
+        .collect::<String>();
     format!(
         r#"(module {COMMON} {QUIET} {NO_VIEW}
   (data (i32.const 600) "{plugin}")
@@ -314,14 +336,14 @@ pub fn commanding(plugin: &str, command: &str, args: &str) -> String {
   (global $sent (mut i32) (i32.const 0))
   (func (export "hamlet:plugin/plugin@0.1.0#step")
     (param i32 i32) (result i32)
-    (local $at i32) (local $end i32) (local $out i32)
+    (local $at i32) (local $end i32) (local $out i32) (local $text i32)
     (local.set $out {NOTHING})
     (if (i32.eqz (global.get $sent))
       (then
         (global.set $sent (i32.const 1))
         (i32.store (i32.const 512) (i32.const 528))
         (i32.store (i32.const 516) (i32.const 1))
-        (i32.store8 (i32.const 528) (i32.const 2))
+        (i32.store8 (i32.const 528) (i32.const {intent}))
         (i64.store (i32.const 536) (i64.const 7))
         (i32.store (i32.const 544) (i32.const 600))
         (i32.store (i32.const 548) (i32.const {plugin_len}))
@@ -336,14 +358,19 @@ pub fn commanding(plugin: &str, command: &str, args: &str) -> String {
     (block $done
       (loop $each
         (br_if $done (i32.ge_u (local.get $at) (local.get $end)))
-        (if (i32.eq (i32.load8_u (local.get $at)) (i32.const 7))
+        (if (i32.eq (i32.load8_u (local.get $at)) (i32.const {answer}))
           (then
+            (local.set $text
+              (i32.add (local.get $at)
+                (select (i32.const 20) (i32.const {why})
+                  (i32.eqz
+                    (i32.load8_u (i32.add (local.get $at) (i32.const 16)))))))
             (call $log
               (select (i32.const 0) (i32.const 2)
                 (i32.eqz
                   (i32.load8_u (i32.add (local.get $at) (i32.const 16)))))
-              (i32.load (i32.add (local.get $at) (i32.const 20)))
-              (i32.load (i32.add (local.get $at) (i32.const 24))))))
+              (i32.load (local.get $text))
+              (i32.load (i32.add (local.get $text) (i32.const 4))))))
         (local.set $at (i32.add (local.get $at) (i32.const {INCOMING})))
         (br $each)))
     (local.get $out)))"#
@@ -397,6 +424,7 @@ pub fn contributing() -> String {
 /// Declares the command "add", and answers each command it is given
 /// with the arguments it came with.
 pub fn answering() -> String {
+    let step = echoing(6, 32);
     format!(
         r#"(module {COMMON} {NO_VIEW}
   (data (i32.const 600) "add")
@@ -404,7 +432,23 @@ pub fn answering() -> String {
   (func (export "hamlet:plugin/plugin@0.1.0#entry")
     (call $command (i32.const 600) (i32.const 3) (i32.const 640)
       (i32.const 3) (i32.const 0) (i32.const 0) (i32.const 0)))
-  (func (export "hamlet:plugin/plugin@0.1.0#step")
+  {step})"#
+    )
+}
+
+/// Answers each call of an interface it is given with the arguments
+/// it came with.
+pub fn returning() -> String {
+    let step = echoing(15, 40);
+    format!("(module {COMMON} {QUIET} {NO_VIEW} {step})")
+}
+
+/// A `step` that replies to each incoming of tag `tag` with the bytes
+/// at `args` of its payload, under the number at 8.
+fn echoing(tag: u8, args: u8) -> String {
+    let len = args + 4;
+    format!(
+        r#"(func (export "hamlet:plugin/plugin@0.1.0#step")
     (param i32 i32) (result i32)
     (local $at i32) (local $end i32) (local $out i32)
     (local.set $out {NOTHING})
@@ -414,7 +458,7 @@ pub fn answering() -> String {
     (block $done
       (loop $each
         (br_if $done (i32.ge_u (local.get $at) (local.get $end)))
-        (if (i32.eq (i32.load8_u (local.get $at)) (i32.const 6))
+        (if (i32.eq (i32.load8_u (local.get $at)) (i32.const {tag}))
           (then
             (i32.store (i32.const 512) (i32.const 528))
             (i32.store (i32.const 516) (i32.const 1))
@@ -423,13 +467,13 @@ pub fn answering() -> String {
               (i64.load (i32.add (local.get $at) (i32.const 8))))
             (i32.store8 (i32.const 544) (i32.const 0))
             (i32.store (i32.const 548)
-              (i32.load (i32.add (local.get $at) (i32.const 32))))
+              (i32.load (i32.add (local.get $at) (i32.const {args}))))
             (i32.store (i32.const 552)
-              (i32.load (i32.add (local.get $at) (i32.const 36))))
+              (i32.load (i32.add (local.get $at) (i32.const {len}))))
             (local.set $out (i32.const 512))))
         (local.set $at (i32.add (local.get $at) (i32.const {INCOMING})))
         (br $each)))
-    (local.get $out)))"#
+    (local.get $out))"#
     )
 }
 

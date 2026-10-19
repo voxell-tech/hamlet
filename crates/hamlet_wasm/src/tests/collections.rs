@@ -42,6 +42,7 @@ fn reader(
             writable,
             storage: storage.clone(),
         }],
+        implementers: Vec::new(),
     };
     (state, storage)
 }

@@ -32,6 +32,8 @@ pub struct Reach {
     pub own: Vec<Collection>,
     /// The collections it imports that are there to be read.
     pub shared: Vec<Shared>,
+    /// The plugins that implement each interface it imports.
+    pub implementers: Vec<(String, Vec<String>)>,
 }
 
 impl State {

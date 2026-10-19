@@ -145,6 +145,7 @@ pub fn apply(
                 // `model`.
                 (
                     Intent::RunCommand(_)
+                    | Intent::Invoke(_)
                     | Intent::Reply(_)
                     | Intent::Publish(_)
                     | Intent::SendChat(_)

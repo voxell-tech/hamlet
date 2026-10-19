@@ -8,7 +8,7 @@ use hamlet_sdk::plugin::Status;
 
 use super::calls::{Caller, Calls};
 use super::mail::{Who, send};
-use super::tools;
+use super::{invoke, tools};
 use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::{
     CallAnswer, CallRequest, CommandCall, Incoming,
@@ -30,10 +30,10 @@ impl Refused {
     }
 }
 
-/// Starts the command `request` of `caller`, or answers `caller` with
-/// why it is not run.
+/// Starts the command `request` of `caller`, `depth` plugins deep, or
+/// answers `caller` with why it is not run.
 pub(super) fn run(
-    caller: Entity,
+    (caller, depth): (Entity, usize),
     request: &CallRequest,
     who: &Who,
     inboxes: &mut Query<(&Status, &mut Inbox)>,
@@ -45,7 +45,7 @@ pub(super) fn run(
         return;
     };
     let target = format!("{}/{}", request.plugin, request.command);
-    match admit(caller, request, who, calls, limits) {
+    match admit((caller, depth), request, who, calls, limits) {
         Ok((entity, depth)) => {
             let id = calls.open(
                 (caller, request.call_id),
@@ -90,7 +90,7 @@ pub(super) fn run(
 /// The plugin that is to run `request` and the depth of the call, or
 /// why it is not to be run.
 fn admit(
-    caller: Entity,
+    (caller, depth): (Entity, usize),
     request: &CallRequest,
     who: &Who,
     calls: &Calls,
@@ -136,7 +136,6 @@ fn admit(
             limits.calls_in_flight
         )));
     }
-    let depth = calls.depth_of(caller);
     if depth > limits.call_depth {
         return Err(Refused::because(format!(
             "the call would cross {depth} plugins, the most is {}",
@@ -184,6 +183,16 @@ pub(super) fn reply(
         );
         return;
     };
+    if let Caller::Invoker { entity, id, result } = &call.caller {
+        let outcome = invoke::checked(
+            result,
+            &answer.outcome,
+            &call.target_id,
+            limits,
+        );
+        invoke::answer(inboxes, (*entity, *id), outcome);
+        return;
+    }
     let outcome = match &answer.outcome {
         Ok(bytes) if bytes.len() > limits.call_bytes => Err(format!(
             "the reply has {} bytes, the most is {}",
@@ -206,6 +215,7 @@ pub(super) fn reply(
                 }),
             );
         }
+        Caller::Invoker { .. } => {}
         Caller::Agent => calls.tell_agent(
             call.id,
             outcome.map(|bytes| tools::text(&bytes, limits)),
