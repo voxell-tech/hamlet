@@ -44,9 +44,9 @@ jobs:
           # vendor/fynix is a submodule.
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/toolchain
         with:
-          targets: ${{ matrix.target }}
+          target: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
