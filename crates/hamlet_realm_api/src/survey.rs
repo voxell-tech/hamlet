@@ -34,6 +34,12 @@ pub struct Spotted {
     pub name: String,
 }
 
+/// Whether some plugin reads the [`Survey`] or acts on the world by
+/// it. The host of the plugins keeps it, and the realm keeps the
+/// survey only while it is set.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub struct SurveyWanted(pub bool);
+
 /// The realm as it is now, with places rounded to a tenth of a metre
 /// so that it changes only when something moved that far. The realm
 /// keeps it.

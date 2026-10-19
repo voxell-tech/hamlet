@@ -10,7 +10,7 @@ use hamlet_core::agents::{
 };
 use hamlet_realm_api::pick::{Focus, Gesture, Named, PointAt};
 use hamlet_realm_api::survey::{
-    Spotted, Survey, SurveyedAgent, SurveyedHamlet,
+    Spotted, Survey, SurveyWanted, SurveyedAgent, SurveyedHamlet,
 };
 use hamlet_rules::hamlet::HOME;
 
@@ -22,8 +22,14 @@ use crate::sky::Sky;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Survey>()
+        .init_resource::<SurveyWanted>()
         .add_observer(point_at)
-        .add_systems(Update, keep.after(WorldSystems));
+        .add_systems(
+            Update,
+            keep.after(WorldSystems).run_if(wanted.and_then(
+                resource_changed::<SurveyWanted>.or_eager(moved),
+            )),
+        );
 }
 
 type Agents<'w, 's> = Query<
@@ -104,6 +110,65 @@ impl Whereabouts<'_, '_> {
             .find(|(_, common, _)| common.town == sited.0)
             .map(|(common, _, at)| (common, at))
     }
+}
+
+fn wanted(wanted: Res<SurveyWanted>) -> bool {
+    wanted.0
+}
+
+/// Whether anything the survey is made of changed since this last
+/// looked.
+fn moved(
+    named: Query<
+        (),
+        Or<(
+            Changed<Name>,
+            Changed<LivesIn>,
+            Changed<Housed>,
+            Changed<Settlement>,
+            Changed<Sited>,
+            Added<Busy>,
+            Added<Mayor>,
+            Added<Left>,
+        )>,
+    >,
+    drawn: Query<
+        (),
+        (Or<(With<Robot>, With<Common>)>, Changed<GlobalTransform>),
+    >,
+    gone: (
+        RemovedComponents<Busy>,
+        RemovedComponents<Mayor>,
+        RemovedComponents<Left>,
+        RemovedComponents<Citizen>,
+        RemovedComponents<Settlement>,
+        RemovedComponents<Robot>,
+        RemovedComponents<Common>,
+    ),
+    selected: Res<Selected>,
+    sky: Res<Sky>,
+) -> bool {
+    let (
+        mut busy,
+        mut mayor,
+        mut left,
+        mut citizen,
+        mut settlement,
+        mut robot,
+        mut common,
+    ) = gone;
+    let removed = busy.read().count()
+        + mayor.read().count()
+        + left.read().count()
+        + citizen.read().count()
+        + settlement.read().count()
+        + robot.read().count()
+        + common.read().count();
+    removed > 0
+        || !named.is_empty()
+        || !drawn.is_empty()
+        || selected.is_changed()
+        || sky.is_changed()
 }
 
 /// Writes the survey when it differs from the realm as it is.

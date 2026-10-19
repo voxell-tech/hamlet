@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use hamlet_assets::TuningPlugin;
 use hamlet_openui::Drawing;
 use hamlet_realm_api::overlay::Overlays;
-use hamlet_realm_api::survey::Survey;
+use hamlet_realm_api::survey::{Survey, SurveyWanted};
 use hamlet_sdk::agents::Kept;
 use hamlet_sdk::papers::Papers;
 
@@ -45,6 +45,7 @@ pub mod run;
 pub mod start;
 pub mod stop;
 pub mod storage;
+pub mod survey;
 pub mod uninstall;
 pub mod wire;
 
@@ -65,6 +66,7 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Limits>()
     .init_resource::<Papers>()
     .init_resource::<Survey>()
+    .init_resource::<SurveyWanted>()
     .init_resource::<Overlays>()
     .init_resource::<overlay::Redrawn>()
     .init_resource::<pick::Picking>()
@@ -106,6 +108,7 @@ pub fn plugin(app: &mut App) {
             inbox::tick.in_set(PluginSet::Collect),
             command::follow.in_set(PluginSet::Collect),
             draw::regrant.in_set(PluginSet::Collect),
+            survey::want.in_set(PluginSet::Collect),
             stop::retry
                 .in_set(PluginSet::Collect)
                 .run_if(resource_exists::<Time>),

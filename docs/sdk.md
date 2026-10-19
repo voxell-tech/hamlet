@@ -64,7 +64,7 @@ and its asks go unanswered.
 | `sound` | `PanelCue` and `PanelSound`, the panels' own sounds; `SoundChoice`, what the chief chose to hear |
 | `orders` | `Decree` and `Tell`, which the chat says; `decree`, `restore`, `part` and `offers`; `Introduce`, `Give`, `Carry` and `Switched`, which the realm answers |
 | `overlay` | `Overlays`, the marks plugins draw over the world, which the host of the plugins keeps and the realm's view draws |
-| `survey` | `Survey`, the realm by name for a plugin that holds `read.world`: the hamlets, the agents and where each stands, the thing selected and the hour |
+| `survey` | `Survey`, the realm by name for a plugin that holds `read.world`: the hamlets, the agents and where each stands, the thing selected and the hour; `SurveyWanted`, set while a plugin needs it, which the host of the plugins keeps |
 
 ## The chat and the limits
 

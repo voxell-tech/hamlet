@@ -721,6 +721,12 @@ their ids and names. Nothing of the engine crosses: no entity, mesh or
 transform. The host copies the survey into a plugin's store before a call only
 while the plugin holds `read.world`. `hamlet_guest::world::view` reads it.
 
+The realm makes the survey again only while `SurveyWanted` is set, which the
+host keeps (`hamlet_wasm/src/survey.rs`) while some plugin holds `read.world`
+or names `world.act`, and then only in a frame where something it is made of
+changed: an agent, a hamlet, a robot or a common that moved, the selection or
+the sky.
+
 ### The install record
 
 `plugins/grants.toml` records which plugins are installed and what the chief
