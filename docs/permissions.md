@@ -111,7 +111,8 @@ hamlets or points, within a count, a size of text and a number of changes a seco
 allowed when the chief lets the plugin in. Where the choice is yet to be made the chief is asked
 and nothing is drawn; a choice taken back in Settings, or the plugin stopping, takes the marks
 away at once. Only the host draws them, as nodes of the panels, and a tag in the corner of the
-panel names every plugin that draws, so a mark is never taken for Hamlet's own.
+panel names every plugin that draws. Marks can still be laid out to look like Hamlet's own
+bubbles, name tags or questions in the world; the tag is what tells them apart.
 
 `agent.hook` lets a plugin hear `host/before-turn` and `host/after-turn` (see
 [`wasm.md`](wasm.md)). It is checked where the events are given, as `read.agents` is for

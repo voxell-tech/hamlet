@@ -221,7 +221,9 @@ A plugin draws in levels. The WASM host offers the first two and no other.
    from where the world's camera sees its anchor, and hidden while the anchor is not in sight.
    A tag in the top left corner of the panel, "Drawn by Surveyor", names every plugin that
    draws, so the chief knows whose marks they are. Nothing a plugin gives reaches the GPU
-   but as the panels' own nodes.
+   but as the panels' own nodes. Boxes, lines and words in the theme's colours can still be
+   laid out to look like the world's own bubbles, name tags or a question put to the chief:
+   the tag is all that tells them apart, and nothing keeps marks off those places yet.
 3. **Levels past it are only for native plugins.** A material, a shader, a texture or a
    renderer of a plugin's own is not something a WASM plugin can have: each would put what the
    plugin wrote on the GPU or in the world's own frame, beyond the limits of time, fuel and
