@@ -8,7 +8,8 @@ use bevy::app::App;
 use libloading::Library;
 
 use crate::abi::{
-    ABI, ABI_SYMBOL, Abi, ENTRY_SYMBOL, Info, VERSION_SYMBOL,
+    ABI, ABI_SYMBOL, Abi, ENTRY_SYMBOL, Info, LAYOUT, LAYOUT_SYMBOL,
+    VERSION_SYMBOL,
 };
 use crate::gate::{self, Mismatch};
 
@@ -25,6 +26,9 @@ pub enum Refusal {
     Missing(&'static str),
     /// The library is of another contract version.
     Contract(u32),
+    /// The library's `Abi` is laid out otherwise, or it does not say
+    /// how.
+    Layout(Option<u64>),
     Mismatch(Mismatch),
 }
 
@@ -43,6 +47,21 @@ impl fmt::Display for Refusal {
                 "built for contract version {found}, this Hamlet \
                  speaks {ABI}"
             ),
+            Refusal::Layout(None) => write!(
+                f,
+                "built for an older contract 1, it has no \
+                 `{LAYOUT_SYMBOL}`; build it again for this Hamlet"
+            ),
+            Refusal::Layout(Some(found)) => write!(
+                f,
+                "built with another layout of the contract, \
+                 `{LAYOUT_SYMBOL}` gives {} bytes, layout {:08x}; \
+                 this Hamlet has {} bytes, layout {:08x}",
+                found >> 32,
+                *found as u32,
+                LAYOUT >> 32,
+                LAYOUT as u32
+            ),
             Refusal::Mismatch(mismatch) => write!(f, "{mismatch}"),
         }
     }
@@ -60,7 +79,8 @@ pub fn open(path: &Path) -> Result<EntryFn, Refusal> {
     let library = unsafe { Library::new(path) }
         .map_err(|e| Refusal::Open(e.to_string()))?;
     // SAFETY: the symbols are looked up by the names of the contract,
-    // and the contract's version is read before anything else.
+    // and the contract's version and the layout of `Abi` are read
+    // before the `Abi` is.
     let entry = unsafe {
         let version = library
             .get::<extern "C" fn() -> u32>(VERSION_SYMBOL.as_bytes())
@@ -68,6 +88,13 @@ pub fn open(path: &Path) -> Result<EntryFn, Refusal> {
         let found = version();
         if found != ABI {
             return Err(Refusal::Contract(found));
+        }
+        let layout = library
+            .get::<extern "C" fn() -> u64>(LAYOUT_SYMBOL.as_bytes())
+            .map_err(|_| Refusal::Layout(None))?;
+        let found = layout();
+        if found != LAYOUT {
+            return Err(Refusal::Layout(Some(found)));
         }
         let abi = library
             .get::<extern "C" fn() -> Abi>(ABI_SYMBOL.as_bytes())

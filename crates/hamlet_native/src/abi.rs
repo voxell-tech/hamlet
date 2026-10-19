@@ -4,6 +4,7 @@
 use std::any::TypeId;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::mem::offset_of;
 
 use bevy::app::App;
 use bevy::ecs::world::World;
@@ -18,6 +19,16 @@ pub const ABI: u32 = 1;
 /// that a library of another contract is turned down before its
 /// [`Abi`] is read.
 pub const VERSION_SYMBOL: &str = "hamlet_native_abi_version";
+
+/// The name of the symbol that gives [`LAYOUT`]. It is read after
+/// [`VERSION_SYMBOL`] and before the [`Abi`], so that a library whose
+/// [`Abi`] is laid out otherwise under the same [`ABI`] is turned
+/// down before its [`Abi`] is read.
+pub const LAYOUT_SYMBOL: &str = "hamlet_native_abi_size";
+
+/// The layout of [`Abi`] in one word: its size in the high half, and
+/// a hash of its alignment and the offset of each field in the low.
+pub const LAYOUT: u64 = layout();
 
 /// The name of the symbol that gives the [`Abi`].
 pub const ABI_SYMBOL: &str = "hamlet_native_abi";
@@ -79,6 +90,28 @@ pub struct Abi {
     fingerprint: u64,
     sources: u64,
     types: u64,
+}
+
+const fn layout() -> u64 {
+    let parts = [
+        align_of::<Abi>(),
+        offset_of!(Abi, abi),
+        offset_of!(Abi, hamlet),
+        offset_of!(Abi, rustc),
+        offset_of!(Abi, profile),
+        offset_of!(Abi, fingerprint),
+        offset_of!(Abi, sources),
+        offset_of!(Abi, types),
+        size_of::<Text>(),
+    ];
+    let mut hash: u32 = 0x811c9dc5;
+    let mut at = 0;
+    while at < parts.len() {
+        hash ^= parts[at] as u32;
+        hash = hash.wrapping_mul(0x01000193);
+        at += 1;
+    }
+    ((size_of::<Abi>() as u64) << 32) | hash as u64
 }
 
 /// What a build says about itself, as plain values to compare.
@@ -177,7 +210,7 @@ pub fn declare(app: &mut App, entry: fn(&mut Entry)) {
     app.insert_resource(Declared(entry));
 }
 
-/// Exports the three symbols the host looks for. `$entry` is a
+/// Exports the four symbols the host looks for. `$entry` is a
 /// `fn(&mut App)` that adds what the plugin brings: systems,
 /// observers, resources, and a call to [`declare`].
 ///
@@ -192,6 +225,11 @@ macro_rules! export {
         #[unsafe(no_mangle)]
         pub extern "C" fn hamlet_native_abi_version() -> u32 {
             $crate::ABI
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn hamlet_native_abi_size() -> u64 {
+            $crate::abi::LAYOUT
         }
 
         #[unsafe(no_mangle)]
@@ -233,5 +271,6 @@ mod tests {
         );
         assert!(!info.profile.is_empty());
         assert_ne!(info.types, 0);
+        assert_eq!(LAYOUT >> 32, size_of::<Abi>() as u64);
     }
 }

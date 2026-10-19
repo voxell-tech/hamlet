@@ -88,14 +88,18 @@ The Plugins page says so under every native plugin.
 ## The gate
 
 Rust has no stable ABI, so the host calls a library's Rust code only when
-the library was built exactly as the host was. A library exports three
+the library was built exactly as the host was. A library exports four
 symbols (the `hamlet_native::export!` macro writes them):
 
 | Symbol | Type | What |
 |---|---|---|
 | `hamlet_native_abi_version` | `extern "C" fn() -> u32` | The version of this contract. Read first; a library of another one is turned down before anything else of it is read |
+| `hamlet_native_abi_size` | `extern "C" fn() -> u64` | The layout of `Abi`: its size in the high 32 bits, and a hash of its alignment and the offset of each field in the low. Read second; a library whose `Abi` is laid out otherwise, or that lacks the symbol, is turned down before its `Abi` is read, and the refusal names the symbol |
 | `hamlet_native_abi` | `extern "C" fn() -> Abi` | What the library was built with, below |
 | `hamlet_native_entry` | `fn(&mut App) -> bool` | Called once, with the app; false when the entry panicked |
+
+The contract version stays at 1 until Hamlet 0.1.0 is published. Until
+then a change to `Abi` is caught by its layout, not by a new version.
 
 `Abi` is `repr(C)` and holds, in this order:
 
