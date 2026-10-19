@@ -64,6 +64,7 @@ table. The binary and the examples are the root package.
 | `hamlet_limits` | The panes where the chief changes the home's models and each hamlet's budget, votes, models and the mayor's leave |
 | `hamlet_ui` | The window: panels, menus and pointer around the world |
 | `hamlet_wasm` | The host of the installed WASM plugins, behind the binary's `wasm` feature. See [`wasm.md`](wasm.md) |
+| `hamlet_native` | The host of the installed native plugins, behind the binary's `native` feature, and the contract a library keeps. See [`native.md`](native.md) |
 | `hamlet_openui` | Panels written in Hamlet's panel language: the components, the evaluation into a panel tree, state, actions and the data plugin. See [`panels.md`](panels.md) |
 | `hamlet_guest` | What a WASM plugin is written with: the interface bindings, the `Plugin` trait, the tree builder and the helpers that keep its state and its storage |
 | `hamlet_harness` | Runs a plugin headlessly against made-up state: clicks, typed text, grants, the tree of each panel as text and a picture of it. Behind its `wasm` feature. See [`authoring.md`](authoring.md) |
@@ -73,7 +74,8 @@ lists them, and each other folder is one plugin crate. The binary is a list
 of plugins: the layers `plugin_agents`, `plugin_hamlets` and `plugin_realm`
 (each wraps the engine crate of the same subject, and none can be switched
 off), then the window and the panels. See [`sdk.md`](sdk.md). A plugin built
-for WASM is under `guests/`, in a workspace of its own.
+for WASM is under `guests/`, in a workspace of its own. A native plugin is
+a member of the workspace under `native/`, left out of the default members.
 
 Inside a crate, a module with several subjects is a file and a folder of
 the same name, and each file opens with a line saying what it holds. Read
@@ -172,6 +174,7 @@ Paths are under `crates/`.
 | An item of the menu of a thing in the world (the right click) | Its `ContextItem` in the plugin's `entry` (`Entry::context_item`); the window's own items and the commands they run in `hamlet_ui/src/world_menu/contribute.rs` and `acts.rs`; how a thing is a `Subject`, `world_menu/subject.rs`; how the menu is built from the items, `world_menu/items.rs`; what the SDK keeps of them, `hamlet_sdk/src/context/`; [`sdk.md`](sdk.md) |
 | A tab of the inspector's page of an agent | Its `InspectorSection` in the plugin's `entry` (`Entry::inspector_section`); the tabs the page has itself, and how it lists the others, in `plugins/inspector/src/agent.rs`; the Skills tab, `plugins/skills/src/lib.rs`; what the SDK keeps of them, `hamlet_sdk/src/inspector/`, `page.rs`; [`sdk.md`](sdk.md) |
 | A page of the Settings panel | Its `SettingsPage` in the plugin's `entry` (`Entry::settings_page`); the pages the panel has itself, and how it lists the others, in `plugins/settings/src/lib.rs`, which adds the Plugins page as any plugin adds one; what the SDK keeps of them, `hamlet_sdk/src/settings/`; [`sdk.md`](sdk.md) |
+| A native plugin: loading its library, the gate, safe mode, the full-access question | `hamlet_native/src/` (`abi.rs`, `gate.rs`, `library.rs`, `load.rs`, `marker.rs`, `remove.rs`); `hamlet_sdk/src/plugin/access.rs`, `capability/petition.rs`; the sample `native/spark/`, the template `templates/native-plugin/`; [`native.md`](native.md) |
 | A plugin opening its own panel | The `open-panel` intent: `hamlet_wasm/src/run.rs`; for a guest `hamlet_guest::open_panel`; [`wasm.md`](wasm.md) |
 | A line in the HAMLET or VIEW menu | Its `MenuEntry` in the plugin's `entry` (`Entry::menu_item`); the window's own lines in `hamlet_ui/src/menu/window.rs`; how a menu lists them, `hamlet_sdk/src/menu/`; how the bar draws them, `hamlet_ui/src/menu.rs`; [`sdk.md`](sdk.md) |
 | A keyboard shortcut | Its `Key` in the plugin's `entry` (`Entry::key`); reading a chord, who wins a chord and a press, `hamlet_sdk/src/keys/`; [`sdk.md`](sdk.md) |

@@ -261,6 +261,19 @@ a plugin at the next start, and says nothing. Putting the plugin back in
 answer again, and it finds the data it kept, since a plugin's storage, files and database are only
 those folders.
 
+## Native plugins
+
+A native plugin (see [`native.md`](native.md)) is not under this model. It is
+code that runs as the app, so no capability gates it, its manifest has no
+`[[asks]]` and the chief has no list to choose from. The petition to install
+it is one question, "FULL ACCESS: this plugin runs as Hamlet with no
+limits", and **Allow** or **Don't allow** is the whole answer. The record in
+`grants.toml` holds the SHA-256 of the library file as well; a library with
+another hash is asked about again, and is not opened until the chief
+answers. There is no signing: the trust is the answer and the file it was
+for. Removing it is the removal above, with the difference that its code
+stays loaded until Hamlet starts again.
+
 ## First use
 
 Only a capability the manifest names can be used or asked for. A host
