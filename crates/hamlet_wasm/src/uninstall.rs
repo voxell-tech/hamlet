@@ -5,6 +5,7 @@ use std::path::Path;
 
 use bevy::prelude::*;
 use hamlet_sdk::capability::{Removed, Store};
+use hamlet_sdk::command::Notice;
 use hamlet_sdk::plugin::PluginInfo;
 
 use crate::db::DB;
@@ -37,6 +38,17 @@ pub fn removed(
         );
         return;
     }
+    // Clearing a link would delete the files it points at.
+    if linked(&watch.folder) {
+        let why = format!(
+            "{} was not removed: its folder is a link. Remove it by \
+             hand.",
+            info.name
+        );
+        warn!("plugin {}: {why}", info.id);
+        commands.trigger(Notice(why));
+        return;
+    }
     if let Err(why) = clear(&watch.folder, removed.keep_data) {
         warn!("plugin {}: not all of it was removed: {why}", info.id);
     }
@@ -51,6 +63,12 @@ pub fn removed(
         ""
     };
     info!("plugin {}: removed{kept}", info.id);
+}
+
+/// Whether `folder` is a link.
+fn linked(folder: &Path) -> bool {
+    std::fs::symlink_metadata(folder)
+        .is_ok_and(|meta| meta.file_type().is_symlink())
 }
 
 /// Deletes the folder, or all that is in it but its data and files

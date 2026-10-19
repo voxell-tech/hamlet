@@ -140,14 +140,22 @@ fn prepare(
             }
         }
     }
-    let (culprits, gone) =
-        marker::pending(root).into_iter().partition::<Vec<_>, _>(
-            |id| found.iter().any(|plugin| plugin.manifest.id == *id),
-        );
-    // A plugin that is gone cannot be the one that stopped it.
-    for id in &gone {
-        marker::settled(root, id);
+    let (culprits, gone) = marker::pending(root)
+        .into_iter()
+        .partition::<Vec<_>, _>(|loading| {
+            found.iter().any(|plugin| {
+                loading.is(&plugin.manifest.id, &plugin.hash)
+            })
+        });
+    // A plugin that is gone, or whose library was replaced since,
+    // cannot be the one that stopped it.
+    for loading in &gone {
+        marker::settled(root, &loading.id);
     }
+    let culprits = culprits
+        .into_iter()
+        .map(|loading| loading.id)
+        .collect::<Vec<_>>();
     if !culprits.is_empty() {
         warn!(
             "native plugins: the last run stopped before `{}` was \
@@ -386,7 +394,7 @@ fn open(
 ) -> Result<EntryFn, String> {
     let copy = cache::private_copy(root, id, file, granted)
         .map_err(|why| format!("Not loaded: {why}"))?;
-    marker::begin(root, id).map_err(|e| {
+    marker::begin(root, id, granted).map_err(|e| {
         format!(
             "Not loaded: the `loading` file cannot be written: {e}"
         )
@@ -769,9 +777,16 @@ mod tests {
 
     #[test]
     fn after_a_stop_while_loading_no_library_is_opened() {
+        let library = |root: &Path| {
+            let file = format!(
+                "plugins/spark/libspark.{}",
+                std::env::consts::DLL_EXTENSION
+            );
+            crate::install::hash(&root.join(file)).unwrap()
+        };
         let (mut app, root) =
             home_with_spark("safe", true, |root, _| {
-                marker::begin(root, "spark").unwrap();
+                marker::begin(root, "spark", &library(root)).unwrap();
             });
         app.update();
         let (uninstalled, why, status) = spark(&mut app);
@@ -782,8 +797,17 @@ mod tests {
             app.world().resource::<SafeMode>(),
             &SafeMode::Stopped(vec!["spark".into()])
         );
-        // The marker stays until the plugin is removed.
-        assert_eq!(marker::pending(&root), ["spark"]);
+        // The marker stays until the plugin is removed, or its
+        // library is replaced.
+        assert_eq!(marker::pending(&root).len(), 1);
+        std::fs::remove_dir_all(&root).unwrap();
+        let (mut app, root) =
+            home_with_spark("replaced", true, |root, _| {
+                marker::begin(root, "spark", "another").unwrap();
+            });
+        app.update();
+        assert!(!app.world().contains_resource::<SafeMode>());
+        assert!(marker::pending(&root).is_empty());
         std::fs::remove_dir_all(&root).unwrap();
     }
 

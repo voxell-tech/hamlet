@@ -1,9 +1,10 @@
 //! Two files in the home about the runs that open libraries.
 //!
-//! `loading`: the ids of the libraries not yet trusted, one to a
-//! line. It is written before a library is opened and a line goes
-//! when the library has run clean. One found at the next start means
-//! the process died while those libraries were not trusted.
+//! `loading`: the libraries not yet trusted, one to a line, each as
+//! the plugin's id and the hash of the library. It is written before
+//! a library is opened and a line goes when the library has run
+//! clean. One found at the next start means the process died while
+//! those libraries were not trusted.
 //!
 //! `unclean`: how many runs in a row opened a library and did not
 //! exit by themselves. It counts up when a run opens its first
@@ -34,27 +35,53 @@ fn write(path: &Path, text: &str) -> io::Result<()> {
     })
 }
 
-/// Adds the plugin `id` to the marker.
-pub fn begin(root: &Path, id: &str) -> io::Result<()> {
-    let mut ids = pending(root);
-    if !ids.iter().any(|known| known == id) {
-        ids.push(id.into());
+/// A library not yet trusted: the plugin's id and the hash of the
+/// library, which is empty in a line that names none.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Loading {
+    pub id: String,
+    pub hash: String,
+}
+
+impl Loading {
+    /// Whether it is the library of the plugin `id` with the hash
+    /// `hash`. A line that names no hash is any library of the
+    /// plugin.
+    pub fn is(&self, id: &str, hash: &str) -> bool {
+        self.id == id && (self.hash.is_empty() || self.hash == hash)
     }
-    write(&path(root), &ids.join("\n"))
+}
+
+/// Adds the library of the plugin `id`, of the hash `hash`, to the
+/// marker.
+pub fn begin(root: &Path, id: &str, hash: &str) -> io::Result<()> {
+    let mut all = pending(root);
+    all.retain(|known| known.id != id);
+    all.push(Loading {
+        id: id.into(),
+        hash: hash.into(),
+    });
+    save(root, &all)
 }
 
 /// Takes the plugin `id` off the marker, and removes the file when
 /// none is left.
 pub fn settled(root: &Path, id: &str) {
-    let ids = pending(root)
-        .into_iter()
-        .filter(|known| known != id)
-        .collect::<Vec<_>>();
-    if ids.is_empty() {
+    let mut all = pending(root);
+    all.retain(|known| known.id != id);
+    if all.is_empty() {
         end(root);
     } else {
-        let _ = write(&path(root), &ids.join("\n"));
+        let _ = save(root, &all);
     }
+}
+
+fn save(root: &Path, all: &[Loading]) -> io::Result<()> {
+    let lines = all
+        .iter()
+        .map(|loading| format!("{} {}", loading.id, loading.hash))
+        .collect::<Vec<_>>();
+    write(&path(root), &lines.join("\n"))
 }
 
 /// Removes the marker. A missing one is fine.
@@ -62,15 +89,18 @@ pub fn end(root: &Path) {
     let _ = std::fs::remove_file(path(root));
 }
 
-/// The ids of the plugins that were not trusted when the last run
-/// ended.
-pub fn pending(root: &Path) -> Vec<String> {
+/// The libraries that were not trusted when the last run ended.
+pub fn pending(root: &Path) -> Vec<Loading> {
     std::fs::read_to_string(path(root))
         .unwrap_or_default()
         .lines()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .map(String::from)
+        .filter_map(|line| {
+            let mut words = line.split_whitespace();
+            Some(Loading {
+                id: words.next()?.into(),
+                hash: words.next().unwrap_or_default().into(),
+            })
+        })
         .collect()
 }
 
@@ -103,12 +133,20 @@ mod tests {
             .join(format!("hamlet_marker_{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         assert!(pending(&root).is_empty());
-        begin(&root, "spark").unwrap();
-        begin(&root, "glow").unwrap();
-        begin(&root, "spark").unwrap();
-        assert_eq!(pending(&root), ["spark", "glow"]);
+        begin(&root, "spark", "a1").unwrap();
+        begin(&root, "glow", "b2").unwrap();
+        begin(&root, "spark", "c3").unwrap();
+        let ids = |root: &Path| {
+            pending(root)
+                .into_iter()
+                .map(|loading| {
+                    format!("{} {}", loading.id, loading.hash)
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&root), ["glow b2", "spark c3"]);
         settled(&root, "spark");
-        assert_eq!(pending(&root), ["glow"]);
+        assert_eq!(ids(&root), ["glow b2"]);
         settled(&root, "glow");
         assert!(!path(&root).exists());
         end(&root);

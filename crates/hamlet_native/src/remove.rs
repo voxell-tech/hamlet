@@ -3,6 +3,7 @@
 use bevy::prelude::*;
 use hamlet_base::HomeDir;
 use hamlet_sdk::capability::{Removed, Store};
+use hamlet_sdk::command::Notice;
 use hamlet_sdk::plugin::{FullAccess, PluginInfo};
 
 use crate::guard::Settling;
@@ -36,6 +37,19 @@ pub fn removed(
              own",
             info.id
         );
+        return;
+    }
+    // Clearing a link would delete the files it points at.
+    let linked = std::fs::symlink_metadata(&library.folder)
+        .is_ok_and(|meta| meta.file_type().is_symlink());
+    if linked {
+        let why = format!(
+            "{} was not removed: its folder is a link. Remove it by \
+             hand.",
+            info.name
+        );
+        warn!("native plugin {}: {why}", info.id);
+        commands.trigger(Notice(why));
         return;
     }
     let cleared = if removed.keep_data {

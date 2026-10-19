@@ -434,7 +434,9 @@ petition to install lists the plugins it needs that are not installed.
 
 A removal sends `Removed`. `hamlet_wasm::uninstall` despawns the plugin, so its
 panels go, deletes its files, and forgets its record in `grants.toml` so that it
-is not asked about again. A folder that holds nothing but `data/`, `files/` and `db/` is not read as
+is not asked about again. A plugin whose folder is a link is not removed, as clearing it would
+delete the files it points at, and the chief is told to remove it by hand; the native host does
+the same. A folder that holds nothing but `data/`, `files/` and `db/` is not read as
 a plugin at the next start, and says nothing. Putting the plugin back in
 `plugins/<id>/` is an install like any other, with its petition and its asks to
 answer again, and it finds the data it kept, since a plugin's storage, files and database are only

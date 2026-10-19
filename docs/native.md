@@ -68,7 +68,9 @@ made after the answer and hashed again, so a file swapped after the answer
 is not opened. Removing the plugin deletes its copies. A plugin is never
 updated by itself. There is no signing: what the chief trusts is the
 "full access" answer and the file it was given for. Whoever can write to the
-home can replace a file, and with it can do anything the app can.
+home can replace a file, and with it can do anything the app can. Only the
+library the manifest names is hashed and copied: a library it opens itself,
+or links to by name, is not, and can change without the chief being asked.
 
 The Plugins page lists it as **NATIVE** with a warning line under its name,
 and it has no PERMISSIONS button. It can be switched off and on (its panels,
@@ -356,7 +358,8 @@ GPU, and the chief's full-access answer is all that lets it.
 ## When the app stops while a library is new
 
 Before it opens a library, the host writes the file `loading` in the home,
-with the plugin's id on a line. The id goes when the entry has returned and
+with the plugin's id and the hash of its library on a line. The line goes when
+the entry has returned and
 the app has run `clean_frames` frames since (`[guard]` in
 `assets/native.toml`, 60), because a library can also fail in the systems its
 entry added. A `loading` found at the next start means the process died
@@ -369,8 +372,9 @@ before those plugins were trusted, and:
   be the one);
 - the file stays, so each start is in safe mode, until the plugins are
   removed (which takes their lines) or the chief deletes the file `loading`
-  by hand. A line that names a plugin no longer installed is dropped at
-  start.
+  by hand. A line that names a plugin no longer installed, or a library
+  that was replaced since (another hash, which the chief is asked about
+  before it is opened), is dropped at start.
 
 What the guard covers, from the moment the library is opened:
 
