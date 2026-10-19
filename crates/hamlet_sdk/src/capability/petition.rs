@@ -16,7 +16,7 @@ use super::dependency::{needed, needing};
 use super::install::{self, Removed, Uninstalled};
 use super::name::Capability;
 use super::subject::Subject;
-use crate::plugin::{FullAccess, PluginInfo};
+use crate::plugin::{FullAccess, PluginInfo, plain};
 
 /// A question about a plugin put to the chief: who it is about, what
 /// it asks and the answers it takes. Whoever holds the chief's queue
@@ -61,14 +61,18 @@ pub(super) fn install(world: &mut World, plugin: Entity) {
     let subject = Subject::Install {
         plugin: info.id.clone(),
     };
-    let head = format!("Install {} {}?", info.name, info.version);
+    let head = format!(
+        "Install {} {}?",
+        plain(&info.name),
+        plain(&info.version)
+    );
     let text = match world.get::<FullAccess>(plugin) {
         Some(access) => format!(
-            "{head}\nFULL ACCESS: this plugin runs as Hamlet with \
-             no limits. It can read and change anything Hamlet can, \
+            "FULL ACCESS: {head} It runs as Hamlet with no \
+             limits.\nIt can read and change anything Hamlet can, \
              and nothing here can take that back until it is \
              removed and Hamlet is started again.\nLibrary: {}",
-            access.0
+            plain(&access.0)
         ),
         None => listing(&head, &asks.0) + &needing(world, plugin),
     };
@@ -93,7 +97,7 @@ pub(super) fn remove(world: &mut World, plugin: Entity) {
     let text = format!(
         "Remove {}?\nRemoving it keeps what it saved, for when it \
          is installed again, or deletes that too.{}",
-        info.name,
+        plain(&info.name),
         needed(world, plugin)
     );
     raise(
@@ -138,23 +142,23 @@ pub(super) fn using(
         target: target.clone(),
     };
     let of = target
-        .map(|target| format!(" for `{target}`"))
+        .map(|target| format!(" for `{}`", plain(&target)))
         .unwrap_or_default();
     let mut text = format!(
         "{} asks to use {}{of}. Allow it?\n{}",
-        info.name,
+        plain(&info.name),
         capability.name(),
         capability.words()
     );
     if let Some(ask) = asks.of(capability) {
-        text += &format!("\nWhy: {}", ask.reason);
+        text += &format!("\nWhy: {}", plain(&ask.reason));
         if let Some(limit) = ask.capability.limit(&ask.scope.0) {
-            text += &format!("\nLimited to: {limit}");
+            text += &format!("\nLimited to: {}", plain(&limit));
         }
     }
     // One plain line, so that it cannot pass for a line of the
     // petition's own.
-    let said = hamlet_base::plain(said);
+    let said = plain(said);
     if !said.is_empty() {
         text += &format!(
             "\nIt says: {}",
@@ -170,14 +174,18 @@ pub(super) fn using(
 /// characters.
 const SAID: usize = 200;
 
-/// `head`, and under it each of `asks` with its reason.
+/// `head`, and under it each of `asks` with its reason, each made
+/// one plain line.
 fn listing(head: &str, asks: &[Asked]) -> String {
     let mut text = format!("{head}\nIt asks for:");
     for ask in asks {
-        text +=
-            &format!("\n{} - {}", ask.capability.name(), ask.reason);
+        text += &format!(
+            "\n{} - {}",
+            ask.capability.name(),
+            plain(&ask.reason)
+        );
         if let Some(limit) = ask.capability.limit(&ask.scope.0) {
-            text += &format!(" [limited to {limit}]");
+            text += &format!(" [limited to {}]", plain(&limit));
         }
         if ask.capability.asked_at_use() {
             text += " (each is asked at its first use)";
@@ -227,7 +235,8 @@ fn update(world: &mut World, plugin: Entity, fresh: &[Capability]) {
     };
     let head = format!(
         "{} {} asks for more. Allow it?",
-        info.name, info.version
+        plain(&info.name),
+        plain(&info.version)
     );
     let more = asks
         .0

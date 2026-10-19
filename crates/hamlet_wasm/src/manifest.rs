@@ -2,7 +2,8 @@
 
 use hamlet_sdk::capability::{Asked, Asks, Capability, Refusal};
 use hamlet_sdk::plugin::{
-    Exports, Imports, Need, RESERVED, Range, joinable, plain, valid,
+    Exports, Imports, Need, RESERVED, Range, Version, joinable,
+    plain, valid,
 };
 
 /// The most characters of a plugin's name.
@@ -108,7 +109,8 @@ impl Manifest {
         })
     }
 
-    /// Why the id, the name or a reason cannot be, if they cannot.
+    /// Why the id, the name, the version or a reason cannot be, if
+    /// they cannot.
     fn identity(&self) -> Option<String> {
         if !valid(&self.id) {
             return Some(format!(
@@ -136,6 +138,9 @@ impl Manifest {
             return Some(format!(
                 "the name has more than {NAME_MAX} characters"
             ));
+        }
+        if let Some(why) = Version::problem(&self.version) {
+            return Some(why);
         }
         self.asks
             .iter()

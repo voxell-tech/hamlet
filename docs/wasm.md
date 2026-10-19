@@ -1214,7 +1214,8 @@ be chosen for, and of `collections.read` and `collections.write` the
 `kind`: `wasm` (the default) or `data`, a plugin that is a `panel.ui` and no
 `plugin.wasm`, with an optional `icon` and no `interface` (see
 [`panels.md`](panels.md)). The scan turns a folder down when a file is
-missing, the manifest cannot be read, its `id` is not the folder's name, a
+missing, the manifest cannot be read, its `id` is not the folder's name, its
+`version` is not three numbers with at most a short suffix (`0.1.0-beta.2`), a
 WASM plugin's `interface` is not `interface::VERSION` or an ask cannot be
 granted (a name that is not a capability, one that is never granted, or no
 reason) or it exports typed interfaces without asking for `plugin.export`; the

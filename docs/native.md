@@ -51,8 +51,12 @@ A native plugin is installed as any plugin is, with a petition in Needs You
 and an INSTALL button on the Plugins page. The question is not a list of
 capabilities:
 
-> Install Spark 0.1.0?
-> FULL ACCESS: this plugin runs as Hamlet with no limits.
+> FULL ACCESS: Install Spark 0.1.0? It runs as Hamlet with no limits.
+
+The warning comes first, so it is what a strip or a tag of the petition
+shows. Every word of the manifest in it is made one plain line, and the scan
+turns down a version that is not three numbers with a short suffix, as for a
+WASM plugin.
 
 Nothing of the library is opened until the chief says yes: opening a library
 runs its code. The answer is kept in `plugins/grants.toml` with the hash of

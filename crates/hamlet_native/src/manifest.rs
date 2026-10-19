@@ -1,6 +1,6 @@
 //! `manifest.toml` of a native plugin.
 
-use hamlet_sdk::plugin::{RESERVED, joinable, plain, valid};
+use hamlet_sdk::plugin::{RESERVED, Version, joinable, plain, valid};
 
 /// The most characters of a plugin's name.
 const NAME_MAX: usize = 64;
@@ -57,6 +57,9 @@ impl Manifest {
             return Some(format!(
                 "the name has more than {NAME_MAX} characters"
             ));
+        }
+        if let Some(why) = Version::problem(&self.version) {
+            return Some(why);
         }
         // One plain name: no folder, no drive, no `..`.
         let plain_file = !self.library.is_empty()

@@ -6,12 +6,32 @@ use std::fmt;
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Version(pub u64, pub u64, pub u64);
 
+/// The most characters of a plugin's version.
+const VERSION_MAX: usize = 32;
+
 impl Version {
     pub fn parse(text: &str) -> Option<Self> {
         let core = text.split(['-', '+']).next()?;
         let numbers = numbers(core)?;
         (numbers.len() == 3)
             .then(|| Self(numbers[0], numbers[1], numbers[2]))
+    }
+
+    /// Why `text` cannot be a plugin's version, if it cannot: three
+    /// numbers and a suffix of letters, digits, dots and dashes, all
+    /// short.
+    pub fn problem(text: &str) -> Option<String> {
+        let fits = text.len() <= VERSION_MAX
+            && text.chars().all(|c| {
+                c.is_ascii_alphanumeric() || ".-+".contains(c)
+            })
+            && Self::parse(text).is_some();
+        (!fits).then(|| {
+            format!(
+                "the version is not three numbers such as `0.1.0` \
+                 in at most {VERSION_MAX} characters"
+            )
+        })
     }
 }
 
@@ -181,5 +201,15 @@ mod tests {
             Some(Version(1, 2, 3))
         );
         assert_eq!(Version::parse("1.2"), None);
+    }
+
+    #[test]
+    fn a_version_that_could_pass_for_words_of_the_petition_is_refused()
+     {
+        assert_eq!(Version::problem("0.1.0-beta.2+7"), None);
+        let long = format!("0.1.0-{}", "a".repeat(40));
+        for bad in ["0.1", "0.1.0\nFULL ACCESS", "0.1.0 ok", &long] {
+            assert!(Version::problem(bad).is_some(), "{bad}");
+        }
     }
 }

@@ -382,7 +382,8 @@ compiled and its panel is not read until the chief says yes.
 - A plugin the chief was never asked about, or that changed since it was
   declined, raises one petition: "Install Roster 0.1.0?", with what it asks
   for, each capability with its reason and its scope, and the plugins it needs
-  that are not installed. **Allow** installs it with every ask allowed, except
+  that are not installed. Each word of the manifest in it is made one plain
+  line, so none can pass for a line of the petition. **Allow** installs it with every ask allowed, except
   that a scoped capability is left for its first use to be asked for each
   target, `chat.send` and `commands.run` are left for their first use, and
   brings it up at once if the plugins it needs are running. **Don't allow**
@@ -442,8 +443,8 @@ those folders.
 A native plugin (see [`native.md`](native.md)) is not under this model. It is
 code that runs as the app, so no capability gates it, its manifest has no
 `[[asks]]` and the chief has no list to choose from. The petition to install
-it is one question, "FULL ACCESS: this plugin runs as Hamlet with no
-limits", and **Allow** or **Don't allow** is the whole answer. The record in
+it is one question, "FULL ACCESS: Install Spark 0.1.0? It runs as Hamlet
+with no limits", and **Allow** or **Don't allow** is the whole answer. The record in
 `grants.toml` holds the SHA-256 of the library file as well; a library with
 another hash is asked about again, and is not opened until the chief
 answers. A record whose library's entry panicked holds `failed = true`, and

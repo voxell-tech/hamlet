@@ -7,7 +7,9 @@ use bevy::ecs::world::World;
 
 use super::install::Uninstalled;
 use crate::plugin::needs::{self, Unmet};
-use crate::plugin::{Manifest, Need, PluginInfo, Status, present};
+use crate::plugin::{
+    Manifest, Need, PluginInfo, Status, plain, present,
+};
 
 /// Lines on the plugins that `plugin` needs, or would like, that are
 /// not installed, each starting on a new line. Empty where there are
@@ -23,13 +25,15 @@ pub(super) fn needing(world: &mut World, plugin: Entity) -> String {
         |(info, status, uninstalled)| (info, *status, uninstalled),
     ));
     let mut text = String::new();
+    // The ids and ranges are the manifest's, so each is one plain
+    // line.
     for unmet in needs::lacking(&manifest.needs, &present) {
-        text += &format!("\nIt {unmet}.");
+        text += &format!("\nIt {}.", plain(&unmet.to_string()));
     }
     for unmet in needs::lacking(&manifest.wants, &present) {
         text += &format!(
             "\nIt works better with `{}`, which is not installed.",
-            id_of(&unmet)
+            plain(id_of(&unmet))
         );
     }
     text
@@ -71,7 +75,7 @@ pub(super) fn needed(world: &mut World, plugin: Entity) -> String {
         .filter_map(|found| {
             all.iter()
                 .find(|(_, id, _)| *id == found)
-                .map(|(name, ..)| *name)
+                .map(|(name, ..)| plain(name))
         })
         .collect::<Vec<_>>();
     if names.is_empty() {
