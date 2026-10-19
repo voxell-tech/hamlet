@@ -64,6 +64,13 @@ pub fn check(host: &Info, found: &Info) -> Result<(), Mismatch> {
             found.fingerprint.to_string(),
         );
     }
+    if host.sources != found.sources {
+        return mismatch(
+            "SDK sources (hamlet_sdk, hamlet_native)",
+            host.sources.to_string(),
+            found.sources.to_string(),
+        );
+    }
     if host.types != found.types {
         return mismatch(
             "engine types (other sources, features or settings)",
@@ -101,6 +108,7 @@ mod tests {
             other(|i| i.fingerprint += 1),
             "engine crates (Cargo.lock)"
         );
+        assert!(other(|i| i.sources += 1).starts_with("SDK sources"));
         assert!(other(|i| i.types += 1).starts_with("engine types"));
         let mut both = host.clone();
         both.hamlet = "9.9.9".into();

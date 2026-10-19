@@ -11,7 +11,7 @@ use hamlet_sdk::plugin::{Declared, Entry};
 
 /// The version of the contract between the host and a library: the
 /// symbols below and the shape of [`Abi`]. It moves when either does.
-pub const ABI: u32 = 1;
+pub const ABI: u32 = 2;
 
 /// The name of the symbol that gives [`ABI`] and nothing else, so
 /// that a library of another contract is turned down before its
@@ -25,6 +25,8 @@ pub const ABI_SYMBOL: &str = "hamlet_native_abi";
 pub const ENTRY_SYMBOL: &str = "hamlet_native_entry";
 
 const FINGERPRINT: u64 = parse(env!("HAMLET_NATIVE_FINGERPRINT"));
+
+const SOURCES: u64 = parse(env!("HAMLET_NATIVE_SOURCES"));
 
 const fn parse(digits: &str) -> u64 {
     let bytes = digits.as_bytes();
@@ -74,6 +76,7 @@ pub struct Abi {
     rustc: Text,
     profile: Text,
     fingerprint: u64,
+    sources: u64,
     types: u64,
 }
 
@@ -89,6 +92,9 @@ pub struct Info {
     pub profile: String,
     /// The hash of the lock entries of the engine crates.
     pub fingerprint: u64,
+    /// The hash of the source files of `hamlet_sdk` and
+    /// `hamlet_native`.
+    pub sources: u64,
     /// The hash of the identities of the types that cross over.
     pub types: u64,
 }
@@ -102,6 +108,7 @@ impl Abi {
             rustc: Text::of(env!("HAMLET_NATIVE_RUSTC")),
             profile: Text::of(env!("HAMLET_NATIVE_PROFILE")),
             fingerprint: FINGERPRINT,
+            sources: SOURCES,
             types: types(),
         }
     }
@@ -118,6 +125,7 @@ impl Abi {
                 rustc: self.rustc.read(),
                 profile: self.profile.read(),
                 fingerprint: self.fingerprint,
+                sources: self.sources,
                 types: self.types,
             }
         }

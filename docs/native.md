@@ -111,17 +111,22 @@ symbols (the `hamlet_native::export!` macro writes them):
    lock above the target folder, or the file `HAMLET_LOCK` names, and fails
    the build when there is none; a lock with none of those packages is
    hashed whole;
-6. a hash of the identities (`TypeId`) of `App`, `World`, the SDK's `Entry`
+6. a hash of the sources of `hamlet_sdk` and `hamlet_native`: every file
+   under their `src`, by its path there and its bytes, in the order of the
+   paths. An edit of either, a comment too, changes it, so a library built
+   against the SDK before the edit is refused (`SDK sources`);
+7. a hash of the identities (`TypeId`) of `App`, `World`, the SDK's `Entry`
    and `Declared`.
 
 The host reads the library's values and compares them with its own in that
 order, and refuses at the first difference, saying which field, the host's
 value and the library's, in the plugin's line on the Plugins page and in the
-log. The last field is what the others cannot see: a crate built from other
-sources, with other features or other settings is a different type to the
-host, whatever it looks like. The gate has no way of knowing how a library
-was built beyond these, and a library that lies about them is a library the
-chief gave full access.
+log. The last field is what the others cannot see: a crate built with other
+features or other settings is a different type to the host, whatever it
+looks like. Sources the gate does not hash (the engine's, or another crate
+of the checkout) are not seen when they change under the same lock. The
+gate has no way of knowing how a library was built beyond these, and a
+library that lies about them is a library the chief gave full access.
 
 Opening the file (`dlopen`) runs the library's initializers before any check
 is possible; that is why only a library the chief let in is opened.
@@ -198,10 +203,10 @@ What must match:
   fine inside the plugin, never for a value it hands to Hamlet.
 
 What the plugin says to the gate is the kit's own `hamlet_native`, so its
-profile is the kit's whatever the plugin was built with. The gate cannot
-see the sources of a build: a kit made before an edit of the SDK, for a
-Hamlet built again with the same lock, features and compiler, passes and
-is wrong. Editors do not see the kit's crates, as the plugin's
+profile is the kit's whatever the plugin was built with. A kit made before
+an edit of the SDK, for a Hamlet built again with the same lock, features
+and compiler, makes plugins the gate refuses for their `SDK sources`.
+Editors do not see the kit's crates, as the plugin's
 `Cargo.toml` names none. The kit holds every library of the build: on
 macOS 5.5 GB for a debug build of the app, 1.7 GB for a release one.
 
@@ -266,6 +271,7 @@ app's code.
 | What | Where |
 |---|---|
 | The contract: `Abi`, `export!`, `declare`, the type hash | `hamlet_native/src/abi.rs`, `build.rs` |
+| The hash of the SDK's sources | `hamlet_native/src/sources.rs`, run by `build.rs` |
 | Comparing two builds | `hamlet_native/src/gate.rs` |
 | The compiler, and the kit a plugin outside the checkout builds with | `rust-toolchain.toml`, `scripts/make-native-sdk.sh`, `templates/native-plugin/outside/` |
 | Opening a library, and the private copy it is opened from | `hamlet_native/src/library.rs`, `cache.rs` |

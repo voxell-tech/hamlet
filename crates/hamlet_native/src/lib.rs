@@ -27,6 +27,8 @@ pub mod manifest;
 pub mod marker;
 #[cfg(feature = "host")]
 pub mod remove;
+#[cfg(test)]
+mod sources;
 
 pub use bevy::app::App;
 
