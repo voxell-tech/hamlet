@@ -289,8 +289,12 @@ reaches the GPU: the host draws what it describes.
      `override`, and `shade` has the interface's signature;
    - every loop is a `for` over a whole-number counter that starts from a number, is compared
      with a number and only its update changes by a fixed step, in the direction that ends
-     it, and ends at a value the counter can hold; a `loop` or `while` is refused. The counts
-     multiplied through nested loops and calls are at most `shader_loop_runs` for a point.
+     it, and ends at a value the counter can hold; a `loop` or `while` is refused;
+   - what a point costs is at most `shader_work` steps: each statement and expression is
+     one, a call costs what the function it calls costs, statements one after another add
+     up, a loop costs its count times its body and a branch its dearer side;
+   - its variables, private and of every function, take at most `shader_variable_bytes`
+     together, and no value it names is larger.
 
    What it cannot check: how long the shader takes for each point beyond those caps, which
    depends on the GPU and the size on screen, and what it paints inside its shapes. The
@@ -298,7 +302,11 @@ reaches the GPU: the host draws what it describes.
    (`plugins/realm/src/view/shader.rs`), with the renderer's checks of bounds on, and a node
    painted with it gets a `PluginMaterial` specialised with that shader, so the pipeline is
    compiled once for each shader. Its output is opaque. A node whose shader is not there,
-   while `render.shader` is not held, is drawn in a plain material.
+   while `render.shader` is not held, is drawn in a plain material. An error of the renderer
+   while a plugin's shader is drawn (a pipeline that fails, a lost device) does not end
+   Hamlet: every plugin's shape is drawn plain until Hamlet starts again, the chief is told,
+   and a lost device is made again. An error while none is drawn ends the app, as Bevy's own
+   handler does.
 5. **Render passes and compute are only for native plugins.** A pass of a plugin's own, a
    compute shader or a texture is not something a WASM plugin can have. A manifest that asks
    for `render.compute` is turned down at the scan with "render passes and compute are
@@ -1124,8 +1132,9 @@ each means. They apply to every plugin alike, whatever it is granted.
   at most `scene_glow`, and is kept at most `scene_updates_per_second` times a
   second. A plugin sends at most `scene_meshes` meshes of `scene_mesh_points`
   points and `scene_mesh_triangles` triangles, and `shaders` shaders of
-  `shader_bytes` whose loops run at most `shader_loop_runs` times for a point.
-  A call over one returns an error (see Drawing above).
+  `shader_bytes` that take at most `shader_work` steps for a point, with
+  variables of at most `shader_variable_bytes` together. A call over one
+  returns an error (see Drawing above).
 - **Tools for the agents.** At most `agent_tools` tools of `tool_fields` fields
   declared, `tool_calls_in_flight` calls of agents waiting on a plugin, and a
   returned text of `tool_result_bytes` (a longer one is cut). A call is bounded by

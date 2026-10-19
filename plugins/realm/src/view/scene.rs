@@ -21,7 +21,7 @@ use hamlet_realm_api::scene::{
 };
 use hamlet_sdk::theme::Themed;
 
-use super::shader::{self, PluginMaterial};
+use super::shader::{self, PluginMaterial, ShadersOff};
 
 /// The gap between a scene and its name over it, in pixels.
 const GAP: f32 = 6.0;
@@ -120,6 +120,8 @@ struct Making<'a> {
     shapes: &'a Shapes,
     standard: &'a mut Assets<StandardMaterial>,
     shaded: &'a mut Assets<PluginMaterial>,
+    /// No plugin's shader is drawn.
+    off: bool,
 }
 
 /// Builds each scene that changed: its meshes and shaders that are
@@ -138,6 +140,7 @@ fn build(
     mut shaders: ResMut<Assets<Shader>>,
     mut standard: ResMut<Assets<StandardMaterial>>,
     mut shaded: ResMut<Assets<PluginMaterial>>,
+    off: Option<Res<ShadersOff>>,
     theme: Themed,
 ) {
     for (plugin, scene, staged) in &scenes {
@@ -178,6 +181,7 @@ fn build(
             shapes: &shapes,
             standard: &mut standard,
             shaded: &mut shaded,
+            off: off.is_some(),
         };
         let mut kept = HashMap::new();
         for node in &scene.nodes {
@@ -336,6 +340,7 @@ fn dress(
             Paint::Shader { id, params } => match stage
                 .shaders
                 .get(id)
+                .filter(|_| !making.off)
             {
                 Some((_, shader)) => {
                     let material =
@@ -345,7 +350,8 @@ fn dress(
                         NotShadowCaster,
                     ));
                 }
-                // Without `render.shader` it is drawn plain.
+                // Without `render.shader`, or after the renderer
+                // failed, it is drawn plain.
                 None => {
                     drawn.insert(MeshMaterial3d(
                         making

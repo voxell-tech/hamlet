@@ -293,9 +293,13 @@ pub struct Limits {
     pub shaders: usize,
     /// The bytes of one shader's source.
     pub shader_bytes: usize,
-    /// The times the loops of a shader may run for one point,
-    /// counted as the product of the loops one is in.
-    pub shader_loop_runs: u64,
+    /// The steps a shader may take for one point: each statement and
+    /// expression one, a call what the function costs, and a loop
+    /// its count times its body.
+    pub shader_work: u64,
+    /// The bytes of a shader's variables together, private and of
+    /// every function, and of any one value it names.
+    pub shader_variable_bytes: u32,
 }
 
 /// The time one call may take, in milliseconds, for runs on a busy

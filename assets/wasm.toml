@@ -111,7 +111,8 @@ scene_mesh_points = 4096
 scene_mesh_triangles = 8192
 shaders = 4
 shader_bytes = 16384
-shader_loop_runs = 256
+shader_work = 4096
+shader_variable_bytes = 4096
 
 [reload]
 poll_ms = 500

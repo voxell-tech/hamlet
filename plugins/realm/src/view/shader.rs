@@ -1,17 +1,23 @@
 //! The material of a plugin's shader: the WGSL the host of the
 //! plugins checked, wrapped in the fragment shader of a mesh, with
 //! the values its node gives it. Each shader is compiled once, as a
-//! pipeline of its own.
+//! pipeline of its own. An error of the renderer while one is drawn
+//! takes them all off for the run.
 
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
+use bevy::render::error_handler::{
+    ErrorType, RenderError, RenderErrorHandler, RenderErrorPolicy,
+};
 use bevy::render::render_resource::{
     AsBindGroup, RenderPipelineDescriptor, ShaderType,
     SpecializedMeshPipelineError,
 };
+use bevy::render::settings::RenderCreation;
 use bevy::shader::ValidateShader;
 use hamlet_realm_api::scene::{INTERFACE, PARAMS};
+use hamlet_sdk::command::Notice;
 
 /// What comes before a plugin's source: the mesh's view and the
 /// values the material binds.
@@ -40,7 +46,62 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 ";
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_plugins(MaterialPlugin::<PluginMaterial>::default());
+    app.add_plugins(MaterialPlugin::<PluginMaterial>::default())
+        .insert_resource(RenderErrorHandler(recover));
+}
+
+/// Present once the renderer failed while plugins' shaders were
+/// drawn: none is drawn again in this run.
+#[derive(Resource)]
+pub struct ShadersOff;
+
+/// What the renderer does after an error. While plugins' shaders are
+/// drawn they are taken off for the rest of the run, and the renderer
+/// goes on: a lost device is made again, any other error is let pass.
+/// With none drawn the app quits, as Bevy's own handler has it.
+fn recover(
+    error: &RenderError,
+    main: &mut World,
+    _: &mut World,
+) -> RenderErrorPolicy {
+    let shaded = main
+        .query_filtered::<Entity, With<MeshMaterial3d<PluginMaterial>>>()
+        .iter(main)
+        .collect::<Vec<_>>();
+    if shaded.is_empty() {
+        error!(
+            "quitting after a {:?} error of the renderer",
+            error.ty
+        );
+        main.write_message(AppExit::error());
+        return RenderErrorPolicy::StopRendering;
+    }
+    warn!(
+        "a {:?} error of the renderer while plugins' shaders were \
+         drawn: they are drawn plain until Hamlet starts again",
+        error.ty
+    );
+    main.insert_resource(ShadersOff);
+    let plain = main
+        .resource_mut::<Assets<StandardMaterial>>()
+        .add(StandardMaterial::default());
+    for entity in shaded {
+        main.entity_mut(entity)
+            .remove::<MeshMaterial3d<PluginMaterial>>()
+            .insert(MeshMaterial3d(plain.clone()));
+    }
+    main.trigger(Notice(
+        "The drawing of the world failed while plugins' shaders \
+         were drawn. Their shapes are drawn plain until Hamlet \
+         starts again."
+            .into(),
+    ));
+    match error.ty {
+        ErrorType::DeviceLost => RenderErrorPolicy::Recover(
+            RenderCreation::Automatic(Box::default()),
+        ),
+        _ => RenderErrorPolicy::Ignore,
+    }
 }
 
 /// A shape painted by a plugin's shader.

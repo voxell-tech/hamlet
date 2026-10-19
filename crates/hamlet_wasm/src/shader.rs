@@ -76,7 +76,8 @@ pub fn checked(
         .map_err(|e| {
             at(e.location(&whole), lines, &chain(e.as_inner()))
         })?;
-    runs(&module, limits.shader_loop_runs)?;
+    sizes(&module, limits.shader_variable_bytes)?;
+    work(&module, limits.shader_work)?;
     Ok(SceneShader {
         id: id.into(),
         source: source.into(),
@@ -164,10 +165,49 @@ fn own(module: &Module) -> Result<(), String> {
     }
 }
 
-/// Whether every loop of the plugin's functions has a count, and the
-/// loops a point runs through, nested and called, run at most `most`
-/// times. The functions come after those they call.
-fn runs(module: &Module, most: u64) -> Result<(), String> {
+/// Whether the module's variables, private and of every function,
+/// take at most `most` bytes together, and no value it names is
+/// larger.
+fn sizes(module: &Module, most: u32) -> Result<(), String> {
+    let size =
+        |ty| u64::from(module.types[ty].inner.size(module.to_ctx()));
+    if let Some(big) = module
+        .types
+        .iter()
+        .map(|(ty, _)| size(ty))
+        .find(|bytes| *bytes > u64::from(most))
+    {
+        return Err(format!(
+            "a value of {big} bytes, the most is {most}"
+        ));
+    }
+    let private = module
+        .global_variables
+        .iter()
+        .filter(|(_, global)| global.space == AddressSpace::Private)
+        .map(|(_, global)| size(global.ty));
+    let local = module
+        .functions
+        .iter()
+        .map(|(_, function)| function)
+        .chain(
+            module.entry_points.iter().map(|entry| &entry.function),
+        )
+        .flat_map(|function| function.local_variables.iter())
+        .map(|(_, local)| size(local.ty));
+    let bytes = private.chain(local).sum::<u64>();
+    match bytes > u64::from(most) {
+        true => Err(format!(
+            "the variables take {bytes} bytes, the most is {most}"
+        )),
+        false => Ok(()),
+    }
+}
+
+/// Whether every loop of the plugin's functions has a count, and each
+/// function costs at most `most` for a point. The functions come
+/// after those they call.
+fn work(module: &Module, most: u64) -> Result<(), String> {
     let mut costs = HashMap::new();
     for (handle, function) in module.functions.iter() {
         let cost = Walk {
@@ -180,8 +220,8 @@ fn runs(module: &Module, most: u64) -> Result<(), String> {
             let name =
                 function.name.as_deref().unwrap_or("a function");
             return Err(format!(
-                "the loops of `{name}` may run {cost} times for a \
-                 point, the most is {most}"
+                "`{name}` may take {cost} steps for a point, the \
+                 most is {most}"
             ));
         }
         costs.insert(handle, cost);
@@ -189,26 +229,33 @@ fn runs(module: &Module, most: u64) -> Result<(), String> {
     Ok(())
 }
 
-/// One function of the module, walked for the times its loops run.
+/// One function of the module, walked for what it costs a point.
 struct Walk<'a> {
     module: &'a Module,
     function: &'a Function,
-    /// The times the loops of each function before it run.
+    /// The cost of each function before it.
     costs: &'a HashMap<Handle<Function>, u64>,
 }
 
 impl Walk<'_> {
-    /// The times the loops of `block` run at most, one for none.
+    /// The most `block` costs: one for each statement and expression,
+    /// the cost of a function for a call of it, a loop's count times
+    /// its body, and the dearer side of a branch. A switch costs all
+    /// its cases, as one may fall through to the next.
     fn block(&self, block: &Block) -> Result<u64, String> {
-        let mut most = 1u64;
+        let mut sum = 0u64;
         for (at, statement) in block.iter().enumerate() {
-            let runs = match statement {
-                Statement::Block(inner) => self.block(inner)?,
-                Statement::If { accept, reject, .. } => {
-                    self.block(accept)?.max(self.block(reject)?)
+            let cost = match statement {
+                Statement::Emit(range) => {
+                    range.index_range().len() as u64
                 }
+                Statement::Block(inner) => self.block(inner)?,
+                Statement::If { accept, reject, .. } => self
+                    .block(accept)?
+                    .max(self.block(reject)?)
+                    .saturating_add(1),
                 Statement::Switch { cases, .. } => {
-                    cases.iter().try_fold(0u64, |sum, case| {
+                    cases.iter().try_fold(1u64, |sum, case| {
                         Ok::<_, String>(
                             sum.saturating_add(
                                 self.block(&case.body)?,
@@ -227,21 +274,29 @@ impl Walk<'_> {
                         continuing,
                         *break_if,
                     )?;
-                    let inner = self
+                    let once = self
                         .block(body)?
-                        .max(self.block(continuing)?);
-                    count.max(1).saturating_mul(inner)
+                        .saturating_add(self.block(continuing)?)
+                        .saturating_add(1);
+                    count.max(1).saturating_mul(once)
                 }
-                Statement::Call { function, .. } => {
-                    self.costs.get(function).copied().ok_or(
+                Statement::Call {
+                    function,
+                    arguments,
+                    ..
+                } => self
+                    .costs
+                    .get(function)
+                    .copied()
+                    .ok_or(
                         "a function is called before it is checked",
                     )?
-                }
+                    .saturating_add(1 + arguments.len() as u64),
                 _ => 1,
             };
-            most = most.max(runs);
+            sum = sum.saturating_add(cost);
         }
-        Ok(most)
+        Ok(sum)
     }
 
     /// The times a loop runs, if it is a `for` over a counter that
@@ -574,6 +629,42 @@ mod tests {
         ];
         for source in refused {
             assert!(check(&source).is_err(), "{source}");
+        }
+    }
+
+    #[test]
+    fn a_shader_too_dear_or_too_large_for_a_point_is_refused() {
+        // Each level calls the one below sixteen times, with no loop.
+        let mut nested =
+            "fn f0() -> f32 { return 1.0; }\n".to_string();
+        for level in 1..6 {
+            let calls = vec![format!("f{}()", level - 1); 16];
+            nested += &format!(
+                "fn f{level}() -> f32 {{ return {}; }}\n",
+                calls.join(" + ")
+            );
+        }
+        nested += &shade("return vec4<f32>(f5());");
+        let refused = [
+            (nested, "steps"),
+            (
+                format!(
+                    "var<private> big: array<vec4<f32>, 4096>;\n{}",
+                    shade("return big[0];")
+                ),
+                "bytes",
+            ),
+            (
+                shade(
+                    "var big: array<f32, 2048>;
+                     return vec4<f32>(big[0]);",
+                ),
+                "bytes",
+            ),
+        ];
+        for (source, why) in refused {
+            let refusal = check(&source).unwrap_err();
+            assert!(refusal.contains(why), "{refusal}");
         }
     }
 }
