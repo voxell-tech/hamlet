@@ -278,7 +278,8 @@ reaches the GPU: the host draws what it describes.
    `uv`, `position` (in the world), `normal` and `time` (seconds), and `param(i)` gives the
    value `i` of the node's `shaded` material (`hamlet_realm_api::scene::INTERFACE`). It needs
    `render.shader`, allowed when the chief lets the plugin in, and a plugin keeps at most
-   `shaders` of them. The host checks it in the call (`hamlet_wasm/src/shader.rs`) and returns
+   `shaders` of them. Keep a shader in a `.wgsl` file beside the code that sends it and
+   embed it with `include_str!`, as `guests/beacon` does. The host checks it in the call (`hamlet_wasm/src/shader.rs`) and returns
    why it refuses one, with the line of the source where naga gives one:
    - it is at most `shader_bytes` and has no `#`, so nothing reaches the shader preprocessor;
    - naga parses it after the interface and a stand-in of the material's entry point, and

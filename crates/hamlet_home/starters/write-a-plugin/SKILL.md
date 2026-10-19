@@ -100,6 +100,9 @@ sandbox".
   for `chat.send`, `commands.run`, `world.act` or `plugin.use`.
 - A gated call that is not allowed returns an error. Show a line that says
   so; do not fail.
+- A shader a plugin sends (`hamlet_guest::render::shader`) lives in a
+  `.wgsl` file beside the code that sends it, embedded with
+  `include_str!("glow.wgsl")`, not in a Rust string (`guests/beacon`).
 - Every button, checkbox, text field and text area needs an id (`.id("go")`).
   Siblings may not share one.
 - A call is held to a short time and a small memory (`docs/wasm.md`, Limits). A
