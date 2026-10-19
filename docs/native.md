@@ -263,8 +263,21 @@ before those plugins were trusted, and:
   by hand. A line that names a plugin no longer installed is dropped at
   start.
 
+What the guard covers, from the moment the library is opened:
+
+- its initializers and its entry;
+- its systems, observers and anything else it added, for the first
+  `clean_frames` frames of the app after the entry returned (about two
+  seconds headless, about one in the window);
+- a crash of any kind: a panic in a system ends the process as an abort or
+  a signal does, and none of them lets the marker go.
+
+An exit of the app by itself (the window closed, Ctrl-C headless) before
+the clean frames trusts the libraries still waiting, as nothing stopped it.
 A library that crashes after its clean frames is not guarded: it is the
-app's code.
+app's code, and the chief starts Hamlet with **`--safe-mode`** to open no
+native library in that run. The plugins are listed with a note saying so,
+and the one at fault can be removed before a start without it.
 
 ## Where it is in the code
 
@@ -282,7 +295,8 @@ app's code.
 | The NATIVE line on the Plugins page | `plugins/settings/src/plugins/list.rs` |
 
 The binary's `native` feature (on by default) adds `hamlet_native::plugin`;
-`cargo run --no-default-features` never opens a library.
+`cargo run --no-default-features` never opens a library, nor does a run
+with `--safe-mode`.
 
 The test that builds the sample and loads it is ignored by default:
 `cargo test -p hamlet_native --test sample -- --ignored`.

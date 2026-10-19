@@ -27,10 +27,14 @@ pub struct Library {
     pub file: PathBuf,
 }
 
-/// Present when the last run ended before a library was trusted:
-/// the plugins that were not, and no library is opened in this run.
+/// Present when no library is opened in this run.
 #[derive(Resource, Clone, PartialEq, Eq, Debug)]
-pub struct SafeMode(pub Vec<String>);
+pub enum SafeMode {
+    /// Hamlet was started with `--safe-mode`.
+    Asked,
+    /// The last run ended before these plugins were trusted.
+    Stopped(Vec<String>),
+}
 
 /// Scans the install folder. A plugin that `grants.toml` records as
 /// installed, for the library that is there, is loaded. Any other is
@@ -65,15 +69,17 @@ pub fn installed(world: &mut World) {
     for id in &gone {
         marker::settled(&home.root, id);
     }
-    let safe = (!culprits.is_empty()).then_some(culprits);
-    if let Some(ids) = &safe {
+    if !culprits.is_empty() {
         warn!(
             "native plugins: the last run stopped before `{}` was \
              trusted, so no library is opened",
-            ids.join("`, `")
+            culprits.join("`, `")
         );
-        world.insert_resource(SafeMode(ids.clone()));
+        world.insert_resource(SafeMode::Stopped(culprits));
+    } else if world.contains_resource::<SafeMode>() {
+        warn!("native plugins: --safe-mode, no library is opened");
     }
+    let safe = world.get_resource::<SafeMode>().cloned();
     for plugin in found {
         let id = plugin.manifest.id.clone();
         let standing = {
@@ -101,11 +107,13 @@ pub fn installed(world: &mut World) {
                     .hashed(Some(&plugin.hash)),
                 );
                 match &safe {
-                    Some(culprits) if culprits.contains(&id) => {
+                    Some(SafeMode::Stopped(culprits))
+                        if culprits.contains(&id) =>
+                    {
                         not_loaded(world, entity, STOPPED);
                         world.trigger(AskToRemove { plugin: id });
                     }
-                    Some(culprits) => not_loaded(
+                    Some(SafeMode::Stopped(culprits)) => not_loaded(
                         world,
                         entity,
                         &format!(
@@ -114,6 +122,9 @@ pub fn installed(world: &mut World) {
                             culprits.join("`, `")
                         ),
                     ),
+                    Some(SafeMode::Asked) => {
+                        not_loaded(world, entity, ASKED)
+                    }
                     None => start(world, entity),
                 }
             }
@@ -139,6 +150,11 @@ const STOPPED: &str = "Hamlet stopped before this was trusted, so \
                        no native plugin was loaded. Remove it, or \
                        delete the file `loading` in the home to try \
                        again.";
+
+/// What a plugin is told in a run started with `--safe-mode`.
+const ASKED: &str = "Not loaded: Hamlet was started with \
+                     --safe-mode. Start it without to load native \
+                     plugins.";
 
 /// Spawns the entity of a native plugin, switched off, with nothing
 /// of its library opened.
@@ -276,12 +292,15 @@ pub fn admit(
         if info.id != installed.plugin {
             continue;
         }
-        if safe.is_some() {
-            commands.entity(plugin).insert(NotLoaded(
-                "Not loaded: native plugins are off after a stop \
-                 while loading one. Restart Hamlet."
-                    .into(),
-            ));
+        if let Some(safe) = &safe {
+            let why = match **safe {
+                SafeMode::Asked => ASKED,
+                SafeMode::Stopped(_) => {
+                    "Not loaded: native plugins are off after a stop \
+                     while loading one. Restart Hamlet."
+                }
+            };
+            commands.entity(plugin).insert(NotLoaded(why.into()));
             continue;
         }
         commands.queue(move |world: &mut World| start(world, plugin));
@@ -384,10 +403,23 @@ mod tests {
         assert!(why.unwrap().contains("Hamlet stopped"));
         assert_eq!(
             app.world().resource::<SafeMode>(),
-            &SafeMode(vec!["spark".into()])
+            &SafeMode::Stopped(vec!["spark".into()])
         );
         // The marker stays until the plugin is removed.
         assert_eq!(marker::pending(&root), ["spark"]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn safe_mode_on_demand_opens_no_library() {
+        let (mut app, root) = home_with_spark("asked", true);
+        app.insert_resource(SafeMode::Asked);
+        app.update();
+        let (uninstalled, why, status) = spark(&mut app);
+        assert!(!uninstalled);
+        assert_eq!(status, Status::Disabled);
+        assert_eq!(why.as_deref(), Some(ASKED));
+        assert!(marker::pending(&root).is_empty());
         std::fs::remove_dir_all(&root).unwrap();
     }
 

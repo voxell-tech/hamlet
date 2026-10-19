@@ -23,14 +23,15 @@ use hamlet_sandbox as sandbox;
 use hamlet_ui::{ShowRequests, window_plugin};
 
 const USAGE: &str = "\
-usage: hamlet [--headless | --repl] [--insecure] [--replay \
-                     <session.jsonl>]
+usage: hamlet [--headless | --repl] [--insecure] [--safe-mode] \
+                     [--replay <session.jsonl>]
 
   (default)    open the command center window
   --headless   no window, for machines without a display; Ctrl-C \
                      stops
   --repl       chat in the terminal (debugging)
   --insecure   run tools without a sandbox
+  --safe-mode  open no native plugin's library in this run
   --replay     answer with the assistant messages recorded in a \
                      session log instead of a model
 
@@ -57,6 +58,7 @@ enum Mode {
 struct Args {
     mode: Mode,
     insecure: bool,
+    safe_mode: bool,
     replay: Option<PathBuf>,
 }
 
@@ -67,6 +69,7 @@ fn parse(
     let mut parsed = Args {
         mode: Mode::Window,
         insecure: false,
+        safe_mode: false,
         replay: None,
     };
     while let Some(a) = args.next() {
@@ -74,6 +77,7 @@ fn parse(
             "--headless" => parsed.mode = Mode::Headless,
             "--repl" => parsed.mode = Mode::Repl,
             "--insecure" => parsed.insecure = true,
+            "--safe-mode" => parsed.safe_mode = true,
             "--replay" => {
                 let Some(path) = args.next() else {
                     bail!(
@@ -94,6 +98,7 @@ fn main() -> Result<()> {
     let Some(Args {
         mode,
         insecure,
+        safe_mode,
         replay,
     }) = parse(std::env::args().skip(1))?
     else {
@@ -159,7 +164,15 @@ fn main() -> Result<()> {
     #[cfg(feature = "wasm")]
     app.add_plugins(hamlet_wasm::plugin);
     #[cfg(feature = "native")]
-    app.add_plugins(hamlet_native::plugin);
+    {
+        app.add_plugins(hamlet_native::plugin);
+        if safe_mode {
+            app.insert_resource(hamlet_native::load::SafeMode::Asked);
+        }
+    }
+    // Without the feature no library is opened anyway.
+    #[cfg(not(feature = "native"))]
+    let _ = safe_mode;
     let tick = ScheduleRunnerPlugin::run_loop(TICK);
     match mode {
         Mode::Repl => {
@@ -220,11 +233,18 @@ mod tests {
     #[test]
     fn flags_are_read_and_mistakes_are_named() {
         assert_eq!(
-            parsed(&["--repl", "--insecure", "--replay", "a.jsonl"])
-                .unwrap(),
+            parsed(&[
+                "--repl",
+                "--insecure",
+                "--safe-mode",
+                "--replay",
+                "a.jsonl"
+            ])
+            .unwrap(),
             Some(Args {
                 mode: Mode::Repl,
                 insecure: true,
+                safe_mode: true,
                 replay: Some("a.jsonl".into()),
             })
         );
