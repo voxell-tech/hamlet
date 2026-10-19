@@ -1,6 +1,7 @@
 //! Calling a plugin: `entry` once, `step` for each inbox and
 //! `panel-view` for each panel to draw, each under the time limit.
 
+use hamlet_sdk::capability::{Capability, Verdict};
 use wasmtime::Store;
 
 use crate::fault::Fault;
@@ -93,15 +94,29 @@ impl Instance {
                 .hamlet_plugin_plugin()
                 .call_panel_view(store, panel)
         })?;
-        let shown = wire::shown(view, limits).map_err(|why| {
+        let mut shown = wire::shown(view, limits).map_err(|why| {
             Fault::Trap(format!(
                 "panel-view returned a bad tree: {why}"
             ))
         })?;
+        let mut wants = output.wants;
+        let granted = &self.store.data().granted;
+        if let Shown::Tree(root) = &mut shown
+            && !granted.holds(Capability::UiCanvas)
+            && wire::without_canvases(root)
+            && granted.verdict(Capability::UiCanvas)
+                == Some(Verdict::Ask)
+        {
+            wants.push(Want {
+                capability: Capability::UiCanvas,
+                target: None,
+                reason: String::new(),
+            });
+        }
         Ok(Drawing {
             shown,
             logs: output.logs,
-            wants: output.wants,
+            wants,
         })
     }
 

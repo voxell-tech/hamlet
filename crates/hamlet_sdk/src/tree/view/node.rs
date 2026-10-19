@@ -8,7 +8,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{Each, ScopedExt, ViewExt, each};
 
 use super::bind::At;
-use super::{area, markdown};
+use super::{area, canvas, markdown};
 use crate::feel::Mood;
 use crate::looks::{
     Fills, ICON, brass, hairline, lettered, note, tick, well,
@@ -81,6 +81,7 @@ pub(super) fn view(at: &At, tag: Tag) -> AnyView {
         }
         Tag::TextArea => area::view(at),
         Tag::Markdown => markdown::view(at),
+        Tag::Canvas => canvas::view(at),
         Tag::Divider => AnyView::new(|cx: &mut Cx| {
             let line = hairline(cx.theme().palette.brass_6);
             cx.build(line)

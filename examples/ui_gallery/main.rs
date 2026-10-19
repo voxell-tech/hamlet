@@ -40,7 +40,7 @@ struct Shot {
     scale: f32,
 }
 
-static SHOTS: [Shot; 53] = [
+static SHOTS: [Shot; 54] = [
     Shot {
         name: "plugin-context",
         scene: Scene::PluginContext,
@@ -302,6 +302,12 @@ static SHOTS: [Shot; 53] = [
     Shot {
         name: "plugin-roster",
         scene: Scene::PluginRoster,
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "plugin-canvas",
+        scene: Scene::PluginCanvas,
         size: UVec2::new(1440, 860),
         scale: 1.0,
     },

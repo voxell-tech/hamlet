@@ -21,8 +21,10 @@ pub enum Widget {
 /// A node: its id, what it is and how many children follow it.
 pub struct Item(pub Option<&'static str>, pub Widget, pub u32);
 
-/// The size of a `node`.
-const NODE: usize = 32;
+/// The size of a `node`: an optional id of 12 bytes, a `widget` of a
+/// tag and the larger of its payloads (a canvas: two numbers and a
+/// list), and the number of children.
+const NODE: usize = 36;
 
 struct Pool {
     next: u32,
@@ -107,7 +109,7 @@ pub fn data(at: u32, nodes: &[Item]) -> String {
             word(&mut bytes, node + 20, len);
         }
         bytes[node + 24] = u8::from(checked);
-        word(&mut bytes, node + 28, *children);
+        word(&mut bytes, node + 32, *children);
     }
     let mut wat =
         format!("(data (i32.const {at}) \"{}\")\n", escaped(&bytes));

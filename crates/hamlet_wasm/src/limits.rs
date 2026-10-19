@@ -50,6 +50,11 @@ pub struct Limits {
     pub panels: usize,
     /// The nodes a panel's tree may hold.
     pub tree_nodes: usize,
+    /// The shapes all the canvases of a panel's tree may hold. A
+    /// tree with more fails the call.
+    pub canvas_shapes: usize,
+    /// The width and the height of a canvas, at most, in pixels.
+    pub canvas_px: u32,
     /// The levels a panel's tree may nest.
     pub tree_depth: usize,
     /// The bytes of one text in a panel's tree: a node's text, label

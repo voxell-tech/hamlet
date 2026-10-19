@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
+use super::canvas::Canvas;
 use super::node::{Key, Node, Tag};
 use crate::dock::Panel;
 
@@ -84,6 +85,11 @@ impl PluginTrees {
         self.node(panel, path)
             .map(|node| node.text().to_string())
             .unwrap_or_default()
+    }
+
+    /// The canvas at `path`, empty if it is gone.
+    pub fn canvas(&self, panel: &str, path: &[Key]) -> Canvas {
+        self.node(panel, path).map(Node::canvas).unwrap_or_default()
     }
 
     pub fn checked(&self, panel: &str, path: &[Key]) -> bool {

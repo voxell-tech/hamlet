@@ -745,6 +745,36 @@ tool call never carries the chief's authority. The call has the time and fuel of
 `tool_result_bytes`. The `call-tool` step of the script puts a call through the same
 path, and checks the tool is held back until the chief allows `agent.tool`.
 
+## Drawing on a canvas
+
+A panel can hold a canvas: a box of 2D shapes, with the capability `ui.canvas`. It is the only
+drawing a WASM plugin has; a drawing over the world, a shader and a renderer of its own are left to
+the native tier (see Drawing in [`wasm.md`](wasm.md)). `guests/charts` is the example.
+
+```toml
+[[asks]]
+capability = "ui.canvas"
+reason = "To draw its chart of the week."
+```
+
+```rust
+use hamlet_guest::draw::{circle, line, rect, text, theme};
+use hamlet_guest::ui::{canvas, column};
+
+column([canvas(300, 156, [
+    line((10.0, 130.0), (290.0, 130.0), 1.0, theme("seam")),
+    rect(24.0, 90.0, 30.0, 40.0, theme("brass")),
+    circle(39.0, 90.0, 4.0, theme("flame")),
+    text(28.0, 134.0, "Mon", 11.0, theme("dim")),
+])])
+```
+
+Colours by theme name follow the theme; `rgba(r, g, b, a)` is a colour of its own. The canvas holds at
+most `canvas_px` pixels a side and the tree `canvas_shapes` shapes. Until the chief allows
+`ui.canvas` the panel shows a note in its place; the harness shows it as such, and the script's
+`grant = "ui.canvas"` answers. The transcript lists a canvas and its shapes, one line each, and
+`expect` finds the words of a `text` shape. The gallery scene `plugin-canvas` draws a canvas.
+
 ## Watching the agents
 
 A plugin with `agent.hook` is told when an agent's turn begins and ends, and only told:

@@ -2,7 +2,8 @@ use bevy::ecs::entity::Entity;
 
 use crate::inbox::{Inbox, Ticks};
 use crate::interface::exports::hamlet::plugin::plugin::{
-    Incoming, Node, Tree, Widget,
+    Canvas, CircleShape, Incoming, Node, Paint, RectShape, Shape,
+    Tree, Widget,
 };
 use crate::interface::hamlet::plugin::host::Level;
 use crate::limits::Limits;
@@ -38,6 +39,67 @@ fn a_tree_with_too_much_text_fails() {
     assert!(long.unwrap_err().contains("a text has 9 bytes"));
     let many = wire::node(column(&["1234567", "1234567"]), &limits);
     assert!(many.unwrap_err().contains("12 bytes of text"));
+}
+
+#[test]
+fn a_canvas_is_held_to_its_size_its_shapes_and_the_theme_colours() {
+    let rect = |paint| {
+        Shape::Rect(RectShape {
+            x: 0.0,
+            y: 0.0,
+            w: 4.0,
+            h: 4.0,
+            paint,
+        })
+    };
+    let ink = || Paint::Palette("ink".into());
+    let drawn = |width, shapes| Tree {
+        nodes: vec![Node {
+            id: None,
+            widget: Widget::Canvas(Canvas {
+                width,
+                height: 10,
+                shapes,
+            }),
+            children: 0,
+        }],
+    };
+    let limits = Limits {
+        canvas_shapes: 2,
+        canvas_px: 100,
+        ..Limits::default()
+    };
+
+    assert!(
+        wire::node(
+            drawn(100, vec![rect(ink()), rect(ink())]),
+            &limits
+        )
+        .is_ok()
+    );
+    for (width, shapes, said) in [
+        (101, vec![], "100"),
+        (10, vec![rect(ink()); 3], "more than 2 shapes"),
+        (10, vec![rect(Paint::Palette("neon".into()))], "neon"),
+        (
+            10,
+            vec![Shape::Circle(CircleShape {
+                x: f32::NAN,
+                y: 0.0,
+                r: 1.0,
+                paint: ink(),
+            })],
+            "not a number",
+        ),
+    ] {
+        let why =
+            wire::node(drawn(width, shapes), &limits).unwrap_err();
+        assert!(why.contains(said), "{why}");
+    }
+    let mut root =
+        wire::node(drawn(10, vec![rect(ink())]), &limits).unwrap();
+    assert!(wire::without_canvases(&mut root));
+    assert!(root.text().contains("ui.canvas"));
 }
 
 #[test]

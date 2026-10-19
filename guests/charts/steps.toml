@@ -1,0 +1,32 @@
+# Run from the Hamlet checkout, after building Charts into a folder:
+#   guests/charts/build.sh <dir>/charts
+#   cargo run --example plugin_check --features wasm -- \
+#     <dir>/charts --script guests/charts/steps.toml --out <pictures>
+#
+# The plugin is installed with its ask unanswered. Its canvas is held,
+# and shows a note in its place, until the chief allows ui.canvas.
+
+[[step]]
+tick = 2
+
+[[step]]
+expect = { panel = "chart", text = "waits for ui.canvas" }
+
+[[step]]
+grant = "ui.canvas"
+
+[[step]]
+expect = { panel = "chart", text = "Mon" }
+
+[[step]]
+render = { panel = "chart", file = "chart.png" }
+
+# The plugin draws other shapes and the canvas is drawn again.
+[[step]]
+click = { panel = "chart", node = "shuffle" }
+
+[[step]]
+expect = { panel = "chart", text = "Shuffled 1 times" }
+
+[[step]]
+render = { panel = "chart", file = "shuffled.png" }

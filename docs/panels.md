@@ -32,7 +32,8 @@ into nodes), `read.rs` (queries), `action.rs`, `interact.rs`, `draw.rs`,
 
 A node is an optional id, a kind and its children. The kinds are the widgets
 of [`wasm.md`](wasm.md): column, row, scroll, label, heading, note, icon,
-button, checkbox, text field, text area, markdown and divider. The view is rebuilt only where
+button, checkbox, text field, text area, markdown, divider and canvas (a box of 2D shapes a
+plugin draws; the panel language has no canvas). The view is rebuilt only where
 the tree differs: nodes are matched by id among their siblings, so a field being
 typed in keeps its text and focus.
 

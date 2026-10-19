@@ -130,6 +130,7 @@ fn scene_tab(scene: Scene) -> Option<String> {
         | Scene::PluginSettingsPage => Some("settings".into()),
         Scene::Skills | Scene::SkillsAlone => Some("skills".into()),
         Scene::PluginRoster => Some(super::roster::id()),
+        Scene::PluginCanvas => Some(super::canvas::id()),
         Scene::PluginOpenui => Some(super::greeter::id()),
         Scene::PluginNotes | Scene::PluginNotesPreview => {
             Some(super::notes::id())

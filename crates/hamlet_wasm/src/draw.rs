@@ -8,7 +8,9 @@ use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::Granted;
 use hamlet_sdk::dock::Panel;
 use hamlet_sdk::papers::Papers;
-use hamlet_sdk::plugin::{Manifest, PluginInfo, Status};
+use hamlet_sdk::plugin::{
+    Contributions, Manifest, PluginInfo, Status,
+};
 use hamlet_sdk::tree::id::local_id;
 use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 
@@ -40,6 +42,22 @@ impl Dirty {
 
     pub fn take(&mut self) -> Vec<String> {
         std::mem::take(&mut self.0)
+    }
+}
+
+/// Has the panels of a plugin whose grants changed drawn again, since
+/// what a tree may hold (a canvas) depends on them.
+pub fn regrant(
+    mut plugins: Query<
+        (&mut Dirty, &Contributions),
+        Changed<Granted>,
+    >,
+    panels: Query<&Panel>,
+) {
+    for (mut dirty, held) in &mut plugins {
+        for panel in panels.iter_many(held.iter()) {
+            dirty.mark(&panel.id);
+        }
     }
 }
 

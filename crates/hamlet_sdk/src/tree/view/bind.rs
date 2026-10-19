@@ -3,6 +3,7 @@
 use bevy::ecs::world::World;
 use bevy_fynix::{Signal, resource};
 
+use crate::tree::canvas::Canvas;
 use crate::tree::event::{Act, Interaction};
 use crate::tree::node::Key;
 use crate::tree::store::PluginTrees;
@@ -41,6 +42,13 @@ impl At {
         let at = self.clone();
         resource::<PluginTrees, _>(move |trees| {
             trees.text(&at.panel, &at.path)
+        })
+    }
+
+    pub fn canvas(&self) -> Signal<Canvas> {
+        let at = self.clone();
+        resource::<PluginTrees, _>(move |trees| {
+            trees.canvas(&at.panel, &at.path)
         })
     }
 

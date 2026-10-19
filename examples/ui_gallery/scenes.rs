@@ -1,5 +1,6 @@
 //! Scenes of the panels and their controls held in fixed states.
 
+mod canvas;
 mod clipper;
 mod contributions;
 mod dock;
@@ -220,6 +221,8 @@ pub enum Scene {
     Plugins,
     /// The panel of the roster plugin, drawn from its tree.
     PluginRoster,
+    /// The panel of the charts plugin, with a canvas of shapes.
+    PluginCanvas,
     /// The panel of the greeter data plugin, drawn from its program.
     PluginOpenui,
     /// The panel of the Notes plugin, with its open note to edit.

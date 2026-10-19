@@ -15,6 +15,7 @@ pub mod bindings {
 pub mod calls;
 pub mod collection;
 pub mod db;
+pub mod draw;
 pub mod events;
 pub mod files;
 pub mod net;
@@ -26,7 +27,8 @@ pub mod ui;
 
 pub use self::bindings::exports::hamlet::plugin::plugin::{
     CallAnswer, CallRequest, ChatMessage, CommandCall, Incoming,
-    Intent, Outgoing, Publication, Published, Tree, View as Wired,
+    Intent, Outgoing, Paint, Publication, Published, Shape, Tree,
+    View as Wired,
 };
 pub use self::bindings::hamlet::plugin::host::{
     Agent, AgentPapers, Level, RequestResult,

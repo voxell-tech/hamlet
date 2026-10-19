@@ -2,6 +2,7 @@
 
 mod area;
 mod bind;
+mod canvas;
 mod markdown;
 mod node;
 mod stopped;

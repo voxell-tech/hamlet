@@ -24,6 +24,7 @@ The host is behind the `wasm` feature of the binary:
 | `guests/herald` | Herald: a panel with buttons that send a message to an agent (`chat.send`), run `notes/new` (`commands.run`), keep, read and try to escape a draft in its folder (`files.write`, `files.read`) and fetch a page (`net`, limited to one host). Its `steps.toml` checks each, with the harness's `expect-told` step |
 | `guests/pantry` | Pantry: a panel with buttons that add things to a table of its database, find the drinks by a field and remove one (`db`). Its `steps.toml` restarts the app, with the harness's `restart` step, to see the records are still there |
 | `guests/clipper` | Clipper: sends the selected agent's name to Notes with its command, lists the titles of the notes it reads from Notes' collection and counts the `note-saved` events. Its command `clip` sends the name of the agent whose menu item "Clip name to Notes" was chosen. It needs Notes. The pair is the example of [`authoring.md`](authoring.md#two-plugins-working-together) |
+| `guests/charts` | Charts: a bar chart on a canvas, behind `ui.canvas`, with a Shuffle button that draws other numbers. Its `steps.toml` checks it held back and then drawn |
 | `guests/diary` | Diary: keeps a count of each agent's turns and the tools it used, from `host/before-turn` and `host/after-turn`, behind `agent.hook`. Its `steps.toml` tells it of turns with the harness's `turn` step |
 | `guests/tides` | Tides: gives the agents a tool, `height`, behind `agent.tool` (see Tools for the agents below). Its `steps.toml` checks it with the harness's `call-tool` step |
 | `assets/wasm.toml` | The limits, and how often the plugins' files are looked at |
@@ -151,6 +152,7 @@ children. The interface cannot hold a node in a node, so the list is flat.
 | `text-area(text)` | A well of several lines, ten high, to type in. Enter starts a line. Focus leaving it, or Ctrl+Enter (Cmd+Enter on a Mac), commits the text; Escape puts back the text the tree showed |
 | `markdown(text)` | Markdown drawn and not editable: headings, emphasis, lists, code and rules. A link shows as its words, and a table or a picture as plain text |
 | `divider` | A hairline |
+| `canvas(width, height, shapes)` | A box of 2D shapes (see Drawing below). It needs `ui.canvas` |
 
 A `button`, `checkbox`, `text-field` and `text-area` need an id, which names them in
 events. Two siblings may not share an id. A tree with a node over the limit
@@ -169,6 +171,37 @@ tree that has its id among the same parent's children, or its place if it
 has none. A matched node keeps its view and only the props that differ are
 written, so a field being typed in keeps its text and focus, and an animation
 under way goes on.
+
+## Drawing
+
+A plugin draws in levels. The WASM host offers the first and no other.
+
+1. **A canvas in a panel.** `canvas(width, height, shapes)` is a node of the tree: a box
+   of at most `canvas_px` pixels a side, and a list of shapes drawn first to last:
+   `rect(x, y, w, h)`, `line(x1, y1, x2, y2, width)`, `circle(x, y, r)` and
+   `text(x, y, words, size)`. A position is in pixels from the top left of the box, and what
+   falls outside it is cut off. A shape is painted with a colour of the theme by name (`ink`,
+   `dim`, `faint`, `brass`, `lamp`, `flame`, `ember`, `rune`, `card`, `well`, `panel`, `seam`,
+   `red` or `moss`), which follows the theme, or with `rgba`. A name that is none of these, a
+   side of 0 or over the cap, a position that is not a number and more than `canvas_shapes`
+   shapes in a tree fail the call like any bad tree; a line is held to 0.5 to 64 pixels thick
+   and lettering to 6 to 128, and positions to 100000 pixels. The words of a `text` count
+   against the text of the tree. The view (`hamlet_sdk/src/tree/view/canvas.rs`) makes each
+   shape a node of the UI: a rectangle, a disc (a square with round corners), a line (a thin
+   rounded box turned about its middle) or text, in a box that clips, so the shapes are
+   drawn as the rest of the panel is and stay sharp at any scale. It needs the capability
+   `ui.canvas`, which is allowed when the chief lets the plugin in. Without it the call
+   succeeds and the panel shows a note, "a drawing that waits for ui.canvas", in the canvas'
+   place (`wire::without_canvases`), and the chief is asked where the choice is yet to be made.
+   Panels are drawn again when a plugin's grants change.
+2. **Levels past it are not offered.** A drawing over the world, a shader, a texture or a
+   renderer of a plugin's own is not something a WASM plugin can have: each would put what the
+   plugin wrote on the GPU or in the world's own frame, beyond the limits of time, fuel and
+   memory that bound a `step`. They are the work of the native tier, a plugin built into the
+   binary (see [`sdk.md`](sdk.md)).
+
+`hamlet_guest::ui::canvas` and `hamlet_guest::draw` make the node and its shapes, and
+`guests/charts` is the example. The gallery scene `plugin-canvas` draws its panel.
 
 ## How a panel is drawn
 
@@ -630,6 +663,8 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **Log lines.** A call keeps at most `log_lines` lines of `log_bytes` each.
 - **Panels and trees.** A plugin declares at most `panels` panels, and a
   tree holds at most `tree_nodes` nodes nested `tree_depth` deep.
+- **Canvases.** At most `canvas_shapes` shapes in all the canvases of a tree, each canvas at
+  most `canvas_px` pixels a side (see Drawing above).
 - **Text.** One text of a node (its words or its id) is at most `text_bytes`,
   and all the text of a tree, or the program a panel returns, at most
   `tree_text_bytes`. A tree over either fails the call like any bad tree: it

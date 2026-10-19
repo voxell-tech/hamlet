@@ -460,6 +460,72 @@ interface plugin {
     // Markdown text, drawn and not editable: headings, emphasis, lists,
     // code and rules. A link is shown as its text.
     markdown(string),
+    // A box of a few 2D shapes, drawn first to last. It needs the
+    // capability `ui.canvas`, allowed when the chief lets the plugin
+    // in; without it the tree is not drawn. It is the only drawing a
+    // plugin has: no overlay on the world, no shader and no texture.
+    canvas(canvas),
+  }
+
+  // What a shape is painted with: a colour of the theme by name (`ink`,
+  // `dim`, `faint`, `brass`, `lamp`, `flame`, `ember`, `rune`, `card`,
+  // `well`, `panel`, `seam`, `red` or `moss`), which follows the theme,
+  // or a colour as 0xRRGGBBAA.
+  variant paint {
+    palette(string),
+    rgba(u32),
+  }
+
+  // The positions are pixels from the top left of the canvas.
+  record rect-shape {
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    paint: paint,
+  }
+
+  record line-shape {
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+    width: f32,
+    paint: paint,
+  }
+
+  // A disc about (x, y).
+  record circle-shape {
+    x: f32,
+    y: f32,
+    r: f32,
+    paint: paint,
+  }
+
+  record text-shape {
+    x: f32,
+    y: f32,
+    text: string,
+    // The size of the lettering, in pixels.
+    size: f32,
+    paint: paint,
+  }
+
+  variant shape {
+    rect(rect-shape),
+    line(line-shape),
+    circle(circle-shape),
+    text(text-shape),
+  }
+
+  // The size of the box in pixels and the shapes in it. What falls
+  // outside is cut off. The host caps the size and the number of the
+  // shapes of a tree, and the text counts against the text of the
+  // tree.
+  record canvas {
+    width: u32,
+    height: u32,
+    shapes: list<shape>,
   }
 
   record checkbox {

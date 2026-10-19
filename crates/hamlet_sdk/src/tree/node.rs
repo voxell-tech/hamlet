@@ -1,5 +1,6 @@
 //! A panel's tree as the host holds it.
 
+use super::canvas::Canvas;
 use crate::icons::Glyph;
 
 /// One node of a panel: what it is, the id it is matched by among its
@@ -32,6 +33,8 @@ pub enum Kind {
     TextArea(String),
     /// Markdown text, drawn.
     Markdown(String),
+    /// A box of 2D shapes.
+    Canvas(Canvas),
 }
 
 /// What a node is, without what it holds. A node that changes its
@@ -51,6 +54,7 @@ pub enum Tag {
     Divider,
     TextArea,
     Markdown,
+    Canvas,
 }
 
 /// How a node is found among its siblings: by its id, or by its
@@ -97,6 +101,7 @@ impl Node {
             Kind::Divider => Tag::Divider,
             Kind::TextArea(_) => Tag::TextArea,
             Kind::Markdown(_) => Tag::Markdown,
+            Kind::Canvas(_) => Tag::Canvas,
         }
     }
 
@@ -120,6 +125,14 @@ impl Node {
             | Kind::Markdown(text)
             | Kind::Checkbox { label: text, .. } => text,
             _ => "",
+        }
+    }
+
+    /// The shapes of a canvas, empty for any other node.
+    pub fn canvas(&self) -> Canvas {
+        match &self.kind {
+            Kind::Canvas(canvas) => canvas.clone(),
+            _ => Canvas::default(),
         }
     }
 

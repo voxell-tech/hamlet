@@ -1,6 +1,7 @@
 //! The tree of a plugin's panel: the model, what is drawn, the view
 //! built from it and what the user does in it.
 
+pub mod canvas;
 pub mod event;
 pub mod glyph;
 pub mod id;

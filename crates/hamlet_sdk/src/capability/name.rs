@@ -43,10 +43,11 @@ pub enum Capability {
     Db,
     AgentTool,
     AgentHook,
+    UiCanvas,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 23] = [
+    pub const ALL: [Capability; 24] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -70,6 +71,7 @@ impl Capability {
         Capability::Db,
         Capability::AgentTool,
         Capability::AgentHook,
+        Capability::UiCanvas,
     ];
 
     /// What a plugin that holds a capability that [faces the
@@ -115,6 +117,7 @@ impl Capability {
             Capability::Db => "db",
             Capability::AgentTool => "agent.tool",
             Capability::AgentHook => "agent.hook",
+            Capability::UiCanvas => "ui.canvas",
         }
     }
 
@@ -218,6 +221,9 @@ impl Capability {
             Capability::AgentHook => {
                 "Be told when an agent's turn begins and ends"
             }
+            Capability::UiCanvas => {
+                "Draw 2D shapes in a canvas of its panels"
+            }
         }
     }
 
@@ -239,6 +245,11 @@ impl Capability {
                  with the plugin's name, and what a tool returns is \
                  shown to them as text from a plugin. It cannot \
                  also act as the chief or use other plugins.",
+            ),
+            Capability::UiCanvas => Some(
+                "Draws rectangles, lines, circles and text inside \
+                 its own panels, within a size and a count. It \
+                 cannot draw over the world or anywhere else.",
             ),
             Capability::AgentHook => Some(
                 "Told of each turn of the agents of the hamlets \

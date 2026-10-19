@@ -2,7 +2,8 @@
 //! button("Go").id("go")])`.
 
 use crate::bindings::exports::hamlet::plugin::plugin::{
-    Checkbox, Node as Wire, Tree, View as Wired, Widget,
+    Canvas, Checkbox, Node as Wire, Shape, Tree, View as Wired,
+    Widget,
 };
 
 /// What a panel is drawn from: a tree built in code, or a program in
@@ -138,6 +139,26 @@ pub fn text_area(text: &str) -> Node {
 /// A link shows as its text.
 pub fn markdown(text: &str) -> Node {
     Node::new(Widget::Markdown(text.into()), Vec::new())
+}
+
+/// A box of `width` by `height` pixels (at most the host's cap, 1024)
+/// with `shapes` drawn in it, first to last, from
+/// [`draw`](crate::draw). What falls outside it is cut off. It needs
+/// the capability `ui.canvas`; without it the panel shows a note in
+/// its place.
+pub fn canvas(
+    width: u32,
+    height: u32,
+    shapes: impl IntoIterator<Item = Shape>,
+) -> Node {
+    Node::new(
+        Widget::Canvas(Canvas {
+            width,
+            height,
+            shapes: shapes.into_iter().collect(),
+        }),
+        Vec::new(),
+    )
 }
 
 pub fn divider() -> Node {
