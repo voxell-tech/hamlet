@@ -113,6 +113,7 @@ pub async fn serve(options: Options) -> Result<()> {
     crate::sandbox::Sandbox::platform().probe()?;
     let home = Home::open(&options.home)?;
     let mut service = Service::new(home, options.faux.is_some())?;
+    service.prepare_gifts()?;
     chats::load(&mut service)?;
     let layout = service.home.layout().clone();
     let (mut harnesses, notices) = Harnesses::start(
@@ -194,7 +195,7 @@ pub async fn serve(options: Options) -> Result<()> {
                 }
                 Some(event) = incoming.recv() => {
                     match event {
-                        Event::Gone(id) => { clients.remove(&id); service.models.disconnect(id); service.chats.gone(id); }
+                        Event::Gone(id) => { clients.remove(&id); service.models.disconnect(id); service.chats.gone(id); service.gifts.gone(id); }
                         Event::Late(id) => {
                             if let Some(client) = clients.get_mut(&id) && !client.welcomed && !client.refused { refuse(client, BEGIN, 1008)?; }
                         }
@@ -256,6 +257,7 @@ pub async fn serve(options: Options) -> Result<()> {
                     }
                 }
                 _ = tick.tick() => {
+                    service.gifts.expire();
                     harnesses.refresh_tools().await;
                     for result in service.models.expired() {
                         for (id, answer) in service.provider_result(result)? {

@@ -256,7 +256,7 @@ fn load(db: &Connection, hamlet: &str) -> Result<Option<Hamlet>> {
     .transpose()
 }
 
-fn save(db: &Connection, record: &Hamlet) -> Result<()> {
+pub(crate) fn save(db: &Connection, record: &Hamlet) -> Result<()> {
     db.execute(
         "INSERT INTO record_hamlet(id, document) VALUES (?1, ?2) ON \
          CONFLICT(id) DO UPDATE SET document = excluded.document",

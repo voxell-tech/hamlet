@@ -25,6 +25,7 @@ pub struct Service {
     pub(crate) overrides: Overrides,
     pub(crate) models: crate::models::Models,
     pub(crate) chats: crate::chats::Chats,
+    pub(crate) gifts: crate::gifts::Uploads,
 }
 
 impl Service {
@@ -92,6 +93,7 @@ impl Service {
             chats: crate::chats::Chats::new(
                 crate::sandbox::Sandbox::platform(),
             ),
+            gifts: crate::gifts::Uploads::default(),
         })
     }
 

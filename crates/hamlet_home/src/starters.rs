@@ -99,6 +99,16 @@ pub fn names() -> impl Iterator<Item = &'static str> {
     STARTERS.iter().map(|(name, _)| *name)
 }
 
+/// The relative paths and bytes shipped for one starter.
+pub fn files(
+    name: &str,
+) -> Option<&'static [(&'static str, &'static str)]> {
+    STARTERS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, files)| *files)
+}
+
 /// Writes the starter `name` as the folder `dir`. False when there
 /// is no such starter.
 pub fn write(name: &str, dir: &Path) -> Result<bool> {

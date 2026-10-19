@@ -100,6 +100,39 @@ are started by the server that holds the claim and stop with it.
 A store that is missing or belongs to another home or runtime is an error.
 The server never replaces it with an empty one (S25).
 
+### Gifts (H25)
+
+The server owns file uploads in memory by connection and stages their
+bytes under the claimed home's `.gifts/`. A manifest reserves its full
+size across connections for the resolved agent: at most 32 MiB, inclusive,
+and three waiting uploads per connection. Invalid parts discard the whole
+upload. Disconnects and 60 seconds without a part discard it too; startup
+removes abandoned stages. No upload metadata or file bytes go in SQLite,
+so this needs no migration (ADR 0005).
+
+House and stage paths are opened component by component without following
+links, using the same opened-home anchor as notes. Completed top-level
+trees move into the inbox with no-replace renames, retaining the reference
+server's numbered names and rolling back earlier roots if a later one
+fails. Only a complete delivery admits the chief's instruction through
+the existing conversation input path. Its receipt is immediate; the
+instruction does not owe another receipt when the model finishes.
+
+Skill gifts copy a bounded no-follow tree, including empty folders and
+ordinary permission bits, without setuid or setgid. Starters use the
+embedded `hamlet_home` assets, whose bytes match the TypeScript assets,
+independently of edits to the shared library. Successful skill gifts keep
+a `SkillGiven` decision with the resolved giver, refresh the client state,
+and cause no conversation turn. Recipient resolution, including a farewell
+after departure, belongs to `Service::agent` and is checked again before
+an uploaded gift is delivered.
+
+As in the reference server, delivery and the following conversation
+admission or skill decision are separate effects. This does not promise
+exactly-once gifts across a process crash between those effects, nor an
+all-or-nothing multi-root gift across power loss. Uploads do not resume
+after a restart. Remote workspace delivery remains outside this port.
+
 ## Harnesses, runtimes and bindings
 
 A harness is a kind of program that runs conversations: pi-durable is the

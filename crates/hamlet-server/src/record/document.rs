@@ -86,6 +86,11 @@ pub enum DecisionKind {
         agent: u64,
         model: String,
     },
+    SkillGiven {
+        to: u64,
+        skill: String,
+        from: Option<String>,
+    },
     Removed {
         agent: u64,
         name: String,

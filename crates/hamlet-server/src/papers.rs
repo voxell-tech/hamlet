@@ -21,8 +21,12 @@ impl Houses {
         })
     }
 
+    pub(crate) fn root(&self) -> &File {
+        &self.root
+    }
+
     #[cfg(unix)]
-    fn house(
+    pub(crate) fn house(
         &self,
         hamlet: &str,
         number: u64,

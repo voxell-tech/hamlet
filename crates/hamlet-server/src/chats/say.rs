@@ -2,7 +2,7 @@
 //! an answer to what waits, or words for the agent.
 
 use anyhow::Result;
-use hamlet_protocol::v0::{ReplyKind, Say, ServerMessage};
+use hamlet_protocol::v0::{Address, ReplyKind, Say, ServerMessage};
 use serde_json::{Value, json};
 
 use super::{Deferred, deeds, records};
@@ -69,7 +69,10 @@ pub(crate) fn deeds() -> Vec<String> {
 #[derive(Debug, PartialEq)]
 enum Command {
     Deed(&'static str),
-    To { agent: String, text: String },
+    To {
+        agent: String,
+        text: String,
+    },
     New,
     Retry,
     Reflect,
@@ -79,11 +82,21 @@ enum Command {
     Grants,
     Resume(Option<i64>),
     Stop(Option<String>),
-    Answer { choice: &'static str, text: String },
-    Revoke { agent: String, permission: String },
+    Answer {
+        choice: &'static str,
+        text: String,
+    },
+    Revoke {
+        agent: String,
+        permission: String,
+    },
     Folder(String),
     Mode(String),
-    Give,
+    Give {
+        agent: String,
+        skill: String,
+        from: Option<String>,
+    },
 }
 
 /// A command whose arguments need correcting, as a chief reads it.
@@ -213,7 +226,16 @@ fn read_command(
         "give" => {
             let words = words.collect::<Vec<_>>();
             match words[..] {
-                [_, _] | [_, _, "from", _] => Ok(Command::Give),
+                [agent, skill] => Ok(Command::Give {
+                    agent: agent.into(),
+                    skill: skill.into(),
+                    from: None,
+                }),
+                [agent, skill, "from", from] => Ok(Command::Give {
+                    agent: agent.into(),
+                    skill: skill.into(),
+                    from: Some(from.into()),
+                }),
                 _ => usage(),
             }
         }
@@ -329,10 +351,18 @@ pub(super) async fn say(
         Some(Command::Mode(mode)) => {
             return notice(service.set_mode(hamlet, mode)?);
         }
-        Some(Command::Give) => {
+        Some(Command::Give { agent, skill, from }) => {
+            let address = |name: &str| Address {
+                agent: name.into(),
+                hamlet: hamlet.into(),
+            };
             return Ok(Some(reply(
                 id,
-                Err(Refusal::Unsupported("gifts")),
+                service.gift_skill(
+                    &address(agent),
+                    skill,
+                    from.as_deref().map(address).as_ref(),
+                )?,
             )));
         }
         Some(Command::Stop(None)) => {
@@ -530,6 +560,19 @@ async fn line(
     agent: &AgentRef,
     text: &str,
 ) -> Result<()> {
+    let binding =
+        admit_line(service, harnesses, id, agent, text).await?;
+    owe(service, client, id, binding, &format!("chief:{id}"))
+}
+
+/// Admits a chief's instruction without owing a receipt.
+pub(crate) async fn admit_line(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    id: &str,
+    agent: &AgentRef,
+    text: &str,
+) -> Result<BindingId> {
     let binding = super::current(service, harnesses, agent).await?;
     let chief = service.chief.clone();
     let at = super::now();
@@ -542,45 +585,25 @@ async fn line(
         text,
         at,
     )?;
-    let request = format!("chief:{id}");
     let mark = super::mark(
         "hamlet.chief",
         json!({"chief": chief, "text": text, "task": task, "at": at}),
     );
-    submit(
-        service, harnesses, client, id, binding, &request, text,
-        &mark,
-    )
-    .await
-}
-
-/// Submits an input and owes `id` its reply once the input ends.
-#[allow(clippy::too_many_arguments)]
-pub(super) async fn submit(
-    service: &mut Service,
-    harnesses: &mut Harnesses,
-    client: u64,
-    id: &str,
-    binding: BindingId,
-    request: &str,
-    content: &str,
-    mark: &crate::harness::link::Mark,
-) -> Result<()> {
     harnesses
         .submit(
             service.home.store(),
             binding,
             &Input {
-                request,
-                content,
+                request: &format!("chief:{id}"),
+                content: text,
                 steer: false,
-                mark: Some(mark),
+                mark: Some(&mark),
                 write: false,
                 boundary: false,
             },
         )
         .await?;
-    owe(service, client, id, binding, request)
+    Ok(binding)
 }
 
 /// Owes `id` its reply once the input `request` of `binding` ends.

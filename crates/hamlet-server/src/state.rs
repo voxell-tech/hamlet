@@ -151,7 +151,7 @@ pub(crate) fn state(
         waits.push(crate::oversight::view(&wait, record, current)?);
     }
     let mut view = json!({"epoch":epoch,"revision":revision,"chief":service.chief,"sandbox":service.chats.sandbox.name(), "houses":service.home.layout().root().join("houses"),
-        "hamlets":hamlets,"agents":agents,"grants":grants,"waits":waits,"providers":service.provider_views()?,"library":[],"closed":[],"starters":[],"deeds":crate::chats::deed_names(),
+        "hamlets":hamlets,"agents":agents,"grants":grants,"waits":waits,"providers":service.provider_views()?,"library":[],"closed":[],"starters":crate::gifts::starters(),"deeds":crate::chats::deed_names(),
         "settings":{"model":settings["model"],"reflectEvery":settings["reflectEvery"],"allowNet":settings["allowNet"],"unset":settings["saved"] != true,"link":settings["link"],
             "endpoints":settings["endpoints"].as_array().into_iter().flatten().map(|e|json!({"name":e["name"],"baseUrl":e["baseUrl"],"key":service.credentials.configured(e["name"].as_str().unwrap_or_default())})).collect::<Vec<_>>(),
             "workspace":{"url":service.credentials.workspace_url(),"running":null}}});

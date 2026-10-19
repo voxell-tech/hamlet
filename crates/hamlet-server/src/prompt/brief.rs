@@ -227,6 +227,9 @@ fn standing(record: &Hamlet, terms: &Terms) -> String {
         .iter()
         .rev()
         .filter(|d| d.at >= since)
+        .filter(|d| {
+            !matches!(d.kind, DecisionKind::SkillGiven { .. })
+        })
         .take(6)
         .map(|d| {
             let reason = cut(&d.reason, 160, "");
@@ -305,6 +308,7 @@ fn words(record: &Hamlet, d: &Decision) -> String {
             if model.is_empty() { OWN_MODEL } else { model },
             named(*agent)
         ),
+        DecisionKind::SkillGiven { .. } => String::new(),
         DecisionKind::MovedIn { name, hamlet, .. } => {
             format!("{by} moved `{name}` from `{hamlet}`")
         }

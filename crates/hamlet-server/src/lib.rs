@@ -9,6 +9,7 @@ mod credentials;
 mod documents;
 mod fault;
 mod gate;
+mod gifts;
 mod hand;
 pub mod harness;
 mod home;

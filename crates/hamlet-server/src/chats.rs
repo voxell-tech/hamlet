@@ -25,7 +25,7 @@ pub(crate) use self::activity::words;
 pub(crate) use self::calls::{Ran, ran, specs};
 use self::fold::Fold;
 use self::records::Place;
-pub(crate) use self::say::deeds as deed_names;
+pub(crate) use self::say::{admit_line, deeds as deed_names};
 use crate::harness::link::Mark;
 use crate::harness::{BindingId, Harnesses, Input, Notice};
 use crate::protocol::{Refusal, reply};
@@ -201,6 +201,10 @@ pub(crate) async fn converse(
         }
         ClientMessage::Read(Read::History { agent, id }) => {
             Some(watch::history(service, harnesses, agent, id).await?)
+        }
+        ClientMessage::Give(_) | ClientMessage::GivePart(_) => {
+            crate::gifts::request(service, harnesses, client, message)
+                .await?
         }
         _ => return Ok(None),
     };
