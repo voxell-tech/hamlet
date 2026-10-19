@@ -12,6 +12,9 @@ use hamlet_sdk::plugin::Declared;
 #[ignore = "builds a library"]
 fn the_sample_builds_and_loads_through_the_gate() {
     let built = Command::new(env!("CARGO"))
+        // This test is built from the same few crates as the library,
+        // so the features of the engine match. The app's own build is
+        // matched with `--workspace` instead.
         .args(["build", "-p", "native_spark"])
         .status()
         .expect("cargo runs");

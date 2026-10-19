@@ -1,0 +1,20 @@
+[package]
+name = "{{name}}"
+version = "0.1.0"
+edition.workspace = true
+description = "{{title}}, a native plugin for Hamlet"
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+# Every line is the workspace's, so that the library is built with the
+# same crates, features and settings as the Hamlet that loads it.
+[dependencies]
+hamlet_native = { workspace = true, default-features = false }
+hamlet_sdk.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true
