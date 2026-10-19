@@ -393,7 +393,7 @@ for good is opened again from a tab bar's plus.
 
 | Layer | What it adds |
 |---|---|
-| `plugin_agents` | The resources the core starts from, made of `Launch`, a resource the binary inserts and the plugin takes out: the runtime, the home, the sandbox, the model (`Model::new`, which answers from a recorded session where there is one) and the settings. Then `hamlet_core`'s modules `core` (the models and the library's skills), `agents` (the hamlets, agents and roads as entities), `catalogue`, `session` and `oversight` (what waits for a chief and the chief's answers, the gate on every tool call), and the read models of `hamlet_agents_api` over them (`convo`, `agents`, `papers`, `roll`). The gate is here, not in `hamlets`, so that no build runs an agent's tools without it |
+| `plugin_agents` | The resources the core starts from, made of `Launch`, a resource the binary inserts and the plugin takes out: the runtime, the home, the sandbox, the model (`Model::new`, which answers from a recorded session where there is one) and the settings. Then `hamlet_core::runtime`, the core's modules `core` (the models and the library's skills), `agents` (the hamlets, agents and roads as entities), `catalogue` and `session`, then `oversight` (what waits for a chief and the chief's answers, the gate on every tool call), and the read models of `hamlet_agents_api` over them (`convo`, `agents`, `papers`, `roll`). The gate is here, not in `hamlets`, so that no build runs an agent's tools without it |
 | `plugin_hamlets` | `waits` and `petition` of `hamlet_agents_api`: the count of what waits for the chief, and the petitions of plugins put in the chief's queue. Needs `agents` |
 | `plugin_realm` | `world`, `hamlet_realm`'s modules in order: the scene (settings, palette, play, sound, debug, sky, stage, keeper, stock), the generator, what the chief does in it (pick, needs, bubble, hand, orders, chief, library, moving, works, lantern), and the core's entities drawn (`hamlet`, `survey`). Needs `hamlets` |
 
@@ -402,9 +402,11 @@ order, and what they start from. An engine crate has no `Plugin` of its own
 and is a library: its types, systems and functions, and for each module a
 `plugin` function that adds that module's own systems, observers and
 resources beside them. An app that wants part of an engine adds the
-modules it needs: the core's tests add `core`, `agents`, `catalogue` and
-`session` with the resources they start from, the style test the realm's
-scene, and `far_lands` and `chief_sheet` add `plugin_realm::world`.
+modules it needs: the style test the realm's scene, and `far_lands` and
+`chief_sheet` add `plugin_realm::world`. One list is the engine's own:
+`hamlet_core::runtime` adds `core`, `agents`, `catalogue` and `session` in
+their order, so that the agents layer and the core's tests, which add it with
+the resources it starts from, run the same core.
 
 The wiring stays per module, not in the layer's crate, for three reasons.
 Most of what a module adds is private to it (a channel and the system that

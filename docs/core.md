@@ -16,10 +16,11 @@ them. This is about `hamlet_core`, the runtime.
 | `terminal` | The terminal channel |
 
 A module uses only those above it, and each has a `plugin` that adds its
-own systems. The agents layer, `plugin_agents`, inserts the resources
-`core` reads and adds `core`, `agents`, `catalogue`, `session` and
-`oversight`, so an app that runs the agents' tools always has the gate
-that holds a call for the chief ([`sdk.md`](sdk.md)).
+own systems. `runtime` (in `lib.rs`) adds `core`, `agents`, `catalogue`
+and `session` in their order. The agents layer, `plugin_agents`, inserts
+the resources `core` reads and adds `runtime` and `oversight`, so an app
+that runs the agents' tools always has the gate that holds a call for the
+chief ([`sdk.md`](sdk.md)); the tests of this crate add `runtime` as well.
 
 ## A typed line
 

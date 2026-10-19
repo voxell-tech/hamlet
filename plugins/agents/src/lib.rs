@@ -6,9 +6,9 @@ use bevy::app::App;
 use bevy::ecs::resource::Resource;
 use hamlet_agents_api::{agents, convo, papers, roll};
 use hamlet_core::core::{
-    self, HomeDir, Model, Sandboxing, Settings, Tokio,
+    HomeDir, Model, Sandboxing, Settings, Tokio,
 };
-use hamlet_core::{catalogue, oversight, session};
+use hamlet_core::oversight;
 use hamlet_home::Home;
 use hamlet_model::config::Config;
 use hamlet_sandbox::Sandbox;
@@ -39,10 +39,7 @@ pub fn plugin(app: &mut App) {
             error: None,
         })
         .add_plugins((
-            core::plugin,
-            hamlet_core::agents::plugin,
-            catalogue::plugin,
-            session::plugin,
+            hamlet_core::runtime,
             // With the sessions, so that no tool runs ungated.
             oversight::plugin,
             convo::plugin,

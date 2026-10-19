@@ -18,11 +18,8 @@ use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 use tokio::runtime::Runtime;
 
-use crate::core::{
-    self, HomeDir, Model, Sandboxing, Settings, Tokio,
-};
-use crate::session::{self, SessionKey, Status, UserMessage};
-use crate::{agents, catalogue};
+use crate::core::{HomeDir, Model, Sandboxing, Settings, Tokio};
+use crate::session::{SessionKey, Status, UserMessage};
 
 /// The chief every test speaks as.
 pub(crate) const ALICE: &str = "alice";
@@ -119,12 +116,7 @@ pub(crate) fn app(
             config,
             error: None,
         })
-        .add_plugins((
-            core::plugin,
-            agents::plugin,
-            catalogue::plugin,
-            session::plugin,
-        ));
+        .add_plugins(crate::runtime);
     app
 }
 
