@@ -12,8 +12,9 @@ use crate::abi::{
 };
 use crate::gate::{self, Mismatch};
 
-/// The function a library exports to be called with the app.
-pub type EntryFn = fn(&mut App);
+/// The function a library exports to be called with the app. It
+/// gives false when the entry panicked.
+pub type EntryFn = fn(&mut App) -> bool;
 
 /// Why a library was not opened.
 #[derive(Debug)]

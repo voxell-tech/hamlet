@@ -198,9 +198,14 @@ macro_rules! export {
             $crate::Abi::ours()
         }
 
+        // The library's own runtime catches its panic: to the host's
+        // it is a foreign one, which aborts the process.
         #[unsafe(no_mangle)]
-        pub fn hamlet_native_entry(app: &mut $crate::App) {
-            $entry(app)
+        pub fn hamlet_native_entry(app: &mut $crate::App) -> bool {
+            ::std::panic::catch_unwind(
+                ::std::panic::AssertUnwindSafe(|| $entry(app)),
+            )
+            .is_ok()
         }
     };
 }

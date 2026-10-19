@@ -95,7 +95,7 @@ symbols (the `hamlet_native::export!` macro writes them):
 |---|---|---|
 | `hamlet_native_abi_version` | `extern "C" fn() -> u32` | The version of this contract. Read first; a library of another one is turned down before anything else of it is read |
 | `hamlet_native_abi` | `extern "C" fn() -> Abi` | What the library was built with, below |
-| `hamlet_native_entry` | `fn(&mut App)` | Called once, with the app |
+| `hamlet_native_entry` | `fn(&mut App) -> bool` | Called once, with the app; false when the entry panicked |
 
 `Abi` is `repr(C)` and holds, in this order:
 
@@ -262,8 +262,9 @@ fn declare(entry: &mut hamlet_sdk::plugin::Entry) {
   as everything a plugin adds does, so switching the plugin off despawns
   them and switching it on runs the function again. Anything the entry adds
   to the app directly is not tracked and stays until restart.
-- A panic in the entry is caught; the plugin is marked failed with the
-  reason. A crash is not (see below).
+- A panic in the entry is caught inside the library (`export!` does it),
+  and the plugin is marked failed. A panic anywhere else in the library
+  is foreign to Hamlet's runtime and aborts the process (see below).
 - `native/spark/` is the sample: a resource that counts frames and a panel
   that shows the count.
 
@@ -290,10 +291,10 @@ What the guard covers, from the moment the library is opened:
 
 - its initializers and its entry;
 - its systems, observers and anything else it added, for the first
-  `clean_frames` frames of the app after the entry returned (about two
-  seconds headless, about one in the window);
-- a crash of any kind: a panic in a system ends the process as an abort or
-  a signal does, and none of them lets the marker go.
+  `clean_frames` frames of the app after the entry returned, a panicking
+  entry's too (about two seconds headless, about one in the window);
+- a crash of any kind: a panic in one of its systems aborts the process, as
+  a signal ends it, and none of them lets the marker go.
 
 An exit of the app by itself (the window closed, Ctrl-C headless) before
 the clean frames trusts the libraries still waiting, as nothing stopped it.

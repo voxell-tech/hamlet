@@ -226,25 +226,35 @@ pub fn start(world: &mut World, plugin: Entity) {
         not_loaded(world, plugin, &why);
         return;
     }
-    let opened = library::open(&copy)
-        .map_err(|refusal| refusal.to_string())
-        .and_then(|entry| with_app(world, entry));
+    let entry = match library::open(&copy) {
+        Ok(entry) => entry,
+        Err(refusal) => {
+            marker::settled(&home, &info.id);
+            world.entity_mut(plugin).insert(Status::Failed);
+            not_loaded(
+                world,
+                plugin,
+                &format!("Not loaded: {refusal}"),
+            );
+            return;
+        }
+    };
+    let ran = with_app(world, entry);
     let declared = world.remove_resource::<Declared>();
-    match opened {
-        Ok(()) => {
-            // The marker stays while the library's systems run.
-            let frames = world
-                .get_resource::<Guard>()
-                .cloned()
-                .unwrap_or_default()
-                .clean_frames;
-            if frames == 0 {
-                marker::settled(&home, &info.id);
-            } else {
-                world
-                    .resource_mut::<Settling>()
-                    .add(&info.id, frames);
-            }
+    // The marker stays while the library's systems run, those of an
+    // entry that panicked too.
+    let frames = world
+        .get_resource::<Guard>()
+        .cloned()
+        .unwrap_or_default()
+        .clean_frames;
+    if frames == 0 {
+        marker::settled(&home, &info.id);
+    } else {
+        world.resource_mut::<Settling>().add(&info.id, frames);
+    }
+    match ran {
+        Ok(true) => {
             let declared =
                 declared.map_or(nothing as fn(&mut Entry), |d| d.0);
             world.entity_mut(plugin).insert(EntryPoint(declared));
@@ -252,10 +262,13 @@ pub fn start(world: &mut World, plugin: Entity) {
             world.trigger(Enable(info.id));
             world.flush();
         }
-        Err(why) => {
-            marker::settled(&home, &info.id);
+        Ok(false) | Err(_) => {
             world.entity_mut(plugin).insert(Status::Failed);
-            not_loaded(world, plugin, &format!("Not loaded: {why}"));
+            not_loaded(
+                world,
+                plugin,
+                "Not loaded: its entry panicked",
+            );
         }
     }
 }
@@ -265,7 +278,7 @@ fn nothing(_: &mut Entry) {}
 /// Runs `run` with an app that holds this world, so that code written
 /// for an app can add its systems, observers and resources to a world
 /// that is running. A panic in it is caught and the world is put
-/// back.
+/// back; one in a library is caught by the library.
 pub fn with_app<R>(
     world: &mut World,
     run: impl FnOnce(&mut App) -> R,
