@@ -190,7 +190,17 @@ mod tests {
         let info = Info::ours();
         assert_eq!(info.abi, ABI);
         assert_eq!(info.hamlet, env!("CARGO_PKG_VERSION"));
-        assert!(info.rustc.contains("rustc"));
+        // The compiler pinned in rust-toolchain.toml.
+        let pinned = include_str!("../../../rust-toolchain.toml")
+            .lines()
+            .find_map(|line| line.strip_prefix("channel = "))
+            .unwrap()
+            .trim_matches('"');
+        assert!(
+            info.rustc.contains(&format!("release: {pinned};")),
+            "{}",
+            info.rustc
+        );
         assert!(!info.profile.is_empty());
         assert_ne!(info.types, 0);
     }

@@ -6,7 +6,7 @@
 #
 # Build the way the Hamlet that loads it was built: a debug Hamlet
 # loads a debug plugin, a release Hamlet a release one. The compiler
-# must be the same too: build with the toolchain of the checkout.
+# is the one the checkout's rust-toolchain.toml pins.
 set -e
 dest=
 profile=debug
