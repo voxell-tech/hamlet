@@ -101,6 +101,14 @@ pub struct Limits {
     pub file_bytes: usize,
     /// The bytes of the path of one file.
     pub file_path_bytes: usize,
+    /// The bytes of the title a plugin gives the dialog a file is
+    /// picked in. A longer one is cut.
+    pub pick_title_bytes: usize,
+    /// The dialogs one plugin may open in a minute.
+    pub picks_per_minute: u32,
+    /// How long a plugin whose dialog the chief closed with nothing
+    /// waits before it may open another, in milliseconds.
+    pub pick_rest_ms: u64,
     /// The bytes of all the tables one plugin keeps in its database.
     pub db_bytes: u64,
     /// The tables one plugin may keep in its database.

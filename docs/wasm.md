@@ -304,14 +304,19 @@ it. `hamlet_guest::files` has the four calls.
 
 A file from outside comes in only as the chief picks it. The `pick-file(id,
 title)` intent, which needs `fs.pick`, opens the system's dialog titled with the
-plugin's name and the title (`hamlet_wasm/src/pick.rs`). The file the chief picks
-is copied to `picked/<name>` in the plugin's folder, the name made a path of the
-folder (each other character `_`, no dot first, cut from its start to fit
-`file_path_bytes`), within `file_bytes` and the folder's other caps, and the
-answer reaches a later `step` as `picked(id, outcome)`: the path in the folder,
-or why there is none (nothing was chosen, `fs.pick` is not granted or yet to be
-decided, a dialog is already open, there is no dialog in a headless app, or a cap
-was passed). One dialog is open at a time. The dialog is
+plugin's name and the title, made one plain line and cut to `pick_title_bytes`
+(`hamlet_wasm/src/pick.rs`). The file the chief picks is copied to
+`picked/<name>` in the plugin's folder, the name made a path of the folder (each
+other character `_`, no dot first, cut from its start to fit `file_path_bytes`)
+with `-2`, `-3` and on before its kind where an earlier pick has that name,
+within `file_bytes` (read no further than that) and the folder's other caps. The
+copy runs on the app's runtime, off the frame, and the answer reaches a later
+`step` as `picked(id, outcome)` once it is done: the path in the folder, or why
+there is none (nothing was chosen, `fs.pick` is not granted or yet to be
+decided, a dialog is already open, there is no dialog in a headless app, the
+plugin opened `picks_per_minute` dialogs in the last minute, the chief closed its
+last dialog with nothing less than `pick_rest_ms` ago, or a cap was passed). One
+dialog is open at a time. The dialog is
 `hamlet_desktop::file::FileDialog`, a resource holding a plain function that the
 window puts in (`file::system`, the same dialog crate as the folder dialog);
 the harness and the tests put in `file::unseen`, which opens nothing, and choose

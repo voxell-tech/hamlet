@@ -130,7 +130,7 @@ pub fn plugin(app: &mut App) {
                 .run_if(overlay::any),
             pick::take
                 .in_set(PluginSet::Collect)
-                .run_if(pick::is_open),
+                .run_if(pick::waiting),
             (
                 pick::ask.run_if(on_message::<run::Done>),
                 pick::open.run_if(pick::asked),
