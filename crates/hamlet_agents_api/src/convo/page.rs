@@ -3,11 +3,11 @@
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, label};
 use bevy_fynix::{ViewExt, keyed, resource};
+use hamlet_sdk::looks::{Fills, filling};
+use hamlet_sdk::platform::DisplayText;
+use hamlet_sdk::{AnyView, View};
 
 use super::Me;
-use crate::looks::{Fills, filling};
-use crate::platform::DisplayText;
-use crate::{AnyView, View};
 
 /// A page of `what` about the agent the chat is with, under whose
 /// it is.

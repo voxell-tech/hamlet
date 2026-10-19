@@ -20,6 +20,9 @@ use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Commands, Local, Res};
 use bevy::ecs::world::World;
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
+use hamlet_agents_api::convo::of_agent;
+use hamlet_agents_api::papers::keep_papers;
+use hamlet_agents_api::{roll, words};
 use hamlet_chat::me::{Me, talk_to, talk_to_mayor};
 use hamlet_chat::{chat, deed, links, markdown, me};
 use hamlet_core::agents::Left;
@@ -27,19 +30,18 @@ use hamlet_limits::{models, rules};
 use hamlet_realm::pick::{Selected, Thing};
 use hamlet_realm::sound::{Cue, Sound, write};
 use hamlet_sdk::command::{Subject, kind};
-use hamlet_sdk::convo::of_agent;
 use hamlet_sdk::dock::{lit_panel, show_tab};
 use hamlet_sdk::feel::Lit;
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::inspector::InspectorSections;
 use hamlet_sdk::looks::filling;
-use hamlet_sdk::papers::{Papers, keep_papers};
+use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{
     AppPluginExt, Entry, HamletPlugin, Manifest,
 };
 use hamlet_sdk::{
-    AnyView, Cx, View, dock, feel, icons, looks, platform, roll,
-    tabs, theme, with_cx,
+    AnyView, Cx, View, dock, feel, icons, looks, platform, tabs,
+    theme, with_cx,
 };
 
 use self::agent::show_prompt;

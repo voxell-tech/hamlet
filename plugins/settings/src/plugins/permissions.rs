@@ -214,9 +214,9 @@ pub(super) fn view() -> impl View {
             details.0.iter().find(|d| d.id == id).cloned()
         })
     })
-    .when(crate::roll::either(
-        crate::roll::moved::<Open>(),
-        crate::roll::moved::<Details>(),
+    .when(crate::checks::either(
+        crate::checks::moved::<Open>(),
+        crate::checks::moved::<Details>(),
     ));
     column((
         back("PLUGINS", |world| {

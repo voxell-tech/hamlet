@@ -1,17 +1,16 @@
-//! What a plugin of the command center is built with. A plugin
-//! crate depends on this and on the engine crates, never on
-//! `hamlet_ui`.
+//! What a plugin of the command center is built with. It does not
+//! know the agents' runtime: its read models of the agents are plain
+//! data that `hamlet_agents_api` keeps. A plugin crate never depends
+//! on `hamlet_ui`.
 
 pub mod agents;
-pub mod asking;
 pub mod bar;
 pub mod capability;
 pub mod cards;
-pub mod change;
+pub mod checks;
 pub mod command;
 pub mod confirm;
 pub mod context;
-pub mod convo;
 pub mod dock;
 pub mod events;
 pub mod feel;
@@ -25,13 +24,10 @@ pub mod papers;
 pub mod platform;
 pub mod plugin;
 pub mod reload;
-pub mod roll;
 pub mod settings;
 pub mod tabs;
 pub mod theme;
 pub mod tree;
-pub mod waits;
-pub mod words;
 
 use bevy::app::{App, Plugin};
 use bevy_fynix::Bevy;
@@ -44,21 +40,18 @@ pub struct SdkPlugin;
 impl Plugin for SdkPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            agents::plugin,
             capability::plugin,
             command::plugin,
             context::plugin,
-            convo::plugin,
             dock::plugin,
             inspector::plugin,
             keys::plugin,
             menu::plugin,
-            papers::plugin,
             plugin::plugin,
             settings::plugin,
             tree::plugin,
-            waits::plugin,
-            (bar::plugin, roll::plugin, tabs::plugin),
+            bar::plugin,
+            tabs::plugin,
         ));
     }
 }

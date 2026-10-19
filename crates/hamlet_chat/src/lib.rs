@@ -12,9 +12,10 @@ pub mod select;
 mod tuning;
 
 use bevy::app::App;
+pub use hamlet_agents_api::roll;
 pub use hamlet_sdk::{
-    AnyView, Cx, View, dock, feel, icons, looks, platform, roll,
-    theme, with_cx,
+    AnyView, Cx, View, dock, feel, icons, looks, platform, theme,
+    with_cx,
 };
 
 /// The chat and what it is made of. Add it after the SDK's plugin.

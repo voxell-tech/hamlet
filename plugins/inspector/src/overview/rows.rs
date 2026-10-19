@@ -17,7 +17,6 @@ use hamlet_core::agents::{
 use hamlet_core::oversight::Waiting;
 use hamlet_realm::pick::{Asks, Thing};
 use hamlet_rules::hamlet::HOME;
-use hamlet_sdk::words::{PURPOSE_SHOWN, now, short, standing};
 
 use super::{Naming, Search};
 use crate::View;
@@ -25,6 +24,7 @@ use crate::icons::Glyph;
 use crate::looks::{note, plate, stated};
 use crate::platform::DisplayText;
 use crate::roll::Roll;
+use crate::words::{PURPOSE_SHOWN, now, short, standing};
 
 /// A check that fires when the agents or the hamlets changed,
 /// something began or ended its wait, or the words typed did.

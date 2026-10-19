@@ -6,15 +6,21 @@ mod send;
 
 use bevy::app::App;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
-use hamlet_core::session::SessionKey;
+use bevy::ecs::system::{Commands, Res};
+use bevy::ecs::world::World;
+use hamlet_core::session::{Reply, SessionKey, Transcript};
 use hamlet_rules::hamlet::HOME;
+use hamlet_sdk::command::Notice;
 
 pub use self::page::of_agent;
 pub use self::send::{address, send_as_chief};
 
+/// Inserts [`ChiefName`] and puts each [`Notice`] in the open chat.
 pub fn plugin(app: &mut App) {
-    app.insert_resource(ChiefName::from_env());
+    app.insert_resource(ChiefName::from_env())
+        .add_observer(notice);
 }
 
 /// The name of this window's chief: `HAMLET_USER`, then `USER`.
@@ -73,3 +79,19 @@ impl Me {
 /// another agent or its house.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct AgentSelected(pub bool);
+
+fn notice(
+    notice: On<Notice>,
+    me: Option<Res<Me>>,
+    mut commands: Commands,
+) {
+    let Some(me) = me else {
+        return;
+    };
+    let (session, text) = (me.session, notice.0.clone());
+    commands.queue(move |world: &mut World| {
+        if let Some(mut said) = world.get_mut::<Transcript>(session) {
+            said.apply(&Reply::Notice(text));
+        }
+    });
+}

@@ -28,6 +28,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, overlay,
 };
+use hamlet_agents_api::words::{PURPOSE_SHOWN, now, short, standing};
 use hamlet_core::agents::{
     Account, Activity, Busy, Citizen, Left, LivesIn, Mayor,
     MergedInto, Purpose, Roster, Treasury, Works,
@@ -37,7 +38,6 @@ use hamlet_realm::chief::{Beside, Look};
 use hamlet_realm::hand::Proud;
 use hamlet_realm::pick::{Following, Hovered, Thing};
 use hamlet_rules::work::Mode;
-use hamlet_sdk::words::{PURPOSE_SHOWN, now, short, standing};
 
 use crate::feel::FeelSettings;
 use crate::platform::{DisplayText, show};

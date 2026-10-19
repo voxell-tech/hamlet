@@ -95,8 +95,21 @@ mod tests {
 
     #[test]
     fn the_panels_run_with_no_window() {
+        use hamlet_agents_api::{agents, convo, papers, roll, waits};
+
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, SdkPlugin, Panels));
+        app.add_plugins((
+            MinimalPlugins,
+            SdkPlugin,
+            (
+                convo::plugin,
+                agents::plugin,
+                papers::plugin,
+                roll::plugin,
+                waits::plugin,
+            ),
+            Panels,
+        ));
         app.update();
         app.update();
     }

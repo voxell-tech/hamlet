@@ -16,6 +16,7 @@ use hamlet_core::core::{
 use hamlet_model::catalogue::{Model, Priced};
 use hamlet_model::chatgpt;
 use hamlet_model::config::Config;
+use hamlet_sdk::checks::{either, moved};
 use hamlet_sdk::settings::AddEndpoint;
 
 use super::choice::{chooser, home_default};
@@ -25,7 +26,6 @@ use crate::looks::{
     CONTROL, Fills, action, bad_action, bare, good_action, note,
     tick, well,
 };
-use crate::roll::{either, moved};
 use crate::{AnyView, View};
 
 /// Changes one model of the catalogue and writes it.

@@ -20,13 +20,13 @@ use hamlet_core::core::RefreshLists;
 use hamlet_core::session::{self, Seat};
 use hamlet_realm::pick::{Thing, ask_about, select};
 use hamlet_sdk::bar::Bar;
+use hamlet_sdk::checks::{either, moved};
 use hamlet_sdk::command::kind;
 use hamlet_sdk::inspector::{
     InspectorSection, InspectorSections, Line,
 };
 use hamlet_sdk::page;
 use hamlet_sdk::papers::Papers;
-use hamlet_sdk::words::{PURPOSE_SHOWN, now, short};
 
 use crate::feel::Mood;
 use crate::icons::Glyph;
@@ -36,7 +36,8 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::platform::{DisplayText, Wraps};
-use crate::roll::{either, moved, rolled};
+use crate::roll::rolled;
+use crate::words::{PURPOSE_SHOWN, now, short};
 use crate::{AnyView, Cx, View, chat, deed, markdown, tabs, with_cx};
 
 /// The part of the selected agent the panel shows.

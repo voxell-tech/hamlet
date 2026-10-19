@@ -27,7 +27,9 @@ pub use self::install::{
     AskToInstall, AskToRemove, Installed, Removed, Uninstalled,
 };
 pub use self::name::{Capability, NEVER, Refusal};
-pub use self::petition::{AskForMore, Replied};
+pub use self::petition::{
+    Answer, Answered, AskForMore, Petition, Replied,
+};
 pub use self::record::{Installation, Record, Standing, standing};
 pub use self::store::{Store, open_store};
 pub use self::subject::Subject;

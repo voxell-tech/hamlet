@@ -3,8 +3,7 @@
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use hamlet_core::tools::Change;
-
-use crate::AnyView;
+use hamlet_sdk::AnyView;
 
 /// Draws the edit at entry `id` of the conversation `session`. The
 /// window sets it, so that a plugin shows an edit as the chat does.

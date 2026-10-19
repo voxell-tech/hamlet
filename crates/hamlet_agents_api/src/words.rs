@@ -3,8 +3,7 @@
 
 use bevy_fynix::tokens::Tone;
 use hamlet_core::agents::{Activity, Doing, Paper};
-
-use crate::icons::Glyph;
+use hamlet_sdk::icons::Glyph;
 
 /// The most of an agent's purpose a card shows, in letters.
 pub const PURPOSE_SHOWN: usize = 96;

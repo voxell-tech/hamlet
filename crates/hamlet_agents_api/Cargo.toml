@@ -1,0 +1,17 @@
+[package]
+name = "hamlet_agents_api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What a plugin reads and does about the agents and the hamlets: the read models kept from the core, the chat the window shows and the petitions put to the chief"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_base.workspace = true
+hamlet_core.workspace = true
+hamlet_rules.workspace = true
+hamlet_sdk.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true

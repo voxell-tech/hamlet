@@ -74,7 +74,9 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Unfolded>()
         .init_resource::<Lines>()
         .init_resource::<Reach>()
-        .insert_resource(hamlet_sdk::change::DrawChange(change_view))
+        .insert_resource(hamlet_agents_api::change::DrawChange(
+            change_view,
+        ))
         .add_observer(keep_typed)
         .add_observer(decreed)
         .add_observer(told)
@@ -412,7 +414,7 @@ pub fn message_bar() -> impl View {
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
     column((
-        hamlet_sdk::asking::in_chat(),
+        hamlet_agents_api::asking::in_chat(),
         reply::preview(),
         row((field,)).gap(8.0).align(AlignItems::Center),
     ))

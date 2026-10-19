@@ -9,6 +9,7 @@ description = "The agents layer: the model loop, the tools and the sessions, the
 workspace = true
 
 [dependencies]
+hamlet_agents_api.workspace = true
 hamlet_core.workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true

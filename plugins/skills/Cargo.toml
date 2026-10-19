@@ -9,6 +9,7 @@ description = "The Skills panel: an agent's own skills over the library every ag
 workspace = true
 
 [dependencies]
+hamlet_agents_api.workspace = true
 hamlet_core.workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true

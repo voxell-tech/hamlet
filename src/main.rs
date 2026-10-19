@@ -165,11 +165,10 @@ fn main() -> Result<()> {
         Mode::Repl => {
             app.add_plugins((hamlet_sdk::plugin::plugin, Base));
             // The window's SDK is not there to keep what the
-            // plugins read and draw.
+            // plugins draw and are granted.
             #[cfg(any(feature = "wasm", feature = "native"))]
             app.add_plugins((
                 hamlet_sdk::tree::plugin,
-                hamlet_sdk::agents::plugin,
                 hamlet_sdk::capability::plugin,
             ));
             app.add_plugins((tick, TerminalPlugin)).run();
@@ -180,7 +179,6 @@ fn main() -> Result<()> {
             #[cfg(any(feature = "wasm", feature = "native"))]
             app.add_plugins((
                 hamlet_sdk::tree::plugin,
-                hamlet_sdk::agents::plugin,
                 hamlet_sdk::capability::plugin,
             ));
             // The plugins' log lines have nowhere to go without it.

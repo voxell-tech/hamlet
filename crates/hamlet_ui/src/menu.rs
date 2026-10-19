@@ -24,6 +24,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, style};
 use hamlet_realm::pick::Taken;
+use hamlet_sdk::checks::{either, moved};
 use hamlet_sdk::command::RunCommand;
 pub use hamlet_sdk::menu::Menu;
 use hamlet_sdk::menu::{Line, Menus};
@@ -32,7 +33,6 @@ use crate::feel::FootLight;
 use crate::icons::glyph;
 use crate::looks::{ICON, hairline};
 use crate::platform::DisplayText;
-use crate::roll::{either, moved};
 use crate::theme::HamletTheme;
 use crate::{AnyView, Cx, View, with_cx};
 

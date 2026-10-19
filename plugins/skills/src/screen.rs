@@ -2,9 +2,9 @@
 
 use bevy_fynix::ViewExt;
 use bevy_fynix::views::{FrameProps, column, scroll};
+use hamlet_agents_api::convo::of_agent;
 use hamlet_sdk::AnyView;
 use hamlet_sdk::cards::heading;
-use hamlet_sdk::convo::of_agent;
 use hamlet_sdk::dock::panel;
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::looks::Fills;

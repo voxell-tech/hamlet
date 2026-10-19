@@ -15,6 +15,7 @@ toml.workspace = true
 # What drives a plugin through the host, behind `wasm` as in the binary.
 bevy = { workspace = true, optional = true }
 bevy_fynix = { workspace = true, optional = true }
+hamlet_agents_api = { workspace = true, optional = true }
 hamlet_assets = { workspace = true, optional = true }
 hamlet_base = { workspace = true, optional = true }
 hamlet_core = { workspace = true, optional = true }
@@ -30,6 +31,7 @@ plugin_inspector = { workspace = true, optional = true }
 wasm = [
     "dep:bevy",
     "dep:bevy_fynix",
+    "dep:hamlet_agents_api",
     "dep:hamlet_assets",
     "dep:hamlet_base",
     "dep:hamlet_core",

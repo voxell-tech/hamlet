@@ -18,6 +18,9 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
+use hamlet_agents_api::asking;
+use hamlet_agents_api::change::DrawChange;
+use hamlet_agents_api::convo::ChiefName;
 use hamlet_core::oversight::danger::Danger;
 use hamlet_core::oversight::{
     Answer, Asks, Kind, Need, TagAnswered, TagOpened, Veto, Waiting,
@@ -25,8 +28,6 @@ use hamlet_core::oversight::{
 use hamlet_core::session::{Entry, Transcript};
 use hamlet_core::tools::Change;
 use hamlet_rules::chief::rulings::Choice;
-use hamlet_sdk::change::DrawChange;
-use hamlet_sdk::convo::ChiefName;
 use hamlet_sdk::dock::{lit_panel, show_tab};
 use hamlet_sdk::feel::{Lit, Mood};
 use hamlet_sdk::icons::Glyph;
@@ -35,7 +36,7 @@ use hamlet_sdk::looks::{
 };
 use hamlet_sdk::platform::{DisplayText, MonoText, Wraps};
 use hamlet_sdk::plugin::{AppPluginExt, HamletPlugin, Manifest};
-use hamlet_sdk::{AnyView, Cx, View, asking};
+use hamlet_sdk::{AnyView, Cx, View};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
                      questions and faults come here, oldest first.";

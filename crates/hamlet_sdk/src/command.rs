@@ -23,7 +23,6 @@ pub use self::subject::{Subject, kind};
 pub fn plugin(app: &mut App) {
     app.init_resource::<Commands>()
         .add_observer(run::run)
-        .add_observer(notice::notice)
         .add_systems(Update, list::keep.run_if(list::moved));
 }
 

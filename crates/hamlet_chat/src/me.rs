@@ -12,11 +12,11 @@ use bevy::ecs::schedule::common_conditions::{
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
+use hamlet_agents_api::convo::{AgentSelected, ChiefName};
+pub use hamlet_agents_api::convo::{Me, address};
 use hamlet_core::agents::{self, Citizen, Mayor};
 use hamlet_core::session::{self, SessionKey};
 use hamlet_realm::pick::{Selected, Thing, select};
-use hamlet_sdk::convo::{AgentSelected, ChiefName};
-pub use hamlet_sdk::convo::{Me, address};
 
 use crate::dock::show_tab;
 
@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn a_plugin_sends_to_an_agent_as_the_chief_marked_with_its_name()
     {
-        use hamlet_sdk::convo::send_as_chief;
+        use hamlet_agents_api::convo::send_as_chief;
 
         let (_dir, mut app, _) = app("sent");
         let world = app.world_mut();

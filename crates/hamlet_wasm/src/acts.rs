@@ -6,9 +6,9 @@
 use std::fmt;
 
 use bevy::prelude::*;
+use hamlet_agents_api::convo;
 use hamlet_sdk::capability::{Capability, Granted, Verdict, Wanted};
 use hamlet_sdk::command::{Notice, RunCommand};
-use hamlet_sdk::convo;
 use hamlet_sdk::plugin::PluginInfo;
 
 use crate::interface::exports::hamlet::plugin::plugin::Intent;

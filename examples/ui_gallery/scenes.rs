@@ -31,11 +31,13 @@ use bevy::picking::PickingSettings;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
+use hamlet_agents_api::{
+    agents, asking, convo, papers, petition, roll, waits,
+};
 use hamlet_assets::Tuning;
 use hamlet_core::core::{Link, Sandboxing};
 use hamlet_realm::pick::Selected;
 use hamlet_realm::sound::{Cue, SoundSettings};
-use hamlet_sdk::asking;
 use hamlet_sdk::inspector::InspectorSections;
 use hamlet_sdk::settings::SettingsPages;
 use hamlet_ui::theme::{self, HamletTheme};
@@ -146,6 +148,14 @@ impl Plugin for GalleryPlugin {
             )
             .add_plugins((
                 hamlet_sdk::SdkPlugin,
+                (
+                    convo::plugin,
+                    agents::plugin,
+                    papers::plugin,
+                    roll::plugin,
+                    waits::plugin,
+                    petition::plugin,
+                ),
                 menu::window::plugin,
                 hamlet_openui::plugin,
                 hamlet_ui::widgets::plugin,

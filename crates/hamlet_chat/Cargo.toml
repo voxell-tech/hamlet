@@ -9,6 +9,7 @@ description = "The chat with an agent: who it is with, how it is read and typed,
 workspace = true
 
 [dependencies]
+hamlet_agents_api.workspace = true
 hamlet_assets.workspace = true
 hamlet_core.workspace = true
 hamlet_desktop.workspace = true

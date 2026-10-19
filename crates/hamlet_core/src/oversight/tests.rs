@@ -1347,8 +1347,10 @@ fn a_plugin_petition_is_answered_like_any_and_the_answer_goes_back() {
             heard.0.push((settled.entity, settled.choice));
         },
     );
-    let asked = petition(
+    let asked = app.world_mut().spawn_empty().id();
+    petition(
         app.world_mut(),
+        asked,
         "Roster",
         "Install Roster 0.1.0?".into(),
         vec![Choice::Allow, Choice::Deny],

@@ -10,12 +10,12 @@ use bevy_fynix::views::{
     FrameProps, TooltipExt, column, frame, icon, label, row,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
+use hamlet_agents_api::waits::Waits;
 use hamlet_core::agents::{Settlement, Treasury};
 use hamlet_core::core::{Link, Sandboxing, Settings};
 use hamlet_core::session::{Status, Usage};
 use hamlet_rules::hamlet::HOME;
 pub use hamlet_sdk::bar::Bar;
-use hamlet_sdk::waits::Waits;
 
 use crate::icons::{Glyph, glyph};
 use crate::links::Aimed;

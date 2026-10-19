@@ -7,9 +7,9 @@ use bevy::ecs::world::World;
 use hamlet_core::agents::{self, Mayor};
 use hamlet_core::session::{self, SessionKey, UserMessage};
 use hamlet_rules::hamlet::HOME;
+use hamlet_sdk::plugin::plain;
 
 use super::Me;
-use crate::plugin::plain;
 
 /// The session a chat with `agent` is kept under, and the agent's
 /// name. `None` for the name of a mayor, and nothing at all for an

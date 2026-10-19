@@ -3543,6 +3543,7 @@ dependencies = [
  "bevy",
  "bevy_app",
  "bevy_fynix",
+ "hamlet_agents_api",
  "hamlet_assets",
  "hamlet_core",
  "hamlet_desktop",
@@ -3565,6 +3566,18 @@ dependencies = [
  "plugin_settings",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "hamlet_agents_api"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "hamlet_base",
+ "hamlet_core",
+ "hamlet_rules",
+ "hamlet_sdk",
 ]
 
 [[package]]
@@ -3592,6 +3605,7 @@ dependencies = [
  "bevy",
  "bevy_fynix",
  "chrono",
+ "hamlet_agents_api",
  "hamlet_assets",
  "hamlet_core",
  "hamlet_desktop",
@@ -3659,6 +3673,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
+ "hamlet_agents_api",
  "hamlet_assets",
  "hamlet_base",
  "hamlet_core",
@@ -3692,6 +3707,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
+ "hamlet_agents_api",
  "hamlet_chat",
  "hamlet_core",
  "hamlet_desktop",
@@ -3759,6 +3775,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_app",
+ "hamlet_agents_api",
  "hamlet_sdk",
  "hamlet_ui",
  "plugin_agents",
@@ -3819,8 +3836,6 @@ dependencies = [
  "bevy_fynix",
  "hamlet_assets",
  "hamlet_base",
- "hamlet_core",
- "hamlet_rules",
  "postcard",
  "pulldown-cmark",
  "serde",
@@ -3838,6 +3853,7 @@ dependencies = [
  "bevy",
  "bevy_fynix",
  "chrono",
+ "hamlet_agents_api",
  "hamlet_assets",
  "hamlet_chat",
  "hamlet_core",
@@ -3870,6 +3886,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
+ "hamlet_agents_api",
  "hamlet_assets",
  "hamlet_base",
  "hamlet_core",
@@ -5681,6 +5698,7 @@ name = "plugin_agents"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "hamlet_agents_api",
  "hamlet_core",
  "hamlet_sdk",
 ]
@@ -5690,6 +5708,7 @@ name = "plugin_hamlets"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "hamlet_agents_api",
  "hamlet_core",
  "hamlet_sdk",
 ]
@@ -5700,6 +5719,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
+ "hamlet_agents_api",
  "hamlet_chat",
  "hamlet_core",
  "hamlet_desktop",
@@ -5718,6 +5738,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
+ "hamlet_agents_api",
  "hamlet_core",
  "hamlet_rules",
  "hamlet_sdk",
@@ -5754,6 +5775,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
+ "hamlet_agents_api",
  "hamlet_core",
  "hamlet_sdk",
 ]

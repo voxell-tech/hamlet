@@ -1,5 +1,5 @@
-//! The count of changes to what the panels show, and the checks a
-//! signal reads again by.
+//! The count of changes to the agents and the hamlets the panels
+//! show, and the checks a signal reads again by.
 
 use bevy::app::{App, Update};
 use bevy::ecs::lifecycle::RemovedComponents;
@@ -8,7 +8,7 @@ use bevy::ecs::query::{Added, Changed, Or, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
-use bevy_fynix::{Signal, derived, resource};
+use bevy_fynix::{Signal, derived};
 use hamlet_core::agents::{
     Account, Activity, Busy, Citizen, Left, Mayor, Purpose, Seen,
     Settlement, Treasury,
@@ -97,25 +97,6 @@ pub fn rolled<T>(
     read: impl Fn(&World) -> T + Send + Sync + 'static,
 ) -> Signal<T> {
     derived(read).when(agents_moved())
-}
-
-/// A check that fires when the resource `R` has changed.
-pub fn moved<R: Resource>()
--> impl FnMut(&World) -> bool + Send + Sync + 'static {
-    let mut signal = resource::<R, _>(|_| ());
-    move |world: &World| signal.changed(world)
-}
-
-/// A check that fires when either of two does.
-pub fn either(
-    mut one: impl FnMut(&World) -> bool + Send + Sync + 'static,
-    mut other: impl FnMut(&World) -> bool + Send + Sync + 'static,
-) -> impl FnMut(&World) -> bool + Send + Sync + 'static {
-    move |world: &World| {
-        // Both look, so that neither holds a change over.
-        let (one, other) = (one(world), other(world));
-        one || other
-    }
 }
 
 fn turn_roll(

@@ -13,11 +13,12 @@ use hamlet_core::core::Settings;
 use hamlet_home::limits::{self, Limits};
 use hamlet_model::catalogue::Catalogue;
 use hamlet_rules::hamlet::{Hamlet, MAYOR};
+use hamlet_sdk::checks::{either, moved};
 
 use super::Shelf;
 use crate::icons::Glyph;
 use crate::looks::{Fills, bare, note, tick};
-use crate::roll::{agents_moved, either, moved};
+use crate::roll::agents_moved;
 use crate::{AnyView, Cx, View};
 
 /// Puts the model `name` on the list of the hamlet `hamlet`, or takes

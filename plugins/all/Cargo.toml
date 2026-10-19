@@ -21,6 +21,7 @@ plugin_skills = { workspace = true, optional = true }
 
 [dev-dependencies]
 bevy.workspace = true
+hamlet_agents_api.workspace = true
 hamlet_sdk.workspace = true
 
 [features]

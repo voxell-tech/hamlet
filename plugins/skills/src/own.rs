@@ -4,9 +4,9 @@ use bevy::ecs::world::World;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column};
 use bevy_fynix::{ViewExt, keyed, resource};
+use hamlet_agents_api::convo::AgentSelected;
 use hamlet_sdk::AnyView;
 use hamlet_sdk::cards::item;
-use hamlet_sdk::convo::AgentSelected;
 use hamlet_sdk::looks::{bare, note};
 use hamlet_sdk::papers::Papers;
 

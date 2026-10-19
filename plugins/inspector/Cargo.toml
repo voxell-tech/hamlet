@@ -9,6 +9,7 @@ description = "The Inspector: the page of whoever is selected in the world, an a
 workspace = true
 
 [dependencies]
+hamlet_agents_api.workspace = true
 hamlet_chat.workspace = true
 hamlet_core.workspace = true
 hamlet_desktop.workspace = true

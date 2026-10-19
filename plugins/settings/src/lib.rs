@@ -32,6 +32,7 @@ use hamlet_limits::{models, rules};
 use hamlet_model::config::Config;
 use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
+use hamlet_sdk::checks::{either, moved};
 use hamlet_sdk::dock::panel;
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::looks::{
@@ -42,12 +43,11 @@ use hamlet_sdk::platform::DisplayText;
 use hamlet_sdk::plugin::{
     AppPluginExt, Entry, HamletPlugin, Manifest,
 };
-use hamlet_sdk::roll::{either, moved};
 use hamlet_sdk::settings::{
     Line, SetUpAgain, SettingsPage, SettingsPages, ShowModels,
 };
 use hamlet_sdk::{
-    AnyView, Cx, View, feel, icons, looks, page, platform, roll,
+    AnyView, Cx, View, checks, feel, icons, looks, page, platform,
     tabs, with_cx,
 };
 
@@ -307,7 +307,7 @@ fn permissions() -> AnyView {
             })
             .unwrap_or_default()
     })
-    .when(crate::roll::moved::<Grants>());
+    .when(moved::<Grants>());
     keyed(held, |held| {
         if held.is_empty() {
             return note(

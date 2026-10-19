@@ -12,6 +12,7 @@ use bevy::math::Rect;
 use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
+use hamlet_agents_api::asking;
 use hamlet_core::agents::{
     Account, Busy, Citizen, Left, LivesIn, Mayor, Purpose, Settlement,
 };
@@ -28,7 +29,6 @@ use hamlet_realm::pick::{Also, Selected, Thing};
 use hamlet_rules::budget::{AgentBudget, Amount};
 use hamlet_rules::chief::asking::Pick;
 use hamlet_rules::chief::rulings::Choice;
-use hamlet_sdk::asking;
 use hamlet_ui::links::{Aimed, Roots};
 use hamlet_ui::{Me, chat, menu, welcome};
 use plugin_inspector::history::{History, Reading};
@@ -228,9 +228,9 @@ pub(super) fn setup(world: &mut World) {
             };
         if matches!(scene, Scene::Skills | Scene::SkillsTab) {
             // No home here to read them from.
-            world.insert_resource(hamlet_sdk::convo::AgentSelected(
-                true,
-            ));
+            world.insert_resource(
+                hamlet_agents_api::convo::AgentSelected(true),
+            );
             world.insert_resource(hamlet_sdk::papers::Papers {
                 skills: vec![
                     (

@@ -100,7 +100,8 @@ pub fn app(home: &Scratch) -> App {
     .insert_resource(TimeUpdateStrategy::ManualDuration(FRAME))
     .add_plugins((
         TimePlugin,
-        hamlet_sdk::agents::plugin,
+        hamlet_agents_api::agents::plugin,
+        hamlet_agents_api::petition::plugin,
         hamlet_sdk::capability::plugin,
         hamlet_sdk::command::plugin,
         hamlet_sdk::context::plugin,

@@ -25,15 +25,15 @@ use hamlet_core::oversight::{
 };
 use hamlet_rules::chief::asking::{Offer, Pick, Questions, letter};
 use hamlet_rules::chief::rulings::Choice;
-
-use crate::convo::Me;
-use crate::feel::Mood;
-use crate::icons::{Glyph, glyph};
-use crate::looks::{
+use hamlet_sdk::feel::Mood;
+use hamlet_sdk::icons::{Glyph, glyph};
+use hamlet_sdk::looks::{
     Fills, bare, brass, lamp, marked, note, retrace, well,
 };
-use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, View};
+use hamlet_sdk::theme::HamletTheme;
+use hamlet_sdk::{AnyView, Cx, View};
+
+use crate::convo::Me;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Answering>()
@@ -425,7 +425,7 @@ pub fn in_chat() -> impl View {
         let Some((entity, asked)) = open.clone() else {
             return frame().boxed();
         };
-        crate::with_cx(move |cx| {
+        hamlet_sdk::with_cx(move |cx| {
             let palette = &cx.theme().palette;
             column((
                 row((

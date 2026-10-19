@@ -15,18 +15,20 @@ pub struct Settled {
     pub choice: Choice,
 }
 
-/// Puts a petition about the plugin named `plugin` in the queue. The
-/// caller adds to the entity what it needs to know the petition by.
+/// Puts `entity` in the queue as a petition about the plugin named
+/// `plugin`. The caller keeps on the entity what it needs to know the
+/// petition by.
 pub fn petition(
     world: &mut World,
+    entity: Entity,
     plugin: &str,
     about: String,
     answers: Vec<Choice>,
-) -> Entity {
+) {
     world.init_resource::<Raised>();
     let order = world.resource_mut::<Raised>().next();
-    world
-        .spawn(Waiting {
+    if let Ok(mut entity) = world.get_entity_mut(entity) {
+        entity.insert(Waiting {
             id: format!("plugin-{order}"),
             kind: Kind::Plugin,
             by: plugin.to_string(),
@@ -36,8 +38,8 @@ pub fn petition(
             asked: 1,
             answers,
             session: None,
-        })
-        .id()
+        });
+    }
 }
 
 /// Passes the chief's `choice` to the observers of [`Settled`] and

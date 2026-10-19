@@ -9,6 +9,7 @@ description = "The hamlets layer: the society above the agents, with the chief's
 workspace = true
 
 [dependencies]
+hamlet_agents_api.workspace = true
 hamlet_core.workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true

@@ -22,6 +22,7 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::state::state::OnEnter;
 use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
+pub use hamlet_agents_api::roll::{self, Roll};
 pub use hamlet_chat::me::{self, Me};
 pub use hamlet_chat::{chat, links, markdown, pictures, select};
 pub use hamlet_limits::{models, rules};
@@ -29,7 +30,6 @@ pub use hamlet_sdk::dock::{lit_panel, panel};
 pub use hamlet_sdk::looks::{
     ICON, brass, grim, lamp, marked, retrace, well,
 };
-pub use hamlet_sdk::roll::{self, Roll};
 pub use hamlet_sdk::{
     AnyView, Cx, SdkPlugin, View, looks, theme, with_cx,
 };
@@ -65,7 +65,7 @@ impl Plugin for UiPlugin {
             (
                 chief::plugin,
                 hamlet_limits::plugin,
-                hamlet_sdk::asking::plugin,
+                hamlet_agents_api::asking::plugin,
                 welcome::plugin,
             ),
             (world_view::plugin, world_menu::plugin, hover::plugin),

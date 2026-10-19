@@ -1,7 +1,8 @@
-//! The hamlets layer: what waits for a chief, and the chief's
-//! answers, over the agents.
+//! The hamlets layer: what waits for a chief, the petitions of
+//! plugins among it, and the chief's answers, over the agents.
 
 use bevy::app::App;
+use hamlet_agents_api::{petition, waits};
 use hamlet_core::oversight::OversightPlugin;
 use hamlet_sdk::plugin::{
     AppPluginExt, Entry, HamletPlugin, Manifest,
@@ -9,8 +10,12 @@ use hamlet_sdk::plugin::{
 
 /// Adds the Hamlets plugin.
 pub fn plugin(app: &mut App) {
-    app.add_plugins(OversightPlugin)
-        .add_hamlet_plugin::<HamletsPlugin>();
+    app.add_plugins((
+        OversightPlugin,
+        waits::plugin,
+        petition::plugin,
+    ))
+    .add_hamlet_plugin::<HamletsPlugin>();
 }
 
 /// The plugin that holds what waits for a chief.

@@ -9,6 +9,7 @@ description = "The command center window: the dock, the panels, the menus and th
 workspace = true
 
 [dependencies]
+hamlet_agents_api.workspace = true
 hamlet_assets.workspace = true
 hamlet_chat.workspace = true
 hamlet_core.workspace = true

@@ -13,12 +13,13 @@ use bevy_fynix::views::{
     scroll,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
+use hamlet_agents_api::convo::ChiefName;
 use hamlet_realm::chief::{
     self, Beside, Cloak, Hat, Holds, Light, Look,
 };
 use hamlet_realm::palette::Palette;
 use hamlet_realm::pick::{Thing, focus_on, select};
-use hamlet_sdk::convo::ChiefName;
+use hamlet_sdk::checks::{either, moved};
 
 use crate::feel::Mood;
 use crate::icons::Glyph;
@@ -27,7 +28,7 @@ use crate::looks::{
     note, pad, title,
 };
 use crate::platform::DisplayText;
-use crate::roll::{agents_moved, either, moved};
+use crate::roll::agents_moved;
 use crate::{AnyView, Cx, View};
 
 /// Selects the place of the chief this window belongs to, and

@@ -1,8 +1,10 @@
-//! The agents layer: the model loop, the tools and the sessions. It
-//! needs no window and nothing else is under it.
+//! The agents layer: the model loop, the tools, the sessions and the
+//! read models of the agents. It needs no window and nothing else is
+//! under it.
 
 use bevy::app::App;
 use bevy::ecs::resource::Resource;
+use hamlet_agents_api::{agents, convo, papers, roll};
 use hamlet_core::core::CorePlugin;
 use hamlet_core::session::SessionPlugin;
 use hamlet_sdk::plugin::{
@@ -15,8 +17,15 @@ pub fn plugin(app: &mut App) {
         .world_mut()
         .remove_resource::<Launch>()
         .expect("insert `Launch` before the agents plugin");
-    app.add_plugins((core, SessionPlugin))
-        .add_hamlet_plugin::<AgentsPlugin>();
+    app.add_plugins((
+        core,
+        SessionPlugin,
+        convo::plugin,
+        agents::plugin,
+        papers::plugin,
+        roll::plugin,
+    ))
+    .add_hamlet_plugin::<AgentsPlugin>();
 }
 
 /// How the agents layer starts: the home, the sandbox, the runtime,

@@ -9,6 +9,7 @@ description = "The panes where the chief changes the home's models and each haml
 workspace = true
 
 [dependencies]
+hamlet_agents_api.workspace = true
 hamlet_chat.workspace = true
 hamlet_core.workspace = true
 hamlet_desktop.workspace = true

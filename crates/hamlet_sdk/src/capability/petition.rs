@@ -1,14 +1,13 @@
 //! The petitions a plugin raises, put to the chief in the queue of
 //! Needs You, and what the chief's answers do.
 
+use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::Event;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::Without;
 use bevy::ecs::system::{Commands, Query};
 use bevy::ecs::world::World;
-use hamlet_core::oversight::{self, Settled};
-use hamlet_rules::chief::rulings::Choice as Answer;
 
 use super::ask::{Asked, Asks};
 use super::choice::Choice;
@@ -18,6 +17,37 @@ use super::install::{self, Removed, Uninstalled};
 use super::name::Capability;
 use super::subject::Subject;
 use crate::plugin::{FullAccess, PluginInfo};
+
+/// A question about a plugin put to the chief: who it is about, what
+/// it asks and the answers it takes. Whoever holds the chief's queue
+/// puts it there, and triggers [`Answered`] with the answer.
+#[derive(Component, Clone, PartialEq, Eq, Debug)]
+pub struct Petition {
+    pub by: String,
+    pub text: String,
+    pub answers: Vec<Answer>,
+}
+
+/// An answer to a [`Petition`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Answer {
+    Allow,
+    AskNextTime,
+    Deny,
+    Dismiss,
+    /// Remove the plugin and keep the data it saved.
+    KeepData,
+    /// Remove the plugin and the data it saved.
+    EraseData,
+}
+
+/// The chief answered the [`Petition`] `petition`, which is still
+/// there while this is observed.
+#[derive(Event, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Answered {
+    pub petition: Entity,
+    pub answer: Answer,
+}
 
 /// Puts the question whether to install the plugin `plugin` in the
 /// queue, unless it is already there.
@@ -227,21 +257,26 @@ fn raise(
     if open {
         return;
     }
-    let petition =
-        oversight::petition(world, &info.name, text, answers);
-    world.entity_mut(petition).insert(subject);
+    world.spawn((
+        subject,
+        Petition {
+            by: info.name.clone(),
+            text,
+            answers,
+        },
+    ));
 }
 
 /// Carries out the chief's answer to a petition about a plugin.
 pub(super) fn answered(
-    settled: On<Settled>,
+    answered: On<Answered>,
     subjects: Query<&Subject>,
     mut commands: Commands,
 ) {
-    let Ok(subject) = subjects.get(settled.entity) else {
+    let Ok(subject) = subjects.get(answered.petition) else {
         return;
     };
-    let (subject, choice) = (subject.clone(), settled.choice);
+    let (subject, choice) = (subject.clone(), answered.answer);
     commands.queue(move |world: &mut World| {
         apply(world, subject, choice)
     });

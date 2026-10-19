@@ -9,6 +9,7 @@ description = "The host of the installed plugins: WASM components run under limi
 workspace = true
 
 [dependencies]
+hamlet_agents_api.workspace = true
 hamlet_assets.workspace = true
 hamlet_base.workspace = true
 hamlet_core.workspace = true

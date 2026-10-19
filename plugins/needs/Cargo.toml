@@ -9,6 +9,7 @@ description = "The Needs You panel: what waits for the chief, oldest first, with
 workspace = true
 
 [dependencies]
+hamlet_agents_api.workspace = true
 hamlet_core.workspace = true
 hamlet_rules.workspace = true
 hamlet_sdk.workspace = true
