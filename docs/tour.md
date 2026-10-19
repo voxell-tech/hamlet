@@ -77,7 +77,8 @@ lists them, and each other folder is one plugin crate. The binary is a list
 of plugins: the layers `plugin_agents`, `plugin_hamlets` and `plugin_realm`
 (each wraps the engine crate of the same subject, and none can be switched
 off), then the frame of the window (`hamlet_ui`), what fills the frame
-(`plugin_world_view`, `plugin_menus`, `plugin_status`, `plugin_welcome`) and
+(the realm's view in `plugin_realm`, `plugin_menus`, `plugin_status`,
+`plugin_welcome`) and
 the panels. See [`sdk.md`](sdk.md). A plugin built
 for WASM is under `guests/`, in a workspace of its own. A native plugin is
 a member of the workspace under `native/`, left out of the default members,
@@ -106,7 +107,7 @@ the root it is mounted in with the parts plugins add to the frame
 `commands.rs` with Run in Background and Quit), the cursor, the hover card
 and the sounds of the panels. `widgets/` holds what the panels are drawn
 with: `feel/` and `tuning.rs`. Everything else in the window is a plugin:
-the world's panel and camera (`plugins/world_view`), the menus and the
+the world's panel and camera (`plugins/realm/src/view.rs`), the menus and the
 right-click menu (`plugins/menus`), the status bar (`plugins/status`), the
 first-run screen (`plugins/welcome`), and the Inspector, the Settings, Needs
 You and Skills. How things look (`theme.rs`, `looks.rs`, `icons.rs`,
@@ -122,7 +123,7 @@ Names to keep apart:
   world.
 - `chief.rs` is a chief's commands in `hamlet_rules`, the wizard in
   `hamlet_realm`, who a chief is and their look in `hamlet_realm_api`, the
-  mascot kept beside the chat in `plugin_world_view` and the chief's page
+  mascot kept beside the chat in `plugin_realm::view` and the chief's page
   in `plugin_inspector`.
 - `hand.rs` is the hand in `hamlet_realm`. In `hamlet_realm_api` it is what
   the hand holds, for the cursor.
@@ -151,11 +152,11 @@ Paths are under `crates/`.
 | Removing, merging, restoring an agent | `hamlet_rules/src/lifecycle.rs` |
 | Founding, naming, moving, closing a hamlet | `hamlet_rules/src/realm.rs` |
 | A starter skill | `hamlet_home/starters/<name>/SKILL.md` |
-| A panel | Its folder in `plugins/`: Inspector, Needs You, Settings, Skills, and the world's own panel in `plugins/world_view/` |
+| A panel | Its folder in `plugins/`: Inspector, Needs You, Settings, Skills, and the world's own panel in `plugins/realm/src/view.rs` |
 | A part of the window's frame: the top bar, over the dock, the foot, over everything | Its `FramePart` in the plugin's `entry` (`Entry::frame_part`); how the root draws them, `hamlet_ui/src/root.rs`; what the SDK keeps of them, `hamlet_sdk/src/frame.rs`; [`sdk.md`](sdk.md) |
 | The status bar | `plugins/status/src/lib.rs` |
 | The first-run screen | `plugins/welcome/src/` |
-| The world's panel, its camera, the sky's hour and the pace of drawing | `plugins/world_view/src/lib.rs`; the mascot beside the chat, `chief.rs` there |
+| The world's panel, its camera, the sky's hour and the pace of drawing | `plugins/realm/src/view.rs`; the mascot beside the chat, `view/chief.rs` there |
 | What a panel reads of the realm, and asks of it | `hamlet_realm_api/src/`; where the realm answers, the observers in `hamlet_realm/src/orders.rs`, `pick/camera.rs` and `sound.rs` |
 | The right-click menu | The items are contributions: `plugins/menus/src/world_menu/contribute.rs` and `acts.rs`, and `items.rs` for the lines that depend on two agents that are chosen |
 | A colour in the panels | `assets/theme.toml`, its fields in `hamlet_sdk/src/theme.rs` |
@@ -196,7 +197,7 @@ Paths are under `crates/`.
 | A page of the Settings panel | Its `SettingsPage` in the plugin's `entry` (`Entry::settings_page`); the pages the panel has itself, and how it lists the others, in `plugins/settings/src/lib.rs`, which adds the Plugins page as any plugin adds one; what the SDK keeps of them, `hamlet_sdk/src/settings/`; [`sdk.md`](sdk.md) |
 | A native plugin: loading its library, the gate, safe mode, the full-access question | `hamlet_native/src/` (`abi.rs`, `cache.rs`, `gate.rs`, `guard.rs`, `library.rs`, `load.rs`, `marker.rs`, `remove.rs`); `hamlet_sdk/src/plugin/access.rs`, `capability/petition.rs`; the sample `native/spark/`, the template `templates/native-plugin/`, the SDK kit `scripts/make-native-sdk.sh`; [`native.md`](native.md) |
 | A plugin opening its own panel | The `open-panel` intent: `hamlet_wasm/src/run.rs`; for a guest `hamlet_guest::open_panel`; [`wasm.md`](wasm.md) |
-| A line in the HAMLET or VIEW menu | Its `MenuEntry` in the plugin's `entry` (`Entry::menu_item`); the window's own lines in `hamlet_ui/src/commands.rs`, Found a Hamlet in `plugins/menus/src/lib.rs`, the camera and the sky in `plugins/world_view/src/lib.rs`; how a menu lists them, `hamlet_sdk/src/menu/`; how the bar draws them, `plugins/menus/src/menu.rs`; [`sdk.md`](sdk.md) |
+| A line in the HAMLET or VIEW menu | Its `MenuEntry` in the plugin's `entry` (`Entry::menu_item`); the window's own lines in `hamlet_ui/src/commands.rs`, Found a Hamlet in `plugins/menus/src/lib.rs`, the camera and the sky in `plugins/realm/src/view.rs`; how a menu lists them, `hamlet_sdk/src/menu/`; how the bar draws them, `plugins/menus/src/menu.rs`; [`sdk.md`](sdk.md) |
 | A keyboard shortcut | Its `Key` in the plugin's `entry` (`Entry::key`); reading a chord, who wins a chord and a press, `hamlet_sdk/src/keys/`; [`sdk.md`](sdk.md) |
 | The Clipper plugin, which uses Notes | `guests/clipper/`; its panel in the gallery, `examples/ui_gallery/scenes/clipper.rs` |
 | Starting a plugin, its templates and the script that copies them | `templates/plugin/`, `templates/data-plugin/`, `scripts/new-plugin.sh`; [`authoring.md`](authoring.md) |

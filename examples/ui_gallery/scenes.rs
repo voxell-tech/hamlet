@@ -47,9 +47,9 @@ use hamlet_ui::theme::{self, HamletTheme};
 use hamlet_ui::{Bar, Roll, chrome, select};
 use plugin_inspector::history::History;
 use plugin_menus::menu;
+use plugin_realm::view::WorldViewPlugin;
 use plugin_status::StatusPlugin;
 use plugin_welcome::{self as welcome, WelcomePlugin};
-use plugin_world_view::WorldViewPlugin;
 
 use self::dock::{panels, seed_dock};
 use self::sample::{first_run, setup};

@@ -14,7 +14,6 @@ hamlet_ui = { workspace = true, optional = true }
 plugin_agents = { workspace = true, optional = true }
 plugin_hamlets = { workspace = true, optional = true }
 plugin_realm = { workspace = true, optional = true }
-plugin_world_view = { workspace = true, optional = true }
 plugin_menus = { workspace = true, optional = true }
 plugin_status = { workspace = true, optional = true }
 plugin_welcome = { workspace = true, optional = true }
@@ -56,4 +55,5 @@ settings = ["dep:plugin_settings"]
 skills = ["dep:plugin_skills"]
 status = ["dep:plugin_status"]
 welcome = ["dep:plugin_welcome"]
-world-view = ["dep:plugin_world_view"]
+# The realm's view is in the realm's crate.
+world-view = ["dep:plugin_realm"]

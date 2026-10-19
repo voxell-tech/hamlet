@@ -3565,10 +3565,10 @@ dependencies = [
  "plugin_inspector",
  "plugin_menus",
  "plugin_needs",
+ "plugin_realm",
  "plugin_settings",
  "plugin_status",
  "plugin_welcome",
- "plugin_world_view",
  "serde_json",
  "tokio",
 ]
@@ -3793,7 +3793,6 @@ dependencies = [
  "plugin_skills",
  "plugin_status",
  "plugin_welcome",
- "plugin_world_view",
  "toml",
 ]
 
@@ -5783,8 +5782,16 @@ name = "plugin_realm"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_fynix",
+ "chrono",
+ "hamlet_agents_api",
+ "hamlet_chat",
+ "hamlet_core",
+ "hamlet_home",
  "hamlet_realm",
+ "hamlet_realm_api",
  "hamlet_sdk",
+ "hamlet_testing",
 ]
 
 [[package]]
@@ -5837,23 +5844,6 @@ dependencies = [
  "hamlet_limits",
  "hamlet_model",
  "hamlet_sdk",
-]
-
-[[package]]
-name = "plugin_world_view"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_fynix",
- "chrono",
- "hamlet_agents_api",
- "hamlet_chat",
- "hamlet_core",
- "hamlet_home",
- "hamlet_realm",
- "hamlet_realm_api",
- "hamlet_sdk",
- "hamlet_testing",
 ]
 
 [[package]]

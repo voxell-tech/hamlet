@@ -6,7 +6,7 @@ talk to. The chief is a wizard, so the house wears a pointed hat, the
 mascot carries a bare flame, and its travel is a spell.
 
 The world's side is `hamlet_realm/src/chief/`. The kept look is
-`plugins/world_view/src/chief.rs` and the panel `plugins/inspector/src/chief.rs`. `cargo run --example chief_sheet -- --out
+`plugins/realm/src/view/chief.rs` and the panel `plugins/inspector/src/chief.rs`. `cargo run --example chief_sheet -- --out
 <dir>` draws all of it to stills.
 
 ## The Hearth

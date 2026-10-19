@@ -37,7 +37,7 @@ impl PluginGroup for Frame {
     fn build(self) -> PluginGroupBuilder {
         let group = PluginGroupBuilder::start::<Self>();
         #[cfg(feature = "world-view")]
-        let group = group.add(plugin_world_view::plugin);
+        let group = group.add(plugin_realm::view::plugin);
         #[cfg(feature = "menus")]
         let group = group.add(plugin_menus::plugin);
         #[cfg(feature = "status")]
@@ -115,7 +115,7 @@ mod tests {
             #[cfg(feature = "window")]
             hamlet_ui::commands::Window::manifest(),
             #[cfg(feature = "world-view")]
-            plugin_world_view::WorldViewPlugin::manifest(),
+            plugin_realm::view::WorldViewPlugin::manifest(),
         ];
         for manifest in manifests {
             assert!(

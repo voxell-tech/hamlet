@@ -6,12 +6,7 @@ use toml::Table;
 
 /// The dependencies of plugin crates that break a rule of [`broken`]
 /// today, each with the reason it stands.
-const EXCEPTIONS: &[(&str, &str, &str)] = &[(
-    "plugin_world_view",
-    "hamlet_realm",
-    "the realm's view: it mounts the realm's camera in a panel, \
-     sets its stage and sky and hangs its labels off the panel",
-)];
+const EXCEPTIONS: &[(&str, &str, &str)] = &[];
 
 const TABLES: [&str; 3] =
     ["dependencies", "dev-dependencies", "build-dependencies"];

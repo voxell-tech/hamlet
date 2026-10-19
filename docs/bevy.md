@@ -50,7 +50,7 @@ each message.
 ## A frame costs what its systems touch
 
 The world is drawn only when something asks (`Animating`, which
-`plugin_world_view` sets and the window's `pace` reads), so work
+the realm's view sets and the window's `pace` reads), so work
 that runs every frame is also work that keeps the app from resting.
 
 1. **Gate a system on what it waits for.** `run_if(resource_changed::<T>)`,

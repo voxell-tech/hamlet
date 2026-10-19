@@ -3,12 +3,22 @@ name = "plugin_realm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The realm layer: the 3D world drawn from the hamlets and their agents"
+description = "The realm layer: the 3D world drawn from the hamlets and their agents, and its view in the window"
 
 [lints]
 workspace = true
 
 [dependencies]
+hamlet_agents_api.workspace = true
+hamlet_chat.workspace = true
+hamlet_core.workspace = true
 hamlet_realm.workspace = true
+hamlet_realm_api.workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true
+bevy_fynix.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+hamlet_home.workspace = true
+hamlet_testing.workspace = true

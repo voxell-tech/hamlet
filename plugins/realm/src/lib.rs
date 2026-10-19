@@ -1,5 +1,8 @@
 //! The realm layer: the generated world, the ground, the sites, the
-//! camera and the effects, drawn from the hamlets.
+//! camera and the effects, drawn from the hamlets. Its view in the
+//! window is [`view`].
+
+pub mod view;
 
 use bevy::app::App;
 use hamlet_realm::RealmPlugin;
