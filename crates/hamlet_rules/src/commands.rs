@@ -169,7 +169,7 @@ pub const ALL: &[Command] = &[
     ),
     command(
         "/allow",
-        "[reason]",
+        "[id] [reason]",
         "Allow what waits, this once",
         Handler::Oversight(Ruling::Allow),
     ),
@@ -181,7 +181,7 @@ pub const ALL: &[Command] = &[
     ),
     command(
         "/deny",
-        "[reason]",
+        "[id] [reason]",
         "Refuse what waits",
         Handler::Oversight(Ruling::Deny),
     ),

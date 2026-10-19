@@ -19,12 +19,17 @@ const STRIP_CHARS: usize = 60;
 /// characters.
 const SAID_CHARS: usize = 80;
 
-/// One thing that waits, in full, with what may be answered.
+/// One thing that waits, in full, with what may be answered. A
+/// plugin's petition is answered by its id.
 pub fn strip(waiting: &Waiting) -> String {
+    let id = match waiting.kind {
+        Kind::Plugin => format!(" {}", waiting.id),
+        _ => String::new(),
+    };
     let answers = waiting
         .answers
         .iter()
-        .map(|c| format!("/{}", c.word()))
+        .map(|c| format!("/{}{id}", c.word()))
         .collect::<Vec<_>>()
         .join(" ");
     format!(
@@ -170,8 +175,32 @@ pub(super) fn typed(
             .collect::<Vec<_>>()
             .join("\n"),
         Command::Answer { choice, text } => {
-            match theirs.or(queue.first().copied()) {
+            // `/allow <id>` answers the item of that id.
+            let (first, rest) = text
+                .trim()
+                .split_once(char::is_whitespace)
+                .unwrap_or((text.trim(), ""));
+            let named =
+                queue.iter().copied().find(|(_, w)| w.id == first);
+            let text = match named {
+                Some(_) => rest.trim().to_string(),
+                None => text,
+            };
+            match named.or(theirs).or(queue.first().copied()) {
                 None => "Nothing waits for you.".into(),
+                // A plugin's petition is settled only by its button
+                // or by its id, never as the oldest
+                // item or by a name.
+                Some((_, item))
+                    if item.kind == Kind::Plugin
+                        && named.is_none() =>
+                {
+                    format!(
+                        "A plugin's petition is answered with its \
+                         buttons in Needs You, or by its id:\n{}",
+                        strip(item)
+                    )
+                }
                 Some((_, item))
                     if !item.answers.contains(&choice) =>
                 {

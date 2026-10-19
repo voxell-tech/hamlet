@@ -1363,7 +1363,14 @@ fn a_plugin_petition_is_answered_like_any_and_the_answer_goes_back() {
     answer(&mut app, asked, Choice::AskNextTime, "");
     assert_eq!(waits(app.world_mut()).len(), 1);
 
-    answer(&mut app, asked, Choice::Allow, "");
+    // A bare `/allow` does not settle it; its id does.
+    say(&mut app, &with_mayor(), "/allow");
+    app.update();
+    assert!(notice(&mut app, &with_mayor()).contains("by its id"));
+    assert_eq!(waits(app.world_mut()).len(), 1);
+    let id = app.world().get::<Waiting>(asked).unwrap().id.clone();
+    say(&mut app, &with_mayor(), &format!("/allow {id}"));
+    app.update();
     assert!(waits(app.world_mut()).is_empty());
     assert_eq!(
         app.world().resource::<Heard>().0,

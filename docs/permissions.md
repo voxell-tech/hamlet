@@ -409,6 +409,11 @@ back from the core's `Settled` as the SDK's `Answered`. A
 petition that is not answered when the app quits is raised again at the next
 start, from the same state.
 
+A plugin's petition is answered with its buttons in Needs You, or typed
+with its id, `/allow plugin-3`, as `/queue` lists it. A bare `/allow` or
+`/deny`, which answers the oldest thing that waits or the one of the agent
+it is typed to, never settles a plugin's petition.
+
 ## Removing
 
 The UNINSTALL button of a plugin on the Plugins page of Settings (any plugin that
