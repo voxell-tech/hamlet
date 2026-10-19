@@ -33,7 +33,7 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[];
 
 /// The API crates that own their words: each stands on no layer, nor
 /// on a crate that does, its tests neither.
-const OWNERS: [&str; 1] = ["hamlet_realm_api"];
+const OWNERS: [&str; 2] = ["hamlet_realm_api", "hamlet_limits_api"];
 
 /// One dependency of a member: the package it names, and whether it
 /// is only for the member's tests.
