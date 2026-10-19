@@ -18,6 +18,7 @@ use hamlet_sdk::plugin::{
 use hamlet_sdk::tree::glyph;
 
 use crate::engine::Host;
+use crate::inbox::Ticks;
 use crate::install::{self, Body, Installed};
 use crate::limits::Limits;
 use crate::reload::{Watch, keep};
@@ -175,6 +176,7 @@ fn plugin(
             installed.asks.clone(),
             choices,
             Status::Starting,
+            Ticks::of(&installed.manifest),
             Watch::new(installed.body.folder()),
         ))
         .id();

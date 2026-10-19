@@ -62,6 +62,16 @@ pub struct Manifest {
     pub imports: Imports,
     #[serde(default)]
     pub asks: Vec<Ask>,
+    /// Whether the plugin is given a `tick`, at most `tick_hz` in a
+    /// second. A plugin that only answers what is sent to it sets
+    /// it to false. A manifest that does not say has true, as every
+    /// manifest did before the field was.
+    #[serde(default = "ticks_by_default")]
+    pub ticks: bool,
+}
+
+fn ticks_by_default() -> bool {
+    true
 }
 
 impl Manifest {

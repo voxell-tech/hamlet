@@ -3,6 +3,9 @@ name = "Clipper"
 version = "0.1.0"
 interface = "0.8.0"
 
+# It only answers what is sent to it, so it wants no ticks.
+ticks = false
+
 # It does not start unless Notes is installed and running.
 [[needs]]
 id = "notes"

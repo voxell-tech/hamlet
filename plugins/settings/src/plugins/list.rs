@@ -169,6 +169,17 @@ fn line(line: &Line) -> AnyView {
             },
         ));
     }
+    if line.installed && line.status == Status::Failed {
+        let id = id.clone();
+        actions.push(action(
+            Glyph::Restore,
+            "RESTART",
+            move |world| {
+                world.trigger(Enable(id.clone()));
+                world.flush();
+            },
+        ));
+    }
     if rows > 0 {
         let id = id.clone();
         actions.push(action(

@@ -66,11 +66,24 @@ fn step_answers_from_its_inbox_and_log_reaches_the_host() {
 
 #[test]
 fn a_call_that_never_returns_runs_out_of_time() {
-    let limits = Limits::default();
+    let limits = Limits {
+        call_fuel: u64::MAX >> 1,
+        ..Limits::default()
+    };
     let mut plugin = load(&fixture::spin()).unwrap();
     assert_eq!(
         plugin.step(&limits, &[]).map(drop),
         Err(Fault::OutOfTime)
+    );
+}
+
+#[test]
+fn a_call_that_never_returns_runs_out_of_fuel() {
+    let limits = Limits::default().patient();
+    let mut plugin = load(&fixture::spin()).unwrap();
+    assert_eq!(
+        plugin.step(&limits, &[]).map(drop),
+        Err(Fault::OutOfFuel)
     );
 }
 

@@ -1,13 +1,13 @@
-//! How many times a plugin may do something in a minute.
+//! How many times a plugin may do something in a minute or a second.
 
 use std::collections::HashMap;
 
 use bevy::ecs::entity::Entity;
 
-/// The seconds a count is kept for.
-const WINDOW: f32 = 60.0;
+/// The seconds a count is kept for, in a minute.
+const MINUTE: f32 = 60.0;
 
-/// What each plugin did lately, counted over a minute by the app's
+/// What each plugin did lately, counted over a window by the app's
 /// clock.
 #[derive(Default)]
 pub struct Rate(HashMap<Entity, (f32, u32)>);
@@ -22,11 +22,23 @@ impl Rate {
         now: f32,
         per_minute: u32,
     ) -> bool {
+        self.within(plugin, now, MINUTE, per_minute)
+    }
+
+    /// Whether the plugin may do one more at `now` when it may do
+    /// `most` in each `window` seconds.
+    pub fn within(
+        &mut self,
+        plugin: Entity,
+        now: f32,
+        window: f32,
+        most: u32,
+    ) -> bool {
         let (since, count) = self.0.entry(plugin).or_insert((now, 0));
-        if now - *since >= WINDOW || now < *since {
+        if now - *since >= window || now < *since {
             (*since, *count) = (now, 0);
         }
-        if *count >= per_minute {
+        if *count >= most {
             return false;
         }
         *count += 1;

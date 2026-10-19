@@ -14,6 +14,8 @@ pub enum Fault {
     Load(String),
     /// A call outlasted its time.
     OutOfTime,
+    /// A call used more than its fuel.
+    OutOfFuel,
     /// A call grew memory or a table past its limit.
     OutOfMemory(String),
     /// A call trapped, or returned what the interface does not allow.
@@ -25,6 +27,9 @@ impl fmt::Display for Fault {
         match self {
             Fault::Load(why) => write!(f, "could not load: {why}"),
             Fault::OutOfTime => write!(f, "a call ran out of time"),
+            Fault::OutOfFuel => {
+                write!(f, "a call used up its fuel")
+            }
             Fault::OutOfMemory(why) => write!(f, "{why}"),
             Fault::Trap(why) => write!(f, "trapped: {why}"),
         }
@@ -42,8 +47,11 @@ impl Fault {
 
     /// The fault a call's error stands for.
     pub(crate) fn call(error: wasmtime::Error) -> Self {
-        if error.downcast_ref::<Trap>() == Some(&Trap::Interrupt) {
+        let trap = error.downcast_ref::<Trap>();
+        if trap == Some(&Trap::Interrupt) {
             Fault::OutOfTime
+        } else if trap == Some(&Trap::OutOfFuel) {
+            Fault::OutOfFuel
         } else if let Some(over) = error.downcast_ref::<OverLimit>() {
             Fault::OutOfMemory(over.to_string())
         } else {

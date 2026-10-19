@@ -3,7 +3,13 @@
 
 [limits]
 call_ms = 50
+call_fuel = 50000000
 tick_ms = 5
+tick_hz = 30
+restart_retries = 1
+restart_backoff_ms = 3000
+publishes_per_second = 50
+publish_bytes_per_step = 262144
 memory_mib = 16
 table_elements = 10000
 log_lines = 32

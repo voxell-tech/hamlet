@@ -3,6 +3,9 @@ name = "Notes"
 version = "0.1.0"
 interface = "0.8.0"
 
+# It only answers what is sent to it, so it wants no ticks.
+ticks = false
+
 # What other plugins may run, hear of and read. The notes are the
 # keys of its storage that start with `note.`.
 [exports]

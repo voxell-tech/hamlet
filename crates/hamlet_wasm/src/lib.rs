@@ -69,6 +69,7 @@ pub fn plugin(app: &mut App) {
     .add_observer(event::deliver)
     .add_observer(reply::reply)
     .add_observer(stop::stopped)
+    .add_observer(stop::schedule)
     .add_observer(uninstall::removed)
     .configure_sets(
         Update,
@@ -92,6 +93,9 @@ pub fn plugin(app: &mut App) {
         Update,
         (
             inbox::tick.in_set(PluginSet::Collect),
+            stop::retry
+                .in_set(PluginSet::Collect)
+                .run_if(resource_exists::<Time>),
             net::finish
                 .in_set(PluginSet::Collect)
                 .run_if(net::Fetching::any),

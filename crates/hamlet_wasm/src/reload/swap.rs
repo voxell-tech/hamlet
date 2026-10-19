@@ -22,6 +22,7 @@ use hamlet_sdk::reload::Reload;
 use super::{Modified, Waiting, Watch, keep};
 use crate::command;
 use crate::engine::Host;
+use crate::inbox::Ticks;
 use crate::install::{self, Body, Installed};
 use crate::instance::Instance;
 use crate::limits::Limits;
@@ -230,6 +231,7 @@ fn renew(
     commands.entity(plugin).insert((
         PluginInfo::from(&manifest),
         manifest,
+        Ticks::of(&installed.manifest),
         installed.asks.clone(),
         choices,
     ));

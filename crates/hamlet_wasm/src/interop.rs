@@ -16,6 +16,7 @@ use bevy::prelude::*;
 use hamlet_sdk::agents::{AgentList, SelectedAgent};
 
 pub use self::calls::{Call, Calls};
+use self::publish::Flow;
 use crate::PluginSet;
 use crate::run::Done;
 
@@ -24,6 +25,7 @@ use crate::run::Done;
 /// the calls that end for another reason.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Calls>()
+        .init_resource::<Flow>()
         .add_observer(chief::forward)
         .add_systems(
             Update,

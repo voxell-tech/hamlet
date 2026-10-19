@@ -119,6 +119,7 @@ impl Instance {
         self.store.data_mut().changes.clear();
         self.store.data_mut().wants.clear();
         self.store.set_epoch_deadline(limits.call_ticks());
+        self.store.set_fuel(limits.call_fuel).map_err(Fault::load)?;
         let returned = call(&self.exports, &mut self.store)
             .map_err(Fault::call)?;
         let state = self.store.data_mut();

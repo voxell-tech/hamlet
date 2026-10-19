@@ -11,6 +11,46 @@ use crate::interface::exports::hamlet::plugin::plugin::{
     Incoming, Publication, Published,
 };
 use crate::limits::Limits;
+use crate::rate::Rate;
+
+/// The events each plugin published lately.
+#[derive(Resource, Default)]
+pub(super) struct Flow(Rate);
+
+impl Flow {
+    /// Whether the plugin `publisher` may publish `more` bytes at
+    /// `now`, after `spent` bytes in this `step`. What it may not is
+    /// counted out, with a warning.
+    pub(super) fn admit(
+        &mut self,
+        publisher: Entity,
+        id: &str,
+        (spent, more): (usize, usize),
+        now: f32,
+        limits: &Limits,
+    ) -> bool {
+        let why = if spent + more > limits.publish_bytes_per_step {
+            format!(
+                "over {} bytes of events in a step",
+                limits.publish_bytes_per_step
+            )
+        } else if !self.0.within(
+            publisher,
+            now,
+            1.0,
+            limits.publishes_per_second,
+        ) {
+            format!(
+                "over {} events a second",
+                limits.publishes_per_second
+            )
+        } else {
+            return true;
+        };
+        warn!("plugin {id}: {why}, an event dropped");
+        false
+    }
+}
 
 /// Gives the event `publication` of `publisher` to the plugins that
 /// import it, if the publisher lists it under `exports.events`.

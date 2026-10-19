@@ -40,6 +40,7 @@ impl Instance {
         store.limiter(|state| &mut state.limiter);
         store.epoch_deadline_trap();
         store.set_epoch_deadline(limits.call_ticks());
+        store.set_fuel(limits.call_fuel).map_err(Fault::load)?;
         let exports =
             Hamlet::instantiate(&mut store, component, &linker)
                 .map_err(Fault::load)?;

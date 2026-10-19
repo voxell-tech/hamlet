@@ -20,7 +20,10 @@ impl Host {
     /// `limits`, and its ticker running.
     pub fn new(limits: &Limits) -> wasmtime::Result<Self> {
         let mut config = Config::new();
-        config.wasm_component_model(true).epoch_interruption(true);
+        config
+            .wasm_component_model(true)
+            .epoch_interruption(true)
+            .consume_fuel(true);
         let mut pool = PoolingAllocationConfig::new();
         pool.max_memory_size(limits.memory_bytes())
             .table_elements(limits.table_elements);

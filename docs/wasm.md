@@ -207,7 +207,8 @@ needs no resource of its own.
 The `Update` sets `PluginSet::{Collect, Step, Apply, Draw}` run in that
 order.
 
-1. `Collect` puts a `tick` in the inbox of every running plugin.
+1. `Collect` puts a `tick` in the inbox of every running plugin that wants
+   ticks and is due one (see Limits).
 2. `Step` runs only while some inbox holds something. It calls `step` once
    for each running plugin that has mail. A call that fails fails the plugin.
 3. `Apply` runs when a plugin was stepped and carries out its intents: a
@@ -493,6 +494,13 @@ the plugin `Status::Failed` and puts `Failure`, the reason, on it. Its
 panels stay in the dock, and each shows "This plugin stopped", the reason
 and a RESTART button, in place of the last tree. RESTART sends `Enable`.
 
+The host starts a failed plugin again by itself, the same way, up to
+`restart_retries` times (once, in `assets/wasm.toml`), each `restart_backoff_ms`
+after the failure; after that it waits for the chief. The RESTART button of the
+plugin's line on the Plugins page of Settings sends the same `Enable` and gives
+the retries back. A plugin that has no clock to wait by (an app without `Time`)
+is not started again by itself.
+
 `Enable` of an installed plugin that is disabled or failed brings it up
 again from its file with a new store, runs `entry` again and spawns its
 panels again. `Disable` despawns the panels, as for a built-in plugin.
@@ -531,6 +539,21 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **Time.** The engine has epoch interruption, and a thread advances the
   epoch every `tick_ms`. A call, and the instantiation, may last `call_ms`
   worth of ticks; past it the call traps as `Fault::OutOfTime`.
+- **Fuel.** Each call, and the instantiation, also gets `call_fuel` units of
+  wasmtime's fuel, about one for each instruction. A call that uses it up traps
+  as `Fault::OutOfFuel`. The time depends on how busy the machine is and the
+  fuel does not, so a runaway loop ends the same way everywhere.
+- **Ticks.** A plugin is given a `tick` only if its manifest wants them (`ticks`,
+  true when the manifest does not say, so every plugin written before the field
+  keeps its ticks), and at most `tick_hz` in a second. A plugin that only answers
+  what is sent to it sets `ticks = false` and is stepped only when it has mail.
+- **Published events.** A plugin may publish `publishes_per_second` events in a
+  second and `publish_bytes_per_step` bytes of payloads in one `step`. The rest
+  are dropped, each with a warning. The `collection-changed` event of a
+  collection is not counted.
+- **Starting again.** A plugin that trapped is started again by the host
+  `restart_retries` times, each `restart_backoff_ms` after it failed (see A
+  plugin that stopped). The count comes back when the chief restarts it.
 - **Memory and tables.** A `ResourceLimiter` refuses a growth past
   `memory_mib` or `table_elements`, which traps the call as
   `Fault::OutOfMemory`. The pooling allocator is sized to the same memory.
@@ -640,6 +663,7 @@ Plugins working together) and `asks` (a `capability`, a `reason` and
 optionally a `scope` each; the scope of `plugin.use` is the plugin ids it may
 be chosen for, and of `collections.read` and `collections.write` the
 `plugin/name` of collections). It may also have
+`ticks` (true by default; false asks for no `tick` in the inbox) and
 `kind`: `wasm` (the default) or `data`, a plugin that is a `panel.ui` and no
 `plugin.wasm`, with an optional `icon` and no `interface` (see
 [`panels.md`](panels.md)). The scan turns a folder down when a file is

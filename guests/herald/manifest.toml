@@ -3,6 +3,9 @@ name = "Herald"
 version = "0.1.0"
 interface = "0.8.0"
 
+# It only answers what is sent to it, so it wants no ticks.
+ticks = false
+
 # Each ask is a thing done as the chief or outside the plugin. The
 # chief is asked at the first use of the first two.
 [[asks]]

@@ -234,6 +234,10 @@ reason = "To count the agents the panel is about."
 - `[[asks]]` name the most the plugin may use, each with a `capability` and a
   `reason` the chief reads. A capability that is not named cannot be used or
   asked for. Name only what the plugin uses, with a reason that says what for.
+- `ticks` is true when the manifest does not say, and the plugin is given a
+  `tick` at most `tick_hz` times a second. A plugin that does something only when
+  it is sent something (a click, a command, an event) sets `ticks = false`, and is
+  not stepped on frames in which nothing came for it.
 - `needs` and `wants` name plugins this one depends on, each an `id` and a
   version `range`; a plugin whose needs are not met does not start, and Settings
   says why. `exports` and `imports` list the commands, events and collections the
@@ -702,11 +706,14 @@ and draws `denied.png`, `clipper.png` and `notes.png`. The gallery scene
 ## Limits
 
 Every plugin is held to the limits of `assets/wasm.toml` whatever it is
-allowed: the time and memory of a call, log lines, panels, the nodes, depth and
-text of a tree, events a second, intents a call, the calls waiting and how deep
+allowed: the time, fuel and memory of a call, log lines, panels, the nodes, depth and
+text of a tree, events a second, intents a call, the events it publishes a second
+and a step, the ticks a second, the calls waiting and how deep
 they go, and the size of a page of a collection ([`wasm.md`](wasm.md)). A
-call that traps, runs out of time or returns a bad tree stops the plugin; its
-panels say so and have a RESTART button.
+call that traps, runs out of time or fuel or returns a bad tree stops the plugin;
+its panels say so and have a RESTART button, as does its line on the Plugins
+page. The host starts it again once by itself, a few seconds later, before it
+waits for the chief.
 
 A plugin may import only the host's functions. One written in Rust with `std`
 loads, and one that prints or reads the clock traps: log with

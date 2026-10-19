@@ -10,6 +10,41 @@ use super::tree::{PANEL, items};
 use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
 
+fn status(app: &mut App) -> Status {
+    let mut plugins = app.world_mut().query::<&Status>();
+    *plugins.single(app.world()).unwrap()
+}
+
+#[test]
+fn a_failed_plugin_starts_again_once_by_itself() {
+    let scratch = Scratch::new("retry");
+    let mut app = home::app(
+        &scratch,
+        &[Plugin::new(
+            "probe",
+            fixture::component(&fixture::failing(&items(
+                "0 refreshes",
+            ))),
+        )],
+    );
+    home::views(&mut app);
+    app.update();
+    for round in 0..2 {
+        Interaction::send(app.world_mut(), PANEL, "go", Act::Click);
+        app.update();
+        app.update();
+        assert_eq!(status(&mut app), Status::Failed, "{round}");
+        // The backoff is 3 seconds and a frame is 50 milliseconds.
+        (0..80).for_each(|_| app.update());
+        let again = if round == 0 {
+            Status::Running
+        } else {
+            Status::Failed
+        };
+        assert_eq!(status(&mut app), again, "{round}");
+    }
+}
+
 fn says(app: &mut App, said: &str) -> bool {
     let world = app.world_mut();
     world

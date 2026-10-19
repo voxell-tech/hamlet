@@ -13,6 +13,7 @@ use crate::engine::Host;
 use crate::instance::Instance;
 use crate::limits::Limits;
 use crate::start::{self, Setting, Source};
+use crate::stop::{Automatic, Retry, Tries};
 
 /// Brings up again the disabled or failed plugin of this id, from
 /// its file, with a store of its own, unless a plugin it needs is not
@@ -28,6 +29,7 @@ pub fn restart(
             &Source,
             &Granted,
             Option<&Instance>,
+            Has<Automatic>,
         ),
         Without<Uninstalled>,
     >,
@@ -50,13 +52,26 @@ pub fn restart(
     let present = present(everyone.iter().map(
         |(info, status, uninstalled)| (info, *status, uninstalled),
     ));
-    for (plugin, info, manifest, status, source, granted, instance) in
-        &plugins
+    for (
+        plugin,
+        info,
+        manifest,
+        status,
+        source,
+        granted,
+        instance,
+        automatic,
+    ) in &plugins
     {
         if info.id != enable.0
             || !matches!(status, Status::Disabled | Status::Failed)
         {
             continue;
+        }
+        // The chief starting a plugin gives it its retries back.
+        commands.entity(plugin).remove::<(Retry, Automatic)>();
+        if !automatic {
+            commands.entity(plugin).remove::<Tries>();
         }
         if let Some(why) = needs::unmet(&manifest.needs, &present) {
             warn!("plugin {}: not started, {why}", info.id);

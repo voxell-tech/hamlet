@@ -1,9 +1,13 @@
-use crate::inbox::Inbox;
+use bevy::ecs::entity::Entity;
+
+use crate::inbox::{Inbox, Ticks};
 use crate::interface::exports::hamlet::plugin::plugin::{
     Incoming, Node, Tree, Widget,
 };
 use crate::interface::hamlet::plugin::host::Level;
 use crate::limits::Limits;
+use crate::manifest::Manifest;
+use crate::rate::Rate;
 use crate::{fixture, wire};
 
 fn column(texts: &[&str]) -> Tree {
@@ -50,6 +54,32 @@ fn intents_over_the_limit_are_dropped_with_a_warning() {
     assert!(out.logs.iter().any(|line| {
         line.level == Level::Warn && line.message.contains("dropped")
     }));
+}
+
+#[test]
+fn ticks_come_at_the_rate_to_the_plugins_that_want_them() {
+    let manifest = |extra: &str| {
+        let text = format!(
+            "id = \"a\"\nname = \"A\"\nversion = \"0.1.0\"\n{extra}"
+        );
+        Ticks::of(&Manifest::parse(&text).unwrap())
+    };
+    let mut default = manifest("");
+    assert!(default.due(Some(0.0), 30));
+    assert!(!default.due(Some(0.01), 30));
+    assert!(default.due(Some(0.04), 30));
+    assert!(default.due(None, 30));
+    assert!(!manifest("ticks = false").due(Some(0.0), 30));
+}
+
+#[test]
+fn events_published_over_the_rate_are_counted_out() {
+    let mut rate = Rate::default();
+    let plugin = Entity::PLACEHOLDER;
+
+    assert!((0..2).all(|_| rate.within(plugin, 0.0, 1.0, 2)));
+    assert!(!rate.within(plugin, 0.5, 1.0, 2));
+    assert!(rate.within(plugin, 1.0, 1.0, 2));
 }
 
 #[test]

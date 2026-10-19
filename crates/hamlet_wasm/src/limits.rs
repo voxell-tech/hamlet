@@ -16,9 +16,28 @@ use crate::reload::Polling;
 pub struct Limits {
     /// The time one call may take, in milliseconds.
     pub call_ms: u64,
+    /// The work one call may do, in wasmtime's fuel (about one unit
+    /// for each instruction). Unlike the time, it does not depend on
+    /// how busy the machine is.
+    pub call_fuel: u64,
     /// The interval between two ticks of the engine's epoch. A
     /// call's time is counted in these.
     pub tick_ms: u64,
+    /// The ticks one plugin that wants them is given in a second at
+    /// most. None at all when it is 0.
+    pub tick_hz: u32,
+    /// The times the host starts a plugin that trapped again by
+    /// itself, before it waits for the chief.
+    pub restart_retries: u32,
+    /// How long a plugin that trapped waits before the host starts
+    /// it again, in milliseconds.
+    pub restart_backoff_ms: u64,
+    /// The events one plugin may publish in a second. The rest are
+    /// dropped.
+    pub publishes_per_second: u32,
+    /// The bytes of the payloads of the events one `step` may
+    /// publish. The rest are dropped.
+    pub publish_bytes_per_step: usize,
     /// The memory one plugin may grow to, in MiB.
     pub memory_mib: usize,
     /// The elements one plugin's tables may hold.
