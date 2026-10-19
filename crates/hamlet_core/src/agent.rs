@@ -180,7 +180,7 @@ impl Agent {
     ) -> Result<String> {
         self.task = match task {
             Some(task) => task.to_string(),
-            None => budget::new_task(&self.name()),
+            None => budget::task_after(&self.name(), &self.task),
         };
         let said = self.run(user, text, on).await;
         // A turn that failed left nothing to look back on.
@@ -205,7 +205,7 @@ impl Agent {
                  to carry on"
             );
         }
-        self.task = budget::new_task(&self.name());
+        self.task = budget::task_after(&self.name(), &self.task);
         self.here()?;
         let said = self.work(on).await;
         self.unreflected += usize::from(said.is_ok());
@@ -265,7 +265,7 @@ impl Agent {
     ) -> Result<String> {
         self.unreflected = 0;
         self.objection = Objection::Closed;
-        self.task = budget::new_task(&self.name());
+        self.task = budget::task_after(&self.name(), &self.task);
         // An agent of a hamlet is asked once more, plainly: it is
         // the one moment it looks back at how things went.
         let lives = self.hamlet.is_some() && !self.mayor;

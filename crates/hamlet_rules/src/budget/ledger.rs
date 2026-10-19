@@ -19,6 +19,14 @@ pub fn new_task(agent: &str) -> String {
     format!("{}-{agent}", log::now_millis())
 }
 
+/// A new task's id that comes after `last`, so two tasks begun in the
+/// same millisecond are still two tasks.
+pub fn task_after(agent: &str, last: &str) -> String {
+    let last = last.split('-').next().and_then(|ms| ms.parse().ok());
+    let ms = log::now_millis().max(last.map_or(0, |ms: u64| ms + 1));
+    format!("{ms}-{agent}")
+}
+
 /// The day a task began.
 fn task_day(task: &str) -> Option<NaiveDate> {
     let ms = task.split('-').next()?.parse::<i64>().ok()?;
