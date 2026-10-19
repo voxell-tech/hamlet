@@ -551,7 +551,9 @@ plugin's `Choices` and writes the record.
 ## Limits no grant changes
 
 `assets/wasm.toml` bounds every plugin alike, whatever it is allowed: the time
-and memory of a call, the log, the panels, the nodes, depth and text of a
+and memory of a call, the bytes copied out of it in one crossing, its share of
+the engine's pool, the time and fuel of all its calls in a second and of all the
+plugins' in a frame, the size of its component, the log, the panels, the nodes, depth and text of a
 tree, the events it is given in a second, the intents it returns from a
 call, the calls it may have waiting and how deep they may go, the size of
 what crosses between plugins, and the time and fuel of a call of a typed
