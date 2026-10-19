@@ -2,10 +2,14 @@
 //! returns is a copy.
 
 use bevy::log::warn;
+use bevy::math::Vec3;
 use hamlet_sdk::capability::{Capability, Verdict};
 
 use super::State;
-use crate::interface::hamlet::plugin::host::{Agent, AgentPapers};
+use crate::interface::hamlet::plugin::host::{
+    Agent, AgentPapers, Place, WorldAgent, WorldHamlet, WorldThing,
+    WorldView,
+};
 
 impl State {
     pub(super) fn read_agents(
@@ -35,6 +39,48 @@ impl State {
                 .iter()
                 .map(|(name, _)| name.clone())
                 .collect(),
+        })
+    }
+
+    pub(super) fn read_world(&mut self) -> Result<WorldView, String> {
+        self.require(Capability::ReadWorld)?;
+        let place = |at: Option<Vec3>| {
+            at.map(|at| Place {
+                x: at.x,
+                y: at.y,
+                z: at.z,
+            })
+        };
+        let survey = &self.survey;
+        Ok(WorldView {
+            hamlets: survey
+                .hamlets
+                .iter()
+                .take(self.world_hamlets)
+                .map(|hamlet| WorldHamlet {
+                    id: hamlet.id.clone(),
+                    name: hamlet.name.clone(),
+                    at: place(hamlet.at),
+                })
+                .collect(),
+            agents: survey
+                .agents
+                .iter()
+                .take(self.world_agents)
+                .map(|agent| WorldAgent {
+                    name: agent.name.clone(),
+                    hamlet: agent.hamlet.clone(),
+                    at: place(agent.at),
+                    busy: agent.busy,
+                })
+                .collect(),
+            selected: survey.selected.as_ref().map(|spotted| {
+                WorldThing {
+                    kind: spotted.kind.clone(),
+                    name: spotted.name.clone(),
+                }
+            }),
+            hour: survey.hour,
         })
     }
 

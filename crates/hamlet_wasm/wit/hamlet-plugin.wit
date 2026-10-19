@@ -33,6 +33,54 @@ interface host {
   // `read.papers`, and is gated as `agents` is.
   papers: func() -> result<agent-papers, string>;
 
+  // A place in the world, in metres: `x` and `z` along the ground
+  // and `y` up.
+  record place {
+    x: f32,
+    y: f32,
+    z: f32,
+  }
+
+  // A hamlet by its id, the name of its folder, which a scope names
+  // it by; the name the window shows; and the place of its common
+  // while its town is drawn.
+  record world-hamlet {
+    id: string,
+    name: string,
+    at: option<place>,
+  }
+
+  // A living agent, the id of its hamlet, the place of its robot
+  // while it is drawn, and whether it is at work.
+  record world-agent {
+    name: string,
+    hamlet: string,
+    at: option<place>,
+    busy: bool,
+  }
+
+  // The thing selected in the world: its kind, as a `context-item`
+  // names kinds, and the name of the agent or the chief, or the id of
+  // the hamlet.
+  record world-thing {
+    kind: string,
+    name: string,
+  }
+
+  record world-view {
+    hamlets: list<world-hamlet>,
+    agents: list<world-agent>,
+    selected: option<world-thing>,
+    // The hour the sky shows, 0 to 24.
+    hour: f32,
+  }
+
+  // The realm as it is now: a copy, with places to a tenth of a
+  // metre, and at most as many hamlets and agents as the host caps.
+  // It needs the capability `read.world`, and is gated as `agents`
+  // is.
+  survey: func() -> result<world-view, string>;
+
   // Declares a command the plugin exports, which other plugins may run
   // by `id` once its manifest lists it under `exports.commands`, and
   // the chief runs from a menu or a key. Only `entry` declares; a call

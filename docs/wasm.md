@@ -85,6 +85,8 @@ shows and the view built from it are in `hamlet_sdk::tree`.
 - `papers() -> result<agent-papers, string>`, which needs the grant
   `read.papers`: the selected agent's notes, character and the names of its
   skills.
+- `survey() -> result<world-view, string>`, which needs the grant
+  `read.world`: the realm (see Reading the world below).
 - `request(capability, reason) -> request-result`, which asks to use a
   capability the manifest names: `granted`, `denied` or `pending` (see
   [`permissions.md`](permissions.md)).
@@ -637,6 +639,28 @@ never touches the world.
 hamlet. `papers()` returns the selected agent's notes and character as the SDK
 cut them for its pages, and the names of its skills.
 
+### Reading the world
+
+`survey()` returns a copy of `hamlet_realm_api::survey::Survey`, a read model
+the realm keeps (`hamlet_realm/src/survey.rs`) and writes only when it differs:
+
+- each hamlet by its id (the name of its folder, which a scope names it by),
+  the name the window shows and the place of its common while its town is
+  drawn;
+- each living agent by its name, the id of its hamlet, the place of its robot
+  while it is drawn and whether it is at work;
+- the thing selected, as a kind (`agent`, `mayor`, `house`, `ruin`,
+  `hamlet`, `chief`, `hearth` or `library`) and the name of the agent or the
+  chief, or the id of the hamlet;
+- the hour the sky shows, 0 to 24.
+
+A place is metres, `x` and `z` along the ground and `y` up, to a tenth of a
+metre, so the survey changes only when something moved that far. At most
+`world_hamlets` hamlets and `world_agents` agents are given, in the order of
+their ids and names. Nothing of the engine crosses: no entity, mesh or
+transform. The host copies the survey into a plugin's store before a call only
+while the plugin holds `read.world`. `hamlet_guest::world::view` reads it.
+
 ### The install record
 
 `plugins/grants.toml` records which plugins are installed and what the chief
@@ -712,6 +736,8 @@ each means. They apply to every plugin alike, whatever it is granted.
   answered with an error.
 - **Collections.** A page of at most `collection_page_items` items and
   `collection_page_bytes` bytes of values.
+- **The world.** A survey gives at most `world_hamlets` hamlets and
+  `world_agents` agents.
 - **Tools for the agents.** At most `agent_tools` tools of `tool_fields` fields
   declared, `tool_calls_in_flight` calls of agents waiting on a plugin, and a
   returned text of `tool_result_bytes` (a longer one is cut). A call is bounded by

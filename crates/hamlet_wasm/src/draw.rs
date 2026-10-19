@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 use hamlet_openui::Source;
 use hamlet_openui::source::Program;
+use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::Granted;
 use hamlet_sdk::dock::Panel;
@@ -73,6 +74,7 @@ pub fn draw(
     limits: Res<Limits>,
     agents: Res<AgentList>,
     papers: Res<Papers>,
+    survey: Res<Survey>,
     mut plugins: Query<(
         Entity,
         &PluginInfo,
@@ -101,6 +103,7 @@ pub fn draw(
             continue;
         }
         instance.see(granted, &agents, &papers);
+        instance.see_world(granted, &survey);
         instance.reach(reach::of(manifest, &sharing, &limits));
         for dock in dirty.take() {
             let Some(local) = local_id(&info.id, &dock) else {

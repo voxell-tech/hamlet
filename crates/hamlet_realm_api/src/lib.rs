@@ -9,3 +9,4 @@ pub mod palette;
 pub mod pick;
 pub mod sky;
 pub mod sound;
+pub mod survey;

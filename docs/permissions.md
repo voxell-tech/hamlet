@@ -20,14 +20,15 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 ## Capabilities
 
 `hamlet_sdk::capability::Capability`: `read.agents`, `read.chat`,
-`read.activity`, `read.papers`, `chat.send`, `commands.run`, `ui.menu`, `ui.keys`,
-`ui.context`, `ui.inspector`, `ui.settings`, `net`, `fs.pick`, `fs.folder`,
-`model.call`, `plugin.use`, `collections.read`, `collections.write`,
-`files.read`, `files.write`, `db`, `agent.tool`, `agent.hook` and `ui.canvas`.
-`read.agents`, `read.papers`, `ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`,
-`ui.settings`, `ui.canvas`, `chat.send`, `commands.run`, `net`, `files.read`, `files.write`, `db`,
-`agent.tool`, `agent.hook` and the three below are checked so far; the others can be asked for,
-shown and chosen.
+`read.activity`, `read.papers`, `read.world`, `chat.send`, `commands.run`,
+`ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`, `ui.settings`, `net`,
+`fs.pick`, `fs.folder`, `model.call`, `plugin.use`, `collections.read`,
+`collections.write`, `files.read`, `files.write`, `db`, `agent.tool`,
+`agent.hook` and `ui.canvas`. `read.agents`, `read.papers`, `read.world`,
+`ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`, `ui.settings`,
+`ui.canvas`, `chat.send`, `commands.run`, `net`, `files.read`, `files.write`,
+`db`, `agent.tool`, `agent.hook` and the three below are checked so far; the
+others can be asked for, shown and chosen.
 
 `plugin.use`, `collections.read` and `collections.write` are **scoped**: the
 chief chooses for each target, not once for all. The target of `plugin.use` is a
@@ -199,6 +200,12 @@ keys and model credentials; `ui.keys` is the keyboard shortcuts of a plugin.
 the names of its skills (`papers()`, or `Query("papers")` of a panel), as they
 stand when the plugin is called, as a copy. They are empty while no agent is
 selected. It is gated as `read.agents` is.
+
+`read.world` lets a plugin read the realm (`survey()`, see
+[`wasm.md`](wasm.md)): the hamlets, the agents and where each stands, the thing
+selected and the hour, as a copy of plain names and places, capped by
+`world_hamlets` and `world_agents`. It is allowed when the chief lets the plugin
+in and gated as `read.agents` is.
 
 Storage needs no capability: every plugin may keep a capped store of its own
 (see [`wasm.md`](wasm.md)), and no capability reaches another plugin's, which is

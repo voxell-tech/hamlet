@@ -3914,6 +3914,7 @@ dependencies = [
  "hamlet_core",
  "hamlet_home",
  "hamlet_openui",
+ "hamlet_realm_api",
  "hamlet_rules",
  "hamlet_sdk",
  "postcard",

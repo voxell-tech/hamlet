@@ -48,6 +48,8 @@ pub enum Step {
     /// Selects the agent of this name in the world, or none for an
     /// empty name.
     SetSelected(String),
+    /// Replaces the realm a plugin that may read it sees.
+    SetWorld(Surveying),
     /// The chief allows a capability the plugin asked for.
     Grant(String),
     /// The chief refuses one.
@@ -189,6 +191,44 @@ pub struct Typing {
 pub struct Agent {
     pub name: String,
     pub hamlet: String,
+}
+
+/// The realm: its hamlets, its agents and where each stands, the
+/// thing selected as `kind:name` (none when empty) and the hour.
+#[derive(Deserialize, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Surveying {
+    #[serde(default)]
+    pub hamlets: Vec<Hamlet>,
+    #[serde(default)]
+    pub agents: Vec<Placed>,
+    #[serde(default)]
+    pub selected: String,
+    #[serde(default)]
+    pub hour: f32,
+}
+
+/// A hamlet by its id, its name (the id where it has none) and the
+/// place of its common, as `[x, y, z]`.
+#[derive(Deserialize, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Hamlet {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    pub at: Option<[f32; 3]>,
+}
+
+/// An agent, the id of its hamlet, the place of its robot and
+/// whether it is at work.
+#[derive(Deserialize, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Placed {
+    pub name: String,
+    pub hamlet: String,
+    pub at: Option<[f32; 3]>,
+    #[serde(default)]
+    pub busy: bool,
 }
 
 /// The notes, the character and the skills of an agent.

@@ -47,6 +47,7 @@ and its asks go unanswered.
 | `sky` | `Quality` and `TimeOfDay`, the chief's choices of how the world is drawn |
 | `sound` | `PanelCue` and `PanelSound`, the panels' own sounds; `SoundChoice`, what the chief chose to hear |
 | `orders` | `Decree` and `Tell`, which the chat says; `decree`, `restore`, `part` and `offers`; `Introduce`, `Give`, `Carry` and `Switched`, which the realm answers |
+| `survey` | `Survey`, the realm by name for a plugin that holds `read.world`: the hamlets, the agents and where each stands, the thing selected and the hour |
 
 ## What plugins share
 

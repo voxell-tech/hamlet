@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 use hamlet_assets::TuningPlugin;
 use hamlet_openui::Drawing;
+use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::Kept;
 use hamlet_sdk::papers::Papers;
 
@@ -60,6 +61,7 @@ pub fn plugin(app: &mut App) {
     ))
     .init_resource::<Limits>()
     .init_resource::<Papers>()
+    .init_resource::<Survey>()
     .init_resource::<acts::Acted>()
     .init_resource::<net::Fetching>()
     .add_message::<run::Done>()

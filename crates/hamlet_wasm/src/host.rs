@@ -9,6 +9,7 @@ mod keeping;
 mod read;
 mod request;
 
+use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::Agent;
 use hamlet_sdk::capability::Granted;
 use hamlet_sdk::papers::Papers;
@@ -67,6 +68,10 @@ pub struct State {
     pub(crate) agents: Vec<Agent>,
     /// The selected agent's papers, when the plugin may read them.
     pub(crate) papers: Papers,
+    /// The realm, when the plugin may read it.
+    pub(crate) survey: Survey,
+    pub(crate) world_hamlets: usize,
+    pub(crate) world_agents: usize,
     /// The plugin's storage, once it has a folder.
     pub(crate) storage: Option<Storage>,
     /// The plugin's folder of files, once it has a folder.
@@ -109,6 +114,9 @@ impl State {
             wants: Vec::new(),
             agents: Vec::new(),
             papers: Papers::default(),
+            survey: Survey::default(),
+            world_hamlets: limits.world_hamlets,
+            world_agents: limits.world_agents,
             storage: None,
             files: None,
             db: None,
@@ -209,6 +217,10 @@ impl Host for State {
 
     fn papers(&mut self) -> Result<host::AgentPapers, String> {
         self.read_papers()
+    }
+
+    fn survey(&mut self) -> Result<host::WorldView, String> {
+        self.read_world()
     }
 
     fn request(

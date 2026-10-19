@@ -163,6 +163,10 @@ pub struct Limits {
     /// The bytes of the values of one page. A page holds at least
     /// one item, whatever its size.
     pub collection_page_bytes: usize,
+    /// The hamlets one read of the world gives at most.
+    pub world_hamlets: usize,
+    /// The agents one read of the world gives at most.
+    pub world_agents: usize,
 }
 
 /// The time one call may take, in milliseconds, for runs on a busy

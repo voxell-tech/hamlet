@@ -24,6 +24,7 @@ pub mod storage;
 pub mod subject;
 pub mod tool;
 pub mod ui;
+pub mod world;
 
 pub use self::bindings::exports::hamlet::plugin::plugin::{
     CallAnswer, CallRequest, ChatMessage, CommandCall, Incoming,

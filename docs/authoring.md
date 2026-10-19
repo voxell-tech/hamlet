@@ -297,6 +297,7 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 | `set-agents = [{ name = "Juniper", hamlet = "Pear Tree Hollow" }]` | Replaces the agents a plugin that may read them sees |
 | `set-papers = { notes = "..", character = "..", skills = ["a"] }` | Replaces the notes, character and skill names of the selected agent that a plugin that may read them sees |
 | `set-selected = "Juniper"` | Selects the agent of that name in the world, or none for `""`; a plugin that imports `host/selection-changed` and may read the agents hears of it |
+| `set-world = { hamlets = [{ id = "home", name = "Pear Tree", at = [0, 0, 0] }], agents = [{ name = "Juniper", hamlet = "home", at = [4, 0, 2], busy = true }], selected = "agent:Juniper", hour = 9.5 }` | Replaces the realm a plugin that may read it (`read.world`) sees: its hamlets, its agents and where each stands, the thing selected as `kind:name` and the hour |
 | `plugin = "clipper"` | Puts a plugin in front, where several were opened: the steps after it are done to that one |
 | `grant = "read.agents"` | The chief allows a capability the manifest asks for. For a scoped capability, `plugin.use:notes` or `collections.read:notes/notes` |
 | `deny = "read.agents"` | The chief refuses it |
@@ -347,6 +348,7 @@ on:
 | `set_agents(&[(hamlet, name)])` | Makes up the agents |
 | `set_papers(notes, character, &skills)` | Makes up the papers of the selected agent |
 | `set_selected(name)` | Makes up the agent selected in the world |
+| `set_world(survey)` | Makes up the realm a plugin that holds `read.world` reads |
 | `grant(capability)`, `deny(capability)` | Answer as the chief, for the plugin in front. A scoped capability is `plugin.use:notes` |
 | `tree(panel)`, `outline(panel)` | The tree a panel shows, as nodes and as lines |
 | `panels()`, `logs()`, `stopped()` | The panels the plugin declared, what it logged, why it stopped (`tree_of`, `outline_of`, `panels_of` and `stopped_of` take a plugin id) |

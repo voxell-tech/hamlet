@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use hamlet_agents_api::tools::{
     AgentTool, AgentToolCalled, TurnObserved,
 };
+use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::{Agent, AgentList, SelectedAgent};
 use hamlet_sdk::capability::{
     Asks, Capability, Choice, Decide, Replied,
@@ -208,6 +209,12 @@ impl Harness {
                 .map(|name| (name.clone(), String::new()))
                 .collect(),
         };
+        self.frames(SETTLE);
+    }
+
+    /// Makes `survey` the realm a plugin that may read it sees.
+    pub fn set_world(&mut self, survey: Survey) {
+        *self.app.world_mut().resource_mut::<Survey>() = survey;
         self.frames(SETTLE);
     }
 

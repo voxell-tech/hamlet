@@ -2,11 +2,15 @@
 
 use std::path::Path;
 
+use bevy::math::Vec3;
 use hamlet_agents_api::tools::{Phase, TurnObserved};
+use hamlet_realm_api::survey::{
+    Spotted, Survey, SurveyedAgent, SurveyedHamlet,
+};
 
 use crate::harness::Harness;
 use crate::outline;
-use crate::script::{Picture, Script, Step};
+use crate::script::{Picture, Script, Step, Surveying};
 
 /// What running a script left.
 pub struct Report {
@@ -95,6 +99,11 @@ fn describe(step: &Step) -> String {
             )
         }
         Step::SetSelected(name) => format!("set-selected {name:?}"),
+        Step::SetWorld(world) => format!(
+            "set-world ({} hamlets, {} agents)",
+            world.hamlets.len(),
+            world.agents.len()
+        ),
         Step::Grant(capability) => format!("grant {capability}"),
         Step::Deny(capability) => format!("deny {capability}"),
         Step::Restart(_) => "restart".into(),
@@ -162,6 +171,10 @@ fn apply(
                     .filter(|n| !n.is_empty())
                     .map(String::as_str),
             );
+            Ok(())
+        }
+        Step::SetWorld(world) => {
+            harness.set_world(surveyed(world)?);
             Ok(())
         }
         Step::Grant(capability) => harness.grant(capability),
@@ -278,6 +291,50 @@ fn apply(
             }
         }
     }
+}
+
+/// The realm a `set-world` step makes up.
+fn surveyed(world: &Surveying) -> Result<Survey, String> {
+    let at = |at: Option<[f32; 3]>| at.map(Vec3::from_array);
+    let selected = match world.selected.split_once(':') {
+        Some((kind, name)) => Some(Spotted {
+            kind: kind.into(),
+            name: name.into(),
+        }),
+        None if world.selected.is_empty() => None,
+        None => {
+            return Err(format!(
+                "`selected` is `kind:name`, not {:?}",
+                world.selected
+            ));
+        }
+    };
+    Ok(Survey {
+        hamlets: world
+            .hamlets
+            .iter()
+            .map(|hamlet| SurveyedHamlet {
+                id: hamlet.id.clone(),
+                name: match hamlet.name.is_empty() {
+                    true => hamlet.id.clone(),
+                    false => hamlet.name.clone(),
+                },
+                at: at(hamlet.at),
+            })
+            .collect(),
+        agents: world
+            .agents
+            .iter()
+            .map(|agent| SurveyedAgent {
+                name: agent.name.clone(),
+                hamlet: agent.hamlet.clone(),
+                at: at(agent.at),
+                busy: agent.busy,
+            })
+            .collect(),
+        selected,
+        hour: world.hour,
+    })
 }
 
 /// Adds what the plugins logged since the last look, and the panels

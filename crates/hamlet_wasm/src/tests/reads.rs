@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use bevy::prelude::*;
 use hamlet_core::agents::{Citizen, Left, LivesIn, Settlement};
+use hamlet_realm_api::survey::{Survey, SurveyedHamlet};
 use hamlet_sdk::agents::{Agent, AgentList};
 use hamlet_sdk::capability::{Capability, Granted, Verdict};
 use hamlet_sdk::papers::Papers;
@@ -84,6 +85,38 @@ fn the_papers_are_read_with_their_own_grant_and_only_as_a_copy() {
     );
     let out = plugin.step(&limits, &[]).unwrap();
     assert_eq!(out.intents, [Intent::LogLine("hello worl".into())]);
+}
+
+#[test]
+fn the_world_is_read_with_its_own_grant_within_the_cap() {
+    let limits = Limits::default().patient();
+    let mut plugin = super::load(&fixture::reading_world()).unwrap();
+    let survey = Survey {
+        hamlets: (0..limits.world_hamlets + 2)
+            .map(|n| SurveyedHamlet {
+                id: n.to_string(),
+                name: n.to_string(),
+                at: None,
+            })
+            .collect(),
+        ..Survey::default()
+    };
+    let mut read = |granted: &[Capability]| {
+        let granted = Granted::allowing(granted);
+        plugin.see(
+            &granted,
+            &AgentList::default(),
+            &Papers::default(),
+        );
+        plugin.see_world(&granted, &survey);
+        match &plugin.step(&limits, &[]).unwrap().intents[..] {
+            [Intent::LogLine(line)] => line.len(),
+            other => panic!("{other:?}"),
+        }
+    };
+
+    assert_eq!(read(&[Capability::ReadAgents]), 0);
+    assert_eq!(read(&[Capability::ReadWorld]), limits.world_hamlets);
 }
 
 #[test]

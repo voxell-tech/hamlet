@@ -2,6 +2,7 @@
 //! ask.
 
 use bevy::prelude::*;
+use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{Granted, Wanted};
 use hamlet_sdk::dock::{self, Panel};
@@ -37,6 +38,7 @@ pub fn step(
     limits: Res<Limits>,
     agents: Res<AgentList>,
     papers: Res<Papers>,
+    survey: Res<Survey>,
     mut plugins: Query<(
         Entity,
         &PluginInfo,
@@ -66,6 +68,7 @@ pub fn step(
             continue;
         }
         instance.see(granted, &agents, &papers);
+        instance.see_world(granted, &survey);
         instance.reach(reach::of(manifest, &sharing, &limits));
         let mail = inbox.take();
         match instance.step(&limits, &mail) {

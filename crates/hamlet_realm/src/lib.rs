@@ -22,6 +22,7 @@ pub mod sky;
 pub mod sound;
 pub mod stage;
 pub mod stock;
+pub mod survey;
 pub mod works;
 
 mod label;
@@ -71,8 +72,9 @@ impl Plugin for RealmPlugin {
                 works::plugin,
                 lantern::plugin,
             ),
-            // The core's entities, drawn.
-            hamlet::plugin,
+            // The core's entities, drawn, and what a plugin reads of
+            // them.
+            (hamlet::plugin, survey::plugin),
         ));
     }
 }

@@ -64,6 +64,8 @@ call_frames = 300
 call_bytes = 65536
 collection_page_items = 32
 collection_page_bytes = 65536
+world_hamlets = 64
+world_agents = 256
 
 [reload]
 poll_ms = 500

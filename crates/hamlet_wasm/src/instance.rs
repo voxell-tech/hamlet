@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use bevy::ecs::component::Component;
+use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::{Agent, AgentList};
 use hamlet_sdk::capability::{Capability, Granted};
 use hamlet_sdk::papers::Papers;
@@ -132,6 +133,20 @@ impl Instance {
         };
         if state.papers != *readable {
             state.papers.clone_from(readable);
+        }
+    }
+
+    /// Gives the store a copy of the realm when the plugin may read
+    /// it, as [`Instance::see`] does the agents.
+    pub fn see_world(&mut self, granted: &Granted, survey: &Survey) {
+        let none = Survey::default();
+        let readable = match granted.holds(Capability::ReadWorld) {
+            true => survey,
+            false => &none,
+        };
+        let state = self.store.data_mut();
+        if state.survey != *readable {
+            state.survey.clone_from(readable);
         }
     }
 

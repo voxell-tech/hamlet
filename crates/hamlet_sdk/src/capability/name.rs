@@ -24,6 +24,7 @@ pub enum Capability {
     ReadChat,
     ReadActivity,
     ReadPapers,
+    ReadWorld,
     ChatSend,
     CommandsRun,
     UiMenu,
@@ -47,11 +48,12 @@ pub enum Capability {
 }
 
 impl Capability {
-    pub const ALL: [Capability; 24] = [
+    pub const ALL: [Capability; 25] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
         Capability::ReadPapers,
+        Capability::ReadWorld,
         Capability::ChatSend,
         Capability::CommandsRun,
         Capability::UiMenu,
@@ -98,6 +100,7 @@ impl Capability {
             Capability::ReadChat => "read.chat",
             Capability::ReadActivity => "read.activity",
             Capability::ReadPapers => "read.papers",
+            Capability::ReadWorld => "read.world",
             Capability::ChatSend => "chat.send",
             Capability::CommandsRun => "commands.run",
             Capability::UiMenu => "ui.menu",
@@ -181,6 +184,10 @@ impl Capability {
             }
             Capability::ReadPapers => {
                 "Read an agent's notes, character and skills"
+            }
+            Capability::ReadWorld => {
+                "See the hamlets, where the agents stand, what is \
+                 selected and the hour"
             }
             Capability::ChatSend => {
                 "Send messages to agents as the chief"
