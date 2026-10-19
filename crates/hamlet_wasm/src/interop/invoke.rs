@@ -361,10 +361,10 @@ fn out_of_budget(limits: &Limits) -> InvokeError {
 
 /// Gives each call admitted to its target in a `step` of its own, at
 /// once, with the time and fuel of a call of an interface, which the
-/// caller must have left. The fuel the `step` uses is charged to the
-/// caller. A target that fails or runs out is stopped, its caller
-/// answered and barred from it, and the chief told; the other calls
-/// of it in the frame are answered without running it.
+/// caller must have left. The time and fuel the `step` uses are
+/// charged to the caller. A target that fails or runs out is stopped,
+/// its caller answered and barred from it, and the chief told; the
+/// other calls of it in the frame are answered without running it.
 pub(super) fn deliver(
     mut invoking: ResMut<Invoking>,
     mut calls: ResMut<Calls>,
@@ -428,13 +428,15 @@ pub(super) fn deliver(
         instance.reach(reach::of(manifest, &sharing, &limits));
         let budget = limits.invoking(limits.invoke_fuel);
         let callers = calls.callers(due.target);
+        let kept = instance.spent;
         let stepped = instance
             .step(&budget, &[Incoming::Invoked(due.invocation)]);
-        invoking.charge(
-            due.caller.0,
-            now,
-            instance.fuel_used(&budget),
-        );
+        let (took, fuel) =
+            (instance.spent.took, instance.fuel_used(&budget));
+        // The caller pays for the call in its own second, so that
+        // callers cannot spend the target's.
+        instance.spent = kept;
+        invoking.charge(due.caller.0, now, fuel);
         match stepped {
             Ok(output) => {
                 output.logs.iter().for_each(|line| {
@@ -485,6 +487,9 @@ pub(super) fn deliver(
                     answer(&mut inboxes, due.caller, Err(error));
                 }
             }
+        }
+        if let Ok((.., mut caller)) = plugins.get_mut(due.caller.0) {
+            caller.spent.charge(took, fuel);
         }
     }
 }

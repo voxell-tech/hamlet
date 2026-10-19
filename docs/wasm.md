@@ -919,7 +919,9 @@ cannot be read, is turned down by the scan.
    `invoke_ms` and `invoke_fuel`. A caller that has less than that left of its
    `invoke_fuel_per_second` is answered `out-of-budget` and the implementer is
    not run, so no caller can have it run short and stop. The fuel the `step`
-   uses is charged to the caller. A `step` that runs out or fails stops the
+   uses is charged to the caller's `invoke_fuel_per_second`, and its time and
+   fuel to the caller's second, not the implementer's, so callers cannot spend
+   the implementer's second. A `step` that runs out or fails stops the
    implementer as any failed call does, and its state may be broken. The chief
    is told which plugin's call stopped which, and that caller's calls of it are
    refused until the chief restarts it or Hamlet starts again; the host starting
@@ -1036,9 +1038,9 @@ each means. They apply to every plugin alike, whatever it is granted.
   as `Fault::OutOfFuel`. The time depends on how busy the machine is and the
   fuel does not, so a runaway loop ends the same way everywhere.
 - **A plugin's second and the frame.** All the calls of one plugin, its steps,
-  its panels and its answers to calls of interfaces and to the agents' turns,
-  with what the host does in them (the files and the database it writes among
-  it), may take `plugin_ms_per_second` and use `plugin_fuel_per_second` in a
+  its panels, its answers to the agents' turns and the answers of others to its
+  calls of interfaces, with what the host does in them (the files and the
+  database written among it), may take `plugin_ms_per_second` and use `plugin_fuel_per_second` in a
   second (`budget.rs`). Past either, its mail and its panels wait for the next
   second, a call of an interface to it is answered `out-of-budget`, and a point
   of a turn changes nothing. The steps and panels of all the plugins may take
