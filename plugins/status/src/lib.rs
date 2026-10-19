@@ -10,27 +10,45 @@ use bevy_fynix::views::{
     FrameProps, TooltipExt, column, frame, icon, label, row,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
+use hamlet_agents_api::convo::Me;
 use hamlet_agents_api::waits::Waits;
+use hamlet_chat::links::Aimed;
 use hamlet_core::agents::{Settlement, Treasury};
 use hamlet_core::core::{Link, Sandboxing, Settings};
 use hamlet_core::session::{Status, Usage};
 use hamlet_rules::hamlet::HOME;
-pub use hamlet_sdk::bar::Bar;
-
-use crate::icons::{Glyph, glyph};
-use crate::links::Aimed;
-use crate::looks::{hairline, note};
-use crate::me::Me;
-use crate::{AnyView, Cx, View};
+use hamlet_sdk::bar::Bar;
+use hamlet_sdk::frame::Place;
+use hamlet_sdk::icons::{Glyph, glyph};
+use hamlet_sdk::looks::{hairline, note};
+use hamlet_sdk::plugin::{
+    AppPluginExt, Entry, HamletPlugin, Manifest,
+};
+use hamlet_sdk::{AnyView, Cx, View};
 
 /// The side of an icon in the bar.
 const MARK: f32 = 12.0;
 
-pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Update, update_status);
+/// Adds the Status plugin.
+pub fn plugin(app: &mut App) {
+    app.add_systems(Update, update_status)
+        .add_hamlet_plugin::<StatusPlugin>();
 }
 
-pub(crate) fn update_status(
+/// The plugin that adds the line at the foot of the window.
+pub struct StatusPlugin;
+
+impl HamletPlugin for StatusPlugin {
+    fn manifest() -> Manifest {
+        Manifest::built_in("status").named("Status Bar")
+    }
+
+    fn entry(entry: &mut Entry) {
+        entry.frame_part(Place::Foot, 0, status_bar);
+    }
+}
+
+fn update_status(
     me: Res<Me>,
     sessions: Query<(Ref<Status>, Ref<Usage>)>,
     settings: Res<Settings>,
@@ -73,7 +91,7 @@ pub(crate) fn update_status(
 }
 
 /// The state of the connection in a few words.
-pub(crate) fn link_text(link: &Link) -> String {
+fn link_text(link: &Link) -> String {
     match link {
         Link::Unknown => "Connection not tested".into(),
         Link::Testing => "Testing connection...".into(),
@@ -86,7 +104,7 @@ pub(crate) fn link_text(link: &Link) -> String {
     }
 }
 
-pub(crate) fn link_tone(link: &Link) -> Tone {
+fn link_tone(link: &Link) -> Tone {
     match link {
         Link::Failed(_) => Tone::Critical,
         _ => Tone::Dim,

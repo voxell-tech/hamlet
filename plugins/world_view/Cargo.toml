@@ -1,0 +1,24 @@
+[package]
+name = "plugin_world_view"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The world in the window: the realm's camera drawn into a panel, its sky and its pace, and the chief's mascot beside whoever the chat is with"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_agents_api.workspace = true
+hamlet_chat.workspace = true
+hamlet_core.workspace = true
+hamlet_realm.workspace = true
+hamlet_realm_api.workspace = true
+hamlet_sdk.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+hamlet_home.workspace = true
+hamlet_testing.workspace = true

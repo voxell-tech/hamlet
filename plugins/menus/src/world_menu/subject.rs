@@ -3,7 +3,7 @@
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
 use hamlet_core::agents;
-use hamlet_realm::pick::Thing;
+use hamlet_realm_api::pick::Thing;
 use hamlet_sdk::command::{Subject, kind};
 
 /// The name a subject has when the world gives it none.

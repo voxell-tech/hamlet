@@ -7,9 +7,9 @@ use bevy::ecs::world::World;
 
 use crate::{AnyView, tree};
 
-/// On a contribution of a built-in plugin that fills a page: the view
-/// of the page. Without it the page is the plugin panel the
-/// contribution names.
+/// On a contribution of a built-in plugin that it draws itself: its
+/// view. A page without it is the plugin panel the contribution
+/// names.
 #[derive(Component, Clone, Copy)]
 #[component(immutable)]
 pub struct Native(pub fn() -> AnyView);

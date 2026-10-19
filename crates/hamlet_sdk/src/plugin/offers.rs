@@ -7,17 +7,21 @@ pub const HOST: &str = "host";
 
 /// The ids no installed plugin may take: the host, the chief and the
 /// plugins compiled into the app.
-pub const RESERVED: [&str; 10] = [
+pub const RESERVED: [&str; 14] = [
     HOST,
     "chief",
     "window",
     "agents",
     "hamlets",
     "inspector",
+    "menus",
     "needs",
     "realm",
     "settings",
     "skills",
+    "status",
+    "welcome",
+    "world-view",
 ];
 
 pub use hamlet_base::{joinable, plain};

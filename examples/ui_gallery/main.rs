@@ -21,7 +21,7 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use hamlet_offscreen::{self as offscreen, Target, word};
 use hamlet_ui::pictures::Pictures;
-use hamlet_ui::welcome::Step;
+use plugin_welcome::Step;
 
 use self::scenes::{GalleryPlugin, Place, Scene, Stand, Strike};
 

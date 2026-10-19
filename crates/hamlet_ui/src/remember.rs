@@ -42,6 +42,8 @@ const PATIENCE: u32 = 240;
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Pending>()
         .init_resource::<Kept>()
+        .init_resource::<TimeOfDay>()
+        .init_resource::<Quality>()
         .add_systems(
             Update,
             (

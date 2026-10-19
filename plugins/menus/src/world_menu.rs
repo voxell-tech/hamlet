@@ -23,19 +23,21 @@ use bevy::window::Window;
 use bevy_fynix::views::{FrameProps, frame, overlay, popup};
 use bevy_fynix::{ViewExt, derived, keyed};
 use hamlet_chat::deed::Ask;
-use hamlet_realm::pick::{Asked, AskedGround, Asks, Thing};
+use hamlet_realm_api::pick::{Asked, AskedGround, Asks, Thing};
 use hamlet_sdk::checks::{either, moved};
 use hamlet_sdk::confirm::Confirm;
 use hamlet_sdk::context::ContextItems;
+use hamlet_sdk::{AnyView, Cx, View};
 
 pub(crate) use self::contribute::contribute;
 pub use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
-use crate::{AnyView, Cx, View};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Open>()
         .init_resource::<Founding>()
+        .init_resource::<Asked>()
+        .init_resource::<AskedGround>()
         .add_observer(ask_of_row)
         .add_observer(ask_confirm)
         .add_observer(ask_deed)

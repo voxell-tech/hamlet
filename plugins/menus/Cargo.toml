@@ -1,0 +1,18 @@
+[package]
+name = "plugin_menus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The menus: HAMLET and VIEW in the top bar, the menu of a thing in the world with its items, and the question asked before a deed"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_chat.workspace = true
+hamlet_core.workspace = true
+hamlet_realm_api.workspace = true
+hamlet_rules.workspace = true
+hamlet_sdk.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true

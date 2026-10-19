@@ -1,0 +1,17 @@
+[package]
+name = "plugin_welcome"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The first-run screen: leads the chief of a home that was never set up to a model that answers"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_core.workspace = true
+hamlet_limits.workspace = true
+hamlet_model.workspace = true
+hamlet_sdk.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true

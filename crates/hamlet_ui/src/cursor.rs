@@ -28,10 +28,10 @@ use hamlet_realm_api::hand::{Grip, Hold};
 use hamlet_realm_api::pick::{
     Hovered, Pressable, Steer, Taken, Thing,
 };
+use hamlet_sdk::frame::PointerWait;
 
 pub use self::art::{Inks, face, frames, hot, side};
 use crate::theme::{HamletTheme, Look};
-use crate::welcome::Committing;
 
 /// The share of a cursor that is left while the hand carries a thing
 /// of the world, so that the thing is seen through it.
@@ -269,7 +269,7 @@ pub(crate) fn lend(
 pub(crate) fn dress(
     cursors: Res<Cursors>,
     time: Res<Time<Real>>,
-    pending: Option<Res<Committing>>,
+    pending: Option<Res<PointerWait>>,
     hold: Option<Res<Hold>>,
     steer: Option<Res<Steer>>,
     hovered: Option<Res<Hovered>>,
@@ -299,7 +299,7 @@ pub(crate) fn dress(
         // A robot in the hand is seen through it.
         let faint = grip == Some(Grip::Robot);
         let mode = Mode::choose(&Facts {
-            busy: pending.as_ref().is_some_and(|p| p.waits()),
+            busy: pending.as_ref().is_some_and(|p| p.0),
             grip,
             steer,
             asked,

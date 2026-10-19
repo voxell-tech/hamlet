@@ -3,15 +3,15 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use bevy::app::{App, AppExit, Update};
+use bevy::app::{App, AppExit, PostUpdate, Update};
 use bevy::ecs::message::MessageReader;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Local, Res, ResMut, Single};
 use bevy::state::app::AppExtStates;
-use bevy::state::state::{
-    ComputedStates, NextState, OnEnter, State, States,
-};
+use bevy::state::condition::in_state;
+use bevy::state::state::{NextState, OnEnter, State};
 use bevy::time::Time;
 use bevy::window::{
     ExitCondition, PrimaryWindow, Window, WindowCloseRequested,
@@ -20,6 +20,7 @@ use bevy::window::{
 };
 use bevy::winit::{UpdateMode, WinitSettings};
 use hamlet_core::core::HomeDir;
+use hamlet_sdk::frame::{Animating, Showing, WorldShown};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::chrome;
@@ -34,36 +35,15 @@ const LEAST_SIZE: (u32, u32) = (1180, 680);
 pub fn plugin(app: &mut App) {
     app.init_state::<Showing>()
         .add_computed_state::<WorldShown>()
+        .init_resource::<Animating>()
         .insert_resource(winit_settings(false))
         .add_systems(OnEnter(Showing::Hidden), hide)
         .add_systems(OnEnter(Showing::Shown), show)
         .add_systems(
             Update,
             (intercept_close, poll_show_requests, remember_size),
-        );
-}
-
-/// The window on screen or in the background.
-#[derive(
-    States, Clone, Copy, PartialEq, Eq, Hash, Debug, Default,
-)]
-pub(crate) enum Showing {
-    #[default]
-    Shown,
-    /// Background: the window is hidden and the agents keep running.
-    Hidden,
-}
-
-/// The world is drawn: the window is on screen.
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub(crate) struct WorldShown;
-
-impl ComputedStates for WorldShown {
-    type SourceStates = Showing;
-
-    fn compute(showing: Showing) -> Option<Self> {
-        (showing == Showing::Shown).then_some(WorldShown)
-    }
+        )
+        .add_systems(PostUpdate, pace.run_if(in_state(WorldShown)));
 }
 
 fn size_file(home: &Path) -> PathBuf {
@@ -160,6 +140,19 @@ pub(crate) fn winit_settings(hidden: bool) -> WinitSettings {
                 Duration::from_millis(250),
             ),
         }
+    }
+}
+
+/// Draws every frame while something moves, and at the window's slow
+/// tick otherwise.
+fn pace(animating: Res<Animating>, mut winit: ResMut<WinitSettings>) {
+    let mode = if animating.0 {
+        UpdateMode::Continuous
+    } else {
+        winit_settings(false).focused_mode
+    };
+    if winit.focused_mode != mode {
+        winit.focused_mode = mode;
     }
 }
 

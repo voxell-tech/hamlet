@@ -3,7 +3,7 @@ name = "hamlet_ui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The command center window: the dock, the panels, the menus and the pointer around the world"
+description = "The frame of the window: the dock, the window's chrome and states, the pointer, the hover card and the panels' sounds"
 
 [lints]
 workspace = true
@@ -15,14 +15,11 @@ hamlet_chat.workspace = true
 hamlet_core.workspace = true
 hamlet_desktop.workspace = true
 hamlet_limits.workspace = true
-hamlet_model.workspace = true
 hamlet_rules.workspace = true
-hamlet_realm.workspace = true
 hamlet_realm_api.workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true
-chrono.workspace = true
 serde.workspace = true
 tokio.workspace = true
 toml.workspace = true

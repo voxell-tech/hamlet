@@ -14,6 +14,7 @@ pub mod context;
 pub mod dock;
 pub mod events;
 pub mod feel;
+pub mod frame;
 pub mod icons;
 pub mod inspector;
 pub mod keys;

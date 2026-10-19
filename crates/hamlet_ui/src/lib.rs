@@ -1,23 +1,19 @@
-//! The command center (I4): a Bevy and fynix window added to the
-//! core's app.
+//! The frame of the window: the dock, the window's chrome and states,
+//! the pointer, the hover card and the panels' sounds. What fills it
+//! is plugins.
 
-mod chief;
 pub mod chrome;
+pub mod commands;
 pub mod cursor;
 mod dock;
 mod hover;
-pub mod menu;
 mod remember;
 mod root;
 mod sounds;
-mod status;
-pub mod welcome;
 pub mod widgets;
 mod window;
-pub mod world_menu;
-mod world_view;
 
-use bevy::app::{App, Plugin, Update};
+use bevy::app::{App, Plugin};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::state::state::OnEnter;
 use bevy_fynix::FynixPlugin;
@@ -26,7 +22,9 @@ pub use hamlet_agents_api::roll::{self, Roll};
 pub use hamlet_chat::me::{self, Me};
 pub use hamlet_chat::{chat, links, markdown, pictures, select};
 pub use hamlet_limits::{models, rules};
+pub use hamlet_sdk::bar::Bar;
 pub use hamlet_sdk::dock::{lit_panel, panel};
+use hamlet_sdk::frame::{Mounting, PointerWait};
 pub use hamlet_sdk::looks::{
     ICON, brass, grim, lamp, marked, retrace, well,
 };
@@ -35,15 +33,13 @@ pub use hamlet_sdk::{
 };
 
 pub use self::root::toolbar;
-pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
 pub use self::widgets::{feel, icons, platform, tabs, tuning};
 pub use self::window::{ShowRequests, window_plugin};
 
-/// The panels: the dock, its panels and the world's place in them.
+/// The frame of the window: the dock and what the panels stand on.
 /// Add it to the core's app after Bevy's default plugins, set with
-/// [`window_plugin`], the world's plugin and a [`ShowRequests`]
-/// resource.
+/// [`window_plugin`], and a [`ShowRequests`] resource.
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -58,17 +54,14 @@ impl Plugin for UiPlugin {
                 dock::plugin,
                 window::plugin,
                 chrome::plugin,
-                menu::plugin,
-                status::plugin,
+                commands::plugin,
                 remember::plugin,
             ),
             (
-                chief::plugin,
                 hamlet_limits::plugin,
                 hamlet_agents_api::asking::plugin,
-                welcome::plugin,
             ),
-            (world_view::plugin, world_menu::plugin, hover::plugin),
+            hover::plugin,
             (
                 theme::plugin,
                 widgets::plugin,
@@ -76,12 +69,10 @@ impl Plugin for UiPlugin {
                 sounds::plugin,
             ),
         ))
-        // The world panel shows the world's camera, which the world
-        // has spawned by now.
+        .init_resource::<PointerWait>()
         .add_systems(
             OnEnter(Look::Ready),
-            (world_view::attach, dock::seed, root::mount).chain(),
-        )
-        .add_systems(Update, chief::accompany.after(me::Followed));
+            (dock::seed, root::mount).chain().in_set(Mounting),
+        );
     }
 }

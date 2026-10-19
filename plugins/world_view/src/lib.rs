@@ -1,11 +1,15 @@
 //! The world in the window: the 3D scene drawn into a dock panel, the
-//! sky's hour, and the mayor's state on the stage.
+//! sky's hour, the mayor's state on the stage and the chief's mascot
+//! beside whoever the chat is with.
+
+mod chief;
 
 use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::asset::{Assets, RenderAssetUsages};
 use bevy::camera::{
     Camera, ImageRenderTarget, NormalizedRenderTarget, RenderTarget,
 };
+use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
@@ -22,15 +26,14 @@ use bevy::picking::pointer::PointerLocation;
 use bevy::render::render_resource::{
     TextureDimension, TextureFormat, TextureUsages,
 };
-use bevy::state::condition::in_state;
 use bevy::state::state::{OnEnter, OnExit};
 use bevy::ui::widget::ViewportNode;
 use bevy::ui::{Display, Node, Overflow, UiSystems, px};
 use bevy::window::{PrimaryWindow, Window};
-use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_fynix::ViewExt;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, frame};
 use chrono::Timelike;
+use hamlet_agents_api::convo::Me;
 use hamlet_core::agents::Busy;
 use hamlet_core::oversight::Waiting;
 use hamlet_core::session::{Entry, Status, Transcript};
@@ -38,17 +41,20 @@ use hamlet_realm::bubble::Bubble;
 use hamlet_realm::hand::Readout;
 use hamlet_realm::keeper::KState;
 use hamlet_realm::needs::NeedTag;
-use hamlet_realm::pick::{NameTag, Sign, WorldSurface};
+use hamlet_realm::pick::{NameTag, Orbit, Sign, WorldSurface};
 use hamlet_realm::sky::SkySettings;
 use hamlet_realm::{Hour, Stage, WorldCamera, WorldSystems};
-pub(crate) use hamlet_realm_api::sky::TimeOfDay;
+use hamlet_realm_api::sky::TimeOfDay;
+use hamlet_sdk::frame::{Animating, Mounting, WorldShown};
+use hamlet_sdk::icons::Glyph;
+use hamlet_sdk::looks::Fills;
+use hamlet_sdk::menu::Menu;
+use hamlet_sdk::plugin::{AppPluginExt, HamletPlugin, Manifest};
+use hamlet_sdk::theme::Look;
+use hamlet_sdk::{AnyView, Cx};
 
-use crate::dock::{Panel, PanelAppExt};
-use crate::icons::Glyph;
-use crate::looks::Fills;
-use crate::me::Me;
-use crate::window::WorldShown;
-use crate::{AnyView, Cx};
+/// The section of the lines a menu always has.
+const MAIN: u32 = 0;
 
 type WorldCameras<'w, 's> = Query<
     'w,
@@ -57,35 +63,90 @@ type WorldCameras<'w, 's> = Query<
     (With<WorldCamera>, Without<Window>),
 >;
 
-pub(crate) fn plugin(app: &mut App) {
-    app.add_panel(Panel::new("world", "REALM", Glyph::Globe, || {
-        column((view(),))
-            .fills_width()
-            .min_height(px(0.0))
-            .gap(0.0)
-            .boxed()
-    }))
-    .init_resource::<TimeOfDay>()
-    .insert_resource(hamlet_realm::pick::NoNameTag)
-    .add_systems(
-        Update,
-        (
-            drive.before(WorldSystems),
-            pace.run_if(in_state(WorldShown)),
-            adopt_tags,
-            follow_scale,
-            hold_sky.before(WorldSystems),
-        ),
-    )
-    .add_systems(
-        PreUpdate,
-        match_pointer_target
-            .after(bevy::picking::pointer::PointerInput::receive)
-            .before(bevy::picking::backend::ray::RayMap::repopulate),
-    )
-    .add_systems(PostUpdate, cap_picture.after(UiSystems::PostLayout))
-    .add_systems(OnEnter(WorldShown), draw)
-    .add_systems(OnExit(WorldShown), rest);
+/// Adds the World View plugin. Add it after the realm's plugin.
+pub fn plugin(app: &mut App) {
+    app.add_plugins(chief::plugin)
+        .init_resource::<TimeOfDay>()
+        .init_resource::<Animating>()
+        .insert_resource(hamlet_realm::pick::NoNameTag)
+        .add_systems(
+            Update,
+            (
+                drive.before(WorldSystems),
+                pace,
+                adopt_tags,
+                follow_scale,
+                hold_sky.before(WorldSystems),
+            ),
+        )
+        .add_systems(
+            PreUpdate,
+            match_pointer_target
+                .after(bevy::picking::pointer::PointerInput::receive)
+                .before(
+                    bevy::picking::backend::ray::RayMap::repopulate,
+                ),
+        )
+        .add_systems(
+            PostUpdate,
+            cap_picture.after(UiSystems::PostLayout),
+        )
+        // The world panel shows the world's camera, which the world
+        // has spawned by now.
+        .add_systems(OnEnter(Look::Ready), attach.before(Mounting))
+        .add_systems(OnEnter(WorldShown), draw)
+        .add_systems(OnExit(WorldShown), rest)
+        .add_hamlet_plugin::<WorldViewPlugin>();
+}
+
+/// The plugin that shows the world in a panel, with the VIEW lines of
+/// its camera and its sky.
+pub struct WorldViewPlugin;
+
+impl HamletPlugin for WorldViewPlugin {
+    fn manifest() -> Manifest {
+        Manifest::built_in("world-view").named("World View")
+    }
+
+    fn entry(entry: &mut hamlet_sdk::plugin::Entry) {
+        entry.panel("world", "REALM", Glyph::Globe, || {
+            column((view(),))
+                .fills_width()
+                .min_height(px(0.0))
+                .gap(0.0)
+                .boxed()
+        });
+        entry.command("reset-camera", "Reset Camera", |commands| {
+            commands.insert_resource(Orbit::default());
+        });
+        entry.command(
+            "sky-clock",
+            "Sky Follows the Clock",
+            |commands| {
+                commands.insert_resource(TimeOfDay::Clock);
+            },
+        );
+        entry.command("sky-day", "Sky at Day", |commands| {
+            commands.insert_resource(TimeOfDay::Day);
+        });
+        entry.command("sky-night", "Sky at Night", |commands| {
+            commands.insert_resource(TimeOfDay::Night);
+        });
+        for (label, command, glyph) in [
+            ("Reset Camera", "reset-camera", Glyph::Aim),
+            ("Sky Follows the Clock", "sky-clock", Glyph::Clock),
+            ("Sky at Day", "sky-day", Glyph::Sun),
+            ("Sky at Night", "sky-night", Glyph::Moon),
+        ] {
+            entry.menu_item(
+                Menu::View,
+                MAIN,
+                label,
+                command,
+                Some(glyph),
+            );
+        }
+    }
 }
 
 /// The camera that draws the world into the panel.
@@ -332,24 +393,16 @@ pub(crate) fn drive(
     }
 }
 
-/// Draws every frame while something moves, and at the window's slow
-/// tick otherwise.
-pub fn pace(
+/// Asks for every frame while something in the world moves.
+fn pace(
     stage: Res<Stage>,
     busy: Query<(), With<Busy>>,
     waiting: Query<(), With<Waiting>>,
-    mut winit: ResMut<WinitSettings>,
+    mut animating: ResMut<Animating>,
 ) {
     let moving =
         stage.animating() || !busy.is_empty() || !waiting.is_empty();
-    let mode = if moving {
-        UpdateMode::Continuous
-    } else {
-        crate::window::winit_settings(false).focused_mode
-    };
-    if winit.focused_mode != mode {
-        winit.focused_mode = mode;
-    }
+    animating.set_if_neq(Animating(moving));
 }
 
 /// Draws the world while it is in sight.

@@ -16,11 +16,12 @@ use hamlet_sdk::dock::show_tab;
 use hamlet_ui::feel::Lit;
 use hamlet_ui::icons::Glyph;
 use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::world_menu::{Deed, question};
 use hamlet_ui::{
-    Cx, ICON, Me, View, chat, lit_panel, menu, panel, status_bar,
-    toolbar, welcome,
+    Cx, ICON, Me, View, chat, lit_panel, panel, toolbar,
 };
+use plugin_menus::menu;
+use plugin_menus::world_menu::{Deed, question};
+use plugin_status::status_bar;
 
 use super::{Scene, Stand, Ui};
 
@@ -183,7 +184,7 @@ fn rewind_question() -> Ui {
 fn world_menu() -> Ui {
     AnyView::new(|cx: &mut Cx| match *cx.world.resource::<Scene>() {
         Scene::WorldMenu(_) | Scene::PluginContext => {
-            cx.build(hamlet_ui::world_menu::view())
+            cx.build(plugin_menus::world_menu::view())
         }
         _ => cx.build(frame()),
     })
@@ -200,7 +201,7 @@ pub(super) fn panels() -> Ui {
 fn shown(cx: &Cx) -> impl View {
     column((
         toolbar(cx),
-        column((dock::<HamletTheme>(), welcome::view()))
+        column((dock::<HamletTheme>(), plugin_welcome::view()))
             .grow(1.0)
             .min_height(px(0.0))
             .gap(0.0),

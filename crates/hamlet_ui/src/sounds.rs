@@ -15,14 +15,12 @@ use hamlet_realm_api::sound::{PanelCue, PanelSound, write};
 
 use crate::chat::Unfolded;
 use crate::hover::Card;
-use crate::menu::OpenMenu;
-use crate::world_menu::Open;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<PanelCue>()
         .add_observer(sent)
         .add_observer(failed)
-        .add_systems(Update, (menus, tabs, folds));
+        .add_systems(Update, (tabs, folds));
 }
 
 fn cue(sound: PanelSound) -> PanelCue {
@@ -32,29 +30,6 @@ fn cue(sound: PanelSound) -> PanelCue {
 /// One of the window's own buttons was pressed.
 pub(crate) fn window_button(world: &mut World) {
     world.write_message(cue(PanelSound::Sash));
-}
-
-/// A menu of the top bar or a question over the world, as it opens
-/// and as it goes. The menu of a thing in the world opens with the
-/// sound of the hand that asked for it.
-fn menus(
-    bar: Res<OpenMenu>,
-    over: Res<Open>,
-    mut was: Local<(bool, bool, bool)>,
-    mut turn: Local<u32>,
-    mut cues: MessageWriter<PanelCue>,
-) {
-    let now = (
-        bar.is_open(),
-        matches!(*over, Open::Question(..)),
-        *over != Open::Nothing,
-    );
-    let before = std::mem::replace(&mut *was, now);
-    if now.0 && !before.0 || now.1 && !before.1 {
-        write(&mut cues, &mut turn, PanelSound::PopOpen);
-    } else if before.0 && !now.0 || before.2 && !now.2 {
-        write(&mut cues, &mut turn, PanelSound::PopClose);
-    }
 }
 
 /// The state the dock was last seen in.
@@ -131,49 +106,5 @@ fn failed(
 ) {
     if matches!(output.reply, Reply::Error(_)) {
         cues.write(cue(PanelSound::Error));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use bevy::ecs::message::Messages;
-    use bevy::math::Vec2;
-    use hamlet_realm::pick::Thing;
-
-    use super::*;
-
-    fn app() -> App {
-        let mut app = App::new();
-        app.add_message::<PanelCue>()
-            .init_resource::<Time>()
-            .init_resource::<OpenMenu>()
-            .init_resource::<Open>()
-            .init_resource::<DockDrag>()
-            .init_resource::<Unfolded>()
-            .init_resource::<Card>();
-        app.add_plugins(plugin);
-        app.update();
-        app
-    }
-
-    fn heard_in(app: &mut App) -> Vec<PanelSound> {
-        app.update();
-        let cues = app.world().resource::<Messages<PanelCue>>();
-        cues.iter_current_update_messages()
-            .map(|cue| cue.sound)
-            .collect::<Vec<_>>()
-    }
-
-    #[test]
-    fn a_question_over_the_world_opens_and_closes_aloud() {
-        let mut app = app();
-        assert_eq!(heard_in(&mut app), []);
-        // The menu of a thing has the sound of the hand instead.
-        *app.world_mut().resource_mut::<Open>() =
-            Open::Menu(Thing::Keeper, Vec2::ZERO);
-        assert_eq!(heard_in(&mut app), []);
-        *app.world_mut().resource_mut::<Open>() = Open::Nothing;
-        assert_eq!(heard_in(&mut app), [PanelSound::PopClose]);
-        assert_eq!(heard_in(&mut app), []);
     }
 }

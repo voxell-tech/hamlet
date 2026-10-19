@@ -3563,8 +3563,12 @@ dependencies = [
  "hamlet_vfx",
  "hamlet_wasm",
  "plugin_inspector",
+ "plugin_menus",
  "plugin_needs",
  "plugin_settings",
+ "plugin_status",
+ "plugin_welcome",
+ "plugin_world_view",
  "serde_json",
  "tokio",
 ]
@@ -3679,11 +3683,12 @@ dependencies = [
  "hamlet_base",
  "hamlet_home",
  "hamlet_offscreen",
- "hamlet_realm",
+ "hamlet_realm_api",
  "hamlet_sdk",
  "hamlet_ui",
  "hamlet_wasm",
  "plugin_inspector",
+ "plugin_menus",
  "serde",
  "toml",
 ]
@@ -3781,10 +3786,14 @@ dependencies = [
  "plugin_agents",
  "plugin_hamlets",
  "plugin_inspector",
+ "plugin_menus",
  "plugin_needs",
  "plugin_realm",
  "plugin_settings",
  "plugin_skills",
+ "plugin_status",
+ "plugin_welcome",
+ "plugin_world_view",
 ]
 
 [[package]]
@@ -3865,7 +3874,6 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
- "chrono",
  "hamlet_agents_api",
  "hamlet_assets",
  "hamlet_chat",
@@ -3873,8 +3881,6 @@ dependencies = [
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_limits",
- "hamlet_model",
- "hamlet_realm",
  "hamlet_realm_api",
  "hamlet_rules",
  "hamlet_sdk",
@@ -5747,6 +5753,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "plugin_menus"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "hamlet_chat",
+ "hamlet_core",
+ "hamlet_realm_api",
+ "hamlet_rules",
+ "hamlet_sdk",
+]
+
+[[package]]
 name = "plugin_needs"
 version = "0.1.0"
 dependencies = [
@@ -5792,6 +5811,48 @@ dependencies = [
  "hamlet_agents_api",
  "hamlet_core",
  "hamlet_sdk",
+]
+
+[[package]]
+name = "plugin_status"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "hamlet_agents_api",
+ "hamlet_chat",
+ "hamlet_core",
+ "hamlet_rules",
+ "hamlet_sdk",
+]
+
+[[package]]
+name = "plugin_welcome"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "hamlet_core",
+ "hamlet_limits",
+ "hamlet_model",
+ "hamlet_sdk",
+]
+
+[[package]]
+name = "plugin_world_view"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "chrono",
+ "hamlet_agents_api",
+ "hamlet_chat",
+ "hamlet_core",
+ "hamlet_home",
+ "hamlet_realm",
+ "hamlet_realm_api",
+ "hamlet_sdk",
+ "hamlet_testing",
 ]
 
 [[package]]

@@ -1,0 +1,18 @@
+[package]
+name = "plugin_status"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The status bar: the sandbox, the model, the connection, what is spent and what waits, at the foot of the window"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_agents_api.workspace = true
+hamlet_chat.workspace = true
+hamlet_core.workspace = true
+hamlet_rules.workspace = true
+hamlet_sdk.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true

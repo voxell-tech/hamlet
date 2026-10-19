@@ -6,24 +6,23 @@ use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, Res};
 use bevy::ecs::world::World;
+use hamlet_agents_api::convo::Me;
+use hamlet_chat::me::Followed;
 use hamlet_core::core::HomeDir;
 use hamlet_core::session::UserMessage;
 use hamlet_realm::chief::{
     self, Beside, Chief, Look, Player, Stands,
 };
-use hamlet_realm::generator::society::Place as Ground;
 use hamlet_realm::library::{Library, Stood};
-use hamlet_realm::moving;
 use hamlet_realm::pick::{Selected, Thing};
-
-use crate::me::Me;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(spoke)
         .add_systems(Startup, enter)
-        .add_systems(Update, keep);
+        .add_systems(Update, (keep, accompany.after(Followed)));
 }
 
 /// Brings the chief this window belongs to into the world, with the
@@ -47,12 +46,6 @@ pub(crate) fn enter(world: &mut World) {
     {
         stood.0 = Some(at);
     }
-}
-
-/// Takes the place of this window's chief in hand, to be set down
-/// with a click on the ground.
-pub(crate) fn carry_home(world: &mut World) {
-    moving::pick_up(world, Ground::Chief);
 }
 
 /// The company of the mascot of a chief who has chosen `selected`,

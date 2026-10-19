@@ -9,7 +9,7 @@ use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockRegistry, DockTree, DockWindowKind,
 };
 use bevy_fynix::views::{FrameProps, column, frame};
-use hamlet_realm::pick::{Also, Selected, Thing};
+use hamlet_realm_api::pick::{Also, Selected, Thing};
 use hamlet_sdk::command::{Subject, kind};
 use hamlet_sdk::context::ContextItems;
 use hamlet_sdk::dock::{Panel, panel};
@@ -18,8 +18,9 @@ use hamlet_sdk::looks::{ICON, note, page_head, title};
 use hamlet_sdk::theme::HamletTheme;
 use hamlet_sdk::tree::view;
 use hamlet_sdk::{AnyView, Cx};
-use hamlet_ui::{tabs, world_menu};
+use hamlet_ui::tabs;
 use plugin_inspector::Section;
+use plugin_menus::world_menu;
 
 /// The id of the one window of the dock a hosted picture draws.
 const HOST: &str = "host";

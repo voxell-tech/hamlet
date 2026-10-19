@@ -1,13 +1,11 @@
 //! The menus in the top bar. What they list is the lines plugins
 //! contributed, read from `hamlet_sdk::menu::Menus`.
 
-pub mod window;
-
-use bevy::app::{App, First, Update};
+use bevy::app::{App, Update};
 use bevy::color::Color;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Query, Res, ResMut};
+use bevy::ecs::system::{Query, Res};
 use bevy::ecs::world::World;
 use bevy::input::ButtonInput;
 use bevy::input::mouse::MouseButton;
@@ -16,35 +14,29 @@ use bevy::ui::{
     AlignItems, ComputedNode, UiGlobalTransform, UiRect, percent, px,
 };
 use bevy::window::Window;
-use bevy_fynix::shortcut::Scope;
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, POPUP, button, frame, label, menu_item,
+    BehaviorExt, FrameProps, button, frame, label, menu_item,
     overlay, popup, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, style};
-use hamlet_realm::pick::Taken;
 use hamlet_sdk::checks::{either, moved};
 use hamlet_sdk::command::RunCommand;
+use hamlet_sdk::feel::FootLight;
+use hamlet_sdk::icons::glyph;
+use hamlet_sdk::looks::{ICON, hairline};
 pub use hamlet_sdk::menu::Menu;
 use hamlet_sdk::menu::{Line, Menus};
-
-use crate::feel::FootLight;
-use crate::icons::glyph;
-use crate::looks::{ICON, hairline};
-use crate::platform::DisplayText;
-use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, View, with_cx};
+use hamlet_sdk::platform::DisplayText;
+use hamlet_sdk::theme::HamletTheme;
+use hamlet_sdk::{AnyView, Cx, View, with_cx};
 
 /// The height of the menu bar.
 const BAR: f32 = 34.0;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_plugins(window::plugin)
-        .init_resource::<OpenMenu>()
-        .add_systems(Update, light_titles)
-        // Before the toolkit closes a popup on Escape this frame.
-        .add_systems(First, hold_escape);
+    app.init_resource::<OpenMenu>()
+        .add_systems(Update, light_titles);
 }
 
 /// The open menu and the rect of its title, in the window's logical
@@ -60,22 +52,6 @@ impl OpenMenu {
     /// `menu` open under a title at `title`.
     pub fn under(menu: Menu, title: Rect) -> Self {
         Self(Some((menu, title)))
-    }
-}
-
-/// Tells the world whether a popup is open as the frame begins,
-/// so that the Escape that closes it does not also let go of what
-/// is selected. The toolkit closes the popup itself.
-pub(crate) fn hold_escape(
-    open: Query<&Scope>,
-    taken: Option<ResMut<Taken>>,
-) {
-    let Some(mut taken) = taken else {
-        return;
-    };
-    let over = open.iter().any(|scope| scope.0 == POPUP);
-    if taken.over != over {
-        taken.over = over;
     }
 }
 

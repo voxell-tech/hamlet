@@ -14,6 +14,10 @@ hamlet_ui = { workspace = true, optional = true }
 plugin_agents = { workspace = true, optional = true }
 plugin_hamlets = { workspace = true, optional = true }
 plugin_realm = { workspace = true, optional = true }
+plugin_world_view = { workspace = true, optional = true }
+plugin_menus = { workspace = true, optional = true }
+plugin_status = { workspace = true, optional = true }
+plugin_welcome = { workspace = true, optional = true }
 plugin_needs = { workspace = true, optional = true }
 plugin_inspector = { workspace = true, optional = true }
 plugin_settings = { workspace = true, optional = true }
@@ -30,17 +34,25 @@ default = [
     "agents",
     "hamlets",
     "inspector",
+    "menus",
     "needs",
     "realm",
     "settings",
     "skills",
+    "status",
+    "welcome",
     "window",
+    "world-view",
 ]
 window = ["dep:hamlet_ui"]
 agents = ["dep:plugin_agents"]
 hamlets = ["dep:plugin_hamlets"]
 inspector = ["dep:plugin_inspector"]
+menus = ["dep:plugin_menus"]
 needs = ["dep:plugin_needs"]
 realm = ["dep:plugin_realm"]
 settings = ["dep:plugin_settings"]
 skills = ["dep:plugin_skills"]
+status = ["dep:plugin_status"]
+welcome = ["dep:plugin_welcome"]
+world-view = ["dep:plugin_world_view"]

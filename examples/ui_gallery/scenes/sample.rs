@@ -30,9 +30,11 @@ use hamlet_rules::budget::{AgentBudget, Amount};
 use hamlet_rules::chief::asking::Pick;
 use hamlet_rules::chief::rulings::Choice;
 use hamlet_ui::links::{Aimed, Roots};
-use hamlet_ui::{Me, chat, menu, welcome};
+use hamlet_ui::{Me, chat};
 use plugin_inspector::history::{History, Reading};
 use plugin_inspector::{self as inspector, history, overview};
+use plugin_menus::menu;
+use plugin_welcome as welcome;
 use serde_json::{Value, json};
 
 use super::Scene;

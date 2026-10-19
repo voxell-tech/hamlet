@@ -8,17 +8,16 @@ use bevy::ecs::world::World;
 use bevy::math::Vec2;
 use hamlet_chat::deed;
 use hamlet_core::agents::{self, Busy, Left, Mayor, Settlement};
-use hamlet_realm::generator::society::Place as Ground;
-use hamlet_realm::pick::{Thing, focus_on, select};
-use hamlet_realm::{moving, orders};
+use hamlet_realm_api::orders::{self, Carry};
+use hamlet_realm_api::pick::{Thing, focus_on, select};
 use hamlet_rules::hamlet::HOME;
 use hamlet_sdk::command::{Subject, kind};
 
 use super::deed::Deed;
 use super::subject::{entity, thing};
 use super::{Open, pointer};
+use crate::chat;
 use crate::me::{talk_to, talk_to_mayor};
-use crate::{chat, chief};
 
 /// Queues `act` on `subject`, for a command that needs the whole
 /// world.
@@ -123,13 +122,15 @@ pub(super) fn go_to_hearth(world: &mut World, subject: &Subject) {
 }
 
 pub(super) fn move_hearth(world: &mut World, _: &Subject) {
-    chief::carry_home(world);
+    orders::carry(world, Carry::Hearth);
 }
 
 pub(super) fn carry(world: &mut World, subject: &Subject) {
     match (subject.kind.as_str(), entity(subject)) {
-        (kind::HAMLET, Some(hamlet)) => orders::carry(world, hamlet),
-        (kind::LIBRARY, _) => moving::pick_up(world, Ground::Library),
+        (kind::HAMLET, Some(hamlet)) => {
+            orders::carry(world, Carry::Hamlet(hamlet))
+        }
+        (kind::LIBRARY, _) => orders::carry(world, Carry::Library),
         _ => {}
     }
 }

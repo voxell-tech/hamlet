@@ -41,10 +41,15 @@ use hamlet_realm::pick::Selected;
 use hamlet_realm::sound::{self, SoundSettings};
 use hamlet_realm_api::sound::PanelCue;
 use hamlet_sdk::inspector::InspectorSections;
+use hamlet_sdk::plugin::AppPluginExt;
 use hamlet_sdk::settings::SettingsPages;
 use hamlet_ui::theme::{self, HamletTheme};
-use hamlet_ui::{Bar, Roll, chrome, menu, select, welcome};
+use hamlet_ui::{Bar, Roll, chrome, select};
 use plugin_inspector::history::History;
+use plugin_menus::menu;
+use plugin_status::StatusPlugin;
+use plugin_welcome::{self as welcome, WelcomePlugin};
+use plugin_world_view::WorldViewPlugin;
 
 use self::dock::{panels, seed_dock};
 use self::sample::{first_run, setup};
@@ -160,7 +165,8 @@ impl Plugin for GalleryPlugin {
                     waits::plugin,
                     petition::plugin,
                 ),
-                menu::window::plugin,
+                hamlet_ui::commands::plugin,
+                plugin_menus::plugin,
                 hamlet_openui::plugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_plugins::Panels,
@@ -169,7 +175,12 @@ impl Plugin for GalleryPlugin {
                 hamlet_ui::chat::plugin,
                 hamlet_ui::links::plugin,
                 hamlet_ui::pictures::plugin,
-            ));
+            ))
+            // Their parts and lines, without the systems that need a
+            // home and a world.
+            .add_hamlet_plugin::<WorldViewPlugin>()
+            .add_hamlet_plugin::<StatusPlugin>()
+            .add_hamlet_plugin::<WelcomePlugin>();
     }
 }
 

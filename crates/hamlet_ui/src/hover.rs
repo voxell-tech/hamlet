@@ -34,16 +34,15 @@ use hamlet_core::agents::{
     MergedInto, Purpose, Roster, Treasury, Works,
 };
 use hamlet_core::oversight::Waiting;
-use hamlet_realm::chief::{Beside, Look};
-use hamlet_realm::hand::Proud;
-use hamlet_realm::pick::{Following, Hovered, Thing};
+use hamlet_realm_api::chief::{Beside, Look};
+use hamlet_realm_api::hand::Proud;
+use hamlet_realm_api::pick::{Following, Hovered, Taken, Thing};
 use hamlet_rules::work::Mode;
 
 use crate::feel::FeelSettings;
 use crate::platform::{DisplayText, show};
 use crate::roll::Roll;
 use crate::theme::Themed;
-use crate::world_menu::Open;
 use crate::{AnyView, Cx, View};
 
 /// The layer of the card in the window's stack: over the panels,
@@ -401,14 +400,14 @@ pub(crate) struct Resting {
 }
 
 /// Fills the card from what the pointer has rested on for a while,
-/// and again when that changed. There is no card while a menu is
+/// and again when that changed. There is no card while a popup is
 /// open over the world.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn describe(
     hovered: Res<Hovered>,
     time: Res<Time>,
     feel: Res<FeelSettings>,
-    open: Res<Open>,
+    taken: Res<Taken>,
     roll: Res<Roll>,
     told: Told,
     mut resting: ResMut<Resting>,
@@ -421,7 +420,7 @@ pub(crate) fn describe(
         resting.since = clock;
     }
     let rested = clock - resting.since >= feel.hover_wait;
-    let menu = *open != Open::Nothing;
+    let menu = taken.over;
     let Some(thing) = hovered.0.filter(|_| rested && !menu) else {
         *made = None;
         // It goes out with the words it had.

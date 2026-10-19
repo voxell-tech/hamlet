@@ -7,12 +7,14 @@ use std::path::Path;
 mod pages;
 
 use bevy::app::{App, Update};
+use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::component::Component;
 use bevy::ecs::hierarchy::Children;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input_focus::InputFocus;
@@ -21,13 +23,21 @@ use hamlet_core::core::{
     HomeDir, Link, ListModels, Model, SaveSettings, Settings, SignIn,
     Signing, TestConnection, Trial, TryModel,
 };
+use hamlet_limits::models;
 use hamlet_model::catalogue::{self, Catalogue, Listed};
 use hamlet_model::chatgpt;
 use hamlet_model::config::providers::{
     LOCAL, OPENROUTER, OTHER, PROVIDERS, served,
 };
 use hamlet_model::config::{Config, Endpoint};
+use hamlet_sdk::frame::{Place, PointerWait};
+use hamlet_sdk::plugin::{
+    AppPluginExt, Entry, HamletPlugin, Manifest,
+};
 use hamlet_sdk::settings::{AddEndpoint, SetUpAgain, ShowModels};
+use hamlet_sdk::{
+    AnyView, Cx, View, feel, icons, looks, platform, with_cx,
+};
 
 pub use self::pages::view;
 
@@ -35,13 +45,14 @@ const NOTHING_LOCAL: &str = "No model server answered here. Install \
                              Ollama from ollama.com, download a \
                              model, then choose Look Again.";
 
-/// Opens the screen on a home that was never set up.
-pub(crate) fn plugin(app: &mut App) {
+/// Adds the Welcome plugin, open on a home that was never set up.
+pub fn plugin(app: &mut App) {
     let home = &app.world().resource::<HomeDir>().0.root;
     let replay = app.world().resource::<Model>().replay;
     let welcome = Welcome::at_launch(home, replay);
     app.insert_resource(welcome)
         .init_resource::<Committing>()
+        .init_resource::<PointerWait>()
         .add_observer(|_: On<SetUpAgain>, mut commands: Commands| {
             commands.queue(again);
         })
@@ -51,12 +62,31 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                run_committed
-                    .run_if(|waits: Res<Committing>| waits.waits()),
+                (
+                    run_committed.run_if(|waits: Res<Committing>| {
+                        waits.waits()
+                    }),
+                    wait.run_if(resource_changed::<Committing>),
+                )
+                    .chain(),
                 follow,
                 read_narrow,
             ),
-        );
+        )
+        .add_hamlet_plugin::<WelcomePlugin>();
+}
+
+/// The plugin that leads the chief to a model that answers.
+pub struct WelcomePlugin;
+
+impl HamletPlugin for WelcomePlugin {
+    fn manifest() -> Manifest {
+        Manifest::built_in("welcome").named("Welcome")
+    }
+
+    fn entry(entry: &mut Entry) {
+        entry.frame_part(Place::Dock, 0, view);
+    }
 }
 
 /// The step of the screen the chief is at.
@@ -144,6 +174,14 @@ impl Committing {
     pub fn waits(&self) -> bool {
         self.0.is_some()
     }
+}
+
+/// Has the pointer say the app is busy while a step waits.
+fn wait(
+    committing: Res<Committing>,
+    mut pointer: ResMut<PointerWait>,
+) {
+    pointer.set_if_neq(PointerWait(committing.waits()));
 }
 
 fn request(world: &mut World, act: Act) {

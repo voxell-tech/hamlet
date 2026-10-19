@@ -24,8 +24,9 @@ use hamlet_ui::icons::{Glyph, glyph};
 use hamlet_ui::platform::DisplayText;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::{
-    Cx, brass, chat, grim, lamp, marked, menu, platform, tabs, well,
+    Cx, brass, chat, grim, lamp, marked, platform, tabs, well,
 };
+use plugin_menus::menu;
 
 use super::{Scene, Strike, Ui};
 

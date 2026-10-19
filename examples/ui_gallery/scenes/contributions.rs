@@ -17,7 +17,7 @@ use hamlet_sdk::tree::id::dock_id;
 use hamlet_sdk::tree::node::{Kind, Node};
 use hamlet_sdk::tree::store::{Drawn, PluginTrees};
 use hamlet_sdk::tree::view;
-use hamlet_ui::world_menu;
+use plugin_menus::world_menu;
 
 /// An installed plugin that the chief allowed `capability`.
 fn installed(

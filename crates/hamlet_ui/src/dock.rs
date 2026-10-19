@@ -13,7 +13,7 @@ use bevy_fynix::dock::{
     NodeId, SplitAxis,
 };
 use hamlet_core::core::RefreshLists;
-pub(crate) use hamlet_sdk::dock::{Panel, PanelAppExt, TabShown};
+use hamlet_sdk::dock::TabShown;
 
 use crate::remember;
 

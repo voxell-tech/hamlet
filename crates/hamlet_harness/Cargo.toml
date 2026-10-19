@@ -20,10 +20,11 @@ hamlet_assets = { workspace = true, optional = true }
 hamlet_base = { workspace = true, optional = true }
 hamlet_home = { workspace = true, optional = true }
 hamlet_offscreen = { workspace = true, optional = true }
-hamlet_realm = { workspace = true, optional = true }
+hamlet_realm_api = { workspace = true, optional = true }
 hamlet_ui = { workspace = true, optional = true }
 hamlet_wasm = { workspace = true, optional = true }
 plugin_inspector = { workspace = true, optional = true }
+plugin_menus = { workspace = true, optional = true }
 
 [features]
 # Runs a plugin: `cargo test --features wasm`.
@@ -35,10 +36,11 @@ wasm = [
     "dep:hamlet_base",
     "dep:hamlet_home",
     "dep:hamlet_offscreen",
-    "dep:hamlet_realm",
+    "dep:hamlet_realm_api",
     "dep:hamlet_ui",
     "dep:hamlet_wasm",
     "dep:plugin_inspector",
+    "dep:plugin_menus",
 ]
 
 [dev-dependencies]

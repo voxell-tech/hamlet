@@ -205,7 +205,7 @@ pub fn overview() -> AnyView {
                 .tagged(SearchField),
             action(Glyph::Plus, "FOUND A HAMLET", |world| {
                 world.trigger(RunCommand::of(command::full(
-                    "window", "found",
+                    "menus", "found",
                 )));
                 world.flush();
             }),

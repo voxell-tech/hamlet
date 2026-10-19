@@ -6,8 +6,9 @@ use bevy_app::{PluginGroup, PluginGroupBuilder};
 pub use plugin_agents::Launch;
 
 /// Every plugin whose feature is on: the layers from the base up,
-/// the window and then the panels. Add it to the app after Bevy's
-/// default plugins and a `ShowRequests` resource.
+/// the window's frame, the realm, what fills the frame and then the
+/// panels. Add it to the app after Bevy's default plugins and a
+/// `ShowRequests` resource.
 pub struct Builtin;
 
 impl PluginGroup for Builtin {
@@ -21,7 +22,26 @@ impl PluginGroup for Builtin {
         // adds it.
         #[cfg(feature = "realm")]
         let group = group.add(plugin_realm::plugin);
-        group.add_group(Panels)
+        group.add_group(Frame).add_group(Panels)
+    }
+}
+
+/// The plugins that fill the window's frame: the world's panel, the
+/// menus, the status bar and the first-run screen.
+pub struct Frame;
+
+impl PluginGroup for Frame {
+    fn build(self) -> PluginGroupBuilder {
+        let group = PluginGroupBuilder::start::<Self>();
+        #[cfg(feature = "world-view")]
+        let group = group.add(plugin_world_view::plugin);
+        #[cfg(feature = "menus")]
+        let group = group.add(plugin_menus::plugin);
+        #[cfg(feature = "status")]
+        let group = group.add(plugin_status::plugin);
+        #[cfg(feature = "welcome")]
+        let group = group.add(plugin_welcome::plugin);
+        group
     }
 }
 
@@ -75,6 +95,8 @@ mod tests {
             plugin_hamlets::HamletsPlugin::manifest(),
             #[cfg(feature = "inspector")]
             plugin_inspector::InspectorPlugin::manifest(),
+            #[cfg(feature = "menus")]
+            plugin_menus::MenusPlugin::manifest(),
             #[cfg(feature = "needs")]
             plugin_needs::NeedsPlugin::manifest(),
             #[cfg(feature = "realm")]
@@ -83,6 +105,14 @@ mod tests {
             plugin_settings::SettingsPlugin::manifest(),
             #[cfg(feature = "skills")]
             plugin_skills::SkillsPlugin::manifest(),
+            #[cfg(feature = "status")]
+            plugin_status::StatusPlugin::manifest(),
+            #[cfg(feature = "welcome")]
+            plugin_welcome::WelcomePlugin::manifest(),
+            #[cfg(feature = "window")]
+            hamlet_ui::commands::Window::manifest(),
+            #[cfg(feature = "world-view")]
+            plugin_world_view::WorldViewPlugin::manifest(),
         ];
         for manifest in manifests {
             assert!(

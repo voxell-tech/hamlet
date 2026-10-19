@@ -11,6 +11,7 @@ use crate::AnyView;
 use crate::command::{Command, Handler, HandlerWith, Opens, Subject};
 use crate::context::{ContextItem, ContextWhen};
 use crate::dock::Panel;
+use crate::frame::{FramePart, Place};
 use crate::icons::Glyph;
 use crate::inspector::InspectorSection;
 use crate::keys::Key;
@@ -35,6 +36,7 @@ enum Declared {
     Context(ContextItem, Option<fn(&World, &Subject) -> bool>),
     Inspector(InspectorSection, Option<NativePage>),
     Settings(SettingsPage, Option<fn() -> AnyView>),
+    Frame(FramePart, fn() -> AnyView),
 }
 
 /// A page a built-in plugin draws itself: its view, and when it is
@@ -247,6 +249,18 @@ impl Entry {
         ));
     }
 
+    /// Adds a part to the window's frame at `place`, which `view`
+    /// draws. Parts of a place are drawn by `order`.
+    pub fn frame_part(
+        &mut self,
+        place: Place,
+        order: i32,
+        view: fn() -> AnyView,
+    ) {
+        self.declared
+            .push(Declared::Frame(FramePart { place, order }, view));
+    }
+
     fn declare_section(
         &mut self,
         target: &str,
@@ -323,6 +337,13 @@ impl Entry {
                     if let Some(view) = view {
                         page.insert(Native(view));
                     }
+                }
+                Declared::Frame(part, view) => {
+                    commands.spawn((
+                        part,
+                        Native(view),
+                        ContributedBy(plugin),
+                    ));
                 }
                 Declared::Context(item, when) => {
                     let mut item =

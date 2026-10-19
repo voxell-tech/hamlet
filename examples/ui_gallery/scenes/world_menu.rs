@@ -8,7 +8,7 @@ use bevy::ecs::world::World;
 use bevy::math::Vec2;
 use hamlet_core::agents::{Busy, Citizen, Left, Settlement};
 use hamlet_realm::pick::{Also, Thing};
-use hamlet_ui::world_menu;
+use plugin_menus::world_menu;
 
 /// What the menu is of.
 #[derive(Clone, Copy, PartialEq, Eq)]
