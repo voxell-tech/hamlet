@@ -364,7 +364,7 @@ fn scrub(secrets: &[String], outcome: &mut Outcome) {
 /// It works in the folder, or in the house when there is none; writes
 /// the house and the folder; reads the shared folders; and never
 /// reads the rest of the home.
-fn environment(
+pub(crate) fn environment(
     sandbox: &Sandbox,
     place: &Place,
     net: bool,

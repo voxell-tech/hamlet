@@ -645,3 +645,120 @@ async fn stops_another_hamlets_agent_by_name_and_office() {
         );
     }
 }
+
+#[tokio::test]
+async fn agreements_survive_office_changes_but_former_mayors_cannot_add_them()
+ {
+    let road = |a: &str| {
+        call(
+            "agree_road",
+            json!({"a":a,"b":"mason","reason":"Trade"}),
+        )
+    };
+    let script = society().agent("home:0", [road("scout"), words("Proposed"), road("smith"), words("Former mayor tried")])
+        .agent("mill:0", [
+            call("create_agent", json!({"name":"mason","purpose":"Build","reason":"Work"})), words("Ready"),
+            words("Consider later"), road("scout"), words("Agreed existing assent"),
+            road("smith"), words("Only mill assented"),
+        ]).agent("home:3", [words("Consider later")]);
+    let mut s = Session::start(script).await;
+    build(&mut s).await;
+    s.chief.say(mayor(), "/found mill miller Work").await;
+    s.chief.say(to("mill", "mayor"), "Create mason").await;
+    s.chief.say(mayor(), "Propose scout's road").await;
+    assert!(
+        !roads(&s.join().await.realm())
+            .contains(&"home#1--mill#1".into())
+    );
+    s.chief.say(mayor(), "/mayor poet New office").await;
+    s.chief
+        .say(to("mill", "mayor"), "Accept existing proposal")
+        .await;
+    assert!(
+        roads(&s.join().await.realm())
+            .contains(&"home#1--mill#1".into())
+    );
+    s.chief
+        .say(to("home", "founder"), "Try proposing smith's road")
+        .await;
+    s.chief.say(to("mill", "mayor"), "Agree smith's road").await;
+    assert!(
+        !roads(&s.join().await.realm())
+            .contains(&"home#2--mill#1".into())
+    );
+}
+
+#[tokio::test]
+async fn open_votes_prevent_recording_assent_in_either_hamlet() {
+    let moving = || {
+        call(
+            "agree_move",
+            json!({"agent":"scout","to":"mill","reason":"Work"}),
+        )
+    };
+    let script = society()
+        .errands([words("Held hearing").held_until("never")])
+        .agent("home:0", [
+            call("agree_road", json!({"a":"scout","b":"mason","reason":"Trade"})), words("Road attempted"),
+            moving(), words("Move proposed"),
+        ])
+        .agent("mill:0", [
+            call("create_agent", json!({"name":"mason","purpose":"Build","reason":"Work"})), words("Ready"),
+            moving(), words("Move attempted"),
+            words("Consider later"), moving(), words("Move agreed"),
+        ]);
+    let mut s = Session::start(script).await;
+    build(&mut s).await;
+    s.chief.say(mayor(), "/found mill miller Work").await;
+    s.chief.say(to("mill", "mayor"), "Create mason").await;
+    s.chief.say(mayor(), "/vote poet Review office").await;
+    s.chief
+        .until("open vote", |c| {
+            c.realm().hamlets[0]
+                .votes
+                .iter()
+                .flatten()
+                .any(|v| v.open)
+        })
+        .await;
+    s.chief.say(mayor(), "Try road during own vote").await;
+    assert!(
+        s.join()
+            .await
+            .agent("mill", "miller")
+            .unwrap()
+            .conversations
+            .as_ref()
+            .is_none_or(Vec::is_empty),
+        "A held road agreement must not ask the other mayor"
+    );
+    s.chief
+        .say(to("mill", "mayor"), "Try move while other hamlet votes")
+        .await;
+    assert!(
+        s.join()
+            .await
+            .agent("home", "founder")
+            .unwrap()
+            .conversations
+            .as_ref()
+            .is_none_or(Vec::is_empty),
+        "A held move agreement must not ask the other mayor"
+    );
+    assert!(
+        !roads(&s.join().await.realm())
+            .contains(&"home#1--mill#1".into())
+    );
+    s.chief.say(mayor(), "/overturn 1 Continue").await;
+    s.chief.say(mayor(), "Propose move after vote").await;
+    assert!(
+        s.join().await.agent("mill", "scout").is_none(),
+        "A refused earlier agreement must not count"
+    );
+    s.chief.say(to("mill", "mayor"), "Now agree to move").await;
+    s.chief
+        .until("scout moved", |c| {
+            c.agent("mill", "scout").is_some_and(|a| a.left.is_none())
+        })
+        .await;
+}

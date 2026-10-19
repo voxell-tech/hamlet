@@ -22,7 +22,8 @@ use tokio::task::JoinSet;
 
 use self::activity::Activity;
 pub(crate) use self::activity::words;
-pub(crate) use self::calls::{Ran, ran, specs};
+pub(crate) use self::calls::{Ran, ran, specs, stop_tools};
+pub(crate) use self::deeds::stop_agent;
 use self::fold::Fold;
 use self::records::Place;
 pub(crate) use self::say::{admit_line, deeds as deed_names};
@@ -219,7 +220,11 @@ pub(crate) async fn heard(
     notice: Notice,
 ) -> Result<()> {
     match notice {
-        Notice::Kept { binding, item } => {
+        Notice::Kept { binding, mut item } => {
+            crate::society::letters::authored(
+                service.home.store().connection(),
+                std::slice::from_mut(&mut item),
+            )?;
             let loaded =
                 service.chats.conversations.contains_key(&binding);
             let conversation = conversation(service, binding)?;
@@ -278,6 +283,10 @@ pub(crate) async fn heard(
                 follow::follow(service, harnesses, binding, &request)
                     .await?;
                 answer_deferred(service, binding, &request, false);
+                crate::society::letters::sweep(service, harnesses)
+                    .await?;
+                crate::society::errands::sweep(service, harnesses)
+                    .await?;
             }
         }
         Notice::Call { binding, re, call } => {
@@ -318,10 +327,15 @@ pub(crate) async fn start(
     service: &mut Service,
     harnesses: &mut Harnesses,
 ) -> Result<()> {
+    crate::society::leaving::recover(service, harnesses).await?;
+    crate::society::reviews::sweep(service, harnesses).await?;
     for (binding, request) in service.home.store().unfollowed()? {
         follow::follow(service, harnesses, binding, &request).await?;
     }
-    Ok(())
+    crate::society::merging::finish(service)?;
+    crate::society::errands::sweep(service, harnesses).await?;
+    crate::society::reconfigure(service, harnesses).await?;
+    crate::society::letters::resume(service, harnesses).await
 }
 
 /// Requests the reflections owed as the home closes; gives the inputs
@@ -435,7 +449,11 @@ fn conversation(
     binding: BindingId,
 ) -> Result<&mut Conversation> {
     if !service.chats.conversations.contains_key(&binding) {
-        let items = service.home.store().items(binding)?;
+        let mut items = service.home.store().items(binding)?;
+        crate::society::letters::authored(
+            service.home.store().connection(),
+            &mut items,
+        )?;
         service.chats.conversations.insert(
             binding,
             Conversation {
@@ -479,7 +497,11 @@ fn broadcast(
     let stale = std::mem::take(&mut conversation.fold.stale);
     if stale {
         ops.push(Op::Reset {});
-        let items = service.home.store().items(binding)?;
+        let mut items = service.home.store().items(binding)?;
+        crate::society::letters::authored(
+            service.home.store().connection(),
+            &mut items,
+        )?;
         let conversation = self::conversation(service, binding)?;
         let mut fold = Fold::of(&items);
         fold.working = conversation.running;
@@ -646,7 +668,7 @@ fn turn_request(
 
 /// The current conversation of `chief`'s chat with `agent`, which its
 /// first use starts.
-async fn current(
+pub(crate) async fn current(
     service: &mut Service,
     harnesses: &mut Harnesses,
     agent: &AgentRef,
@@ -683,7 +705,7 @@ async fn current(
 }
 
 /// Binds a new conversation with `place` and keeps whom it is with.
-async fn begin(
+pub(crate) async fn begin(
     service: &mut Service,
     harnesses: &mut Harnesses,
     place: &Place,
@@ -703,7 +725,28 @@ async fn begin(
     for notice in notices {
         report(service, &notice);
     }
+    crate::society::configure(service, harnesses, binding).await?;
     Ok(binding)
+}
+
+/// Writes the notice `text` into every chief's chat with the mayor of
+/// `hamlet`, beginning the chat when it is new.
+pub(crate) async fn tell_chiefs(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    hamlet: &str,
+    text: &str,
+) -> Result<()> {
+    let Some(record) = service.home.store().record(hamlet)? else {
+        return Ok(());
+    };
+    let mayor = AgentRef {
+        hamlet: hamlet.into(),
+        number: record.mayor,
+    };
+    let binding = current(service, harnesses, &mayor).await?;
+    write_notice(service, harnesses, binding, text).await?;
+    Ok(())
 }
 
 /// Writes a notice into the conversation of `binding`, for people
@@ -721,7 +764,7 @@ async fn write_notice(
     Ok(request)
 }
 
-async fn write(
+pub(crate) async fn write(
     service: &mut Service,
     harnesses: &mut Harnesses,
     binding: BindingId,

@@ -1204,3 +1204,352 @@ async fn stops_at_a_model_time_cap_charged_by_a_road() {
     s.chief.say(mayor(), "Answer now.").await;
     s.chief.shows(&chat(mayor()), "After reset.").await;
 }
+
+#[tokio::test]
+async fn a_mayor_review_holds_the_next_step_across_restart() {
+    for choice in [Choice::Go, Choice::Withdraw] {
+        let script = society()
+            .agent("home:1", [
+                call("write", json!({"path":"first.txt","content":"first"})),
+                call("write", json!({"path":"second.txt","content":"second"})).held_until("step"),
+                words("Finished reviewed work"),
+            ])
+            .errands([words("OBJECT: Keep the only copy.").held_until("review")]);
+        let mut s = Session::start(script).await;
+        build(&mut s).await;
+        s.chief
+            .limit("home", "asking", "mayorReview", json!("always"))
+            .await;
+        let house = s.home.path().join("houses/home/1");
+        s.chief.open(&chat(to("home", "scout"))).await;
+        s.chief.tell(to("home", "scout"), "Review this work").await;
+        s.chief
+            .until("work beside the review", |_| {
+                house.join("first.txt").exists()
+            })
+            .await;
+        std::fs::write(s.home.side().join("review"), "").unwrap();
+        let wait = s.chief.wait_for("mayor's objection", |wait| matches!(wait, Wait::Objection { by, .. } if by == "mayor")).await;
+        let Wait::Objection { answers, about, .. } = &wait else {
+            unreachable!()
+        };
+        assert_eq!(answers, &[Choice::Go, Choice::Withdraw]);
+        assert!(about.contains("Keep the only copy."));
+        std::fs::write(s.home.side().join("step"), "").unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(150))
+            .await;
+        assert!(!house.join("second.txt").exists());
+        s.server.kill().await;
+        let script = Script::new().agent("home:1", [
+            call("write", json!({"path":"second.txt","content":"second"})),
+            words("Finished reviewed work"),
+        ]).errands([failure("The completed review must not run twice")]);
+        let server = s.home.serve(&script, QUIET).await;
+        let mut chief = Client::join(&server).await;
+        let recovered = chief
+            .wait_for("recovered review", |w| {
+                wait_id(w) == wait_id(&wait)
+            })
+            .await;
+        assert_eq!(recovered, wait);
+        assert!(!house.join("second.txt").exists());
+        chief.open(&chat(to("home", "scout"))).await;
+        assert_eq!(
+            chief
+                .choose(
+                    wait_id(&wait),
+                    choice.clone(),
+                    Some("Checked")
+                )
+                .await
+                .kind,
+            ReplyKind::Notice
+        );
+        if choice == Choice::Go {
+            chief
+                .shows(
+                    &chat(to("home", "scout")),
+                    "Finished reviewed work",
+                )
+                .await;
+            assert_eq!(
+                std::fs::read_to_string(house.join("second.txt"))
+                    .unwrap(),
+                "second"
+            );
+        } else {
+            chief
+                .until("withdrawal notice", |c| {
+                    c.items(&chat(to("home", "scout"))).iter().any(
+                        |item| {
+                            item.kind == ItemKind::Notice
+                                && item.text
+                                    == "The chief withdrew the \
+                                        instruction: Checked"
+                        },
+                    )
+                })
+                .await;
+            assert!(!house.join("second.txt").exists());
+        }
+        chief.idle("home", "scout").await;
+        assert!(chief.realm().waits.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn a_late_mayor_review_only_asks_for_dismissal() {
+    let mut s = Session::start(
+        society()
+            .agent("home:1", [words("Already done")])
+            .errands([words("OBJECT: Too late to stop.")
+                .held_until("late-review")]),
+    )
+    .await;
+    build(&mut s).await;
+    s.chief
+        .limit("home", "asking", "mayorReview", json!("always"))
+        .await;
+    s.chief.say(to("home", "scout"), "Do the work").await;
+    s.chief.idle("home", "scout").await;
+    std::fs::write(s.home.side().join("late-review"), "").unwrap();
+    let wait = s
+        .chief
+        .wait_for("late review", |w| {
+            matches!(w, Wait::Objection { .. })
+        })
+        .await;
+    let Wait::Objection { answers, about, .. } = &wait else {
+        unreachable!()
+    };
+    assert_eq!(answers, &[Choice::Dismiss]);
+    assert!(about.contains("work had already ended"), "{about}");
+    assert_eq!(
+        s.chief
+            .choose(wait_id(&wait), Choice::Dismiss, None)
+            .await
+            .kind,
+        ReplyKind::Notice
+    );
+}
+
+#[tokio::test]
+async fn merges_whole_skills_under_usable_names_and_keeps_original_note_bytes()
+ {
+    let mut s = Session::start(society()).await;
+    build(&mut s).await;
+    let kept = s.home.file("houses/home/2");
+    let gone = s.home.file("houses/home/1");
+    for (root, description) in
+        [(&kept, "Kept skill"), (&gone, "Other skill")]
+    {
+        std::fs::create_dir_all(root.join("skills/map/scripts"))
+            .unwrap();
+        std::fs::write(
+            root.join("skills/map/SKILL.md"),
+            format!(
+                "---\nname: map\ndescription: \
+                 {description}\n---\nRun skills/map/scripts/run.py"
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("skills/map/scripts/run.py"),
+            "print('skills/map/data')",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("skills/map/image.bin"),
+            [0xff, 0x00, 0x80],
+        )
+        .unwrap();
+    }
+    let bad = b"# Notes\nCaf\xe9";
+    std::fs::write(kept.join("NOTES.md"), bad).unwrap();
+    let refused =
+        s.chief.say(mayor(), "/merge scout into smith").await;
+    assert!(refused.text.contains("UTF-8"), "{refused:?}");
+    assert_eq!(std::fs::read(kept.join("NOTES.md")).unwrap(), bad);
+    assert!(
+        s.join()
+            .await
+            .agent("home", "scout")
+            .unwrap()
+            .left
+            .is_none()
+    );
+    std::fs::write(kept.join("NOTES.md"), "# Notes\nKeep me\n")
+        .unwrap();
+    std::fs::write(gone.join("NOTES.md"), bad).unwrap();
+    let merged =
+        s.chief.say(mayor(), "/merge scout into smith").await;
+    assert_eq!(merged.kind, ReplyKind::Notice, "{merged:?}");
+    assert_eq!(
+        std::fs::read(kept.join("merged/scout/NOTES.md")).unwrap(),
+        bad
+    );
+    assert_eq!(
+        std::fs::read(kept.join("merged/scout/NOTES.before.md"))
+            .unwrap(),
+        b"# Notes\nKeep me\n"
+    );
+    let skill = kept.join("skills/map-from-scout");
+    let paper =
+        std::fs::read_to_string(skill.join("SKILL.md")).unwrap();
+    assert!(paper.contains("name: map-from-scout"), "{paper}");
+    assert!(paper.contains("skills/map-from-scout/scripts/run.py"));
+    assert_eq!(
+        std::fs::read_to_string(skill.join("scripts/run.py"))
+            .unwrap(),
+        "print('skills/map-from-scout/data')"
+    );
+    assert_eq!(
+        std::fs::read(skill.join("image.bin")).unwrap(),
+        [0xff, 0x00, 0x80]
+    );
+    assert!(
+        s.chief
+            .prompt(to("home", "smith"))
+            .await
+            .contains("map-from-scout")
+    );
+    std::fs::write(
+        skill.join("scripts/run.py"),
+        "changed after merge",
+    )
+    .unwrap();
+    assert_eq!(
+        s.chief.say(mayor(), "/restore scout").await.kind,
+        ReplyKind::Notice
+    );
+    assert_eq!(
+        std::fs::read_to_string(kept.join("NOTES.md")).unwrap(),
+        "# Notes\nKeep me\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(skill.join("scripts/run.py"))
+            .unwrap(),
+        "changed after merge"
+    );
+    assert!(!skill.join("SKILL.md").exists());
+    assert_eq!(std::fs::read(gone.join("NOTES.md")).unwrap(), bad);
+}
+
+#[tokio::test]
+async fn refuses_a_taken_skill_rename_before_archiving_either_agent()
+{
+    let mut s = Session::start(society()).await;
+    build(&mut s).await;
+    for (number, name, description) in [
+        (1, "map", "other"),
+        (2, "map", "mine"),
+        (2, "map-from-scout", "already here"),
+    ] {
+        let skill = s
+            .home
+            .file(&format!("houses/home/{number}/skills/{name}"));
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            format!(
+                "---\nname: {name}\ndescription: \
+                 {description}\n---\nOriginal"
+            ),
+        )
+        .unwrap();
+    }
+    let original = std::fs::read(
+        s.home.file("houses/home/2/skills/map-from-scout/SKILL.md"),
+    )
+    .unwrap();
+    s.chief.say(mayor(), "/merge scout into smith").await;
+    let realm = s.join().await;
+    assert!(realm.agent("home", "scout").unwrap().left.is_none());
+    assert_eq!(
+        std::fs::read(
+            s.home
+                .file("houses/home/2/skills/map-from-scout/SKILL.md")
+        )
+        .unwrap(),
+        original
+    );
+}
+
+#[tokio::test]
+async fn a_stopped_library_offer_releases_its_claim_and_uses_librarian_notes()
+ {
+    for restart in [false, true] {
+        let mut endpoint = openai::Endpoint::start().await;
+        let mut s = Session::with_endpoint(&endpoint).await;
+        let tool = || openai::Response {
+            text: String::new(),
+            finish: "tool_calls".into(),
+            calls: vec![
+                json!({"index":0,"id":"offer","type":"function","function":{"name":"submit_skill","arguments":json!({"skill":"artifact","reason":"Useful"}).to_string()}}),
+            ],
+            ..Default::default()
+        };
+        let source = s.home.file("houses/home/0/skills/artifact");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(
+            source.join("SKILL.md"),
+            "---\nname: artifact\ndescription: Useful \
+             artifacts\n---\nMake an artifact",
+        )
+        .unwrap();
+        std::fs::write(
+            s.home.file("librarian/NOTES.md"),
+            "# Notes\nPrefer reproducible examples over promises.",
+        )
+        .unwrap();
+        endpoint.enqueue([
+            tool(),
+            openai::Response {
+                text: "ACCEPT Useful".into(),
+                hold_until: Some(s.home.side().join("never")),
+                ..Default::default()
+            },
+        ]);
+        s.chief.tell(mayor(), "Offer artifact").await;
+        let requests = endpoint.completions(2).await;
+        assert!(
+            requests[1].body.as_ref().unwrap()["messages"]
+                .to_string()
+                .contains(
+                    "Prefer reproducible examples over promises."
+                )
+        );
+        s.chief.say(mayor(), "/stop").await;
+        s.chief.idle("home", "founder").await;
+        assert!(source.join("SKILL.md").exists());
+        assert!(!s.home.file("library/artifact").exists());
+        if restart {
+            s.server.kill().await;
+            s.server = s
+                .home
+                .serve_providers(&[
+                    ("HAMLET_REFLECT_EVERY", "0"),
+                    ("HAMLET_MODEL", "local::org/large"),
+                    ("HAMLET_BASE_URL", &endpoint.url),
+                ])
+                .await;
+            s.chief = Client::join(&s.server).await;
+        }
+        endpoint.enqueue([
+            tool(),
+            openai::Response {
+                text: "ACCEPT Useful".into(),
+                ..Default::default()
+            },
+            openai::Response {
+                text: "Offered again".into(),
+                ..Default::default()
+            },
+        ]);
+        s.chief.say(mayor(), "Offer the same artifact again").await;
+        s.chief.idle("home", "founder").await;
+        assert!(s.home.file("library/artifact/SKILL.md").exists());
+        assert!(!source.exists());
+        assert_eq!(endpoint.completions(5).await.len(), 5);
+    }
+}

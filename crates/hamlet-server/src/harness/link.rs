@@ -142,6 +142,32 @@ pub struct Close {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Configure {
+    pub conversation: String,
+    pub id: String,
+    pub tools: ConfigureTools,
+    pub v: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConfigureTools {
+    Only {
+        only: Vec<String>,
+    },
+    Remove {
+        remove: Vec<String>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Configured {
+    pub id: String,
+    pub re: String,
+    pub v: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Create {
     pub agent: String,
     pub errand: bool,
@@ -460,6 +486,8 @@ pub enum RuntimeMessage {
     Created(Created),
     #[serde(rename = "admitted")]
     Admitted(Admitted),
+    #[serde(rename = "configured")]
+    Configured(Configured),
     #[serde(rename = "cancelled")]
     Cancelled(Cancelled),
     #[serde(rename = "page")]
@@ -474,6 +502,8 @@ pub enum RuntimeMessage {
     Attempt(Attempt),
     #[serde(rename = "usage")]
     Usage(UsageReport),
+    #[serde(rename = "scrub")]
+    Scrub(Scrub),
     #[serde(rename = "prompt")]
     Prompt(Prompt),
     #[serde(rename = "kept")]
@@ -486,6 +516,21 @@ pub enum RuntimeMessage {
     Yield(Yield),
     #[serde(rename = "error")]
     Error(LinkError),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Scrub {
+    pub id: String,
+    pub v: i64,
+    pub value: serde_json::Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Scrubbed {
+    pub id: String,
+    pub re: String,
+    pub v: i64,
+    pub value: serde_json::Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -519,6 +564,8 @@ pub enum ServerMessage {
     Submit(Submit),
     #[serde(rename = "write")]
     Write(Write),
+    #[serde(rename = "configure")]
+    Configure(Configure),
     #[serde(rename = "fork")]
     Fork(Fork),
     #[serde(rename = "cancel")]
@@ -545,6 +592,8 @@ pub enum ServerMessage {
     Stopped(Stopped),
     #[serde(rename = "charged")]
     Charged(Charged),
+    #[serde(rename = "scrubbed")]
+    Scrubbed(Scrubbed),
     #[serde(rename = "sections")]
     Sections(Sections),
     #[serde(rename = "verdict")]

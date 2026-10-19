@@ -39,7 +39,7 @@ const MAX_WALL_SECS: u64 = 2_147_483;
 
 /// The most symbolic links Linux follows in one path, more than macOS
 /// does.
-const MAX_LINKS: usize = 40;
+pub(super) const MAX_LINKS: usize = 40;
 
 /// The reads, writes and reach of a sandboxed command.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -215,7 +215,7 @@ pub(crate) fn canon_text(path: &str) -> String {
 
 /// `real`, a path without symbolic links, with each name in the case
 /// its volume keeps.
-fn cased(real: &str) -> String {
+pub(super) fn cased(real: &str) -> String {
     fs::canonicalize(real)
         .map(|path| text(&path))
         .unwrap_or_else(|_| real.to_owned())
@@ -313,38 +313,37 @@ fn in_any_folded(path: &str, paths: &[String]) -> bool {
 }
 
 /// True when `policy` lets a command with `tmp` as its temp folder
-/// read `path`.
+/// read `real`, a path without links.
 pub(crate) fn readable(
     policy: &Policy,
     tmp: &str,
-    path: &str,
+    real: &str,
 ) -> bool {
-    let real = canon_text(path);
     let mut granted =
         policy.ro.iter().map(|p| text(p)).collect::<Vec<_>>();
     granted.extend(write_roots(policy, tmp));
-    if in_any(&real, &granted) {
+    if in_any(real, &granted) {
         return true;
     }
     let mut closed =
         policy.hidden.iter().map(|p| text(p)).collect::<Vec<_>>();
     closed.push(temp_root());
-    policy.open && !in_any_folded(&real, &closed)
+    policy.open && !in_any_folded(real, &closed)
 }
 
 /// True when `policy` lets a command with `tmp` as its temp folder
-/// write `path`, or with `move` also move or remove it.
+/// write `real`, a path without links, or with `move` also move or
+/// remove it.
 pub(crate) fn writable(
     policy: &Policy,
     tmp: &str,
-    path: &str,
+    real: &str,
     moved: bool,
 ) -> bool {
-    let real = canon_text(path);
     let locked =
         policy.locked.iter().map(|p| text(p)).collect::<Vec<_>>();
-    in_any(&real, &write_roots(policy, tmp))
-        && !in_any_folded(&real, &locked)
+    in_any(real, &write_roots(policy, tmp))
+        && !in_any_folded(real, &locked)
         && !(moved
             && fixed_roots(policy, tmp).iter().any(|root| {
                 within_text(

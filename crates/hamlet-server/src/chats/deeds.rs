@@ -485,7 +485,7 @@ pub(super) async fn stop(
 
 /// Stops the running conversations of `agent` and drops their queued
 /// inputs (C25, H34).
-pub(super) async fn stop_agent(
+pub(crate) async fn stop_agent(
     service: &mut Service,
     harnesses: &mut Harnesses,
     agent: &AgentRef,

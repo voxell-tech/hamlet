@@ -51,6 +51,9 @@ pub(crate) async fn follow(
     if !store.follow(binding, request)? {
         return Ok(());
     }
+    if store.binding(binding)?.is_some_and(|b| b.errand) {
+        return Ok(());
+    }
     let db = store.connection();
     let Some(kept) = records::kept(db, binding)? else {
         return Ok(());

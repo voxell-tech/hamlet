@@ -12,6 +12,10 @@ use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
+#[cfg(feature = "harness")]
+#[path = "server/society.rs"]
+mod society;
+
 #[test]
 fn the_server_holds_its_home_until_terminated() {
     let dir = Scratch::new("server-binary");
@@ -59,8 +63,19 @@ impl Drop for Server {
 
 impl Server {
     fn start(home: &Scratch, env: &[(&str, &str)]) -> Self {
+        Self::start_with_script(home, env, None)
+    }
+
+    fn start_with_script(
+        home: &Scratch,
+        env: &[(&str, &str)],
+        script: Option<&std::path::Path>,
+    ) -> Self {
         let mut command =
             Command::new(env!("CARGO_BIN_EXE_hamlet-server"));
+        if let Some(script) = script {
+            command.arg("--faux").arg(script);
+        }
         for key in [
             "HAMLET_MODEL",
             "HAMLET_BASE_URL",
@@ -246,6 +261,98 @@ async fn overrides_and_secrets_stay_in_memory_but_the_chief_is_retained()
         assert!(
             !bytes.windows(key.len()).any(|w| w == key.as_bytes())
         );
+    }
+}
+
+#[cfg(feature = "harness")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn other_known_credentials_are_absent_from_both_stores() {
+    use hamlet_acceptance::openai::{Endpoint, Response};
+
+    let endpoint = Endpoint::start().await;
+    endpoint.enqueue([Response {
+        text: "Hello sk-other-secret.".into(),
+        ..Default::default()
+    }]);
+    let home = Scratch::new("server-other-credential");
+    std::fs::write(
+        home.join("credentials.json"),
+        json!({
+            "installationId": "scratch",
+            "connection": {"token": "scratch-connection-token"},
+            "models": {
+                "local": {"type": "api_key", "key": "sk-held"},
+                "other": {"type": "api_key", "key": "sk-other-secret"}
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut server = Server::start(
+        &home,
+        &[
+            ("HAMLET_MODEL", "local::org/large"),
+            ("HAMLET_BASE_URL", &endpoint.url),
+            ("HAMLET_REFLECT_EVERY", "0"),
+        ],
+    );
+    let (mut socket, _) = server.connect().await;
+    let request = uuid::Uuid::new_v4().to_string();
+    for message in [
+        json!({"type": "open", "id": uuid::Uuid::new_v4().to_string(),
+            "chat": {"with": {"hamlet": "home", "agent": "mayor"}}}),
+        json!({"type": "say", "id": request,
+            "to": {"hamlet": "home", "agent": "mayor"}, "text": "Hello?"}),
+    ] {
+        socket
+            .send(Message::Text(message.to_string().into()))
+            .await
+            .unwrap();
+    }
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let mut answered = false;
+        let mut shown = false;
+        while !answered || !shown {
+            let frame = socket.next().await.unwrap().unwrap();
+            let text = frame.to_text().unwrap();
+            assert!(!text.contains("sk-other-secret"), "{text}");
+            assert!(!text.contains("sk-held"), "{text}");
+            shown |= text.contains("Hello [REDACTED].");
+            let message =
+                serde_json::from_str::<Value>(text).unwrap();
+            if message["type"] == "reply" && message["to"] == request
+            {
+                assert_eq!(message["kind"], "notice", "{message}");
+                answered = true;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    drop(socket);
+    server.signal(libc::SIGTERM);
+    assert_eq!(server.exit().await, 0);
+    let mut files = vec![home.join("realm.sqlite")];
+    for runtime in std::fs::read_dir(home.join("harnesses")).unwrap()
+    {
+        for file in
+            std::fs::read_dir(runtime.unwrap().path()).unwrap()
+        {
+            files.push(file.unwrap().path());
+        }
+    }
+    assert!(files.len() > 1, "the Pi store must exist");
+    for file in files {
+        let bytes = std::fs::read(&file).unwrap();
+        for secret in [b"sk-held".as_slice(), b"sk-other-secret"] {
+            assert!(
+                !bytes
+                    .windows(secret.len())
+                    .any(|part| part == secret),
+                "credential persisted in {}",
+                file.display()
+            );
+        }
     }
 }
 

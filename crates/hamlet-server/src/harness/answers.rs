@@ -310,7 +310,7 @@ pub(crate) fn attempt(
     }
     if let Some(words) = crate::spend::can_spend(
         store.connection(),
-        &binding.agent.hamlet,
+        &crate::society::payer(store.connection(), binding)?,
         task,
         at,
     )? {

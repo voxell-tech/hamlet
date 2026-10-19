@@ -54,14 +54,31 @@ pub(super) struct Terms {
     pub now: i64,
 }
 
+/// Whom a conversation is with beyond its agent's own hamlet.
+#[derive(Default)]
+pub(super) struct Company {
+    /// The address of the agent a conversation between agents is
+    /// with.
+    pub peer: Option<String>,
+    /// The reader's roads to agents of other hamlets, as addresses.
+    pub beyond: Vec<String>,
+}
+
 /// The section for agent `number`, none while it is not a member.
 pub(super) fn brief(
     record: &Hamlet,
     number: u64,
     instructions: &[Instruction],
     terms: &Terms,
+    company: &Company,
 ) -> Option<String> {
     let agent = record.agents.iter().find(|a| a.number == number)?;
+    let messages = match &company.peer {
+        Some(peer) => {
+            format!("This conversation is with `{peer}`. {MESSAGES}")
+        }
+        None => MESSAGES.to_owned(),
+    };
     let votes = format!(
         "\nAny agent may call a vote with `call_vote`, to replace \
          the mayor or to found a new hamlet under a new mayor. \
@@ -71,13 +88,10 @@ pub(super) fn brief(
          not on another agent's say-so.\n",
         terms.pass_yes, terms.pass_of
     );
-    let standing = standing(record, terms);
+    let standing = standing(record, number, terms);
     if record.mayor == number {
-        let mut lines = vec![
-            "# Your hamlet".to_owned(),
-            MESSAGES.into(),
-            MAYOR.into(),
-        ];
+        let mut lines =
+            vec!["# Your hamlet".to_owned(), messages, MAYOR.into()];
         if number != 0 {
             lines.push(format!(
                 "You are `{}`, and you were made mayor in place of \
@@ -141,15 +155,26 @@ pub(super) fn brief(
             "You are `{}`, an agent in a hamlet. Your purpose: {}",
             agent.name, agent.purpose
         ),
-        MESSAGES.into(),
-        OBJECT.into(),
+        messages,
+    ];
+    if company.peer.is_none() {
+        lines.push(OBJECT.into());
+    }
+    if !company.beyond.is_empty() {
+        lines.push(format!(
+            "Your roads to agents of other hamlets lead to: {}. \
+             Whoever asks pays for the answer.",
+            company.beyond.join(", ")
+        ));
+    }
+    lines.extend([
         format!(
             "You can talk only along your roads, with `ask_agent` \
              or `tell_agent`. Your roads lead to: {}.",
             roads.join(", ")
         ),
         "The other agents of the hamlet:".into(),
-    ];
+    ]);
     lines.extend(members(record, number));
     lines.extend(farewells(record, Some(number)));
     lines.push(votes);
@@ -215,49 +240,61 @@ fn farewells(record: &Hamlet, reader: Option<u64>) -> Vec<String> {
     lines
 }
 
-// The record keeps no refused roads, so nothing here touches the
-// reader alone.
-fn standing(record: &Hamlet, terms: &Terms) -> String {
+/// How the hamlet was run lately: the refused roads `reader` asked
+/// for, and up to six other decisions.
+fn standing(record: &Hamlet, reader: u64, terms: &Terms) -> String {
     let since = terms
         .now
         .saturating_sub(terms.told_days.saturating_mul(86_400_000))
         .max(0);
-    let decided = record
-        .decisions
-        .iter()
-        .rev()
-        .filter(|d| d.at >= since)
-        .filter(|d| {
-            !matches!(d.kind, DecisionKind::SkillGiven { .. })
-        })
-        .take(6)
-        .map(|d| {
-            let reason = cut(&d.reason, 160, "");
-            format!(
-                "- {}: {}",
-                words(record, d),
-                if reason.is_empty() {
-                    "no reason given"
-                } else {
-                    &reason
+    let mut mine = Vec::new();
+    let mut decided = Vec::new();
+    for d in record.decisions.iter().rev().filter(|d| d.at >= since) {
+        let refused = match d.kind {
+            DecisionKind::SkillGiven { .. } => continue,
+            DecisionKind::RoadRefused { from, .. } => {
+                if from != reader {
+                    continue;
                 }
-            )
-        })
-        .collect::<Vec<_>>();
-    if decided.is_empty() {
+                true
+            }
+            _ if decided.len() >= 6 => continue,
+            _ => false,
+        };
+        let reason = cut(&d.reason, 160, "");
+        let line = format!(
+            "- {}: {}",
+            words(record, d),
+            if reason.is_empty() {
+                "no reason given"
+            } else {
+                &reason
+            }
+        );
+        if refused {
+            mine.push(line);
+        } else {
+            decided.push(line);
+        }
+    }
+    if mine.is_empty() && decided.is_empty() {
         return String::new();
     }
-    [
+    let mut lines = vec![
         "# How your hamlet was run lately".to_owned(),
         "From the hamlet's record, each with the reason that was \
          given. These are what happened, not a judgement."
             .into(),
-        "What was decided, latest first:".into(),
-    ]
-    .into_iter()
-    .chain(decided)
-    .collect::<Vec<_>>()
-    .join("\n")
+    ];
+    if !mine.is_empty() {
+        lines.push("What touched you:".into());
+        lines.extend(mine);
+    }
+    if !decided.is_empty() {
+        lines.push("What was decided, latest first:".into());
+        lines.extend(decided);
+    }
+    lines.join("\n")
 }
 
 fn words(record: &Hamlet, d: &Decision) -> String {
@@ -283,6 +320,13 @@ fn words(record: &Hamlet, d: &Decision) -> String {
         DecisionKind::Restored { name, .. } => {
             format!("{by} restored `{name}`")
         }
+        DecisionKind::Erased { name, .. } => {
+            format!("{by} erased `{name}`")
+        }
+        DecisionKind::RoadRefused { to, .. } => format!(
+            "The mayor did not build the road you asked for to \
+             `{to}`"
+        ),
         DecisionKind::Merged { keep, absorb, .. } => format!(
             "{by} merged `{}` into `{}`",
             named(*absorb),

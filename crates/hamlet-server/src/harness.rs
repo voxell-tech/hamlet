@@ -121,6 +121,7 @@ impl Config {
                 .into_iter()
                 .chain(crate::chats::specs())
                 .chain(tools::specs())
+                .chain(crate::society::specs())
                 .collect(),
         })
     }
@@ -300,6 +301,8 @@ enum Pending {
     /// A page read to catch up on entries kept while the server did
     /// not hear of them.
     Sync(BindingId),
+    /// The tools a conversation offers, as they were told.
+    Configure(BindingId, String),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -322,6 +325,7 @@ struct Runtime {
     creating: HashSet<BindingId>,
     cancelling: HashSet<BindingId>,
     submitting: HashSet<(BindingId, String)>,
+    configuring: HashSet<BindingId>,
 }
 
 /// The runtimes of one home and their link to this server.
@@ -447,11 +451,13 @@ impl Harnesses {
         }
     }
 
-    /// Handles `event`, answering the runtime that sent it.
+    /// Handles `event` with the host's current known secrets,
+    /// answering the runtime that sent it.
     pub async fn handle(
         &mut self,
         store: &mut Store,
         event: Event,
+        secrets: &[String],
     ) -> Result<Vec<Notice>> {
         match event.0 {
             Inner::Restart(index) => {
@@ -466,7 +472,12 @@ impl Harnesses {
                 match received.line {
                     Some(line) => {
                         match self
-                            .received(store, received.runtime, &line)
+                            .received(
+                                store,
+                                received.runtime,
+                                &line,
+                                secrets,
+                            )
                             .await
                         {
                             Ok(notices) => Ok(notices),
@@ -648,6 +659,24 @@ impl Harnesses {
         .await;
     }
 
+    /// Sets the tools the conversation of `binding` offers from its
+    /// next request, and tells its runtime when they changed (H35).
+    pub async fn configure(
+        &mut self,
+        store: &mut Store,
+        binding: BindingId,
+        tools: &link::ConfigureTools,
+    ) -> Result<()> {
+        if !store.set_tools(binding, tools)? {
+            return Ok(());
+        }
+        let bound = self.bound(store, binding)?;
+        if let Some(index) = self.index(&bound.runtime) {
+            self.flush(store, index, false).await?;
+        }
+        Ok(())
+    }
+
     /// Tells `runtime` that the wait of its call `key` was answered,
     /// so it asks again at once.
     pub async fn wake(
@@ -818,6 +847,7 @@ impl Harnesses {
             creating: HashSet::new(),
             cancelling: HashSet::new(),
             submitting: HashSet::new(),
+            configuring: HashSet::new(),
         });
         self.runtimes.len() - 1
     }
@@ -896,6 +926,7 @@ impl Harnesses {
         runtime.creating.clear();
         runtime.cancelling.clear();
         runtime.submitting.clear();
+        runtime.configuring.clear();
         self.pending.retain(|_, (at, _)| *at != index);
         let closing = self.closing;
         let runtime = &mut self.runtimes[index];
@@ -926,6 +957,7 @@ impl Harnesses {
         store: &mut Store,
         index: usize,
         line: &str,
+        secrets: &[String],
     ) -> Result<Vec<Notice>> {
         let message = match parse(line) {
             Ok(message) => message,
@@ -1069,6 +1101,17 @@ impl Harnesses {
                 self.flush(store, index, true).await?;
                 Ok(vec![Notice::Cancelled { binding }])
             }
+            RuntimeMessage::Configured(configured) => {
+                let Some((_, Pending::Configure(binding, tools))) =
+                    self.pending.remove(&configured.re)
+                else {
+                    return Ok(Vec::new());
+                };
+                self.runtimes[index].configuring.remove(&binding);
+                store.tools_told(binding, &tools)?;
+                self.flush(store, index, false).await?;
+                Ok(Vec::new())
+            }
             RuntimeMessage::Page(page) => {
                 match self.pending.remove(&page.re) {
                     Some((_, Pending::History(binding))) => {
@@ -1162,9 +1205,11 @@ impl Harnesses {
                 else {
                     return Ok(Vec::new());
                 };
-                let task = attempt.task.as_ref().map(|t| {
-                    format!("{}:{t}", binding.runtime.as_str())
-                });
+                let task = crate::society::task_of(
+                    store,
+                    &binding,
+                    attempt.task.as_deref(),
+                )?;
                 let selected = crate::models::choice(
                     store,
                     self.layout.root(),
@@ -1234,6 +1279,22 @@ impl Harnesses {
                 Ok(vec![Notice::Attempted {
                     binding: binding.id,
                 }])
+            }
+            RuntimeMessage::Scrub(mut request) => {
+                crate::scrub::scrub_value(
+                    secrets,
+                    &mut request.value,
+                );
+                self.send(index, |v, id| {
+                    ServerMessage::Scrubbed(link::Scrubbed {
+                        v,
+                        id,
+                        re: request.id,
+                        value: request.value,
+                    })
+                })
+                .await;
+                Ok(Vec::new())
             }
             RuntimeMessage::Usage(report) => {
                 let runtime = self.runtimes[index].id.clone();
@@ -1316,6 +1377,9 @@ impl Harnesses {
                         }
                         Pending::Cancel(binding) => {
                             runtime.cancelling.remove(&binding);
+                        }
+                        Pending::Configure(binding, _) => {
+                            runtime.configuring.remove(&binding);
                         }
                         Pending::History(_) | Pending::Sync(_) => {}
                     }
@@ -1437,6 +1501,32 @@ impl Harnesses {
                     conversation.clone(),
                 )
                 .await;
+                continue;
+            }
+            // The tools a conversation offers reach pi before the
+            // inputs kept after they changed.
+            if let Some(tools) = store.tools_owed(binding.id)? {
+                if self.runtimes[index].configuring.insert(binding.id)
+                {
+                    let told = serde_json::to_string(&tools)?;
+                    let id = self
+                        .send(index, |v, id| {
+                            ServerMessage::Configure(
+                                link::Configure {
+                                    conversation: conversation
+                                        .clone(),
+                                    id,
+                                    tools,
+                                    v,
+                                },
+                            )
+                        })
+                        .await;
+                    self.pending.insert(
+                        id,
+                        (index, Pending::Configure(binding.id, told)),
+                    );
+                }
                 continue;
             }
             for owed in store.owed(binding.id, resync)? {
@@ -1858,12 +1948,14 @@ fn id_of(message: &RuntimeMessage) -> String {
         RuntimeMessage::Created(m) => m.id.clone(),
         RuntimeMessage::Admitted(m) => m.id.clone(),
         RuntimeMessage::Cancelled(m) => m.id.clone(),
+        RuntimeMessage::Configured(m) => m.id.clone(),
         RuntimeMessage::Page(m) => m.id.clone(),
         RuntimeMessage::Statuses(m) => m.id.clone(),
         RuntimeMessage::Allow(m) => m.id.clone(),
         RuntimeMessage::Operation(m) => m.id.clone(),
         RuntimeMessage::Attempt(m) => m.id.clone(),
         RuntimeMessage::Usage(m) => m.id.clone(),
+        RuntimeMessage::Scrub(m) => m.id.clone(),
         RuntimeMessage::Prompt(m) => m.id.clone(),
         RuntimeMessage::Kept(m) => m.id.clone(),
         RuntimeMessage::Live(m) => m.id.clone(),

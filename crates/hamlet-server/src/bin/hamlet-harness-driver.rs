@@ -50,6 +50,7 @@ async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
     let mut home = Home::open(&dir)?;
     let layout = home.layout().clone();
     let mut config = Config::from_env(faux)?;
+    let secrets = config.api_key.iter().cloned().collect::<Vec<_>>();
     for tool in &mut config.tools {
         if listed("HAMLET_UNSAFE_TOOLS", &tool.name) {
             tool.replay = ToolSpecReplay::Unsafe;
@@ -63,7 +64,7 @@ async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
     loop {
         tokio::select! {
             event = harnesses.next() => {
-                let notices = harnesses.handle(home.store(), event).await?;
+                let notices = harnesses.handle(home.store(), event, &secrets).await?;
                 answer(&mut harnesses, &mut home, notices).await?;
             }
             line = lines.next_line() => {

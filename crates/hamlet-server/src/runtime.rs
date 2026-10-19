@@ -129,8 +129,10 @@ pub async fn serve(options: Options) -> Result<()> {
     let started = async {
         while service.models.starting() {
             let event = harnesses.next().await;
-            for notice in
-                harnesses.handle(service.home.store(), event).await?
+            let secrets = service.credentials.secrets();
+            for notice in harnesses
+                .handle(service.home.store(), event, &secrets)
+                .await?
             {
                 match notice {
                     Notice::Provider(result) => {
@@ -258,6 +260,8 @@ pub async fn serve(options: Options) -> Result<()> {
                 }
                 _ = tick.tick() => {
                     service.gifts.expire();
+                    crate::society::votes::sweep(&mut service, &mut harnesses).await?;
+                    crate::society::reviews::sweep(&mut service, &mut harnesses).await?;
                     harnesses.refresh_tools().await;
                     for result in service.models.expired() {
                         for (id, answer) in service.provider_result(result)? {
@@ -267,7 +271,8 @@ pub async fn serve(options: Options) -> Result<()> {
                     refresh(&mut service, &mut state, &mut clients)?;
                 },
                 event = harnesses.next() => {
-                    let notices = harnesses.handle(service.home.store(), event).await?;
+                    let secrets = service.credentials.secrets();
+                    let notices = harnesses.handle(service.home.store(), event, &secrets).await?;
                     heard(&mut service, &mut harnesses, &mut clients, notices).await?;
                     refresh(&mut service, &mut state, &mut clients)?;
                 }
@@ -429,8 +434,9 @@ async fn run_once(
 ) -> Result<()> {
     tokio::select! {
         event = harnesses.next() => {
+            let secrets = service.credentials.secrets();
             let notices =
-                harnesses.handle(service.home.store(), event).await?;
+                harnesses.handle(service.home.store(), event, &secrets).await?;
             heard(service, harnesses, clients, notices).await?;
         }
         Some(ran) = service.chats.tools.join_next() => {

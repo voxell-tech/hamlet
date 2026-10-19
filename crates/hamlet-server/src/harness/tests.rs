@@ -715,7 +715,7 @@ async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
     let notices = harnesses.handle(&mut store, Event(Inner::Received(Received {
         runtime: bad, generation: 0,
         line: Some(json!({"v":1,"type":"created","id":"r1","re":"create","conversation":"1"}).to_string()),
-    }))).await.unwrap();
+    })), &[]).await.unwrap();
     assert!(notices.iter().any(|n| matches!(n, Notice::Refused { runtime, .. } if *runtime == binding.runtime)));
     assert!(harnesses.runtimes[good].phase == Phase::Ready);
     assert!(

@@ -20,6 +20,7 @@ type RequestType =
     | "create"
     | "submit"
     | "write"
+    | "configure"
     | "fork"
     | "cancel"
     | "history"
@@ -117,6 +118,7 @@ function sort(
         case "create":
         case "submit":
         case "write":
+        case "configure":
         case "fork":
         case "cancel":
         case "history":
@@ -133,6 +135,7 @@ function sort(
         case "allowance":
         case "stopped":
         case "charged":
+        case "scrubbed":
         case "sections":
         case "verdict":
         case "error":

@@ -106,16 +106,17 @@ test("takes each list's steps in the order calls are made, whenever the server a
 
 test("charges before returning an answer and scrubs credentials from kept text, thinking, arguments and failures", async () => {
     const key = 'sk-test-"private';
+    const other = "server-only-other-key";
     const charged: Usage[] = [];
     const faux = scriptedProvider(
         {
             responses: [
                 {
-                    text: `Text ${key}`,
-                    thinking: `Thought ${key}`,
-                    calls: [{ name: "read", arguments: { path: key } }],
+                    text: `Text ${key} ${other}`,
+                    thinking: `Thought ${key} ${other}`,
+                    calls: [{ name: "read", arguments: { path: key, other } }],
                 },
-                { error: `Failure ${key}` },
+                { error: `Failure ${key} ${other}` },
             ],
         },
         () => "",
@@ -129,23 +130,63 @@ test("charges before returning an answer and scrubs credentials from kept text, 
                 charge: async (_id, usage) => {
                     charged.push(usage);
                 },
+                scrub: async <T>(value: T): Promise<T> => {
+                    await sleep(2);
+                    return JSON.parse(
+                        JSON.stringify(value).replaceAll(other, "[REDACTED]"),
+                    ) as T;
+                },
             }),
     );
     const [model] = faux.getModels();
     if (model === undefined) throw new Error("No faux model");
-    const answer = await faux
-        .streamSimple(model, PROMPT, { sessionId: "s" })
-        .result();
+    const stream = faux.streamSimple(model, PROMPT, { sessionId: "s" });
+    for await (const event of stream) {
+        expect(JSON.stringify(event)).not.toContain(other);
+        expect(JSON.stringify(event)).not.toContain(
+            JSON.stringify(key).slice(1, -1),
+        );
+    }
+    const answer = await stream.result();
     expect(charged).toHaveLength(1);
     expect(answer.content).toMatchObject([
-        { type: "thinking", thinking: "Thought [REDACTED]" },
-        { type: "text", text: "Text [REDACTED]" },
-        { type: "toolCall", arguments: { path: "[REDACTED]" } },
+        { type: "thinking", thinking: "Thought [REDACTED] [REDACTED]" },
+        { type: "text", text: "Text [REDACTED] [REDACTED]" },
+        {
+            type: "toolCall",
+            arguments: { path: "[REDACTED]", other: "[REDACTED]" },
+        },
     ]);
     const failed = await faux
         .streamSimple(model, PROMPT, { sessionId: "s" })
         .result();
     expect(charged).toHaveLength(2);
-    expect(failed.errorMessage).toBe("Failure [REDACTED]");
+    expect(failed.errorMessage).toBe("Failure [REDACTED] [REDACTED]");
     expect(charged[1]?.estimatedTokens).toBe(0);
+});
+
+test("keeps no provider output when the server cannot scrub it", async () => {
+    const secret = "server-only-unavailable-key";
+    const faux = scriptedProvider(
+        { responses: [secret] },
+        () => "",
+        (streams) =>
+            allowedStreams(streams, {
+                attempt: async () => ({ ok: true, key: "attempt" }),
+                charge: async () => {},
+                scrub: async () => {
+                    throw new Error(secret);
+                },
+            }),
+    );
+    const model = faux.getModels()[0];
+    if (model === undefined) throw new Error("No faux model");
+    const stream = faux.streamSimple(model, PROMPT, { sessionId: "s" });
+    for await (const event of stream)
+        expect(JSON.stringify(event)).not.toContain(secret);
+    const answer = await stream.result();
+    expect(answer.stopReason).toBe("error");
+    expect(answer.errorMessage).toBe(
+        "The server could not scrub model output.",
+    );
 });

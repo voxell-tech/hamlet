@@ -859,7 +859,11 @@ fn a_real_endpoint_gets_the_credential_the_server_hands_over_and_nothing_keeps_i
         (usage.input, usage.output, usage.micros),
         (100, 20, 1500)
     );
-    // pi was handed the key for the call and stored it nowhere.
+    drop(db);
+    let bytes =
+        std::fs::read(realm.home.join("realm.sqlite")).unwrap();
+    assert!(!bytes.windows(7).any(|window| window == b"sk-held"));
+    // Neither store keeps the key handed to pi for this call.
     for file in
         std::fs::read_dir(realm.home.join("harnesses").join(&runtime))
             .unwrap()

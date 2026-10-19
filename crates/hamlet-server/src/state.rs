@@ -17,6 +17,9 @@ pub(crate) fn state(
 ) -> Result<State> {
     let settings = service.settings()?;
     let records = records(service.home.store().connection())?;
+    let realm =
+        crate::realm::read(service.home.store().connection())?;
+    let closed = realm.hamlets.iter().filter(|h| !h.erased).filter_map(|h| h.removed.as_ref().map(|removed| json!({"id":h.id,"name":h.title.as_ref().unwrap_or(&h.id),"at":removed.at,"by":removed.by,"reason":removed.reason}))).collect::<Vec<_>>();
     let mut hamlets = Vec::new();
     let mut agents = Vec::new();
     let held =
@@ -30,6 +33,10 @@ pub(crate) fn state(
     let root = service.home.layout().root().to_owned();
     let mut kept = Vec::new();
     for record in records {
+        let Some(place) = realm.live().find(|h| h.id == record.id)
+        else {
+            continue;
+        };
         let limits = service.limits_of(&record.id)?;
         let work = service.work(&record.id)?;
         let reference =
@@ -40,10 +47,15 @@ pub(crate) fn state(
                 End::Agent(number) => number,
             })
         };
-        let roads = record.roads_of().iter().map(|r| json!({
+        let mut roads = record.roads_of().iter().map(|r| json!({
             "a":end(r.a), "b":end(r.b), "messages":r.messages,
             "lastFrom":r.last_from.map(end), "level":record::level(r, chrono::Utc::now().timestamp_millis(), limits["road"]["growsOverDays"].as_u64().unwrap_or(7))
         })).collect::<Vec<_>>();
+        roads.extend(crate::realm::roads(service.home.store().connection())?.into_iter().filter(|r| r.a.hamlet == record.id || r.b.hamlet == record.id).map(|r| {
+            let old = r.last_used > 0 && crate::society::now().saturating_sub(r.last_used).max(0) as u64 > limits["road"]["growsOverDays"].as_u64().unwrap_or(7).saturating_mul(86_400_000);
+            let level = if old { "overgrown" } else if r.messages < 3 { "dirt" } else if r.messages < 10 { "paved" } else { "rail" };
+            json!({"a":r.a,"b":r.b,"messages":r.messages,"lastFrom":r.last_from,"level":level})
+        }));
         let period =
             limits["budget"]["period"].as_str().unwrap_or("day");
         let books = crate::spend::books(
@@ -53,7 +65,7 @@ pub(crate) fn state(
             None,
             chrono::Utc::now().timestamp_millis(),
         )?;
-        hamlets.push(json!({"id":record.id, "name":record.id, "at":null, "roads":roads, "votes":[],
+        hamlets.push(json!({"id":record.id, "name":place.title.as_ref().unwrap_or(&record.id), "at":place.at, "roads":roads, "votes":crate::society::votes::views(service.home.store().connection(), &record)?,
             "folder":work["folder"], "before":work["before"], "mode":work["mode"], "modeWords":mode_words(work["mode"].as_str().unwrap_or("manual")), "limits":limits,
             "budget":service.budget(&record.id)?}));
         for agent in record.agents.iter().chain(
@@ -87,10 +99,14 @@ pub(crate) fn state(
             let busy = left.is_none() && work.busy;
             let doing =
                 if left.is_some() { "rest" } else { work.doing };
+            let consulting = crate::society::library::consulting(
+                service.home.store().connection(),
+                &reference_of,
+            )?;
             let mut view = json!({"ref":reference(agent.number), "name":agent.name,"purpose":agent.purpose,"since":agent.since,"mayor":mayor,
                 "model":model(agent,&limits,&settings,mayor),"busy":busy,"faulted":!busy && work.faulted,
                 "activity":{"doing":doing,"doingWords":crate::chats::words(doing),"step":if left.is_some() {0} else {work.step},"failures":if left.is_some() {0} else {work.failures}},
-                "saying":{"text":work.saying,"thought":work.thought},"spent":{"tokens":0,"micros":0,"ms":0,"cost":"$0.00"},"skills":[],"consulting":false,"conversations":[]});
+                "saying":{"text":work.saying,"thought":work.thought},"spent":{"tokens":0,"micros":0,"ms":0,"cost":"$0.00"},"skills":[],"consulting":consulting,"conversations":[]});
             let spent = books
                 .agents
                 .get(&agent.number)
@@ -107,6 +123,11 @@ pub(crate) fn state(
                 view["skills"] =
                     crate::prompt::skill_names(&house).into();
             }
+            view["conversations"] = crate::society::letters::views(
+                service.home.store().connection(),
+                &reference_of,
+            )?
+            .into();
             if let Some(left) = left {
                 view["left"] = json!({"how":if left.merge.is_some(){"merged"}else{"removed"}, "into":left.merge.as_ref().map(|m|reference(m.kept.number)), "at":left.at,"by":by_words(&left.by),"reason":left.reason,"words":record.farewell(left)});
             }
@@ -151,7 +172,7 @@ pub(crate) fn state(
         waits.push(crate::oversight::view(&wait, record, current)?);
     }
     let mut view = json!({"epoch":epoch,"revision":revision,"chief":service.chief,"sandbox":service.chats.sandbox.name(), "houses":service.home.layout().root().join("houses"),
-        "hamlets":hamlets,"agents":agents,"grants":grants,"waits":waits,"providers":service.provider_views()?,"library":[],"closed":[],"starters":crate::gifts::starters(),"deeds":crate::chats::deed_names(),
+        "hamlets":hamlets,"agents":agents,"grants":grants,"waits":waits,"providers":service.provider_views()?,"library":crate::society::library::views(service)?,"closed":closed,"starters":crate::gifts::starters(),"deeds":crate::chats::deed_names(),
         "settings":{"model":settings["model"],"reflectEvery":settings["reflectEvery"],"allowNet":settings["allowNet"],"unset":settings["saved"] != true,"link":settings["link"],
             "endpoints":settings["endpoints"].as_array().into_iter().flatten().map(|e|json!({"name":e["name"],"baseUrl":e["baseUrl"],"key":service.credentials.configured(e["name"].as_str().unwrap_or_default())})).collect::<Vec<_>>(),
             "workspace":{"url":service.credentials.workspace_url(),"running":null}}});
@@ -255,7 +276,9 @@ pub(crate) fn changed(
     let whole = before
         .hamlets
         .iter()
-        .any(|h| !after.hamlets.iter().any(|n| n.id == h.id));
+        .any(|h| !after.hamlets.iter().any(|n| n.id == h.id))
+        || before.closed != after.closed
+        || before.library != after.library;
     if changes.is_empty() && !whole {
         return None;
     }

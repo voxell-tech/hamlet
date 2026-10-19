@@ -40,6 +40,12 @@ const MIGRATIONS: &[&str] = &[
     // 7. Chats, kept transcripts, the gate and what waits for a
     // chief.
     include_str!("chats/schema.sql"),
+    // 8. Society conversations, calls and documents.
+    include_str!("society/schema.sql"),
+    // 9. The exact request each gate identity authorizes. Earlier
+    // calls have no recoverable request and cannot authorize a
+    // replay.
+    "ALTER TABLE gate_call ADD COLUMN digest BLOB;",
 ];
 
 /// A home's realm database, open in this process alone.

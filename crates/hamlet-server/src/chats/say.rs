@@ -68,7 +68,7 @@ pub(crate) fn deeds() -> Vec<String> {
 /// A parsed typed command.
 #[derive(Debug, PartialEq)]
 enum Command {
-    Deed(&'static str),
+    Deed(&'static str, String),
     To {
         agent: String,
         text: String,
@@ -239,7 +239,7 @@ fn read_command(
                 _ => usage(),
             }
         }
-        _ => Ok(Command::Deed(deed)),
+        _ => Ok(Command::Deed(deed, rest.into())),
     })
 }
 
@@ -268,7 +268,14 @@ pub(super) async fn say(
     };
     let notice = |text: String| Ok(Some(reply(id, Ok(text))));
     match &command {
-        Some(Command::Deed(deed)) => {
+        Some(Command::Deed(deed, rest)) => {
+            if let Some(done) = crate::society::deed(
+                service, harnesses, hamlet, deed, rest,
+            )
+            .await?
+            {
+                return Ok(Some(reply(id, done)));
+            }
             return match *deed {
                 "agent" | "hamlet" | "chief" => notice(
                     "Choose that address in your client.".into(),

@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use hamlet_protocol::v0::{
-    Address, ChatRef, Open, ServerMessage, Transcript,
+    Address, ChatRef, ChatRefKind, Open, ServerMessage, Transcript,
 };
 use serde_json::json;
 
@@ -11,6 +11,7 @@ use super::{Watch, records};
 use crate::harness::{BindingId, Harnesses, link};
 use crate::protocol::{fault, reply};
 use crate::service::Service;
+use crate::society::letters::{Kind, peer_of};
 
 /// Items a transcript page holds.
 const PAGE: usize = 40;
@@ -81,10 +82,38 @@ pub(super) async fn resolve(
     {
         return Ok(Err(refusal.text()));
     }
-    if chat.from.is_some() {
-        return Ok(Err("There is no conversation with that agent \
-                       here."
-            .into()));
+    if let Some(from) = &chat.from {
+        let agent =
+            match service.agent(&chat.with, "watch conversations")? {
+                Ok(agent) => agent,
+                Err(refusal) => return Ok(Err(refusal.text())),
+            };
+        if chat.past.is_some() {
+            return Ok(Err("A peer conversation has no \
+                           chief-session number."
+                .into()));
+        }
+        let kind = match chat.kind {
+            Some(ChatRefKind::Questions) => Kind::Questions,
+            _ => Kind::Letters,
+        };
+        let agent = crate::record::AgentRef {
+            hamlet: chat.with.hamlet.clone(),
+            number: agent.number,
+        };
+        let from = crate::record::AgentRef {
+            hamlet: from.hamlet.clone(),
+            number: u64::try_from(from.number)?,
+        };
+        return Ok(peer_of(
+            service.home.store().connection(),
+            &agent,
+            kind,
+            &from,
+        )?
+        .ok_or_else(|| {
+            "There is no conversation with that agent here.".into()
+        }));
     }
     let agent = match service.agent(&chat.with, "watch chat")? {
         Ok(agent) => agent,

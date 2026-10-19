@@ -75,6 +75,18 @@ impl Models {
         self.pending.retain(|_, s| s.client != Some(client));
     }
 
+    pub(crate) fn base_url(
+        &self,
+        provider: &str,
+        model: &str,
+    ) -> Option<&str> {
+        self.lists
+            .get(provider)?
+            .iter()
+            .find(|entry| entry["id"] == model)?["baseUrl"]
+            .as_str()
+    }
+
     pub fn expired(&self) -> Vec<ProviderResult> {
         self.pending
             .iter()

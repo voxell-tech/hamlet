@@ -101,6 +101,11 @@ pub enum DecisionKind {
         name: String,
         archive: String,
     },
+    Erased {
+        agent: u64,
+        name: String,
+        archive: String,
+    },
     Merged {
         keep: u64,
         absorb: u64,
@@ -128,6 +133,11 @@ pub enum DecisionKind {
         agent: u64,
         name: String,
         hamlet: String,
+    },
+    /// The mayor refused the road agent `from` asked for to `to`.
+    RoadRefused {
+        from: u64,
+        to: String,
     },
 }
 

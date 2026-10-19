@@ -8,11 +8,11 @@ use std::path::Path;
 use crate::record::trim;
 
 /// A skill as the front matter of its `SKILL.md` tells of it.
-struct Skill {
-    name: String,
-    description: String,
+pub(crate) struct Skill {
+    pub name: String,
+    pub description: String,
     usage: Option<String>,
-    folder: String,
+    pub folder: String,
 }
 
 /// The house's skills, with commands that start in the house.
@@ -60,7 +60,7 @@ pub(super) fn names(house: &Path) -> Vec<String> {
 
 /// The library's part: where it is, and each skill with the command
 /// that runs it from there. None while it has no skills.
-pub(super) fn library(root: &Path) -> Option<String> {
+pub(crate) fn library(root: &Path) -> Option<String> {
     let skills = if real_dir(root) {
         shelf(root)
     } else {
@@ -101,7 +101,7 @@ fn real_dir(path: &Path) -> bool {
 
 /// The skills of `dir`, one folder each whose `SKILL.md` is a
 /// regular file, in the folders' order.
-fn shelf(dir: &Path) -> Vec<Skill> {
+pub(crate) fn shelf(dir: &Path) -> Vec<Skill> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -128,7 +128,7 @@ fn shelf(dir: &Path) -> Vec<Skill> {
 /// The skill a `SKILL.md` of `text` tells of: its front matter runs
 /// to the first line opening with `---`, and names it, or the folder
 /// does.
-fn skill(folder: String, text: &str) -> Skill {
+pub(crate) fn skill(folder: String, text: &str) -> Skill {
     let front = text
         .strip_prefix("---")
         .map(|t| t.split("\n---").next().unwrap_or_default());

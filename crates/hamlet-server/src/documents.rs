@@ -57,11 +57,11 @@ impl Service {
                         Err(error) => return Ok(Err(error)),
                     };
                 let current = self.limits_of(hamlet)?;
-                let mut value = match self.limits.edit(current, &edit)
-                {
-                    Ok(value) => value,
-                    Err(error) => return Ok(Err(error)),
-                };
+                let mut value =
+                    match self.limits.edit(current.clone(), &edit) {
+                        Ok(value) => value,
+                        Err(error) => return Ok(Err(error)),
+                    };
                 self.credentials.scrub(&mut value);
                 let Ok(limits) =
                     serde_json::from_value::<Limits>(value.clone())
@@ -91,6 +91,7 @@ impl Service {
                     )),
                     reason.as_deref().unwrap_or_default(),
                 );
+                let settings = self.settings()?;
                 let tx = self.home.store().db.transaction()?;
                 if let Some(error) = operation.authorize(&tx)? {
                     return Ok(Err(Refusal::Invalid(
@@ -104,6 +105,34 @@ impl Service {
                         error.text(Audience::Chief),
                     )));
                 }
+                let mut changed = crate::record::read(&tx, hamlet)?
+                    .expect("edited record");
+                for agent in &record.agents {
+                    let mayor = agent.number == record.mayor;
+                    let before = crate::state::model(
+                        agent, &current, &settings, mayor,
+                    );
+                    let after = crate::state::model(
+                        agent, &value, &settings, mayor,
+                    );
+                    if before != after {
+                        changed
+                            .decisions
+                            .push(crate::record::Decision {
+                            at: operation.at,
+                            by: format!("chief:{}", self.chief),
+                            reason: reason
+                                .clone()
+                                .unwrap_or_default(),
+                            kind:
+                                crate::record::DecisionKind::Model {
+                                    agent: agent.number,
+                                    model: after,
+                                },
+                        });
+                    }
+                }
+                crate::record::write(&tx, &changed)?;
                 save(&tx, "limits", hamlet, &value)?;
                 tx.commit()?;
             }
@@ -427,6 +456,7 @@ pub(crate) fn read(
         sandbox: &sandbox,
         instructions: &instructions,
         task: None,
+        conversation: None,
     };
     let mut sections = crate::prompt::sections(service, &subject)?;
     sections.push(crate::harness::link::Section {

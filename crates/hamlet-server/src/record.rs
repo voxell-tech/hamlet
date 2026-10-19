@@ -54,7 +54,7 @@ impl Actor {
 }
 
 /// A membership, road or office change, run with [`Store::run`].
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecordOperation {
     pub hamlet: String,
     pub actor: Actor,
@@ -240,6 +240,41 @@ impl Store {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?)
     }
+}
+
+/// The record of `hamlet` as the transaction `db` holds it.
+pub(crate) fn read(
+    db: &Connection,
+    hamlet: &str,
+) -> Result<Option<Hamlet>> {
+    load(db, hamlet)
+}
+
+/// Keeps `record` and its living names in the transaction `db`.
+pub(crate) fn write(db: &Connection, record: &Hamlet) -> Result<()> {
+    save(db, record)
+}
+
+/// Runs `operation` inside the transaction `db`, whose owner keeps
+/// the marker: the authority check, then the change, undone when it
+/// refuses.
+pub(crate) fn change(
+    db: &Connection,
+    operation: &RecordOperation,
+) -> Result<Outcome<RecordResult, Refusal>> {
+    if let Some(refusal) = operation.authorize(db)? {
+        return Ok(Outcome::Refused(refusal));
+    }
+    db.execute_batch("SAVEPOINT record_change")?;
+    let outcome = operation.apply(db);
+    if matches!(outcome, Ok(Outcome::Done(_))) {
+        db.execute_batch("RELEASE record_change")?;
+    } else {
+        db.execute_batch(
+            "ROLLBACK TO record_change; RELEASE record_change",
+        )?;
+    }
+    outcome
 }
 
 fn load(db: &Connection, hamlet: &str) -> Result<Option<Hamlet>> {

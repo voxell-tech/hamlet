@@ -1,0 +1,482 @@
+//! Mayor reviews beside chief work and task-wide objection rulings.
+
+use anyhow::Result;
+use rusqlite::{Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+
+use crate::chats::records;
+use crate::harness::{BindingId, Harnesses};
+use crate::oversight::{self, ChatPlace, Raising};
+use crate::record::AgentRef;
+use crate::service::Service;
+
+#[derive(Default, Serialize, Deserialize)]
+pub(super) struct Instruction {
+    pub binding: i64,
+    pub waits: Vec<String>,
+    pub how: Option<String>,
+    text: String,
+    notified: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Review {
+    binding: i64,
+    agent: AgentRef,
+    mayor: AgentRef,
+    chief: String,
+    session: i64,
+    text: String,
+    prompt: String,
+    done: bool,
+    wait: Option<String>,
+}
+
+fn task_of(
+    service: &mut Service,
+    binding: BindingId,
+    input: Option<&str>,
+) -> Result<Option<String>> {
+    let Some(request) = input
+        .map(|input| service.home.store().request_of(binding, input))
+        .transpose()?
+        .flatten()
+    else {
+        return Ok(None);
+    };
+    Ok(records::mark_of(
+        service.home.store().connection(),
+        binding,
+        &request,
+    )?
+    .and_then(|mark| {
+        mark.data
+            .get("task")
+            .and_then(Value::as_str)
+            .map(String::from)
+    }))
+}
+
+fn active(db: &Connection, task: &str) -> Result<Vec<BindingId>> {
+    Ok(db
+        .prepare(
+            "SELECT DISTINCT i.binding FROM harness_input i JOIN \
+             harness_binding b ON b.id=i.binding WHERE b.errand=0 \
+             AND i.state!='dropped' AND coalesce(i.status,'queued') \
+             IN ('queued','placed') AND \
+             json_extract(i.mark,'$.data.task')=?1",
+        )?
+        .query_map([task], |row| Ok(BindingId(row.get(0)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub(crate) fn held(
+    service: &mut Service,
+    binding: BindingId,
+    input: Option<&str>,
+) -> Result<bool> {
+    let Some(task) = task_of(service, binding, input)? else {
+        return Ok(false);
+    };
+    let db = service.home.store().connection();
+    let instruction = super::document::<Instruction>(
+        db,
+        "instruction-ruling",
+        &task,
+    )?;
+    if instruction.how.as_deref() == Some("withdraw") {
+        return Ok(true);
+    }
+    for wait in instruction.waits {
+        if oversight::find(db, &wait)?.is_some_and(|wait| {
+            wait.answers.iter().any(|answer| answer == "withdraw")
+        }) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+pub(crate) async fn prepare(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    binding: BindingId,
+    input: Option<&str>,
+) -> Result<()> {
+    let Some(request) = input
+        .map(|input| service.home.store().request_of(binding, input))
+        .transpose()?
+        .flatten()
+    else {
+        return Ok(());
+    };
+    let db = service.home.store().connection();
+    let Some(mark) = records::mark_of(db, binding, &request)?
+        .filter(|mark| mark.kind == "hamlet.chief")
+    else {
+        return Ok(());
+    };
+    let Some(task) = mark.data.get("task").and_then(Value::as_str)
+    else {
+        return Ok(());
+    };
+    if super::document::<Option<Review>>(db, "review", task)?
+        .is_some()
+    {
+        return Ok(());
+    }
+    let Some(kept) = records::kept(db, binding)? else {
+        return Ok(());
+    };
+    let r = crate::record::read(db, &kept.place.agent.hamlet)?
+        .expect("review's record");
+    if r.mayor == kept.place.agent.number {
+        return Ok(());
+    }
+    let limits = service.limits_of(&r.id)?;
+    if limits["asking"]["mayorReview"] == "never" {
+        return Ok(());
+    }
+    if limits["asking"]["mayorReview"] == "remote" {
+        let settings = service.settings()?;
+        let mayor = r
+            .agents
+            .iter()
+            .find(|agent| agent.number == r.mayor)
+            .expect("mayor");
+        let model =
+            crate::state::model(mayor, &limits, &settings, true);
+        let (provider, model) =
+            model.split_once("::").unwrap_or_default();
+        let endpoint = settings["endpoints"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|endpoint| endpoint["name"] == provider);
+        let url = endpoint
+            .and_then(|endpoint| endpoint["baseUrl"].as_str())
+            .or_else(|| service.models.base_url(provider, model))
+            .and_then(|url| url::Url::parse(url).ok());
+        let remote = url
+            .and_then(|url| url.host_str().map(String::from))
+            .is_some_and(|host| {
+                !["localhost", "[::1]", "::1", "0.0.0.0"]
+                    .contains(&host.as_str())
+                    && !host.starts_with("127.")
+            });
+        if !remote {
+            return Ok(());
+        }
+    }
+    if crate::spend::can_spend(
+        service.home.store().connection(),
+        &r.id,
+        Some(task),
+        super::now(),
+    )?
+    .is_some()
+    {
+        return Ok(());
+    }
+    let text = format!(
+        "{} told `{}`: {}",
+        mark.data
+            .get("chief")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        r.name_of(
+            kept.place.agent.number,
+            crate::record::NameFallback::Recorded
+        ),
+        mark.data
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+    );
+    let review = Review {
+        binding: binding.0,
+        agent: kept.place.agent,
+        mayor: AgentRef {
+            hamlet: r.id.clone(),
+            number: r.mayor,
+        },
+        chief: kept.place.chief.unwrap_or_default(),
+        session: kept.place.session,
+        prompt: format!(
+            "You are the mayor of a hamlet of agents. A chief has \
+             just instructed one of your agents directly. The work \
+             has already begun and the chief always wins. If the \
+             instruction is a mistake, answer OBJECT: <reason>. \
+             Otherwise reply pass. Most instructions are fine.\n# \
+             Your agents\n{}\n# Your notes\n{}\n{text}",
+            r.agents
+                .iter()
+                .filter(|agent| agent.number != r.mayor)
+                .map(|agent| format!(
+                    "- {}: {}",
+                    agent.name, agent.purpose
+                ))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            crate::papers::cut(
+                &service
+                    .houses
+                    .read(&r.id, r.mayor)
+                    .unwrap_or_default(),
+                6000,
+                ""
+            )
+        ),
+        text,
+        done: false,
+        wait: None,
+    };
+    super::keep(
+        service.home.store().connection(),
+        "review",
+        task,
+        &review,
+    )?;
+    super::errands::start(
+        service,
+        harnesses,
+        &review.mayor,
+        "review",
+        &json!({"review":task}),
+        &review.prompt,
+        task,
+    )
+    .await?;
+    Ok(())
+}
+
+pub(crate) async fn sweep(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+) -> Result<()> {
+    let jobs = service
+        .home
+        .store()
+        .connection()
+        .prepare(
+            "SELECT key,value FROM society_document WHERE \
+             kind='review'",
+        )?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (task, value) in jobs {
+        let mut review = serde_json::from_str::<Review>(&value)?;
+        let db = service.home.store().connection();
+        let mut instruction = super::document::<Instruction>(
+            db,
+            "instruction-ruling",
+            &task,
+        )?;
+        let ended = active(db, &task)?.is_empty();
+        if !review.done {
+            let binding = super::errands::start(
+                service,
+                harnesses,
+                &review.mayor,
+                "review",
+                &json!({"review":task}),
+                &review.prompt,
+                &task,
+            )
+            .await?;
+            let Some(answer) =
+                super::errands::answer(service, binding)?
+            else {
+                continue;
+            };
+            review.done = true;
+            let reason = answer
+                .trim()
+                .split_once(':')
+                .filter(|(prefix, _)| {
+                    prefix.eq_ignore_ascii_case("OBJECT")
+                })
+                .map(|(_, reason)| reason.trim())
+                .filter(|reason| !reason.is_empty());
+            let tx = service.home.store().db.transaction()?;
+            if let Some(reason) = reason
+                && instruction.how.is_none()
+            {
+                review.wait = oversight::raise(
+                    &tx,
+                    Raising {
+                        kind: "objection",
+                        danger: None,
+                        by: if review.agent.hamlet == "home" {
+                            "mayor".into()
+                        } else {
+                            format!("mayor@{}", review.agent.hamlet)
+                        },
+                        agent: Some(review.agent.clone()),
+                        about: format!(
+                            "{}\nThe mayor objects: {reason}{}",
+                            review.text,
+                            if ended {
+                                "\n(The work had already ended.)"
+                            } else {
+                                ""
+                            }
+                        ),
+                        change: None,
+                        answers: if ended {
+                            vec!["dismiss".into()]
+                        } else {
+                            vec!["go".into(), "withdraw".into()]
+                        },
+                        chat: Some(ChatPlace {
+                            hamlet: review.agent.hamlet.clone(),
+                            number: review.agent.number,
+                            chief: review.chief.clone(),
+                            session: review.session,
+                        }),
+                        call: None,
+                    },
+                    super::now(),
+                )?;
+                instruction.binding = review.binding;
+                instruction.waits.extend(review.wait.clone());
+                super::keep(
+                    &tx,
+                    "instruction-ruling",
+                    &task,
+                    &instruction,
+                )?;
+            }
+            super::keep(&tx, "review", &task, &review)?;
+            tx.commit()?;
+        }
+        if ended && let Some(wait) = &review.wait {
+            service.home.store().connection().execute(
+                "UPDATE wait SET answers='[\"dismiss\"]', \
+                 about=about || char(10) || '(The work ended before \
+                 you answered.)' WHERE id=?1 AND open=1 AND \
+                 answers!='[\"dismiss\"]'",
+                [wait],
+            )?;
+        }
+    }
+    let withdrawals = service
+        .home
+        .store()
+        .connection()
+        .prepare(
+            "SELECT key,value FROM society_document WHERE \
+             kind='instruction-ruling' AND \
+             json_extract(value,'$.how')='withdraw' AND \
+             json_extract(value,'$.notified')=0",
+        )?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (task, value) in withdrawals {
+        let mut instruction =
+            serde_json::from_str::<Instruction>(&value)?;
+        for binding in
+            active(service.home.store().connection(), &task)?
+        {
+            crate::chats::stop_tools(service, binding);
+            let waits = service
+                .home
+                .store()
+                .connection()
+                .prepare(
+                    "SELECT DISTINCT wait FROM gate_call WHERE \
+                     binding=?1 AND wait IS NOT NULL AND how IS NULL",
+                )?
+                .query_map([binding.0], |row| {
+                    row.get::<_, String>(0)
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            for wait in waits {
+                if let Some((_, woken)) = oversight::settle(
+                    service.home.store().connection(),
+                    &wait,
+                    "stopped",
+                    "The chief withdrew the instruction.",
+                    None,
+                    super::now(),
+                )? {
+                    for (runtime, key) in woken {
+                        harnesses.wake(&runtime, &key).await;
+                    }
+                }
+            }
+            harnesses.cancel(service.home.store(), binding).await?;
+        }
+        crate::chats::write(
+            service,
+            harnesses,
+            BindingId(instruction.binding),
+            &format!("withdraw:{task}"),
+            &format!(
+                "The chief withdrew the instruction: {}",
+                instruction.text
+            ),
+            false,
+        )
+        .await?;
+        instruction.notified = true;
+        super::keep(
+            service.home.store().connection(),
+            "instruction-ruling",
+            &task,
+            &instruction,
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn settle(
+    db: &Connection,
+    wait: &str,
+    how: &str,
+    text: &str,
+    chief: &str,
+) -> Result<oversight::Woken> {
+    let found = db
+        .query_row(
+            "SELECT key,value FROM society_document d WHERE \
+             kind='instruction-ruling' AND EXISTS (SELECT 1 FROM \
+             json_each(d.value,'$.waits') WHERE value=?1)",
+            [wait],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                ))
+            },
+        )
+        .optional()?;
+    let mut woken = Vec::new();
+    if let Some((task, value)) = found
+        && ["go", "withdraw"].contains(&how)
+    {
+        let mut instruction =
+            serde_json::from_str::<Instruction>(&value)?;
+        instruction.how = Some(how.into());
+        instruction.text = text.into();
+        for id in &instruction.waits {
+            if let Some((_, calls)) = oversight::settle(
+                db,
+                id,
+                how,
+                text,
+                Some(chief),
+                super::now(),
+            )? {
+                woken.extend(calls);
+            }
+        }
+        super::keep(db, "instruction-ruling", &task, &instruction)?;
+    }
+    Ok(woken)
+}

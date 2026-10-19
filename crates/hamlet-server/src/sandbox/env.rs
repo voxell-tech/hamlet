@@ -2,18 +2,26 @@
 //! policy, and file operations made after the policy's checks on the
 //! paths as the system resolves them.
 
+use std::collections::VecDeque;
 use std::fs;
 use std::io::{self, ErrorKind, Write};
+use std::os::fd::OwnedFd;
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
+use rustix::fs::{
+    AtFlags, Dir, FileType, Mode, OFlags, RawMode, Stat, mkdirat,
+    openat, readlinkat, statat,
+};
+use rustix::io::Errno;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::time::Instant;
 
 use super::path::{self, text};
 use super::policy::{
-    Policy, canon_text, directory_root, fixed_roots, policy_hash,
-    private_tmp, readable, temp_root, writable,
+    MAX_LINKS, Policy, canon_text, cased, directory_root,
+    fixed_roots, policy_hash, private_tmp, readable, temp_root,
+    writable,
 };
 use super::{Sandbox, limited};
 use crate::scrub::Scrubber;
@@ -28,6 +36,9 @@ const SPILL_LINES: usize = 2000;
 
 const ROOT_REFUSAL: &str = "The sandbox root is no longer its real \
                             directory. The operation was refused.";
+
+const MOVED: &str = "The path changed while it was being reached. \
+                     The operation was refused.";
 
 /// A tool's environment under `policy`, working in `cwd`.
 pub(crate) struct Env {
@@ -202,27 +213,39 @@ impl Env {
         })
     }
 
-    /// Why the policy refuses `path` to `reach`, if it does.
-    fn refused(
+    /// Where `path` leads under the policy for `reach`: the folder
+    /// its last name is in, held open, so that what the policy
+    /// checked is what the operation reaches (S12). With `follow`
+    /// the policy sees where a link at the end leads; without, the
+    /// link itself, as `lstat` does.
+    fn reach(
         &self,
         path: &str,
         reach: Reach,
-    ) -> Result<String, FileError> {
+        follow: bool,
+    ) -> Result<Reached, FileError> {
         if let Some(refusal) = self.root_refusal() {
             return Err(refusal);
         }
-        let real = self.absolute(path);
+        let resolved = self.absolute(path);
+        let reached = walk(&resolved, follow)?;
         let (allowed, verb) = match reach {
-            Reach::Read => {
-                (readable(&self.policy, &self.tmp, &real), "read")
-            }
+            Reach::Read => (
+                readable(&self.policy, &self.tmp, &reached.real),
+                "read",
+            ),
             Reach::Write => (
-                writable(&self.policy, &self.tmp, &real, false),
+                writable(
+                    &self.policy,
+                    &self.tmp,
+                    &reached.real,
+                    false,
+                ),
                 "change",
             ),
         };
         if allowed {
-            Ok(real)
+            Ok(reached)
         } else {
             Err(FileError::new(
                 "permission_denied",
@@ -237,8 +260,11 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<FileInfo, FileError> {
-        let resolved = self.refused(path, Reach::Read)?;
-        info_at(&resolved)
+        let at = self.reach(path, Reach::Read, false)?;
+        let stat = at.stat().map_err(|error| {
+            node_error(&error, "lstat", &at.resolved)
+        })?;
+        info_of(path::basename(&at.resolved), &stat)
     }
 
     pub(crate) fn exists(
@@ -258,20 +284,33 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<Vec<FileInfo>, FileError> {
-        let resolved = self.refused(path, Reach::Read)?;
-        let entries = fs::read_dir(&resolved).map_err(|error| {
-            node_error(&error, "scandir", &resolved)
-        })?;
+        let at = self.reach(path, Reach::Read, true)?;
+        let scandir = |error: &io::Error| {
+            node_error(error, "scandir", &at.resolved)
+        };
+        let dir = at
+            .open(OFlags::DIRECTORY | OFlags::RDONLY)
+            .map_err(|error| scandir(&error))?;
+        let entries = Dir::read_from(&dir)
+            .map_err(|error| scandir(&error.into()))?;
         let mut infos = Vec::new();
         for entry in entries {
-            let entry = entry.map_err(|error| {
-                node_error(&error, "scandir", &resolved)
-            })?;
-            let at = path::join(&[
-                resolved.as_str(),
-                &entry.file_name().to_string_lossy(),
-            ]);
-            match info_at(&at) {
+            let entry =
+                entry.map_err(|error| scandir(&error.into()))?;
+            let name =
+                entry.file_name().to_string_lossy().into_owned();
+            if name == "." || name == ".." {
+                continue;
+            }
+            let stat = statat(&dir, &name, AtFlags::SYMLINK_NOFOLLOW)
+                .map_err(|error| {
+                    node_error(
+                        &error.into(),
+                        "lstat",
+                        &path::join(&[at.resolved.as_str(), &name]),
+                    )
+                })?;
+            match info_of(&name, &stat) {
                 Ok(info) => infos.push(info),
                 Err(error) if error.code == "invalid" => {}
                 Err(error) => return Err(error),
@@ -284,10 +323,10 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<String, FileError> {
-        let resolved = self.refused(path, Reach::Read)?;
-        fs::canonicalize(&resolved).map(|real| text(&real)).map_err(
-            |error| node_error(&error, "realpath", &resolved),
-        )
+        let at = self.reach(path, Reach::Read, true)?;
+        at.stat().map(|_| at.real.clone()).map_err(|error| {
+            node_error(&error, "realpath", &at.resolved)
+        })
     }
 
     /// The bytes of a regular file.
@@ -307,20 +346,14 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<(fs::File, String), FileError> {
-        let resolved = self.refused(path, Reach::Read)?;
-        let mut options = fs::OpenOptions::new();
-        options.read(true);
+        let at = self.reach(path, Reach::Read, true)?;
         // Nonblocking, so opening a FIFO does not wait for a writer.
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::custom_flags(
-            &mut options,
-            rustix::fs::OFlags::NONBLOCK.bits() as i32,
-        );
-        let file = options
-            .open(&resolved)
-            .map_err(|error| node_error(&error, "open", &resolved))?;
+        let file =
+            at.open(OFlags::RDONLY | OFlags::NONBLOCK).map_err(
+                |error| node_error(&error, "open", &at.resolved),
+            )?;
         let meta = file.metadata().map_err(|error| {
-            node_error(&error, "fstat", &resolved)
+            node_error(&error, "fstat", &at.resolved)
         })?;
         if meta.is_dir() {
             return Err(FileError::new(
@@ -334,7 +367,7 @@ impl Env {
                 "Not a regular file",
             ));
         }
-        Ok((file, resolved))
+        Ok((file, at.resolved))
     }
 
     /// The text of a file, refused unless it is UTF-8, so that an
@@ -344,17 +377,7 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<String, FileError> {
-        let resolved = self.refused(path, Reach::Read)?;
-        let bytes = fs::read(&resolved).map_err(|error| {
-            if error.kind() == ErrorKind::IsADirectory {
-                FileError::new(
-                    "is_directory",
-                    "EISDIR: illegal operation on a directory, read",
-                )
-            } else {
-                node_error(&error, "open", &resolved)
-            }
-        })?;
+        let bytes = self.read_file(path)?;
         String::from_utf8(bytes).map_err(|_| {
             FileError::new(
                 "invalid",
@@ -369,10 +392,7 @@ impl Env {
         path: &str,
         content: &str,
     ) -> Result<(), FileError> {
-        let resolved = self.refused(path, Reach::Write)?;
-        make_parent(&resolved)?;
-        fs::write(&resolved, content)
-            .map_err(|error| node_error(&error, "open", &resolved))
+        self.put(path, content, OFlags::TRUNC)
     }
 
     fn append_file(
@@ -380,14 +400,25 @@ impl Env {
         path: &str,
         content: &str,
     ) -> Result<(), FileError> {
-        let resolved = self.refused(path, Reach::Write)?;
-        make_parent(&resolved)?;
-        fs::OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(&resolved)
-            .and_then(|mut file| file.write_all(content.as_bytes()))
-            .map_err(|error| node_error(&error, "open", &resolved))
+        self.put(path, content, OFlags::APPEND)
+    }
+
+    /// Writes `content` to the file opened with `how`, making its
+    /// folders.
+    fn put(
+        &self,
+        path: &str,
+        content: &str,
+        how: OFlags,
+    ) -> Result<(), FileError> {
+        let mut at = self.reach(path, Reach::Write, true)?;
+        at.make_folders()?;
+        let mut file =
+            at.open(OFlags::WRONLY | OFlags::CREATE | how).map_err(
+                |error| node_error(&error, "open", &at.resolved),
+            )?;
+        file.write_all(content.as_bytes())
+            .map_err(|error| node_error(&error, "open", &at.resolved))
     }
 
     /// A new empty file for spilled output.
@@ -782,32 +813,227 @@ fn identity(_meta: &fs::Metadata) -> (u64, u64) {
     (0, 0)
 }
 
-fn info_at(path: &str) -> Result<FileInfo, FileError> {
-    let meta = fs::symlink_metadata(path)
-        .map_err(|error| node_error(&error, "lstat", path))?;
-    let kind = if meta.is_file() {
-        FileKind::File
-    } else if meta.is_dir() {
-        FileKind::Directory
-    } else if meta.file_type().is_symlink() {
-        FileKind::Symlink
-    } else {
-        return Err(FileError::new(
-            "invalid",
-            "Unsupported file type",
-        ));
-    };
-    Ok(FileInfo {
-        name: path::basename(path).to_owned(),
-        kind,
-        size: meta.len(),
-    })
+/// Where a path leads, reached one name at a time and never through
+/// a link the policy has not seen: the deepest folder on the way
+/// that exists, held open, and the names from there. All but the
+/// last are missing. An operation goes on from the folder with the
+/// system told to follow no link, so a link swapped in after the
+/// check leads nowhere.
+struct Reached {
+    dir: OwnedFd,
+    names: Vec<String>,
+    /// The real path, the one the policy checks.
+    real: String,
+    /// The path as the agent gave it, made absolute, for messages.
+    resolved: String,
 }
 
-fn make_parent(path: &str) -> Result<(), FileError> {
-    let parent = path::resolve(path, "..");
-    fs::create_dir_all(&parent)
-        .map_err(|error| node_error(&error, "mkdir", &parent))
+impl Reached {
+    fn last(&self) -> &str {
+        self.names.last().map_or(".", String::as_str)
+    }
+
+    fn missing(&self) -> Option<io::Error> {
+        (self.names.len() > 1).then(|| io::Error::from(Errno::NOENT))
+    }
+
+    /// The file's own `lstat`.
+    fn stat(&self) -> io::Result<Stat> {
+        if let Some(missing) = self.missing() {
+            return Err(missing);
+        }
+        statat(&self.dir, self.last(), AtFlags::SYMLINK_NOFOLLOW)
+            .map_err(Into::into)
+    }
+
+    /// The file opened with `flags` and no link followed.
+    fn open(&self, flags: OFlags) -> io::Result<fs::File> {
+        if let Some(missing) = self.missing() {
+            return Err(missing);
+        }
+        openat(
+            &self.dir,
+            self.last(),
+            flags | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::from_raw_mode(0o666),
+        )
+        .map(fs::File::from)
+        .map_err(Into::into)
+    }
+
+    /// Makes the missing folders, so that only the file is left.
+    fn make_folders(&mut self) -> Result<(), FileError> {
+        while self.names.len() > 1 {
+            let name = self.names.remove(0);
+            let parent = path::resolve(&self.resolved, "..");
+            let made = match mkdirat(
+                &self.dir,
+                &name,
+                Mode::from_raw_mode(0o777),
+            ) {
+                Ok(()) | Err(Errno::EXIST) => {
+                    open_dir_at(&self.dir, &name)
+                }
+                Err(error) => Err(error),
+            };
+            self.dir = made.map_err(|error| {
+                node_error(&error.into(), "mkdir", &parent)
+            })?;
+        }
+        Ok(())
+    }
+}
+
+/// `resolved`, an absolute path, reached from the root one name at
+/// a time, each link on the way read and followed by name. With
+/// `follow`, a link at the end is followed too. The names that do
+/// not exist stay as written, as [`canon_text`] keeps them.
+fn walk(resolved: &str, follow: bool) -> Result<Reached, FileError> {
+    let mut rest = resolved
+        .split('/')
+        .map(str::to_owned)
+        .collect::<VecDeque<_>>();
+    let mut base = "/".to_owned();
+    let mut dir = open_dir(&base).map_err(|error| {
+        node_error(&error.into(), "open", resolved)
+    })?;
+    let mut links = 0;
+    // Only the case of the names may differ from the folder held:
+    // the system following a link swapped in meanwhile would.
+    let reached = |dir, base: String, names: Vec<String>| {
+        let real = cased(&base);
+        if real.to_lowercase() != base.to_lowercase() {
+            return Err(FileError::new("permission_denied", MOVED));
+        }
+        let mut parts = vec![real];
+        parts.extend(names.iter().cloned());
+        Ok(Reached {
+            dir,
+            real: path::join(&parts),
+            names,
+            resolved: resolved.to_owned(),
+        })
+    };
+    while let Some(part) = rest.pop_front() {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        // `base` holds no link, so its parent is the folder `..`
+        // leads to.
+        if part == ".." {
+            base = path::dirname(&base);
+            dir = open_dir(&base).map_err(|error| {
+                node_error(&error.into(), "open", resolved)
+            })?;
+            continue;
+        }
+        let kind = statat(&dir, &part, AtFlags::SYMLINK_NOFOLLOW)
+            .map(|stat| {
+                FileType::from_raw_mode(stat.st_mode as RawMode)
+            });
+        let last = rest.is_empty();
+        let link = match kind {
+            Ok(FileType::Symlink) if follow || !last => {
+                readlinkat(&dir, &part, Vec::new()).ok()
+            }
+            _ => None,
+        };
+        if let Some(link) = link {
+            // The system refuses a path through more links, so it
+            // leads nowhere.
+            links += 1;
+            if links > MAX_LINKS {
+                return Err(node_error(
+                    &io::Error::from(Errno::LOOP),
+                    "open",
+                    resolved,
+                ));
+            }
+            let link = link.to_string_lossy().into_owned();
+            if path::is_absolute(&link) {
+                base = "/".into();
+                dir = open_dir(&base).map_err(|error| {
+                    node_error(&error.into(), "open", resolved)
+                })?;
+            }
+            for piece in link.split('/').rev() {
+                rest.push_front(piece.to_owned());
+            }
+            continue;
+        }
+        let below = match kind {
+            Ok(FileType::Directory) if !last => {
+                open_dir_at(&dir, &part).ok()
+            }
+            _ => None,
+        };
+        match below {
+            Some(below) => {
+                dir = below;
+                base = path::join(&[base.as_str(), &part]);
+            }
+            None => {
+                // The end, or a name the rest cannot be reached
+                // under: the operation fails on it as the system
+                // says.
+                let mut names = vec![part];
+                names.extend(rest);
+                return reached(dir, base, names);
+            }
+        }
+    }
+    reached(dir, base, Vec::new())
+}
+
+/// `real`, a path without links, opened as a folder one name at a
+/// time, following none.
+fn open_dir(real: &str) -> rustix::io::Result<OwnedFd> {
+    let mut dir = openat(
+        rustix::fs::CWD,
+        "/",
+        OFlags::DIRECTORY | OFlags::RDONLY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?;
+    for name in real.split('/').filter(|name| !name.is_empty()) {
+        dir = open_dir_at(&dir, name)?;
+    }
+    Ok(dir)
+}
+
+fn open_dir_at(
+    dir: &OwnedFd,
+    name: &str,
+) -> rustix::io::Result<OwnedFd> {
+    openat(
+        dir,
+        name,
+        OFlags::DIRECTORY
+            | OFlags::RDONLY
+            | OFlags::NOFOLLOW
+            | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+}
+
+/// `stat` of the file called `name`, as [`FileInfo`] keeps it.
+fn info_of(name: &str, stat: &Stat) -> Result<FileInfo, FileError> {
+    let kind = match FileType::from_raw_mode(stat.st_mode as RawMode)
+    {
+        FileType::RegularFile => FileKind::File,
+        FileType::Directory => FileKind::Directory,
+        FileType::Symlink => FileKind::Symlink,
+        _ => {
+            return Err(FileError::new(
+                "invalid",
+                "Unsupported file type",
+            ));
+        }
+    };
+    Ok(FileInfo {
+        name: name.to_owned(),
+        kind,
+        size: stat.st_size as u64,
+    })
 }
 
 #[cfg(unix)]
@@ -934,4 +1160,102 @@ fn node_error(
         code,
         format!("{name}: {words}, {syscall} '{path}'"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    use hamlet_testing::Scratch;
+
+    use super::*;
+    use crate::sandbox::reach::open_policy;
+
+    /// Keeps `link` pointing at `inside` and `outside` by turns,
+    /// each turn an atomic replacement, until `stop` is set.
+    fn swapping(
+        link: &std::path::Path,
+        inside: &std::path::Path,
+        outside: &std::path::Path,
+        stop: &AtomicBool,
+    ) {
+        let fresh = link.with_extension("fresh");
+        let mut turn = 0usize;
+        while !stop.load(Ordering::Relaxed) {
+            let target = if turn.is_multiple_of(2) {
+                outside
+            } else {
+                inside
+            };
+            turn += 1;
+            let _ = fs::remove_file(&fresh);
+            std::os::unix::fs::symlink(target, &fresh).unwrap();
+            fs::rename(&fresh, link).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_link_swapped_under_a_file_operation_cannot_carry_it_past_the_policy()
+     {
+        let scratch = Scratch::new("env-swap");
+        let home = scratch.join("home");
+        let house = home.join("houses/home/0");
+        let folder = scratch.join("folder");
+        let inside = folder.join("inside");
+        let outside = home.join("hidden");
+        for each in [&house, &inside, &outside] {
+            fs::create_dir_all(each).unwrap();
+        }
+        fs::write(outside.join("secret.txt"), "hidden\n").unwrap();
+        fs::write(inside.join("secret.txt"), "shown\n").unwrap();
+        let env = Env::new(
+            &text(&folder),
+            open_policy(&folder, &house, &home, &[]),
+            Sandbox::BWRAP,
+        )
+        .unwrap();
+        let link = folder.join("link");
+        std::os::unix::fs::symlink(&inside, &link).unwrap();
+        env.write_file("link/nested/new.txt", "allowed\n").unwrap();
+        assert_eq!(
+            env.read_text("link/nested/new.txt").unwrap(),
+            "allowed\n"
+        );
+        assert_eq!(
+            fs::read_to_string(inside.join("nested/new.txt"))
+                .unwrap(),
+            "allowed\n"
+        );
+        let stop = AtomicBool::new(false);
+        let mut written = 0;
+        let mut read = 0;
+        let mut leaked = false;
+        std::thread::scope(|scope| {
+            scope.spawn(|| swapping(&link, &inside, &outside, &stop));
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(2) {
+                if env.write_file("link/out.txt", "escaped\n").is_ok()
+                {
+                    written += 1;
+                }
+                if let Ok(text) = env.read_text("link/secret.txt") {
+                    leaked |= text == "hidden\n";
+                    read += 1;
+                }
+            }
+            stop.store(true, Ordering::Relaxed);
+        });
+
+        assert!(
+            !leaked,
+            "a read through a swapped link reached the hidden home"
+        );
+        assert!(
+            !outside.join("out.txt").exists(),
+            "a write through a swapped link landed outside the \
+             policy"
+        );
+        assert!(written > 0 && read > 0);
+    }
 }

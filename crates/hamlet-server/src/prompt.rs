@@ -2,7 +2,7 @@
 //! order, as the TypeScript server composes it.
 
 mod brief;
-mod shelf;
+pub(crate) mod shelf;
 #[cfg(test)]
 mod tests;
 
@@ -66,6 +66,8 @@ pub(crate) struct Subject<'a> {
     /// The spend task of the turn (the runtime-scoped submission
     /// id), for the books.
     pub task: Option<&'a str>,
+    /// The conversation the prompt is for, if any.
+    pub conversation: Option<crate::harness::BindingId>,
 }
 
 /// Stocks the library at `root` with the starters it was not
@@ -93,6 +95,7 @@ pub(crate) fn sections(
         .as_ref()
         .and_then(|r| r.agents.iter().find(|a| a.number == number));
     let terms = terms(service, subject.hamlet)?;
+    let company = company(service, subject, number)?;
     let parts = [
         ("charter", Some(trim_end(&service.charter()?.0).to_owned())),
         ("machine", Some(machine(service, subject, &house)?)),
@@ -104,9 +107,16 @@ pub(crate) fn sections(
         (
             "hamlet",
             record.as_ref().and_then(|r| {
-                brief::brief(r, number, subject.instructions, &terms)
+                brief::brief(
+                    r,
+                    number,
+                    subject.instructions,
+                    &terms,
+                    &company,
+                )
             }),
         ),
+        ("realm", realm_brief(service, subject.hamlet, number)?),
     ];
     Ok(parts
         .into_iter()
@@ -117,6 +127,101 @@ pub(crate) fn sections(
             })
         })
         .collect())
+}
+
+fn realm_brief(
+    service: &mut Service,
+    hamlet: &str,
+    number: u64,
+) -> Result<Option<String>> {
+    let db = service.home.store().connection();
+    let realm = crate::realm::read(db)?;
+    if realm.live().count() < 2
+        || !crate::record::read(db, hamlet)?
+            .is_some_and(|r| r.mayor == number)
+    {
+        return Ok(None);
+    }
+    let mut lines = vec![
+        "# Other hamlets".into(),
+        "You have a road to every other mayor: reach one with \
+         `ask_agent` as `mayor@<hamlet>`. Whoever asks pays for the \
+         answer. Between two hamlets a thing is done only when both \
+         mayors agree: `agree_road` for a road, `agree_move` for an \
+         agent to move with its house. `ask_removal` asks the chief \
+         to remove a hamlet."
+            .into(),
+    ];
+    for place in realm.live().filter(|h| h.id != hamlet) {
+        if let Some(r) = crate::record::read(db, &place.id)? {
+            lines.push(format!(
+                "- {}: mayor `{}`; agents: {}",
+                r.id,
+                r.name_of(
+                    r.mayor,
+                    crate::record::NameFallback::Recorded
+                ),
+                r.agents
+                    .iter()
+                    .filter(|a| a.number != r.mayor)
+                    .map(|a| a.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+    }
+    Ok(Some(lines.join("\n")))
+}
+
+/// Whom the conversation of `subject` is with beyond its hamlet: the
+/// agent it is between, and the reader's roads to other hamlets.
+fn company(
+    service: &mut Service,
+    subject: &Subject,
+    number: u64,
+) -> Result<brief::Company> {
+    let db = service.home.store().connection();
+    let peer = match subject.conversation {
+        Some(binding) => {
+            crate::society::letters::sender_of(db, binding)?
+        }
+        None => None,
+    };
+    let peer = match peer {
+        Some(peer) => crate::record::read(db, &peer.hamlet)?
+            .map(|r| r.address_of(peer.number).to_owned())
+            .filter(|name| !name.is_empty())
+            .map(|name| {
+                if peer.hamlet == subject.hamlet {
+                    name
+                } else {
+                    format!("{name}@{}", peer.hamlet)
+                }
+            }),
+        None => None,
+    };
+    let reader = crate::record::AgentRef {
+        hamlet: subject.hamlet.into(),
+        number,
+    };
+    let mut beyond = Vec::new();
+    for road in crate::realm::roads(db)? {
+        let other = if road.a == reader {
+            road.b
+        } else if road.b == reader {
+            road.a
+        } else {
+            continue;
+        };
+        if let Some(there) = crate::record::read(db, &other.hamlet)? {
+            beyond.push(if other.number == there.mayor {
+                format!("mayor@{}", other.hamlet)
+            } else {
+                there.address_of(other.number).into()
+            });
+        }
+    }
+    Ok(brief::Company { peer, beyond })
 }
 
 /// The budget section's words, computed now.

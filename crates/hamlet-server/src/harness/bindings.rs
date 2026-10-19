@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
 
-use super::link::{Item, Mark, ModelRef};
+use super::link::{ConfigureTools, Item, Mark, ModelRef};
 use crate::record::AgentRef;
 use crate::{RuntimeInstance, Store};
 
@@ -295,6 +295,52 @@ impl Store {
         Ok(())
     }
 
+    /// Keeps the tools `binding` offers; returns whether they
+    /// changed.
+    pub(crate) fn set_tools(
+        &mut self,
+        binding: BindingId,
+        tools: &ConfigureTools,
+    ) -> Result<bool> {
+        Ok(self.db.execute(
+            "UPDATE harness_binding SET tools = ?2 WHERE id = ?1 \
+             AND tools IS NOT ?2",
+            params![binding.0, serde_json::to_string(tools)?],
+        )? == 1)
+    }
+
+    /// The tools `binding` offers, when its runtime has not been told
+    /// them.
+    pub(crate) fn tools_owed(
+        &self,
+        binding: BindingId,
+    ) -> Result<Option<ConfigureTools>> {
+        self.db
+            .query_row(
+                "SELECT tools FROM harness_binding WHERE id = ?1 \
+                 AND tools IS NOT NULL AND tools IS NOT tools_told",
+                [binding.0],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|tools| Ok(serde_json::from_str(&tools)?))
+            .transpose()
+    }
+
+    /// Keeps that the runtime of `binding` was told `tools`.
+    pub(crate) fn tools_told(
+        &mut self,
+        binding: BindingId,
+        tools: &str,
+    ) -> Result<()> {
+        self.db.execute(
+            "UPDATE harness_binding SET tools_told = ?2 WHERE id = \
+             ?1",
+            params![binding.0, tools],
+        )?;
+        Ok(())
+    }
+
     /// Keeps an input for `binding` before it is submitted, once per
     /// request id; returns whether it is new.
     pub(crate) fn keep_input(
@@ -553,6 +599,15 @@ impl Store {
              AND NOT EXISTS (SELECT 1 FROM marker WHERE \
              marker.runtime = harness_wait.runtime AND marker.key = \
              harness_wait.key)",
+            params![binding.0, super::answers::STOPPED_WORDS],
+        )?;
+        // So does one the chats' gate allowed, asked for again after
+        // the stop or after a restart.
+        tx.execute(
+            "UPDATE gate_call SET block = ?2 WHERE binding = ?1 AND \
+             block IS NULL AND NOT EXISTS (SELECT 1 FROM marker \
+             WHERE marker.runtime = gate_call.runtime AND \
+             marker.key = gate_call.key)",
             params![binding.0, super::answers::STOPPED_WORDS],
         )?;
         tx.commit()?;

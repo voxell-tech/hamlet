@@ -1228,11 +1228,12 @@ async fn ends_at_once_at_a_second_ctrl_c() {
 /// SIGTERM, or SIGINT when `interrupt`, ends the server in order.
 async fn stops_in_order(interrupt: bool) {
     let mut home = Home::new();
+    let running = home.file("houses/home/0/running");
     let server = home
         .serve(
             &Script::new().responses([call(
                 "bash",
-                json!({"command": "sleep 5"}),
+                json!({"command": "printf started > running; while :; do sleep 1; done"}),
             )]),
             QUIET,
         )
@@ -1243,7 +1244,10 @@ async fn stops_in_order(interrupt: bool) {
     chief.tell(mayor(), "Sleep.").await;
     chief
         .until("the tool to start", |c| {
-            c.items(&mayor_chat).iter().any(|i| i.tool.is_some())
+            running.exists()
+                && c.items(&mayor_chat)
+                    .iter()
+                    .any(|i| i.tool.is_some())
         })
         .await;
     let code = if interrupt {

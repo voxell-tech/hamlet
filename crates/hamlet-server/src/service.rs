@@ -73,7 +73,28 @@ impl Service {
             );
         }
         let houses = Houses::open(&root)?;
+        let mut realm =
+            crate::realm::read(home.store().connection())?;
+        for place in realm.hamlets.iter().filter(|place| place.erased)
+        {
+            houses.erase_hamlet(&place.id)?;
+        }
+        if let Some(pending) = &realm.pending {
+            for binding in crate::chats::records::conversations_of(
+                home.store().connection(),
+                &pending.to,
+            )? {
+                home.store().begin_cancel(binding)?;
+            }
+            houses.move_house(&pending.from, &pending.to)?;
+            realm.pending = None;
+            crate::realm::write(home.store().connection(), &realm)?;
+        }
+        let live = crate::realm::live(home.store().connection())?;
         for record in records(home.store().connection())? {
+            if !live.contains(&record.id) {
+                continue;
+            }
             for agent in record.agents {
                 houses.build(&record.id, agent.number)?;
             }
@@ -162,6 +183,18 @@ impl Service {
         hamlet: &str,
         operation: &str,
     ) -> Result<std::result::Result<record::Hamlet, Refusal>> {
+        if let Some(place) =
+            crate::realm::read(self.home.store().connection())?
+                .hamlets
+                .iter()
+                .find(|h| h.id == hamlet)
+            && (place.removed.is_some() || place.erased)
+        {
+            return Ok(Err(Refusal::Invalid(format!(
+                "The hamlet `{hamlet}` was removed; ask a chief to \
+                 restore it."
+            ))));
+        }
         let Some(record) = self.home.store().record(hamlet)? else {
             return Ok(Err(Refusal::Invalid(format!(
                 "Cannot {operation}: no hamlet named `{hamlet}`. \

@@ -96,9 +96,11 @@ pub(crate) fn books(
     let mut query = db.prepare(
         "SELECT b.number, a.task, u.at, \
          u.input+u.output+u.cache_read+u.cache_write+u.estimated, \
-         u.micros, u.ms, u.ordinal, 0, b.hamlet FROM harness_usage \
-         u JOIN harness_attempt a USING(runtime,key) JOIN \
-         harness_binding b ON b.id=a.binding WHERE b.hamlet=?1 OR \
+         u.micros, u.ms, u.ordinal, 0, coalesce(s.payer,b.hamlet) \
+         FROM harness_usage u JOIN harness_attempt a \
+         USING(runtime,key) JOIN harness_binding b ON \
+         b.id=a.binding LEFT JOIN society_binding s ON \
+         s.binding=b.id WHERE coalesce(s.payer,b.hamlet)=?1 OR \
          a.task=?2 UNION ALL SELECT \
          agent,task,at,tokens,micros,ms,id,1,hamlet FROM \
          record_road_charge WHERE hamlet=?1 OR task=?2",

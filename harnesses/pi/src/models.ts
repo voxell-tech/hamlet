@@ -36,6 +36,8 @@ export interface Gate {
     attempt(sessionId: string | undefined, model: ModelRef): Promise<Permit>;
     /** Resolves once the server has charged `usage` to the attempt `key`. */
     charge(key: string, usage: Usage): Promise<void>;
+    /** Removes every credential known to the server before pi sees provider output. */
+    scrub<T>(value: T): Promise<T>;
     /** Refreshes the context policy from the server's selected model. */
     selected?(model: Model<Api>): void;
 }
@@ -58,6 +60,9 @@ function allowed<O extends StreamOptions>(
     return (model, context, options) => {
         const out = createAssistantMessageEventStream();
         let secret: string | undefined;
+        const clean = <T>(value: T): Promise<T> =>
+            // Provider partials are mutable; the request must own its snapshot.
+            gate.scrub(structuredClone(scrub(value, secret)));
         void (async () => {
             const permit = await gate.attempt(options?.sessionId, {
                 provider: model.provider,
@@ -97,13 +102,13 @@ function allowed<O extends StreamOptions>(
                       };
             const source = stream(selected, context, made);
             for await (const raw of source) {
-                const event = scrub(raw, secret);
                 if (
-                    event.type === "text_delta" ||
-                    event.type === "thinking_delta" ||
-                    event.type === "toolcall_delta"
+                    raw.type === "text_delta" ||
+                    raw.type === "thinking_delta" ||
+                    raw.type === "toolcall_delta"
                 )
                     firstTokenMs ??= Date.now() - started;
+                const event = await clean(raw);
                 if (event.type === "done" || event.type === "error") {
                     const message =
                         event.type === "done" ? event.message : event.error;
@@ -136,17 +141,16 @@ function allowed<O extends StreamOptions>(
                 }
                 out.push(event);
             }
-            out.end(scrub(await source.result(), secret));
-        })().catch((error: unknown) => {
+            out.end(await clean(await source.result()));
+        })().catch(async (error: unknown) => {
             // The answer is not kept, so the call is made again under a new attempt.
-            fail(
-                out,
-                model,
-                scrub(
+            let words = "The server could not scrub model output.";
+            try {
+                words = await clean(
                     `The server did not allow or charge this call: ${error instanceof Error ? error.message : String(error)}`,
-                    secret,
-                ),
-            );
+                );
+            } catch {}
+            fail(out, model, words);
         });
         return out;
     };

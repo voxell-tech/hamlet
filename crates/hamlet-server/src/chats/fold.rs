@@ -292,6 +292,17 @@ pub(crate) fn items_of(entry: &link::Item) -> Vec<(usize, Item)> {
                 item(ItemKind::Notice, entry.text.clone(), at),
             )];
         }
+        Some(
+            "hamlet.letter" | "hamlet.question" | "hamlet.reply",
+        ) if entry.kind == link::ItemKind::User => {
+            return vec![(
+                0,
+                Item {
+                    author: data("author").as_str().map(String::from),
+                    ..item(ItemKind::User, entry.text.clone(), at)
+                },
+            )];
+        }
         _ => {}
     }
     match entry.kind {

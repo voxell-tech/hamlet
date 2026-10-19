@@ -272,6 +272,22 @@ export const Write = message("write", {
 });
 export type Write = Static<typeof Write>;
 
+/**
+ * The tools a conversation offers from its next request: exactly those `only` names, or every tool but those `remove`
+ * names. Kept in the runtime's store; asking again sets the same.
+ */
+export const Configure = message("configure", {
+    conversation: ConversationId,
+    tools: Type.Union([
+        object({ only: Type.Array(Type.String({ minLength: 1 })) }),
+        object({ remove: Type.Array(Type.String({ minLength: 1 })) }),
+    ]),
+});
+export type Configure = Static<typeof Configure>;
+
+export const Configured = reply("configured", {});
+export type Configured = Static<typeof Configured>;
+
 /** Copies a conversation up to the entry `at`, once per `key`; answered with the copy as `created`. */
 export const Fork = message("fork", {
     key: Type.String({ minLength: 1 }),
@@ -408,6 +424,13 @@ export type UsageReport = Static<typeof UsageReport>;
 export const Charged = reply("charged", {});
 export type Charged = Static<typeof Charged>;
 
+/** Removes the server's known credentials before the runtime keeps or shows a value. */
+export const Scrub = message("scrub", { value: Type.Unknown() });
+export type Scrub = Static<typeof Scrub>;
+
+export const Scrubbed = reply("scrubbed", { value: Type.Unknown() });
+export type Scrubbed = Static<typeof Scrubbed>;
+
 /** Asks for a conversation's prompt sections before each model call. */
 export const Prompt = message("prompt", {
     conversation: ConversationId,
@@ -473,6 +496,7 @@ export const ServerMessage = Type.Union([
     Create,
     Submit,
     Write,
+    Configure,
     Fork,
     Cancel,
     History,
@@ -486,6 +510,7 @@ export const ServerMessage = Type.Union([
     Allowance,
     Stopped,
     Charged,
+    Scrubbed,
     Sections,
     Verdict,
     LinkError,
@@ -498,6 +523,7 @@ export const RuntimeMessage = Type.Union([
     Hello,
     Created,
     Admitted,
+    Configured,
     Cancelled,
     Page,
     Statuses,
@@ -505,6 +531,7 @@ export const RuntimeMessage = Type.Union([
     Operation,
     Attempt,
     UsageReport,
+    Scrub,
     Prompt,
     Kept,
     Live,
@@ -539,6 +566,8 @@ const DEFINITIONS: Record<string, TSchema> = {
     Created,
     Submit,
     Write,
+    Configure,
+    Configured,
     Fork,
     Admitted,
     Cancel,
@@ -560,6 +589,8 @@ const DEFINITIONS: Record<string, TSchema> = {
     Stopped,
     UsageReport,
     Charged,
+    Scrub,
+    Scrubbed,
     Prompt,
     Sections,
     Kept,

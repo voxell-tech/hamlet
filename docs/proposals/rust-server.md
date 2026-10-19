@@ -207,6 +207,7 @@ Errors are messages, not closed connections.
 | Prompt material | The sections and tools for the next model call (C11, H35) |
 | A model attempt | Allowed, with what is needed to make it, or stopped with the words of what ran out (H8, H12) |
 | Usage | The usage of an attempt, under the attempt's identity; acknowledged once charged |
+| Scrub | A value with all credentials currently known to the server removed, before the runtime keeps provider output (C32, S7) |
 | An operation | A tool call or a change to the record, under its operation identity; answered with its result, a wait, or a refusal |
 | A wait's answer | The chief's answer to a wait the runtime is holding open |
 
@@ -331,9 +332,17 @@ then an allowed agent choice, the hamlet model, and the home default. It
 snapshots that model's price with the attempt. The runtime uses that model
 and its one credential, rather than retaining the credential in a
 conversation's configuration. `HAMLET_API_KEY` is removed from the child
-environment. Kept provider text, thinking, tool arguments and failures are
-scrubbed of the attempt's credential before pi records them (C32). A
-future live-delta path must also handle credentials split across chunks.
+environment. Before handing provider events to pi-durable, the adapter
+snapshots their mutable partials and sends them through `scrub` on the
+private link. Rust removes every currently known credential from text,
+thinking, tool arguments and failures; the adapter also removes the
+attempt's credential locally. The server does not hand the runtime other
+providers' keys for scrubbing. If scrubbing fails, no unchecked output
+reaches pi's store.
+Pi keeps cumulative partials and final messages, so a credential split
+across provider chunks is removed from the accumulated message (C32).
+A future consumer that concatenates raw deltas must also hold back
+possible credential prefixes across chunks.
 
 The ledger records elapsed model time, first-token time when a delta
 arrives, token categories, reasoning tokens, the end reason and a billed
@@ -457,12 +466,19 @@ failed summary, because the link has no compaction (C28).
 
 Each tool call is one operation the server carries out. The runtime holds
 no tool, not even a file operation. The gate decides at `allow` and keeps
-its decision with the call: run, refuse, or hold for a chief. A held call
+the binding and a digest of the input, tool and arguments with the call.
+A changed request cannot reuse an allowance or a marked result. Legacy
+calls without that identity are refused, with their old outcomes retained.
+Automatic allowances recheck current grants and trust at execution; an
+explicit per-call ruling and a verified marked result stand. A held call
 waits, across a crash, until a chief answers it. Its runtime is then woken
-to ask again. A chief's choices to always allow are kept as session trust
-for edits and commands, or as grants for the network and unconfined runs.
-The file tools run in the server's process after checks on canonical
-paths. A command runs confined by bubblewrap or Seatbelt, ported from
+to ask again. Cancellation durably refuses unmarked calls, including
+questions, even after the runtime acknowledges the stop. A chief's choices
+to always allow are kept as session trust for edits and commands, or as
+grants for the network and unconfined runs.
+File operations walk held directory descriptors without following an
+unchecked link; write previews use the same read policy as the agent.
+A command runs confined by bubblewrap or Seatbelt, ported from
 `server/src/sandbox/`. The server probes the sandbox at start and does not
 start without one. `bash`, `write` and `edit` keep a begun marker before
 they run. One that a restart interrupted answers that it may have

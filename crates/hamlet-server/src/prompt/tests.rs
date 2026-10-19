@@ -34,6 +34,7 @@ fn subject(number: i64, instructions: &[Instruction]) -> Subject<'_> {
         sandbox: "bubblewrap",
         instructions,
         task: None,
+        conversation: None,
     }
 }
 

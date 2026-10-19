@@ -322,6 +322,12 @@ class Runtime {
                 if (answer.type !== "charged")
                     throw new Error(unexpected(answer));
             },
+            scrub: async <T>(value: T): Promise<T> => {
+                const answer = await channel.request({ type: "scrub", value });
+                if (answer.type !== "scrubbed")
+                    throw new Error("The server could not scrub model output.");
+                return answer.value as T;
+            },
         };
     }
 
@@ -616,18 +622,30 @@ class Runtime {
             sections: [
                 section(
                     "hamlet",
-                    async (prompt) => {
+                    async (prompt, context) => {
                         const input = await this.#input(prompt.conversationId);
-                        const answer = await channel.request({
-                            type: "prompt",
-                            conversation: String(prompt.conversationId),
-                            ...(input === undefined ? {} : { input }),
-                        });
-                        if (answer.type !== "sections")
-                            throw new Error(unexpected(answer));
-                        return answer.sections
-                            .map((part) => part.text)
-                            .join("\n\n");
+                        for (;;) {
+                            const answer = await abortable(
+                                channel.request({
+                                    type: "prompt",
+                                    conversation: String(prompt.conversationId),
+                                    ...(input === undefined ? {} : { input }),
+                                }),
+                                context,
+                            );
+                            if (answer.type === "waiting") {
+                                await this.#held(
+                                    `prompt:${prompt.conversationId}:${input}`,
+                                    context,
+                                );
+                                continue;
+                            }
+                            if (answer.type !== "sections")
+                                throw new Error(unexpected(answer));
+                            return answer.sections
+                                .map((part) => part.text)
+                                .join("\n\n");
+                        }
                     },
                     { tag: false },
                 ),
@@ -919,6 +937,37 @@ class Runtime {
                           }
                         : {}),
                 });
+                return;
+            }
+            case "configure": {
+                const known = this.#known.get(request.conversation);
+                if (known === undefined) {
+                    this.#channel.send({
+                        type: "error",
+                        re,
+                        code: "unknown_conversation",
+                        message: `No conversation ${request.conversation} in this runtime.`,
+                    });
+                    return;
+                }
+                const { tools } = request;
+                const registered = this.#registry
+                    .snapshot()
+                    .tools()
+                    .map(({ tool }) => tool);
+                const named = (names: readonly string[]) =>
+                    registered.filter((tool) => names.includes(tool.name));
+                await this.#harness.commit(
+                    (tx) =>
+                        configure(tx, known.conversation, {
+                            tools:
+                                "only" in tools
+                                    ? named(tools.only)
+                                    : { remove: named(tools.remove) },
+                        }),
+                    context,
+                );
+                this.#channel.send({ type: "configured", re });
                 return;
             }
             case "cancel": {

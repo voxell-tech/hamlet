@@ -87,6 +87,9 @@ test("a runtime speaks only the link's messages from hello to an answer, and exi
             case "usage":
                 send({ type: "charged", re });
                 break;
+            case "scrub":
+                send({ type: "scrubbed", re, value: field(message, "value") });
+                break;
             case "prompt":
                 send({ type: "sections", re, sections: [] });
                 break;

@@ -127,6 +127,7 @@ impl Hamlet {
             DecisionKind::Created { agent, name, .. }
             | DecisionKind::Removed { agent, name, .. }
             | DecisionKind::Restored { agent, name, .. }
+            | DecisionKind::Erased { agent, name, .. }
             | DecisionKind::MovedIn { agent, name, .. }
             | DecisionKind::MovedOut { agent, name, .. }
                 if *agent == number =>
