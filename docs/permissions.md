@@ -25,13 +25,13 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 `ui.settings`, `net`, `fs.pick`, `fs.folder`, `model.call`, `plugin.use`,
 `collections.read`, `collections.write`, `files.read`, `files.write`, `db`,
 `agent.tool`, `agent.hook`, `agent.steer`, `ui.canvas`, `world.overlay`,
-`render.scene` and `render.shader`. `read.agents`,
+`render.scene`, `render.shader` and `plugin.export`. `read.agents`,
 `read.papers`, `read.world`, `ui.menu`, `ui.keys`, `ui.context`,
 `ui.inspector`, `ui.settings`, `ui.canvas`, `world.overlay`, `render.scene`,
 `render.shader`, `chat.send`,
 `commands.run`, `world.act`, `net`, `fs.pick`, `fs.folder`, `model.call`,
 `files.read`, `files.write`,
-`db`, `agent.tool`, `agent.hook`, `agent.steer` and the three below are checked so far; the
+`db`, `agent.tool`, `agent.hook`, `agent.steer`, `plugin.export` and the three below are checked so far; the
 others can be asked for, shown and chosen.
 
 `plugin.use`, `collections.read`, `collections.write` and `fs.folder` are
@@ -54,7 +54,18 @@ every target.
   `plugin.use not granted`; the answer reaches the plugin as `granted` or
   `denied` of `plugin.use:notes`. An event is given to a plugin only while it
   holds `plugin.use` for the plugin that publishes it, and the events of the
-  host need `read.agents` instead.
+  host need `read.agents` instead. A call of a typed interface needs it for the
+  plugin that implements it, checked on every call; an import of an interface
+  that names no plugin in `from` has no control in Settings until the chief
+  answers for an implementer at its first call.
+- `plugin.export` lets other plugins call the typed interfaces a plugin exports
+  (see [`wasm.md`](wasm.md)). It is not scoped and is allowed when the chief
+  lets the plugin in. It is checked on every call: a plugin that does not hold
+  it is no implementer, and where the choice is yet to be made the chief is
+  asked. A manifest that exports interfaces must ask for it. A call is checked
+  against the types both manifests declare, runs in a `step` of the plugin's
+  own under a budget of time and fuel, and the fuel is charged to the caller,
+  so a caller cannot spend the plugin's own time.
 - `collections.read` lets a plugin read a collection another plugin shares, and
   `collections.write` change it, which the sharing plugin must also say it is
   `writable`.
@@ -520,8 +531,9 @@ plugin's `Choices` and writes the record.
 `assets/wasm.toml` bounds every plugin alike, whatever it is allowed: the time
 and memory of a call, the log, the panels, the nodes, depth and text of a
 tree, the events it is given in a second, the intents it returns from a
-call, the calls it may have waiting and how deep they may go, and the size of
-what crosses between plugins. What each does when passed is in
+call, the calls it may have waiting and how deep they may go, the size of
+what crosses between plugins, and the time and fuel of a call of a typed
+interface and the fuel its caller may spend on them in a second. What each does when passed is in
 [`wasm.md`](wasm.md).
 
 ## Never grantable

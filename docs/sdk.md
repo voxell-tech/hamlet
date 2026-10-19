@@ -167,8 +167,11 @@ pub trait HamletPlugin {
 
 - `Manifest`: id, name, version, the plugins it needs and wants (an id and a
   version range each, read by `Range`), what it exports and imports (`Exports`
-  and `Imports`: commands, events and collections, see [`wasm.md`](wasm.md))
-  and whether it is built in. `Manifest::built_in("id")` starts one.
+  and `Imports`: commands, events, collections and typed interfaces, see
+  [`wasm.md`](wasm.md)) and whether it is built in. `Manifest::built_in("id")`
+  starts one. A typed interface is an `Interface` or an `Imported` of
+  `Function`s, whose parameters and result are `Type`s that check the bytes of
+  a value; only installed WASM plugins export or call one.
 - `Entry` is what `entry` declares into. It reaches neither the app nor the
   world. It declares a panel, with `panel` or with `panel_by_id`; a command,
   with `command` (a function that runs it), `opens` (it brings a panel

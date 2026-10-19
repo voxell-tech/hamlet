@@ -83,12 +83,17 @@ sandbox".
   `ui.context`, `ui.inspector`, `ui.settings`, `ui.canvas`, `world.overlay`,
   `render.scene`, `render.shader`, `net`, `fs.pick`, `fs.folder`,
   `files.read`, `files.write`, `db`,
-  `model.call`, `plugin.use`, `collections.read`, `collections.write`,
-  `agent.tool` and `agent.hook`. All but `read.chat`, `read.activity`,
+  `model.call`, `plugin.use`, `plugin.export`, `collections.read`,
+  `collections.write`, `agent.tool` and `agent.hook`. All but `read.chat`, `read.activity`,
   `fs.folder` and `model.call` are checked today; those four can be asked
   for and are checked later. `plugin.use`, `collections.read` and
   `collections.write` are chosen for each plugin or collection the manifest
   `imports`.
+- A plugin that exports a typed interface (`[[exports.interfaces]]`) asks for
+  `plugin.export`; one that calls it lists it under `[[imports.interfaces]]`
+  with the same functions and types, and asks for `plugin.use`. The host
+  checks every call's arguments and result against the types
+  (`hamlet_guest::invoke`, `guests/harbour`, `docs/wasm.md`).
 - `keys`, `petitions.answer`, `home.raw`, `process.run`, `sandbox.off` and
   `storage.other` are never granted, and a manifest that asks for one is
   turned down. So is one with `agent.tool` or `agent.hook` that also asks

@@ -30,7 +30,8 @@ The host is behind the `wasm` feature of the binary, on by default beside
 | `guests/clipper` | Clipper: sends the selected agent's name to Notes with its command, lists the titles of the notes it reads from Notes' collection and counts the `note-saved` events. Its command `clip` sends the name of the agent whose menu item "Clip name to Notes" was chosen. It needs Notes. The pair is the example of [`authoring.md`](authoring.md#two-plugins-working-together) |
 | `guests/charts` | Charts: a bar chart on a canvas, behind `ui.canvas`, with a Shuffle button that draws other numbers. Its `steps.toml` checks it held back and then drawn |
 | `guests/diary` | Diary: keeps a count of each agent's turns and the tools it used, from `host/before-turn` and `host/after-turn`, behind `agent.hook`. Its `steps.toml` tells it of turns with the harness's `turn` step |
-| `guests/tides` | Tides: gives the agents a tool, `height`, behind `agent.tool` (see Tools for the agents below). Its `steps.toml` checks it with the harness's `call-tool` step |
+| `guests/tides` | Tides: gives the agents a tool, `height`, behind `agent.tool` (see Tools for the agents below), and exports its table as the typed interface `tide-table`, behind `plugin.export`. Its `steps.toml` checks the tool with the harness's `call-tool` step |
+| `guests/harbour` | Harbour: lists the plugins that implement `tide-table`, calls `height` of one and shows the result or the typed error, and sends a number where the port goes, which the host refuses (see Typed interfaces below). Its `steps.toml` runs it beside Tides |
 | `assets/wasm.toml` | The limits, and how often the plugins' files are looked at |
 
 In `hamlet_wasm/src/`, a file for each part:
@@ -40,7 +41,7 @@ In `hamlet_wasm/src/`, a file for each part:
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
 | What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `host/folder.rs` and `files.rs` (the folder of files), `pick.rs` (a file or a folder the chief picks), `folder.rs` (the folder the chief chose), `model.rs` (a model call), `host/database.rs` and `db.rs` (the database), `acts.rs` (a message or a command as the chief), `net.rs` (fetches), `rate.rs` (a count a minute), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
 | The install folder | `manifest.rs`, `install.rs` (which also turns down plugins whose needs go in a circle), `cache.rs` (the compiled components kept in the home) |
-| Plugins working together, and the agents | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `chief.rs` (a command the chief runs), `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `tools.rs` (a call of an agent), `mail.rs`. Also `command.rs` (a plugin's commands, menu lines, context items, inspector tabs, settings pages and keys as entities), `reach.rs` and `host/collections.rs` (the shared collections), and `steer.rs` (a point of an agent's turn put to the plugins that steer it) |
+| Plugins working together, and the agents | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `chief.rs` (a command the chief runs), `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `tools.rs` (a call of an agent), `invoke.rs` (a call of a typed interface), `mail.rs`. Also `command.rs` (a plugin's commands, menu lines, context items, inspector tabs, settings pages and keys as entities), `reach.rs` and `host/collections.rs` (the shared collections, and the implementers of the interfaces a plugin imports, which `host/interfaces.rs` answers from), and `steer.rs` (a point of an agent's turn put to the plugins that steer it) |
 | Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
 | Bringing up and the frame | `load.rs`, `admit.rs` (a plugin the chief just let in), `start.rs`, `enable.rs`, `inbox.rs`, `reply.rs` (an answer to a request), `run.rs`, `stop.rs` |
 | The panels | `panel.rs`, `wire.rs` (a returned tree made into nodes), `draw.rs`, `event.rs` |
@@ -109,6 +110,8 @@ shows and the view built from it are in `hamlet_sdk::tree`.
   `collection-delete(plugin, name, key)`, the collections other plugins share
   (see Plugins working together below). They need `collections.read` or
   `collections.write`, chosen for each collection.
+- `implementers(interface)`, the plugins that implement a typed interface the
+  manifest imports (see Typed interfaces below). It needs no capability.
 - `state-get()` and `state-set(state)`, a blob the host holds for the plugin
   in memory (see State below).
 
@@ -126,12 +129,13 @@ The plugin exports:
   each plugin or collection, the name is `capability:target`, as in
   `plugin.use:notes`), or, between plugins, a `command` another plugin runs (or
   the chief, from a menu line, a key or an item of a context menu, with the
-  sender `chief`), the `reply` to a command this one ran, and an `event`. The
-  intents it returns are carried out by the host: a `log-line`, a `redraw` of a
-  panel, an `open-panel` of the plugin's own that brings it to the front of the
-  dock (opening it if it is closed, with no capability, and dropped with a
-  warning for a panel the plugin did not declare), and between plugins
-  `run-command`, `reply` and `publish`. More go out of the host: `send-chat`,
+  sender `chief`), the `reply` to a command this one ran, an `event`, a call of
+  a typed interface it exports, `invoked`, and the answer to one it made,
+  `returned`. The intents it returns are carried out by the host: a `log-line`,
+  a `redraw` of a panel, an `open-panel` of the plugin's own that brings it to
+  the front of the dock (opening it if it is closed, with no capability, and
+  dropped with a warning for a panel the plugin did not declare), and between
+  plugins `run-command`, `invoke`, `reply` and `publish`. More go out of the host: `send-chat`,
   `run-as-chief` and `world-act` (see Acts as the chief below), `overlay` (see
   Drawing below), `pick-file` (see Files below), whose answer reaches a later
   `step` as `picked(id, outcome)`, `pick-folder` and `folder` (see A folder the
@@ -537,7 +541,8 @@ frame. `hamlet_guest::model` makes the intent and reads the answer.
 The host stands in the middle of every meeting between plugins. A plugin never
 holds another's pointer, memory or storage, and everything that crosses is a
 copy, checked by the host against the two manifests and the chief's grants.
-Using another plugin is the capability `plugin.use`, chosen for each plugin
+Using another plugin is the capability `plugin.use`, chosen for each plugin, and
+offering a typed interface is `plugin.export`
 ([`permissions.md`](permissions.md)).
 
 A plugin lists what it offers and what it uses in its manifest, and nothing
@@ -558,6 +563,9 @@ commands = ["notes/add"]
 events = ["notes/note-saved", "notes/collection-changed", "host/selection-changed"]
 collections = ["notes/notes"]
 ```
+
+Typed interfaces are listed as tables of their own, `[[exports.interfaces]]` and
+`[[imports.interfaces]]` (see Typed interfaces below).
 
 A name is 1 to 64 bytes of `a-z`, `0-9`, `.`, `_` and `-`. `host` is not a
 plugin's id: it is the sender of the events of the host.
@@ -607,9 +615,11 @@ frames``. A late reply is dropped with a warning.
 
 The depth of a call is the number of plugins it has crossed. A call a plugin
 runs while it is answering a call has the depth of the deepest call it is
-answering, plus one, so a handler that calls another command is one deeper, a
-cycle cannot loop, and a call over `call_depth` is answered with an error. A
-plugin that answers no call starts calls at depth 1.
+answering when its `step` began, plus one, so a handler that calls another
+command is one deeper, even where it replies in the same `step`, a cycle cannot
+loop, and a call over `call_depth` is answered with an error. A plugin that
+answers no call starts calls at depth 1. Commands and calls of typed interfaces
+count the same depth.
 
 What a plugin does is attributed to it in the log: `plugin clipper: runs
 notes/add`, `plugin clipper: notes/add refused: ...`.
@@ -800,9 +810,87 @@ not there`` (the plugin is not running or does not export it) or, for a write,
 `` `p/n` is read-only``. The values are read from and written to the files of the
 sharing plugin's storage, under its caps.
 
-Exported typed interfaces, which one plugin implements and another imports as a
-component the host links, are not built. Commands, events and collections cover
-what plugins do together until they are.
+### Typed interfaces
+
+A plugin exports an interface: functions with typed parameters and a typed
+result, under a name that several plugins may export. Another imports it and
+calls a function of one implementer. The host is between the two on every call;
+no component is linked to another.
+
+```toml
+# The plugin that implements it, which asks for plugin.export.
+[[exports.interfaces]]
+name = "tide-table"
+
+[[exports.interfaces.functions]]
+name = "height"
+params = ["string"]
+result = "option<f64>"      # none: the function returns nothing
+
+# The plugin that calls it, which asks for plugin.use.
+[[imports.interfaces]]
+name = "tide-table"
+from = ["tides"]            # none: any plugin that implements it
+
+[[imports.interfaces.functions]]
+name = "height"
+params = ["string"]
+result = "option<f64>"
+```
+
+The types are `bool`, `u32`, `u64`, `s32`, `s64`, `f32`, `f64`, `string`,
+`bytes`, `list<T>`, `option<T>` and `tuple<T, ..>`, nested at most eight deep
+(`hamlet_sdk::plugin::Type`). A value crosses as bytes written with `postcard`,
+the encoding of the commands: the arguments as the tuple of the parameters, a
+Rust struct as the tuple of its fields in order, and no result as nothing. The
+host reads the bytes against the type, without the guest's code, and refuses
+bytes that are not one value of it or have bytes left over. A manifest that
+exports interfaces and does not ask for `plugin.export`, or whose names or types
+cannot be read, is turned down by the scan.
+
+1. `implementers(interface)` gives the ids of the running plugins that export the
+   interface with each function the import names, of the same types, and hold
+   `plugin.export`, among those of `from` where it names any, in order. The host
+   puts the list in the store before each call, as it does the collections.
+2. The caller's `step` returns `invoke(call-id, plugin, function, args)`, with
+   the function as `interface/function`.
+3. `Apply` checks, in this order: the function is in the caller's imports and the
+   import is from that plugin; it is not the caller itself; the caller holds
+   `plugin.use` for the plugin (the petition is raised where the chief is yet to
+   decide); the arguments are within `call_bytes`; the call id is not waiting;
+   fewer than `calls_in_flight` calls wait; the depth is within `call_depth`; the
+   caller has fuel left for calls this second; the arguments are of the import's
+   types; the plugin is installed, exports the function with the same types, is
+   running and holds `plugin.export` (where it is yet to be decided, the chief is
+   asked for the implementer).
+4. The call is given to the implementer at once, in the same frame: a `step` with
+   `invoked(call-id, sender, interface, function, args)` alone in its inbox, with
+   `invoke_ms` and the fuel of `invoke_fuel` or what the caller has left of
+   `invoke_fuel_per_second`, whichever is less. The fuel the `step` uses is
+   charged to the caller. A `step` that runs out stops the implementer as any
+   failed call does.
+5. The implementer answers with `reply(call-id, outcome)`, in that `step` or a
+   later one within `call_frames`, so a function may wait on a call of its own.
+   The host checks the bytes against the result type and gives the caller
+   `returned(call-id, outcome)` under the caller's own number.
+
+Every failure comes back as `returned` with an `invoke-error`, never a stall:
+
+| Error | When |
+|---|---|
+| `no-implementer` | No plugin of that id is installed, it does not export the function, it is not running, or it does not hold `plugin.export` |
+| `refused` | Not imported, not from that plugin, a call of itself, `plugin.use` not granted, or a limit of calls passed (a result over `call_bytes` among them) |
+| `mismatch` | The arguments or the result are not of the declared types, or the implementer declares the function with other types |
+| `out-of-budget` | The caller used its `invoke_fuel_per_second`, or the implementer ran out of the call's fuel or time |
+| `failed` | The implementer trapped, was switched off, stopped or removed while the call waited, or did not answer within `call_frames` frames |
+| `error` | The implementer answered with an error of its own |
+
+Built-in and native plugins neither export nor import typed interfaces: the
+host steps only installed WASM plugins. `hamlet_guest::invoke` makes the intent
+(`Invokes<T>`, which keeps a tag for each call in `State` as `Calls<T>` does),
+reads the answer (`returned`, `why`), lists the implementers and answers a call
+(`invoked`, `args`, `give_back`). `guests/tides` and `guests/harbour` are the
+example.
 
 ## A plugin that stopped
 
@@ -952,6 +1040,9 @@ each means. They apply to every plugin alike, whatever it is granted.
   plugins deep, `call_bytes` in the arguments of a call, in a reply and in the
   payload of an event, and a wait of `call_frames` frames before the caller is
   answered with an error.
+- **Typed interfaces.** The `step` given a call has `invoke_ms` and at most
+  `invoke_fuel`, and the calls one plugin makes may use `invoke_fuel_per_second`
+  in a second, charged to it (see Typed interfaces above).
 - **Collections.** A page of at most `collection_page_items` items and
   `collection_page_bytes` bytes of values.
 - **The world.** A survey gives at most `world_hamlets` hamlets and
@@ -1047,7 +1138,8 @@ be chosen for, and of `collections.read` and `collections.write` the
 missing, the manifest cannot be read, its `id` is not the folder's name, a
 WASM plugin's `interface` is not `interface::VERSION` or an ask cannot be
 granted (a name that is not a capability, one that is never granted, or no
-reason); the reason is logged. The id is a name (as below), is not one of the
+reason) or it exports typed interfaces without asking for `plugin.export`; the
+reason is logged. The id is a name (as below), is not one of the
 reserved `host`, `chief` and `window`, or the id of a built-in plugin
 (`agents`, `hamlets`, `inspector`, `needs`, `realm`, `settings` and `skills`), the name has at most 64 characters and a reason at most 300.
 A name and a reason are shown as one line without brackets.

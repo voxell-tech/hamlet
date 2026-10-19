@@ -45,6 +45,7 @@ the chief answers one question for them, not "everything".
 | `guests/scribe/` | A plugin to read for a folder the chief chooses (`hamlet_guest::folder`), a model call (`hamlet_guest::model`) and steering the agents' turns (`hamlet_guest::steer`); its `steps.toml` chooses its folder, answers the model and the chief in the script's place, and puts points of a turn to it |
 | `guests/herald/` | A plugin to read for what a plugin may do outside its panel: `lib.rs` sends a message and runs a command as the chief (`hamlet_guest::send_chat`, `run_as_chief`), keeps a draft in its folder of files (`hamlet_guest::files`) and fetches a page (`hamlet_guest::net`); its `manifest.toml` lists the hosts and commands in the `scope` of its asks, and its `steps.toml` answers each ask |
 | `guests/surveyor/` | A plugin to read for the world: `lib.rs` reads the realm (`hamlet_guest::world::view`), marks the agents at work over it (`hamlet_guest::overlay`) and brings the camera to one (`hamlet_guest::world::focus`); its `steps.toml` makes up a world with `set-world` |
+| `guests/harbour/` | A plugin that calls the typed interface `tide-table`, which `guests/tides/` exports: its `manifest.toml` (the interface it imports), `lib.rs` (listing the implementers, the call and its typed errors) and `steps.toml`, a script for the two plugins together |
 | `guests/clipper/` | A plugin that uses Notes: its `manifest.toml` (what it needs, imports and asks), `update.rs` (the call, the reply, the events and the command a context menu item runs) and `steps.toml`, a script for the two plugins together |
 
 The template plugin has a panel, a button that counts in its state and one read
@@ -256,9 +257,10 @@ reason = "To count the agents the panel is about."
   not stepped on frames in which nothing came for it.
 - `needs` and `wants` name plugins this one depends on, each an `id` and a
   version `range`; a plugin whose needs are not met does not start, and Settings
-  says why. `exports` and `imports` list the commands, events and collections the
-  plugin offers and uses; nothing outside them is reachable. See
-  [Two plugins working together](#two-plugins-working-together).
+  says why. `exports` and `imports` list the commands, events, collections and
+  typed interfaces the plugin offers and uses; nothing outside them is reachable.
+  See [Two plugins working together](#two-plugins-working-together) and
+  [A typed interface](#a-typed-interface).
 
 A build for another interface version is not loaded, and the reason says "built
 for interface X, this Hamlet speaks Y". Build the plugin again from the
@@ -748,6 +750,99 @@ cargo run --example plugin_check --features wasm -- \
 The script grants what the chief would, presses the button before and after,
 and draws `denied.png`, `clipper.png` and `notes.png`. The gallery scene
 `plugin-clipper` draws Clipper's panel from a tree made up for it.
+
+## A typed interface
+
+A command carries bytes the two plugins agree on. A typed interface declares
+the types, and the host checks each call against them
+([`wasm.md`](wasm.md#typed-interfaces) has the rules and the errors). Several
+plugins may implement one interface, and the caller chooses which to call.
+`guests/tides` exports `tide-table` and `guests/harbour` calls it.
+
+**The plugin that implements it** lists the interface and asks for
+`plugin.export`, then answers each call in `step`:
+
+```toml
+[[exports.interfaces]]
+name = "tide-table"
+
+[[exports.interfaces.functions]]
+name = "height"
+params = ["string"]
+result = "option<f64>"
+
+[[asks]]
+capability = "plugin.export"
+reason = "To let other plugins read its tide table."
+```
+
+```rust
+// in step, for each incoming
+if let Some(call) = invoke::invoked(&incoming) {
+    let metres = invoke::args::<(String,)>(call).map(|(port,)| look_up(&port));
+    out.push(invoke::give_back(call, metres.as_ref().map_err(String::clone)));
+}
+```
+
+The call comes in a `step` of its own, at once, with a small budget the caller
+pays for; answer in it, or in a later `step` if the answer waits on a call of
+your own. The arguments are the tuple of the parameters and the result is its
+value, both written with `postcard`: `(String,)` for `["string"]` and
+`Option<f64>` for `option<f64>`.
+
+**The plugin that calls it** imports the interface with the same functions and
+types, from the plugins listed in `from` or, with none, any that implements it,
+and asks for `plugin.use`:
+
+```toml
+[[imports.interfaces]]
+name = "tide-table"
+
+[[imports.interfaces.functions]]
+name = "height"
+params = ["string"]
+result = "option<f64>"
+```
+
+```rust
+#[derive(Default, Serialize, Deserialize)]
+struct Model { calls: Invokes<String>, answer: String }
+
+// which plugins implement it
+let found = invoke::implementers("tide-table")?;
+
+// the call, to one of them
+out.push(model.calls.call("tides", ("tide-table", "height"), &(&port,), port.clone())?);
+
+// each incoming, first
+if let Some((port, outcome)) = model.calls.route(&incoming) {
+    model.answer = match invoke::returned::<Option<f64>>(&outcome) {
+        Ok(Some(metres)) => format!("{port}: {metres} metres"),
+        Ok(None) => format!("{port}: no table"),
+        Err(why) => why,
+    };
+}
+```
+
+A failure comes back as a typed error, which `invoke::why` puts in words such as
+`refused: plugin.use not granted` or `mismatch: the arguments are not a
+tuple<string>`. The first call to a plugin raises "Harbour asks to use
+plugin.use for `tides`", as for a command.
+
+**Checking the pair.** Build both and run them in one home:
+
+```sh
+guests/tides/build.sh /tmp/pair/tides
+guests/harbour/build.sh /tmp/pair/harbour
+cargo run --example plugin_check --features wasm -- \
+  /tmp/pair/tides /tmp/pair/harbour \
+  --script guests/harbour/steps.toml --out /tmp/pair/pictures
+```
+
+The script finds no implementer until Tides is allowed `plugin.export`, is
+refused until Harbour is allowed `plugin.use:tides`, gets the tide of a port
+and no table for another, and sends a number where the port goes, which the
+host refuses as a mismatch.
 
 ## A tool for the agents
 
