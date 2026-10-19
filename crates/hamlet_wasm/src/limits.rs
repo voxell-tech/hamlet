@@ -112,7 +112,8 @@ pub struct Limits {
     /// The bytes of all the files one plugin keeps in its folder of
     /// files.
     pub files_bytes: u64,
-    /// The files one plugin may keep in its folder of files.
+    /// The files and folders one plugin may keep in its folder of
+    /// files.
     pub files_count: usize,
     /// The bytes of one file.
     pub file_bytes: usize,

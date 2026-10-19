@@ -78,14 +78,23 @@ impl Files {
         if old.as_ref().is_some_and(|meta| !meta.is_file()) {
             return Err(format!("`{path}` is not a file"));
         }
-        let (mut count, mut bytes) = (0, 0);
-        for (_, size) in self.entries() {
-            count += 1;
-            bytes += size;
-        }
-        if old.is_none() && count >= self.caps.files {
+        let (held, folders) = self.entries();
+        let bytes = held.iter().map(|(_, size)| size).sum::<u64>();
+        // The folders it makes count as files do.
+        let made = file
+            .parent()
+            .into_iter()
+            .flat_map(Path::ancestors)
+            .take_while(|dir| {
+                *dir != self.folder
+                    && fs::symlink_metadata(dir).is_err()
+            })
+            .count();
+        let count = held.len() + folders;
+        if old.is_none() && count + made >= self.caps.files {
             return Err(format!(
-                "the folder holds {count} files, the most is {}",
+                "the folder holds {count} files and folders, the \
+                 most is {}",
                 self.caps.files
             ));
         }
@@ -97,18 +106,24 @@ impl Files {
                 self.caps.bytes
             ));
         }
-        self.put(&file, data)
-            .map_err(|_| format!("`{path}` could not be written"))
+        self.put(&file, data).map_err(|_| {
+            self.prune(&file);
+            format!("`{path}` could not be written")
+        })
     }
 
-    /// Removes the file at `path`, if it is there.
+    /// Removes the file at `path`, if it is there, and the folders it
+    /// leaves empty.
     pub fn delete(&self, path: &str) -> Result<(), String> {
         let file = self.resolve(path)?;
         match fs::symlink_metadata(&file) {
-            Ok(meta) if meta.is_file() => fs::remove_file(&file)
-                .map_err(|_| {
+            Ok(meta) if meta.is_file() => {
+                fs::remove_file(&file).map_err(|_| {
                     format!("`{path}` could not be removed")
-                }),
+                })?;
+                self.prune(&file);
+                Ok(())
+            }
             Ok(_) => Err(format!("`{path}` is not a file")),
             Err(_) => Ok(()),
         }
@@ -118,11 +133,25 @@ impl Files {
     pub fn list(&self) -> Vec<String> {
         let mut paths = self
             .entries()
+            .0
             .into_iter()
             .map(|(path, _)| path)
             .collect::<Vec<_>>();
         paths.sort();
         paths
+    }
+
+    /// Removes each folder above `file` that is empty, up to the
+    /// folder of files.
+    fn prune(&self, file: &Path) {
+        for dir in file.ancestors().skip(1) {
+            if dir == self.folder
+                || !dir.starts_with(&self.folder)
+                || fs::remove_dir(dir).is_err()
+            {
+                break;
+            }
+        }
     }
 
     /// Where `path` is on disk, or why it cannot be a path.
@@ -161,11 +190,12 @@ impl Files {
         Ok(file)
     }
 
-    /// Each file held, as its path and its bytes.
-    fn entries(&self) -> Vec<(String, u64)> {
-        let mut found = Vec::new();
-        walk(&self.folder, "", &mut found);
-        found
+    /// Each file held, as its path and its bytes, and the number of
+    /// folders.
+    fn entries(&self) -> (Vec<(String, u64)>, usize) {
+        let (mut found, mut folders) = (Vec::new(), 0);
+        walk(&self.folder, "", &mut found, &mut folders);
+        (found, folders)
     }
 
     fn put(&self, file: &Path, data: &[u8]) -> std::io::Result<()> {
@@ -189,8 +219,14 @@ impl Files {
 }
 
 /// Adds each file under `dir`, named by `base` and its name, to
-/// `found`. Links and names that are not paths are passed over.
-fn walk(dir: &Path, base: &str, found: &mut Vec<(String, u64)>) {
+/// `found`, and counts the folders. Links and names that are not
+/// paths are passed over.
+fn walk(
+    dir: &Path,
+    base: &str,
+    found: &mut Vec<(String, u64)>,
+    folders: &mut usize,
+) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -211,7 +247,8 @@ fn walk(dir: &Path, base: &str, found: &mut Vec<(String, u64)>) {
         if meta.is_file() {
             found.push((path, meta.len()));
         } else if meta.is_dir() {
-            walk(&entry.path(), &path, found);
+            *folders += 1;
+            walk(&entry.path(), &path, found, folders);
         }
     }
 }
@@ -246,6 +283,9 @@ mod tests {
         files.delete("a.txt").unwrap();
         assert!(files.read("a.txt").is_err());
         assert_eq!(files.list(), ["notes/b.txt"]);
+        files.delete("notes/b.txt").unwrap();
+        assert!(!root.join(FILES).join("notes").exists());
+        assert!(root.join(FILES).exists());
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -321,6 +361,9 @@ mod tests {
         files.write("b", b"1234").unwrap();
         assert!(files.write("c", b"1").is_err());
         files.write("a", b"12").unwrap();
+        // A folder counts as a file.
+        files.delete("b").unwrap();
+        assert!(files.write("d/e", b"1").is_err());
         let _ = fs::remove_dir_all(&root);
     }
 }

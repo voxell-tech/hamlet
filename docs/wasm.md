@@ -374,9 +374,10 @@ A plugin has a folder of files of its own, `plugins/<id>/files/`, beside its
 `files-write` and `files-delete` change them, each needing `files.read` or
 `files.write` ([`permissions.md`](permissions.md)). A path is relative, of names
 of letters, digits, `.`, `_`, `-` and spaces joined by `/`, none starting with
-`.`; the folders on the way are made. `..`, an absolute path, an empty name and a
-path through a symbolic link are refused, so no path leaves the folder. The caps
-`files_bytes`, `files_count`, `file_bytes` and `file_path_bytes` of
+`.`; the folders on the way are made, and a delete removes the folders it leaves
+empty. `..`, an absolute path, an empty name and a path through a symbolic link
+are refused, so no path leaves the folder. The caps `files_bytes`, `files_count`
+(files and folders together), `file_bytes` and `file_path_bytes` of
 `assets/wasm.toml` bound it. A file is written beside its place and renamed over
 it. `hamlet_guest::files` has the four calls.
 
@@ -1056,7 +1057,7 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **The model.** At most `model_calls_per_minute` calls in a minute,
   `model_calls_in_flight` waiting and `model_call_tokens` in a call, a reply of
   `model_reply_tokens` at most. A call over one is answered at once with an error.
-- **Files.** At most `files_count` files in the plugin's folder of files,
+- **Files.** At most `files_count` files and folders in the plugin's folder of files,
   `files_bytes` in all, `file_bytes` in one and `file_path_bytes` in a path. A
   write over one returns an error to the plugin.
 - **A folder the chief chooses.** A file of at most `folder_file_bytes` read or
