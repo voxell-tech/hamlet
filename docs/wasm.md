@@ -514,7 +514,8 @@ name; a message reaches the agent as `[sent by plugin <id>] <text>`
 
 A `step` of a plugin that is answering a command or a call of an interface of
 other plugins (one still waiting for its answer when the `step` began) is
-`Done` with those callers, and an act it asks for needs each of them to hold the
+`Done` with those callers and the callers of theirs in turn, up the chain of
+calls (`Calls::callers`), and an act it asks for needs each of them to hold the
 capability for that target too, so a plugin without `chat.send` cannot have
 another send for it. Such an act is noted with both: "Herald (herald), called
 by clipper, sent to scout: ...", and a message reaches the agent as `[sent by

@@ -221,7 +221,8 @@ from `step` (`send-chat`, `run-as-chief`), carried out by `hamlet_wasm::acts`.
   with no arguments.
 - No plugin acts as the chief through another. An act of a plugin that is
   answering the commands or interface calls of other plugins needs the same
-  capability, for the same target, of each of them too; where it is yet to be
+  capability, for the same target, of each of them too, and of each plugin
+  whose calls they are answering in turn, up the whole chain of calls; where it is yet to be
   decided for one, the chief is asked about that plugin, and the act is dropped. The notice and the
   message name both ("Herald (herald), called by clipper, ran notes/new").
 - `acts_per_minute` and `act_text_bytes` in `assets/wasm.toml` limit them; the

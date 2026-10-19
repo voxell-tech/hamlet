@@ -151,20 +151,31 @@ impl Calls {
     }
 
     /// The plugins whose commands or calls of interfaces `target` is
-    /// answering, each once.
+    /// answering, and those whose calls they are answering in turn,
+    /// each once. A chain is at most `call_depth` long, since no
+    /// longer one is opened.
     pub fn callers(&self, target: Entity) -> Vec<Entity> {
         let mut callers = Vec::new();
-        for call in
-            self.open.iter().filter(|call| call.target == target)
-        {
-            if let Caller::Plugin { entity, .. }
-            | Caller::Invoker { entity, .. } = call.caller
-                && !callers.contains(&entity)
+        let (mut answering, mut next) = (target, 0);
+        loop {
+            for call in self
+                .open
+                .iter()
+                .filter(|call| call.target == answering)
             {
-                callers.push(entity);
+                if let Caller::Plugin { entity, .. }
+                | Caller::Invoker { entity, .. } = call.caller
+                    && entity != target
+                    && !callers.contains(&entity)
+                {
+                    callers.push(entity);
+                }
             }
+            let Some(caller) = callers.get(next) else {
+                return callers;
+            };
+            (answering, next) = (*caller, next + 1);
         }
-        callers
     }
 
     /// The depth of a call `caller` runs now: one more than the
@@ -329,5 +340,22 @@ mod tests {
         assert!(calls.answer(first, b).is_some());
         assert!(calls.answer(first, b).is_none());
         assert_eq!(calls.depth_of(b), 1);
+    }
+
+    #[test]
+    fn a_plugin_answers_every_plugin_up_its_chain_of_calls() {
+        let mut world = World::new();
+        let [a, b, c, d] = [(); 4].map(|()| world.spawn_empty().id());
+        let mut calls = Calls::default();
+
+        calls.open((a, 1), (b, "b"), 1, 9);
+        let result = Type::parse("string").unwrap();
+        calls.open_invoke((b, 1), (c, "c"), result, 2, 9);
+        // A call back to the start of the chain ends it.
+        calls.open((c, 1), (a, "a"), 3, 9);
+        calls.open((d, 1), (a, "a"), 1, 9);
+
+        assert_eq!(calls.callers(c), [b, a, d]);
+        assert_eq!(calls.callers(a), [c, d, b]);
     }
 }
