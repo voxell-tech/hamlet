@@ -292,13 +292,10 @@ fn admit<'a>(
             asking.depth, limits.call_depth
         )));
     }
-    if asking.fuel_left == 0 {
-        return Err(Refused::because(InvokeError::OutOfBudget(
-            format!(
-                "the calls of the last second used {} fuel, the most",
-                limits.invoke_fuel_per_second
-            ),
-        )));
+    // A call is run with all its fuel or not at all, so that no
+    // caller can have its target run out and stop.
+    if asking.fuel_left < limits.invoke_fuel {
+        return Err(Refused::because(out_of_budget(limits)));
     }
     let mismatch =
         |why: String| Refused::because(InvokeError::Mismatch(why));
@@ -351,11 +348,22 @@ fn admit<'a>(
     }
 }
 
+/// Why a caller with less than a call's fuel left this second is
+/// refused.
+fn out_of_budget(limits: &Limits) -> InvokeError {
+    InvokeError::OutOfBudget(format!(
+        "the calls of the last second used their {} fuel, and a \
+         call needs {}",
+        limits.invoke_fuel_per_second, limits.invoke_fuel
+    ))
+}
+
 /// Gives each call admitted to its target in a `step` of its own, at
-/// once, with the time of a call of an interface and the fuel its
-/// caller has left. The fuel the `step` uses is charged to the
+/// once, with the time and fuel of a call of an interface, which the
+/// caller must have left. The fuel the `step` uses is charged to the
 /// caller. A target that fails or runs out is stopped, its caller
-/// answered and barred from it, and the chief told.
+/// answered and barred from it, and the chief told; the other calls
+/// of it in the frame are answered without running it.
 pub(super) fn deliver(
     mut invoking: ResMut<Invoking>,
     mut calls: ResMut<Calls>,
@@ -376,49 +384,40 @@ pub(super) fn deliver(
     mut commands: Commands,
 ) {
     let now = time.map_or(0.0, |time| time.elapsed_secs());
+    let mut stopped = HashSet::new();
     for due in std::mem::take(&mut invoking.due) {
         let id = due.invocation.call_id;
         let sender = plugins.get(due.caller.0).map_or_else(
             |_| due.invocation.sender.clone(),
             |(info, ..)| info.name.clone(),
         );
-        let fuel = limits.invoke_fuel.min(invoking.left(
-            due.caller.0,
-            now,
-            &limits,
-        ));
-        let Ok((info, manifest, granted, mut instance)) =
-            plugins.get_mut(due.target)
+        let left = invoking.left(due.caller.0, now, &limits);
+        let found = plugins
+            .get_mut(due.target)
+            .ok()
+            .filter(|_| !stopped.contains(&due.target));
+        let unmade = match &found {
+            None => {
+                Some(InvokeError::Failed("it is not running".into()))
+            }
+            Some(_) if left < limits.invoke_fuel => {
+                Some(out_of_budget(&limits))
+            }
+            Some(_) => None,
+        };
+        let (Some((info, manifest, granted, mut instance)), None) =
+            (found, unmade.clone())
         else {
-            if calls.close(id).is_some() {
-                answer(
-                    &mut inboxes,
-                    due.caller,
-                    Err(InvokeError::Failed(
-                        "it is not running".into(),
-                    )),
-                );
+            if let (Some(error), Some(_)) = (unmade, calls.close(id))
+            {
+                answer(&mut inboxes, due.caller, Err(error));
             }
             continue;
         };
-        if fuel == 0 {
-            if calls.close(id).is_some() {
-                answer(
-                    &mut inboxes,
-                    due.caller,
-                    Err(InvokeError::OutOfBudget(
-                        "the calls of the last second used all \
-                         their fuel"
-                            .into(),
-                    )),
-                );
-            }
-            continue;
-        }
         instance.see(granted, &agents, &papers);
         instance.see_world(granted, &survey);
         instance.reach(reach::of(manifest, &sharing, &limits));
-        let budget = limits.invoking(fuel);
+        let budget = limits.invoking(limits.invoke_fuel);
         let stepped = instance
             .step(&budget, &[Incoming::Invoked(due.invocation)]);
         invoking.charge(
@@ -445,6 +444,7 @@ pub(super) fn deliver(
                     &info.id,
                     &fault,
                 );
+                stopped.insert(due.target);
                 invoking.barred.insert((due.caller.0, due.target));
                 commands.trigger(Notice(format!(
                     "A call of {sender} stopped {}: {fault}. \
@@ -597,7 +597,7 @@ mod tests {
             depth,
             in_flight: 0,
             waiting: false,
-            fuel_left: 1,
+            fuel_left: Limits::default().invoke_fuel,
             barred: false,
         };
         admit(&asking, &Limits::default())
