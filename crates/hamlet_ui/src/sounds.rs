@@ -1,5 +1,5 @@
 //! The sounds of the panels that no single button makes, each watched
-//! from outside and written as a [`Cue`].
+//! from outside and written as a [`PanelCue`].
 
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::DetectChanges;
@@ -8,12 +8,10 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, With};
 use bevy::ecs::system::{Local, Query, Res};
 use bevy::ecs::world::World;
-use bevy::math::Vec3;
 use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
 use hamlet_core::session::{Reply, SessionOutput, UserMessage};
-pub(crate) use hamlet_realm::sound::write;
-use hamlet_realm::sound::{Cue, Sound};
+use hamlet_realm_api::sound::{PanelCue, PanelSound, write};
 
 use crate::chat::Unfolded;
 use crate::hover::Card;
@@ -21,22 +19,19 @@ use crate::menu::OpenMenu;
 use crate::world_menu::Open;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_observer(sent)
+    app.add_message::<PanelCue>()
+        .add_observer(sent)
         .add_observer(failed)
         .add_systems(Update, (menus, tabs, folds));
 }
 
-fn cue(sound: Sound) -> Cue {
-    Cue {
-        sound,
-        at: Vec3::ZERO,
-        turn: 0,
-    }
+fn cue(sound: PanelSound) -> PanelCue {
+    PanelCue { sound, turn: 0 }
 }
 
 /// One of the window's own buttons was pressed.
 pub(crate) fn window_button(world: &mut World) {
-    world.write_message(cue(Sound::Sash));
+    world.write_message(cue(PanelSound::Sash));
 }
 
 /// A menu of the top bar or a question over the world, as it opens
@@ -47,7 +42,7 @@ fn menus(
     over: Res<Open>,
     mut was: Local<(bool, bool, bool)>,
     mut turn: Local<u32>,
-    mut cues: MessageWriter<Cue>,
+    mut cues: MessageWriter<PanelCue>,
 ) {
     let now = (
         bar.is_open(),
@@ -56,9 +51,9 @@ fn menus(
     );
     let before = std::mem::replace(&mut *was, now);
     if now.0 && !before.0 || now.1 && !before.1 {
-        write(&mut cues, &mut turn, Sound::PopOpen);
+        write(&mut cues, &mut turn, PanelSound::PopOpen);
     } else if before.0 && !now.0 || before.2 && !now.2 {
-        write(&mut cues, &mut turn, Sound::PopClose);
+        write(&mut cues, &mut turn, PanelSound::PopClose);
     }
 }
 
@@ -81,13 +76,17 @@ fn tabs(
     fronts: Query<(), With<ActiveTab>>,
     mut docked: Local<Docked>,
     mut turn: Local<u32>,
-    mut cues: MessageWriter<Cue>,
+    mut cues: MessageWriter<PanelCue>,
 ) {
     let now = time.elapsed_secs();
     let dragging = matches!(*drag, DockDrag::Dragging { .. });
     if dragging != docked.dragging {
         docked.dragging = dragging;
-        let sound = if dragging { Sound::Grab } else { Sound::Dock };
+        let sound = if dragging {
+            PanelSound::Grab
+        } else {
+            PanelSound::Dock
+        };
         write(&mut cues, &mut turn, sound);
         docked.let_go = now;
     }
@@ -95,7 +94,7 @@ fn tabs(
     // all, were not brought to the front by hand.
     let by_hand = docked.tabs && now - docked.let_go > 0.4;
     if !fronted.is_empty() && by_hand {
-        write(&mut cues, &mut turn, Sound::Tab);
+        write(&mut cues, &mut turn, PanelSound::Tab);
     }
     docked.tabs = !fronts.is_empty();
 }
@@ -107,28 +106,31 @@ fn folds(
     card: Res<Card>,
     mut shown: Local<bool>,
     mut turn: Local<u32>,
-    mut cues: MessageWriter<Cue>,
+    mut cues: MessageWriter<PanelCue>,
 ) {
     if unfolded.is_changed() && !unfolded.is_added() {
-        write(&mut cues, &mut turn, Sound::Fold);
+        write(&mut cues, &mut turn, PanelSound::Fold);
     }
     if card.shown() && !*shown {
-        write(&mut cues, &mut turn, Sound::Card);
+        write(&mut cues, &mut turn, PanelSound::Card);
     }
     *shown = card.shown();
 }
 
 /// A message sent from the command line.
-fn sent(message: On<UserMessage>, mut cues: MessageWriter<Cue>) {
+fn sent(message: On<UserMessage>, mut cues: MessageWriter<PanelCue>) {
     if message.key.channel == "app" {
-        cues.write(cue(Sound::Send));
+        cues.write(cue(PanelSound::Send));
     }
 }
 
 /// A reply that could not be finished.
-fn failed(output: On<SessionOutput>, mut cues: MessageWriter<Cue>) {
+fn failed(
+    output: On<SessionOutput>,
+    mut cues: MessageWriter<PanelCue>,
+) {
     if matches!(output.reply, Reply::Error(_)) {
-        cues.write(cue(Sound::Error));
+        cues.write(cue(PanelSound::Error));
     }
 }
 
@@ -142,7 +144,7 @@ mod tests {
 
     fn app() -> App {
         let mut app = App::new();
-        app.add_message::<Cue>()
+        app.add_message::<PanelCue>()
             .init_resource::<Time>()
             .init_resource::<OpenMenu>()
             .init_resource::<Open>()
@@ -154,9 +156,9 @@ mod tests {
         app
     }
 
-    fn heard_in(app: &mut App) -> Vec<Sound> {
+    fn heard_in(app: &mut App) -> Vec<PanelSound> {
         app.update();
-        let cues = app.world().resource::<Messages<Cue>>();
+        let cues = app.world().resource::<Messages<PanelCue>>();
         cues.iter_current_update_messages()
             .map(|cue| cue.sound)
             .collect::<Vec<_>>()
@@ -171,7 +173,7 @@ mod tests {
             Open::Menu(Thing::Keeper, Vec2::ZERO);
         assert_eq!(heard_in(&mut app), []);
         *app.world_mut().resource_mut::<Open>() = Open::Nothing;
-        assert_eq!(heard_in(&mut app), [Sound::PopClose]);
+        assert_eq!(heard_in(&mut app), [PanelSound::PopClose]);
         assert_eq!(heard_in(&mut app), []);
     }
 }

@@ -5,6 +5,7 @@ use std::f32::consts::PI;
 
 use bevy::prelude::*;
 use hamlet_core::agents::Busy;
+use hamlet_realm_api::hand::Proud;
 
 use super::toys::{self, Kind, Toys};
 use super::{Hand, Mood, PlaySettings, free, robot_of, toward};
@@ -20,13 +21,6 @@ use crate::{Clock, WorldCamera};
 /// A robot was clicked.
 #[derive(Message, Clone, Copy, Debug)]
 pub(super) struct Tap(Entity);
-
-/// On an agent whose work ended a moment ago, until that clock
-/// time: a click on its robot cheers it.
-#[derive(Component, Clone, Copy, Debug)]
-pub struct Proud {
-    until: f32,
-}
 
 /// The pointer resting on a robot, or stroking it.
 #[derive(Clone, Copy, Debug)]

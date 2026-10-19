@@ -36,8 +36,10 @@ use hamlet_agents_api::{
 };
 use hamlet_assets::Tuning;
 use hamlet_core::core::{Link, Sandboxing};
+use hamlet_realm::keeper;
 use hamlet_realm::pick::Selected;
-use hamlet_realm::sound::{Cue, SoundSettings};
+use hamlet_realm::sound::{self, SoundSettings};
+use hamlet_realm_api::sound::PanelCue;
 use hamlet_sdk::inspector::InspectorSections;
 use hamlet_sdk::settings::SettingsPages;
 use hamlet_ui::theme::{self, HamletTheme};
@@ -85,6 +87,7 @@ impl Plugin for GalleryPlugin {
             })
             .init_resource::<Roll>()
             .init_resource::<SoundSettings>()
+            .insert_resource(sound::choice(&SoundSettings::default()))
             .init_resource::<History>()
             .init_resource::<hamlet_ui::rules::Book>()
             .init_resource::<hamlet_ui::models::Shelf>()
@@ -93,7 +96,7 @@ impl Plugin for GalleryPlugin {
             .init_resource::<menu::OpenMenu>()
             .insert_resource(first_run(self.0))
             .init_resource::<chrome::ChromeSettings>()
-            .add_message::<Cue>()
+            .add_message::<PanelCue>()
             // `theme::plugin` owns it; the gallery sets its theme by
             // hand instead.
             .add_message::<theme::ThemeChanged>()
@@ -113,6 +116,7 @@ impl Plugin for GalleryPlugin {
                     hamlet_ui::me::mark_selected.run_if(
                         resource_exists_and_changed::<Selected>,
                     ),
+                    keeper::paint,
                     hold,
                     hold_message.run_if(|scene: Res<Scene>| {
                         *scene == Scene::Rewind

@@ -15,7 +15,7 @@ use hamlet_core::agents::{
     MergedInto, Purpose, Settlement, Treasury,
 };
 use hamlet_core::oversight::Waiting;
-use hamlet_realm::pick::{Asks, Thing};
+use hamlet_realm_api::pick::{Asks, Thing};
 use hamlet_rules::hamlet::HOME;
 
 use super::{Naming, Search};

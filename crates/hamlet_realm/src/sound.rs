@@ -15,6 +15,7 @@ pub mod voices;
 use bevy::audio::{AddAudioSource, AudioPlugin};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use hamlet_realm_api::sound::{PanelCue, SoundChoice};
 
 pub use self::clip::{Clip, Playing};
 pub use self::kinds::{Family, Sound};
@@ -24,8 +25,11 @@ use crate::{Step, WorldCamera, WorldSystems};
 
 /// Sound for a world. Does nothing where the app has no audio.
 pub fn plugin(app: &mut App) {
-    app.init_resource::<SoundSettings>()
+    app.init_resource::<SoundSettings>();
+    let chosen = choice(app.world().resource::<SoundSettings>());
+    app.insert_resource(chosen)
         .add_message::<Cue>()
+        .add_message::<PanelCue>()
         .add_observer(heard::hear_answer)
         .add_observer(heard::hear_veto)
         .configure_sets(
@@ -34,7 +38,15 @@ pub fn plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            (heard::hear_hand, heard::turn_of_day).before(Cues),
+            (
+                choose.run_if(resource_changed::<SoundChoice>),
+                (
+                    heard::hear_hand,
+                    heard::hear_panels,
+                    heard::turn_of_day,
+                )
+                    .before(Cues),
+            ),
         );
     if !app.is_plugin_added::<AudioPlugin>() {
         return;
@@ -186,6 +198,26 @@ pub struct SoundSettings {
     /// seconds it waits before it answers one.
     pub phrase_gap: f32,
     pub phrase_after: f32,
+}
+
+/// The chief's choice as `set` holds it.
+pub fn choice(set: &SoundSettings) -> SoundChoice {
+    SoundChoice {
+        muted: set.muted,
+        music_on: set.music_on,
+        sound_level: set.sound_level,
+        music_level: set.music_level,
+    }
+}
+
+/// Carries the chief's choice into the settings.
+fn choose(chosen: Res<SoundChoice>, mut set: ResMut<SoundSettings>) {
+    if choice(&set) != *chosen {
+        set.muted = chosen.muted;
+        set.music_on = chosen.music_on;
+        set.sound_level = chosen.sound_level;
+        set.music_level = chosen.music_level;
+    }
 }
 
 impl SoundSettings {

@@ -6,10 +6,14 @@
 use std::path::Path;
 
 use bevy::prelude::*;
-use hamlet_core::agents::{self, LivesIn, Settlement};
+use hamlet_core::agents::{LivesIn, Settlement};
 use hamlet_core::core::HomeDir;
+pub use hamlet_realm_api::orders::{
+    Carry, Decree, Give, Introduce, Tell, decree, offers, part,
+    restore,
+};
 use hamlet_rules::gifts::{self, Offer};
-use hamlet_rules::hamlet::{HOME, Hamlet};
+use hamlet_rules::hamlet::Hamlet;
 
 use crate::chief::{Player, Stands};
 use crate::generator::society::Place;
@@ -19,22 +23,33 @@ use crate::library::Stood;
 use crate::moving::{self, SetDown};
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Update, grant);
+    app.add_observer(asked_introduce)
+        .add_observer(asked_give)
+        .add_observer(asked_carry)
+        .add_systems(Update, grant);
 }
 
-/// A chief's command for the hamlet `hamlet`, as the chief would
-/// type it.
-#[derive(Event, Clone, Debug, PartialEq)]
-pub struct Decree {
-    pub hamlet: String,
-    pub text: String,
+/// Has two agents meet, as a panel asked.
+fn asked_introduce(asked: On<Introduce>, mut commands: Commands) {
+    let Introduce { a, b } = *asked;
+    commands.queue(move |world: &mut World| introduce(world, a, b));
 }
 
-/// Words from the chief to `agent`, in its own chat.
-#[derive(Event, Clone, Debug, PartialEq)]
-pub struct Tell {
-    pub agent: Entity,
-    pub text: String,
+/// Gives a skill, as a panel asked.
+fn asked_give(asked: On<Give>, mut commands: Commands) {
+    let Give { agent, offer } = asked.event().clone();
+    commands
+        .queue(move |world: &mut World| give(world, agent, &offer));
+}
+
+/// Takes something in hand, as a panel asked.
+fn asked_carry(asked: On<Carry>, mut commands: Commands) {
+    let what = *asked;
+    commands.queue(move |world: &mut World| match what {
+        Carry::Hamlet(hamlet) => carry(world, hamlet),
+        Carry::Library => moving::pick_up(world, Place::Library),
+        Carry::Hearth => moving::pick_up(world, Place::Chief),
+    });
 }
 
 fn name(world: &World, agent: Entity) -> Option<String> {
@@ -49,36 +64,12 @@ fn record(world: &World, agent: Entity) -> Option<Hamlet> {
     Some(world.get::<Settlement>(lives.0)?.record())
 }
 
-/// Gives a chief's command to the hamlet of `agent`, carried out by
-/// the time this returns.
-pub fn decree(world: &mut World, agent: Entity, text: String) {
-    let hamlet =
-        agents::hamlet_of(world, agent).unwrap_or(HOME).to_string();
-    world.trigger(Decree { hamlet, text });
-    world.flush();
-}
-
-/// Brings back `agent`, which was removed or merged away.
-pub fn restore(world: &mut World, agent: Entity) {
-    let text = format!("/restore {}", agents::name_of(world, agent));
-    decree(world, agent, text);
-}
-
 /// Builds a road between two agents at the chief's word.
 fn road(world: &mut World, a: Entity, b: Entity) {
     if let (Some(a_name), Some(b_name)) =
         (name(world, a), name(world, b))
     {
         decree(world, a, format!("/road {a_name} {b_name}"));
-    }
-}
-
-/// Takes up the road between two agents at the chief's word.
-pub fn part(world: &mut World, a: Entity, b: Entity) {
-    if let (Some(a_name), Some(b_name)) =
-        (name(world, a), name(world, b))
-    {
-        decree(world, a, format!("/unroad {a_name} {b_name}"));
     }
 }
 
@@ -106,14 +97,6 @@ pub fn give(world: &mut World, agent: Entity, offer: &Offer) {
     if has {
         hand::gifted(world, agent);
     }
-}
-
-/// The skills `agent` could be given.
-pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
-    name(world, agent)
-        .zip(record(world, agent))
-        .map(|(name, hamlet)| hamlet.offers(&name))
-        .unwrap_or_default()
 }
 
 /// Puts the file at `path` in the inbox of `agent` and tells it, as
@@ -205,7 +188,8 @@ fn grant(
 
 #[cfg(test)]
 mod tests {
-    use hamlet_core::agents::AgentsPlugin;
+    use hamlet_core::agents::{self, AgentsPlugin};
+    use hamlet_rules::hamlet::HOME;
     use hamlet_testing::Scratch;
 
     use super::*;

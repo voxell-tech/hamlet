@@ -45,7 +45,7 @@ use hamlet_core::agents;
 use hamlet_core::session::{
     Entry, Reply, SessionKey, SessionOutput, Transcript, UserMessage,
 };
-use hamlet_realm::orders::{Decree, Tell};
+use hamlet_realm_api::orders::{Decree, Tell};
 use hamlet_rules::chief::{self, Target};
 use hamlet_rules::hamlet::HOME;
 

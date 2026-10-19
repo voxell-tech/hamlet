@@ -16,7 +16,7 @@ use hamlet_agents_api::convo::{AgentSelected, ChiefName};
 pub use hamlet_agents_api::convo::{Me, address};
 use hamlet_core::agents::{self, Citizen, Mayor};
 use hamlet_core::session::{self, SessionKey};
-use hamlet_realm::pick::{Selected, Thing, select};
+use hamlet_realm_api::pick::{Selected, Thing, select};
 
 use crate::dock::show_tab;
 

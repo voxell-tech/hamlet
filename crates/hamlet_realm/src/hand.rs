@@ -17,11 +17,11 @@ use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
 use hamlet_core::agents::Mayor;
+pub use hamlet_realm_api::hand::{Grip, Hold, Proud};
 
 pub use self::given::{gifted, greet};
 use self::lift::Fall;
 pub use self::pool::Readout;
-pub use self::touch::Proud;
 use self::touch::{Rest, Tap};
 use crate::WorldSystems;
 use crate::generator::{Passage, Robot, Thought};
@@ -33,6 +33,7 @@ use crate::pick::{self, Hovered, Reach, Taken, Thing, Travel};
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<PlaySettings>()
         .init_resource::<Hand>()
+        .init_resource::<Hold>()
         .init_resource::<Reach>()
         .init_resource::<Taken>()
         .init_resource::<Travel>()
@@ -67,6 +68,7 @@ pub(super) fn plugin(app: &mut App) {
                 )
                     .chain(),
                 (pool::meters, toys::play),
+                hold.run_if(resource_changed::<Hand>),
             )
                 .chain()
                 .after(pick::aim)
@@ -247,13 +249,9 @@ pub struct Hand {
     within: Option<Entity>,
 }
 
-/// The hand's hold on the thing under the pointer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Grip {
-    /// It could take it.
-    Ready,
-    /// It carries a robot.
-    Robot,
+/// Keeps [`Hold`] true to the hand.
+fn hold(hand: Res<Hand>, mut hold: ResMut<Hold>) {
+    hold.set_if_neq(Hold(hand.grip()));
 }
 
 impl Hand {

@@ -212,3 +212,7 @@ impl Default for Palette {
         Self::designed()
     }
 }
+
+/// On an agent: the paint of its robot, one of [`Palette::paints`].
+#[derive(Component, Clone, Copy, PartialEq, Debug)]
+pub struct RobotPaint(pub Vec3);

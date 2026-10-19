@@ -15,7 +15,6 @@ pub mod meshes;
 pub mod moving;
 pub mod needs;
 pub mod orders;
-pub mod palette;
 pub mod pick;
 pub mod play;
 pub mod settings;
@@ -28,6 +27,7 @@ pub mod works;
 mod label;
 
 use bevy::prelude::*;
+pub use hamlet_realm_api::palette;
 
 pub use self::sky::{Dark, DayPart, Hour, LowSun, Sky, WorldCamera};
 pub use self::stage::{Clock, Stage, Step, WorldSystems};

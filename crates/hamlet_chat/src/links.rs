@@ -22,7 +22,7 @@ use hamlet_core::core::HomeDir;
 use hamlet_core::session::{self, JobFinished, Seat};
 use hamlet_desktop::open;
 use hamlet_home::Home;
-use hamlet_realm::sound::{Cue, Sound, write};
+use hamlet_realm_api::sound::{PanelCue, PanelSound, write};
 use hamlet_rules::hamlet::Hamlet;
 
 use crate::me::Me;
@@ -209,13 +209,13 @@ fn aim_gone(gone: On<Remove, Anchor>, mut aimed: ResMut<Aimed>) {
 fn tap(
     press: On<Pointer<Press>>,
     anchors: Query<(), With<Anchor>>,
-    mut cues: MessageWriter<Cue>,
+    mut cues: MessageWriter<PanelCue>,
     mut turn: Local<u32>,
 ) {
     if press.button == PointerButton::Primary
         && anchors.contains(press.entity)
     {
-        write(&mut cues, &mut turn, Sound::Tap);
+        write(&mut cues, &mut turn, PanelSound::Tap);
     }
 }
 
@@ -225,7 +225,7 @@ fn follow(
     click: On<Pointer<Click>>,
     anchors: Query<&Anchor>,
     roots: Res<Roots>,
-    mut cues: MessageWriter<Cue>,
+    mut cues: MessageWriter<PanelCue>,
     mut turn: Local<u32>,
 ) {
     if click.button != PointerButton::Primary {
@@ -239,7 +239,7 @@ fn follow(
         Anchor::File(path) => open::show(path, &roots.folders),
     };
     if !went {
-        write(&mut cues, &mut turn, Sound::Deny);
+        write(&mut cues, &mut turn, PanelSound::Deny);
     }
 }
 

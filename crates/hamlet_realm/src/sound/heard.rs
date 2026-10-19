@@ -3,11 +3,42 @@
 
 use bevy::prelude::*;
 use hamlet_core::oversight::{Answer, Veto};
+use hamlet_realm_api::sound::{PanelCue, PanelSound};
 use hamlet_rules::chief::rulings::Choice;
 
 use super::{Cue, Sound};
 use crate::DayPart;
 use crate::play::Played;
+
+/// The panels' own sounds, at the listener.
+pub(super) fn hear_panels(
+    mut panels: MessageReader<PanelCue>,
+    mut cues: MessageWriter<Cue>,
+) {
+    for cue in panels.read() {
+        let sound = match cue.sound {
+            PanelSound::Tick => Sound::Tick,
+            PanelSound::Tap => Sound::Tap,
+            PanelSound::Confirm => Sound::Confirm,
+            PanelSound::Deny => Sound::Deny,
+            PanelSound::PopOpen => Sound::PopOpen,
+            PanelSound::PopClose => Sound::PopClose,
+            PanelSound::Tab => Sound::Tab,
+            PanelSound::Fold => Sound::Fold,
+            PanelSound::Send => Sound::Send,
+            PanelSound::Card => Sound::Card,
+            PanelSound::Grab => Sound::Grab,
+            PanelSound::Dock => Sound::Dock,
+            PanelSound::Sash => Sound::Sash,
+            PanelSound::Error => Sound::Error,
+        };
+        cues.write(Cue {
+            sound,
+            at: Vec3::ZERO,
+            turn: cue.turn,
+        });
+    }
+}
 
 /// A sound for each thing the chief does to the world by hand,
 /// where it was done.

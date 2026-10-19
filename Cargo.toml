@@ -28,6 +28,7 @@ hamlet_desktop = { version = "0.1.0", path = "crates/hamlet_desktop" }
 hamlet_assets = { version = "0.1.0", path = "crates/hamlet_assets" }
 hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
 hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
+hamlet_realm_api = { version = "0.1.0", path = "crates/hamlet_realm_api" }
 hamlet_sdk = { version = "0.1.0", path = "crates/hamlet_sdk" }
 hamlet_agents_api = { version = "0.1.0", path = "crates/hamlet_agents_api" }
 hamlet_chat = { version = "0.1.0", path = "crates/hamlet_chat" }
@@ -143,6 +144,7 @@ tokio.workspace = true
 hamlet_agents_api.workspace = true
 hamlet_rules.workspace = true
 hamlet_realm.workspace = true
+hamlet_realm_api.workspace = true
 hamlet_vfx.workspace = true
 hamlet_openui.workspace = true
 hamlet_offscreen.workspace = true

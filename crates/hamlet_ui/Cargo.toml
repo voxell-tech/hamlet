@@ -18,6 +18,7 @@ hamlet_limits.workspace = true
 hamlet_model.workspace = true
 hamlet_rules.workspace = true
 hamlet_realm.workspace = true
+hamlet_realm_api.workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true

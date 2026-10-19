@@ -27,8 +27,8 @@ use hamlet_chat::me::{Me, talk_to, talk_to_mayor};
 use hamlet_chat::{chat, deed, links, markdown, me};
 use hamlet_core::agents::Left;
 use hamlet_limits::{models, rules};
-use hamlet_realm::pick::{Selected, Thing};
-use hamlet_realm::sound::{Cue, Sound, write};
+use hamlet_realm_api::pick::{Selected, Thing};
+use hamlet_realm_api::sound::{PanelCue, PanelSound, write};
 use hamlet_sdk::command::{Subject, kind};
 use hamlet_sdk::dock::{lit_panel, show_tab};
 use hamlet_sdk::feel::Lit;
@@ -70,7 +70,7 @@ pub fn plugin(app: &mut App) {
             keep_papers.run_if(resource_changed::<Section>),
             come_forward
                 .run_if(resource_exists_and_changed::<Selected>),
-            tab_sound.run_if(resource_exists::<Messages<Cue>>),
+            tab_sound.run_if(resource_exists::<Messages<PanelCue>>),
         ),
     )
     .add_hamlet_plugin::<InspectorPlugin>();
@@ -189,10 +189,10 @@ fn tab_sound(
     section: Res<Section>,
     mut was: Local<Option<Section>>,
     mut turn: Local<u32>,
-    mut cues: MessageWriter<Cue>,
+    mut cues: MessageWriter<PanelCue>,
 ) {
     let before = was.replace(*section);
     if before.is_some_and(|before| before != *section) {
-        write(&mut cues, &mut turn, Sound::Tab);
+        write(&mut cues, &mut turn, PanelSound::Tab);
     }
 }

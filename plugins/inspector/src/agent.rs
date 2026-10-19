@@ -18,7 +18,7 @@ use hamlet_core::agents::{
 };
 use hamlet_core::core::RefreshLists;
 use hamlet_core::session::{self, Seat};
-use hamlet_realm::pick::{Thing, ask_about, select};
+use hamlet_realm_api::pick::{Thing, ask_about, select};
 use hamlet_sdk::bar::Bar;
 use hamlet_sdk::checks::{either, moved};
 use hamlet_sdk::command::kind;

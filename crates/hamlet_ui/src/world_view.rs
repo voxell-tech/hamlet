@@ -41,6 +41,7 @@ use hamlet_realm::needs::NeedTag;
 use hamlet_realm::pick::{NameTag, Sign, WorldSurface};
 use hamlet_realm::sky::SkySettings;
 use hamlet_realm::{Hour, Stage, WorldCamera, WorldSystems};
+pub(crate) use hamlet_realm_api::sky::TimeOfDay;
 
 use crate::dock::{Panel, PanelAppExt};
 use crate::icons::Glyph;
@@ -95,37 +96,14 @@ pub(crate) struct WorldCam(Entity);
 #[derive(Component)]
 pub(crate) struct WorldPanel;
 
-/// The sky following the clock, or held at day or night.
-#[derive(
-    Resource,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Default,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum TimeOfDay {
-    #[default]
-    Clock,
-    Day,
-    Night,
-}
-
-impl TimeOfDay {
-    fn night(self, set: &SkySettings) -> bool {
-        match self {
-            Self::Day => false,
-            Self::Night => true,
-            Self::Clock => {
-                let now = chrono::Local::now();
-                set.night(
-                    now.hour() as f32 + now.minute() as f32 / 60.0,
-                )
-            }
+/// True when the sky `sky` asks for is a night sky.
+fn night(sky: TimeOfDay, set: &SkySettings) -> bool {
+    match sky {
+        TimeOfDay::Day => false,
+        TimeOfDay::Night => true,
+        TimeOfDay::Clock => {
+            let now = chrono::Local::now();
+            set.night(now.hour() as f32 + now.minute() as f32 / 60.0)
         }
     }
 }
@@ -345,7 +323,7 @@ pub(crate) fn drive(
         (false, false) => KState::Rest,
     };
     let next = Stage {
-        night: sky.night(&sky_set),
+        night: night(*sky, &sky_set),
         kstate,
         ..stage.clone()
     };

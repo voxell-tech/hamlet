@@ -3555,6 +3555,7 @@ dependencies = [
  "hamlet_openui",
  "hamlet_plugins",
  "hamlet_realm",
+ "hamlet_realm_api",
  "hamlet_rules",
  "hamlet_sandbox",
  "hamlet_sdk",
@@ -3610,7 +3611,7 @@ dependencies = [
  "hamlet_core",
  "hamlet_desktop",
  "hamlet_home",
- "hamlet_realm",
+ "hamlet_realm_api",
  "hamlet_rules",
  "hamlet_sdk",
  "hamlet_testing",
@@ -3795,9 +3796,22 @@ dependencies = [
  "hamlet_assets",
  "hamlet_core",
  "hamlet_home",
+ "hamlet_realm_api",
  "hamlet_rules",
  "hamlet_testing",
  "hamlet_vfx",
+ "serde",
+ "toml",
+]
+
+[[package]]
+name = "hamlet_realm_api"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_assets",
+ "hamlet_core",
+ "hamlet_rules",
  "serde",
  "toml",
 ]
@@ -3861,6 +3875,7 @@ dependencies = [
  "hamlet_limits",
  "hamlet_model",
  "hamlet_realm",
+ "hamlet_realm_api",
  "hamlet_rules",
  "hamlet_sdk",
  "hamlet_testing",
@@ -5724,7 +5739,7 @@ dependencies = [
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_limits",
- "hamlet_realm",
+ "hamlet_realm_api",
  "hamlet_rules",
  "hamlet_sdk",
  "hamlet_testing",
@@ -5764,7 +5779,7 @@ dependencies = [
  "hamlet_home",
  "hamlet_limits",
  "hamlet_model",
- "hamlet_realm",
+ "hamlet_realm_api",
  "hamlet_sdk",
 ]
 

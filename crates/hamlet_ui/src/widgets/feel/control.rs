@@ -26,10 +26,9 @@ use bevy::ui::{
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
 use bevy::ui_widgets::{Activate, Button};
 use bevy_fynix::Focused;
-use hamlet_realm::sound::{Cue, Sound};
+use hamlet_realm_api::sound::{PanelCue, PanelSound, write};
 
 use super::{FeelSettings, MagicColors, Mood, ease, linear, waver};
-use crate::sounds;
 use crate::theme::Themed;
 
 /// A button's state of feel, each 0 to 1.
@@ -113,7 +112,7 @@ type Entered = (Changed<Hovered>, With<Feel>);
 
 pub(super) fn hover_tick(
     buttons: Query<(&Hovered, Option<&Mood>), Entered>,
-    mut cues: MessageWriter<Cue>,
+    mut cues: MessageWriter<PanelCue>,
     mut turn: Local<u32>,
 ) {
     let heard = |(hovered, mood): (&Hovered, Option<&Mood>)| {
@@ -126,17 +125,17 @@ pub(super) fn hover_tick(
             })
     };
     if buttons.iter().any(heard) {
-        sounds::write(&mut cues, &mut turn, Sound::Tick);
+        write(&mut cues, &mut turn, PanelSound::Tick);
     }
 }
 
 pub(super) fn press_tap(
     pressed: Query<(), (Added<Pressed>, With<Feel>)>,
-    mut cues: MessageWriter<Cue>,
+    mut cues: MessageWriter<PanelCue>,
     mut turn: Local<u32>,
 ) {
     if !pressed.is_empty() {
-        sounds::write(&mut cues, &mut turn, Sound::Tap);
+        write(&mut cues, &mut turn, PanelSound::Tap);
     }
 }
 
@@ -208,7 +207,7 @@ pub(super) fn answer(
     mut commands: Commands,
     set: Res<FeelSettings>,
     mut buttons: Query<Answering>,
-    mut cues: MessageWriter<Cue>,
+    mut cues: MessageWriter<PanelCue>,
     mut turn: Local<u32>,
 ) {
     let Ok((mut feel, mood, node, at)) =
@@ -221,7 +220,7 @@ pub(super) fn answer(
         Mood::Quiet | Mood::Plain | Mood::Ink => feel.pulse = 1.0,
         Mood::Good => {
             feel.pulse = 1.0;
-            sounds::write(&mut cues, &mut turn, Sound::Confirm);
+            write(&mut cues, &mut turn, PanelSound::Confirm);
             if let Some((node, at)) = node.zip(at) {
                 let scale = node.inverse_scale_factor;
                 kindle(
@@ -235,7 +234,7 @@ pub(super) fn answer(
         }
         Mood::Bad => {
             feel.shake = 1.0;
-            sounds::write(&mut cues, &mut turn, Sound::Deny);
+            write(&mut cues, &mut turn, PanelSound::Deny);
         }
     }
 }
@@ -547,7 +546,7 @@ mod tests {
             .insert_resource(Theme(HamletTheme::designed()))
             .init_resource::<Time>()
             .init_resource::<Assets<Lamp>>()
-            .add_message::<Cue>()
+            .add_message::<PanelCue>()
             .add_observer(answer)
             .add_systems(
                 Update,
@@ -572,8 +571,8 @@ mod tests {
             .id()
     }
 
-    fn heard(app: &App) -> Vec<Sound> {
-        let cues = app.world().resource::<Messages<Cue>>();
+    fn heard(app: &App) -> Vec<PanelSound> {
+        let cues = app.world().resource::<Messages<PanelCue>>();
         cues.iter_current_update_messages()
             .map(|cue| cue.sound)
             .collect()
@@ -651,7 +650,7 @@ mod tests {
         let button = button(&mut app, Mood::Good);
         step(&mut app);
         app.world_mut().trigger(Activate { entity: button });
-        assert_eq!(heard(&app), [Sound::Confirm]);
+        assert_eq!(heard(&app), [PanelSound::Confirm]);
         for _ in 0..6 {
             step(&mut app);
         }
@@ -681,7 +680,7 @@ mod tests {
         let button = button(&mut app, Mood::Bad);
         step(&mut app);
         app.world_mut().trigger(Activate { entity: button });
-        assert_eq!(heard(&app), [Sound::Deny]);
+        assert_eq!(heard(&app), [PanelSound::Deny]);
         let set = FeelSettings::default();
         let mut furthest = 0.0f32;
         for _ in 0..12 {

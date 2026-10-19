@@ -287,7 +287,6 @@ mod tests {
     use bevy::math::Affine3A;
 
     use super::building::mesh_bytes;
-    use super::house::TownStyle;
     use super::*;
     use crate::Stock;
     use crate::keeper::Kit;
@@ -347,7 +346,7 @@ mod tests {
             .map(|k| mesh_bytes(&flora::mesh(&land.pal, k)))
             .sum::<usize>();
         println!("trees, {} meshes: {trees} bytes", flora::KINDS);
-        let style = TownStyle::of(&land, 0);
+        let style = house::style_of(&land, 0);
         let common = common::mesh(&land, 0, &style);
         println!("a common: {} bytes", common.bytes());
         let yard = house::yard_of(&land, AgentId(0), true, 0.0, 0);

@@ -21,16 +21,15 @@ use bevy_fynix::dock::{
 use hamlet_core::agents::{Citizen, Left, Settlement};
 use hamlet_core::core::HomeDir;
 use hamlet_desktop::awake::KeepAwake;
-use hamlet_realm::chief;
-use hamlet_realm::pick::{Selected, Thing, select};
-use hamlet_realm::sky::Quality;
-use hamlet_realm::sound::SoundSettings;
+use hamlet_realm_api::chief;
+use hamlet_realm_api::pick::{Selected, Thing, select};
+use hamlet_realm_api::sky::{Quality, TimeOfDay};
+use hamlet_realm_api::sound::SoundChoice;
 use serde::{Deserialize, Serialize};
 
 use crate::me::Me;
 use crate::roll::Roll;
 use crate::theme::HamletTheme;
-use crate::world_view::TimeOfDay;
 
 /// Seconds a change waits before it is written, so that dragging a
 /// divider writes once.
@@ -420,11 +419,12 @@ pub fn restore(world: &mut World) -> bool {
         return false;
     };
     *world.resource_mut::<TimeOfDay>() = view.sky;
-    let mut sound = world.resource_mut::<SoundSettings>();
-    sound.muted = !view.sound_on;
-    sound.music_on = view.music_on;
-    sound.sound_level = view.sound_level.clamp(0.0, 1.0);
-    sound.music_level = view.music_level.clamp(0.0, 1.0);
+    world.insert_resource(SoundChoice {
+        muted: !view.sound_on,
+        music_on: view.music_on,
+        sound_level: view.sound_level.clamp(0.0, 1.0),
+        music_level: view.music_level.clamp(0.0, 1.0),
+    });
     world.resource_mut::<KeepAwake>().0 = view.keep_awake;
     *world.resource_mut::<Quality>() = view.quality;
     world.insert_resource(Pending {
@@ -466,7 +466,7 @@ pub fn keep(
     home: Res<HomeDir>,
     tree: Res<DockTree>,
     sky: Res<TimeOfDay>,
-    sound: Res<SoundSettings>,
+    sound: Res<SoundChoice>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
     (pending, kept): (Res<Pending>, Res<Kept>),
@@ -535,7 +535,7 @@ mod tests {
     fn what_was_selected_is_selected_again_once_it_is_there() {
         let mut world = World::new();
         world.init_resource::<Selected>();
-        world.init_resource::<hamlet_realm::pick::Also>();
+        world.init_resource::<hamlet_realm_api::pick::Also>();
         world.init_resource::<Kept>();
         world.insert_resource(Pending {
             chosen: Some(Chosen::House("scout".into())),

@@ -13,6 +13,8 @@ mod who;
 pub mod work;
 
 use bevy::prelude::*;
+use hamlet_core::agents::{Citizen, Mayor};
+use hamlet_realm_api::palette::RobotPaint;
 
 pub use self::acts::{
     Act, CRANK_RATE, MERGE_GAP, SEAT_BACK, TALK_GAP,
@@ -24,12 +26,58 @@ use self::pose::{Pose, Prop, arc, ramp, rx, ry};
 pub use self::spawn::{spawn_agent, spawn_as};
 pub use self::trip::{Step, Stride, Trip};
 pub use self::who::{Emblem, Hat, Paint, Who};
+use crate::hamlet::Housed;
+use crate::palette::Palette;
 use crate::sound::Sound;
 
 /// The robots' walk, and their poses each frame.
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Motion>()
-        .add_systems(Update, animate.in_set(crate::Step::Robots));
+    app.init_resource::<Motion>().add_systems(
+        Update,
+        (
+            animate.in_set(crate::Step::Robots),
+            paint.run_if(
+                any_match_filter::<
+                    Or<(
+                        Changed<Citizen>,
+                        Changed<Housed>,
+                        Added<Mayor>,
+                    )>,
+                >
+                    .or_eager(any_component_removed::<Mayor>)
+                    .or_eager(resource_exists_and_changed::<Palette>),
+            ),
+        ),
+    );
+}
+
+/// Keeps the [`RobotPaint`] of each agent.
+pub fn paint(
+    palette: Option<Res<Palette>>,
+    agents: Query<(
+        Entity,
+        &Citizen,
+        Has<Mayor>,
+        Option<&Housed>,
+        Option<&RobotPaint>,
+    )>,
+    mut commands: Commands,
+) {
+    let paints = match &palette {
+        Some(palette) => palette.paints,
+        None => Palette::default().paints,
+    };
+    for (agent, citizen, mayor, housed, was) in &agents {
+        let who = match (mayor, housed) {
+            (true, _) => Who::leader(),
+            (_, Some(housed)) => Who::citizen(housed.0.0 * 7 + 3),
+            (_, None) => Who::citizen(citizen.0 as u32 * 7 + 3),
+        };
+        let now = RobotPaint(paints[who.paint as usize]);
+        if was != Some(&now) {
+            commands.entity(agent).try_insert(now);
+        }
+    }
 }
 
 /// A robot's walk.

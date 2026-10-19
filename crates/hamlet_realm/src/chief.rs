@@ -3,7 +3,6 @@
 //! chief talks to.
 
 mod dress;
-pub mod look;
 pub mod mascot;
 pub mod place;
 mod settle;
@@ -15,8 +14,10 @@ use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
 use hamlet_core::core::HomeDir;
+pub use hamlet_realm_api::chief::{
+    Beside, Chief, Cloak, Hat, Holds, Light, Look, look, named,
+};
 
-pub use self::look::{Cloak, Hat, Holds, Light, Look};
 pub use self::wickstep::{Mascot, Phase, Stay};
 use crate::generator::land::Land;
 use crate::hand::PlaySettings;
@@ -130,21 +131,10 @@ pub struct ChiefSettings {
     pub house: (f32, f32),
 }
 
-/// A human the world knows, by the name they sign in with.
-#[derive(Component, Clone, Debug, PartialEq, Eq)]
-pub struct Chief {
-    pub user: String,
-}
-
 /// On the chief this app belongs to: the one whose place the hand
 /// sets down.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Player;
-
-/// The agent a chief is talking to, whose side its mascot keeps.
-/// Nobody while it is at home.
-#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Beside(pub Option<Entity>);
 
 /// The spot a chief has set its place down on. Without one it stands
 /// where the land puts it.
@@ -241,13 +231,4 @@ fn keep_place(
             let _ = stands.write(&home.0.root, &chief.user);
         }
     }
-}
-
-/// The chief called `user`, if the world knows one.
-pub fn named(world: &mut World, user: &str) -> Option<Entity> {
-    world
-        .query::<(Entity, &Chief)>()
-        .iter(world)
-        .find(|(_, chief)| chief.user == user)
-        .map(|(entity, _)| entity)
 }

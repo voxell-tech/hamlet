@@ -14,8 +14,8 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, scroll, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_realm::orders;
-use hamlet_realm::pick::{Thing, select};
+use hamlet_realm_api::orders::{self, Carry};
+use hamlet_realm_api::pick::{Thing, select};
 use hamlet_rules::hamlet::HOME;
 
 use super::heading;
@@ -210,7 +210,7 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
             // Its town is then in hand, to be set down with a click
             // on the ground.
             action(Glyph::Move, "MOVE", move |world| {
-                orders::carry(world, hamlet)
+                orders::carry(world, Carry::Hamlet(hamlet))
             }),
         ];
         // The first hamlet is the home itself and stays.

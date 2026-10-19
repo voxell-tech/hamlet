@@ -30,8 +30,8 @@ use hamlet_desktop::awake::KeepAwake;
 use hamlet_home::charter;
 use hamlet_limits::{models, rules};
 use hamlet_model::config::Config;
-use hamlet_realm::sky::Quality;
-use hamlet_realm::sound::SoundSettings;
+use hamlet_realm_api::sky::Quality;
+use hamlet_realm_api::sound::SoundChoice;
 use hamlet_sdk::checks::{either, moved};
 use hamlet_sdk::dock::panel;
 use hamlet_sdk::icons::Glyph;
@@ -453,18 +453,18 @@ fn save(world: &mut World, change: impl FnOnce(&mut Config)) {
 /// A switch and a slider: a kind of sound that is on or off, and its
 /// level.
 fn level(
-    on: fn(&SoundSettings) -> bool,
-    turn: fn(&mut SoundSettings, bool),
-    at: fn(&SoundSettings) -> f32,
-    set: fn(&mut SoundSettings, f32),
+    on: fn(&SoundChoice) -> bool,
+    turn: fn(&mut SoundChoice, bool),
+    at: fn(&SoundChoice) -> f32,
+    set: fn(&mut SoundChoice, f32),
 ) -> impl View {
     row((
-        switch(resource::<SoundSettings, _>(on), move |world, to| {
-            turn(&mut world.resource_mut::<SoundSettings>(), to)
+        switch(resource::<SoundChoice, _>(on), move |world, to| {
+            turn(&mut world.resource_mut::<SoundChoice>(), to)
         }),
-        slider(resource::<SoundSettings, _>(at)).on_change(
+        slider(resource::<SoundChoice, _>(at)).on_change(
             move |world, to| {
-                set(&mut world.resource_mut::<SoundSettings>(), to)
+                set(&mut world.resource_mut::<SoundChoice>(), to)
             },
         ),
     ))

@@ -12,7 +12,7 @@ use hamlet_core::agents::{
 use hamlet_core::oversight::Veto;
 use hamlet_core::session::Rewind;
 use hamlet_home::charter;
-use hamlet_realm::orders;
+use hamlet_realm_api::orders;
 use hamlet_sdk::confirm::Confirm;
 
 use crate::chat;

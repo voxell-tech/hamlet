@@ -14,11 +14,11 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
 use hamlet_agents_api::convo::ChiefName;
-use hamlet_realm::chief::{
+use hamlet_realm_api::chief::{
     self, Beside, Cloak, Hat, Holds, Light, Look,
 };
-use hamlet_realm::palette::Palette;
-use hamlet_realm::pick::{Thing, focus_on, select};
+use hamlet_realm_api::palette::Palette;
+use hamlet_realm_api::pick::{Thing, focus_on, select};
 use hamlet_sdk::checks::{either, moved};
 
 use crate::feel::Mood;

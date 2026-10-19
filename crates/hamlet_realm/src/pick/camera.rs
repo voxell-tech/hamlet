@@ -3,8 +3,12 @@
 
 use bevy::input::mouse::MouseScrollUnit;
 use bevy::prelude::*;
+use hamlet_realm_api::pick::Focus;
 
-use super::{Selected, Taken, Thing, Travel, WorldSurface, select};
+use super::{
+    Following, Selected, Steer, Taken, Thing, Travel, WorldSurface,
+    select,
+};
 use crate::play::{Play, Played};
 use crate::sky::CameraSettings;
 
@@ -16,6 +20,7 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<Following>()
         .init_resource::<Leash>()
         .init_resource::<Steer>()
+        .add_observer(focus)
         .add_observer(drag)
         .add_observer(drag_end)
         .add_observer(scroll)
@@ -115,10 +120,6 @@ impl Leash {
     }
 }
 
-/// A thing the camera stays on, until the ground is slid by hand.
-#[derive(Resource, Default, PartialEq)]
-pub struct Following(pub Option<Thing>);
-
 /// The systems that move the camera by hand, ahead of whatever aims
 /// it.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -166,6 +167,14 @@ pub fn focus_on(world: &mut World, thing: Thing, stay: bool) {
     orbit.pan = pan;
     orbit.zoom = orbit.zoom.min(close);
     world.resource_mut::<Following>().0 = stay.then_some(thing);
+}
+
+/// Brings into view what a panel asked for.
+fn focus(focus: On<Focus>, mut commands: Commands) {
+    let Focus { thing, stay } = *focus;
+    commands.queue(move |world: &mut World| {
+        focus_on(world, thing, stay);
+    });
 }
 
 /// F brings the selected thing to the middle and comes in close,
@@ -263,17 +272,6 @@ fn glide(
         && (next.pitch - orbit.pitch).abs() < 0.0005;
     shown.0 = if near { *orbit } else { next };
     redraw.write(bevy::window::RequestRedraw);
-}
-
-/// The way a drag on the world moves the camera.
-#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Steer {
-    #[default]
-    Still,
-    /// The ground slides under the pointer.
-    Slide,
-    /// The view turns and tilts.
-    Turn,
 }
 
 /// The left button slides the ground, the right button turns and

@@ -39,14 +39,11 @@ pub struct HouseSettings {
     pub merged: Remains,
 }
 
-impl TownStyle {
-    /// The style of the town on a site. Neighbouring sites differ.
-    pub fn of(land: &Land, site: usize) -> Self {
-        let towns = &land.pal.towns;
-        let shift =
-            (key(&[land.seed, 40]) % towns.len() as u64) as usize;
-        towns[(site + shift) % towns.len()]
-    }
+/// The style of the town on a site. Neighbouring sites differ.
+pub fn style_of(land: &Land, site: usize) -> TownStyle {
+    let towns = &land.pal.towns;
+    let shift = (key(&[land.seed, 40]) % towns.len() as u64) as usize;
+    towns[(site + shift) % towns.len()]
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

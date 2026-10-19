@@ -8,6 +8,7 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
 use hamlet_core::agents::Works;
+pub use hamlet_realm_api::orders::Switched;
 use hamlet_rules::work::Mode;
 use hamlet_vfx::inlay;
 
@@ -69,12 +70,6 @@ pub struct WorksSettings {
     pub lamp_glow: f32,
     pub lumens: f32,
     pub reach: f32,
-}
-
-/// The chief pressed the clockwork of `hamlet`.
-#[derive(Event, Clone, Copy, Debug)]
-pub struct Switched {
-    pub hamlet: Entity,
 }
 
 /// On a common that has its workbench.

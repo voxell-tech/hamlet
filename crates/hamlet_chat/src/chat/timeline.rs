@@ -15,10 +15,8 @@ use hamlet_core::agents::{Citizen, LivesIn, Mayor, Purpose};
 use hamlet_core::session::{
     Entry, Item, SessionKey, TalksTo, Transcript, reply_in,
 };
-use hamlet_realm::chief::{Chief, Look};
-use hamlet_realm::hamlet::Housed;
-use hamlet_realm::keeper;
-use hamlet_realm::palette::Palette;
+use hamlet_realm_api::chief::{Chief, Look};
+use hamlet_realm_api::palette::{Palette, RobotPaint};
 use hamlet_rules::hamlet::MAYOR;
 
 use super::lines::{Row, rows};
@@ -111,7 +109,7 @@ pub struct People<'w, 's> {
             Has<Mayor>,
             Option<&'static Purpose>,
             Option<&'static LivesIn>,
-            Option<&'static Housed>,
+            Option<&'static RobotPaint>,
         ),
     >,
     chiefs: Query<'w, 's, (&'static Chief, &'static Look)>,
@@ -126,7 +124,7 @@ pub struct People<'w, 's> {
             Or<(
                 Changed<Name>,
                 Changed<Purpose>,
-                Changed<Housed>,
+                Changed<RobotPaint>,
                 Changed<LivesIn>,
                 Added<Mayor>,
             )>,
@@ -177,22 +175,8 @@ impl People<'_, '_> {
     }
 
     fn agent(&self, agent: Entity) -> Option<Who> {
-        let (_, name, citizen, mayor, purpose, _, housed) =
+        let (_, name, _, mayor, purpose, _, paint) =
             self.agents.get(agent).ok()?;
-        let look = match (mayor, housed, citizen) {
-            (true, ..) => keeper::Who::leader(),
-            (_, Some(housed), _) => {
-                keeper::Who::citizen(housed.0.0 * 7 + 3)
-            }
-            (_, None, Some(citizen)) => {
-                keeper::Who::citizen(citizen.0 as u32 * 7 + 3)
-            }
-            (_, None, None) => keeper::Who::citizen(1),
-        };
-        let paints = match &self.palette {
-            Some(palette) => palette.paints,
-            None => Palette::default().paints,
-        };
         Some(Who {
             name: titled(name.as_str()),
             tag: if mayor {
@@ -201,7 +185,10 @@ impl People<'_, '_> {
                 tag_of(purpose.map_or("", |p| p.0.as_str()))
             },
             kind: if mayor { Kind::Mayor } else { Kind::Agent },
-            paint: Self::shown(paints[look.paint as usize]),
+            paint: paint
+                .map_or(self.theme.palette.brass_5, |paint| {
+                    Self::shown(paint.0)
+                }),
         })
     }
 

@@ -8,8 +8,8 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, scroll,
 };
 use hamlet_core::agents::{LivesIn, MergedInto, Purpose};
-use hamlet_realm::orders;
-use hamlet_realm::pick::{Selected, Thing, select};
+use hamlet_realm_api::orders::{self, Carry};
+use hamlet_realm_api::pick::{Selected, Thing, select};
 
 use super::agent::dim;
 use crate::deed::{self, Deed};
@@ -97,10 +97,7 @@ pub(super) fn library() -> impl View {
             })
             .boxed(),
             action(Glyph::Move, "MOVE", |world| {
-                hamlet_realm::moving::pick_up(
-                    world,
-                    hamlet_realm::generator::society::Place::Library,
-                )
+                orders::carry(world, Carry::Library)
             }),
         ]),
         dim("Every agent shares these skills. An agent offers one \

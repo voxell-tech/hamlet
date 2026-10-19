@@ -24,8 +24,10 @@ use bevy::window::{
     SystemCursorIcon,
 };
 use bevy_fynix::{EntityCursor, Theme};
-use hamlet_realm::hand::{Grip, Hand};
-use hamlet_realm::pick::{Hovered, Pressable, Steer, Taken, Thing};
+use hamlet_realm_api::hand::{Grip, Hold};
+use hamlet_realm_api::pick::{
+    Hovered, Pressable, Steer, Taken, Thing,
+};
 
 pub use self::art::{Inks, face, frames, hot, side};
 use crate::theme::{HamletTheme, Look};
@@ -268,7 +270,7 @@ pub(crate) fn dress(
     cursors: Res<Cursors>,
     time: Res<Time<Real>>,
     pending: Option<Res<Committing>>,
-    hand: Option<Res<Hand>>,
+    hold: Option<Res<Hold>>,
     steer: Option<Res<Steer>>,
     hovered: Option<Res<Hovered>>,
     taken: Option<Res<Taken>>,
@@ -293,7 +295,7 @@ pub(crate) fn dress(
             Some(CursorIcon::System(icon)) => Some(*icon),
             _ => None,
         };
-        let grip = hand.as_ref().and_then(|hand| hand.grip());
+        let grip = hold.as_ref().and_then(|hold| hold.0);
         // A robot in the hand is seen through it.
         let faint = grip == Some(Grip::Robot);
         let mode = Mode::choose(&Facts {

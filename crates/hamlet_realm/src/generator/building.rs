@@ -9,7 +9,7 @@ use bevy::tasks::futures_lite::future::poll_once;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on};
 use hamlet_vfx::flag::{FlagSettings, cloth};
 
-use super::house::{self, Remains, TownStyle};
+use super::house::{self, Remains};
 use super::land::Land;
 use super::layout::{End, Route};
 use super::shift::Way;
@@ -83,7 +83,7 @@ fn build_house(land: &Land, recipe: HouseRecipe) -> HouseBuilt {
     let built = house::house(
         land,
         recipe.agent,
-        &TownStyle::of(land, recipe.site),
+        &house::style_of(land, recipe.site),
         recipe.hall,
         recipe.leader,
         recipe.wings,
@@ -297,7 +297,7 @@ impl Builds {
     ) {
         let land = land.clone();
         let task = AsyncComputeTaskPool::get().spawn(async move {
-            let style = TownStyle::of(&land, site);
+            let style = house::style_of(&land, site);
             common::mesh(&land, site, &style).build()
         });
         self.commons.push((entity, task));

@@ -7,10 +7,9 @@ use bevy::math::Affine3A;
 use bevy::prelude::*;
 
 use super::{Pass, TownDrawn};
-use crate::generator::house::{self, TownStyle};
 use crate::generator::layout::{HALL_PLOT, plot};
 use crate::generator::lights::Spill;
-use crate::generator::{Common, common};
+use crate::generator::{Common, common, house};
 use crate::meshes::Mb;
 use crate::sky::SkySettings;
 
@@ -163,7 +162,7 @@ impl Pass<'_, '_, '_> {
             let Some(group) = self.drawn.towns.get(&id) else {
                 continue;
             };
-            let style = TownStyle::of(land, group.site);
+            let style = house::style_of(land, group.site);
             let (mut mb, mut panes) = (Mb::new(), Mb::new());
             let centre = land.sites[group.site].at;
             mb.at(Affine3A::from_translation(Vec3::new(
