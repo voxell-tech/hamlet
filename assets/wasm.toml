@@ -11,6 +11,7 @@ restart_backoff_ms = 3000
 publishes_per_second = 50
 publish_bytes_per_step = 262144
 memory_mib = 16
+wasm_bytes = 16777216
 lift_bytes = 8388608
 table_elements = 10000
 plugin_instances = 8

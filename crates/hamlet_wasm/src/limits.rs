@@ -40,6 +40,9 @@ pub struct Limits {
     pub publish_bytes_per_step: usize,
     /// The memory one plugin may grow to, in MiB.
     pub memory_mib: usize,
+    /// The bytes of a plugin's `plugin.wasm`. A bigger one is not
+    /// compiled.
+    pub wasm_bytes: usize,
     /// The bytes the host may copy out of a plugin's memory for one
     /// crossing: the values given to one host function, or returned
     /// by one call of an export. Strings and lists that point at the

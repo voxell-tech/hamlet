@@ -9,6 +9,7 @@ use hamlet_sdk::capability::Granted;
 use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{Exports, PluginInfo, Status};
 
+use crate::compile::{Background, Then};
 use crate::db::DB;
 use crate::draw::Dirty;
 use crate::engine::Host;
@@ -34,6 +35,9 @@ pub struct Setting<'a> {
     pub limits: &'a Limits,
     pub agents: &'a AgentList,
     pub papers: &'a Papers,
+    /// Where a component not in the cache is compiled off the frame.
+    /// With none, it is compiled at once.
+    pub background: Option<Background<'a>>,
 }
 
 /// A plugin that has run its `entry`.
@@ -60,6 +64,7 @@ pub fn build(
         limits,
         agents,
         papers,
+        ..
     } = setting;
     let instance = Instance::from_file(&host.0, &source.0, limits)?;
     let folder = source.0.parent().unwrap_or(Path::new(""));
@@ -82,7 +87,8 @@ pub fn build(
 
 /// Instantiates the component in `source`, holding `state` for it,
 /// and runs its `entry`, for the plugin entity `plugin`. A plugin
-/// that does not start is marked failed.
+/// that does not start is marked failed. One whose component is
+/// compiled off the frame is brought up when that is done.
 pub fn bring_up(
     plugin: Entity,
     info: &PluginInfo,
@@ -93,6 +99,18 @@ pub fn bring_up(
     state: &[u8],
     commands: &mut Commands,
 ) {
+    if let Some(background) = setting.background
+        && background.compile(
+            setting.host,
+            setting.limits,
+            plugin,
+            &source.0,
+            Then::Start,
+            commands,
+        )
+    {
+        return;
+    }
     let folder = source.0.parent().unwrap_or(Path::new(""));
     match build(info, source, granted, setting, state) {
         Ok(Built {
@@ -121,11 +139,21 @@ pub fn bring_up(
                 ))
                 .remove::<Failure>();
         }
-        Err(fault) => {
-            commands
-                .entity(plugin)
-                .insert(keep::trouble(folder, fault.to_string()));
-            stop::fail(commands, plugin, &info.id, &fault)
-        }
+        Err(fault) => failed(plugin, info, source, &fault, commands),
     }
+}
+
+/// Marks the plugin failed for `fault`, and says why under its name.
+pub fn failed(
+    plugin: Entity,
+    info: &PluginInfo,
+    source: &Source,
+    fault: &Fault,
+    commands: &mut Commands,
+) {
+    let folder = source.0.parent().unwrap_or(Path::new(""));
+    commands
+        .entity(plugin)
+        .insert(keep::trouble(folder, fault.to_string()));
+    stop::fail(commands, plugin, &info.id, fault)
 }

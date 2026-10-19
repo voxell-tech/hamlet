@@ -7,6 +7,7 @@ mod data;
 use std::path::Path;
 
 use bevy::prelude::*;
+use hamlet_base::Tokio;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{
     AskForMore, Capability, Choices, Record, Standing, Store,
@@ -21,6 +22,7 @@ use hamlet_sdk::reload::Reload;
 
 use super::{Modified, Waiting, Watch, keep};
 use crate::command;
+use crate::compile::{Background, Compiler, Then};
 use crate::engine::Host;
 use crate::inbox::Ticks;
 use crate::install::{self, Body, Installed};
@@ -84,16 +86,25 @@ pub fn reload(
     agents: Res<AgentList>,
     papers: Res<Papers>,
     store: Option<ResMut<Store>>,
+    tokio: Option<Res<Tokio>>,
+    compiler: Res<Compiler>,
     mut commands: Commands,
 ) {
     let Some(mut store) = store else {
         return;
     };
+    let background = tokio.as_deref().map(|tokio| Background {
+        tokio,
+        compiler: &compiler,
+    });
     let setting = host.as_deref().map(|host| Setting {
         host,
         limits: &limits,
         agents: &agents,
         papers: &papers,
+        // The new version is compiled off the frame before it is
+        // built, here.
+        background: None,
     });
     for Modified(plugin) in modified.read() {
         let Ok((
@@ -134,6 +145,21 @@ pub fn reload(
             *plugin, info, folder, *status, &kept, held, state,
             &panels, &offered,
         );
+        // Looked at again once its compile is done.
+        if let (Body::Wasm(file), Some(background), Some(host)) =
+            (&installed.body, background, host.as_deref())
+            && *status != Status::Disabled
+            && background.compile(
+                host,
+                &limits,
+                *plugin,
+                file,
+                Then::Reload,
+                &mut commands,
+            )
+        {
+            continue;
+        }
         let version = installed.manifest.version.clone();
         let done = match &installed.body {
             Body::Wasm(file) => code::swap(

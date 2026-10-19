@@ -55,17 +55,35 @@ pub fn drop_shipped(folder: &Path) {
     };
 }
 
-/// The component in `file`, from the plugin's cache in the home when
-/// an entry for this file, engine and configuration is there and can
-/// be read, and compiled otherwise. A compiled one is kept, and
-/// replaces the entries of other files.
+/// Whether the plugin's cache in the home holds an entry for `file`
+/// compiled by `engine`.
+pub fn cached(engine: &Engine, file: &Path) -> bool {
+    let Ok(bytes) = std::fs::read(file) else {
+        return false;
+    };
+    let name = format!("{}.{EXTENSION}", key(engine, &bytes));
+    folder_of(file).is_some_and(|folder| folder.join(name).is_file())
+}
+
+/// The component in `file`, of at most `cap` bytes, from the plugin's
+/// cache in the home when an entry for this file, engine and
+/// configuration is there and can be read, and compiled otherwise. A
+/// compiled one is kept, and replaces the entries of other files.
 pub fn component(
     engine: &Engine,
     file: &Path,
+    cap: usize,
 ) -> Result<(Compiled, Origin), Fault> {
-    let bytes = std::fs::read(file).map_err(|e| {
+    let unread = |e: std::io::Error| {
         Fault::Load(format!("{}: {e}", file.display()))
-    })?;
+    };
+    let size = std::fs::metadata(file).map_err(unread)?.len();
+    if size > cap as u64 {
+        return Err(Fault::Load(format!(
+            "plugin.wasm has {size} bytes, the most is {cap}"
+        )));
+    }
+    let bytes = std::fs::read(file).map_err(unread)?;
     let folder = folder_of(file);
     let name = format!("{}.{EXTENSION}", key(engine, &bytes));
     if let Some(entry) = folder.as_ref().map(|f| f.join(&name))

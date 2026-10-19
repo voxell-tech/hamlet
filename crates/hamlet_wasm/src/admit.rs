@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use bevy::prelude::*;
+use hamlet_base::Tokio;
 use hamlet_openui::data::{self, DataPanel};
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{
@@ -13,6 +14,7 @@ use hamlet_sdk::plugin::{
     Blocked, Manifest, PluginInfo, Status, needs, present,
 };
 
+use crate::compile::{Background, Compiler};
 use crate::engine::Host;
 use crate::limits::Limits;
 use crate::reload::keep;
@@ -40,8 +42,14 @@ pub fn admit(
     limits: Res<Limits>,
     agents: Res<AgentList>,
     papers: Res<Papers>,
+    tokio: Option<Res<Tokio>>,
+    compiler: Res<Compiler>,
     mut commands: Commands,
 ) {
+    let background = tokio.as_deref().map(|tokio| Background {
+        tokio,
+        compiler: &compiler,
+    });
     let present = present(everyone.iter().map(
         |(info, status, uninstalled)| (info, *status, uninstalled),
     ));
@@ -73,6 +81,7 @@ pub fn admit(
                     limits: &limits,
                     agents: &agents,
                     papers: &papers,
+                    background,
                 },
                 &[],
                 &mut commands,

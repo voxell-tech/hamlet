@@ -1,6 +1,7 @@
 //! Starting an installed plugin again when it is enabled.
 
 use bevy::prelude::*;
+use hamlet_base::Tokio;
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{Granted, Uninstalled};
 use hamlet_sdk::papers::Papers;
@@ -9,6 +10,7 @@ use hamlet_sdk::plugin::{
     needs, present,
 };
 
+use crate::compile::{Background, Compiler};
 use crate::engine::Host;
 use crate::instance::Instance;
 use crate::limits::Limits;
@@ -38,6 +40,8 @@ pub fn restart(
     limits: Res<Limits>,
     agents: Res<AgentList>,
     papers: Res<Papers>,
+    tokio: Option<Res<Tokio>>,
+    compiler: Res<Compiler>,
     mut commands: Commands,
 ) {
     let Some(host) = host else {
@@ -48,6 +52,10 @@ pub fn restart(
         limits: &limits,
         agents: &agents,
         papers: &papers,
+        background: tokio.as_deref().map(|tokio| Background {
+            tokio,
+            compiler: &compiler,
+        }),
     };
     let present = present(everyone.iter().map(
         |(info, status, uninstalled)| (info, *status, uninstalled),

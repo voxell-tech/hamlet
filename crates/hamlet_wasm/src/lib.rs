@@ -17,6 +17,7 @@ pub mod admit;
 pub mod cache;
 pub mod call;
 pub mod command;
+pub mod compile;
 pub mod db;
 pub mod draw;
 pub mod enable;
@@ -65,6 +66,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins((
         TuningPlugin::<WasmTuning>::default(),
         hamlet_openui::plugin,
+        compile::plugin,
         interop::plugin,
         reload::plugin,
         scene::plugin,

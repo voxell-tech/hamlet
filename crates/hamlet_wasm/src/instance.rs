@@ -167,7 +167,8 @@ impl Instance {
         file: &Path,
         limits: &Limits,
     ) -> Result<Self, Fault> {
-        let (component, _) = cache::component(engine, file)?;
+        let (component, _) =
+            cache::component(engine, file, limits.wasm_bytes)?;
         Self::new(engine, &component, limits)
     }
 }

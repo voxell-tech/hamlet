@@ -3,7 +3,7 @@
 //! chief.
 
 use bevy::prelude::*;
-use hamlet_base::HomeDir;
+use hamlet_base::{HomeDir, Tokio};
 use hamlet_openui::data::{self, DataPanel};
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{
@@ -17,6 +17,7 @@ use hamlet_sdk::plugin::{
 };
 use hamlet_sdk::tree::glyph;
 
+use crate::compile::{Background, Compiler};
 use crate::engine::Host;
 use crate::inbox::Ticks;
 use crate::install::{self, Body, Installed};
@@ -39,6 +40,8 @@ pub fn installed(
     limits: Res<Limits>,
     agents: Res<AgentList>,
     papers: Res<Papers>,
+    tokio: Option<Res<Tokio>>,
+    compiler: Res<Compiler>,
     mut store: ResMut<Store>,
     mut commands: Commands,
 ) {
@@ -47,6 +50,10 @@ pub fn installed(
         limits: &limits,
         agents: &agents,
         papers: &papers,
+        background: tokio.as_deref().map(|tokio| Background {
+            tokio,
+            compiler: &compiler,
+        }),
     });
     let folder = home.0.plugins();
     let mut found = Vec::new();
