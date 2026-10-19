@@ -3549,6 +3549,7 @@ dependencies = [
  "hamlet_harness",
  "hamlet_home",
  "hamlet_model",
+ "hamlet_native",
  "hamlet_offscreen",
  "hamlet_openui",
  "hamlet_plugins",
@@ -3705,6 +3706,20 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+ "toml",
+]
+
+[[package]]
+name = "hamlet_native"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_core",
+ "hamlet_home",
+ "hamlet_sdk",
+ "libloading",
+ "serde",
+ "sha2 0.10.9",
  "toml",
 ]
 
@@ -4842,6 +4857,16 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "unicode-ident",
+]
+
+[[package]]
+name = "native_spark"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "hamlet_native",
+ "hamlet_sdk",
 ]
 
 [[package]]

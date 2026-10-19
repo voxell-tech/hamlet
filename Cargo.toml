@@ -1,11 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "plugins/*"]
+members = ["crates/*", "plugins/*", "native/*"]
 # The vendored fynix workspace is its own workspace, and a guest is built
 # for wasm32-wasip2 in a workspace of its own.
 exclude = ["vendor", "guests"]
 # `cargo build`, `cargo test` and `cargo clippy` at the root cover every
-# crate, so the checks in AGENTS.md need no flags.
+# crate, so the checks in AGENTS.md need no flags. The sample native
+# plugins in `native/` are members that the defaults leave out: a
+# library is built only on request, with `scripts/build-native.sh`.
 default-members = [".", "crates/*", "plugins/*"]
 
 [workspace.package]
@@ -31,6 +33,7 @@ hamlet_limits = { version = "0.1.0", path = "crates/hamlet_limits" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
 hamlet_wasm = { version = "0.1.0", path = "crates/hamlet_wasm" }
+hamlet_native = { version = "0.1.0", path = "crates/hamlet_native" }
 hamlet_openui = { version = "0.1.0", path = "crates/hamlet_openui" }
 hamlet_guest = { version = "0.1.0", path = "crates/hamlet_guest" }
 hamlet_offscreen = { version = "0.1.0", path = "crates/hamlet_offscreen" }
@@ -67,6 +70,8 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 interprocess = "2"
 keyring = "4"
 libc = "0.2"
+# Opens a native plugin's library. Only `hamlet_native` names it.
+libloading = "0.8"
 # The text layout Bevy's text is built on, for selecting drawn words.
 # Held to the version `bevy_text` uses, so its layouts are this crate's.
 parley = { version = "0.9", default-features = false, features = ["std"] }
@@ -126,6 +131,7 @@ hamlet_ui.workspace = true
 hamlet_sdk.workspace = true
 hamlet_plugins.workspace = true
 hamlet_wasm = { workspace = true, optional = true }
+hamlet_native = { workspace = true, optional = true }
 anyhow.workspace = true
 bevy.workspace = true
 bevy_app.workspace = true
@@ -145,6 +151,11 @@ bevy_fynix.workspace = true
 serde_json.workspace = true
 
 [features]
+default = ["native"]
+# Loads the installed native plugins, dynamic libraries that run as
+# Hamlet with no limits. Without it a library in the home is never
+# opened: `cargo run --no-default-features`.
+native = ["dep:hamlet_native"]
 # Tests that reach a real model server or the internet. Off unless asked
 # for: `cargo test --features live-tests`.
 live-tests = ["hamlet_core/live-tests"]

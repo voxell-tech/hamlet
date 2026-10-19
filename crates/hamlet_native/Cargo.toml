@@ -1,0 +1,34 @@
+[package]
+name = "hamlet_native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Native plugins: the contract a dynamic library keeps with the host, and the host that loads one"
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_sdk.workspace = true
+bevy.workspace = true
+hamlet_core = { workspace = true, optional = true }
+libloading = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
+
+[dev-dependencies]
+hamlet_home.workspace = true
+
+[features]
+default = ["host"]
+# The loader. A native plugin leaves it off: it only needs the
+# contract.
+host = [
+    "dep:hamlet_core",
+    "dep:libloading",
+    "dep:serde",
+    "dep:sha2",
+    "dep:toml",
+]

@@ -1,0 +1,19 @@
+[package]
+name = "native_spark"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A sample native plugin: a resource that counts, and a panel that shows it"
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+hamlet_native = { workspace = true, default-features = false }
+hamlet_sdk.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true
