@@ -23,7 +23,7 @@ use crate::generator::land::Land;
 use crate::hand::PlaySettings;
 use crate::library::Library;
 
-pub(super) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<ChiefSettings>()
         .init_resource::<PlaySettings>()
         .add_observer(settle::leave)

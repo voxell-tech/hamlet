@@ -208,7 +208,7 @@ mod tests {
     use bevy::ecs::observer::On;
     use bevy::ecs::resource::Resource;
     use bevy::ecs::system::{Commands, ResMut};
-    use hamlet_core::agents::{AgentsPlugin, Settlement};
+    use hamlet_core::agents::{self, Settlement};
     use hamlet_core::core::HomeDir;
     use hamlet_core::session::UserMessage;
     use hamlet_rules::hamlet::{HOME, Hamlet};
@@ -230,14 +230,12 @@ mod tests {
             .unwrap();
         hamlet.create("scout", "Looks things up.", "test").unwrap();
         let mut app = App::new();
-        app.add_plugins(AgentsPlugin {
-            home: dir.to_path_buf(),
-        })
-        .init_resource::<Heard>()
-        .insert_resource(HomeDir(hamlet_home::Home {
+        app.insert_resource(HomeDir(hamlet_home::Home {
             root: dir.to_path_buf(),
             workspace: dir.join("workspace"),
         }))
+        .add_plugins(agents::plugin)
+        .init_resource::<Heard>()
         .add_observer(crate::chat::decreed)
         .add_observer(
             |said: On<UserMessage>,

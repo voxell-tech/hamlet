@@ -3,7 +3,7 @@
 
 use bevy::app::App;
 use hamlet_agents_api::{petition, waits};
-use hamlet_core::oversight::OversightPlugin;
+use hamlet_core::oversight;
 use hamlet_sdk::plugin::{
     AppPluginExt, Entry, HamletPlugin, Manifest,
 };
@@ -11,7 +11,7 @@ use hamlet_sdk::plugin::{
 /// Adds the Hamlets plugin.
 pub fn plugin(app: &mut App) {
     app.add_plugins((
-        OversightPlugin,
+        oversight::plugin,
         waits::plugin,
         petition::plugin,
     ))

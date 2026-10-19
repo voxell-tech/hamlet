@@ -3,7 +3,7 @@
 
 use std::io::Write;
 
-use bevy_app::{App, AppExit, Plugin, Update};
+use bevy_app::{App, AppExit, Update};
 use bevy_ecs::prelude::*;
 use hamlet_rules::chief::{self, Target};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
@@ -18,70 +18,61 @@ use crate::session::{
 const CHANNEL: &str = "terminal";
 
 /// Reads lines from the terminal and prints the session's replies.
-pub struct TerminalPlugin;
-
-impl Plugin for TerminalPlugin {
-    fn build(&self, app: &mut App) {
-        let (tx, rx) = unbounded_channel();
-        std::thread::spawn(move || {
-            for line in std::io::stdin().lines() {
-                let Ok(line) = line else { break };
-                if tx.send(Some(line)).is_err() {
-                    return;
-                }
+pub fn plugin(app: &mut App) {
+    let (tx, rx) = unbounded_channel();
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lines() {
+            let Ok(line) = line else { break };
+            if tx.send(Some(line)).is_err() {
+                return;
             }
-            let _ = tx.send(None);
-        });
-        let user = std::env::var("HAMLET_USER")
-            .or_else(|_| std::env::var("USER"))
-            .unwrap_or_else(|_| "user".into());
-        let key = SessionKey {
-            channel: CHANNEL.into(),
-            chat: user.clone(),
-            thread: "main".into(),
-        };
-        eprintln!(
-            "hamlet: /new starts a session, /reflect reflects, \
-             /budget shows the spend, Ctrl-D quits\n/queue shows \
-             what waits for you; /allow, /always, /deny, /go, \
-             /withdraw, /reply and /dismiss answer it\n/stop \
-             [agent] stops work, /undo restores the last agent to \
-             leave, /to <agent> <text> instructs an agent, /grants \
-             and /revoke <agent> <permission> manage \
-             permissions\n/chief lists what you can do to the \
-             hamlets, their mayors and their votes"
+        }
+        let _ = tx.send(None);
+    });
+    let user = std::env::var("HAMLET_USER")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "user".into());
+    let key = SessionKey {
+        channel: CHANNEL.into(),
+        chat: user.clone(),
+        thread: "main".into(),
+    };
+    eprintln!(
+        "hamlet: /new starts a session, /reflect reflects, /budget \
+         shows the spend, Ctrl-D quits\n/queue shows what waits for \
+         you; /allow, /always, /deny, /go, /withdraw, /reply and \
+         /dismiss answer it\n/stop [agent] stops work, /undo \
+         restores the last agent to leave, /to <agent> <text> \
+         instructs an agent, /grants and /revoke <agent> \
+         <permission> manage permissions\n/chief lists what you can \
+         do to the hamlets, their mayors and their votes"
+    );
+    prompt();
+    app.insert_resource(Lines(rx))
+        .insert_resource(Me {
+            key,
+            user,
+            streamed: false,
+        })
+        .add_systems(Update, read_lines)
+        .add_observer(render)
+        .add_observer(
+            |raised: On<Add, Waiting>, waiting: Query<&Waiting>| {
+                if let Ok(waiting) = waiting.get(raised.entity) {
+                    eprintln!("\n  NEEDS YOU: {}", strip(waiting));
+                }
+            },
+        )
+        .add_observer(
+            |done: On<JobFinished>, keys: Query<&SessionKey>| {
+                if keys
+                    .get(done.event().session)
+                    .is_ok_and(|k| k.channel == CHANNEL)
+                {
+                    prompt();
+                }
+            },
         );
-        prompt();
-        app.insert_resource(Lines(rx))
-            .insert_resource(Me {
-                key,
-                user,
-                streamed: false,
-            })
-            .add_systems(Update, read_lines)
-            .add_observer(render)
-            .add_observer(
-                |raised: On<Add, Waiting>,
-                 waiting: Query<&Waiting>| {
-                    if let Ok(waiting) = waiting.get(raised.entity) {
-                        eprintln!(
-                            "\n  NEEDS YOU: {}",
-                            strip(waiting)
-                        );
-                    }
-                },
-            )
-            .add_observer(
-                |done: On<JobFinished>, keys: Query<&SessionKey>| {
-                    if keys
-                        .get(done.event().session)
-                        .is_ok_and(|k| k.channel == CHANNEL)
-                    {
-                        prompt();
-                    }
-                },
-            );
-    }
 }
 
 /// Lines typed so far; `None` marks end of input.

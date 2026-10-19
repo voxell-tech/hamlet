@@ -20,7 +20,7 @@ use crate::hamlet::{Housed, Sited};
 use crate::pick::{Selected, Thing, select};
 use crate::sky::Sky;
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Survey>()
         .add_observer(point_at)
         .add_systems(Update, keep.after(WorldSystems));

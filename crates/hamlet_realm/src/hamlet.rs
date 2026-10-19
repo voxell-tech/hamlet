@@ -21,7 +21,7 @@ use crate::sky::CameraSettings;
 use crate::{WorldSystems, library, pick};
 
 /// Draws the core's hamlets, agents and roads in the generated world.
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.add_plugins(pointing::plugin)
         // A chief takes its site before any town is founded, and
         // the library takes one after the chiefs.

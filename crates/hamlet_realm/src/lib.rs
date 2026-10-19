@@ -1,6 +1,8 @@
 //! The realm as the chief sees it (docs/tour.md): the generated
 //! world and what it stands on, the bridge from the core's entities
-//! to it, the chief's mascot, the pointer and the library.
+//! to it, the chief's mascot, the pointer and the library. A
+//! module's `plugin` adds its own systems, and an app adds the
+//! modules it draws, the scene's first.
 
 pub mod bubble;
 pub mod chief;
@@ -32,51 +34,6 @@ pub use hamlet_realm_api::palette;
 pub use self::sky::{Dark, DayPart, Hour, LowSun, Sky, WorldCamera};
 pub use self::stage::{Clock, Stage, Step, WorldSystems};
 pub use self::stock::Stock;
-
-/// The realm: the generated world and everything that lives in it.
-/// Add it after Bevy's default plugins. An app that wants only the
-/// scene, with no hamlets, adds the plugins of `settings`,
-/// `palette`, `play`, `sound`, `debug`, `sky`, `stage`, `keeper` and
-/// `stock` itself.
-pub struct RealmPlugin;
-
-impl Plugin for RealmPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_plugins((
-            // The scene: tuning, colours, camera, clock, robots and
-            // the shared materials. Later plugins read them.
-            (
-                settings::plugin,
-                palette::plugin,
-                play::plugin,
-                sound::plugin,
-                debug::plugin,
-                sky::plugin,
-                stage::plugin,
-                keeper::plugin,
-                stock::plugin,
-            ),
-            // What is drawn in it.
-            generator::plugin,
-            // What the chief does in it.
-            (
-                pick::plugin,
-                needs::plugin,
-                bubble::plugin,
-                hand::plugin,
-                orders::plugin,
-                chief::plugin,
-                library::plugin,
-                moving::plugin,
-                works::plugin,
-                lantern::plugin,
-            ),
-            // The core's entities, drawn, and what a plugin reads of
-            // them.
-            (hamlet::plugin, survey::plugin),
-        ));
-    }
-}
 
 /// Puts `child` under `parent`, or despawns it if the parent has
 /// gone, as a house does with its town.

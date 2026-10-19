@@ -16,7 +16,7 @@ use super::play::{Play, Played};
 use super::{WorldSystems, label};
 use crate::sky::CameraSettings;
 
-pub(super) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Carrying>()
         .init_resource::<CarrySettings>()
         .add_message::<SetDown>()

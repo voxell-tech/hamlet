@@ -5725,7 +5725,12 @@ dependencies = [
  "bevy",
  "hamlet_agents_api",
  "hamlet_core",
+ "hamlet_home",
+ "hamlet_model",
+ "hamlet_sandbox",
  "hamlet_sdk",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

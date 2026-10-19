@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use hamlet_home::limits;
+use hamlet_home::{Home, limits};
 use hamlet_rules::hamlet::{FOUNDER, MAYOR};
 use hamlet_rules::lifecycle::Who;
 use hamlet_rules::realm;
@@ -10,9 +10,11 @@ use super::*;
 
 fn app(home: &Path) -> App {
     let mut app = App::new();
-    app.add_plugins(AgentsPlugin {
-        home: home.to_path_buf(),
-    });
+    app.insert_resource(HomeDir(Home {
+        root: home.to_path_buf(),
+        workspace: home.join("workspace"),
+    }))
+    .add_plugins(plugin);
     app
 }
 

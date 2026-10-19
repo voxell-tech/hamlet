@@ -15,8 +15,10 @@ them. This is about `hamlet_core`, the runtime.
 | `oversight` | What waits for a chief |
 | `terminal` | The terminal channel |
 
-A module uses only those above it. `CorePlugin` adds `AgentsPlugin`, so
-`core` and `agents` know each other.
+A module uses only those above it, and each has a `plugin` that adds its
+own systems. The agents layer, `plugin_agents`, inserts the resources
+`core` reads and adds `core`, `agents`, `catalogue` and `session`; the
+hamlets layer adds `oversight` ([`sdk.md`](sdk.md)).
 
 ## A typed line
 

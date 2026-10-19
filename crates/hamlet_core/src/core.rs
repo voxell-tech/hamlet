@@ -1,12 +1,12 @@
-//! The core plugin: settings, the model, the sandbox and the home
-//! folder as resources, plus the events that change them.
+//! Settings, the model, the sandbox and the home folder as
+//! resources, plus the events that change them.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use bevy_app::{App, Plugin, Startup, Update};
+use bevy_app::{App, Startup, Update};
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 pub use hamlet_base::{HomeDir, Tokio};
@@ -21,8 +21,6 @@ use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
 
-use crate::agents::AgentsPlugin;
-
 /// An endpoint's name, whether it is on this machine, and its
 /// models.
 type ListResult = (String, bool, Result<Vec<Listed>, String>);
@@ -36,74 +34,41 @@ type Tried = Result<(), String>;
 /// The key, or the account's email, a sign-in gave.
 type SignedIn = Result<String, String>;
 
-/// The settings, the model, the sandbox and the home as resources,
-/// and the hamlets of the home as entities.
-pub struct CorePlugin {
-    pub home: Home,
-    pub sandbox: &'static dyn Sandbox,
-    pub tokio: tokio::runtime::Handle,
-    pub config: Config,
-    /// Recorded assistant messages that answer in a model's place.
-    pub replay: Option<Vec<Value>>,
-}
-
-impl Plugin for CorePlugin {
-    fn build(&self, app: &mut App) {
-        let provider: Arc<dyn Provider> = match &self.replay {
-            Some(responses) => {
-                Arc::new(Replay::new(responses.clone()))
-            }
-            None => provider_for(&self.config, &self.home.root),
-        };
-        app.insert_resource(Tokio(self.tokio.clone()))
-            .insert_resource(HomeDir(self.home.clone()))
-            .insert_resource(Sandboxing(self.sandbox))
-            .insert_resource(Model {
-                provider,
-                replay: self.replay.is_some(),
-            })
-            .insert_resource(Settings {
-                config: self.config.clone(),
-                error: None,
-            })
-            .init_resource::<Rounds<Tested>>()
-            .init_resource::<Rounds<ListResult>>()
-            .init_resource::<Rounds<Tried>>()
-            .init_resource::<Trial>()
-            .add_observer(try_model)
-            .init_resource::<Rounds<SignedIn>>()
-            .init_resource::<Signing>()
-            .add_observer(sign_in)
-            .init_resource::<Listing>()
-            .add_observer(list_models)
-            .init_resource::<Link>()
-            .init_resource::<Skills>()
-            .init_resource::<Shelved>()
-            .add_observer(save_settings)
-            .add_observer(test_connection)
-            .add_observer(
-                |_: On<RefreshLists>, mut commands: Commands| {
-                    commands.queue(refresh_lists)
-                },
-            )
-            .add_systems(Startup, refresh_lists)
-            .add_systems(
-                Update,
-                (
-                    hear::<Tested, Link>.run_if(answered::<Tested>),
-                    hear::<Tried, Trial>.run_if(answered::<Tried>),
-                    hear::<SignedIn, Signing>
-                        .run_if(answered::<SignedIn>),
-                    poll_lists.run_if(answered::<ListResult>),
-                ),
-            );
-        app.add_plugins((
-            AgentsPlugin {
-                home: self.home.root.clone(),
+/// The tests of the connection, the trials of a model, signing in,
+/// the lists of models and the library's skills. Insert [`Tokio`],
+/// [`HomeDir`], [`Model`] and [`Settings`] before it.
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Rounds<Tested>>()
+        .init_resource::<Rounds<ListResult>>()
+        .init_resource::<Rounds<Tried>>()
+        .init_resource::<Trial>()
+        .add_observer(try_model)
+        .init_resource::<Rounds<SignedIn>>()
+        .init_resource::<Signing>()
+        .add_observer(sign_in)
+        .init_resource::<Listing>()
+        .add_observer(list_models)
+        .init_resource::<Link>()
+        .init_resource::<Skills>()
+        .init_resource::<Shelved>()
+        .add_observer(save_settings)
+        .add_observer(test_connection)
+        .add_observer(
+            |_: On<RefreshLists>, mut commands: Commands| {
+                commands.queue(refresh_lists)
             },
-            crate::catalogue::plugin,
-        ));
-    }
+        )
+        .add_systems(Startup, refresh_lists)
+        .add_systems(
+            Update,
+            (
+                hear::<Tested, Link>.run_if(answered::<Tested>),
+                hear::<Tried, Trial>.run_if(answered::<Tried>),
+                hear::<SignedIn, Signing>
+                    .run_if(answered::<SignedIn>),
+                poll_lists.run_if(answered::<ListResult>),
+            ),
+        );
 }
 
 /// The sandbox the agents' tools run in.
@@ -132,6 +97,26 @@ pub struct Model {
 }
 
 impl Model {
+    /// The provider `config` reaches from `home`, or one that answers
+    /// with `replay`, the recorded assistant messages, if there are
+    /// any.
+    pub fn new(
+        config: &Config,
+        home: &Path,
+        replay: Option<Vec<Value>>,
+    ) -> Model {
+        match replay {
+            Some(responses) => Model {
+                provider: Arc::new(Replay::new(responses)),
+                replay: true,
+            },
+            None => Model {
+                provider: provider_for(config, home),
+                replay: false,
+            },
+        }
+    }
+
     pub fn provider(&self) -> Arc<dyn Provider> {
         self.provider.clone()
     }

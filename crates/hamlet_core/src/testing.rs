@@ -18,10 +18,11 @@ use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 use tokio::runtime::Runtime;
 
-use crate::core::CorePlugin;
-use crate::session::{
-    SessionKey, SessionPlugin, Status, UserMessage,
+use crate::core::{
+    self, HomeDir, Model, Sandboxing, Settings, Tokio,
 };
+use crate::session::{self, SessionKey, Status, UserMessage};
+use crate::{agents, catalogue};
 
 /// The chief every test speaks as.
 pub(crate) const ALICE: &str = "alice";
@@ -104,20 +105,26 @@ pub(crate) fn app(
     sandbox: &'static dyn Sandbox,
     replies: Vec<Value>,
 ) -> App {
+    let config = Config {
+        reflect_every: 0,
+        ..Config::default()
+    };
+    let model = Model::new(&config, &home.root, Some(replies));
     let mut app = App::new();
-    app.add_plugins((
-        CorePlugin {
-            home: home.home.clone(),
-            sandbox,
-            tokio: rt.handle().clone(),
-            config: Config {
-                reflect_every: 0,
-                ..Config::default()
-            },
-            replay: Some(replies),
-        },
-        SessionPlugin,
-    ));
+    app.insert_resource(Tokio(rt.handle().clone()))
+        .insert_resource(HomeDir(home.home.clone()))
+        .insert_resource(Sandboxing(sandbox))
+        .insert_resource(model)
+        .insert_resource(Settings {
+            config,
+            error: None,
+        })
+        .add_plugins((
+            core::plugin,
+            agents::plugin,
+            catalogue::plugin,
+            session::plugin,
+        ));
     app
 }
 

@@ -11,5 +11,10 @@ workspace = true
 [dependencies]
 hamlet_agents_api.workspace = true
 hamlet_core.workspace = true
+hamlet_home.workspace = true
+hamlet_model.workspace = true
+hamlet_sandbox.workspace = true
 hamlet_sdk.workspace = true
 bevy.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

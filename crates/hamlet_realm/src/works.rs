@@ -38,7 +38,7 @@ const WHEELS: [(Vec3, f32, usize); 3] = [
 
 const MODES: [Mode; 2] = [Mode::Manual, Mode::Auto];
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<WorksSettings>()
         .add_observer(click)
         .add_systems(Startup, prepare)

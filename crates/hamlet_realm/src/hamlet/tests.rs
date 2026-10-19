@@ -509,7 +509,9 @@ fn a_town_follows_where_the_record_sets_it_down() {
 
 #[test]
 fn a_move_a_chief_commands_is_replayed_on_the_next_launch() {
-    use hamlet_core::agents::AgentsPlugin;
+    use hamlet_core::agents;
+    use hamlet_core::core::HomeDir;
+    use hamlet_home::Home;
     use hamlet_rules::chief;
     use hamlet_rules::realm::{Origin, Realm};
     use hamlet_testing::Scratch;
@@ -517,9 +519,11 @@ fn a_move_a_chief_commands_is_replayed_on_the_next_launch() {
     let home = Scratch::new("world-moved");
     let launch = || {
         let mut app = bare();
-        app.add_plugins(AgentsPlugin {
-            home: home.to_path_buf(),
-        });
+        app.insert_resource(HomeDir(Home {
+            root: home.to_path_buf(),
+            workspace: home.join("workspace"),
+        }))
+        .add_plugins(agents::plugin);
         app.update();
         app.update();
         app

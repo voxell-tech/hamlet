@@ -20,7 +20,7 @@ use crate::palette::Palette;
 use crate::pick::{self, Footprint, Named, Thing, hit_box};
 use crate::{Clock, Sky, Stock};
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Stood>()
         .add_observer(librarian::called)
         .add_systems(

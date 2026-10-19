@@ -15,7 +15,9 @@ use crate::core::{HomeDir, Listing, Settings};
 /// The time between two looks at the catalogue's file.
 const LOOK: Duration = Duration::from_secs(2);
 
-pub(crate) fn plugin(app: &mut App) {
+/// Keeps [`ModelCatalogue`] in step with its file. Add it after
+/// [`crate::core::plugin`].
+pub fn plugin(app: &mut App) {
     app.init_resource::<ModelCatalogue>()
         .add_systems(Update, follow);
 }

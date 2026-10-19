@@ -22,7 +22,7 @@ use hamlet_realm::moving::{self, Carrying};
 use hamlet_realm::pick::Reach;
 use hamlet_realm::sky::SkySettings;
 use hamlet_realm::sound::SoundSettings;
-use hamlet_realm::{Clock, Hour, RealmPlugin, Stage, WorldCamera};
+use hamlet_realm::{Clock, Hour, Stage, WorldCamera};
 
 /// The frame, in pixels.
 const SIZE: UVec2 = UVec2::new(1360, 860);
@@ -272,7 +272,7 @@ fn main() {
     let mut app = App::new();
     app.add_plugins((
         offscreen::plugins(SIZE).disable::<AudioPlugin>(),
-        RealmPlugin,
+        plugin_realm::world,
     ));
     Target::insert(&mut app, SIZE, 1.0);
     // A held hour: with the clock running the sky would follow the

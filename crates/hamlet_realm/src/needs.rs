@@ -17,7 +17,7 @@ use hamlet_rules::chief::rulings::Choice;
 use super::label::{self, Lens};
 use super::pick::{Footprint, Named, Pressable, Thing};
 
-pub(super) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<TagSettings>()
         .add_systems(Startup, draw_glyphs)
         .add_systems(

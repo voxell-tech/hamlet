@@ -27,9 +27,7 @@ use hamlet_realm::hamlet::Housed;
 use hamlet_realm::library::{Librarian, Library, Stood};
 use hamlet_realm::pick::{Centre, Glide, Orbit};
 use hamlet_realm::sky::{CameraSettings, SkySettings};
-use hamlet_realm::{
-    Clock, Hour, RealmPlugin, Stage, WorldCamera, WorldSystems,
-};
+use hamlet_realm::{Clock, Hour, Stage, WorldCamera, WorldSystems};
 use hamlet_rules::budget::{Amount, Report, Standing};
 use hamlet_rules::hamlet::HOME;
 
@@ -252,7 +250,7 @@ fn main() {
     );
     std::fs::create_dir_all(&out).expect("output folder");
     let mut app = App::new();
-    app.add_plugins((offscreen::plugins(SIZE), RealmPlugin));
+    app.add_plugins((offscreen::plugins(SIZE), plugin_realm::world));
     Target::insert(&mut app, SIZE, 1.0);
     app.insert_resource(Sheet {
         out,

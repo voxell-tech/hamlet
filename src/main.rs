@@ -13,9 +13,8 @@ use bevy_app::{
     App, AppExit, ScheduleRunnerPlugin, TerminalCtrlCHandlerPlugin,
 };
 use hamlet_core::agents::WatchEvery;
-use hamlet_core::core::CorePlugin;
 use hamlet_core::oversight::Unreviewed;
-use hamlet_core::terminal::TerminalPlugin;
+use hamlet_core::terminal;
 use hamlet_desktop::DesktopPlugin;
 use hamlet_home::instance::{self, Instance};
 use hamlet_home::{Home, limits};
@@ -160,7 +159,7 @@ fn main() -> Result<()> {
     let mut app = App::new();
     let config = Config::load(&home.root)?;
     let replayed = replay.is_some();
-    app.insert_resource(Launch(CorePlugin {
+    app.insert_resource(Launch {
         sandbox: sandbox::detect(insecure)?,
         config,
         replay: replay
@@ -171,7 +170,7 @@ fn main() -> Result<()> {
             .transpose()?,
         tokio: rt.handle().clone(),
         home,
-    }))
+    })
     .add_plugins(DesktopPlugin {
         window: mode == Mode::Window,
     });
@@ -193,7 +192,7 @@ fn main() -> Result<()> {
                 hamlet_sdk::tree::plugin,
                 hamlet_sdk::capability::plugin,
             ));
-            app.add_plugins((tick, TerminalPlugin));
+            app.add_plugins((tick, terminal::plugin));
         }
         Mode::Headless => {
             eprintln!("hamlet: running headless; Ctrl-C stops");

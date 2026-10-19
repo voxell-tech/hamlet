@@ -8,7 +8,7 @@ mod sync;
 
 use std::path::PathBuf;
 
-use bevy_app::{App, Plugin, Update};
+use bevy_app::{App, Update};
 use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
 use hamlet_home::limits::Limits;
@@ -28,27 +28,22 @@ pub(crate) use self::sync::watch;
 pub use self::sync::{Seen, WatchEvery, account, sync};
 use crate::core::HomeDir;
 
-/// Brings the hamlets of `home` up as entities and keeps them in
-/// step with their files.
-pub struct AgentsPlugin {
-    pub home: PathBuf,
-}
-
-impl Plugin for AgentsPlugin {
-    fn build(&self, app: &mut App) {
-        // A home from before there were several hamlets becomes the
-        // first.
-        if let Err(e) = Realm::open(&self.home) {
-            eprintln!("hamlet: could not open the realm: {e:#}");
-        }
-        if let Err(e) = Library::open(&self.home) {
-            eprintln!("hamlet: could not open the library: {e:#}");
-        }
-        register(app.world_mut());
-        found(app.world_mut(), &self.home, HOME);
-        sync(app.world_mut());
-        app.add_systems(Update, watch);
+/// Brings the hamlets of the home up as entities and keeps them in
+/// step with their files. Insert [`HomeDir`] before it.
+pub fn plugin(app: &mut App) {
+    let home = app.world().resource::<HomeDir>().0.root.clone();
+    // A home from before there were several hamlets becomes the
+    // first.
+    if let Err(e) = Realm::open(&home) {
+        eprintln!("hamlet: could not open the realm: {e:#}");
     }
+    if let Err(e) = Library::open(&home) {
+        eprintln!("hamlet: could not open the library: {e:#}");
+    }
+    register(app.world_mut());
+    found(app.world_mut(), &home, HOME);
+    sync(app.world_mut());
+    app.add_systems(Update, watch);
 }
 
 /// A hamlet, by its name in the home it lives under.

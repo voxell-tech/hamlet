@@ -56,7 +56,7 @@ fn app_in(
     replies: Vec<Value>,
 ) -> App {
     let mut app = testing::app(home, rt, sandbox, replies);
-    app.add_plugins(OversightPlugin);
+    app.add_plugins(plugin);
     app
 }
 

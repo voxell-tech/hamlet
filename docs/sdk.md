@@ -363,14 +363,37 @@ Settings choose the models with. The inspector, the world's panel,
 the status bar and the first-run screen may be switched off; a panel closed
 for good is opened again from a tab bar's plus.
 
-| Layer | What it wraps |
+| Layer | What it adds |
 |---|---|
-| `plugin_agents` | `hamlet_core`'s `CorePlugin` and `SessionPlugin`: the model, the tools, the agents as entities and the sessions; and the read models of `hamlet_agents_api` over them (`convo`, `agents`, `papers`, `roll`). It starts from `Launch`, a resource the binary inserts and the plugin takes out |
-| `plugin_hamlets` | `hamlet_core`'s `OversightPlugin`: what waits for a chief and the chief's answers over the hamlets' rules; and `waits` and `petition` of `hamlet_agents_api`. Needs `agents` |
-| `plugin_realm` | `hamlet_realm`'s `RealmPlugin`: the generated world, its ground, sites, camera and effects. Needs `hamlets` |
+| `plugin_agents` | The resources the core starts from, made of `Launch`, a resource the binary inserts and the plugin takes out: the runtime, the home, the sandbox, the model (`Model::new`, which answers from a recorded session where there is one) and the settings. Then `hamlet_core`'s modules `core` (the models and the library's skills), `agents` (the hamlets, agents and roads as entities), `catalogue` and `session`, and the read models of `hamlet_agents_api` over them (`convo`, `agents`, `papers`, `roll`) |
+| `plugin_hamlets` | `hamlet_core`'s module `oversight`: what waits for a chief and the chief's answers over the hamlets' rules; and `waits` and `petition` of `hamlet_agents_api`. Needs `agents` |
+| `plugin_realm` | `world`, `hamlet_realm`'s modules in order: the scene (settings, palette, play, sound, debug, sky, stage, keeper, stock), the generator, what the chief does in it (pick, needs, bubble, hand, orders, chief, library, moving, works, lantern), and the core's entities drawn (`hamlet`, `survey`). Needs `hamlets` |
 
-The engines stay in their crates. A layer's `plugin` adds the engine's Bevy
-plugins and then its own `HamletPlugin`, which adds nothing to the window.
+A layer owns its wiring: which of the engine's modules make it up, in which
+order, and what they start from. An engine crate has no `Plugin` of its own
+and is a library: its types, systems and functions, and for each module a
+`plugin` function that adds that module's own systems, observers and
+resources beside them. An app that wants part of an engine adds the
+modules it needs: the core's tests add `core`, `agents`, `catalogue` and
+`session` with the resources they start from, the style test the realm's
+scene, and `far_lands` and `chief_sheet` add `plugin_realm::world`.
+
+The wiring stays per module, not in the layer's crate, for three reasons.
+Most of what a module adds is private to it (a channel and the system that
+drains it, the observer that queues a deed), and moving the lines that add
+them would make every one of them public. The engine's own tests build an
+app from its modules, and the engine cannot depend on the plugin crate
+above it. And a module's plugin stands first in its module, beside what it
+adds, so a change to a system and to where it runs is one edit. Moving the
+engines themselves into the plugin crates was not cheap either:
+`hamlet_core` is under `hamlet_agents_api`, `hamlet_chat`, `hamlet_limits`,
+`hamlet_realm_api`, `hamlet_realm`, `hamlet_ui`, `hamlet_wasm` and
+`hamlet_desktop`, which would then stand on a plugin.
+
+A layer's `HamletPlugin` declares nothing in `entry`: neither engine knows
+the SDK, so no command, menu line or other contribution lives in them. The
+items of the menu of an agent, a hamlet or the ground are the `menus`
+plugin's, and the camera's and the sky's lines are `world-view`'s.
 `plugin_realm` also holds the realm's view, which reaches into the realm's
 camera, stage, sky, labels and the chief's mascot: `view::plugin` is a
 plugin of its own, `world-view`, which `Frame` adds and the chief may

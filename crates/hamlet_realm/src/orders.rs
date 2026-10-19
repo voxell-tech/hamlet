@@ -22,7 +22,7 @@ use crate::hand::{self, Wish};
 use crate::library::Stood;
 use crate::moving::{self, SetDown};
 
-pub(super) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.add_observer(asked_introduce)
         .add_observer(asked_give)
         .add_observer(asked_carry)
@@ -188,7 +188,7 @@ fn grant(
 
 #[cfg(test)]
 mod tests {
-    use hamlet_core::agents::{self, AgentsPlugin};
+    use hamlet_core::agents;
     use hamlet_rules::hamlet::HOME;
     use hamlet_testing::Scratch;
 
@@ -210,9 +210,11 @@ mod tests {
             .unwrap();
         hamlet.create("scout", "Looks things up.", "test").unwrap();
         let mut app = App::new();
-        app.add_plugins(AgentsPlugin {
-            home: dir.to_path_buf(),
-        })
+        app.insert_resource(HomeDir(hamlet_home::Home {
+            root: dir.to_path_buf(),
+            workspace: dir.join("workspace"),
+        }))
+        .add_plugins(agents::plugin)
         .init_resource::<Heard>()
         .add_message::<Wish>()
         .add_message::<SetDown>()

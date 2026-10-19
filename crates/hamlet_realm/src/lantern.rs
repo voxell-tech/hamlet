@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use super::meshes::Mb;
 
 /// Lanterns burn as the day goes.
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.add_systems(Update, burn);
 }
 

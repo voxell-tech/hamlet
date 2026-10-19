@@ -54,7 +54,7 @@ table. The binary and the examples are the root package.
 | `hamlet_home` | A home on disk: its layout, charter and prompt, the chief's limits, the starter skills |
 | `hamlet_base` | What every layer shares: `HomeDir`, the home the app opened, `Tokio`, the runtime background work runs on, and the rules of a plugin's names (`plain`, `joinable`) |
 | `hamlet_rules` | The hamlet's record and the rules over it. Plain files and functions, no Bevy |
-| `hamlet_core` | The runtime as Bevy plugins: agents, sessions, tools and oversight. No rendering |
+| `hamlet_core` | The runtime: agents, sessions, tools and oversight, each module with the `plugin` of its own systems. No rendering |
 | `hamlet_desktop` | The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder and file dialogs and the app's icon |
 | `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
 | `hamlet_offscreen` | An app that draws into an image with no window and saves a still. The examples and the plugin harness draw with it |
@@ -75,7 +75,7 @@ table. The binary and the examples are the root package.
 The plugins are under `plugins/`: `plugins/all` is `hamlet_plugins`, which
 lists them, and each other folder is one plugin crate. The binary is a list
 of plugins: the layers `plugin_agents`, `plugin_hamlets` and `plugin_realm`
-(each wraps the engine crate of the same subject, and none can be switched
+(each adds the modules of the engine crate of the same subject, and none can be switched
 off), then the frame of the window (`hamlet_ui`), the chat and the limits
 (`hamlet_chat`, `hamlet_limits`, each a plugin too), what fills the frame
 (the realm's view in `plugin_realm`, `plugin_menus`, `plugin_status`,
@@ -95,13 +95,15 @@ the same name, and each file opens with a line saying what it holds. Read
 (land, towns, houses, roads and traffic from a seed), `keeper/` (the
 robots), `chief/` (the wizard and its Hearth), `hand/` (what the chief does
 by hand), `pick/` (pointing, selecting and the camera) and `sound/`.
-`RealmPlugin` in its `lib.rs` is a flat list of the `plugin` of each module,
-scene first (settings, palette, play, sound, debug, sky, stage, keeper,
-stock), then the generator, then what the chief does in it, then
-`hamlet.rs`. The app adds it through `plugin_realm`. An app that wants only
-the scene adds the first group itself,
-as the style test does; the town generator adds it with `generator::plugin`
-and an `Origin` for its seed.
+Each module has a `plugin` of its own systems, and the crate has no plugin
+of the whole. `plugin_realm::world` (`plugins/realm/src/lib.rs`) is a flat
+list of them, scene first (settings, palette, play, sound, debug, sky,
+stage, keeper, stock), then the generator, then what the chief does in it,
+then `hamlet.rs` and `survey.rs`; the app adds it through `plugin_realm`. An
+app that wants only the scene adds the first group itself, as the style
+test does; the town generator adds it with `generator::plugin` and an
+`Origin` for its seed. The core is the same: `plugin_agents` and
+`plugin_hamlets` add its modules ([`sdk.md`](sdk.md), The layers).
 `hamlet_ui` is the frame of the window: the dock (`dock.rs`, `remember.rs`),
 the root it is mounted in with the parts plugins add to the frame
 (`root.rs`), the window's chrome and states (`chrome.rs`, `window.rs`, and

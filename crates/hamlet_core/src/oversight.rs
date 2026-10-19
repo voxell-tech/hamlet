@@ -14,7 +14,7 @@ mod queue;
 mod review;
 mod typed;
 
-use bevy_app::{App, Plugin, Startup, Update};
+use bevy_app::{App, Startup, Update};
 use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
 use hamlet_home::limits::{Limits, Permission, Review};
@@ -43,195 +43,188 @@ use crate::session::{
 };
 
 /// Holds tool calls and instructions for a chief, and takes the
-/// chief's answers.
-pub struct OversightPlugin;
-
-impl Plugin for OversightPlugin {
-    fn build(&self, app: &mut App) {
-        let root = app.world().resource::<HomeDir>().0.root.clone();
-        app.insert_resource(Overseen)
-            .insert_resource(Grants::open(&root))
-            .insert_resource(Ledger::open(&root))
-            .insert_resource(review::Reviews::new())
-            .init_resource::<Rules>()
-            .init_resource::<Raised>()
-            .add_observer(
-                |mut starting: On<ToolStarting>,
-                 mut commands: Commands| {
-                    let call = starting.event_mut();
-                    if call.deny.is_some() {
-                        return;
-                    }
-                    let Some(answer) = call.answer.take() else {
-                        return;
-                    };
-                    let call = ToolStarting {
-                        session: call.session,
-                        who: call.who.clone(),
-                        name: call.name.clone(),
-                        args: call.args.clone(),
-                        reach: call.reach.clone(),
-                        deny: None,
-                        leave: call.leave,
-                        answer: Some(answer),
-                    };
-                    commands.queue(move |world: &mut World| {
-                        decide(world, call)
-                    });
-                },
-            )
-            .add_observer(
-                |mut instructed: On<Instructed>,
-                 mut commands: Commands| {
-                    let told = instructed.event_mut();
-                    told.instruction = Some(
-                        commands
-                            .spawn(Instruction {
-                                agent: told.agent.clone(),
-                                chief: told.user.clone(),
-                                text: told.text.clone(),
-                                session: told.session,
-                                hearing: Hearing::default(),
-                                task: None,
-                                reviewed: false,
-                            })
-                            .id(),
-                    );
-                },
-            )
-            .add_observer(
-                |started: On<TurnStarted>,
-                 mut instructions: Query<&mut Instruction>,
-                 mut commands: Commands| {
-                    let started = started.event();
-                    let mut session = commands.entity(started.session);
-                    session.insert(Asked::default());
-                    match started.instruction {
-                        Some(instruction) => {
-                            session.insert(Carrying(instruction))
-                        }
-                        None => session.remove::<Carrying>(),
-                    };
-                    if let Some(mut told) = started
-                        .instruction
-                        .and_then(|i| instructions.get_mut(i).ok())
-                    {
-                        told.task = Some(started.task.clone());
-                    }
-                },
-            )
-            .add_observer(
-                |dropped: On<TurnDropped>, mut commands: Commands| {
-                    let instruction = dropped.event().instruction;
-                    commands.queue(move |world: &mut World| {
-                        over(world, instruction)
-                    });
-                },
-            )
-            .add_observer(
-                |answer: On<Answer>, mut commands: Commands| {
-                    let answer = answer.event().clone();
-                    commands.queue(move |world: &mut World| {
-                        settle(world, answer)
-                    });
-                },
-            )
-            .add_observer(
-                |answered: On<Answered>, mut commands: Commands| {
-                    let answered = answered.event().clone();
-                    commands.queue(move |world: &mut World| {
-                        settle_picks(world, answered)
-                    });
-                },
-            )
-            .add_observer(
-                |rewound: On<Rewound>, mut commands: Commands| {
-                    let (session, at) =
-                        (rewound.event().session, rewound.event().at);
-                    commands.queue(move |world: &mut World| {
-                        forget(world, session, at)
-                    });
-                },
-            )
-            .add_observer(|veto: On<Veto>, mut commands: Commands| {
-                let veto = veto.event().clone();
+/// chief's answers. Add it after [`crate::session::plugin`].
+pub fn plugin(app: &mut App) {
+    let root = app.world().resource::<HomeDir>().0.root.clone();
+    app.insert_resource(Overseen)
+        .insert_resource(Grants::open(&root))
+        .insert_resource(Ledger::open(&root))
+        .insert_resource(review::Reviews::new())
+        .init_resource::<Rules>()
+        .init_resource::<Raised>()
+        .add_observer(
+            |mut starting: On<ToolStarting>,
+             mut commands: Commands| {
+                let call = starting.event_mut();
+                if call.deny.is_some() {
+                    return;
+                }
+                let Some(answer) = call.answer.take() else {
+                    return;
+                };
+                let call = ToolStarting {
+                    session: call.session,
+                    who: call.who.clone(),
+                    name: call.name.clone(),
+                    args: call.args.clone(),
+                    reach: call.reach.clone(),
+                    deny: None,
+                    leave: call.leave,
+                    answer: Some(answer),
+                };
                 commands.queue(move |world: &mut World| {
-                    stop(world, veto)
+                    decide(world, call)
                 });
-            })
-            .add_observer(
-                |revoke: On<Revoke>,
-                 agents: Query<(&Name, &Citizen), Without<Left>>,
-                 mut grants: ResMut<Grants>| {
-                    let revoke = revoke.event();
-                    // The living agent of that name, else whoever
-                    // was given it under that name.
-                    let agent = agents
-                        .iter()
-                        .find(|(name, _)| {
-                            name.as_str() == revoke.agent
+            },
+        )
+        .add_observer(
+            |mut instructed: On<Instructed>,
+             mut commands: Commands| {
+                let told = instructed.event_mut();
+                told.instruction = Some(
+                    commands
+                        .spawn(Instruction {
+                            agent: told.agent.clone(),
+                            chief: told.user.clone(),
+                            text: told.text.clone(),
+                            session: told.session,
+                            hearing: Hearing::default(),
+                            task: None,
+                            reviewed: false,
                         })
-                        .map(|(_, citizen)| citizen.0)
-                        .or_else(|| {
-                            grants
-                                .held()
-                                .iter()
-                                .find(|g| g.name == revoke.agent)
-                                .map(|g| g.agent)
-                        });
-                    if let Some(agent) = agent {
-                        let _ = grants.revoke(
-                            agent,
-                            revoke.permission,
-                            &revoke.chief,
-                        );
+                        .id(),
+                );
+            },
+        )
+        .add_observer(
+            |started: On<TurnStarted>,
+             mut instructions: Query<&mut Instruction>,
+             mut commands: Commands| {
+                let started = started.event();
+                let mut session = commands.entity(started.session);
+                session.insert(Asked::default());
+                match started.instruction {
+                    Some(instruction) => {
+                        session.insert(Carrying(instruction))
                     }
-                },
-            )
-            .add_observer(
-                |_: On<Closing>,
-                 mut commands: Commands,
-                 waiting: Query<Entity, With<Waiting>>| {
-                    // Left unsettled in the record, so the chief is
-                    // told of them when the app next starts.
-                    for entity in &waiting {
-                        commands.entity(entity).despawn();
-                    }
-                },
-            )
-            .add_observer(
-                |out: On<SessionOutput>, mut commands: Commands| {
-                    let out = out.event();
-                    // The rest, a streamed word among them, is
-                    // nothing to follow.
-                    if !matches!(
-                        out.reply,
-                        Reply::Event(
-                            AgentEvent::Agent { .. }
-                                | AgentEvent::ModelCall(_)
-                        ) | Reply::Done(_)
-                            | Reply::Error(_)
-                    ) {
-                        return;
-                    }
-                    let (session, reply) =
-                        (out.session, out.reply.clone());
-                    let by =
-                        out.key.address().to_string();
-                    commands.queue(move |world: &mut World| {
-                        follow(world, session, &by, &reply)
+                    None => session.remove::<Carrying>(),
+                };
+                if let Some(mut told) = started
+                    .instruction
+                    .and_then(|i| instructions.get_mut(i).ok())
+                {
+                    told.task = Some(started.task.clone());
+                }
+            },
+        )
+        .add_observer(
+            |dropped: On<TurnDropped>, mut commands: Commands| {
+                let instruction = dropped.event().instruction;
+                commands.queue(move |world: &mut World| {
+                    over(world, instruction)
+                });
+            },
+        )
+        .add_observer(|answer: On<Answer>, mut commands: Commands| {
+            let answer = answer.event().clone();
+            commands.queue(move |world: &mut World| {
+                settle(world, answer)
+            });
+        })
+        .add_observer(
+            |answered: On<Answered>, mut commands: Commands| {
+                let answered = answered.event().clone();
+                commands.queue(move |world: &mut World| {
+                    settle_picks(world, answered)
+                });
+            },
+        )
+        .add_observer(
+            |rewound: On<Rewound>, mut commands: Commands| {
+                let (session, at) =
+                    (rewound.event().session, rewound.event().at);
+                commands.queue(move |world: &mut World| {
+                    forget(world, session, at)
+                });
+            },
+        )
+        .add_observer(|veto: On<Veto>, mut commands: Commands| {
+            let veto = veto.event().clone();
+            commands
+                .queue(move |world: &mut World| stop(world, veto));
+        })
+        .add_observer(
+            |revoke: On<Revoke>,
+             agents: Query<(&Name, &Citizen), Without<Left>>,
+             mut grants: ResMut<Grants>| {
+                let revoke = revoke.event();
+                // The living agent of that name, else whoever
+                // was given it under that name.
+                let agent = agents
+                    .iter()
+                    .find(|(name, _)| name.as_str() == revoke.agent)
+                    .map(|(_, citizen)| citizen.0)
+                    .or_else(|| {
+                        grants
+                            .held()
+                            .iter()
+                            .find(|g| g.name == revoke.agent)
+                            .map(|g| g.agent)
                     });
-                },
-            )
-            .add_observer(typed::typed)
-            .add_observer(|left: On<Add, Left>, mut commands: Commands| {
+                if let Some(agent) = agent {
+                    let _ = grants.revoke(
+                        agent,
+                        revoke.permission,
+                        &revoke.chief,
+                    );
+                }
+            },
+        )
+        .add_observer(
+            |_: On<Closing>,
+             mut commands: Commands,
+             waiting: Query<Entity, With<Waiting>>| {
+                // Left unsettled in the record, so the chief is
+                // told of them when the app next starts.
+                for entity in &waiting {
+                    commands.entity(entity).despawn();
+                }
+            },
+        )
+        .add_observer(
+            |out: On<SessionOutput>, mut commands: Commands| {
+                let out = out.event();
+                // The rest, a streamed word among them, is
+                // nothing to follow.
+                if !matches!(
+                    out.reply,
+                    Reply::Event(
+                        AgentEvent::Agent { .. }
+                            | AgentEvent::ModelCall(_)
+                    ) | Reply::Done(_)
+                        | Reply::Error(_)
+                ) {
+                    return;
+                }
+                let (session, reply) =
+                    (out.session, out.reply.clone());
+                let by = out.key.address().to_string();
+                commands.queue(move |world: &mut World| {
+                    follow(world, session, &by, &reply)
+                });
+            },
+        )
+        .add_observer(typed::typed)
+        .add_observer(
+            |left: On<Add, Left>, mut commands: Commands| {
                 let agent = left.entity;
-                commands
-                    .queue(move |world: &mut World| lapse(world, agent));
-            })
-            .add_systems(Startup, (recall, departed))
-            .add_systems(Update, review::hear.run_if(review::heard));
-    }
+                commands.queue(move |world: &mut World| {
+                    lapse(world, agent)
+                });
+            },
+        )
+        .add_systems(Startup, (recall, departed))
+        .add_systems(Update, review::hear.run_if(review::heard));
 }
 
 /// The words the oversight rules look for and how much they quote.

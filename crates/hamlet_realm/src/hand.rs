@@ -30,7 +30,7 @@ use crate::keeper::Act;
 use crate::moving::Carrying;
 use crate::pick::{self, Hovered, Reach, Taken, Thing, Travel};
 
-pub(super) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<PlaySettings>()
         .init_resource::<Hand>()
         .init_resource::<Hold>()
