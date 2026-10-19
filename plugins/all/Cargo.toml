@@ -63,5 +63,5 @@ settings = ["dep:plugin_settings", "limits"]
 skills = ["dep:plugin_skills"]
 status = ["dep:plugin_status"]
 welcome = ["dep:plugin_welcome", "limits"]
-# The realm's view is in the realm's crate.
-world-view = ["dep:plugin_realm"]
+# The realm's view is in the realm's crate, and draws the realm.
+world-view = ["realm"]

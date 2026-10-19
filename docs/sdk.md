@@ -364,7 +364,9 @@ text area are handled where they apply and are not chords.
 One crate each, named `plugin_<name>`, with `pub fn plugin(app: &mut App)`
 that adds its `HamletPlugin`. `plugins/all` is `hamlet_plugins`: each plugin
 is an optional dependency behind a feature of its name, all on by default,
-listed in these `PluginGroup`s:
+listed in these `PluginGroup`s. A feature turns on those of what it needs:
+`world-view` the `realm` it draws, `window` the `chat` the frame reads, and
+the panels that show the panes of the limits `limits`.
 
 | Group | What it lists |
 |---|---|
