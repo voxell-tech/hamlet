@@ -7,8 +7,10 @@ use hamlet_sdk::plugin::{Disable, Enable};
 use hamlet_sdk::theme::HamletTheme;
 use hamlet_sdk::tree::store::PluginTrees;
 
+use super::tree::{PANEL, items};
 use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
+use crate::limits::Limits;
 
 fn listed(app: &App, id: &str) -> bool {
     app.world()
@@ -73,6 +75,27 @@ fn opened(name: &str, asked: &str) -> bool {
 fn a_plugin_opens_its_own_panel_and_no_other() {
     assert!(opened("opens_own", "main"));
     assert!(!opened("opens_other", "agent"));
+}
+
+#[test]
+fn a_panel_is_drawn_in_a_frame_the_steps_spent() {
+    let scratch = Scratch::new("starved");
+    let mut app = home::app(
+        &scratch,
+        &[Plugin::new(
+            "probe",
+            fixture::component(&fixture::drawing(
+                &items("0 refreshes"),
+                &items("0 refreshes"),
+            )),
+        )],
+    );
+    app.insert_resource(Limits {
+        frame_ms: 0,
+        ..Limits::default().patient()
+    });
+    app.update();
+    assert!(app.world().resource::<PluginTrees>().contains(PANEL));
 }
 
 #[test]

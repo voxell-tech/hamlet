@@ -1043,7 +1043,10 @@ each means. They apply to every plugin alike, whatever it is granted.
   second, a call of an interface to it is answered `out-of-budget`, and a point
   of a turn changes nothing. The steps and panels of all the plugins may take
   `frame_ms` in a frame; the plugins left out go first in the next, the one
-  served longest ago first. A call already begun runs to its own `call_ms`.
+  served longest ago first. One panel is drawn in every frame even when the
+  steps spent it, that of the plugin drawn longest ago, so that busy plugins
+  cannot keep every panel from being drawn. A call already begun runs to its
+  own `call_ms`.
 - **Ticks.** A plugin is given a `tick` only if its manifest wants them (`ticks`,
   true when the manifest does not say, so every plugin written before the field
   keeps its ticks), and at most `tick_hz` in a second. A plugin that only answers

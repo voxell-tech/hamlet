@@ -43,8 +43,8 @@ fn begin(mut frame: ResMut<Frame>) {
     frame.spent = Duration::ZERO;
 }
 
-/// What one plugin spent in the second under way, and the frame it
-/// was last called in by the frame's turn.
+/// What one plugin spent in the second under way, and the frames it
+/// was last called in by the frame's turn and last drawn in.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Spent {
     since: Option<Instant>,
@@ -53,6 +53,7 @@ pub struct Spent {
     /// The time the last call took.
     pub took: Duration,
     pub served: u64,
+    pub drawn: u64,
 }
 
 impl Spent {

@@ -89,10 +89,11 @@ pub fn due(plugins: Query<&Dirty>) -> bool {
 
 /// Calls `panel-view` for each panel that is due, once, and keeps
 /// the tree it returns, or hands the panel the program it returns,
-/// while the frame has time, the plugin served longest ago first. A
-/// panel behind another tab of the dock, and the panels of a plugin
-/// that spent its time or fuel of this second, stay due. A plugin
-/// whose call fails is marked failed.
+/// while the frame has time, the plugin drawn longest ago first. The
+/// first panel is drawn even when the steps spent the frame. A panel
+/// behind another tab of the dock, and the panels of a plugin that
+/// spent its time or fuel of this second, stay due. A plugin whose
+/// call fails is marked failed.
 pub fn draw(
     limits: Res<Limits>,
     agents: Res<AgentList>,
@@ -120,9 +121,10 @@ pub fn draw(
             (*status == Status::Running
                 && !dirty.is_empty()
                 && !instance.spent.over(&limits))
-            .then_some((plugin, instance.spent.served))
+            .then_some((plugin, instance.spent.drawn))
         })
         .collect::<Vec<_>>();
+    let mut drew = false;
     for plugin in budget::turns(due) {
         let Ok((
             plugin,
@@ -143,14 +145,19 @@ pub fn draw(
             let Some(local) = local_id(&info.id, &dock) else {
                 continue;
             };
-            if !frame.open(&limits) || behind(tree.as_deref(), &dock)
+            // Busy plugins may spend the frame in their steps, within
+            // their own seconds, and no panel would be drawn again.
+            if (drew && !frame.open(&limits))
+                || behind(tree.as_deref(), &dock)
             {
                 dirty.mark(&dock);
                 continue;
             }
+            drew = true;
             let drawn = instance.panel_view(&limits, local);
             frame.charge(instance.spent.took);
             instance.spent.served = frame.number();
+            instance.spent.drawn = frame.number();
             match drawn {
                 Ok(drawing) => {
                     drawing.logs.iter().for_each(|line| {
