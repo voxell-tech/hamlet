@@ -13,6 +13,35 @@ const NAME_MAX: usize = 64;
 /// with it is always a plugin's.
 pub const JOIN: &str = "__";
 
+/// Whether `name` can be a plugin's id or a tool's name in the name
+/// an agent calls the tool by: no dot, no `__` and no underscore at
+/// an edge, so that no two pairs join into the same name.
+pub fn joinable(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('.')
+        && !name.contains(JOIN)
+        && !name.starts_with('_')
+        && !name.ends_with('_')
+}
+
+/// `tools` with a name once: the first tool of a name stays, the
+/// later ones are left out and logged.
+pub fn unique(tools: Vec<Offered>) -> Vec<Offered> {
+    let mut kept = Vec::<Offered>::new();
+    for tool in tools {
+        if kept.iter().any(|known| known.name == tool.name) {
+            eprintln!(
+                "hamlet: the tool `{}` of the plugin {} has the \
+                 name of an earlier one, so it is not offered",
+                tool.name, tool.plugin
+            );
+        } else {
+            kept.push(tool);
+        }
+    }
+    kept
+}
+
 /// The kind of value a field of a tool takes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FieldKind {
@@ -60,11 +89,13 @@ pub struct AgentTool {
 
 impl AgentTool {
     /// The name an agent calls it by, or `None` where it is more
-    /// than a model takes.
+    /// than a model takes or the names cannot be joined.
     pub fn called(plugin: &str, name: &str) -> Option<String> {
-        let called =
-            format!("{plugin}{JOIN}{name}").replace('.', "_");
-        (called.len() <= NAME_MAX).then_some(called)
+        let called = format!("{plugin}{JOIN}{name}");
+        (joinable(plugin)
+            && joinable(name)
+            && called.len() <= NAME_MAX)
+            .then_some(called)
     }
 
     /// Whether the agents of `hamlet` are offered it.
@@ -242,7 +273,7 @@ mod tests {
 
     fn tool() -> AgentTool {
         AgentTool {
-            plugin: "tide.table".into(),
+            plugin: "tide-table".into(),
             label: "Tide Table".into(),
             name: "height".into(),
             description: "The height of the tide.".into(),
@@ -269,7 +300,7 @@ mod tests {
     fn a_tool_is_named_for_its_plugin_and_checks_its_arguments() {
         let tool = tool();
         let offered = tool.definition().unwrap();
-        assert_eq!(offered.name, "tide_table__height");
+        assert_eq!(offered.name, "tide-table__height");
         assert!(
             offered.definition["function"]["description"]
                 .as_str()
@@ -291,5 +322,29 @@ mod tests {
                 .contains("string")
         );
         assert!(AgentTool::called(&"p".repeat(60), "tool").is_none());
+    }
+
+    #[test]
+    fn names_that_would_join_alike_are_refused_or_dropped() {
+        for plugin in ["a.b", "a__b", "_a", "a_"] {
+            assert!(
+                AgentTool::called(plugin, "t").is_none(),
+                "{plugin}"
+            );
+            assert!(
+                AgentTool::called("p", plugin).is_none(),
+                "{plugin}"
+            );
+        }
+        assert_eq!(
+            AgentTool::called("a_b", "c"),
+            Some("a_b__c".into())
+        );
+
+        let mut other = tool().definition().unwrap();
+        other.plugin = "other".into();
+        let kept = unique(vec![tool().definition().unwrap(), other]);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].plugin, "tide-table");
     }
 }

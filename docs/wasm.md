@@ -531,12 +531,16 @@ declared at once, live only while the chief allows `agent.tool`, taken off when 
 choice is taken back, and the first declaration raises the petition. The ask's
 `scope` lists the hamlets whose agents are offered it; with none, every hamlet's.
 At most `agent_tools` tools of at most `tool_fields` fields; a tool whose name
-`<plugin>__<tool>` would pass 64 characters is dropped.
+`<plugin>__<tool>` would pass 64 characters is dropped. A plugin id and a tool
+name have no `.` and no `__`, and no `_` at an edge (a manifest with such an id is
+turned down, such a tool is dropped), so that two pairs never make one name. If two
+tools offered to an agent still go by one name, the first stays and the others are
+logged.
 
 1. Each tool is an `hamlet_core::tools::AgentTool` entity that is `ContributedBy` the
    plugin. Before each model step an agent's worker asks the app thread for the tools
    its hamlet is offered, over the channel its gate uses, and shows them to the model
-   as `plugin__tool` (a `.` in an id becomes `_`), described as "[from the plugin
+   as `plugin__tool`, described as "[from the plugin
    Name] ...". No tool added by hand may have `__` in its name.
 2. A call is checked against the fields (a field missing, or of the wrong kind, is
    an error to the agent and the plugin never hears of it). It then goes to the plugin

@@ -1,5 +1,6 @@
 //! `manifest.toml` of a native plugin.
 
+use hamlet_core::tools::plugged::joinable;
 use hamlet_sdk::plugin::{RESERVED, plain, valid};
 
 /// The most characters of a plugin's name.
@@ -41,6 +42,13 @@ impl Manifest {
                         .take(NAME_MAX)
                         .collect::<String>()
                 )
+            ));
+        }
+        if !joinable(&self.id) {
+            return Some(format!(
+                "the id `{}` has a dot, `__` or an underscore at an \
+                 edge",
+                self.id
             ));
         }
         if RESERVED.contains(&self.id.as_str()) {
@@ -95,6 +103,7 @@ mod tests {
         };
         assert!(problem("Spark!", &library).contains("not a name"));
         assert!(problem("chief", &library).contains("reserved"));
+        assert!(problem("a__b", &library).contains("`__`"));
         for bad in ["../x", "/x", "a\\b", "C:lib", "a..b", ".hid"] {
             let bad =
                 format!("{bad}.{}", std::env::consts::DLL_EXTENSION);

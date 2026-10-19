@@ -15,7 +15,10 @@ fn problem(id: &str, name: &str, reason: &str) -> Option<String> {
 #[test]
 fn an_id_that_is_not_a_name_or_is_reserved_is_turned_down() {
     assert_eq!(problem("notes", "Notes", "To read."), None);
-    for id in ["chief", "host", "window", "needs", "skills"] {
+    for id in ["chief", "host", "window", "needs", "settings"] {
+        assert!(problem(id, "Notes", "To read.").is_some(), "{id}");
+    }
+    for id in ["a.b", "a__b", "_a", "a_"] {
         assert!(problem(id, "Notes", "To read.").is_some(), "{id}");
     }
     for id in ["Notes", "no tes", "", "a/b", ".hidden"] {

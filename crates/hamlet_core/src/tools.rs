@@ -118,7 +118,7 @@ impl Tools {
 
     /// Takes the tools plugins give the agent from now on.
     pub(crate) fn plugged(&mut self, tools: Vec<Offered>) {
-        self.plugged = tools;
+        self.plugged = plugged::unique(tools);
     }
 
     /// The tool a plugin gives the agent that goes by `name`.

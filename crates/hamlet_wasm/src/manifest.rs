@@ -1,5 +1,6 @@
 //! `manifest.toml`: what an installed plugin says about itself.
 
+use hamlet_core::tools::plugged::joinable;
 use hamlet_sdk::capability::{Asked, Asks, Refusal};
 use hamlet_sdk::plugin::{
     Exports, Imports, Need, RESERVED, Range, plain, valid,
@@ -106,6 +107,13 @@ impl Manifest {
                         .take(NAME_MAX)
                         .collect::<String>()
                 )
+            ));
+        }
+        if !joinable(&self.id) {
+            return Some(format!(
+                "the id `{}` has a dot, `__` or an underscore at an \
+                 edge",
+                self.id
             ));
         }
         if RESERVED.contains(&self.id.as_str()) {
