@@ -528,7 +528,8 @@ fn tag(
         BackgroundColor(palette.black.with_alpha(0.85)),
         BorderColor::all(palette.seam),
         // Its words are the plugin's, so it is under the host's own
-        // tags, as its marks are.
+        // tags, and over the marks of plugins, as the tag of those
+        // who draw is.
         ZIndex(-1),
         Pickable::IGNORE,
         Visibility::Hidden,

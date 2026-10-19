@@ -108,8 +108,9 @@ fn marks(
             Pinned(mark.clone()),
             node,
             UiTransform::default(),
-            // Under the host's own tags and names.
-            ZIndex(-1),
+            // Under the host's own tags and names, those that name
+            // the plugins among them.
+            ZIndex(-2),
             Pickable::IGNORE,
             Visibility::Hidden,
         ));
@@ -145,8 +146,8 @@ fn tag(commands: &mut Commands, by: &[String], palette: &Palette) {
         },
         BackgroundColor(palette.black.with_alpha(0.85)),
         BorderColor::all(palette.seam),
-        // Over the marks, spawned before it, and under the host's
-        // tags that ask for the chief.
+        // Over the marks and under the host's tags that ask for the
+        // chief.
         ZIndex(-1),
         Pickable::IGNORE,
         children![(
