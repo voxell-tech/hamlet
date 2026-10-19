@@ -10,8 +10,9 @@ use bevy::ecs::world::World;
 use hamlet_sdk::plugin::{Declared, Entry};
 
 /// The version of the contract between the host and a library: the
-/// symbols below and the shape of [`Abi`]. It moves when either does.
-pub const ABI: u32 = 2;
+/// symbols below and the shape of [`Abi`]. It stays at 1 until Hamlet
+/// 0.1.0 is published, and moves after that when either does.
+pub const ABI: u32 = 1;
 
 /// The name of the symbol that gives [`ABI`] and nothing else, so
 /// that a library of another contract is turned down before its
