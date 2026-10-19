@@ -47,6 +47,7 @@ and its asks go unanswered.
 | `sky` | `Quality` and `TimeOfDay`, the chief's choices of how the world is drawn |
 | `sound` | `PanelCue` and `PanelSound`, the panels' own sounds; `SoundChoice`, what the chief chose to hear |
 | `orders` | `Decree` and `Tell`, which the chat says; `decree`, `restore`, `part` and `offers`; `Introduce`, `Give`, `Carry` and `Switched`, which the realm answers |
+| `overlay` | `Overlays`, the marks plugins draw over the world, which the host of the plugins keeps and the realm's view draws |
 | `survey` | `Survey`, the realm by name for a plugin that holds `read.world`: the hamlets, the agents and where each stands, the thing selected and the hour |
 
 ## What plugins share
@@ -379,7 +380,7 @@ switch off.
 
 | Plugin | What it adds |
 |---|---|
-| `plugin_realm::view` | The world's panel, titled REALM: the realm's camera drawn into it at the window's pixel scale and never larger than the window, the pointer passed on to the camera, the labels of the world hung off it; the stage set from the mayor's session, the sky held at day or night, `Animating` while something moves; the VIEW lines Reset Camera and the sky's three; and the chief's mascot brought into the world, kept beside whoever the chat is with and its look kept between launches |
+| `plugin_realm::view` | The world's panel, titled REALM: the realm's camera drawn into it at the window's pixel scale and never larger than the window, the pointer passed on to the camera, the labels of the world and the marks plugins draw over it (`overlay`) hung off it; the stage set from the mayor's session, the sky held at day or night, `Animating` while something moves; the VIEW lines Reset Camera and the sky's three; and the chief's mascot brought into the world, kept beside whoever the chat is with and its look kept between launches |
 | `plugin_menus` | HAMLET and VIEW in the top bar (a part of the frame) and the open menu; the menu a right click opens on a thing of the world or the ground, with the items and commands of its own (Talk, Focus, Follow, Stop, Give a Skill, Undo, Make Mayor, Remove, Restore, Move, Close Down, the chief's and the library's, Found a Hamlet Here) and the roads and merges of two that are chosen; the form a hamlet is founded with, with its HAMLET line; the question before a `Deed` and a plugin's `Confirm`; and the sounds of those popups. Essential |
 | `plugin_status` | The status bar at the foot of the window: the sandbox, the model, the connection, what the session and the hamlet spent, the link under the pointer, what waits and whether an agent works. It keeps `Bar` |
 | `plugin_welcome` | The first-run screen over the dock, on a home whose model was never chosen: a provider's key, signing in, a server on this computer, and the models of whoever answered. Settings opens it again with `SetUpAgain` and `AddEndpoint` |

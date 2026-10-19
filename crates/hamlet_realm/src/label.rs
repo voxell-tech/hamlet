@@ -21,14 +21,14 @@ pub struct Lens<'w, 's> {
 
 impl Lens<'_, '_> {
     /// The world's camera and where it stands.
-    pub(crate) fn camera(&self) -> (&Camera, GlobalTransform) {
+    pub fn camera(&self) -> (&Camera, GlobalTransform) {
         let (entity, camera, was) = *self.camera;
         (camera, self.stands(entity, was))
     }
 
     /// The transform of `entity` as of this frame. `was` is the one
     /// it was last drawn at.
-    pub(crate) fn stands(
+    pub fn stands(
         &self,
         entity: Entity,
         was: &GlobalTransform,

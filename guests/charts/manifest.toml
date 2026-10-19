@@ -6,8 +6,8 @@ interface = "0.1.0"
 # It only answers what is sent to it, so it wants no ticks.
 ticks = false
 
-# The canvas is the only drawing a plugin has: shapes in a box of its
-# own panel. It is allowed when the chief lets the plugin in.
+# The canvas is shapes in a box of the plugin's own panel. It is
+# allowed when the chief lets the plugin in.
 [[asks]]
 capability = "ui.canvas"
 reason = "To draw its chart of the week."

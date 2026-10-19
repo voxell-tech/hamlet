@@ -3,6 +3,7 @@
 //! their robots, the selection and the sky, and a thing pointed at by
 //! its name.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use hamlet_core::agents::{
     Busy, Citizen, Left, LivesIn, Mayor, Settlement,
@@ -49,6 +50,61 @@ type Hamlets<'w, 's> = Query<
         Option<&'static Sited>,
     ),
 >;
+
+/// Where the things a plugin names are drawn: an agent's robot by
+/// the agent's name, a hamlet's common by its id.
+#[derive(SystemParam)]
+pub struct Whereabouts<'w, 's> {
+    agents: Query<
+        'w,
+        's,
+        (&'static Name, &'static Housed),
+        (With<Citizen>, Without<Left>),
+    >,
+    robots: Query<
+        'w,
+        's,
+        (Entity, &'static Robot, &'static GlobalTransform),
+    >,
+    hamlets: Query<'w, 's, (&'static Settlement, &'static Sited)>,
+    commons: Query<
+        'w,
+        's,
+        (Entity, &'static Common, &'static GlobalTransform),
+    >,
+}
+
+impl Whereabouts<'_, '_> {
+    /// The robot of the agent `name`, and where it was last drawn.
+    pub fn agent(
+        &self,
+        name: &str,
+    ) -> Option<(Entity, &GlobalTransform)> {
+        let (_, housed) = self
+            .agents
+            .iter()
+            .find(|(named, _)| named.as_str() == name)?;
+        self.robots
+            .iter()
+            .find(|(_, robot, _)| robot.agent == housed.0)
+            .map(|(robot, _, at)| (robot, at))
+    }
+
+    /// The common of the hamlet `id`, and where it was last drawn.
+    pub fn hamlet(
+        &self,
+        id: &str,
+    ) -> Option<(Entity, &GlobalTransform)> {
+        let (_, sited) = self
+            .hamlets
+            .iter()
+            .find(|(settlement, _)| settlement.name == id)?;
+        self.commons
+            .iter()
+            .find(|(_, common, _)| common.town == sited.0)
+            .map(|(common, _, at)| (common, at))
+    }
+}
 
 /// Writes the survey when it differs from the realm as it is.
 #[allow(clippy::too_many_arguments)]

@@ -9,6 +9,7 @@ pub mod generator;
 pub mod hamlet;
 pub mod hand;
 pub mod keeper;
+pub mod label;
 pub mod lantern;
 pub mod library;
 pub mod meshes;
@@ -24,8 +25,6 @@ pub mod stage;
 pub mod stock;
 pub mod survey;
 pub mod works;
-
-mod label;
 
 use bevy::prelude::*;
 pub use hamlet_realm_api::palette;

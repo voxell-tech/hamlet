@@ -295,7 +295,9 @@ fn declare(entry: &mut hamlet_sdk::plugin::Entry) {
   there) from its `build`. Resources, systems, observers and plugins added
   there are the app's; the plugins are in its registry, so their `finish`
   and `cleanup` run, and the sub-apps (the render app) are there to reach.
-  `Startup` has not run yet.
+  `Startup` has not run yet. So the levels of drawing past what the host
+  draws for a WASM plugin (a material, a shader, a renderer of its own; see
+  Drawing in [`wasm.md`](wasm.md)) are a native plugin's.
 - A plugin the chief installs while Hamlet runs is loaded at once, into an
   `App` of its own that holds the running world: what it adds runs, but
   that app has none of the app's plugins or sub-apps, is never finished,

@@ -307,6 +307,7 @@ A script is a TOML file with a list of `[[step]]`. Each step has one key:
 | `page = { title = "NOTES", file = "page.png" }` | Draws the plugin's page of that title in the Settings. It fails while the plugin does not hold `ui.settings` |
 | `expect = { panel = "main", text = "2 agents" }` | Fails unless a node of the panel shows the text |
 | `expect-told = "ran notes/new"` | Fails unless a notice the chief was given in the chat holds the text, such as the one that tells of an act done as the chief. The harness has no chat and no network, so a message ends in "sent nothing" and a fetch to a listed host in "there is no network" |
+| `expect-overlay = "circle 5 at agent:Juniper"` | Fails unless a mark the plugin draws over the world, as the transcript writes it, holds the text. The transcript shows the marks, one line each, when they change |
 | `call-tool = { tool = "height", args = '{"port": "Dover"}', shows = "6.1 metres" }` | Has an agent call a tool the plugin gave, the way the app carries a call, and fails unless the text returned holds `shows`. `hamlet` (default `Home`) is the agent's hamlet, `fails = true` expects an error and checks `shows` in it, and `offered = false` checks the tool is not offered (before `grant = "agent.tool"`, or to another hamlet) and calls nothing |
 | `turn = { phase = "after", agent = "Juniper", number = 2, tools = ["bash"] }` | Tells the plugins that an agent's turn began (`before`) or ended (`after`), as the app does, to those that hold `agent.hook` and import the host event. `hamlet` defaults to `Home`; a plugin whose ask lists other hamlets does not hear of it |
 | `restart = true` | Quits the app and starts it again on the same home. What the plugins kept on disk (storage, files, database) and what the chief decided is there; what they held in memory, including the state the host keeps for them, is not |
@@ -349,6 +350,7 @@ on:
 | `set_papers(notes, character, &skills)` | Makes up the papers of the selected agent |
 | `set_selected(name)` | Makes up the agent selected in the world |
 | `set_world(survey)` | Makes up the realm a plugin that holds `read.world` reads |
+| `overlay_of(id)` | The marks the plugin draws over the world, one line each |
 | `grant(capability)`, `deny(capability)` | Answer as the chief, for the plugin in front. A scoped capability is `plugin.use:notes` |
 | `tree(panel)`, `outline(panel)` | The tree a panel shows, as nodes and as lines |
 | `panels()`, `logs()`, `stopped()` | The panels the plugin declared, what it logged, why it stopped (`tree_of`, `outline_of`, `panels_of` and `stopped_of` take a plugin id) |
@@ -763,9 +765,10 @@ path, and checks the tool is held back until the chief allows `agent.tool`.
 
 ## Drawing on a canvas
 
-A panel can hold a canvas: a box of 2D shapes, with the capability `ui.canvas`. It is the only
-drawing a WASM plugin has; a drawing over the world, a shader and a renderer of its own are left to
-the native tier (see Drawing in [`wasm.md`](wasm.md)). `guests/charts` is the example.
+A panel can hold a canvas: a box of 2D shapes, with the capability `ui.canvas`. It is the first of
+the two levels of drawing a WASM plugin has; the second is marks over the world, which the host draws
+(see Drawing over the world below), and a shader and a renderer of its own are left to the native
+tier (see Drawing in [`wasm.md`](wasm.md)). `guests/charts` is the example.
 
 ```toml
 [[asks]]
@@ -790,6 +793,38 @@ most `canvas_px` pixels a side and the tree `canvas_shapes` shapes. Until the ch
 `ui.canvas` the panel shows a note in its place; the harness shows it as such, and the script's
 `grant = "ui.canvas"` answers. The transcript lists a canvas and its shapes, one line each, and
 `expect` finds the words of a `text` shape. The gallery scene `plugin-canvas` draws a canvas.
+
+## Drawing over the world
+
+A plugin with `world.overlay` gives the host a list of marks, and the host draws them over the
+REALM panel each frame where their anchors are seen: a robot by its agent's name, a hamlet's
+common by its id, or a point of the world.
+
+```toml
+[[asks]]
+capability = "world.overlay"
+reason = "To label the agents it watches over the world."
+```
+
+```rust
+use hamlet_guest::draw::theme;
+use hamlet_guest::overlay::{self, agent, circle, hamlet, line, text};
+
+out.push(overlay::draw(vec![
+    circle(agent("Juniper"), 0.0, -40.0, 5.0, theme("lamp")),
+    text(agent("Juniper"), 8.0, -48.0, "busy", 12.0, theme("ink")),
+    line(agent("Juniper"), (0.0, 0.0), Some(hamlet("home")), (0.0, 0.0), 1.5, theme("seam")),
+]));
+// An empty list takes the marks away.
+out.push(overlay::draw(Vec::new()));
+```
+
+The offsets are pixels from where the anchor is seen, so a label stays the same size however far
+the camera is; a mark whose anchor is out of sight is not drawn. Each `draw` replaces the last, at
+most a few times a second, and the marks, their words and the changes a second are capped
+([`wasm.md`](wasm.md)). The panel's corner says "Drawn by" and the plugin's name while it draws. The
+script's `expect-overlay` checks a mark as the transcript writes it, such as `circle 5 at
+agent:Juniper +0,-40 lamp`.
 
 ## Watching the agents
 

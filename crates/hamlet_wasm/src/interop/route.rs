@@ -91,6 +91,7 @@ pub(super) fn route(
                 | Intent::SendChat(_)
                 | Intent::RunAsChief(_)
                 | Intent::WorldAct(_)
+                | Intent::Overlay(_)
                 | Intent::Fetch(_) => {}
             }
         }

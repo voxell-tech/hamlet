@@ -12,6 +12,9 @@ use bevy::prelude::*;
 use hamlet_agents_api::tools::{
     AgentTool, AgentToolCalled, TurnObserved,
 };
+use hamlet_realm_api::overlay::{
+    Anchor, Form, Mark, Overlays, Paint,
+};
 use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::{Agent, AgentList, SelectedAgent};
 use hamlet_sdk::capability::{
@@ -216,6 +219,17 @@ impl Harness {
     pub fn set_world(&mut self, survey: Survey) {
         *self.app.world_mut().resource_mut::<Survey>() = survey;
         self.frames(SETTLE);
+    }
+
+    /// The lines of what the plugin `id` draws over the world, one
+    /// for each mark.
+    pub fn overlay_of(&self, id: &str) -> Vec<String> {
+        let overlays = &self.app.world().resource::<Overlays>().0;
+        overlays
+            .iter()
+            .filter(|overlay| overlay.plugin == id)
+            .flat_map(|overlay| overlay.marks.iter().map(marked))
+            .collect()
     }
 
     /// The chief allows `capability`, which the manifest asks for.
@@ -563,4 +577,34 @@ impl Harness {
             });
         }
     }
+}
+
+/// One mark as a line: its shape, where it hangs and its paint.
+fn marked(mark: &Mark) -> String {
+    let at = |anchor: &Anchor, offset: Vec2| {
+        let thing = match anchor {
+            Anchor::Agent(name) => format!("agent:{name}"),
+            Anchor::Hamlet(id) => format!("hamlet:{id}"),
+            Anchor::Point(p) => {
+                format!("point:{},{},{}", p.x, p.y, p.z)
+            }
+        };
+        format!("{thing} {:+},{:+}", offset.x, offset.y)
+    };
+    let shape = match &mark.form {
+        Form::Rect { w, h } => format!("rect {w}x{h}"),
+        Form::Circle { r } => format!("circle {r}"),
+        Form::Line { to, end, width } => {
+            let to = to.as_ref().unwrap_or(&mark.anchor);
+            format!("line {width} to {}", at(to, *end))
+        }
+        Form::Text { text, size } => format!("text {text:?} {size}"),
+    };
+    let paint = match &mark.paint {
+        Paint::Theme(name) => name.clone(),
+        Paint::Rgba([r, g, b, a]) => {
+            format!("#{r:02x}{g:02x}{b:02x}{a:02x}")
+        }
+    };
+    format!("{shape} at {} {paint}", at(&mark.anchor, mark.offset))
 }

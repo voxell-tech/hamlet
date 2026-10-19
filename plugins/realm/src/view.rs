@@ -3,6 +3,7 @@
 //! beside whoever the chat is with.
 
 mod chief;
+pub mod overlay;
 
 use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::asset::{Assets, RenderAssetUsages};
@@ -65,7 +66,7 @@ type WorldCameras<'w, 's> = Query<
 
 /// Adds the World View plugin. Add it after the realm's plugin.
 pub fn plugin(app: &mut App) {
-    app.add_plugins(chief::plugin)
+    app.add_plugins((chief::plugin, overlay::plugin))
         .init_resource::<TimeOfDay>()
         .init_resource::<Animating>()
         .insert_resource(hamlet_realm::pick::NoNameTag)
@@ -339,6 +340,8 @@ pub(crate) fn adopt_tags(
             With<NeedTag>,
             With<Bubble>,
             With<Readout>,
+            With<overlay::Pinned>,
+            With<overlay::Tag>,
         )>,
     >,
     mut away: Local<Option<Entity>>,

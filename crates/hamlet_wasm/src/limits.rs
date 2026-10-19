@@ -167,6 +167,14 @@ pub struct Limits {
     pub world_hamlets: usize,
     /// The agents one read of the world gives at most.
     pub world_agents: usize,
+    /// The marks one plugin may draw over the world.
+    pub overlay_marks: usize,
+    /// The bytes of the words and the names of anchors of one
+    /// plugin's marks over the world.
+    pub overlay_text_bytes: usize,
+    /// The times one plugin may replace its marks over the world in
+    /// a second. The rest are dropped.
+    pub overlay_updates_per_second: u32,
 }
 
 /// The time one call may take, in milliseconds, for runs on a busy

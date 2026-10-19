@@ -123,6 +123,9 @@ fn describe(step: &Step) -> String {
             format!("expect {} shows {:?}", e.panel, e.text)
         }
         Step::ExpectTold(text) => format!("expect-told {text:?}"),
+        Step::ExpectOverlay(text) => {
+            format!("expect-overlay {text:?}")
+        }
         Step::CallTool(call) => format!("call-tool {}", call.tool),
         Step::Turn(turn) => {
             format!("turn {} of {}", turn.phase, turn.agent)
@@ -276,6 +279,16 @@ fn apply(
                 )),
             }
         }
+        Step::ExpectOverlay(text) => {
+            let drawn = harness.overlay_of(harness.id());
+            match drawn.iter().any(|mark| mark.contains(text)) {
+                true => Ok(()),
+                false => Err(format!(
+                    "the plugin draws no mark with {text:?}; it \
+                     draws {drawn:?}"
+                )),
+            }
+        }
         Step::ExpectTold(text) => {
             match harness
                 .told()
@@ -374,6 +387,23 @@ fn show(
                 Some(at) => seen[at].1 = now,
                 None => seen.push((name, now)),
             }
+        }
+        let now = harness.overlay_of(&id);
+        let name = match several {
+            true => format!("overlay {id}"),
+            false => "overlay".into(),
+        };
+        let was = seen.iter().position(|(shown, _)| *shown == name);
+        if was.is_some_and(|at| seen[at].1 == now)
+            || (was.is_none() && now.is_empty())
+        {
+            continue;
+        }
+        lines.push(format!("  {name}"));
+        lines.extend(now.iter().map(|line| format!("    {line}")));
+        match was {
+            Some(at) => seen[at].1 = now,
+            None => seen.push((name, now)),
         }
     }
 }

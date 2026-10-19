@@ -1,6 +1,5 @@
-//! A canvas: a box a plugin draws a few 2D shapes in. This is the
-//! only drawing a plugin of WASM has. Nothing here reaches the world,
-//! a shader or a texture.
+//! A canvas: a box a plugin draws a few 2D shapes in, in a panel of
+//! its own. Nothing here reaches the world, a shader or a texture.
 
 use bevy::color::Color;
 

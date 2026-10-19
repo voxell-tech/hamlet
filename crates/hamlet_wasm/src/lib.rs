@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 use hamlet_assets::TuningPlugin;
 use hamlet_openui::Drawing;
+use hamlet_realm_api::overlay::Overlays;
 use hamlet_realm_api::survey::Survey;
 use hamlet_sdk::agents::Kept;
 use hamlet_sdk::papers::Papers;
@@ -33,6 +34,7 @@ pub mod limits;
 pub mod load;
 pub mod manifest;
 pub mod net;
+pub mod overlay;
 pub mod panel;
 pub mod rate;
 pub mod reach;
@@ -62,6 +64,8 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Limits>()
     .init_resource::<Papers>()
     .init_resource::<Survey>()
+    .init_resource::<Overlays>()
+    .init_resource::<overlay::Redrawn>()
     .init_resource::<acts::Acted>()
     .init_resource::<net::Fetching>()
     .add_message::<run::Done>()
@@ -116,6 +120,12 @@ pub fn plugin(app: &mut App) {
             acts::carry_out
                 .in_set(PluginSet::Apply)
                 .run_if(on_message::<run::Done>),
+            overlay::take
+                .in_set(PluginSet::Apply)
+                .run_if(on_message::<run::Done>),
+            overlay::prune
+                .in_set(PluginSet::Collect)
+                .run_if(overlay::any),
             draw::draw.in_set(PluginSet::Draw).run_if(draw::due),
         ),
     );

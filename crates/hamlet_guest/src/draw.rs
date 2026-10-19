@@ -1,7 +1,8 @@
 //! Shapes for a canvas (see [`ui::canvas`](crate::ui::canvas)): a few
 //! rectangles, lines, circles and words in a box of a panel. It needs
 //! the capability `ui.canvas`, allowed when the chief lets the plugin
-//! in. It is the only drawing a plugin has.
+//! in. The paints are those of the marks over the world too
+//! ([`overlay`](crate::overlay)).
 
 use crate::bindings::exports::hamlet::plugin::plugin::{
     CircleShape, LineShape, Paint, RectShape, Shape, TextShape,

@@ -5,6 +5,7 @@
 pub mod chief;
 pub mod hand;
 pub mod orders;
+pub mod overlay;
 pub mod palette;
 pub mod pick;
 pub mod sky;

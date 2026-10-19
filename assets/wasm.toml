@@ -66,6 +66,9 @@ collection_page_items = 32
 collection_page_bytes = 65536
 world_hamlets = 64
 world_agents = 256
+overlay_marks = 64
+overlay_text_bytes = 4096
+overlay_updates_per_second = 10
 
 [reload]
 poll_ms = 500

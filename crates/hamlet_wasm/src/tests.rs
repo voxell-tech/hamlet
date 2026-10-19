@@ -11,6 +11,7 @@ mod limits;
 mod manifest;
 mod needs;
 mod net;
+mod overlay;
 mod panels;
 mod permissions;
 mod reads;

@@ -24,9 +24,10 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 `world.act`, `ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`,
 `ui.settings`, `net`, `fs.pick`, `fs.folder`, `model.call`, `plugin.use`,
 `collections.read`, `collections.write`, `files.read`, `files.write`, `db`,
-`agent.tool`, `agent.hook` and `ui.canvas`. `read.agents`, `read.papers`,
-`read.world`, `ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`,
-`ui.settings`, `ui.canvas`, `chat.send`, `commands.run`, `world.act`, `net`,
+`agent.tool`, `agent.hook`, `ui.canvas` and `world.overlay`. `read.agents`,
+`read.papers`, `read.world`, `ui.menu`, `ui.keys`, `ui.context`,
+`ui.inspector`, `ui.settings`, `ui.canvas`, `world.overlay`, `chat.send`,
+`commands.run`, `world.act`, `net`,
 `files.read`, `files.write`,
 `db`, `agent.tool`, `agent.hook` and the three below are checked so far; the
 others can be asked for, shown and chosen.
@@ -103,6 +104,14 @@ allowed when the chief lets the plugin in, and it is gated where the tree is rea
 is: without it the plugin's call to draw succeeds and the panel shows a note in the canvas' place,
 the chief is asked where the choice is yet to be made, and a choice taken back in Settings turns
 the canvas into the note at once. It reaches nothing outside the panel.
+
+`world.overlay` lets a plugin have the host draw marks over the world's panel (the `overlay`
+intent, see Drawing in [`wasm.md`](wasm.md)): rectangles, discs, lines and words at agents,
+hamlets or points, within a count, a size of text and a number of changes a second. It is
+allowed when the chief lets the plugin in. Where the choice is yet to be made the chief is asked
+and nothing is drawn; a choice taken back in Settings, or the plugin stopping, takes the marks
+away at once. Only the host draws them, as nodes of the panels, and a tag in the corner of the
+panel names every plugin that draws, so a mark is never taken for Hamlet's own.
 
 `agent.hook` lets a plugin hear `host/before-turn` and `host/after-turn` (see
 [`wasm.md`](wasm.md)). It is checked where the events are given, as `read.agents` is for

@@ -431,6 +431,66 @@ interface plugin {
     // reaches only the agents and hamlets of the hamlets its ask
     // lists. It is limited and noted in the chat as `send-chat` is.
     world-act(world-order),
+    // Replaces what the plugin draws over the world with these marks;
+    // none takes it away. It needs the capability `world.overlay`,
+    // allowed when the chief lets the plugin in. The host draws the
+    // marks each frame where their anchors are seen, names the plugin
+    // in a corner of the world's panel, caps the marks and their text
+    // and limits how often a plugin replaces them.
+    overlay(list<mark>),
+  }
+
+  // A point of the world in metres, as a `place` of the survey.
+  record point {
+    x: f32,
+    y: f32,
+    z: f32,
+  }
+
+  // What a mark hangs off: the foot of an agent's robot by the
+  // agent's name, a hamlet's common by its id, or a point.
+  variant anchor {
+    agent(string),
+    hamlet(string),
+    point(point),
+  }
+
+  record mark-size {
+    w: f32,
+    h: f32,
+  }
+
+  // A line to `x`, `y` pixels from where `to` is seen, or from where
+  // the mark's own anchor is where it has none.
+  record mark-line {
+    to: option<anchor>,
+    x: f32,
+    y: f32,
+    width: f32,
+  }
+
+  record mark-text {
+    text: string,
+    size: f32,
+  }
+
+  // A rectangle from its corner, a disc of a radius about its
+  // middle, a line from its start, or words from their top left.
+  variant mark-shape {
+    rect(mark-size),
+    circle(f32),
+    line(mark-line),
+    text(mark-text),
+  }
+
+  // A shape over the world, `x`, `y` pixels from where its anchor
+  // is seen. A mark whose anchor is not in sight is not drawn.
+  record mark {
+    anchor: anchor,
+    x: f32,
+    y: f32,
+    shape: mark-shape,
+    paint: paint,
   }
 
   // A thing of the world: an agent by its name, a hamlet by its id.
@@ -532,8 +592,8 @@ interface plugin {
     markdown(string),
     // A box of a few 2D shapes, drawn first to last. It needs the
     // capability `ui.canvas`, allowed when the chief lets the plugin
-    // in; without it the tree is not drawn. It is the only drawing a
-    // plugin has: no overlay on the world, no shader and no texture.
+    // in; without it the tree is not drawn. No shader and no texture
+    // reach it.
     canvas(canvas),
   }
 

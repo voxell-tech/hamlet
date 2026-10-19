@@ -72,6 +72,9 @@ pub enum Step {
     /// Fails unless a notice the chief was given in the chat holds
     /// the text, as an act done as the chief is noted.
     ExpectTold(String),
+    /// Fails unless a mark the plugin draws over the world, as the
+    /// transcript writes it, holds the text.
+    ExpectOverlay(String),
     /// Has an agent call a tool the plugin gave, as the app carries
     /// a call of an agent's, and checks what comes back.
     CallTool(ToolCall),

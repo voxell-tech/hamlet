@@ -46,10 +46,11 @@ pub enum Capability {
     AgentTool,
     AgentHook,
     UiCanvas,
+    WorldOverlay,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 26] = [
+    pub const ALL: [Capability; 27] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -76,6 +77,7 @@ impl Capability {
         Capability::AgentTool,
         Capability::AgentHook,
         Capability::UiCanvas,
+        Capability::WorldOverlay,
     ];
 
     /// What a plugin that holds a capability that [faces the
@@ -125,6 +127,7 @@ impl Capability {
             Capability::AgentTool => "agent.tool",
             Capability::AgentHook => "agent.hook",
             Capability::UiCanvas => "ui.canvas",
+            Capability::WorldOverlay => "world.overlay",
         }
     }
 
@@ -242,6 +245,9 @@ impl Capability {
             Capability::UiCanvas => {
                 "Draw 2D shapes in a canvas of its panels"
             }
+            Capability::WorldOverlay => {
+                "Draw labels and marks over the world"
+            }
         }
     }
 
@@ -274,6 +280,13 @@ impl Capability {
                 "Draws rectangles, lines, circles and text inside \
                  its own panels, within a size and a count. It \
                  cannot draw over the world or anywhere else.",
+            ),
+            Capability::WorldOverlay => Some(
+                "Hamlet draws its rectangles, lines, circles and \
+                 text over the world, at agents, hamlets or places, \
+                 within a count and a size, and names the plugin in \
+                 a corner. It draws nothing itself: no shader, \
+                 texture or model.",
             ),
             Capability::AgentHook => Some(
                 "Told of each turn of the agents of the hamlets \

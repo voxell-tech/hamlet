@@ -124,7 +124,8 @@ The plugin exports:
   dock (opening it if it is closed, with no capability, and dropped with a
   warning for a panel the plugin did not declare), and between plugins
   `run-command`, `reply` and `publish`. More go out of the host: `send-chat`,
-  `run-as-chief` and `world-act` (see Acts as the chief below) and `fetch` (see
+  `run-as-chief` and `world-act` (see Acts as the chief below), `overlay` (see
+  Drawing below) and `fetch` (see
   The web below), the answer to which reaches a later `step` as `fetched(id,
   outcome)`.
 - `panel-view(panel) -> view`, which returns the panel as it is now: a
@@ -179,7 +180,7 @@ under way goes on.
 
 ## Drawing
 
-A plugin draws in levels. The WASM host offers the first and no other.
+A plugin draws in levels. The WASM host offers the first two and no other.
 
 1. **A canvas in a panel.** `canvas(width, height, shapes)` is a node of the tree: a box
    of at most `canvas_px` pixels a side, and a list of shapes drawn first to last:
@@ -199,14 +200,35 @@ A plugin draws in levels. The WASM host offers the first and no other.
    succeeds and the panel shows a note, "a drawing that waits for ui.canvas", in the canvas'
    place (`wire::without_canvases`), and the chief is asked where the choice is yet to be made.
    Panels are drawn again when a plugin's grants change.
-2. **Levels past it are not offered.** A drawing over the world, a shader, a texture or a
+2. **Marks over the world, drawn by the host.** The `overlay(marks)` intent replaces what the
+   plugin draws over the REALM panel with a plain list, and an empty list takes it away. A mark
+   is an anchor (an agent's robot by the agent's name, a hamlet's common by its id, or a point
+   of the world in metres), an offset in pixels from where the anchor is seen, a shape
+   (`rect(w, h)` from its corner, `circle(r)` about its middle, `line` to an offset from
+   another anchor or its own, `text(words, size)` from its top left) and a paint, a colour of
+   the theme by name or `rgba`, as on a canvas. It needs `world.overlay`, allowed when the
+   chief lets the plugin in; where the choice is yet to be made the chief is asked and the
+   overlay is dropped. The host checks the list (`hamlet_wasm/src/overlay.rs`: at most
+   `overlay_marks` marks and `overlay_text_bytes` of words and anchor names, numbers that are
+   numbers, a line 0.5 to 64 pixels thick and lettering 6 to 128) and keeps it in
+   `hamlet_realm_api::overlay::Overlays`, at most `overlay_updates_per_second` times a second;
+   a list it refuses leaves the last one drawn, with a warning. It takes a plugin's overlay
+   away when the plugin stops, is switched off or removed, or loses the grant. The realm's view
+   (`plugins/realm/src/view/overlay.rs`) is the only thing that draws it: a node of the UI for
+   each mark, hung off the world's panel as the names over the things are, placed each frame
+   from where the world's camera sees its anchor, and hidden while the anchor is not in sight.
+   A tag in the top left corner of the panel, "Drawn by Surveyor", names every plugin that
+   draws, so the chief knows whose marks they are. Nothing a plugin gives reaches the GPU
+   but as the panels' own nodes.
+3. **Levels past it are only for native plugins.** A material, a shader, a texture or a
    renderer of a plugin's own is not something a WASM plugin can have: each would put what the
    plugin wrote on the GPU or in the world's own frame, beyond the limits of time, fuel and
-   memory that bound a `step`. They are the work of the native tier, a plugin built into the
-   binary (see [`sdk.md`](sdk.md)).
+   memory that bound a `step`. A native plugin (see [`native.md`](native.md)) is given the
+   real App, its render sub-app among it, and adds them as any Bevy plugin does.
 
 `hamlet_guest::ui::canvas` and `hamlet_guest::draw` make the node and its shapes, and
 `guests/charts` is the example. The gallery scene `plugin-canvas` draws its panel.
+`hamlet_guest::overlay` makes the marks and the intent.
 
 ## How a panel is drawn
 
@@ -751,7 +773,10 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **Collections.** A page of at most `collection_page_items` items and
   `collection_page_bytes` bytes of values.
 - **The world.** A survey gives at most `world_hamlets` hamlets and
-  `world_agents` agents.
+  `world_agents` agents. An overlay holds at most `overlay_marks` marks and
+  `overlay_text_bytes` of words and names, and is replaced at most
+  `overlay_updates_per_second` times a second; the rest are dropped with a
+  warning.
 - **Tools for the agents.** At most `agent_tools` tools of `tool_fields` fields
   declared, `tool_calls_in_flight` calls of agents waiting on a plugin, and a
   returned text of `tool_result_bytes` (a longer one is cut). A call is bounded by
