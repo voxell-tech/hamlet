@@ -40,7 +40,7 @@ and its asks go unanswered.
 
 | Module | What it holds |
 |---|---|
-| `pick` | `Thing`, `Selected`, `Also`, `Hovered`, `Asked`, `AskedGround`, `Asks`, `Taken`, `Following`, `Steer`, `Pressable`; `select` and `ask_about`; `Focus` and `focus_on`, which the camera answers |
+| `pick` | `Thing`, `Selected`, `Also`, `Hovered`, `Asked`, `AskedGround`, `Asks`, `Taken`, `Following`, `Steer`, `Pressable`; `select` and `ask_about`; `Focus` and `focus_on`, which the camera answers; `PointAt`, a click on a thing a plugin names (`Named`, `Gesture`), which the realm answers |
 | `chief` | `Chief`, `Beside`, `named`, and `look`: a chief's `Look` and its file |
 | `palette` | The world's `Palette`, and `RobotPaint`, the paint of an agent's robot, which the chat draws a speaker in |
 | `hand` | `Hold`, the hand's `Grip` for the cursor, and `Proud` |

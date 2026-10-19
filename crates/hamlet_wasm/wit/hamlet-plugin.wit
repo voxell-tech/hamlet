@@ -425,6 +425,28 @@ interface plugin {
     // request and of the answer, the time, the requests waiting and
     // the number a minute.
     fetch(fetch-request),
+    // Does to a thing of the world what the chief does with a click:
+    // focus the camera on it, follow it or select it. It needs the
+    // capability `world.act`, which is asked at its first use and
+    // reaches only the agents and hamlets of the hamlets its ask
+    // lists. It is limited and noted in the chat as `send-chat` is.
+    world-act(world-order),
+  }
+
+  // A thing of the world: an agent by its name, a hamlet by its id.
+  variant world-target {
+    agent(string),
+    hamlet(string),
+  }
+
+  variant world-order {
+    // Brings the thing to the middle of the view and comes in close.
+    focus(world-target),
+    // As `focus`, and the camera stays on it until the chief slides
+    // the ground.
+    follow(world-target),
+    // Selects it, as a click on it does.
+    select(world-target),
   }
 
   enum http-method { get, post }

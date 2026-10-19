@@ -123,9 +123,10 @@ The plugin exports:
   panel, an `open-panel` of the plugin's own that brings it to the front of the
   dock (opening it if it is closed, with no capability, and dropped with a
   warning for a panel the plugin did not declare), and between plugins
-  `run-command`, `reply` and `publish`. Three more go out of the host: `send-chat`
-  and `run-as-chief` (see Acts as the chief below) and `fetch` (see The web
-  below), the answer to which reaches a later `step` as `fetched(id, outcome)`.
+  `run-command`, `reply` and `publish`. More go out of the host: `send-chat`,
+  `run-as-chief` and `world-act` (see Acts as the chief below) and `fetch` (see
+  The web below), the answer to which reaches a later `step` as `fetched(id,
+  outcome)`.
 - `panel-view(panel) -> view`, which returns the panel as it is now: a
   `tree`, or `lang`, a program in Hamlet's panel language that the host
   draws (see [`panels.md`](panels.md)).
@@ -329,6 +330,18 @@ name; a message reaches the agent as `[sent by plugin <id>] <text>`
 ([`permissions.md`](permissions.md)). `hamlet_guest::send_chat` and
 `run_as_chief` make the intents. `hamlet_agents_api::convo::send_as_chief` is the
 function behind a message.
+
+`world-act(order)` does to a thing of the world what the chief does with a
+click: `focus` brings it to the middle of the view (the menu's Focus), `follow`
+keeps the camera on it (Follow) and `select` selects it. The thing is an agent
+by its name or a hamlet by its id. It needs `world.act`, gated, counted and
+noted as the two above ("Herald (herald) focused on Juniper"). The scope of the
+ask lists hamlet ids, and the act reaches only an agent of one of them or one
+of them; the hamlet is looked up in the survey, so a name the realm does not
+know is refused. The host triggers `hamlet_realm_api::pick::PointAt`, which the
+realm answers with the same `Focus` or selection a click makes, so the order is
+never more than the chief's own click. `hamlet_guest::world::focus`, `follow`
+and `select` make the intents.
 
 ## The web
 
@@ -565,7 +578,7 @@ logged.
    plugin's id.
 
 A tool call never carries the chief's authority. A plugin that asks for `agent.tool`
-cannot also ask for `chat.send`, `commands.run` or `plugin.use`: the manifest is
+cannot also ask for `chat.send`, `commands.run`, `world.act` or `plugin.use`: the manifest is
 turned down by the scan with "it asks for `agent.tool` and `chat.send`, which no
 plugin may have together" (`Asks::conflict`). So the step that answers a call can
 neither act as the chief nor run a command of another plugin, and the same holds
@@ -709,8 +722,9 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **Storage.** At most `storage_keys` keys, `storage_key_bytes` in a key,
   `storage_value_bytes` in a value and `storage_bytes` in all the values.
   A write over one returns an error to the plugin.
-- **Acts.** At most `acts_per_minute` acts as the chief (a message or a
-  command) in a minute, and `act_text_bytes` in a message. The rest are dropped
+- **Acts.** At most `acts_per_minute` acts as the chief (a message, a
+  command or a click on the world) in a minute, and `act_text_bytes` in a
+  message. The rest are dropped
   with a warning.
 - **Fetches.** A fetch takes at most `fetch_ms` milliseconds, sends at most
   `fetch_request_bytes` and reads at most `fetch_response_bytes`. A plugin has

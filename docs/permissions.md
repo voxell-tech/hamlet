@@ -21,12 +21,13 @@ with a reason; the chief chooses for each; a call that is not allowed fails.
 
 `hamlet_sdk::capability::Capability`: `read.agents`, `read.chat`,
 `read.activity`, `read.papers`, `read.world`, `chat.send`, `commands.run`,
-`ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`, `ui.settings`, `net`,
-`fs.pick`, `fs.folder`, `model.call`, `plugin.use`, `collections.read`,
-`collections.write`, `files.read`, `files.write`, `db`, `agent.tool`,
-`agent.hook` and `ui.canvas`. `read.agents`, `read.papers`, `read.world`,
-`ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`, `ui.settings`,
-`ui.canvas`, `chat.send`, `commands.run`, `net`, `files.read`, `files.write`,
+`world.act`, `ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`,
+`ui.settings`, `net`, `fs.pick`, `fs.folder`, `model.call`, `plugin.use`,
+`collections.read`, `collections.write`, `files.read`, `files.write`, `db`,
+`agent.tool`, `agent.hook` and `ui.canvas`. `read.agents`, `read.papers`,
+`read.world`, `ui.menu`, `ui.keys`, `ui.context`, `ui.inspector`,
+`ui.settings`, `ui.canvas`, `chat.send`, `commands.run`, `world.act`, `net`,
+`files.read`, `files.write`,
 `db`, `agent.tool`, `agent.hook` and the three below are checked so far; the
 others can be asked for, shown and chosen.
 
@@ -89,7 +90,7 @@ back in Settings takes the tools off at once, and Settings lists them under the 
   reaches the agent marked as text from a plugin, which is data and not an instruction from the
   chief or from the agent itself, and is cut to `tool_result_bytes`.
 - A tool call never carries the chief's authority. A plugin with `agent.tool` may not ask for
-  `chat.send`, `commands.run` or `plugin.use` at all (nor may a plugin with `agent.hook`), so the
+  `chat.send`, `commands.run`, `world.act` or `plugin.use` at all (nor may a plugin with `agent.hook`), so the
   scan turns such a manifest down with no petition. What it keeps are its own capabilities (`net` for the hosts the chief
   listed, its files, its database, collections), which an agent can steer only through the
   arguments the tool takes.
@@ -141,6 +142,17 @@ from `step` (`send-chat`, `run-as-chief`), carried out by `hamlet_wasm::acts`.
   a dropped one is logged once a minute for each plugin.
 - Settings says on both views that the capability acts as the chief and each use
   is marked, and shows the scope of an ask as "Limited to".
+
+`world.act` is a third act as the chief: the `world-act` intent focuses the
+camera on, follows or selects an agent or a hamlet, as the chief's click and the
+menu's Focus and Follow do, and nothing else (see [`wasm.md`](wasm.md)). It is
+held as the two above: asked at its first use, counted against the same
+`acts_per_minute`, noted in the chat ("Herald (herald) followed Juniper"), and
+its `scope` lists the hamlet ids it reaches, an agent through its hamlet, so
+that an ask with none reaches nothing. Orders that change the world (a decree,
+a word to an agent) are not among its acts: they are `commands.run` and
+`chat.send`, which a plugin asks for on their own. A plugin with `agent.tool` or
+`agent.hook` may not ask for it.
 
 ## Files
 

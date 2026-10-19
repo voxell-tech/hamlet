@@ -194,6 +194,34 @@ pub struct Focus {
     pub stay: bool,
 }
 
+/// A thing of the world by the name a plugin knows it by: an agent
+/// by its name, a hamlet by its id.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Named {
+    Agent(String),
+    Hamlet(String),
+}
+
+/// What the chief does to a thing with a click.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Gesture {
+    /// As [`Focus`] with `stay` false.
+    Focus,
+    /// As [`Focus`] with `stay` true.
+    Follow,
+    /// As [`select`].
+    Select,
+}
+
+/// Asks the realm to do `gesture` to the thing `named`, as the
+/// chief's click on it does. The realm carries it out, and does
+/// nothing for a name it does not know.
+#[derive(Event, Clone, PartialEq, Eq, Debug)]
+pub struct PointAt {
+    pub named: Named,
+    pub gesture: Gesture,
+}
+
 /// Asks the realm to bring `thing` into view, as [`Focus`] says.
 pub fn focus_on(world: &mut World, thing: Thing, stay: bool) {
     world.trigger(Focus { thing, stay });

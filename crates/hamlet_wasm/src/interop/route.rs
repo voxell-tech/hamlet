@@ -90,6 +90,7 @@ pub(super) fn route(
                 | Intent::OpenPanel(_)
                 | Intent::SendChat(_)
                 | Intent::RunAsChief(_)
+                | Intent::WorldAct(_)
                 | Intent::Fetch(_) => {}
             }
         }

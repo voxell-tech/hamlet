@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use hamlet_realm_api::pick::{Gesture, Named, PointAt};
+use hamlet_realm_api::survey::{Survey, SurveyedAgent};
 use hamlet_rules::chief::rulings::Choice as Answer;
 use hamlet_sdk::capability::{Capability, Subject};
 use hamlet_sdk::command::{Notice, RunCommand};
@@ -9,7 +11,7 @@ use super::tree::items;
 use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
 use crate::interface::exports::hamlet::plugin::plugin::{
-    ChatMessage, Intent,
+    ChatMessage, Intent, WorldOrder, WorldTarget,
 };
 use crate::run::Done;
 
@@ -157,6 +159,73 @@ fn a_plugin_that_does_not_ask_cannot_act_and_is_not_asked_about() {
     assert!(app.world().resource::<Seen>().told.is_empty());
     assert!(petitions(&mut app).is_empty());
 }
+
+#[test]
+fn a_click_on_the_world_waits_for_the_chief_and_reaches_only_the_hamlets_asked_for()
+ {
+    let scratch = Scratch::new("act_world");
+    let mut app = open(
+        &scratch,
+        probe()
+            .asking(&["world.act"])
+            .asking_next_time(&["world.act"])
+            .limited_to(&[("world.act", &["home"])]),
+    );
+    let agent = |name: &str, hamlet: &str| SurveyedAgent {
+        name: name.into(),
+        hamlet: hamlet.into(),
+        at: None,
+        busy: false,
+    };
+    app.insert_resource(Survey {
+        agents: vec![agent("Juniper", "home"), agent("Hawk", "far")],
+        ..Survey::default()
+    })
+    .init_resource::<Pointed>()
+    .add_observer(
+        |point: On<PointAt>, mut seen: ResMut<Pointed>| {
+            seen.0.push(point.event().clone());
+        },
+    );
+    let focus = |name: &str| {
+        vec![Intent::WorldAct(WorldOrder::Focus(WorldTarget::Agent(
+            name.into(),
+        )))]
+    };
+    let pointed =
+        |app: &App| app.world().resource::<Pointed>().0.clone();
+
+    does(&mut app, focus("Juniper"));
+    assert!(pointed(&app).is_empty());
+    let asked = petitions(&mut app);
+    assert!(matches!(
+        &asked[..],
+        [(
+            _,
+            Subject::Use {
+                capability: Capability::WorldAct,
+                ..
+            }
+        )]
+    ));
+
+    answer(&mut app, asked[0].0, Answer::Allow);
+    does(&mut app, focus("Juniper"));
+    does(&mut app, focus("Hawk"));
+    assert_eq!(
+        pointed(&app),
+        [PointAt {
+            named: Named::Agent("Juniper".into()),
+            gesture: Gesture::Focus,
+        }]
+    );
+    let told = app.world().resource::<Seen>().told.clone();
+    assert_eq!(told, ["probe (probe) focused on Juniper"]);
+}
+
+/// What the plugin pointed the realm at.
+#[derive(Resource, Default)]
+struct Pointed(Vec<PointAt>);
 
 #[test]
 fn a_message_over_the_cap_is_not_sent() {

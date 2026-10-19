@@ -27,6 +27,7 @@ pub enum Capability {
     ReadWorld,
     ChatSend,
     CommandsRun,
+    WorldAct,
     UiMenu,
     UiKeys,
     UiContext,
@@ -48,7 +49,7 @@ pub enum Capability {
 }
 
 impl Capability {
-    pub const ALL: [Capability; 25] = [
+    pub const ALL: [Capability; 26] = [
         Capability::ReadAgents,
         Capability::ReadChat,
         Capability::ReadActivity,
@@ -56,6 +57,7 @@ impl Capability {
         Capability::ReadWorld,
         Capability::ChatSend,
         Capability::CommandsRun,
+        Capability::WorldAct,
         Capability::UiMenu,
         Capability::UiKeys,
         Capability::UiContext,
@@ -82,9 +84,10 @@ impl Capability {
     /// agent does: a tool an agent calls, or a turn it takes, with a
     /// way to act as the chief or to work through another plugin that
     /// does.
-    pub const AGENT_FACING: [Capability; 3] = [
+    pub const AGENT_FACING: [Capability; 4] = [
         Capability::ChatSend,
         Capability::CommandsRun,
+        Capability::WorldAct,
         Capability::PluginUse,
     ];
 
@@ -103,6 +106,7 @@ impl Capability {
             Capability::ReadWorld => "read.world",
             Capability::ChatSend => "chat.send",
             Capability::CommandsRun => "commands.run",
+            Capability::WorldAct => "world.act",
             Capability::UiMenu => "ui.menu",
             Capability::UiKeys => "ui.keys",
             Capability::UiContext => "ui.context",
@@ -142,7 +146,9 @@ impl Capability {
         self.scoped()
             || matches!(
                 self,
-                Capability::ChatSend | Capability::CommandsRun
+                Capability::ChatSend
+                    | Capability::CommandsRun
+                    | Capability::WorldAct
             )
     }
 
@@ -154,6 +160,7 @@ impl Capability {
             Capability::Net
                 | Capability::ChatSend
                 | Capability::CommandsRun
+                | Capability::WorldAct
         )
     }
 
@@ -193,6 +200,10 @@ impl Capability {
                 "Send messages to agents as the chief"
             }
             Capability::CommandsRun => "Run commands as the chief",
+            Capability::WorldAct => {
+                "Focus the camera on, follow or select a thing in \
+                 the world, as the chief"
+            }
             Capability::UiMenu => "Add entries to the menus",
             Capability::UiKeys => "Add keyboard shortcuts",
             Capability::UiContext => {
@@ -241,6 +252,12 @@ impl Capability {
             Capability::ChatSend | Capability::CommandsRun => Some(
                 "Acts as the chief. Each use is marked with the \
                  plugin's name and the number of uses is limited.",
+            ),
+            Capability::WorldAct => Some(
+                "Acts as the chief's clicks on the agents and \
+                 hamlets of the hamlets listed, and no more. Each \
+                 use is marked with the plugin's name and the \
+                 number of uses is limited.",
             ),
             Capability::Net => Some(
                 "Reaches only the hosts listed, over https, within \

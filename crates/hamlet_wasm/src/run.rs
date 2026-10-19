@@ -147,6 +147,7 @@ pub fn apply(
                     | Intent::Publish(_)
                     | Intent::SendChat(_)
                     | Intent::RunAsChief(_)
+                    | Intent::WorldAct(_)
                     | Intent::Fetch(_),
                     _,
                 ) => {}

@@ -1,11 +1,13 @@
-//! The realm as a plugin reads it: the read model of
+//! The realm as a plugin reads it and points at it: the read model of
 //! `hamlet_realm_api::survey`, kept from the hamlets, the agents and
-//! their robots, the selection and the sky.
+//! their robots, the selection and the sky, and a thing pointed at by
+//! its name.
 
 use bevy::prelude::*;
 use hamlet_core::agents::{
     Busy, Citizen, Left, LivesIn, Mayor, Settlement,
 };
+use hamlet_realm_api::pick::{Focus, Gesture, Named, PointAt};
 use hamlet_realm_api::survey::{
     Spotted, Survey, SurveyedAgent, SurveyedHamlet,
 };
@@ -14,11 +16,12 @@ use hamlet_rules::hamlet::HOME;
 use crate::WorldSystems;
 use crate::generator::{Common, Robot};
 use crate::hamlet::{Housed, Sited};
-use crate::pick::{Selected, Thing};
+use crate::pick::{Selected, Thing, select};
 use crate::sky::Sky;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Survey>()
+        .add_observer(point_at)
         .add_systems(Update, keep.after(WorldSystems));
 }
 
@@ -26,6 +29,7 @@ type Agents<'w, 's> = Query<
     'w,
     's,
     (
+        Entity,
         &'static Name,
         &'static LivesIn,
         Option<&'static Housed>,
@@ -38,7 +42,12 @@ type Agents<'w, 's> = Query<
 type Hamlets<'w, 's> = Query<
     'w,
     's,
-    (&'static Name, &'static Settlement, Option<&'static Sited>),
+    (
+        Entity,
+        &'static Name,
+        &'static Settlement,
+        Option<&'static Sited>,
+    ),
 >;
 
 /// Writes the survey when it differs from the realm as it is.
@@ -56,7 +65,7 @@ fn keep(
     let mut now = Survey {
         hamlets: hamlets
             .iter()
-            .map(|(name, settlement, sited)| SurveyedHamlet {
+            .map(|(_, name, settlement, sited)| SurveyedHamlet {
                 id: settlement.name.clone(),
                 name: name.to_string(),
                 at: sited.and_then(|sited| {
@@ -69,11 +78,13 @@ fn keep(
             .collect(),
         agents: agents
             .iter()
-            .map(|(name, lives, housed, busy, _)| SurveyedAgent {
+            .map(|(_, name, lives, housed, busy, _)| SurveyedAgent {
                 name: name.to_string(),
                 hamlet: hamlets
                     .get(lives.0)
-                    .map(|(_, settlement, _)| settlement.name.clone())
+                    .map(|(.., settlement, _)| {
+                        settlement.name.clone()
+                    })
                     .unwrap_or_default(),
                 at: housed.and_then(|housed| {
                     robots
@@ -103,6 +114,13 @@ fn rounded(at: Vec3) -> Vec3 {
     (at * 10.0).round() / 10.0
 }
 
+/// Whether `lives` is the first hamlet, whose mayor is the keeper.
+fn first(hamlets: &Hamlets, lives: &LivesIn) -> bool {
+    hamlets
+        .get(lives.0)
+        .is_ok_and(|(.., settlement, _)| settlement.name == HOME)
+}
+
 /// The selected `thing` by its kind and the name a plugin knows it
 /// by.
 fn spotted(
@@ -117,13 +135,10 @@ fn spotted(
     let (kind, name) = match thing {
         Thing::Keeper | Thing::Cottage => {
             let mayor =
-                agents.iter().find(|(_, lives, .., mayor)| {
-                    *mayor
-                        && hamlets.get(lives.0).is_ok_and(
-                            |(_, home, _)| home.name == HOME,
-                        )
+                agents.iter().find(|(_, _, lives, .., mayor)| {
+                    *mayor && first(hamlets, lives)
                 });
-            ("mayor", mayor.map(|(name, ..)| name.to_string())?)
+            ("mayor", mayor.map(|(_, name, ..)| name.to_string())?)
         }
         Thing::Resident(agent) => ("agent", name(agent)?),
         Thing::ResidentHouse(agent) => ("house", name(agent)?),
@@ -131,7 +146,7 @@ fn spotted(
         Thing::Common(hamlet)
         | Thing::Clockwork(hamlet)
         | Thing::Workbench(hamlet) => {
-            ("hamlet", hamlets.get(hamlet).ok()?.1.name.clone())
+            ("hamlet", hamlets.get(hamlet).ok()?.2.name.clone())
         }
         Thing::Chief(chief) => ("chief", name(chief)?),
         Thing::ChiefPlace(chief) => ("hearth", name(chief)?),
@@ -141,4 +156,43 @@ fn spotted(
         kind: kind.into(),
         name,
     })
+}
+
+/// Does to the thing a plugin named what the chief's click on it
+/// does.
+fn point_at(
+    point: On<PointAt>,
+    agents: Agents,
+    hamlets: Hamlets,
+    mut commands: Commands,
+) {
+    let thing = match &point.named {
+        Named::Agent(name) => agents
+            .iter()
+            .find(|(_, named, ..)| named.as_str() == name)
+            .map(|(agent, _, lives, .., mayor)| {
+                match mayor && first(&hamlets, lives) {
+                    true => Thing::Keeper,
+                    false => Thing::Resident(agent),
+                }
+            }),
+        Named::Hamlet(id) => hamlets
+            .iter()
+            .find(|(.., settlement, _)| settlement.name == *id)
+            .map(|(hamlet, ..)| Thing::Common(hamlet)),
+    };
+    let Some(thing) = thing else {
+        return;
+    };
+    match point.gesture {
+        Gesture::Focus | Gesture::Follow => commands.trigger(Focus {
+            thing,
+            stay: point.gesture == Gesture::Follow,
+        }),
+        Gesture::Select => {
+            commands.queue(move |world: &mut World| {
+                select(world, Some(thing))
+            });
+        }
+    }
 }
