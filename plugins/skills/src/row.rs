@@ -1,7 +1,7 @@
 //! One skill of the library, as a card.
 
 use bevy_fynix::tokens::Tone;
-use hamlet_core::core::Skills;
+use hamlet_agents_api::library::Skills;
 use hamlet_sdk::AnyView;
 use hamlet_sdk::cards::card;
 use hamlet_sdk::confirm::Confirm;

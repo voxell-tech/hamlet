@@ -20,12 +20,11 @@ use bevy_fynix::views::{
     number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use hamlet_agents_api::model::{SaveSettings, Settings};
+use hamlet_agents_api::oversight::{Grants, Revoke};
 use hamlet_chat::deed::{self, CharterReset, Deed};
 use hamlet_chat::me::Me;
 use hamlet_chat::{links, markdown};
-use hamlet_core::core::{HomeDir, SaveSettings, Settings};
-use hamlet_core::oversight::Revoke;
-use hamlet_core::oversight::grants::Grants;
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_home::charter;
 use hamlet_limits::{models, rules};
@@ -47,8 +46,8 @@ use hamlet_sdk::settings::{
     Line, SetUpAgain, SettingsPage, SettingsPages, ShowModels,
 };
 use hamlet_sdk::{
-    AnyView, Cx, View, checks, feel, icons, looks, page, platform,
-    tabs, with_cx,
+    AnyView, Cx, HomeDir, View, checks, feel, icons, looks, page,
+    platform, tabs, with_cx,
 };
 
 pub use self::plugins::{Open, Tab};

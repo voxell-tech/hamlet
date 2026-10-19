@@ -32,6 +32,7 @@ pub mod tree;
 
 use bevy::app::{App, Plugin};
 use bevy_fynix::Bevy;
+pub use hamlet_base::HomeDir;
 
 use self::theme::HamletTheme;
 

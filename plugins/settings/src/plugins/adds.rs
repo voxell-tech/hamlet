@@ -7,7 +7,7 @@ use bevy::ecs::relationship::RelationshipTarget;
 use bevy::ecs::system::{Query, Res, SystemParam};
 use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
-use hamlet_core::tools::AgentTool;
+use hamlet_agents_api::tools::AgentTool;
 use hamlet_sdk::capability::{Capability, Granted, allowed};
 use hamlet_sdk::command::{Commands, full};
 use hamlet_sdk::context::ContextItem;

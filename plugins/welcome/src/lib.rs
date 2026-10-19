@@ -19,9 +19,9 @@ use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input_focus::InputFocus;
 use bevy::text::EditableText;
-use hamlet_core::core::{
-    HomeDir, Link, ListModels, Model, SaveSettings, Settings, SignIn,
-    Signing, TestConnection, Trial, TryModel,
+use hamlet_agents_api::model::{
+    Link, ListModels, Model, SaveSettings, Settings, SignIn, Signing,
+    TestConnection, Trial, TryModel,
 };
 use hamlet_limits::models;
 use hamlet_model::catalogue::{self, Catalogue, Listed};
@@ -36,7 +36,7 @@ use hamlet_sdk::plugin::{
 };
 use hamlet_sdk::settings::{AddEndpoint, SetUpAgain, ShowModels};
 use hamlet_sdk::{
-    AnyView, Cx, View, feel, icons, looks, platform, with_cx,
+    AnyView, Cx, HomeDir, View, feel, icons, looks, platform, with_cx,
 };
 
 pub use self::pages::view;

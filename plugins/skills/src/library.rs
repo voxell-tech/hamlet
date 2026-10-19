@@ -4,7 +4,7 @@ use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, frame, label};
 use bevy_fynix::{ViewExt, each, keyed, resource};
-use hamlet_core::core::Skills;
+use hamlet_agents_api::library::Skills;
 use hamlet_sdk::View;
 use hamlet_sdk::dock::show_tab;
 use hamlet_sdk::icons::Glyph;

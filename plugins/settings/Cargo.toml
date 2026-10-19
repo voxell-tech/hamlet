@@ -9,8 +9,8 @@ description = "The Settings panel: the front page of the home's settings, each o
 workspace = true
 
 [dependencies]
+hamlet_agents_api.workspace = true
 hamlet_chat.workspace = true
-hamlet_core.workspace = true
 hamlet_desktop.workspace = true
 hamlet_home.workspace = true
 hamlet_limits.workspace = true

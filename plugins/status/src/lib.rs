@@ -10,12 +10,13 @@ use bevy_fynix::views::{
     FrameProps, TooltipExt, column, frame, icon, label, row,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
+use hamlet_agents_api::agents::{Settlement, Treasury};
 use hamlet_agents_api::convo::Me;
+use hamlet_agents_api::model::{Link, Settings};
+use hamlet_agents_api::session::{Status, Usage};
+use hamlet_agents_api::tools::Sandboxing;
 use hamlet_agents_api::waits::Waits;
 use hamlet_chat::links::Aimed;
-use hamlet_core::agents::{Settlement, Treasury};
-use hamlet_core::core::{Link, Sandboxing, Settings};
-use hamlet_core::session::{Status, Usage};
 use hamlet_rules::hamlet::HOME;
 use hamlet_sdk::bar::Bar;
 use hamlet_sdk::frame::Place;

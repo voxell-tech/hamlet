@@ -17,8 +17,12 @@ A plugin crate depends on `hamlet_sdk`, `hamlet_agents_api` where it reads
 the agents, `hamlet_realm_api` where it reads the world or asks something of
 it, the engine crates and the two crates that hold what plugins share,
 `hamlet_chat` and `hamlet_limits` (below), never on `hamlet_ui` or on
-another plugin. `plugin_needs` and `plugin_skills` need nothing but the SDK,
-the agents API and the core, and run with no window and no realm. Only
+another plugin. A plugin reads the core through `hamlet_agents_api`, which
+gives the core's types a plugin reads; only the layers `plugin_agents` and
+`plugin_hamlets`, and `plugin_inspector` and `plugin_menus`, which call the
+core's own functions, depend on `hamlet_core`. `plugin_needs` and
+`plugin_skills` need nothing but the SDK, the agents API and, for `needs`,
+the rules, and run with no window and no realm. Only
 `plugin_realm` depends on `hamlet_realm` itself: it holds the layer that
 adds the realm and the realm's view (`view`, the plugin `world-view`),
 which mounts the realm's camera in a panel, sets its stage and its sky,
@@ -87,7 +91,8 @@ keeps (`Bar`, `Roll`, `AgentSelected`, `PointerWait`, `Animating`).
 | `tree` | The tree of a plugin's panel: `Node`, the `PluginTrees` read-model of what each panel shows, the view built from it with the looks of the panels, and the `Interaction` event of a click or typing in it |
 | `plugin` | The plugin types below |
 
-`Cx`, `AnyView`, `View` and `with_cx` are the view types of the window.
+`Cx`, `AnyView`, `View` and `with_cx` are the view types of the window, and
+`HomeDir` the home the app opened.
 `SdkPlugin` is the plugin to add before any other: it keeps fynix's
 `DockRegistry` in step with the `Panel` entities.
 
@@ -98,16 +103,20 @@ core, and the layers add its plugins (below).
 
 | Module | What it holds |
 |---|---|
-| `agents` | The systems that keep the SDK's `AgentList` and `SelectedAgent` |
+| `agents` | The systems that keep the SDK's `AgentList` and `SelectedAgent`; the core's `Busy`, `Settlement` and `Treasury` |
+| `session` | The core's `Entry`, `Transcript`, `Status`, `Usage`, `SessionKey` and `UserMessage` |
+| `oversight` | The core's `Waiting`, `Need`, `Asks`, `Answer`, `Kind`, `Danger`, `Veto`, `Revoke`, `Grants` and the tags of a petition |
+| `model` | The core's `Settings`, `Model` and `Link`, signing in, and the events that save, test, list and try the models |
+| `library` | The core's `Skills`, the library's skills as last read |
 | `papers` | The systems that read the SDK's `Papers` from the selected agent's house |
 | `convo` | `ChiefName`, the name of the window's chief. `Me`, the chat's session and the agent it is with (`Me::of` makes one). `AgentSelected`, whether the world has an agent selected. `of_agent`, a page about the agent the chat is with. `send_as_chief`. It puts each `Notice` in the open chat |
 | `roll` | `Roll`, the count of changes to the agents and the hamlets, and the checks over it (`rolled`, `agents_moved`, `hamlets_moved`) |
 | `words` | The words for an agent's step (`now`), a hamlet's state (`standing`) and a purpose cut short (`short`) |
 | `asking` | The card of the questions an agent asks the chief, which Needs You and the chat both show, so an answer begun in one stands in the other |
-| `change` | `DrawChange`, set by the window to the function that draws the edit an approval holds as the chat draws it, so a plugin shows an edit the same way |
+| `change` | The core's `Change`, and `DrawChange`, set by the window to the function that draws the edit an approval holds as the chat draws it, so a plugin shows an edit the same way |
 | `waits` | `Waits`, how many things wait for the chief, for the status bar and any plugin |
 | `petition` | Puts the SDK's `Petition` in the core's queue and passes the chief's answer back as `Answered` |
-| `tools` | The core's tools a plugin gives the agents and the turns it is told of, for a host of plugins |
+| `tools` | The core's tools a plugin gives the agents, the sandbox they run in (`Sandboxing`) and the turns a plugin is told of, for a host of plugins |
 
 ### A panel
 

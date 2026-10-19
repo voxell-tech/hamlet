@@ -7,7 +7,7 @@ use bevy_fynix::views::{
     row, scroll, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
-use hamlet_core::core::SignIn;
+use hamlet_agents_api::model::SignIn;
 use hamlet_model::config::providers::PROVIDERS;
 
 use super::{

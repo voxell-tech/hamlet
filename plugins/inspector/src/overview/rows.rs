@@ -10,11 +10,11 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
+use hamlet_agents_api::oversight::Waiting;
 use hamlet_core::agents::{
     Account, Activity, Busy, Citizen, Left, LivesIn, Mayor,
     MergedInto, Purpose, Settlement, Treasury,
 };
-use hamlet_core::oversight::Waiting;
 use hamlet_realm_api::pick::{Asks, Thing};
 use hamlet_rules::hamlet::HOME;
 

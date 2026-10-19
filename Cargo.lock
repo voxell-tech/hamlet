@@ -5774,7 +5774,6 @@ dependencies = [
  "bevy",
  "bevy_fynix",
  "hamlet_agents_api",
- "hamlet_core",
  "hamlet_rules",
  "hamlet_sdk",
 ]
@@ -5788,7 +5787,6 @@ dependencies = [
  "chrono",
  "hamlet_agents_api",
  "hamlet_chat",
- "hamlet_core",
  "hamlet_home",
  "hamlet_realm",
  "hamlet_realm_api",
@@ -5802,8 +5800,8 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
+ "hamlet_agents_api",
  "hamlet_chat",
- "hamlet_core",
  "hamlet_desktop",
  "hamlet_home",
  "hamlet_limits",
@@ -5819,7 +5817,6 @@ dependencies = [
  "bevy",
  "bevy_fynix",
  "hamlet_agents_api",
- "hamlet_core",
  "hamlet_sdk",
 ]
 
@@ -5831,7 +5828,6 @@ dependencies = [
  "bevy_fynix",
  "hamlet_agents_api",
  "hamlet_chat",
- "hamlet_core",
  "hamlet_rules",
  "hamlet_sdk",
 ]
@@ -5842,7 +5838,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
- "hamlet_core",
+ "hamlet_agents_api",
  "hamlet_limits",
  "hamlet_model",
  "hamlet_sdk",

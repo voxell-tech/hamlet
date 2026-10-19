@@ -9,7 +9,7 @@ description = "The first-run screen: leads the chief of a home that was never se
 workspace = true
 
 [dependencies]
-hamlet_core.workspace = true
+hamlet_agents_api.workspace = true
 hamlet_limits.workspace = true
 hamlet_model.workspace = true
 hamlet_sdk.workspace = true

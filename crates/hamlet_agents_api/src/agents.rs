@@ -1,9 +1,11 @@
 //! The SDK's [`AgentList`] and [`SelectedAgent`], kept from the
-//! core's agents and the selection.
+//! core's agents and the selection, and the core's marks on an agent
+//! and a hamlet that a plugin reads.
 
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::prelude::*;
-use hamlet_core::agents::{Citizen, Left, LivesIn, Settlement};
+pub use hamlet_core::agents::{Busy, Settlement, Treasury};
+use hamlet_core::agents::{Citizen, Left, LivesIn};
 use hamlet_sdk::agents::{Agent, AgentList, Kept, SelectedAgent};
 
 use crate::convo::{AgentSelected, Me};

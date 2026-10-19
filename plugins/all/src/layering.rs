@@ -6,7 +6,20 @@ use toml::Table;
 
 /// The dependencies of plugin crates that break a rule of [`broken`]
 /// today, each with the reason it stands.
-const EXCEPTIONS: &[(&str, &str, &str)] = &[];
+const EXCEPTIONS: &[(&str, &str, &str)] = &[
+    (
+        "plugin_inspector",
+        "hamlet_core",
+        "it calls the core's functions over the agents and the \
+         sessions: names, the mayor, the archive of past sessions",
+    ),
+    (
+        "plugin_menus",
+        "hamlet_core",
+        "it calls the core's functions over the agents: the mayor, \
+         names and roads",
+    ),
+];
 
 const TABLES: [&str; 3] =
     ["dependencies", "dev-dependencies", "build-dependencies"];
@@ -20,6 +33,10 @@ fn broken(plugin: &str, dependency: &str) -> Option<&'static str> {
     } else if dependency == "hamlet_realm" && plugin != "plugin_realm"
     {
         Some("only `plugin_realm` depends on the realm's engine")
+    } else if dependency == "hamlet_core"
+        && !matches!(plugin, "plugin_agents" | "plugin_hamlets")
+    {
+        Some("a plugin reads the core through `hamlet_agents_api`")
     } else {
         None
     }

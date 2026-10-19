@@ -10,14 +10,14 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, Res};
 use bevy::ecs::world::World;
 use hamlet_agents_api::convo::Me;
+use hamlet_agents_api::session::UserMessage;
 use hamlet_chat::me::Followed;
-use hamlet_core::core::HomeDir;
-use hamlet_core::session::UserMessage;
 use hamlet_realm::chief::{
     self, Beside, Chief, Look, Player, Stands,
 };
 use hamlet_realm::library::{Library, Stood};
 use hamlet_realm::pick::{Selected, Thing};
+use hamlet_sdk::HomeDir;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(spoke)
@@ -117,7 +117,7 @@ pub fn keep(home: Res<HomeDir>, looks: Query<(&Chief, Ref<Look>)>) {
 mod tests {
     use bevy::app::{App, Update};
     use bevy::ecs::name::Name;
-    use hamlet_core::session::SessionKey;
+    use hamlet_agents_api::session::SessionKey;
     use hamlet_realm::chief::{Cloak, Hat, Light};
 
     use super::*;
