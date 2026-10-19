@@ -1050,7 +1050,7 @@ each means. They apply to every plugin alike, whatever it is granted.
   what is sent to it sets `ticks = false` and is stepped only when it has mail.
 - **Published events.** A plugin may publish `publishes_per_second` events in a
   second and `publish_bytes_per_step` bytes of payloads in one `step`. The rest
-  are dropped, each with a warning. The `collection-changed` event of a
+  are dropped, with a warning. The `collection-changed` event of a
   collection is not counted.
 - **Starting again.** A plugin that trapped is started again by the host
   `restart_retries` times, each `restart_backoff_ms` after it failed (see A
@@ -1082,7 +1082,10 @@ each means. They apply to every plugin alike, whatever it is granted.
 - **Events.** At most `events_per_second` events from the panels are given to
   a plugin in a second. The rest are dropped, each with a warning in the log.
 - **Intents.** At most `intents_per_call` intents of one `step` are carried
-  out. The rest are dropped, with one warning for the call.
+  out. The rest are dropped, with one warning for the call. A warning about
+  an intent (an event dropped, a command, a call, a fetch or a model call
+  refused, a reply to no call, a panel to open that is not there) is logged
+  once a minute for each plugin and kind (`warned.rs`).
 - **Storage.** At most `storage_keys` keys, `storage_key_bytes` in a key,
   `storage_value_bytes` in a value and `storage_bytes` in all the values.
   A write over one returns an error to the plugin.

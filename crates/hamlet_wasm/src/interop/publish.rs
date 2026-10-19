@@ -13,6 +13,7 @@ use crate::interface::exports::hamlet::plugin::plugin::{
 };
 use crate::limits::Limits;
 use crate::rate::Rate;
+use crate::warned::Warned;
 
 /// The events each plugin published lately.
 #[derive(Resource, Default)]
@@ -24,11 +25,11 @@ impl Flow {
     /// counted out, with a warning.
     pub(super) fn admit(
         &mut self,
-        publisher: Entity,
-        id: &str,
+        (publisher, id): (Entity, &str),
         (spent, more): (usize, usize),
         now: f32,
         limits: &Limits,
+        warned: &mut Warned,
     ) -> bool {
         let why = if spent + more > limits.publish_bytes_per_step {
             format!(
@@ -48,7 +49,11 @@ impl Flow {
         } else {
             return true;
         };
-        warn!("plugin {id}: {why}, an event dropped");
+        warned.warn(
+            id,
+            "publish",
+            &format!("{why}, an event dropped"),
+        );
         false
     }
 }
@@ -62,6 +67,7 @@ pub(super) fn publish(
     inboxes: &mut Query<(&Status, &mut Inbox)>,
     calls: &Calls,
     limits: &Limits,
+    warned: &mut Warned,
     commands: &mut Commands,
 ) {
     let Ok((_, info, manifest, ..)) = who.get(publisher) else {
@@ -69,20 +75,25 @@ pub(super) fn publish(
     };
     let topic = &publication.topic;
     if !manifest.exports.events.contains(topic) {
-        warn!(
-            "plugin {}: the event `{topic}` is not in its exports, \
-             dropped",
-            info.id
+        warned.warn(
+            &info.id,
+            "unexported event",
+            &format!(
+                "the event `{topic}` is not in its exports, dropped"
+            ),
         );
         return;
     }
     if publication.payload.len() > limits.call_bytes {
-        warn!(
-            "plugin {}: the event `{topic}` has {} bytes, the most \
-             is {}, dropped",
-            info.id,
-            publication.payload.len(),
-            limits.call_bytes
+        warned.warn(
+            &info.id,
+            "large event",
+            &format!(
+                "the event `{topic}` has {} bytes, the most is {}, \
+                 dropped",
+                publication.payload.len(),
+                limits.call_bytes
+            ),
         );
         return;
     }

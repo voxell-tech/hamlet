@@ -13,6 +13,7 @@ use crate::inbox::Inbox;
 use crate::interface::exports::hamlet::plugin::plugin::Intent;
 use crate::limits::Limits;
 use crate::run::Done;
+use crate::warned::Warned;
 
 /// Carries out the `run-command`, `invoke`, `reply` and `publish`
 /// intents of the plugins that were stepped.
@@ -25,6 +26,7 @@ pub(super) fn route(
     mut flow: ResMut<Flow>,
     limits: Res<Limits>,
     time: Option<Res<Time>>,
+    mut warned: Local<Warned>,
     mut commands: Commands,
 ) {
     let now = time.map_or(0.0, |time| time.elapsed_secs());
@@ -58,6 +60,7 @@ pub(super) fn route(
                     &mut inboxes,
                     &mut calls,
                     &limits,
+                    &mut warned,
                     &mut commands,
                 ),
                 Intent::Invoke(request) => invoke::request(
@@ -69,6 +72,7 @@ pub(super) fn route(
                     &mut calls,
                     &mut invoking,
                     &limits,
+                    &mut warned,
                     now,
                     &mut commands,
                 ),
@@ -79,6 +83,7 @@ pub(super) fn route(
                     &mut inboxes,
                     &mut calls,
                     &limits,
+                    &mut warned,
                     &mut commands,
                 ),
                 Intent::Publish(publication) => {
@@ -87,11 +92,11 @@ pub(super) fn route(
                         .get(*plugin)
                         .map_or("", |(_, info, ..)| info.id.as_str());
                     if flow.admit(
-                        *plugin,
-                        id,
+                        (*plugin, id),
                         (spent, more),
                         now,
                         &limits,
+                        &mut warned,
                     ) {
                         spent += more;
                         publish::publish(
@@ -101,6 +106,7 @@ pub(super) fn route(
                             &mut inboxes,
                             &calls,
                             &limits,
+                            &mut warned,
                             &mut commands,
                         );
                     }

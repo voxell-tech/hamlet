@@ -19,6 +19,7 @@ use crate::interface::exports::hamlet::plugin::plugin::{
 use crate::limits::Limits;
 use crate::rate::Rate;
 use crate::run::Done;
+use crate::warned::Warned;
 
 /// A call that finished: the plugin, the number of its call and the
 /// reply, or why there is none.
@@ -64,6 +65,7 @@ pub fn start(
     time: Option<Res<Time>>,
     tokio: Option<Res<Tokio>>,
     mut calling: ResMut<Calling>,
+    mut warned: Local<Warned>,
     mut commands: Commands,
 ) {
     let now = time.map_or(0.0, |time| time.elapsed_secs());
@@ -113,9 +115,10 @@ pub fn start(
             let (provider, root) = match made {
                 Ok(made) => made,
                 Err(why) => {
-                    warn!(
-                        "plugin {}: model call refused: {why}",
-                        info.id
+                    warned.warn(
+                        &info.id,
+                        "model-call",
+                        &format!("model call refused: {why}"),
                     );
                     inbox.push(Incoming::ModelAnswered(
                         ModelAnswer {

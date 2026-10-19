@@ -25,6 +25,7 @@ use crate::interface::hamlet::plugin::host::Level;
 use crate::interop::Calls;
 use crate::limits::Limits;
 use crate::reach::{self, Sharing};
+use crate::warned::Warned;
 use crate::{event, stop};
 
 /// What one plugin's `step` asked for.
@@ -171,6 +172,7 @@ pub fn apply(
     mut plugins: Query<(&PluginInfo, Option<&mut Dirty>)>,
     panels: Query<(&Panel, &ContributedBy)>,
     mut said: MessageWriter<Said>,
+    mut warned: Local<Warned>,
     mut commands: Commands,
 ) {
     for Done {
@@ -204,9 +206,10 @@ pub fn apply(
                             dock::open(world, &id)
                         });
                     } else {
-                        warn!(
-                            "plugin {}: no panel `{panel}` to open",
-                            info.id
+                        warned.warn(
+                            &info.id,
+                            "open-panel",
+                            &format!("no panel `{panel}` to open"),
                         );
                     }
                 }

@@ -27,6 +27,7 @@ use crate::limits::Limits;
 use crate::reach::{self, Sharing};
 use crate::run::{self, Done};
 use crate::stop::{self, Automatic};
+use crate::warned::Warned;
 
 /// The calls admitted and not yet given to their targets, and the
 /// fuel each caller's calls used in the last second.
@@ -130,6 +131,7 @@ pub(super) fn request(
     calls: &mut Calls,
     invoking: &mut Invoking,
     limits: &Limits,
+    warned: &mut Warned,
     now: f32,
     commands: &mut Commands,
 ) {
@@ -177,7 +179,11 @@ pub(super) fn request(
         }
         (Ok(_), None) => {}
         (Err(Refused { error, ask }), target) => {
-            warn!("plugin {}: {to} refused: {error:?}", info.id);
+            warned.warn(
+                &info.id,
+                "invoke",
+                &format!("{to} refused: {error:?}"),
+            );
             let wanted = match (ask, target) {
                 (Some(Asked::Use), _) => Some(Wanted {
                     plugin: caller,

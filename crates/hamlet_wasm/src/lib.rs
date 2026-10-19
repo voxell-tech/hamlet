@@ -54,6 +54,7 @@ pub mod stop;
 pub mod storage;
 pub mod survey;
 pub mod uninstall;
+pub mod warned;
 pub mod wire;
 
 #[cfg(any(test, feature = "fixture"))]

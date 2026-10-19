@@ -24,6 +24,7 @@ use crate::interface::exports::hamlet::plugin::plugin::{
 use crate::limits::Limits;
 use crate::rate::Rate;
 use crate::run::Done;
+use crate::warned::Warned;
 
 /// The port of an https address that names none.
 const HTTPS: u16 = 443;
@@ -299,6 +300,7 @@ pub fn start(
     time: Option<Res<Time>>,
     tokio: Option<Res<Tokio>>,
     mut fetching: ResMut<Fetching>,
+    mut warned: Local<Warned>,
     mut commands: Commands,
 ) {
     let now = time.map_or(0.0, |time| time.elapsed_secs());
@@ -363,7 +365,11 @@ pub fn start(
                 }
                 (Err(refused), ..) => refused,
             };
-            warn!("plugin {}: fetch refused: {}", info.id, sent.why);
+            warned.warn(
+                &info.id,
+                "fetch",
+                &format!("fetch refused: {}", sent.why),
+            );
             if sent.ask {
                 commands.trigger(Wanted {
                     plugin: *plugin,

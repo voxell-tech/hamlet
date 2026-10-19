@@ -14,6 +14,7 @@ use crate::interface::exports::hamlet::plugin::plugin::{
     CallAnswer, CallRequest, CommandCall, Incoming, InvokeError,
 };
 use crate::limits::Limits;
+use crate::warned::Warned;
 
 /// Why a command is not run, and whether the chief is to be asked.
 struct Refused {
@@ -39,6 +40,7 @@ pub(super) fn run(
     inboxes: &mut Query<(&Status, &mut Inbox)>,
     calls: &mut Calls,
     limits: &Limits,
+    warned: &mut Warned,
     commands: &mut Commands,
 ) {
     let Ok((_, info, ..)) = who.get(caller) else {
@@ -66,7 +68,11 @@ pub(super) fn run(
             );
         }
         Err(Refused { why, ask }) => {
-            warn!("plugin {}: {target} refused: {why}", info.id);
+            warned.warn(
+                &info.id,
+                "run-command",
+                &format!("{target} refused: {why}"),
+            );
             if ask {
                 commands.trigger(Wanted {
                     plugin: caller,
@@ -179,14 +185,18 @@ pub(super) fn reply(
     inboxes: &mut Query<(&Status, &mut Inbox)>,
     calls: &mut Calls,
     limits: &Limits,
+    warned: &mut Warned,
     commands: &mut Commands,
 ) {
     let name = who.get(by).map_or("", |(_, info, ..)| &info.id);
     let Some(call) = calls.answer(answer.call_id, by) else {
-        warn!(
-            "plugin {name}: replied to call {}, which is not \
-             waiting for it",
-            answer.call_id
+        warned.warn(
+            name,
+            "reply",
+            &format!(
+                "replied to call {}, which is not waiting for it",
+                answer.call_id
+            ),
         );
         return;
     };
