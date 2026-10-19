@@ -80,15 +80,15 @@ sandbox".
 - A capability the manifest does not name cannot be used. They are
   `read.agents`, `read.chat`, `read.activity`, `read.papers`, `read.world`,
   `chat.send`, `commands.run`, `world.act`, `ui.menu`, `ui.keys`,
-  `ui.context`, `ui.inspector`, `ui.settings`, `ui.canvas`, `world.overlay`,
-  `render.scene`, `render.shader`, `net`, `fs.pick`, `fs.folder`,
-  `files.read`, `files.write`, `db`,
-  `model.call`, `plugin.use`, `plugin.export`, `collections.read`,
-  `collections.write`, `agent.tool` and `agent.hook`. All but `read.chat`, `read.activity`,
-  `fs.folder` and `model.call` are checked today; those four can be asked
-  for and are checked later. `plugin.use`, `collections.read` and
+  `ui.context`, `ui.inspector`, `ui.settings`, `net`, `fs.pick`,
+  `fs.folder`, `model.call`, `plugin.use`, `collections.read`,
+  `collections.write`, `files.read`, `files.write`, `db`, `agent.tool`,
+  `agent.hook`, `agent.steer`, `ui.canvas`, `world.overlay`,
+  `render.scene`, `render.shader` and `plugin.export`. All but `read.chat`
+  and `read.activity` are checked today; those two can be asked for and
+  give nothing yet. `plugin.use`, `collections.read` and
   `collections.write` are chosen for each plugin or collection the manifest
-  `imports`.
+  `imports`, and `fs.folder` for each folder the chief picks.
 - A plugin that exports a typed interface (`[[exports.interfaces]]`) asks for
   `plugin.export`; one that calls it lists it under `[[imports.interfaces]]`
   with the same functions and types, and asks for `plugin.use`. The host
@@ -96,8 +96,10 @@ sandbox".
   (`hamlet_guest::invoke`, `guests/harbour`, `docs/wasm.md`).
 - `keys`, `petitions.answer`, `home.raw`, `process.run`, `sandbox.off` and
   `storage.other` are never granted, and a manifest that asks for one is
-  turned down. So is one with `agent.tool` or `agent.hook` that also asks
-  for `chat.send`, `commands.run`, `world.act` or `plugin.use`.
+  turned down. So is one that asks for `render.compute`, which only a
+  native plugin has, and one with `agent.tool`, `agent.hook` or
+  `agent.steer` that also asks for `chat.send`, `commands.run`,
+  `world.act` or `plugin.use`.
 - A gated call that is not allowed returns an error. Show a line that says
   so; do not fail.
 - A shader a plugin sends (`hamlet_guest::render::shader`) lives in a
