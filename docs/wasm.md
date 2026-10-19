@@ -1339,8 +1339,8 @@ A component that is not in the cache is compiled off the frame, on the app's
 runtime (`compile.rs`): the plugin stays `Starting` until the compile is done,
 then is brought up from the cache, and a reload keeps the running version until
 the new one is compiled. With no runtime, as in the harness and the tests, it is
-compiled at once. A `plugin.wasm` over `wasm_bytes` is not compiled, and the
-plugin does not start. The cache can be deleted at any time; removing a plugin deletes its folder
+compiled at once. A `plugin.wasm` over `wasm_bytes`, by the size the file
+system gives, is not read or compiled, and the plugin does not start. The cache can be deleted at any time; removing a plugin deletes its folder
 of it.
 
 The engine trusts an entry it finds under the right name, because loading one

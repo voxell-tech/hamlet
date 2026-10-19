@@ -83,7 +83,7 @@ impl Background<'_> {
         then: Then,
         commands: &mut Commands,
     ) -> bool {
-        if cache::cached(&host.0, file) {
+        if cache::cached(&host.0, file, limits.wasm_bytes) {
             return false;
         }
         let (engine, file) = (host.0.clone(), file.to_path_buf());

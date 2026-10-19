@@ -39,9 +39,9 @@ fn the_cache_is_used_while_it_is_valid_and_ignored_when_it_is_not() {
     };
 
     std::fs::write(&file, component("first")).unwrap();
-    assert!(!cache::cached(&host.0, &file));
+    assert!(!cache::cached(&host.0, &file, limits.wasm_bytes));
     assert_eq!(origin(&file), Origin::Compiled);
-    assert!(cache::cached(&host.0, &file));
+    assert!(cache::cached(&host.0, &file, limits.wasm_bytes));
     assert_eq!(origin(&file), Origin::Cache);
     assert!(cache::component(&host.0, &file, 16).is_err());
 

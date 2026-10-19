@@ -3,6 +3,7 @@
 //! file that did not change does not compile again.
 
 use std::hash::{Hash, Hasher};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
@@ -55,14 +56,41 @@ pub fn drop_shipped(folder: &Path) {
     };
 }
 
-/// Whether the plugin's cache in the home holds an entry for `file`
-/// compiled by `engine`.
-pub fn cached(engine: &Engine, file: &Path) -> bool {
-    let Ok(bytes) = std::fs::read(file) else {
+/// Whether the plugin's cache in the home holds an entry for `file`,
+/// of at most `cap` bytes, compiled by `engine`.
+pub fn cached(engine: &Engine, file: &Path, cap: usize) -> bool {
+    let Ok(bytes) = read(file, cap) else {
         return false;
     };
     let name = format!("{}.{EXTENSION}", key(engine, &bytes));
     folder_of(file).is_some_and(|folder| folder.join(name).is_file())
+}
+
+/// The bytes of `file`, refused before any is read when it holds more
+/// than `cap`.
+fn read(file: &Path, cap: usize) -> Result<Vec<u8>, Fault> {
+    let unread = |e: std::io::Error| {
+        Fault::Load(format!("{}: {e}", file.display()))
+    };
+    let size = std::fs::metadata(file).map_err(unread)?.len();
+    if size > cap as u64 {
+        return Err(Fault::Load(format!(
+            "plugin.wasm has {size} bytes, the most is {cap}"
+        )));
+    }
+    let mut bytes = Vec::new();
+    // The file may have grown since its size was read.
+    std::fs::File::open(file)
+        .map_err(unread)?
+        .take(cap as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(unread)?;
+    match bytes.len() > cap {
+        true => Err(Fault::Load(format!(
+            "plugin.wasm has more than {cap} bytes"
+        ))),
+        false => Ok(bytes),
+    }
 }
 
 /// The component in `file`, of at most `cap` bytes, from the plugin's
@@ -74,16 +102,7 @@ pub fn component(
     file: &Path,
     cap: usize,
 ) -> Result<(Compiled, Origin), Fault> {
-    let unread = |e: std::io::Error| {
-        Fault::Load(format!("{}: {e}", file.display()))
-    };
-    let size = std::fs::metadata(file).map_err(unread)?.len();
-    if size > cap as u64 {
-        return Err(Fault::Load(format!(
-            "plugin.wasm has {size} bytes, the most is {cap}"
-        )));
-    }
-    let bytes = std::fs::read(file).map_err(unread)?;
+    let bytes = read(file, cap)?;
     let folder = folder_of(file);
     let name = format!("{}.{EXTENSION}", key(engine, &bytes));
     if let Some(entry) = folder.as_ref().map(|f| f.join(&name))
