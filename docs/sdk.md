@@ -486,3 +486,14 @@ the agents (`AgentList`, `SelectedAgent`, `Papers`) are plain data, and a petiti
 is its own `Petition` entity with its own `Answer`s; `hamlet_agents_api` fills
 the first from the core and carries the second to the core's queue and back.
 `hamlet_wasm` reaches the core only through `hamlet_agents_api`.
+
+### Who owns the words
+
+`hamlet_agents_api` and `hamlet_realm_api` stand on the layers: most of what
+they hold is the core's, the rules' or the realm's own types and events,
+re-exported (`pub use`). A plugin names no layer, but it is still built
+against the layers' types, and a change to one of them reaches every plugin.
+The next step turns this round: each API crate owns its vocabulary as plain
+types, events and read models, depends on no layer, and the layer depends on
+the API crate, implementing it. `hamlet_sdk`'s `AgentList` and `Petition`, and
+`chat::Views` and `Panes`, are already made this way.
