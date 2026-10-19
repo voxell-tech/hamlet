@@ -9,6 +9,9 @@ use super::offers::valid;
 /// The levels a type may nest.
 const DEPTH: usize = 8;
 
+/// The names one type may hold, its own among them.
+const NODES: usize = 64;
+
 /// An interface a plugin exports, under a name that several plugins
 /// may export.
 #[derive(Clone, PartialEq, Eq, Debug, serde::Deserialize)]
@@ -74,13 +77,14 @@ pub enum Type {
 impl Function {
     /// The types the text names, or why they cannot be read.
     pub fn signature(&self) -> Result<Signature, String> {
+        let mut nodes = 0;
         let params = self
             .params
             .iter()
-            .map(|text| Type::parse(text))
+            .map(|text| Type::parse_counted(text, &mut nodes))
             .collect::<Result<Vec<_>, _>>()?;
         let result = match &self.result {
-            Some(text) => Type::parse(text)?,
+            Some(text) => Type::parse_counted(text, &mut nodes)?,
             None => Type::Tuple(Vec::new()),
         };
         Ok(Signature {
@@ -212,10 +216,20 @@ impl fmt::Display for Type {
 impl Type {
     /// The type `text` names: `bool`, `u32`, `u64`, `s32`, `s64`,
     /// `f32`, `f64`, `string`, `bytes`, `list<T>`, `option<T>` or
-    /// `tuple<T, ..>`, nested at most a few levels.
+    /// `tuple<T, ..>` of at least one, nested at most a few levels
+    /// and of a few dozen names at most.
     pub fn parse(text: &str) -> Result<Self, String> {
+        Self::parse_counted(text, &mut 0)
+    }
+
+    /// As [`Type::parse`], counting the names into `nodes`, which a
+    /// function's types share.
+    fn parse_counted(
+        text: &str,
+        nodes: &mut usize,
+    ) -> Result<Self, String> {
         let mut rest = text;
-        let parsed = Self::read_text(&mut rest, 0)?;
+        let parsed = Self::read_text(&mut rest, 0, nodes)?;
         match rest.trim() {
             "" => Ok(parsed),
             left => Err(format!("`{text}` has `{left}` left over")),
@@ -225,10 +239,17 @@ impl Type {
     fn read_text(
         rest: &mut &str,
         depth: usize,
+        nodes: &mut usize,
     ) -> Result<Self, String> {
         if depth >= DEPTH {
             return Err(format!(
                 "a type nests more than {DEPTH} levels"
+            ));
+        }
+        *nodes += 1;
+        if *nodes > NODES {
+            return Err(format!(
+                "the types hold more than {NODES} names"
             ));
         }
         *rest = rest.trim_start();
@@ -260,10 +281,12 @@ impl Type {
             "list" => Type::List(Box::new(Self::read_text(
                 rest,
                 depth + 1,
+                nodes,
             )?)),
             "option" => Type::Option(Box::new(Self::read_text(
                 rest,
                 depth + 1,
+                nodes,
             )?)),
             _ => {
                 let mut of = Vec::new();
@@ -271,7 +294,12 @@ impl Type {
                     if !of.is_empty() {
                         expect(rest, ',')?;
                     }
-                    of.push(Self::read_text(rest, depth + 1)?);
+                    of.push(Self::read_text(rest, depth + 1, nodes)?);
+                }
+                // A value of no bytes would let a list of them be as
+                // long as its length says, at no cost to the sender.
+                if of.is_empty() {
+                    return Err("a tuple holds nothing".into());
                 }
                 Type::Tuple(of)
             }
@@ -284,7 +312,11 @@ impl Type {
     /// `postcard`, and nothing more.
     pub fn check(&self, bytes: &[u8]) -> Result<(), String> {
         let mut rest = bytes;
-        self.read(&mut rest)
+        // Every value but a tuple takes a byte, and tuples nest at
+        // most `DEPTH` deep under a function's own, so a value is
+        // read in fewer steps.
+        let mut steps = (bytes.len() + 1) * (DEPTH + 2);
+        self.read(&mut rest, &mut steps)
             .map_err(|why| format!("not a {self}: {why}"))?;
         match rest.len() {
             0 => Ok(()),
@@ -294,7 +326,14 @@ impl Type {
         }
     }
 
-    fn read(&self, rest: &mut &[u8]) -> Result<(), String> {
+    fn read(
+        &self,
+        rest: &mut &[u8],
+        steps: &mut usize,
+    ) -> Result<(), String> {
+        *steps = steps
+            .checked_sub(1)
+            .ok_or("the value takes too long to read")?;
         match self {
             Type::Bool => match take(rest, 1)? {
                 [0 | 1] => Ok(()),
@@ -322,17 +361,17 @@ impl Type {
             }
             Type::List(of) => {
                 for _ in 0..length(rest)? {
-                    of.read(rest)?;
+                    of.read(rest, steps)?;
                 }
                 Ok(())
             }
             Type::Option(of) => match take(rest, 1)? {
                 [0] => Ok(()),
-                [1] => of.read(rest),
+                [1] => of.read(rest, steps),
                 _ => Err("an option is not 0 or 1".into()),
             },
             Type::Tuple(of) => {
-                of.iter().try_for_each(|of| of.read(rest))
+                of.iter().try_for_each(|of| of.read(rest, steps))
             }
         }
     }
@@ -431,13 +470,25 @@ mod tests {
 
     #[test]
     fn a_type_reads_back_as_it_is_written() {
-        for text in
-            ["list<option<s64>>", "tuple<>", "tuple<bool, bytes>"]
-        {
+        for text in ["list<option<s64>>", "tuple<bool, bytes>"] {
             assert_eq!(Type::parse(text).unwrap().to_string(), text);
         }
         assert!(Type::parse("list<string").is_err());
         assert!(Type::parse("map<string>").is_err());
         assert!(Type::parse(&"list<".repeat(9)).is_err());
+    }
+
+    #[test]
+    fn a_type_of_no_bytes_or_too_many_names_is_refused() {
+        assert!(Type::parse("list<list<tuple<>>>").is_err());
+        assert!(Type::parse("tuple<tuple<>>").is_err());
+        let wide = format!("tuple<{}>", ["bool"; 64].join(", "));
+        assert!(Type::parse(&wide).is_err());
+        let function = Function {
+            name: "f".into(),
+            params: vec!["list<string>".into(); 40],
+            result: None,
+        };
+        assert!(function.signature().is_err());
     }
 }
