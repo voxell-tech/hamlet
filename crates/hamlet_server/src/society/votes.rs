@@ -92,14 +92,50 @@ struct Vote {
     reported: bool,
 }
 
-fn read(db: &Connection, hamlet: &str) -> Result<Vec<Vote>> {
-    super::document(db, "votes", hamlet)
+/// The society document kind of a hamlet's votes still open or not
+/// yet reported, the only ones the sweep reads.
+const DUE: &str = "votes";
+/// The society document kind of a hamlet's finished votes.
+const DONE: &str = "votes-done";
+
+impl Vote {
+    fn due(&self) -> bool {
+        self.standing == Standing::Open || !self.reported
+    }
 }
 
+/// Every vote of `hamlet`, in the order called.
+fn read(db: &Connection, hamlet: &str) -> Result<Vec<Vote>> {
+    let mut votes = super::document::<Vec<Vote>>(db, DONE, hamlet)?;
+    votes.extend(super::document::<Vec<Vote>>(db, DUE, hamlet)?);
+    votes.sort_by_key(|v| v.id);
+    Ok(votes)
+}
+
+/// Keeps `votes` of `hamlet`, which hold all its due votes, and the
+/// open ones as its record's guards.
 fn save(db: &Connection, hamlet: &str, votes: &[Vote]) -> Result<()> {
-    super::keep(db, "votes", hamlet, &votes)?;
+    let (due, done) =
+        votes.iter().cloned().partition::<Vec<_>, _>(Vote::due);
+    if due.is_empty() {
+        db.execute(
+            "DELETE FROM society_document WHERE kind = ?1 AND key = \
+             ?2",
+            [DUE, hamlet],
+        )?;
+    } else {
+        super::keep(db, DUE, hamlet, &due)?;
+    }
+    if !done.is_empty() {
+        let mut kept =
+            super::document::<Vec<Vote>>(db, DONE, hamlet)?;
+        kept.retain(|v| done.iter().all(|d| d.id != v.id));
+        kept.extend(done);
+        kept.sort_by_key(|v| v.id);
+        super::keep(db, DONE, hamlet, &kept)?;
+    }
     if let Some(r) = record::read(db, hamlet)? {
-        let open = votes
+        let open = due
             .iter()
             .filter(|v| v.standing == Standing::Open)
             .map(|v| record::OpenVote {
@@ -111,6 +147,14 @@ fn save(db: &Connection, hamlet: &str, votes: &[Vote]) -> Result<()> {
         record::guard(db, hamlet, open, r.protected)?;
     }
     Ok(())
+}
+
+/// The yes votes `v` needs to pass under `limits`.
+fn needed(v: &Vote, limits: &Value) -> u64 {
+    (v.voters.len() as u64
+        * limits["votes"]["passYes"].as_u64().unwrap_or(2))
+    .div_ceil(limits["votes"]["passOf"].as_u64().unwrap_or(3).max(1))
+    .max(1)
 }
 
 fn describe(v: &Vote, r: &record::Hamlet) -> String {
@@ -141,10 +185,7 @@ fn report(v: &Vote, r: &record::Hamlet, limits: &Value) -> String {
     let abstain =
         v.ballots.iter().filter(|b| b.choice == "abstain").count();
     let silent = v.voters.len() - yes - no - abstain;
-    let needed = ((v.voters.len() as u64
-        * limits["votes"]["passYes"].as_u64().unwrap_or(2))
-    .div_ceil(limits["votes"]["passOf"].as_u64().unwrap_or(3)))
-    .max(1);
+    let needed = needed(v, limits);
     let standing = match &v.standing {
         Standing::Open => "Open".into(),
         Standing::Passed => "Passed".into(),
@@ -491,40 +532,39 @@ async fn announce(
     Ok(())
 }
 
-async fn cancel_closed(
+/// Cancels the hearing and ballot errands of vote `vote` of `hamlet`
+/// that have not ended.
+async fn cancel_errands(
     service: &mut Service,
     harnesses: &mut Harnesses,
     hamlet: &str,
-    votes: &[Vote],
+    vote: u64,
 ) -> Result<()> {
-    for vote in
-        votes.iter().filter(|vote| vote.standing != Standing::Open)
-    {
-        let bindings = service
-            .home
-            .store()
-            .connection()
-            .prepare(
-                "SELECT s.binding FROM society_binding s JOIN \
-                 harness_input i ON i.binding=s.binding WHERE \
-                 s.errand IN ('hearing','ballot') AND \
-                 json_extract(s.owner,'$.hamlet')=?1 AND \
-                 json_extract(s.owner,'$.vote')=?2 AND \
-                 i.state!='dropped' AND coalesce(i.status,'queued') \
-                 NOT IN ('done','unanswered')",
-            )?
-            .query_map(
-                rusqlite::params![hamlet, i64::try_from(vote.id)?],
-                |row| Ok(crate::harness::BindingId(row.get(0)?)),
-            )?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        for binding in bindings {
-            harnesses.cancel(service.home.store(), binding).await?;
-        }
+    let bindings = service
+        .home
+        .store()
+        .connection()
+        .prepare(
+            "SELECT s.binding FROM society_binding s JOIN \
+             harness_input i ON i.binding=s.binding WHERE s.errand \
+             IN ('hearing','ballot') AND \
+             json_extract(s.owner,'$.hamlet')=?1 AND \
+             json_extract(s.owner,'$.vote')=?2 AND \
+             i.state!='dropped' AND coalesce(i.status,'queued') NOT \
+             IN ('done','unanswered')",
+        )?
+        .query_map(
+            rusqlite::params![hamlet, i64::try_from(vote)?],
+            |row| Ok(crate::harness::BindingId(row.get(0)?)),
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for binding in bindings {
+        harnesses.cancel(service.home.store(), binding).await?;
     }
     Ok(())
 }
 
+/// Moves on every vote still open or not yet reported.
 pub(crate) async fn sweep(
     service: &mut Service,
     harnesses: &mut Harnesses,
@@ -533,397 +573,435 @@ pub(crate) async fn sweep(
         .home
         .store()
         .connection()
-        .prepare(
-            "SELECT key FROM society_document WHERE kind='votes'",
-        )?
-        .query_map([], |row| row.get::<_, String>(0))?
+        .prepare("SELECT key FROM society_document WHERE kind = ?1")?
+        .query_map([DUE], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    if hamlets.is_empty() {
+        return Ok(());
+    }
+    let realm =
+        crate::realm::read(service.home.store().connection())?;
     for hamlet in hamlets {
-        let mut votes =
-            read(service.home.store().connection(), &hamlet)?;
-        if votes.iter().all(|vote| {
-            vote.standing != Standing::Open && vote.reported
-        }) {
-            cancel_closed(service, harnesses, &hamlet, &votes)
-                .await?;
-            continue;
+        if realm.lives(&hamlet) {
+            sweep_hamlet(service, harnesses, &hamlet).await?;
+        } else {
+            close_hamlet(service, harnesses, &hamlet).await?;
         }
-        if !crate::realm::read(service.home.store().connection())?
-            .lives(&hamlet)
-        {
-            for vote in &mut votes {
-                if vote.standing == Standing::Open {
-                    vote.standing =
-                        Standing::Closed("the hamlet closed".into());
-                }
-                vote.reported = true;
-            }
-            save(service.home.store().connection(), &hamlet, &votes)?;
-            cancel_closed(service, harnesses, &hamlet, &votes)
-                .await?;
-            continue;
-        }
-        let limits = service.limits_of(&hamlet)?;
-        let r = service
-            .home
-            .store()
-            .record(&hamlet)?
-            .expect("vote's record");
-        for index in 0..votes.len() {
-            let mut v = votes[index].clone();
-            if service
-                .house_work
-                .founding
-                .contains(&(hamlet.clone(), v.id))
-            {
-                continue;
-            }
-            if !v.announced {
-                announce(
-                    service,
-                    harnesses,
-                    &hamlet,
-                    &v,
-                    "called",
-                    &format!(
-                        "Vote {} called by {}: {}. {}",
-                        v.id,
-                        v.by,
-                        describe(&v, &r),
-                        v.reason
-                    ),
-                )
-                .await?;
-                v.announced = true;
-            }
-            if v.standing == Standing::Open {
-                let expired = super::now().saturating_sub(v.called)
-                    >= limits["votes"]["openMinutes"]
-                        .as_i64()
-                        .unwrap_or(60)
-                        .saturating_mul(60_000);
-                if expired {
-                    v.standing = Standing::Lapsed;
-                } else if !v.heard {
-                    let prompt = format!(
-                        "{}\nA vote has been called. This is your \
-                         one chance to answer in words only. \
-                         Motion: {}. Reason: {}. Every voter sees \
-                         your answer as a claim, not evidence.",
-                        service
-                            .houses
-                            .read(&hamlet, v.mayor)
-                            .unwrap_or_default(),
-                        describe(&v, &r),
-                        v.reason
-                    );
-                    let binding = errands::start(
-                        service,
-                        harnesses,
-                        &AgentRef {
-                            hamlet: hamlet.clone(),
-                            number: v.mayor,
-                        },
-                        "hearing",
-                        &json!({"hamlet":hamlet,"vote":v.id}),
-                        &prompt,
-                        &v.task,
-                    )
-                    .await?;
-                    if let Some(answer) =
-                        errands::answer(service, binding)?
-                    {
-                        v.answer = Some(crate::papers::cut(
-                            &answer, 600, "",
-                        ));
-                        v.heard = true;
-                    }
-                }
-                if v.heard && v.standing == Standing::Open {
-                    for voter in v.voters.clone() {
-                        if v.ballots.iter().any(|b| b.voter == voter)
-                        {
-                            continue;
-                        }
-                        let agent = AgentRef {
-                            hamlet: hamlet.clone(),
-                            number: voter,
-                        };
-                        let mut corpus = service
-                            .houses
-                            .read(&hamlet, voter)
-                            .unwrap_or_default();
-                        for binding in
-                            crate::chats::records::conversations_of(
-                                service.home.store().connection(),
-                                &agent,
-                            )?
-                        {
-                            if super::errand_of(
-                                service.home.store().connection(),
-                                binding,
-                            )?
-                            .is_some()
-                            {
-                                continue;
-                            }
-                            for item in service
-                                .home
-                                .store()
-                                .items(binding)?
-                                .iter()
-                                .rev()
-                                .take(20)
-                            {
-                                corpus.push('\n');
-                                corpus.push_str(&item.text);
-                            }
-                        }
-                        let owner = json!({"hamlet":hamlet,"vote":v.id,"voter":voter});
-                        let db = service.home.store().connection();
-                        let saved = super::document::<Option<String>>(
-                            db,
-                            "ballot-corpus",
-                            &owner.to_string(),
-                        )?;
-                        if let Some(saved) = saved {
-                            corpus = saved;
-                        } else {
-                            super::keep(
-                                db,
-                                "ballot-corpus",
-                                &owner.to_string(),
-                                &corpus,
-                            )?;
-                        }
-                        let earlier =
-                            if limits["votes"]["sealed"] == false {
-                                serde_json::to_string(&v.ballots)?
-                            } else {
-                                String::new()
-                            };
-                        let prompt = format!(
-                            "{corpus}\n\nThis is your ballot. \
-                             Motion: {}. Reason: {}. Mayor's \
-                             answer: {}. These are claims, not \
-                             evidence. Earlier ballots: \
-                             {earlier}\nVote from your own notes \
-                             and history. Abstain if you have no \
-                             grounds. Call cast_ballot once with \
-                             choice yes, no or abstain, reason and \
-                             evidence copied from your house.",
-                            describe(&v, &r),
-                            v.reason,
-                            v.answer.as_deref().unwrap_or_default()
-                        );
-                        let binding = errands::start(
-                            service, harnesses, &agent, "ballot",
-                            &owner, &prompt, &v.task,
-                        )
-                        .await?;
-                        if errands::answer(service, binding)?
-                            .is_some()
-                        {
-                            v.ballots.push(Ballot {
-                                voter,
-                                choice: String::new(),
-                                reason: "answered without casting a \
-                                         ballot"
-                                    .into(),
-                                evidence: String::new(),
-                                grounded: false,
-                            });
-                        } else if limits["votes"]["sealed"] == false {
-                            break;
-                        }
-                    }
-                    if v.ballots.len() == v.voters.len() {
-                        let yes = v
-                            .ballots
-                            .iter()
-                            .filter(|b| {
-                                b.choice == "yes"
-                                    && (limits["votes"]
-                                        ["groundedOnly"]
-                                        != true
-                                        || b.grounded)
-                            })
-                            .count()
-                            as u64;
-                        let needed = (v.voters.len() as u64
-                            * limits["votes"]["passYes"]
-                                .as_u64()
-                                .unwrap_or(2))
-                        .div_ceil(
-                            limits["votes"]["passOf"]
-                                .as_u64()
-                                .unwrap_or(3)
-                                .max(1),
-                        )
-                        .max(1);
-                        v.standing = if yes >= needed {
-                            Standing::Passed
-                        } else {
-                            Standing::Closed(
-                                "too few said yes".into(),
-                            )
-                        };
-                    }
-                }
-            }
-            let newly_closed = v.standing != Standing::Open
-                && votes[index].standing == Standing::Open;
-            if newly_closed {
-                let tx = service.home.store().transaction()?;
-                if v.standing == Standing::Passed {
-                    if v.kind == VoteKind::ReplaceMayor {
-                        let current = record::read(&tx, &hamlet)?
-                            .expect("vote's record");
-                        if current.mayor != v.mayor {
-                            v.standing = Standing::Closed(
-                                "the mayor changed while the vote \
-                                 was open"
-                                    .into(),
-                            );
-                        } else {
-                            let op = RecordOperation {
-                                hamlet: hamlet.clone(),
-                                actor: Actor::Chief(
-                                    current
-                                        .chiefs
-                                        .first()
-                                        .cloned()
-                                        .unwrap_or_default(),
-                                ),
-                                at: super::now(),
-                                reason: v.reason.clone(),
-                                task: Some(v.task.clone()),
-                                change: Change::Seat {
-                                    number: v.candidate,
-                                },
-                            };
-                            if let Outcome::Refused(refusal) =
-                                crate::operation::change(&tx, &op)?
-                            {
-                                v.standing =
-                                    Standing::Closed(refusal.text(
-                                        record::Audience::Chief,
-                                    ));
-                            }
-                        }
-                    } else {
-                        let realm = crate::realm::read(&tx)?;
-                        if realm
-                            .hamlets
-                            .iter()
-                            .any(|h| h.id == v.destination)
-                            || realm.live().count()
-                                >= limits["hamlets"]["most"]
-                                    .as_u64()
-                                    .unwrap_or(6)
-                                    as usize
-                        {
-                            v.standing = Standing::Closed(
-                                "the hamlet cannot be founded under \
-                                 current limits"
-                                    .into(),
-                            );
-                        } else {
-                            let op = record::FoundRecord {
-                                hamlet: v.destination.clone(),
-                                name: v.founder.clone(),
-                                purpose: v.purpose.clone(),
-                                chief: r
-                                    .chiefs
-                                    .first()
-                                    .cloned()
-                                    .unwrap_or_default(),
-                                at: super::now(),
-                            };
-                            let result =
-                                crate::operation::change(&tx, &op)?;
-                            if let Outcome::Refused(refusal) = result
-                            {
-                                v.standing =
-                                    Standing::Closed(refusal.text(
-                                        record::Audience::Chief,
-                                    ));
-                            } else {
-                                let mut realm =
-                                    crate::realm::read(&tx)?;
-                                if let Some(place) = realm
-                                    .hamlets
-                                    .iter_mut()
-                                    .find(|place| {
-                                        place.id == v.destination
-                                    })
-                                {
-                                    place.from =
-                                        Some(crate::realm::From {
-                                            hamlet: hamlet.clone(),
-                                            vote: v.id,
-                                        });
-                                }
-                                crate::realm::write(&tx, &realm)?;
-                            }
-                        }
-                    }
-                }
-                votes[index] = v.clone();
-                save(&tx, &hamlet, &votes)?;
-                tx.commit()?;
-                if v.standing == Standing::Passed
-                    && v.kind == VoteKind::FoundHamlet
-                {
-                    if let Some(remote) = service.houses.remote(
-                        &v.destination,
-                        0,
-                        false,
-                    )? {
-                        let hamlet = hamlet.clone();
-                        let vote = v.id;
-                        service
-                            .house_work
-                            .founding
-                            .insert((hamlet.clone(), vote));
-                        service.house_work.tasks.spawn(async move {
-                            let result = remote
-                                .initialize()
-                                .await
-                                .map_err(Into::into);
-                            super::work::Completed::Founded {
-                                hamlet,
-                                vote,
-                                result,
-                            }
-                        });
-                        continue;
-                    }
-                    service
-                        .houses
-                        .initialize(&v.destination, 0)
-                        .await?;
-                }
-                changed(service, harnesses).await?;
-            }
-            if v.standing != Standing::Open && !v.reported {
-                announce(
-                    service,
-                    harnesses,
-                    &hamlet,
-                    &v,
-                    "result",
-                    &report(&v, &r, &limits),
-                )
-                .await?;
-                v.reported = true;
-            }
-            votes[index] = v;
-        }
-        save(service.home.store().connection(), &hamlet, &votes)?;
-        cancel_closed(service, harnesses, &hamlet, &votes).await?;
     }
     Ok(())
+}
+
+/// Closes the due votes of `hamlet`, which no longer lives.
+async fn close_hamlet(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    hamlet: &str,
+) -> Result<()> {
+    let mut votes = super::document::<Vec<Vote>>(
+        service.home.store().connection(),
+        DUE,
+        hamlet,
+    )?;
+    for vote in &mut votes {
+        if vote.standing == Standing::Open {
+            vote.standing =
+                Standing::Closed("the hamlet closed".into());
+        }
+        cancel_errands(service, harnesses, hamlet, vote.id).await?;
+        vote.reported = true;
+    }
+    save(service.home.store().connection(), hamlet, &votes)
+}
+
+/// Moves on the due votes of the living `hamlet`: each is announced,
+/// heard, balloted and counted, decided once it closes, then
+/// reported.
+async fn sweep_hamlet(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    hamlet: &str,
+) -> Result<()> {
+    let mut votes = super::document::<Vec<Vote>>(
+        service.home.store().connection(),
+        DUE,
+        hamlet,
+    )?;
+    let limits = service.limits_of(hamlet)?;
+    let r =
+        service.home.store().record(hamlet)?.expect("vote's record");
+    for index in 0..votes.len() {
+        let mut v = votes[index].clone();
+        if service
+            .house_work
+            .founding
+            .contains(&(hamlet.into(), v.id))
+        {
+            continue;
+        }
+        if !v.announced {
+            let text = format!(
+                "Vote {} called by {}: {}. {}",
+                v.id,
+                v.by,
+                describe(&v, &r),
+                v.reason
+            );
+            announce(service, harnesses, hamlet, &v, "called", &text)
+                .await?;
+            v.announced = true;
+        }
+        if v.standing == Standing::Open {
+            poll(service, harnesses, hamlet, &r, &limits, &mut v)
+                .await?;
+            if v.standing != Standing::Open {
+                votes[index] = v;
+                if decide(
+                    service, harnesses, hamlet, &r, &limits,
+                    &mut votes, index,
+                )
+                .await?
+                {
+                    continue;
+                }
+                v = votes[index].clone();
+            }
+        }
+        if v.standing != Standing::Open && !v.reported {
+            let text = report(&v, &r, &limits);
+            announce(service, harnesses, hamlet, &v, "result", &text)
+                .await?;
+            cancel_errands(service, harnesses, hamlet, v.id).await?;
+            v.reported = true;
+        }
+        votes[index] = v;
+    }
+    save(service.home.store().connection(), hamlet, &votes)
+}
+
+/// Moves on the open vote `v`: it lapses past its time, else is
+/// heard, then balloted and counted.
+async fn poll(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    hamlet: &str,
+    r: &record::Hamlet,
+    limits: &Value,
+    v: &mut Vote,
+) -> Result<()> {
+    let open_ms = limits["votes"]["openMinutes"]
+        .as_i64()
+        .unwrap_or(60)
+        .saturating_mul(60_000);
+    if super::now().saturating_sub(v.called) >= open_ms {
+        v.standing = Standing::Lapsed;
+        return Ok(());
+    }
+    if !v.heard {
+        hear(service, harnesses, hamlet, r, v).await?;
+    }
+    if v.heard {
+        ask_ballots(service, harnesses, hamlet, r, limits, v).await?;
+        if v.ballots.len() == v.voters.len() {
+            count(v, limits);
+        }
+    }
+    Ok(())
+}
+
+/// The mayor's one answer to the motion of `v`, once its hearing
+/// ends.
+async fn hear(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    hamlet: &str,
+    r: &record::Hamlet,
+    v: &mut Vote,
+) -> Result<()> {
+    let prompt = format!(
+        "{}\nA vote has been called. This is your one chance to \
+         answer in words only. Motion: {}. Reason: {}. Every voter \
+         sees your answer as a claim, not evidence.",
+        service.houses.read(hamlet, v.mayor).unwrap_or_default(),
+        describe(v, r),
+        v.reason
+    );
+    let binding = errands::start(
+        service,
+        harnesses,
+        &AgentRef {
+            hamlet: hamlet.into(),
+            number: v.mayor,
+        },
+        "hearing",
+        &json!({"hamlet":hamlet,"vote":v.id}),
+        &prompt,
+        &v.task,
+    )
+    .await?;
+    if let Some(answer) = errands::answer(service, binding)? {
+        v.answer = Some(crate::papers::cut(&answer, 600, ""));
+        v.heard = true;
+    }
+    Ok(())
+}
+
+/// Asks each voter of `v` without a ballot for one, in turn unless
+/// ballots are sealed. A voter who answers without casting one is
+/// counted as not answering.
+async fn ask_ballots(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    hamlet: &str,
+    r: &record::Hamlet,
+    limits: &Value,
+    v: &mut Vote,
+) -> Result<()> {
+    let sealed = limits["votes"]["sealed"] != false;
+    for voter in v.voters.clone() {
+        if v.ballots.iter().any(|b| b.voter == voter) {
+            continue;
+        }
+        let agent = AgentRef {
+            hamlet: hamlet.into(),
+            number: voter,
+        };
+        let owner =
+            json!({"hamlet":hamlet,"vote":v.id,"voter":voter});
+        let corpus = corpus(service, &agent, &owner)?;
+        let earlier = if sealed {
+            String::new()
+        } else {
+            serde_json::to_string(&v.ballots)?
+        };
+        let prompt = format!(
+            "{corpus}\n\nThis is your ballot. Motion: {}. Reason: \
+             {}. Mayor's answer: {}. These are claims, not \
+             evidence. Earlier ballots: {earlier}\nVote from your \
+             own notes and history. Abstain if you have no grounds. \
+             Call cast_ballot once with choice yes, no or abstain, \
+             reason and evidence copied from your house.",
+            describe(v, r),
+            v.reason,
+            v.answer.as_deref().unwrap_or_default()
+        );
+        let binding = errands::start(
+            service, harnesses, &agent, "ballot", &owner, &prompt,
+            &v.task,
+        )
+        .await?;
+        if errands::answer(service, binding)?.is_some() {
+            v.ballots.push(Ballot {
+                voter,
+                choice: String::new(),
+                reason: "answered without casting a ballot".into(),
+                evidence: String::new(),
+                grounded: false,
+            });
+        } else if !sealed {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// The notes and recent history of `agent` its ballot is grounded
+/// in, kept the first time under `owner` so a ballot is checked
+/// against what its voter was shown.
+fn corpus(
+    service: &mut Service,
+    agent: &AgentRef,
+    owner: &Value,
+) -> Result<String> {
+    let db = service.home.store().connection();
+    if let Some(saved) = super::document::<Option<String>>(
+        db,
+        "ballot-corpus",
+        &owner.to_string(),
+    )? {
+        return Ok(saved);
+    }
+    let mut corpus = service
+        .houses
+        .read(&agent.hamlet, agent.number)
+        .unwrap_or_default();
+    for binding in crate::chats::records::conversations_of(
+        service.home.store().connection(),
+        agent,
+    )? {
+        if super::errand_of(
+            service.home.store().connection(),
+            binding,
+        )?
+        .is_some()
+        {
+            continue;
+        }
+        for item in
+            service.home.store().items(binding)?.iter().rev().take(20)
+        {
+            corpus.push('\n');
+            corpus.push_str(&item.text);
+        }
+    }
+    super::keep(
+        service.home.store().connection(),
+        "ballot-corpus",
+        &owner.to_string(),
+        &corpus,
+    )?;
+    Ok(corpus)
+}
+
+/// The standing of `v` once every voter has answered.
+fn count(v: &mut Vote, limits: &Value) {
+    let grounded_only = limits["votes"]["groundedOnly"] == true;
+    let yes = v
+        .ballots
+        .iter()
+        .filter(|b| {
+            b.choice == "yes" && (!grounded_only || b.grounded)
+        })
+        .count() as u64;
+    v.standing = if yes >= needed(v, limits) {
+        Standing::Passed
+    } else {
+        Standing::Closed("too few said yes".into())
+    };
+}
+
+/// Carries out the vote at `index` of the due `votes` of `hamlet`,
+/// which just closed, and keeps them. True while a founded hamlet's
+/// remote house is being prepared, and the vote waits for it.
+async fn decide(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    hamlet: &str,
+    r: &record::Hamlet,
+    limits: &Value,
+    votes: &mut [Vote],
+    index: usize,
+) -> Result<bool> {
+    let tx = service.home.store().transaction()?;
+    let v = &mut votes[index];
+    if v.standing == Standing::Passed {
+        let refused = match v.kind {
+            VoteKind::ReplaceMayor => seat(&tx, hamlet, v)?,
+            VoteKind::FoundHamlet => {
+                found(&tx, hamlet, r, limits, v)?
+            }
+        };
+        if let Some(reason) = refused {
+            v.standing = Standing::Closed(reason);
+        }
+    }
+    let founded = (v.standing == Standing::Passed
+        && v.kind == VoteKind::FoundHamlet)
+        .then(|| (v.destination.clone(), v.id));
+    save(&tx, hamlet, votes)?;
+    tx.commit()?;
+    if let Some((destination, vote)) = founded {
+        if let Some(remote) =
+            service.houses.remote(&destination, 0, false)?
+        {
+            let hamlet = hamlet.to_owned();
+            service
+                .house_work
+                .founding
+                .insert((hamlet.clone(), vote));
+            service.house_work.tasks.spawn(async move {
+                let result =
+                    remote.initialize().await.map_err(Into::into);
+                super::work::Completed::Founded {
+                    hamlet,
+                    vote,
+                    result,
+                }
+            });
+            return Ok(true);
+        }
+        service.houses.initialize(&destination, 0).await?;
+    }
+    changed(service, harnesses).await?;
+    Ok(false)
+}
+
+/// Seats the candidate of the passed vote `v`; the words of why not.
+fn seat(
+    tx: &Connection,
+    hamlet: &str,
+    v: &Vote,
+) -> Result<Option<String>> {
+    let current = record::read(tx, hamlet)?.expect("vote's record");
+    if current.mayor != v.mayor {
+        return Ok(Some(
+            "the mayor changed while the vote was open".into(),
+        ));
+    }
+    let op = RecordOperation {
+        hamlet: hamlet.into(),
+        actor: Actor::Chief(
+            current.chiefs.first().cloned().unwrap_or_default(),
+        ),
+        at: super::now(),
+        reason: v.reason.clone(),
+        task: Some(v.task.clone()),
+        change: Change::Seat {
+            number: v.candidate,
+        },
+    };
+    Ok(match crate::operation::change(tx, &op)? {
+        Outcome::Refused(refusal) => {
+            Some(refusal.text(record::Audience::Chief))
+        }
+        Outcome::Done(_) => None,
+    })
+}
+
+/// Founds the hamlet of the passed vote `v` called in `r`; the words
+/// of why not.
+fn found(
+    tx: &Connection,
+    hamlet: &str,
+    r: &record::Hamlet,
+    limits: &Value,
+    v: &Vote,
+) -> Result<Option<String>> {
+    let realm = crate::realm::read(tx)?;
+    if realm.hamlets.iter().any(|h| h.id == v.destination)
+        || realm.live().count()
+            >= limits["hamlets"]["most"].as_u64().unwrap_or(6)
+                as usize
+    {
+        return Ok(Some(
+            "the hamlet cannot be founded under current limits"
+                .into(),
+        ));
+    }
+    let op = record::FoundRecord {
+        hamlet: v.destination.clone(),
+        name: v.founder.clone(),
+        purpose: v.purpose.clone(),
+        chief: r.chiefs.first().cloned().unwrap_or_default(),
+        at: super::now(),
+    };
+    if let Outcome::Refused(refusal) =
+        crate::operation::change(tx, &op)?
+    {
+        return Ok(Some(refusal.text(record::Audience::Chief)));
+    }
+    let mut realm = crate::realm::read(tx)?;
+    if let Some(place) = realm
+        .hamlets
+        .iter_mut()
+        .find(|place| place.id == v.destination)
+    {
+        place.from = Some(crate::realm::From {
+            hamlet: hamlet.into(),
+            vote: v.id,
+        });
+    }
+    crate::realm::write(tx, &realm)?;
+    Ok(None)
 }
 
 pub(super) async fn changed(
@@ -1004,6 +1082,7 @@ pub(super) async fn deed(
             "There is no vote `{word}`."
         )))));
     };
+    let id = v.id;
     if v.standing == Standing::Overturned {
         return Ok(Some(Err(Refusal::Invalid(format!(
             "Vote {} is already overturned.",
@@ -1078,7 +1157,7 @@ pub(super) async fn deed(
     save(&tx, hamlet, &votes)?;
     tx.commit()?;
     crate::fault::point("after_vote_overturn");
-    cancel_closed(service, harnesses, hamlet, &votes).await?;
+    cancel_errands(service, harnesses, hamlet, id).await?;
     if let Some(r) = closed {
         for agent in r.agents {
             crate::chats::stop_agent(
@@ -1103,7 +1182,73 @@ pub(super) async fn deed(
 
 #[cfg(test)]
 mod tests {
+    use hamlet_testing::Scratch;
+
     use super::*;
+    use crate::Store;
+
+    fn vote(id: u64, standing: Standing, reported: bool) -> Vote {
+        Vote {
+            id,
+            kind: VoteKind::ReplaceMayor,
+            candidate: 1,
+            destination: String::new(),
+            founder: String::new(),
+            purpose: String::new(),
+            by: "scout".into(),
+            caller: Some(1),
+            reason: "Needed".into(),
+            mayor: 0,
+            voters: Vec::new(),
+            called: 0,
+            task: format!("vote:home:{id}"),
+            standing,
+            heard: true,
+            answer: None,
+            ballots: Vec::new(),
+            announced: true,
+            reported,
+        }
+    }
+
+    fn ids(votes: &[Vote]) -> Vec<u64> {
+        votes.iter().map(|v| v.id).collect()
+    }
+
+    #[test]
+    fn finished_votes_leave_the_sweep_and_stay_readable() {
+        let scratch = Scratch::new("votes-due");
+        let store =
+            Store::open(&scratch.join("realm.sqlite")).unwrap();
+        let db = store.connection();
+        let due =
+            || super::super::document::<Vec<Vote>>(db, DUE, "home");
+        // An earlier home kept every vote under the sweep's kind.
+        super::super::keep(
+            db,
+            DUE,
+            "home",
+            &vec![
+                vote(1, Standing::Passed, true),
+                vote(2, Standing::Open, false),
+                vote(3, Standing::Lapsed, false),
+            ],
+        )
+        .unwrap();
+        save(db, "home", &read(db, "home").unwrap()).unwrap();
+        assert_eq!(ids(&due().unwrap()), [2, 3]);
+        let mut swept = due().unwrap();
+        swept[1].reported = true;
+        save(db, "home", &swept).unwrap();
+        assert_eq!(ids(&due().unwrap()), [2]);
+        assert_eq!(ids(&read(db, "home").unwrap()), [1, 2, 3]);
+        let mut swept = due().unwrap();
+        swept[0].standing = Standing::Lapsed;
+        swept[0].reported = true;
+        save(db, "home", &swept).unwrap();
+        assert!(due().unwrap().is_empty());
+        assert_eq!(ids(&read(db, "home").unwrap()), [1, 2, 3]);
+    }
 
     #[test]
     fn a_vote_keeps_the_words_earlier_homes_stored() {
