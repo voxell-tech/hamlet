@@ -42,7 +42,7 @@ pub(super) fn manifest(
                         inbox, with ordinary file and folder \
                         names.");
         }
-        let bytes = u64::try_from(file.size).map_err(|_| MISMATCH)?;
+        let bytes = file.size;
         size = size
             .checked_add(bytes)
             .filter(|n| *n <= MAX_BYTES)

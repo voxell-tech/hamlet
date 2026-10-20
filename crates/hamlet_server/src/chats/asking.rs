@@ -308,7 +308,10 @@ mod tests {
         let wrong =
             |picks: &[Pick]| answer(&asked, picks).unwrap_err();
         let first = Pick::Offer { index: 0 };
-        assert!(wrong(&[first.clone()]).contains("every question"));
+        assert!(
+            wrong(std::slice::from_ref(&first))
+                .contains("every question")
+        );
         let no_words = [first.clone(), words("maybe"), words("x")];
         assert!(wrong(&no_words).contains("takes an option"));
         let blank = [first.clone(), first.clone(), words(" ")];

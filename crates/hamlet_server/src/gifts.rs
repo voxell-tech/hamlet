@@ -308,8 +308,8 @@ impl Service {
             Err(_) => return Ok(Err(refused(MISMATCH))),
         };
         if bytes.is_empty()
-            || u64::try_from(part.offset).ok() != Some(*offset)
-            || *offset + bytes.len() as u64 > file.size as u64
+            || part.offset != *offset
+            || *offset + bytes.len() as u64 > file.size
             || STANDARD.encode(&bytes) != part.data
         {
             return Ok(Err(refused(MISMATCH)));
@@ -326,7 +326,7 @@ impl Service {
         if upload
             .files
             .iter()
-            .all(|(file, offset)| *offset == file.size as u64)
+            .all(|(file, offset)| *offset == file.size)
         {
             return self.gift_finish(upload, &part.id).await;
         }

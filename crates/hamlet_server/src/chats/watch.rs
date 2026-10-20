@@ -103,7 +103,7 @@ pub(super) async fn resolve(
         };
         let from = crate::record::AgentRef {
             hamlet: from.hamlet.clone(),
-            number: u64::try_from(from.number)?,
+            number: from.number,
         };
         return Ok(peer_of(
             service.home.store().connection(),

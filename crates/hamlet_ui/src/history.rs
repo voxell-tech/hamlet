@@ -145,10 +145,7 @@ fn detail(past: &Past) -> String {
     };
     detail.push_str(&format!(", {count}"));
     if past.tokens > 0 {
-        detail.push_str(&format!(
-            ", {}",
-            format_tokens(past.tokens.max(0) as u64)
-        ));
+        detail.push_str(&format!(", {}", format_tokens(past.tokens)));
     }
     if !past.by.is_empty() {
         detail.push_str(&format!(", begun by {}", past.by));
