@@ -4,6 +4,7 @@ use std::collections::{HashMap, VecDeque};
 
 use anyhow::{Result, bail, ensure};
 
+use super::LINK_VERSION;
 use super::link::{
     CredentialRequest, CredentialRequestAction as Action,
     CredentialResult,
@@ -13,8 +14,20 @@ use crate::credentials::{Credentials, pack, unpack};
 #[derive(Default)]
 pub(super) struct Authority {
     scopes: HashMap<(usize, String), (String, bool)>,
-    held: HashMap<String, (usize, String, String, u64)>,
+    /// The lease held on each provider's credential, by provider.
+    held: HashMap<String, Lease>,
     waiting: VecDeque<(usize, CredentialRequest)>,
+}
+
+/// A runtime's hold on a provider's credential while it rotates it.
+struct Lease {
+    runtime: usize,
+    scope: String,
+    /// The lease's id, which the runtime commits or releases by.
+    id: String,
+    /// The credential's revision when the lease was taken; a commit
+    /// after it changed is refused.
+    revision: u64,
 }
 
 impl Authority {
@@ -44,7 +57,7 @@ impl Authority {
 
     pub fn gone(&mut self, runtime: usize) {
         self.scopes.retain(|(at, _), _| *at != runtime);
-        self.held.retain(|_, (at, _, _, _)| *at != runtime);
+        self.held.retain(|_, lease| lease.runtime != runtime);
         self.waiting.retain(|(at, _)| *at != runtime);
     }
 
@@ -70,7 +83,7 @@ impl Authority {
                 let (at, request) =
                     self.waiting.pop_front().expect("queued request");
                 let mut answer = CredentialResult {
-                    v: 1,
+                    v: LINK_VERSION,
                     id: String::new(),
                     re: request.id.clone(),
                     credential: None,
@@ -102,8 +115,8 @@ impl Authority {
         }
         self.scopes.retain(|(at, scope), (_, open)| {
             *open
-                || self.held.values().any(|(owner, key, _, _)| {
-                    owner == at && key == scope
+                || self.held.values().any(|lease| {
+                    lease.runtime == *at && lease.scope == *scope
                 })
         });
         answers
@@ -139,32 +152,30 @@ impl Authority {
                 if self.held.contains_key(&provider) {
                     return Ok(false);
                 }
-                let lease = uuid::Uuid::new_v4().to_string();
-                self.held.insert(
-                    provider.clone(),
-                    (
-                        at,
-                        request.scope.clone(),
-                        lease.clone(),
-                        credentials.revision(&provider),
-                    ),
-                );
-                answer.lease = Some(lease);
+                let lease = Lease {
+                    runtime: at,
+                    scope: request.scope.clone(),
+                    id: uuid::Uuid::new_v4().to_string(),
+                    revision: credentials.revision(&provider),
+                };
+                answer.lease = Some(lease.id.clone());
+                self.held.insert(provider.clone(), lease);
             }
             Action::Commit | Action::Release => {
-                if !self.held.get(&provider).is_some_and(
-                    |(owner, scope, lease, _)| {
-                        *owner == at
-                            && scope == &request.scope
-                            && Some(lease) == request.lease.as_ref()
-                    },
-                ) {
+                if !self.held.get(&provider).is_some_and(|lease| {
+                    lease.runtime == at
+                        && lease.scope == request.scope
+                        && Some(&lease.id) == request.lease.as_ref()
+                }) {
                     bail!("This request holds no credential lease.");
                 }
                 // A started refresh persists even if its caller
                 // stopped meanwhile.
-                let (_, _, _, revision) =
-                    self.held.remove(&provider).expect("held lease");
+                let revision = self
+                    .held
+                    .remove(&provider)
+                    .expect("held lease")
+                    .revision;
                 let saved = if request.action == Action::Commit {
                     request
                         .credential
