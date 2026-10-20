@@ -1,11 +1,12 @@
 //! Hamlet's `search` (C16), which only reads and so never waits.
 
+use hamlet_workspace_wire::{Found, Walked};
 use regex::Regex;
 use serde_json::{Map, Value};
 
-use super::environment::Files;
+use super::environment::Reach;
 use super::walk::{
-    FOUND, Failure, Walk, reached, report, shown, under, wanted,
+    FOUND, Failure, reached, report, shown, under, wanted,
 };
 use super::{Arguments, Outcome};
 use crate::change::{clip, js_space, lines_of};
@@ -24,7 +25,7 @@ const WIDTH: usize = 300;
 const LARGEST: u64 = 1024 * 1024;
 
 pub(super) async fn run(
-    env: &Files<'_>,
+    env: &mut impl Reach,
     arguments: &Map<String, Value>,
 ) -> Outcome {
     let args = Arguments::new("search", arguments);
@@ -54,7 +55,7 @@ pub(super) async fn run(
 /// over 1 MiB, one that is not UTF-8 and one holding NUL are passed
 /// over.
 async fn search(
-    env: &Files<'_>,
+    env: &mut impl Reach,
     pattern: &str,
     path: Option<&str>,
     name: Option<&str>,
@@ -65,6 +66,17 @@ async fn search(
     }
     let matches = compile(pattern, ignore_case)?;
     let (root, info) = reached(env, path).await?;
+    let walked = if info.kind == FileKind::Directory {
+        env.walk(&root).await
+    } else {
+        Walked {
+            files: vec![Found {
+                path: root.clone(),
+                size: info.size,
+            }],
+            capped: false,
+        }
+    };
     let mut found = Vec::new();
     let mut look = async |at: &str, size: u64| {
         if let Some(name) = name.filter(|name| !name.is_empty())
@@ -102,17 +114,12 @@ async fn search(
         }
         true
     };
-    let mut capped = false;
-    if info.kind == FileKind::Directory {
-        let mut walk = Walk::new(&root);
-        while let Some((at, file)) = walk.next(env).await {
-            if !look(&at, file.size).await {
-                break;
-            }
+    let mut capped = walked.capped;
+    for file in walked.files {
+        if !look(&file.path, file.size).await {
+            capped = false;
+            break;
         }
-        capped = walk.capped;
-    } else {
-        look(&root, info.size).await;
     }
     Ok(report(&found, capped, "no match"))
 }

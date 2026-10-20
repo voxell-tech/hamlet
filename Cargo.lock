@@ -3408,6 +3408,7 @@ dependencies = [
  "hamlet_protocol",
  "hamlet_protocol_gen",
  "hamlet_testing",
+ "hamlet_workspace_wire",
  "interprocess",
  "jsonschema",
  "libc",

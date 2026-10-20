@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use super::{Caller, Deed, outcome};
 use crate::harness::Harnesses;
+use crate::papers::Capability;
 use crate::protocol::Refusal;
 use crate::record::{
     self, Actor, AgentRef, Audience, Change, DecisionKind, Departure,
@@ -157,6 +158,12 @@ pub(super) async fn deed(
     {
         return Ok(None);
     }
+    if deed == "erase"
+        && let Err(words) =
+            service.houses.allows(Capability::EraseHouse)
+    {
+        return Ok(Some(Err(Refusal::Invalid(words))));
+    }
     let r = match service.access(hamlet, deed)? {
         Ok(r) => r,
         Err(refusal) => return Ok(Some(Err(refusal))),
@@ -292,10 +299,8 @@ pub(super) async fn deed(
             lapse(service.home.store().connection(), hamlet, number)?;
             Ok(value["text"].as_str().unwrap_or_default().into())
         }
+        // The merge lane splits a restored merge's files.
         Outcome::Done(RecordResult::Restored { text, .. }) => {
-            if service.houses.workspace.is_none() {
-                super::merging::finish(service).await?;
-            }
             Ok(text)
         }
         Outcome::Refused(refusal) => {

@@ -1,19 +1,17 @@
 //! Copies living houses to the next-start backend while the active
 //! backend stays selected.
 
-use anyhow::{Result, ensure};
+use anyhow::Result;
+use hamlet_workspace_wire::{TREE_BYTES, TREE_ENTRIES};
 use serde_json::{Value, json};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
-use super::copy::{Snapshot, chmod, same};
-use super::files::remote_entries;
-use super::{Houses, tree};
-use crate::credentials::Workspace;
+use super::Houses;
+use super::copy::Snapshot;
 use crate::protocol::Refusal;
 use crate::record::AgentRef;
 use crate::service::Service;
-use crate::workspace::Remote;
 
 pub(crate) struct Moving {
     pub tasks: JoinSet<(u64, String, Result<String, Refusal>)>,
@@ -50,7 +48,7 @@ impl Service {
                  Settings.",
             );
         }
-        let from = self.houses.workspace.as_ref();
+        let from = self.houses.workspace();
         let to = self.credentials.workspace();
         if from.map(|c| (&c.url, &c.token))
             == to.map(|c| (&c.url, &c.token))
@@ -79,9 +77,9 @@ impl Service {
                     })
                 })
                 .collect::<Vec<_>>();
-        let mut source = Houses::open(self.home.layout().root())?;
-        source.workspace = self.houses.workspace.clone();
-        let local = Houses::open(self.home.layout().root())?;
+        let root = self.home.layout().root();
+        let source = Houses::open(root, from.cloned())?;
+        let target = Houses::open(root, to.clone())?;
         let (progress, receiver) = watch::channel(
             json!({"state":"moving","done":0,"of":agents.len(),"text":""}),
         );
@@ -90,7 +88,7 @@ impl Service {
         self.moving.tasks.spawn(async move {
             let mut skipped = Vec::new();
             for (done, agent) in agents.iter().enumerate() {
-                match move_house(&source, &local, agent, to.as_ref()).await {
+                match move_house(&source, &target, agent).await {
                     Ok(left) => skipped.extend(left.into_iter().map(|path| format!("{}/{}/{path}",agent.hamlet, agent.number))),
                     Err(error) => {
                         let text = format!("The house of agent {} in {} was not moved: {error} {done} houses before it moved; moving again copies them all once more. Inspect the target before retrying.", agent.number, agent.hamlet);
@@ -111,169 +109,18 @@ impl Service {
 
 async fn move_house(
     source: &Houses,
-    local: &Houses,
+    target: &Houses,
     agent: &AgentRef,
-    to: Option<&Workspace>,
 ) -> Result<Vec<String>> {
     let snapshot = Snapshot::read(
-        &source.files(&agent.hamlet, agent.number)?,
-        512 * 1024 * 1024,
-        20_000,
+        &source.house(&agent.hamlet, agent.number)?,
+        TREE_BYTES,
+        TREE_ENTRIES as usize,
         true,
     )
     .await?;
-    if let Some(to) = to {
-        let remote = Remote::new(
-            to.clone(),
-            agent.clone(),
-            false,
-            false,
-            false,
-        )?;
-        replace_remote(&snapshot, &remote).await?;
-        Ok(snapshot.skipped)
-    } else {
-        let root = local.root().try_clone()?;
-        let agent = agent.clone();
-        tokio::task::spawn_blocking(move || {
-            use rustix::fs::{AtFlags, renameat, unlinkat};
-            let stages = tree::directory(&root, ".gifts", true)?;
-            let name = format!("move-{}", uuid::Uuid::new_v4());
-            let stage = tree::directory(&stages, &name, true)?;
-            let result = (|| {
-                snapshot.write_local(&stage)?;
-                let houses = tree::directory(&root, "houses", true)?;
-                let parent =
-                    tree::directory(&houses, &agent.hamlet, true)?;
-                let number = agent.number.to_string();
-                let backup = format!("old-{}", uuid::Uuid::new_v4());
-                let detached = match renameat(
-                    &parent,
-                    number.as_str(),
-                    &stages,
-                    backup.as_str(),
-                ) {
-                    Ok(()) => true,
-                    Err(rustix::io::Errno::NOENT) => false,
-                    Err(error) => return Err(error.into()),
-                };
-                if let Err(error) = renameat(
-                    &stages,
-                    name.as_str(),
-                    &parent,
-                    number.as_str(),
-                ) {
-                    if detached {
-                        renameat(
-                            &stages,
-                            backup.as_str(),
-                            &parent,
-                            number.as_str(),
-                        )?;
-                    }
-                    return Err(error.into());
-                }
-                if detached {
-                    match tree::directory(&stages, &backup, false) {
-                        Ok(_) => tree::erase(&stages, &backup)?,
-                        Err(_) => unlinkat(
-                            &stages,
-                            backup.as_str(),
-                            AtFlags::empty(),
-                        )?,
-                    }
-                }
-                Ok(())
-            })();
-            if result.is_err() {
-                let _ = tree::erase(&stages, &name);
-            }
-            result.map(|()| snapshot.skipped)
-        })
-        .await?
-    }
-}
-
-async fn replace_remote(
-    snapshot: &Snapshot,
-    remote: &Remote,
-) -> Result<()> {
-    use base64::Engine;
-    use base64::engine::general_purpose::STANDARD;
-    ensure!(
-        snapshot
-            .files
-            .values()
-            .all(|entry| entry.bytes.len()
-                <= crate::workspace::MAX_FILE),
-        "Remote files are limited to 4 MiB per transfer."
-    );
-    remote.initialize().await?;
-    let listed =
-        remote_entries(remote, "/house", 512 * 1024 * 1024, 20_000)
-            .await?;
-    let mut kept = std::collections::BTreeSet::new();
-    let mut removed = Vec::<String>::new();
-    for entry in listed {
-        if entry.path == "."
-            || removed.iter().any(|parent| {
-                entry.path.starts_with(&format!("{parent}/"))
-            })
-        {
-            continue;
-        }
-        if snapshot.entries.iter().any(|wanted| {
-            wanted.path == entry.path
-                && (same(wanted, &entry)
-                    || wanted.kind == "directory"
-                        && entry.kind == "directory")
-        }) {
-            kept.insert(entry.path);
-        } else {
-            remote
-                .parents(&format!("/house/{}", entry.path), false)
-                .await
-                .map_err(|error| {
-                    anyhow::anyhow!("{}", error.message)
-                })?;
-            remote.call::<()>(json!({"kind":"remove","path":format!("/house/{}",entry.path),"recursive":true,"force":true})).await?;
-            removed.push(entry.path);
-        }
-    }
-    for entry in &snapshot.entries {
-        if entry.path == "." || kept.contains(&entry.path) {
-            continue;
-        }
-        let path = format!("/house/{}", entry.path);
-        remote
-            .parents(&path, false)
-            .await
-            .map_err(|error| anyhow::anyhow!("{}", error.message))?;
-        if entry.kind == "directory" {
-            remote.call::<()>(json!({"kind":"mkdir","path":path,"recursive":false})).await?;
-        } else {
-            remote.call::<()>(json!({"kind":"tree_write","path":path,"data":STANDARD.encode(&snapshot.files[&entry.path].bytes),"mode":entry.mode & 0o777})).await?;
-        }
-    }
-    for entry in snapshot.entries.iter().rev().filter(|entry| {
-        entry.path != "." && entry.kind == "directory"
-    }) {
-        chmod(remote, &format!("/house/{}", entry.path), entry.mode)
-            .await?;
-    }
-    let after =
-        remote_entries(remote, "/house", 512 * 1024 * 1024, 20_000)
-            .await?;
-    ensure!(
-        after.len() == snapshot.entries.len()
-            && snapshot.entries.iter().all(|entry| after.iter().any(
-                |actual| actual.path == entry.path
-                    && (entry.path == "."
-                        && actual.kind == "directory"
-                        || same(actual, entry))
-            )),
-        "The copy in the remote workspace did not match it \
-         afterwards."
-    );
-    Ok(())
+    target
+        .replace(&agent.hamlet, agent.number, &snapshot)
+        .await?;
+    Ok(snapshot.skipped)
 }

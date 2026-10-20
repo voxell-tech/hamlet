@@ -224,23 +224,19 @@ async fn offered(
             "Another offer of that skill is being judged.",
         );
     }
-    let house = service.houses.files(
-        &caller.place.agent.hamlet,
-        caller.place.agent.number,
-    )?;
-    let files = if let Some(offered) =
-        service.house_work.take_offer(&caller.id)
-    {
-        offered?
-    } else if service.houses.workspace.is_some() {
+    let Some(files) = service.house_work.take_offer(&caller.id)
+    else {
+        let house = service.houses.house(
+            &caller.place.agent.hamlet,
+            caller.place.agent.number,
+        )?;
         let name = name.to_owned();
         service.house_work.offer(caller.id.clone(), async move {
             skill_files(&house, &name).await
         });
         return Ok(Step::Answer(None));
-    } else {
-        skill_files(&house, name).await?
     };
+    let files = files?;
     let paper = files
         .get("SKILL.md")
         .map(|f| String::from_utf8_lossy(&f.bytes).into_owned())
@@ -332,23 +328,19 @@ async fn judged(
         )?;
         tx.commit()?;
     }
-    let house = service.houses.files(
-        &caller.place.agent.hamlet,
-        caller.place.agent.number,
-    )?;
-    let unchanged = if let Some(cleaned) =
-        service.house_work.take_cleaned(&caller.id)
-    {
-        cleaned?
-    } else if service.houses.workspace.is_some() {
+    let Some(unchanged) = service.house_work.take_cleaned(&caller.id)
+    else {
+        let house = service.houses.house(
+            &caller.place.agent.hamlet,
+            caller.place.agent.number,
+        )?;
         let name = name.to_owned();
         service.house_work.clean(caller.id.clone(), async move {
             clean(house, &name, &files).await
         });
         return Ok(None);
-    } else {
-        clean(house, name, &files).await?
     };
+    let unchanged = unchanged?;
     Ok(Some(format!(
         "The librarian took `{name}`: {answer} It is in the library \
          now. {} Use the library's, as every agent can.",

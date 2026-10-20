@@ -338,33 +338,17 @@ async fn call_prepared(
         )?
         && kept(service, bound.runtime.as_str(), key)?.is_none()
         && !service.home.store().cancelling(binding)?
-        && let Some(remote) =
-            service.remote_tools(&bound.agent, false)?
         && let Some(path) = arguments
             .get("path")
             .and_then(Value::as_str)
             .map(String::from)
     {
+        let place = places(service, &bound.agent)?;
+        let tools = service.tools(&bound.agent, place, false)?;
         let signature = service.work(&bound.agent.hamlet)?;
         let id = uuid::Uuid::new_v4();
         let abort = service.chats.preparing.spawn(async move {
-            let result = async {
-                let full = remote
-                    .footing(&path)
-                    .await
-                    .map_err(|e| e.message)?;
-                Ok(match remote.read(&full, false).await {
-                    Ok(bytes) => Some(
-                        String::from_utf8_lossy(&bytes).into_owned(),
-                    ),
-                    Err(error) if error.code == "not_found" => None,
-                    Err(_) => Some(
-                        "[a file that could not be read as text]"
-                            .into(),
-                    ),
-                })
-            }
-            .await;
+            let result = tools.preview(&path).await;
             PreparedCall {
                 id,
                 binding,
@@ -535,32 +519,24 @@ async fn decide(
         };
     }
     let at = places(service, &place.agent)?;
-    let remote = service.remote_tools(&place.agent, false)?;
+    let tools = service.tools(&place.agent, at, false)?;
     if let gate::Call::Edit {
         write: true,
-        path,
         old,
         created,
         ..
     } = &mut call
     {
-        let previous = if remote.is_some() {
-            match preview {
-                Some(Ok(before)) => before.clone(),
-                Some(Err(words)) => {
-                    return Ok(Decision::Block(words.clone()));
-                }
-                None => {
-                    return Ok(Decision::Block(
-                        "The remote edit preview is not available."
-                            .into(),
-                    ));
-                }
+        let previous = match preview {
+            Some(Ok(before)) => before.clone(),
+            Some(Err(words)) => {
+                return Ok(Decision::Block(words.clone()));
             }
-        } else {
-            tools::footing(path, &at)
-                .ok()
-                .and_then(|full| before(service, &at, &full))
+            None => {
+                return Ok(Decision::Block(
+                    "The edit preview is not available.".into(),
+                ));
+            }
         };
         if let Some(previous) = previous {
             *old = previous;
@@ -595,9 +571,7 @@ async fn decide(
     let by = wait_by(&record, &place.agent);
     let mut standing = standing(service, &place, &record)?;
     if let gate::Call::Edit { path, .. } = &call
-        && remote.is_none()
-        && let Ok(full) = tools::footing(path, &at)
-        && crate::sandbox::within(&full, &at.house)
+        && tools.house_edit(path).await
     {
         standing.house_edit = true;
     }
@@ -815,45 +789,6 @@ fn keep_call(
         params![runtime, key, binding.0, input, net, block, change],
     )?;
     Ok(())
-}
-
-/// The text of the file at `path` as a write's preview shows it, or
-/// `None` when there is none. It is read as the agent at `at` may,
-/// so the preview shows the chief nothing the agent could not read
-/// itself.
-fn before(
-    service: &Service,
-    at: &tools::Place,
-    path: &std::path::Path,
-) -> Option<String> {
-    let path = crate::sandbox::path::text(path);
-    let Ok(env) =
-        tools::environment(&service.chats.sandbox, at, false)
-    else {
-        return Some(
-            "[a file that could not be read as text]".into(),
-        );
-    };
-    match env.read_text(&path) {
-        Ok(text) => {
-            let mut text = Value::String(text);
-            service.credentials.scrub(&mut text);
-            text.as_str().map(String::from)
-        }
-        Err(error) if error.code == "not_found" => None,
-        Err(error) => {
-            let size = env
-                .file_info(&path)
-                .map(|info| format!(", {} bytes", info.size))
-                .unwrap_or_default();
-            let reason = if error.code == "invalid" {
-                "is not UTF-8 text"
-            } else {
-                "could not be read as text"
-            };
-            Some(format!("[a file that {reason}{size}]"))
-        }
-    }
 }
 
 /// The grants, limits, mode and session trust in force for `place`.
@@ -1092,25 +1027,15 @@ async fn operation(
         )?;
     }
     let place = places(service, &bound.agent)?;
-    let remote = service.remote_tools(&bound.agent, net)?;
-    let sandbox = service.chats.sandbox;
+    let tools = service.tools(&bound.agent, place, net)?;
     let secrets = service.credentials.secrets();
     let arguments =
         arguments.clone().into_iter().collect::<Map<_, _>>();
     let name = tool.to_owned();
     let (task_runtime, task_key) = id.clone();
     let abort = service.chats.tools.spawn(async move {
-        let mut outcome = if let Some(remote) = &remote {
-            tools::run_remote(
-                remote, &place, &secrets, &name, &arguments,
-            )
-            .await
-        } else {
-            tools::run(
-                &sandbox, &place, net, &secrets, &name, &arguments,
-            )
-            .await
-        };
+        let mut outcome =
+            tools.run(&secrets, &name, &arguments).await;
         if let Some(change) = change
             .and_then(|c| serde_json::from_str::<Value>(&c).ok())
         {
@@ -1795,8 +1720,8 @@ mod tests {
         (service, binding, runtime.as_str().to_owned())
     }
 
-    #[test]
-    fn a_write_s_preview_shows_only_what_the_agent_may_read() {
+    #[tokio::test]
+    async fn a_write_s_preview_shows_only_what_the_agent_may_read() {
         let scratch = Scratch::new("calls-preview");
         let (mut service, _, _) = served(&scratch);
         let root = service.home.layout().root().to_owned();
@@ -1809,21 +1734,22 @@ mod tests {
         let at = places(&mut service, &agent).unwrap();
         std::fs::write(at.house.join("NOTES.md"), "# Notes\n")
             .unwrap();
+        let house = at.house.clone();
+        let tools = service.tools(&agent, at, false).unwrap();
+        let before = async |path: &std::path::Path| {
+            let path = crate::sandbox::path::text(path);
+            tools.preview(&path).await.unwrap()
+        };
 
         assert_eq!(
-            before(&service, &at, &root.join("private.txt"))
-                .as_deref(),
+            before(&root.join("private.txt")).await.as_deref(),
             Some("[a file that could not be read as text]")
         );
         assert_eq!(
-            before(&service, &at, &at.house.join("NOTES.md"))
-                .as_deref(),
+            before(&house.join("NOTES.md")).await.as_deref(),
             Some("# Notes\n")
         );
-        assert_eq!(
-            before(&service, &at, &at.house.join("new.md")),
-            None
-        );
+        assert_eq!(before(&house.join("new.md")).await, None);
     }
 
     #[test]

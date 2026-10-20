@@ -277,104 +277,183 @@ fn object(value: Value) -> BTreeMap<String, Value> {
     }
 }
 
-/// Runs `tool` with `arguments` for an agent at `place`, reaching the
-/// network only with `net`, and takes `secrets` out of all it gives.
-/// Dropping the future kills a command it runs.
-pub async fn run(
-    sandbox: &Sandbox,
-    place: &Place,
-    net: bool,
-    secrets: &[String],
-    tool: &str,
-    arguments: &Map<String, Value>,
-) -> Outcome {
-    let mut outcome = match tool {
-        "bash" => {
-            bash::run(sandbox, place, net, secrets, arguments).await
-        }
-        "read" | "write" | "edit" | "search" | "find" => {
-            let (sandbox, place) = (*sandbox, place.clone());
-            let (tool, arguments) =
-                (tool.to_owned(), arguments.clone());
-            tokio::task::spawn_blocking(move || {
-                let env = match environment(&sandbox, &place, false) {
-                    Ok(env) => env,
-                    Err(message) => {
-                        return Outcome::thrown(
-                            "tool_error",
-                            message,
-                        );
-                    }
-                };
-                futures::executor::block_on(file_run(
-                    &environment::Files::Local(&env),
-                    &place,
-                    &tool,
-                    &arguments,
-                ))
-            })
-            .await
-            .unwrap_or_else(|error| {
-                Outcome::thrown("tool_error", error.to_string())
-            })
-        }
-        _ => {
-            crate::hand::run(
-                sandbox,
-                &place.home,
-                net,
-                secrets,
-                tool,
-                arguments,
-            )
-            .await
-        }
-    };
-    scrub(secrets, &mut outcome);
-    outcome
+/// Where an agent's tools run, chosen once by
+/// [`crate::papers::Houses::tools`]: this machine under the sandbox,
+/// or a remote workspace, which never falls back to the host.
+pub(crate) enum Session {
+    Local {
+        place: Place,
+        /// Whether commands reach the network.
+        net: bool,
+        sandbox: Sandbox,
+    },
+    Remote {
+        place: Place,
+        session: crate::workspace::Session,
+    },
 }
 
-pub(crate) async fn run_remote(
-    remote: &crate::workspace::Remote,
-    place: &Place,
-    secrets: &[String],
-    tool: &str,
-    arguments: &Map<String, Value>,
-) -> Outcome {
-    let mut outcome = match tool {
-        "bash" => {
-            bash::remote(remote, place, secrets, arguments).await
+impl Session {
+    pub fn local(place: Place, net: bool, sandbox: Sandbox) -> Self {
+        Self::Local {
+            place,
+            net,
+            sandbox,
         }
-        "read" | "write" | "edit" | "search" | "find" => {
-            file_run(
-                &environment::Files::Remote(remote),
+    }
+
+    pub fn remote(
+        place: Place,
+        session: crate::workspace::Session,
+    ) -> Self {
+        Self::Remote { place, session }
+    }
+
+    /// The text of the file a `write` to `path` would replace, as its
+    /// preview shows it, or `None` where there is none. It is read as
+    /// the agent may, so the chief sees nothing the agent could not
+    /// read.
+    pub async fn preview(
+        &self,
+        path: &str,
+    ) -> Result<Option<String>, String> {
+        match self {
+            Self::Local { place, sandbox, .. } => {
+                let Ok(mut env) =
+                    environment::Local::open(*sandbox, place).await
+                else {
+                    return Ok(Some(
+                        "[a file that could not be read as text]"
+                            .into(),
+                    ));
+                };
+                files::preview(&mut env, path).await
+            }
+            Self::Remote { session, .. } => {
+                let mut env =
+                    environment::Remote::new(session.clone());
+                files::preview(&mut env, path).await
+            }
+        }
+    }
+
+    /// Whether an edit of `path` stays in the agent's own house,
+    /// where the sandbox keeps it. A remote house is never taken
+    /// as one.
+    pub async fn house_edit(&self, path: &str) -> bool {
+        let Self::Local { place, .. } = self else {
+            return false;
+        };
+        let house = text(&place.house);
+        let folder = place.folder.as_deref().map(text);
+        let there =
+            |path: &String| std::path::Path::new(path).exists();
+        let own = firsts(path, &house, folder.as_deref())
+            .is_some_and(|[folder, house]| {
+                !there(&folder) && there(&house)
+            });
+        let full = footing(path, &house, folder.as_deref(), own);
+        crate::sandbox::within(
+            std::path::Path::new(&full),
+            &place.house,
+        )
+    }
+
+    /// Runs `tool` with `arguments` and takes `secrets` out of all it
+    /// gives. Dropping the future kills a command it runs.
+    pub async fn run(
+        &self,
+        secrets: &[String],
+        tool: &str,
+        arguments: &Map<String, Value>,
+    ) -> Outcome {
+        let mut outcome = match self {
+            Self::Local {
                 place,
-                tool,
-                arguments,
-            )
-            .await
-        }
-        // Hand tools run on the host, which a remote workspace never
-        // falls back to.
-        _ => Outcome::failed(format!(
-            "The tool {tool} was added by hand and does not run in \
-             a remote workspace."
-        )),
-    };
-    scrub(secrets, &mut outcome);
-    outcome
+                net,
+                sandbox,
+            } => match tool {
+                "bash" => {
+                    bash::run(
+                        sandbox, place, *net, secrets, arguments,
+                    )
+                    .await
+                }
+                "read" | "write" | "edit" | "search" | "find" => {
+                    match environment::Local::open(*sandbox, place)
+                        .await
+                    {
+                        Ok(mut env) => {
+                            file_run(&mut env, tool, arguments).await
+                        }
+                        Err(message) => {
+                            Outcome::thrown("tool_error", message)
+                        }
+                    }
+                }
+                _ => {
+                    crate::hand::run(
+                        sandbox,
+                        &place.home,
+                        *net,
+                        secrets,
+                        tool,
+                        arguments,
+                    )
+                    .await
+                }
+            },
+            Self::Remote { place, session } => {
+                // The library is read once for all the call's
+                // requests.
+                let library = place.home.join("library");
+                match session.clone().with_library(library).await {
+                    Err(failure) => {
+                        Outcome::thrown("tool_error", failure.message)
+                    }
+                    Ok(session) => {
+                        let mut env =
+                            environment::Remote::new(session);
+                        match tool {
+                            "bash" => {
+                                bash::remote(
+                                    &mut env, place, secrets,
+                                    arguments,
+                                )
+                                .await
+                            }
+                            "read" | "write" | "edit" | "search"
+                            | "find" => {
+                                file_run(&mut env, tool, arguments)
+                                    .await
+                            }
+                            // Hand tools run on the host, which a
+                            // remote
+                            // workspace never falls back to.
+                            _ => Outcome::failed(format!(
+                                "The tool {tool} was added by hand \
+                                 and does not run in a remote \
+                                 workspace."
+                            )),
+                        }
+                    }
+                }
+            }
+        };
+        scrub(secrets, &mut outcome);
+        outcome
+    }
 }
 
 async fn file_run(
-    env: &environment::Files<'_>,
-    place: &Place,
+    env: &mut impl environment::Reach,
     tool: &str,
     arguments: &Map<String, Value>,
 ) -> Outcome {
     match tool {
-        "read" => files::read(env, place, arguments).await,
-        "write" => files::write(env, place, arguments).await,
-        "edit" => files::edit(env, place, arguments).await,
+        "read" => files::read(env, arguments).await,
+        "write" => files::write(env, arguments).await,
+        "edit" => files::edit(env, arguments).await,
         "search" => search::run(env, arguments).await,
         _ => find::run(env, arguments).await,
     }
@@ -429,28 +508,32 @@ pub(crate) fn environment(
 }
 
 /// The full path a tool's `path` names (C20). A full path stays as it
-/// is. A relative one is the folder's, unless only the house has its
-/// first part, as with `NOTES.md`, `skills/` and `inbox/`; with no
-/// folder it is the house's.
-pub fn footing(path: &str, place: &Place) -> Result<PathBuf, String> {
-    Ok(PathBuf::from(footed(path, place)))
+/// is. A relative one is the folder's, unless `own`: only the house
+/// has its first part, as with `NOTES.md`, `skills/` and `inbox/`.
+/// With no folder it is the house's.
+fn footing(
+    path: &str,
+    house: &str,
+    folder: Option<&str>,
+    own: bool,
+) -> String {
+    match folder {
+        _ if path::is_absolute(path) => path::normalize(path),
+        Some(folder) if !own => path::join(&[folder, path]),
+        _ => path::join(&[house, path]),
+    }
 }
 
-fn footed(path: &str, place: &Place) -> String {
-    let house = text(&place.house);
-    if path::is_absolute(path) {
-        return path::normalize(path);
-    }
-    let Some(folder) = &place.folder else {
-        return path::join(&[house.as_str(), path]);
-    };
-    let folder = text(folder);
+/// The folder's and the house's path of the first part of a relative
+/// `path`, which decide where it is footed, while there is a folder.
+fn firsts(
+    path: &str,
+    house: &str,
+    folder: Option<&str>,
+) -> Option<[String; 2]> {
+    let folder = folder.filter(|_| !path::is_absolute(path))?;
     let first = path.split(['\\', '/']).next().unwrap_or("");
-    let there = |root: &str| {
-        std::path::Path::new(&path::join(&[root, first])).exists()
-    };
-    let own = !there(&folder) && there(&house);
-    path::join(&[if own { &house } else { &folder }, path])
+    Some([path::join(&[folder, first]), path::join(&[house, first])])
 }
 
 /// The arguments of a call, refused as pi refuses ones that break the

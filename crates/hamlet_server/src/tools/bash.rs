@@ -3,8 +3,10 @@
 //! (C16, C19). Every credential is taken out of its output before any
 //! of it is kept (C32).
 
+use hamlet_workspace_wire::Code;
 use serde_json::{Map, Value, json};
 
+use super::environment::{Reach as _, Remote};
 use super::truncate::{MAX_BYTES, MAX_LINES, Tail};
 use super::{
     Arguments, Outcome, Place, diagnostic, environment, number_words,
@@ -174,7 +176,7 @@ pub(super) async fn run(
 }
 
 pub(super) async fn remote(
-    env: &crate::workspace::Remote,
+    env: &mut Remote,
     place: &Place,
     secrets: &[String],
     arguments: &Map<String, Value>,
@@ -199,9 +201,10 @@ pub(super) async fn remote(
              tell the chief.",
         );
     }
-    match env.info(env.cwd()).await {
+    let cwd = env.cwd().to_owned();
+    match env.file_info(&cwd).await {
         Ok(info) if info.kind == FileKind::Directory => {}
-        Err(error) if error.code != "not_found" => {
+        Err(error) if error.code != Code::NotFound.as_str() => {
             return Outcome::failed(error.message);
         }
         _ => {
@@ -211,19 +214,7 @@ pub(super) async fn remote(
             ));
         }
     }
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Ran {
-        exit_code: i32,
-        stdout: String,
-        stderr: String,
-    }
-    let ran = env
-        .call::<Ran>(
-            json!({"kind":"exec", "argv":["/bin/bash","-c",command],
-        "cwd":env.cwd(), "timeout_ms":(wall * 1000.0).ceil() as u64}),
-        )
-        .await;
+    let ran = env.exec(command, (wall * 1000.0).ceil() as u64).await;
     let mut kept = Tail::default();
     let mut diagnostics = Vec::new();
     let mut exit = -1;
@@ -241,17 +232,15 @@ pub(super) async fn remote(
                     uuid::Uuid::new_v4()
                 );
                 let path = format!("{dir}/output.txt");
-                let spill = async {
-                    env.call::<()>(json!({"kind":"mkdir", "path":dir, "recursive":true})).await?;
-                    env.write(&path, output.as_bytes()).await.map_err(|error| anyhow::anyhow!("{}", error.message))
-                }.await;
+                let spill = env.write_file(&path, &output).await;
                 if let Err(error) = spill {
                     return Outcome::thrown(
                         "tool_error",
                         format!(
                             "The command ran but its full output \
-                             could not be saved: {error}. Inspect \
-                             its files before repeating it."
+                             could not be saved: {}. Inspect its \
+                             files before repeating it.",
+                            error.message
                         ),
                     );
                 }
@@ -279,15 +268,23 @@ pub(super) async fn remote(
                 }
             }
         }
-        Err(error) if error.code == "timeout" => kept.push(&format!(
-            "\n[timed out after {}s]",
-            number_words(wall)
-        )),
+        Err(error) if error.code == Code::Timeout => kept.push(
+            &format!("\n[timed out after {}s]", number_words(wall)),
+        ),
         Err(error) => kept.push(&format!(
             "Error: {error}. Inspect the output before trying \
              again, or tell the chief."
         )),
     }
-    Outcome { text:kept.text(), error:exit != 0,
-        details:json!({"exitCode":exit,"policy":env.policy(),"degraded":false}).as_object().cloned(), diagnostics }
+    let details = json!({
+        "exitCode": exit,
+        "policy": env.policy(),
+        "degraded": false,
+    });
+    Outcome {
+        text: kept.text(),
+        error: exit != 0,
+        details: details.as_object().cloned(),
+        diagnostics,
+    }
 }

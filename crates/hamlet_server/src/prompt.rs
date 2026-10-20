@@ -6,13 +6,13 @@ pub(crate) mod shelf;
 #[cfg(test)]
 mod tests;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde_json::Value;
 
 use crate::harness::link::Section;
-use crate::papers::cut;
+use crate::papers::{Reader, cut};
 use crate::record::trim;
 use crate::service::Service;
 use crate::spend::{books, money};
@@ -92,10 +92,16 @@ pub(crate) async fn sections(
 /// reads.
 pub(crate) struct Prepared {
     pub sections: Vec<Section>,
-    house: std::path::PathBuf,
+    /// The house as the agent's tools see it.
+    house: PathBuf,
+    /// The house on this machine, where it is here.
+    local: PathBuf,
     work: Value,
-    remote: Option<crate::workspace::Remote>,
-    reader: Option<crate::workspace::Remote>,
+    /// Whether the hamlet's folder is a remote one its agents share.
+    shared: bool,
+    /// The house and folder the notes, skills and project are read
+    /// from, unless the sections are fixed.
+    reader: Option<Reader>,
 }
 
 impl Prepared {
@@ -103,8 +109,9 @@ impl Prepared {
         Self {
             sections,
             house: Default::default(),
+            local: Default::default(),
             work: Value::Null,
-            remote: None,
+            shared: false,
             reader: None,
         }
     }
@@ -114,38 +121,29 @@ impl Prepared {
     }
 
     pub async fn render(mut self) -> Result<Vec<Section>> {
-        let project =
-            project(&self.work, &self.house, self.remote.as_ref())
-                .await?;
-        for section in &mut self.sections {
-            match section.name.as_str() {
-                "project" => {
-                    section.text = project.clone().unwrap_or_default()
+        if let Some(reader) = &self.reader {
+            let project =
+                project(&self.work, &self.house, self.shared, reader)
+                    .await;
+            for section in &mut self.sections {
+                match section.name.as_str() {
+                    "project" => {
+                        section.text =
+                            project.clone().unwrap_or_default()
+                    }
+                    "skills" => {
+                        section.text = shelf::skills_text(
+                            &self.house,
+                            &reader.skills(&self.local).await,
+                        );
+                    }
+                    "notes" => {
+                        section.text = notes_text(
+                            &reader.notes().await.unwrap_or_default(),
+                        );
+                    }
+                    _ => {}
                 }
-                "skills" if self.reader.is_some() => {
-                    section.text = shelf::skills_text(
-                        &self.house,
-                        &shelf::remote_skills(
-                            self.reader
-                                .as_ref()
-                                .expect("remote reader"),
-                        )
-                        .await,
-                    );
-                }
-                "notes" if self.reader.is_some() => {
-                    let bytes = self
-                        .reader
-                        .as_ref()
-                        .expect("remote reader")
-                        .read("/house/NOTES.md", true)
-                        .await
-                        .unwrap_or_default();
-                    section.text = notes_text(
-                        &String::from_utf8(bytes).unwrap_or_default(),
-                    );
-                }
-                _ => {}
             }
         }
         self.sections.retain(|section| !section.text.is_empty());
@@ -159,40 +157,17 @@ pub(crate) fn prepare(
 ) -> Result<Prepared> {
     let number = u64::try_from(subject.number)?;
     let root = service.home.layout().root().to_owned();
-    let house = root
+    let local = root
         .join("houses")
         .join(subject.hamlet)
         .join(number.to_string());
-    let remote = service.remote_tools(
-        &crate::record::AgentRef {
-            hamlet: subject.hamlet.into(),
-            number,
-        },
-        false,
-    )?;
-    let house = if remote.is_some() {
-        std::path::PathBuf::from("/house")
-    } else {
-        house
-    };
-    let reader =
-        service.houses.remote(subject.hamlet, number, true)?;
-    let skills = if reader.is_some() {
-        String::new()
-    } else {
-        shelf::skills(&house)
-    };
-    let notes = if reader.is_some() {
-        String::new()
-    } else {
-        notes_text(
-            &service
-                .houses
-                .read(subject.hamlet, number)
-                .unwrap_or_default(),
-        )
-    };
     let work = service.work(subject.hamlet)?;
+    let reader = service.houses.reader(
+        subject.hamlet,
+        number,
+        !work["folder"].is_null(),
+    )?;
+    let house = reader.house(&local);
     let record = service.home.store().record(subject.hamlet)?;
     let agent = record
         .as_ref()
@@ -204,18 +179,14 @@ pub(crate) fn prepare(
         ("machine", Some(machine(service, subject, &house)?)),
         ("project", Some(String::new())),
         ("character", agent.and_then(|a| character(&a.character))),
-        ("notes", Some(notes)),
-        ("skills", Some(skills)),
+        ("notes", Some(String::new())),
+        ("skills", Some(String::new())),
         (
             "library",
-            if remote.is_some() {
-                shelf::library_at(
-                    &root.join("library"),
-                    Path::new("/library"),
-                )
-            } else {
-                shelf::library(&root.join("library"))
-            },
+            shelf::library_at(
+                &root.join("library"),
+                &reader.library(&root.join("library")),
+            ),
         ),
         (
             "hamlet",
@@ -243,9 +214,10 @@ pub(crate) fn prepare(
     Ok(Prepared {
         sections,
         house,
+        local,
         work,
-        remote,
-        reader,
+        shared: service.houses.machine().is_some(),
+        reader: Some(reader),
     })
 }
 
@@ -441,18 +413,8 @@ fn machine(
     subject: &Subject,
     house: &Path,
 ) -> Result<String> {
-    if service.houses.workspace.is_some() {
-        return Ok("# Environment\nSandbox: remote workspace. \
-                   System: Linux. Network is denied unless \
-                   granted. Granted commands use HTTP_PROXY and \
-                   HTTPS_PROXY for public HTTP(S) on ports 80 and \
-                   443; direct sockets, private destinations and \
-                   UDP remain blocked. Commands write only this \
-                   agent's /house and the enabled shared \
-                   /project. Output is buffered until the process \
-                   tree exits, at most 1 MiB; file transfers are \
-                   limited to 4 MiB."
-            .into());
+    if let Some(machine) = service.houses.machine() {
+        return Ok(machine.into());
     }
     let settings = service.settings()?;
     let net = if settings["allowNet"] == true {
@@ -483,19 +445,17 @@ fn machine(
 async fn project(
     work: &Value,
     house: &Path,
-    remote: Option<&crate::workspace::Remote>,
-) -> Result<Option<String>> {
-    let Some(folder) = work["folder"].as_str() else {
-        return Ok(None);
-    };
-    let folder = if remote.is_some() { "/project" } else { folder };
+    shared: bool,
+    reader: &Reader,
+) -> Option<String> {
+    let folder = reader.folder(work["folder"].as_str()?);
     let mut lines = vec![
         format!(
             "Your hamlet works on the folder {folder}. The work a \
              chief asks for is done there. This changes what is \
              said above about where commands run:"
         ),
-        if remote.is_some() {
+        if shared {
             "- `bash` runs in /project, shared with this hamlet's \
              agents. Only /project, your own /house, the read-only \
              shared /library and installed runtime are visible. This \
@@ -527,14 +487,7 @@ async fn project(
             house.display()
         ),
     ];
-    let folder = Path::new(folder);
-    let git = match remote {
-        Some(remote) => {
-            remote.exists("/project/.git").await.unwrap_or(false)
-        }
-        None => folder.join(".git").exists(),
-    };
-    if git {
+    if reader.project_has(folder, ".git").await {
         lines.push(
             "- The project is a git repository. When two agents \
              must work apart, the mayor may have one of them use a \
@@ -554,19 +507,10 @@ async fn project(
         );
     }
     for name in INSTRUCTIONS {
-        let text = match remote {
-            Some(remote) => remote
-                .read(&format!("/project/{name}"), false)
-                .await
-                .ok()
-                .map(|bytes| {
-                    String::from_utf8_lossy(&bytes).into_owned()
-                }),
-            None => std::fs::read_to_string(folder.join(name)).ok(),
-        };
-        let Some(text) = text else {
+        let Some(bytes) = reader.project(folder, name).await else {
             continue;
         };
+        let text = String::from_utf8_lossy(&bytes);
         let note = format!(
             "\n[{name} is longer than {NOTES_SHOWN} characters and \
              is cut here.]"
@@ -577,10 +521,10 @@ async fn project(
         ));
         break;
     }
-    Ok(Some(
+    Some(
         trim_end(&format!("# The project\n{}", lines.join("\n")))
             .into(),
-    ))
+    )
 }
 
 fn character(text: &str) -> Option<String> {

@@ -10,7 +10,6 @@ use crate::OperationId;
 use crate::harness::Harnesses;
 use crate::papers::tree::Entry;
 use crate::service::Service;
-use crate::workspace::Remote;
 
 /// House work running apart from the service loop, and what waits
 /// for it, by the operation that started it.
@@ -117,18 +116,17 @@ impl Work {
         self.cleaned.remove(id)
     }
 
-    /// Prepares the remote house of the hamlet founded by vote `vote`
-    /// of `hamlet`.
+    /// Prepares the house of the mayor of the hamlet founded by vote
+    /// `vote` of `hamlet` with `initialize`.
     pub fn found(
         &mut self,
         hamlet: String,
         vote: u64,
-        remote: Remote,
+        initialize: impl Future<Output = Result<()>> + Send + 'static,
     ) {
         self.founding.insert((hamlet.clone(), vote));
         self.tasks.spawn(async move {
-            let result =
-                remote.initialize().await.map_err(Into::into);
+            let result = initialize.await;
             Completed::Founded {
                 hamlet,
                 vote,
@@ -167,12 +165,16 @@ impl Work {
         Ok(())
     }
 
-    /// Prepares the remote house of the agent recorded by `id`.
-    pub fn initialize(&mut self, id: OperationId, remote: Remote) {
+    /// Prepares the house of the agent recorded by `id` with
+    /// `initialize`.
+    pub fn initialize(
+        &mut self,
+        id: OperationId,
+        initialize: impl Future<Output = Result<()>> + Send + 'static,
+    ) {
         self.pending.insert(id.clone());
         self.tasks.spawn(async move {
-            let result =
-                remote.initialize().await.map_err(Into::into);
+            let result = initialize.await;
             Completed::Initialized { id, result }
         });
     }
@@ -192,8 +194,8 @@ pub(crate) async fn complete(
             service.house_work.founding.remove(&(hamlet, vote));
             if let Err(error) = result {
                 let mut diagnostic = json!(format!(
-                    "Could not prepare the founded hamlet's remote \
-                     house: {error}"
+                    "Could not prepare the founded hamlet's house: \
+                     {error}"
                 ));
                 service.credentials.scrub(&mut diagnostic);
                 eprintln!("{diagnostic}");
@@ -226,8 +228,8 @@ pub(crate) async fn complete(
             service.house_work.pending.remove(&id);
             if let Err(error) = result {
                 let mut diagnostic = json!(format!(
-                    "Could not prepare the recorded agent's remote \
-                     house: {error}"
+                    "Could not prepare the recorded agent's house: \
+                     {error}"
                 ));
                 service.credentials.scrub(&mut diagnostic);
                 eprintln!("{diagnostic}");

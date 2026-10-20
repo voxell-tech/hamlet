@@ -1,7 +1,7 @@
-//! Merge manifests retained before house changes and replayed at
-//! startup.
+//! Merge manifests retained before house changes and applied by the
+//! merge lane, or replayed at startup.
 
-pub(crate) mod remote;
+pub(crate) mod lane;
 
 use std::collections::BTreeMap;
 
@@ -10,13 +10,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::{Caller, Deed, outcome};
+use super::{Caller, outcome};
 use crate::harness::Harnesses;
 use crate::operation::Request;
 use crate::papers::NOTES;
 use crate::papers::files::Files;
 use crate::papers::tree::{self, Entry};
-use crate::protocol::Refusal;
 use crate::record::{
     self, Actor, AgentRef, BroughtFile, Change, Departure,
     MergeFiles, MergeNotes, RecordOperation, RecordResult,
@@ -90,19 +89,6 @@ impl Unplanned {
 
 /// A merge's plan, or why there is none.
 type Planned = std::result::Result<Plan, Unplanned>;
-
-async fn prepare(
-    service: &mut Service,
-    hamlet: &str,
-    actor: Actor,
-    args: &Value,
-    task: Option<String>,
-) -> Result<Planned> {
-    match preparing(service, hamlet, actor, args, task)? {
-        Ok(preparing) => preparing.run().await,
-        Err(error) => Ok(Err(error)),
-    }
-}
 
 struct Preparing {
     operation: RecordOperation,
@@ -183,8 +169,8 @@ fn preparing(
         return Ok(Err(Unplanned::Refused(refusal)));
     }
     Ok(Ok(Preparing {
-        mine: service.houses.files(hamlet, kept.number)?,
-        theirs: service.houses.files(hamlet, gone.number)?,
+        mine: service.houses.house(hamlet, kept.number)?,
+        theirs: service.houses.house(hamlet, gone.number)?,
         root: service.houses.root().try_clone()?,
         operation,
         kept,
@@ -565,15 +551,17 @@ fn commit(
     })
 }
 
+/// A merge an agent asked for: offered to the merge lane, then
+/// committed once the lane has its plan, with its file work back on
+/// the lane.
 pub(super) async fn operation(
     service: &mut Service,
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
     args: &Value,
 ) -> Result<Option<Value>> {
-    let remote = service.houses.workspace.is_some();
-    if remote && !service.merges.owns(&caller.id) {
-        remote::offer(service, caller, args)?;
+    if !service.merges.owns(&caller.id) {
+        lane::offer(service, caller, args)?;
         return Ok(None);
     }
     let ready = service.merges.take(&caller.id);
@@ -587,44 +575,21 @@ pub(super) async fn operation(
         &key,
     )? {
         Some(plan) => plan,
-        None => {
-            let actor = super::actor(
-                service.home.store().connection(),
-                &caller.place.agent,
-            )?;
-            let prepared = if remote {
-                ready.expect("completed merge preparation")
-            } else {
-                prepare(
-                    service,
-                    &caller.place.agent.hamlet,
-                    actor,
-                    args,
-                    caller.task.clone(),
-                )
-                .await?
-            };
-            match prepared {
-                Ok(plan) => {
-                    super::keep(
-                        service.home.store().connection(),
-                        "merge-plan",
-                        &key,
-                        &plan,
-                    )?;
-                    plan
-                }
-                Err(unplanned) => {
-                    if remote {
-                        remote::release(service, &caller.id);
-                    }
-                    return Ok(Some(outcome(
-                        &unplanned.text(),
-                        true,
-                    )));
-                }
+        None => match ready.context("completed merge preparation")? {
+            Ok(plan) => {
+                super::keep(
+                    service.home.store().connection(),
+                    "merge-plan",
+                    &key,
+                    &plan,
+                )?;
+                plan
             }
-        }
+            Err(unplanned) => {
+                lane::release(service, &caller.id);
+                return Ok(Some(outcome(&unplanned.text(), true)));
+            }
+        },
     };
     if let Some(prompt) = &plan.prompt {
         let Some(answer) = super::errands::run(
@@ -660,71 +625,17 @@ pub(super) async fn operation(
             &plan.gone.hamlet,
             plan.gone.number,
         )?;
-        if remote {
-            if remote::apply_call(
-                service,
-                &caller.id,
-                &plan.kept.hamlet,
-                result["archive"].as_str().expect("merge archive"),
-            )? {
-                return Ok(None);
-            }
-        } else {
-            finish(service).await?;
+        if lane::apply_call(
+            service,
+            &caller.id,
+            &plan.kept.hamlet,
+            result["archive"].as_str().expect("merge archive"),
+        )? {
+            return Ok(None);
         }
     }
-    if remote {
-        remote::release(service, &caller.id);
-    }
+    lane::release(service, &caller.id);
     Ok(Some(result))
-}
-
-pub(super) async fn deed(
-    service: &mut Service,
-    harnesses: &mut Harnesses,
-    hamlet: &str,
-    rest: &str,
-) -> Result<Deed> {
-    let words = rest.split_whitespace().collect::<Vec<_>>();
-    if words.len() < 3 || words[1] != "into" {
-        return Ok(Err(Refusal::Invalid(
-            "Use /merge <absorbed> into <kept> [reason].".into(),
-        )));
-    }
-    let args = json!({"absorb":words[0],"keep":words[2],"reason":words[3..].join(" ")});
-    let plan = match prepare(
-        service,
-        hamlet,
-        Actor::Chief(service.chief.clone()),
-        &args,
-        None,
-    )
-    .await?
-    {
-        Ok(plan) => plan,
-        Err(unplanned) => {
-            return Ok(Err(Refusal::Invalid(unplanned.text())));
-        }
-    };
-    crate::chats::stop_agent(service, harnesses, &plan.kept).await?;
-    crate::chats::stop_agent(service, harnesses, &plan.gone).await?;
-    let result = commit(
-        service,
-        &OperationId {
-            runtime: crate::RuntimeInstance::new("chief")?,
-            key: uuid::Uuid::new_v4().to_string(),
-        },
-        &Request::new("merge", &plan)?,
-        &plan,
-    )?;
-    finish(service).await?;
-    if result["error"] == true {
-        Ok(Err(Refusal::Invalid(
-            result["text"].as_str().unwrap_or_default().into(),
-        )))
-    } else {
-        Ok(Ok(result["text"].as_str().unwrap_or_default().into()))
-    }
 }
 
 /// A merge's file work on its kept house: the files its snapshot
@@ -757,7 +668,7 @@ impl Applying {
             entry.merge.as_ref().expect("merge manifest").kept.number;
         Ok(Self {
             root: service.houses.root().try_clone()?,
-            house: service.houses.files(hamlet, kept)?,
+            house: service.houses.house(hamlet, kept)?,
             merge: Applied {
                 hamlet: hamlet.into(),
                 entry,
@@ -766,12 +677,12 @@ impl Applying {
         })
     }
 
-    /// Does the file work; `notes` reads the kept agent's notes as
-    /// they are now.
-    async fn run<F: Future<Output = Result<String>>>(
-        &self,
-        notes: impl Fn() -> F,
-    ) -> Result<()> {
+    /// Does the file work.
+    async fn run(&self) -> Result<()> {
+        let notes = async || {
+            let bytes = self.house.read_file(NOTES, CAP).await?;
+            anyhow::Ok(String::from_utf8(bytes)?)
+        };
         let merge =
             self.merge.entry.merge.as_ref().expect("merge manifest");
         crate::fault::point("after_merge_record");
@@ -919,7 +830,9 @@ pub(crate) async fn finish(service: &mut Service) -> Result<()> {
                 let_go(service, &r.id, &entry.id, &plan.snapshot)?;
                 continue;
             }
-            if service.houses.workspace.is_some() {
+            // An attempt a crash cut short is replayed only where
+            // every house change is known to have happened or not.
+            if !service.houses.confirms() {
                 if super::document::<Option<bool>>(
                     service.home.store().connection(),
                     "remote-merge-attempt",
@@ -942,9 +855,7 @@ pub(crate) async fn finish(service: &mut Service) -> Result<()> {
                 entry.clone(),
                 plan.snapshot,
             )?;
-            let houses = &service.houses;
-            work.run(|| houses.read_notes(&r.id, merge.kept.number))
-                .await?;
+            work.run().await?;
             work.done().applied(service)?;
         }
     }

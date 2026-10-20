@@ -8,9 +8,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::{fs, thread};
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
 use hamlet_acceptance::{Script, call, words};
+use hamlet_workspace_wire as wire;
 use sha2::{Digest, Sha256};
 
 use super::*;
@@ -201,8 +200,15 @@ impl Manager {
     }
 }
 
+/// The manager's reply to `request`, which must be a typed one.
 fn performed(root: &Path, request: &Value) -> Value {
-    perform(root, request).map(|value| json!({"kind":"ok","value":value})).unwrap_or_else(|error| json!({"kind":"error","code":if error.kind() == std::io::ErrorKind::NotFound {"not_found"} else {"invalid"},"message":"manager refused path","uncertain":false}))
+    let reply = match perform(root, request) {
+        Ok(value) => wire::Reply::Ok { value },
+        Err(code) => {
+            wire::Reply::error(code, "manager refused path", false)
+        }
+    };
+    serde_json::to_value(reply).unwrap()
 }
 
 fn answer(stream: &mut TcpStream, value: Value) {
@@ -218,57 +224,118 @@ fn answer(stream: &mut TcpStream, value: Value) {
 
 fn location(
     root: &Path,
-    request: &Value,
+    request: &wire::Request,
     path: &str,
-) -> std::io::Result<PathBuf> {
+) -> Result<PathBuf, wire::Code> {
     if path.split('/').any(|part| part == "..") {
-        return Err(std::io::ErrorKind::PermissionDenied.into());
+        return Err(wire::Code::PermissionDenied);
     }
-    let workspace = request["workspace"].as_str().unwrap();
-    let agent = request["agent"].as_u64().unwrap();
+    let workspace = &request.workspace;
+    let agent = request.agent;
     for (prefix, dir) in [
         ("/house", root.join(format!("{workspace}/{agent}"))),
         ("/project", root.join(format!("{workspace}/project"))),
         ("/library", root.join(format!("{workspace}/library"))),
     ] {
-        if path == prefix {
-            return Ok(dir);
-        }
-        if let Some(rest) = path.strip_prefix(&format!("{prefix}/")) {
-            return Ok(dir.join(rest));
-        }
+        let rest = if path == prefix {
+            ""
+        } else if let Some(rest) =
+            path.strip_prefix(&format!("{prefix}/"))
+        {
+            rest
+        } else {
+            continue;
+        };
+        return Ok(dir.join(rest));
     }
-    Err(std::io::ErrorKind::PermissionDenied.into())
+    Err(wire::Code::PermissionDenied)
 }
 
-fn information(path: &Path) -> std::io::Result<Value> {
+/// `path`, refused as the worker refuses it where `no_follow` is set
+/// and a link is anywhere in it.
+fn reached(
+    root: &Path,
+    request: &wire::Request,
+    path: &str,
+    no_follow: bool,
+) -> Result<PathBuf, wire::Code> {
+    let at = location(root, request, path)?;
+    if no_follow {
+        let top = path.split('/').nth(1).unwrap_or_default();
+        let mut current =
+            location(root, request, &format!("/{top}"))?;
+        let rest = at.strip_prefix(&current).unwrap().to_path_buf();
+        for part in rest.components() {
+            current.push(part);
+            if fs::symlink_metadata(&current)
+                .is_ok_and(|info| info.is_symlink())
+            {
+                return Err(wire::Code::Invalid);
+            }
+        }
+    }
+    Ok(at)
+}
+
+fn code(error: std::io::Error) -> wire::Code {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => wire::Code::NotFound,
+        std::io::ErrorKind::AlreadyExists => {
+            wire::Code::AlreadyExists
+        }
+        std::io::ErrorKind::PermissionDenied => {
+            wire::Code::PermissionDenied
+        }
+        _ => wire::Code::Invalid,
+    }
+}
+
+fn stat(path: &Path) -> std::io::Result<wire::Stat> {
     let info = fs::symlink_metadata(path)?;
-    Ok(
-        json!({"name":path.file_name().unwrap().to_string_lossy(),"size":info.len(),"kind":if info.is_symlink(){"symlink"}else if info.is_dir(){"directory"}else{"file"}}),
-    )
+    Ok(wire::Stat {
+        name: path.file_name().unwrap().to_string_lossy().into(),
+        path: path.to_string_lossy().into(),
+        kind: if info.is_symlink() {
+            wire::Kind::Symlink
+        } else if info.is_dir() {
+            wire::Kind::Directory
+        } else {
+            wire::Kind::File
+        },
+        size: info.len(),
+        mtime_ms: 0,
+    })
 }
 
 fn tree(
     root: &Path,
     path: &Path,
-    entries: &mut Vec<Value>,
+    entries: &mut Vec<wire::TreeEntry>,
 ) -> std::io::Result<()> {
     let info = fs::symlink_metadata(path)?;
     let relative = path.strip_prefix(root).unwrap().to_str().unwrap();
     let kind = if info.is_symlink() {
-        "link"
+        wire::TreeKind::Link
     } else if info.is_dir() {
-        "directory"
+        wire::TreeKind::Directory
     } else {
-        "file"
+        wire::TreeKind::File
     };
-    let hash = if kind == "file" {
-        Some(format!("{:x}", Sha256::digest(fs::read(path)?)))
-    } else {
-        None
-    };
-    entries.push(json!({"path":if relative.is_empty(){"."}else{relative},"kind":kind,"size":if kind == "file"{info.len()}else{0},"mode":info.permissions().mode() & 0o777,"sha256":hash}));
-    if kind == "directory" {
+    let file = kind == wire::TreeKind::File;
+    entries.push(wire::TreeEntry {
+        path: if relative.is_empty() { "." } else { relative }.into(),
+        kind,
+        mode: info.permissions().mode() & 0o777,
+        size: if file { info.len() } else { 0 },
+        sha256: file
+            .then(|| {
+                fs::read(path).map(|bytes| {
+                    format!("{:x}", Sha256::digest(bytes))
+                })
+            })
+            .transpose()?,
+    });
+    if kind == wire::TreeKind::Directory {
         for entry in fs::read_dir(path)? {
             tree(root, &entry?.path(), entries)?;
         }
@@ -276,132 +343,232 @@ fn tree(
     Ok(())
 }
 
-fn perform(root: &Path, request: &Value) -> std::io::Result<Value> {
-    let op = &request["operation"];
-    let house = location(root, request, "/house")?;
-    fs::create_dir_all(&house)?;
-    if let Some(library) = request["library"].as_array() {
-        let shelf = location(root, request, "/library")?;
-        for file in library {
-            let path = shelf.join(file["path"].as_str().unwrap());
-            fs::create_dir_all(path.parent().unwrap())?;
-            fs::write(
-                path,
-                STANDARD
-                    .decode(file["data"].as_str().unwrap())
-                    .unwrap(),
-            )?;
-        }
+/// Takes the request's library as the worker does: by its digest,
+/// with its files only where this manager does not hold them yet.
+fn library(
+    root: &Path,
+    request: &wire::Request,
+) -> Result<(), wire::Code> {
+    let Some(library) = &request.library else {
+        return Ok(());
+    };
+    let held = root.join(".libraries").join(&library.sha256);
+    let Some(files) = &library.files else {
+        return if held.exists() {
+            Ok(())
+        } else {
+            Err(wire::Code::LibraryMissing)
+        };
+    };
+    assert_eq!(wire::Library::digest(files), library.sha256);
+    let shelf = location(root, request, "/library")?;
+    for file in files {
+        let path = shelf.join(&file.path);
+        fs::create_dir_all(path.parent().unwrap()).map_err(code)?;
+        fs::write(path, &file.data.0).map_err(code)?;
     }
-    let path = op["path"]
-        .as_str()
-        .map(|path| location(root, request, path))
-        .transpose()?;
-    let kind = op["kind"].as_str().unwrap();
-    if request["read_only"] == true
-        && ["write", "tree_write", "remove", "mkdir"].contains(&kind)
-    {
-        return Err(std::io::ErrorKind::PermissionDenied.into());
+    fs::create_dir_all(held).map_err(code)
+}
+
+fn ok(value: impl serde::Serialize) -> Result<Value, wire::Code> {
+    Ok(serde_json::to_value(value).unwrap())
+}
+
+/// `request` carried out on the manager's files, as protocol v1
+/// types it.
+fn perform(
+    root: &Path,
+    request: &Value,
+) -> Result<Value, wire::Code> {
+    let request =
+        serde_json::from_value::<wire::Request>(request.clone())
+            .expect("the server sends typed workspace requests");
+    let house = location(root, &request, "/house")?;
+    fs::create_dir_all(&house).map_err(code)?;
+    library(root, &request)?;
+    let at = |path: &str, no_follow| {
+        reached(root, &request, path, no_follow)
+    };
+    use wire::Operation as Op;
+    let writes = matches!(
+        request.operation,
+        Op::Write(_)
+            | Op::TreeWrite(_)
+            | Op::Remove(_)
+            | Op::Mkdir(_)
+            | Op::SetMode(_)
+    );
+    if request.read_only && writes {
+        return Err(wire::Code::PermissionDenied);
     }
-    match kind {
-        "init_house" => {
-            fs::create_dir_all(house.join("skills"))?;
-            fs::create_dir_all(house.join("inbox"))?;
+    match request.operation.clone() {
+        Op::InitHouse(_) => {
+            fs::create_dir_all(house.join("skills")).map_err(code)?;
+            fs::create_dir_all(house.join("inbox")).map_err(code)?;
             if !house.join("NOTES.md").exists() {
-                fs::write(house.join("NOTES.md"), "# Notes\n")?;
+                fs::write(house.join("NOTES.md"), "# Notes\n")
+                    .map_err(code)?;
             }
+            ok(())
         }
-        "info" => return information(&path.unwrap()),
-        "canonical" => return Ok(op["path"].clone()),
-        "list" => {
-            return Ok(fs::read_dir(path.unwrap())?
-                .map(|entry| information(&entry?.path()))
-                .collect::<std::io::Result<Vec<_>>>()?
-                .into());
+        Op::Info(info) => {
+            ok(stat(&at(&info.path, info.no_follow)?)
+                .map_err(code)?)
         }
-        "read" => {
-            let path = path.unwrap();
-            if op["no_follow"] == true
-                && fs::symlink_metadata(&path)?.is_symlink()
+        Op::Canonical(canonical) => ok(canonical.path),
+        Op::List(list) => {
+            ok(fs::read_dir(at(&list.path, list.no_follow)?)
+                .map_err(code)?
+                .map(|entry| stat(&entry?.path()))
+                .collect::<std::io::Result<Vec<_>>>()
+                .map_err(code)?)
+        }
+        Op::Read(read) => {
+            let path = at(&read.path, read.no_follow)?;
+            if read.no_follow
+                && fs::symlink_metadata(&path)
+                    .map_err(code)?
+                    .is_symlink()
             {
-                return Err(std::io::ErrorKind::InvalidInput.into());
+                return Err(wire::Code::Invalid);
             }
-            return Ok(
-                json!({"info":information(&path)?,"data":STANDARD.encode(fs::read(&path)?)}),
-            );
+            ok(wire::Contents {
+                info: stat(&path).map_err(code)?,
+                data: wire::Bytes(fs::read(&path).map_err(code)?),
+            })
         }
-        "write" | "tree_write" => {
-            let path = path.unwrap();
-            fs::create_dir_all(path.parent().unwrap())?;
-            let mut file = fs::OpenOptions::new()
+        Op::Write(write) => {
+            let path = at(&write.path, write.no_follow)?;
+            if write.parents {
+                fs::create_dir_all(path.parent().unwrap())
+                    .map_err(code)?;
+            }
+            fs::OpenOptions::new()
                 .write(true)
                 .create(true)
-                .truncate(true)
-                .create_new(kind == "tree_write")
-                .open(&path)?;
-            file.write_all(
-                &STANDARD
-                    .decode(op["data"].as_str().unwrap())
-                    .unwrap(),
-            )?;
-            if kind == "tree_write" {
-                fs::set_permissions(
-                    &path,
-                    fs::Permissions::from_mode(
-                        op["mode"].as_u64().unwrap() as u32,
-                    ),
-                )?;
+                .append(write.append)
+                .truncate(!write.append)
+                .open(&path)
+                .and_then(|mut file| file.write_all(&write.data.0))
+                .map_err(code)?;
+            ok(())
+        }
+        Op::TreeWrite(write) => {
+            let path = at(&write.path, true)?;
+            fs::create_dir_all(path.parent().unwrap())
+                .map_err(code)?;
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .and_then(|mut file| file.write_all(&write.data.0))
+                .and_then(|()| {
+                    fs::set_permissions(
+                        &path,
+                        fs::Permissions::from_mode(write.mode),
+                    )
+                })
+                .map_err(code)?;
+            ok(())
+        }
+        Op::SetMode(set) => {
+            let path = at(&set.path, true)?;
+            if fs::symlink_metadata(&path).map_err(code)?.is_symlink()
+            {
+                return Err(wire::Code::Invalid);
             }
-        }
-        "mkdir" => {
-            if op["recursive"] == true {
-                fs::create_dir_all(path.unwrap())?
-            } else {
-                fs::create_dir(path.unwrap())?
-            }
-        }
-        "tree_list" => {
-            let path = path.unwrap();
-            let mut entries = Vec::new();
-            tree(&path, &path, &mut entries)?;
-            return Ok(entries.into());
-        }
-        "remove" => {
-            let path = path.unwrap();
-            if fs::symlink_metadata(&path)?.is_dir() {
-                if op["recursive"] == true {
-                    fs::remove_dir_all(path)?
-                } else {
-                    fs::remove_dir(path)?
-                }
-            } else {
-                fs::remove_file(path)?
-            }
-        }
-        "exec" if op["argv"][0] == "/usr/bin/chmod" => {
-            let mode = u32::from_str_radix(
-                op["argv"][2].as_str().unwrap(),
-                8,
-            )
-            .unwrap();
             fs::set_permissions(
-                location(
-                    root,
-                    request,
-                    op["argv"][3].as_str().unwrap(),
-                )?,
-                fs::Permissions::from_mode(mode),
-            )?;
-            return Ok(json!({"exitCode":0,"stdout":"","stderr":""}));
+                path,
+                fs::Permissions::from_mode(set.mode),
+            )
+            .map_err(code)?;
+            ok(())
         }
-        "exec" => {
-            return Ok(
-                json!({"exitCode":0,"stdout":"remote-command-output","stderr":""}),
+        Op::Mkdir(mkdir) => {
+            let path = at(&mkdir.path, mkdir.no_follow)?;
+            if mkdir.recursive {
+                fs::create_dir_all(path)
+            } else {
+                fs::create_dir(path)
+            }
+            .map_err(code)?;
+            ok(())
+        }
+        Op::TreeList(list) => {
+            let path = at(&list.path, true)?;
+            let mut entries = Vec::new();
+            tree(&path, &path, &mut entries).map_err(code)?;
+            if entries.len() as u64 > list.entries {
+                return Err(wire::Code::TooMany);
+            }
+            ok(entries)
+        }
+        Op::Remove(remove) => {
+            let path = at(&remove.path, remove.no_follow)?;
+            let removed = match fs::symlink_metadata(&path) {
+                Ok(info) if info.is_dir() && remove.recursive => {
+                    fs::remove_dir_all(path)
+                }
+                Ok(info) if info.is_dir() => fs::remove_dir(path),
+                Ok(_) => fs::remove_file(path),
+                Err(error) => Err(error),
+            };
+            match removed {
+                Err(error)
+                    if remove.force
+                        && error.kind()
+                            == std::io::ErrorKind::NotFound => {}
+                removed => removed.map_err(code)?,
+            }
+            ok(())
+        }
+        Op::Walk(walk) => {
+            let root = at(&walk.path, true)?;
+            let base = root.to_string_lossy().into_owned();
+            let walked = wire::walk(
+                &walk.path,
+                &walk.skip,
+                walk.files,
+                |dir| {
+                    let physical = PathBuf::from(format!(
+                        "{base}{}",
+                        &dir[walk.path.len()..]
+                    ));
+                    fs::read_dir(physical).map(|entries| {
+                        entries
+                            .flatten()
+                            .filter_map(|entry| {
+                                let info = fs::symlink_metadata(
+                                    entry.path(),
+                                )
+                                .ok()?;
+                                let kind = if info.is_symlink() {
+                                    wire::Listed::Other
+                                } else if info.is_dir() {
+                                    wire::Listed::Directory
+                                } else {
+                                    wire::Listed::File(info.len())
+                                };
+                                Some((
+                                    entry
+                                        .file_name()
+                                        .to_string_lossy()
+                                        .into_owned(),
+                                    kind,
+                                ))
+                            })
+                            .collect()
+                    })
+                },
             );
+            ok(walked)
         }
-        _ => panic!("unimplemented fixture operation {op}"),
+        Op::Exec(_) => ok(wire::Ran {
+            exit_code: 0,
+            stdout: "remote-command-output".into(),
+            stderr: String::new(),
+        }),
     }
-    Ok(Value::Null)
 }
 
 async fn send(socket: &mut Socket, mut message: Value) -> String {
@@ -596,9 +763,9 @@ async fn remote_houses_prompt_gifts_and_backend_move_do_not_open_host_houses()
 async fn approval(socket: &mut Socket) -> Value {
     let message = until(socket, |value| {
         value["changes"].as_array().is_some_and(|changes| {
-            changes
-                .iter()
-                .any(|change| change["wait"]["detail"]["kind"] == "approval")
+            changes.iter().any(|change| {
+                change["wait"]["detail"]["kind"] == "approval"
+            })
         })
     })
     .await;
@@ -710,8 +877,7 @@ async fn remote_notes_do_not_hold_other_clients_disconnect_or_shutdown()
 }
 
 #[tokio::test]
-async fn remote_startup_signal_releases_the_home_before_manager_reply()
- {
+async fn remote_startup_signal_releases_the_home_before_manager_ok() {
     let manager = Manager::start();
     let home = Scratch::new("remote-startup-signal");
     credentials(&home, &manager.url);
@@ -800,20 +966,16 @@ async fn remote_tools_approve_house_writes_forward_grants_and_cancel_exact_reque
     assert_eq!(req["network"], true);
     assert_eq!(req["read_only"], false);
     assert_eq!(req["operation"]["cwd"], "/project");
-    assert!(
-        req["library"]
-            .as_array()
+    assert!(req["library"]["sha256"].is_string());
+    let library = manager.files.join("home/library");
+    assert!(library.join("weather/SKILL.md").is_file());
+    assert!(!fs::read_dir(&library).unwrap().any(|entry| {
+        entry
             .unwrap()
-            .iter()
-            .any(|file| file["path"] == "weather/SKILL.md")
-    );
-    assert!(
-        !req["library"].as_array().unwrap().iter().any(|file| file
-            ["path"]
-            .as_str()
-            .unwrap()
-            .starts_with('.'))
-    );
+            .file_name()
+            .to_string_lossy()
+            .starts_with('.')
+    }));
     let stopped = request(&mut socket,json!({"type":"stop","agent":{"hamlet":"home","agent":"mayor"}})).await;
     assert_eq!(stopped["kind"], "notice", "{stopped}");
     let cancel =

@@ -178,6 +178,11 @@ pub(crate) async fn prepare(
             .and_then(Value::as_str)
             .unwrap_or_default()
     );
+    let notes = service
+        .houses
+        .read_notes(&r.id, r.mayor)
+        .await
+        .unwrap_or_default();
     let review = Review {
         binding: binding.0,
         agent: kept.place.agent,
@@ -203,14 +208,7 @@ pub(crate) async fn prepare(
                 ))
                 .collect::<Vec<_>>()
                 .join("\n"),
-            crate::papers::cut(
-                &service
-                    .houses
-                    .read(&r.id, r.mayor)
-                    .unwrap_or_default(),
-                6000,
-                ""
-            )
+            crate::papers::cut(&notes, 6000, "")
         ),
         text,
         done: false,

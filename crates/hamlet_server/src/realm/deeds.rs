@@ -6,6 +6,7 @@ use rusqlite::OptionalExtension;
 use super::{At, Removed, read, write};
 use crate::Outcome;
 use crate::harness::Harnesses;
+use crate::papers::Capability;
 use crate::protocol::Refusal;
 use crate::record::{self, AgentRef, Audience, FoundRecord};
 use crate::service::Service;
@@ -31,6 +32,19 @@ pub(crate) async fn deed(
         return Ok(None);
     }
     let bad = |text: String| Ok(Some(Err(Refusal::Invalid(text))));
+    let needs = match deed {
+        "found" => Some(Capability::FoundHamlet),
+        "move-hamlet" => Some(Capability::MoveHamlet),
+        "remove-hamlet" => Some(Capability::RemoveHamlet),
+        "restore-hamlet" => Some(Capability::RestoreHamlet),
+        "erase-hamlet" => Some(Capability::EraseHamlet),
+        _ => None,
+    };
+    if let Some(capability) = needs
+        && let Err(words) = service.houses.allows(capability)
+    {
+        return bad(words);
+    }
     let mut realm = read(service.home.store().connection())?;
     if deed == "hamlets" {
         return Ok(Some(Ok(realm

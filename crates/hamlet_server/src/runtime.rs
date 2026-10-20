@@ -115,9 +115,7 @@ pub async fn serve(options: Options) -> Result<()> {
     let mut signals = Signals::new()?;
     let home = Home::open(&options.home)?;
     let mut service = Service::new(home, options.faux.is_some())?;
-    if service.houses.workspace.is_none() {
-        crate::sandbox::Sandbox::platform().probe()?;
-    }
+    service.houses.probe(service.chats.sandbox)?;
     tokio::select! {
         _ = signals.next() => return service.home.close(),
         initialized = service.initialize_houses() => initialized?,
@@ -305,8 +303,7 @@ pub async fn serve(options: Options) -> Result<()> {
                                 refresh(&mut service, &mut state, &mut clients)?;
                                 continue;
                             }
-                            if service.houses.workspace.is_some()
-                                && let ClientMessage::Edit(hamlet_protocol::v0::Edit::Notes { id: request, agent, text }) = &message
+                            if let ClientMessage::Edit(hamlet_protocol::v0::Edit::Notes { id: request, agent, text }) = &message
                             {
                                 match service.prepare_notes(agent, text)? {
                                     Err(error) => send(client, &service, crate::protocol::reply(request, Err(error)))?,
@@ -321,8 +318,7 @@ pub async fn serve(options: Options) -> Result<()> {
                                 }
                                 continue;
                             }
-                            if service.houses.workspace.is_some()
-                                && let ClientMessage::Read(read) = &message
+                            if let ClientMessage::Read(read) = &message
                                 && let hamlet_protocol::v0::Read::Papers { id: request, agent, .. } | hamlet_protocol::v0::Read::Prompt { id: request, agent } = read
                             {
                                 let number = service.agent(agent, "read or edit papers")?.ok().map(|agent| agent.number);
@@ -356,7 +352,7 @@ pub async fn serve(options: Options) -> Result<()> {
                     service.house_work.retire(service.home.store().connection())?;
                     crate::society::votes::sweep(&mut service, &mut harnesses).await?;
                     crate::society::reviews::sweep(&mut service, &mut harnesses).await?;
-                    crate::society::merging::remote::advance(&mut service, &mut harnesses).await?;
+                    crate::society::merging::lane::advance(&mut service, &mut harnesses).await?;
                     harnesses.refresh_tools().await;
                     for result in service.models.expired() {
                         for (id, answer) in service.provider_result(result)? {
@@ -387,7 +383,7 @@ pub async fn serve(options: Options) -> Result<()> {
                     refresh(&mut service, &mut state, &mut clients)?;
                 }
                 Some(merged) = service.merges.tasks.join_next() => {
-                    if let Ok(merged) = merged { crate::society::merging::remote::complete(&mut service, &mut harnesses, merged).await?; }
+                    if let Ok(merged) = merged { crate::society::merging::lane::complete(&mut service, &mut harnesses, merged).await?; }
                     refresh(&mut service, &mut state, &mut clients)?;
                 }
                 Some(moved) = service.moving.tasks.join_next() => {
@@ -402,7 +398,8 @@ pub async fn serve(options: Options) -> Result<()> {
                         if let Some(client) = clients.get_mut(&owner) {
                             client.busy = false;
                             ready.extend(client.waiting.drain(..).map(|text| (owner, text)));
-                            let allowed = service.agent(&address, "read or edit papers")?.ok().is_some_and(|agent| Some(agent.number) == number);
+                            // A read refused when prepared keeps its refusal.
+                            let allowed = number.is_none() || service.agent(&address, "read or edit papers")?.ok().is_some_and(|agent| Some(agent.number) == number);
                             let answer = if !allowed {
                                 fault(Some(&request), "The agent's papers are no longer available.")
                             } else {
@@ -424,7 +421,7 @@ pub async fn serve(options: Options) -> Result<()> {
                     }
                 }
                 Some(given) = service.gifts.tasks.join_next() => {
-                    if let Ok(given) = given && let Some((owner, answer)) = crate::gifts::remote::complete(&mut service, &mut harnesses, given).await? && let Some(client) = clients.get_mut(&owner) {
+                    if let Ok(given) = given && let Some((owner, answer)) = crate::gifts::complete(&mut service, &mut harnesses, given).await? && let Some(client) = clients.get_mut(&owner) {
                         client.busy = false;
                         ready.extend(client.waiting.drain(..).map(|text| (owner, text)));
                         send(client, &service, answer)?;
@@ -604,7 +601,7 @@ async fn run_once(
     harnesses: &mut Harnesses,
     clients: &mut HashMap<u64, Client>,
 ) -> Result<()> {
-    crate::society::merging::remote::advance(service, harnesses)
+    crate::society::merging::lane::advance(service, harnesses)
         .await?;
     tokio::select! {
         event = harnesses.next() => {
@@ -627,7 +624,7 @@ async fn run_once(
             deliver(service, clients)?;
         }
         Some(merged) = service.merges.tasks.join_next() => {
-            if let Ok(merged) = merged { crate::society::merging::remote::complete(service, harnesses, merged).await?; }
+            if let Ok(merged) = merged { crate::society::merging::lane::complete(service, harnesses, merged).await?; }
             deliver(service, clients)?;
         }
     }

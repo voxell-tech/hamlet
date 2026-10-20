@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::credentials::Credentials;
 use crate::limits::Rules;
-use crate::papers::Houses;
+use crate::papers::{Capability, Houses};
 use crate::protocol::{Refusal, fault, reply};
 use crate::record::{self, FoundRecord};
 use crate::settings::Overrides;
@@ -28,7 +28,7 @@ pub struct Service {
     pub(crate) gifts: crate::gifts::Uploads,
     pub(crate) moving: crate::papers::moving::Moving,
     pub(crate) house_work: crate::society::work::Work,
-    pub(crate) merges: crate::society::merging::remote::Merges,
+    pub(crate) merges: crate::society::merging::lane::Merges,
 }
 
 impl Service {
@@ -80,19 +80,18 @@ impl Service {
                 "the first hamlet could not be founded"
             );
         }
-        let mut houses = Houses::open(&root)?;
-        houses.workspace = workspace;
+        let houses = Houses::open(&root, workspace)?;
         let mut realm =
             crate::realm::read(home.store().connection())?;
         for place in realm.hamlets.iter().filter(|place| place.erased)
         {
-            if houses.workspace.is_none() {
+            if houses.allows(Capability::EraseHamlet).is_ok() {
                 houses.erase_hamlet(&place.id)?;
             }
         }
         if let Some(pending) = &realm.pending {
             ensure!(
-                houses.workspace.is_none(),
+                houses.allows(Capability::MoveHouse).is_ok(),
                 "An unfinished local house move needs the original \
                  local backend. Remote houses were not changed."
             );
@@ -112,9 +111,7 @@ impl Service {
                 continue;
             }
             for agent in record.agents {
-                if houses.workspace.is_none() {
-                    houses.build(&record.id, agent.number)?;
-                }
+                houses.build(&record.id, agent.number)?;
             }
         }
         for directory in ["library", "tools", "librarian"] {
@@ -135,8 +132,7 @@ impl Service {
             gifts: crate::gifts::Uploads::default(),
             moving: crate::papers::moving::Moving::default(),
             house_work: crate::society::work::Work::default(),
-            merges: crate::society::merging::remote::Merges::default(
-            ),
+            merges: crate::society::merging::lane::Merges::default(),
         })
     }
 
@@ -272,36 +268,20 @@ impl Service {
         Ok(self.overrides.apply(stored))
     }
 
-    pub(crate) fn remote_tools(
-        &mut self,
+    /// The tools of `agent` working at `place`, reaching the network
+    /// only with `net`.
+    pub(crate) fn tools(
+        &self,
         agent: &record::AgentRef,
-        network: bool,
-    ) -> Result<Option<crate::workspace::Remote>> {
-        let project = !self.work(&agent.hamlet)?["folder"].is_null();
-        self.houses
-            .workspace
-            .as_ref()
-            .map(|connection| {
-                crate::workspace::Remote::new(
-                    connection.clone(),
-                    agent.clone(),
-                    project,
-                    network,
-                    false,
-                )
-                .map(|remote| {
-                    remote.with_library(
-                        self.home.layout().root().join("library"),
-                    )
-                })
-            })
-            .transpose()
+        place: crate::tools::Place,
+        net: bool,
+    ) -> Result<crate::tools::Session> {
+        self.houses.tools(agent, place, net, self.chats.sandbox)
     }
 
+    /// Makes the live agents' houses where they are missing. A
+    /// failure is told and does not stop the server.
     pub(crate) async fn initialize_houses(&mut self) -> Result<()> {
-        if self.houses.workspace.is_none() {
-            return Ok(());
-        }
         let live =
             crate::realm::live(self.home.store().connection())?;
         for record in records(self.home.store().connection())? {
@@ -317,8 +297,7 @@ impl Service {
                     let mut words = Value::String(error.to_string());
                     self.credentials.scrub(&mut words);
                     eprintln!(
-                        "hamlet: could not initialize remote house: \
-                         {}",
+                        "hamlet: could not initialize a house: {}",
                         words.as_str().unwrap_or_default()
                     );
                 }

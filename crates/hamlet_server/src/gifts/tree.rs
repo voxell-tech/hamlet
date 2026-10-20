@@ -1,19 +1,16 @@
-//! Private gift stages and no-follow delivery through opened
+//! Private gift stages on this machine, reached through opened
 //! directories.
 
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{Read, Write};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 
 use anyhow::{Result, ensure};
 use rustix::fs::{
-    AtFlags, Dir, FileType, Mode, OFlags, RenameFlags, mkdirat,
-    openat, renameat_with, statat, unlinkat,
+    AtFlags, Dir, FileType, Mode, OFlags, mkdirat, openat, statat,
+    unlinkat,
 };
-
-use super::rules::MAX_BYTES;
 
 pub(super) fn directory(
     parent: &File,
@@ -135,77 +132,6 @@ impl Stage {
         }
         anyhow::bail!("empty staged path")
     }
-
-    pub fn deliver(
-        &self,
-        shelf: &File,
-        roots: &[String],
-        number: bool,
-    ) -> Result<Vec<String>> {
-        let mut targets = Vec::new();
-        for root in roots {
-            let mut target = root.clone();
-            let mut count = 1;
-            while present(shelf, &target)? {
-                ensure!(number, "gift target already exists");
-                count += 1;
-                let split = root
-                    .rfind('.')
-                    .filter(|i| *i > 0)
-                    .unwrap_or(root.len());
-                target = format!(
-                    "{}-{count}{}",
-                    &root[..split],
-                    &root[split..]
-                );
-            }
-            targets.push(target);
-        }
-        let mut delivered = Vec::new();
-        let result = (|| {
-            for (root, target) in roots.iter().zip(&targets) {
-                let identity = statat(
-                    &self.dir,
-                    root.as_str(),
-                    AtFlags::SYMLINK_NOFOLLOW,
-                )?;
-                renameat_with(
-                    &self.dir,
-                    root.as_str(),
-                    shelf,
-                    target.as_str(),
-                    RenameFlags::NOREPLACE,
-                )?;
-                delivered.push((target.clone(), identity));
-            }
-            Ok::<_, anyhow::Error>(())
-        })();
-        if let Err(error) = result {
-            for (root, (target, identity)) in
-                roots.iter().zip(&delivered).rev()
-            {
-                let current = statat(
-                    shelf,
-                    target.as_str(),
-                    AtFlags::SYMLINK_NOFOLLOW,
-                )?;
-                ensure!(
-                    current.st_dev == identity.st_dev
-                        && current.st_ino == identity.st_ino,
-                    "gift rollback target changed"
-                );
-                renameat_with(
-                    shelf,
-                    target.as_str(),
-                    &self.dir,
-                    root.as_str(),
-                    RenameFlags::NOREPLACE,
-                )?;
-            }
-            return Err(error);
-        }
-        Ok(targets)
-    }
 }
 
 impl Drop for Stage {
@@ -224,160 +150,4 @@ impl Drop for Stage {
             eprintln!("hamlet: could not discard a gift.");
         }
     }
-}
-
-pub(super) fn shelf(
-    house: &File,
-    name: &str,
-    roots: &[String],
-) -> Result<File> {
-    let shelf = directory(house, name, true)?;
-    for root in roots {
-        match statat(&shelf, root.as_str(), AtFlags::SYMLINK_NOFOLLOW)
-        {
-            Ok(info) => ensure!(
-                FileType::from_raw_mode(info.st_mode)
-                    != FileType::Symlink,
-                "linked gift target"
-            ),
-            Err(error) if error == rustix::io::Errno::NOENT => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Ok(shelf)
-}
-
-pub(super) fn present(dir: &File, name: &str) -> Result<bool> {
-    match statat(dir, name, AtFlags::SYMLINK_NOFOLLOW) {
-        Ok(_) => Ok(true),
-        Err(error) if error == rustix::io::Errno::NOENT => Ok(false),
-        Err(error) => Err(error.into()),
-    }
-}
-
-pub(super) fn paper(
-    shelf: &File,
-    name: &str,
-) -> Result<bool, &'static str> {
-    if statat(shelf, name, AtFlags::SYMLINK_NOFOLLOW).is_ok_and(|s| {
-        FileType::from_raw_mode(s.st_mode) == FileType::Symlink
-    }) {
-        return Err(
-            "A skill gift cannot include links or special files."
-        );
-    }
-    Ok(directory(shelf, name, false).is_ok_and(|dir| {
-        statat(&dir, "SKILL.md", AtFlags::SYMLINK_NOFOLLOW).is_ok_and(
-            |s| {
-                FileType::from_raw_mode(s.st_mode)
-                    == FileType::RegularFile
-            },
-        )
-    }))
-}
-
-pub(super) fn copy(
-    source: &File,
-    stage: &Stage,
-    name: &str,
-) -> Result<(), &'static str> {
-    let mut entries = 0;
-    let mut bytes = 0;
-    copy_entry(source, &stage.dir, name, &mut entries, &mut bytes)
-}
-
-fn copy_entry(
-    source: &File,
-    target: &File,
-    name: &str,
-    entries: &mut usize,
-    bytes: &mut u64,
-) -> Result<(), &'static str> {
-    const REFUSED: &str = super::rules::DELIVERY;
-    const UNSAFE: &str =
-        "A skill gift cannot include links or special files.";
-    const SIZE: &str = "The skill gift is larger than 32 MB.";
-    *entries += 1;
-    if *entries > 4096 {
-        return Err("A skill gift takes at most 4096 files and \
-                    folders at once.");
-    }
-    let info = statat(source, name, AtFlags::SYMLINK_NOFOLLOW)
-        .map_err(|_| REFUSED)?;
-    match FileType::from_raw_mode(info.st_mode) {
-        FileType::Directory => {
-            let source =
-                directory(source, name, false).map_err(|_| UNSAFE)?;
-            let target =
-                directory(target, name, true).map_err(|_| REFUSED)?;
-            for entry in
-                Dir::read_from(&source).map_err(|_| REFUSED)?
-            {
-                let entry = entry.map_err(|_| REFUSED)?;
-                let name = entry
-                    .file_name()
-                    .to_str()
-                    .map_err(|_| REFUSED)?;
-                if name == "." || name == ".." {
-                    continue;
-                }
-                copy_entry(&source, &target, name, entries, bytes)?;
-            }
-            rustix::fs::fchmod(
-                &target,
-                Mode::from_raw_mode(info.st_mode & 0o777),
-            )
-            .map_err(|_| REFUSED)?;
-        }
-        FileType::RegularFile => {
-            let file = File::from(
-                openat(
-                    source,
-                    name,
-                    OFlags::RDONLY
-                        | OFlags::NOFOLLOW
-                        | OFlags::NONBLOCK
-                        | OFlags::CLOEXEC,
-                    Mode::empty(),
-                )
-                .map_err(|_| UNSAFE)?,
-            );
-            let meta = file.metadata().map_err(|_| REFUSED)?;
-            if !meta.is_file() {
-                return Err(UNSAFE);
-            }
-            if meta.len() > MAX_BYTES - *bytes {
-                return Err(SIZE);
-            }
-            let mut output = File::from(
-                openat(
-                    target,
-                    name,
-                    OFlags::WRONLY
-                        | OFlags::CREATE
-                        | OFlags::EXCL
-                        | OFlags::NOFOLLOW
-                        | OFlags::CLOEXEC,
-                    Mode::from_raw_mode(0o600),
-                )
-                .map_err(|_| REFUSED)?,
-            );
-            *bytes += std::io::copy(
-                &mut file.take(MAX_BYTES - *bytes + 1),
-                &mut output,
-            )
-            .map_err(|_| REFUSED)?;
-            if *bytes > MAX_BYTES {
-                return Err(SIZE);
-            }
-            output.flush().map_err(|_| REFUSED)?;
-            output
-                .set_permissions(std::fs::Permissions::from_mode(
-                    meta.mode() & 0o777,
-                ))
-                .map_err(|_| REFUSED)?;
-        }
-        _ => return Err(UNSAFE),
-    }
-    Ok(())
 }

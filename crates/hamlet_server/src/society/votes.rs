@@ -748,7 +748,11 @@ async fn hear(
         "{}\nA vote has been called. This is your one chance to \
          answer in words only. Motion: {}. Reason: {}. Every voter \
          sees your answer as a claim, not evidence.",
-        service.houses.read(hamlet, v.mayor).unwrap_or_default(),
+        service
+            .houses
+            .read_notes(hamlet, v.mayor)
+            .await
+            .unwrap_or_default(),
         describe(v, r),
         v.reason
     );
@@ -794,7 +798,7 @@ async fn ask_ballots(
         };
         let owner =
             json!({"hamlet":hamlet,"vote":v.id,"voter":voter});
-        let corpus = corpus(service, &agent, &owner)?;
+        let corpus = corpus(service, &agent, &owner).await?;
         let earlier = if sealed {
             String::new()
         } else {
@@ -834,7 +838,7 @@ async fn ask_ballots(
 /// The notes and recent history of `agent` its ballot is grounded
 /// in, kept the first time under `owner` so a ballot is checked
 /// against what its voter was shown.
-fn corpus(
+async fn corpus(
     service: &mut Service,
     agent: &AgentRef,
     owner: &Value,
@@ -849,7 +853,8 @@ fn corpus(
     }
     let mut corpus = service
         .houses
-        .read(&agent.hamlet, agent.number)
+        .read_notes(&agent.hamlet, agent.number)
+        .await
         .unwrap_or_default();
     for binding in crate::chats::records::conversations_of(
         service.home.store().connection(),
@@ -927,13 +932,9 @@ async fn decide(
     save(&tx, hamlet, votes)?;
     tx.commit()?;
     if let Some((destination, vote)) = founded {
-        if let Some(remote) =
-            service.houses.remote(&destination, 0, false)?
-        {
-            service.house_work.found(hamlet.into(), vote, remote);
-            return Ok(true);
-        }
-        service.houses.initialize(&destination, 0).await?;
+        let initialize = service.houses.initialize(&destination, 0);
+        service.house_work.found(hamlet.into(), vote, initialize);
+        return Ok(true);
     }
     changed(service, harnesses).await?;
     Ok(false)
