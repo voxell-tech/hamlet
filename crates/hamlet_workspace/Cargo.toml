@@ -13,10 +13,12 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
+hamlet_workspace_wire.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 libc.workspace = true
 reqwest.workspace = true
+rustix = { version = "1", features = ["fs"] }
 ring.workspace = true
 serde.workspace = true
 serde_json.workspace = true

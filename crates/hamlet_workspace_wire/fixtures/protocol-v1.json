@@ -30,7 +30,7 @@
           "id": "bf6b73db-1d72-4c7a-972d-774e827a259c",
           "workspace": "fixture", "agent": 1,
           "project": false, "network": false, "read_only": false,
-          "library": [{"path": "proof.txt", "data": "c2hhcmVkLTE3Cg==", "mode": 420}],
+          "library": {"sha256": "e20ab8a0a1233a31f8a33f8a93850d939a3b83bdc4fe3713e6893af3bd9c5e07", "files": [{"path": "proof.txt", "data": "c2hhcmVkLTE3Cg==", "mode": 420}]},
           "operation": {"kind": "exec", "argv": ["/bin/bash", "-c", "cat /library/proof.txt; if (printf wrong > /library/proof.txt) 2>/dev/null; then exit 7; fi"], "cwd": "/house", "timeout_ms": 10000}
         }
       },

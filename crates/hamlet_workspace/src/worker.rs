@@ -15,7 +15,6 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use ring::signature::{ED25519, UnparsedPublicKey};
 use serde::Deserialize;
-use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 use tokio::process::Command;
@@ -24,8 +23,8 @@ use tokio::task::JoinSet;
 
 use crate::control::save;
 use crate::wire::{
-    Envelope, MAX_BODY, MAX_FILE, Message, Reply, Request, valid_id,
-    valid_name,
+    Code, Envelope, LIBRARY_FILES, Library, MAX_BODY, MAX_FILE,
+    Message, Progress, Reply, Request, State, valid_id, valid_name,
 };
 use crate::{http, proxy};
 
@@ -84,15 +83,15 @@ pub async fn run(config: Configuration) -> Result<()> {
                 let signed = [call.timestamp.as_bytes(), b"\n", &call.body].concat();
                 let signature = STANDARD.decode(&call.signature).unwrap_or_default();
                 if !fresh || key.verify(&signed, &signature).is_err() {
-                    let _ = call.reply.send(Reply::error("permission_denied", "Invalid workspace signature.", false)); continue;
+                    let _ = call.reply.send(Reply::error(Code::PermissionDenied, "Invalid workspace signature.", false)); continue;
                 }
                 let envelope = match serde_json::from_slice::<Envelope>(&call.body) {
                     Ok(value) if valid_name(&value.home) && valid_id(value.message.id()) => value,
-                    _ => { let _ = call.reply.send(Reply::error("invalid", "Invalid signed workspace request.", false)); continue; }
+                    _ => { let _ = call.reply.send(Reply::error(Code::Invalid, "Invalid signed workspace request.", false)); continue; }
                 };
                 // SystemInfo is refreshed on restore; memory may still hold the snapshot source's UID.
                 if envelope.actor_uid.is_empty() || !fs::read_to_string(&config.actor_uid_file).is_ok_and(|uid| uid == envelope.actor_uid) {
-                    let _ = call.reply.send(Reply::error("permission_denied", "Workspace actor identity does not match.", false)); continue;
+                    let _ = call.reply.send(Reply::error(Code::PermissionDenied, "Workspace actor identity does not match.", false)); continue;
                 }
                 let home = root.join(&envelope.home);
                 let journal = home.join("operations");
@@ -103,21 +102,21 @@ pub async fn run(config: Configuration) -> Result<()> {
                 let active_key = format!("{}:{id}", envelope.home);
                 match envelope.message {
                     Message::Status { .. } => {
-                        let reply = if running.contains_key(&active_key) { Reply::ok(json!({ "state": "running" })) }
+                        let reply = if running.contains_key(&active_key) { Reply::ok(Progress { state: State::Running }) }
                             else { fs::read(&result).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_else(Reply::uncertain) };
                         let _ = call.reply.send(reply);
                     }
                     Message::Cancel { .. } => {
                         if let Some(cancel) = running.get(&active_key) { let _ = cancel.send(true); }
                         else if !marker.exists() { fs::File::create(&marker)?.sync_all()?; }
-                        let _ = call.reply.send(Reply::ok(json!({ "state": "cancelling" })));
+                        let _ = call.reply.send(Reply::ok(Progress { state: State::Cancelling }));
                     }
                     Message::Execute { request } => {
                         if request.version != 1 || !valid_name(&request.workspace) {
-                            let _ = call.reply.send(Reply::error("not_supported", "Only protocol 1 is supported.", false)); continue;
+                            let _ = call.reply.send(Reply::error(Code::NotSupported, "Only protocol 1 is supported.", false)); continue;
                         }
                         if running.len() >= 16 {
-                            let _ = call.reply.send(Reply::error("unavailable", "The worker is at its operation limit. Wait for existing commands to finish.", false)); continue;
+                            let _ = call.reply.send(Reply::error(Code::Unavailable, "The worker is at its operation limit. Wait for existing commands to finish.", false)); continue;
                         }
                         match fs::OpenOptions::new().write(true).create_new(true).open(marker) {
                             Ok(file) => { file.sync_all()?; fs::File::open(&journal)?.sync_all()?; }
@@ -127,7 +126,7 @@ pub async fn run(config: Configuration) -> Result<()> {
                         running.insert(active_key.clone(), cancel);
                         let network = network.clone();
                         tasks.spawn(async move {
-                            let reply = execute(&home, &network, request, cancelled).await.unwrap_or_else(|_| Reply::error("confinement", "The confined worker did not establish a completed result. Inspect the operation before repeating it; no local fallback was used.", true));
+                            let reply = execute(&home, &network, request, cancelled).await.unwrap_or_else(|_| Reply::error(Code::Confinement, "The confined worker did not establish a completed result. Inspect the operation before repeating it; no local fallback was used.", true));
                             let reply = if save(&result, &reply).is_ok() { reply } else { Reply::uncertain() };
                             let _ = call.reply.send(reply);
                             active_key
@@ -156,7 +155,17 @@ async fn execute(
     if fs::symlink_metadata(&house)?.is_symlink() {
         bail!("House root is a symlink");
     }
-    let library = library(home, &request)?;
+    let library = match library(home, &request) {
+        Ok(library) => library,
+        Err(Missing) => {
+            return Ok(Reply::error(
+                Code::LibraryMissing,
+                "The workspace does not hold the named library. \
+                 Send its files again.",
+                false,
+            ));
+        }
+    };
     let executable = std::env::current_exe()?;
     let mut command = Command::new(&executable);
     command.arg("netless");
@@ -191,7 +200,7 @@ async fn execute(
         .arg(executable)
         .arg("/runner");
     if let Some(library) = &library {
-        command.arg("--ro-bind").arg(&library.0).arg("/library");
+        command.arg("--ro-bind").arg(library).arg("/library");
     }
     if request.project {
         let project = workspace.join("project");
@@ -277,57 +286,102 @@ async fn execute(
     }
 }
 
-/// The operation's read-only shelf snapshot, removed after its
-/// process tree exits.
-struct Library(PathBuf);
+/// How long a library snapshot nobody used is kept.
+const LIBRARY_KEPT: Duration = Duration::from_secs(15 * 60);
 
-impl Drop for Library {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
+/// A request named a library the worker does not hold.
+struct Missing;
 
+/// The read-only shelf snapshot a request names, kept under
+/// `.library/<sha256>` and written there once from the files that
+/// came with it.
 fn library(
     home: &Path,
     request: &Request,
-) -> Result<Option<Library>> {
-    let Some(files) = &request.library else {
+) -> Result<Option<PathBuf>, Missing> {
+    let Some(library) = &request.library else {
         return Ok(None);
     };
-    if files.len() > 1024 {
-        bail!("Too many library files");
-    }
     let parent = home.join(".library");
-    fs::create_dir_all(&parent)?;
-    let root = parent.join(&request.id);
-    fs::create_dir(&root)?;
-    let library = Library(root);
-    let mut bytes = 0;
-    for entry in files {
-        if entry.path.split('/').any(|part| {
-            part.is_empty() || part == "." || part == ".."
-        }) || entry.mode & !0o777 != 0
-        {
-            bail!("Invalid library path or mode");
-        }
-        let data = STANDARD.decode(&entry.data)?;
-        bytes += data.len();
-        if bytes > MAX_FILE {
-            bail!("Library exceeds 4 MiB");
-        }
-        let path = library.0.join(&entry.path);
-        fs::create_dir_all(
-            path.parent().context("Missing library parent")?,
-        )?;
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)?;
-        file.write_all(&data)?;
-        fs::set_permissions(
-            &path,
-            fs::Permissions::from_mode(entry.mode & 0o555),
-        )?;
+    let named = library.sha256.len() == 64
+        && library.sha256.bytes().all(|b| b.is_ascii_hexdigit());
+    let root = parent.join(&library.sha256);
+    // Touched on each use, so a snapshot in use is never swept.
+    if named
+        && fs::symlink_metadata(&root).is_ok_and(|m| m.is_dir())
+        && fs::File::open(&root)
+            .and_then(|dir| dir.set_modified(SystemTime::now()))
+            .is_ok()
+    {
+        return Ok(Some(root));
     }
-    Ok(Some(library))
+    let Some(files) = library.files.as_ref().filter(|_| named) else {
+        return Err(Missing);
+    };
+    match store(&parent, &request.id, library, files) {
+        Ok(()) => Ok(Some(root)),
+        Err(_) => Err(Missing),
+    }
+}
+
+/// Writes the snapshot of `files` to `parent/<sha256>` and sweeps the
+/// snapshots unused for [`LIBRARY_KEPT`].
+fn store(
+    parent: &Path,
+    id: &str,
+    library: &Library,
+    files: &[crate::wire::LibraryFile],
+) -> Result<()> {
+    if files.len() > LIBRARY_FILES
+        || files.iter().map(|file| file.data.0.len()).sum::<usize>()
+            > MAX_FILE
+        || Library::digest(files) != library.sha256
+    {
+        bail!("Invalid library");
+    }
+    fs::create_dir_all(parent)?;
+    let incoming = parent.join(format!(".incoming-{id}"));
+    fs::create_dir(&incoming)?;
+    let written = (|| {
+        for entry in files {
+            if entry.path.split('/').any(|part| {
+                part.is_empty() || part == "." || part == ".."
+            }) || entry.mode & !0o777 != 0
+            {
+                bail!("Invalid library path or mode");
+            }
+            let path = incoming.join(&entry.path);
+            fs::create_dir_all(
+                path.parent().context("Missing library parent")?,
+            )?;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)?;
+            file.write_all(&entry.data.0)?;
+            fs::set_permissions(
+                &path,
+                fs::Permissions::from_mode(entry.mode & 0o555),
+            )?;
+        }
+        Ok(())
+    })();
+    // Another request may have stored the same snapshot first.
+    if written.is_err()
+        || fs::rename(&incoming, parent.join(&library.sha256))
+            .is_err()
+    {
+        fs::remove_dir_all(&incoming)?;
+    }
+    written?;
+    for entry in fs::read_dir(parent)?.flatten() {
+        let stale =
+            entry.metadata().and_then(|m| m.modified()).is_ok_and(
+                |at| at.elapsed().is_ok_and(|age| age > LIBRARY_KEPT),
+            );
+        if stale && entry.file_name() != library.sha256.as_str() {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
+    Ok(())
 }

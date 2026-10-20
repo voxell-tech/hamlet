@@ -19,7 +19,7 @@ mod proxy;
 #[cfg(target_os = "linux")]
 mod supervise;
 #[cfg(target_os = "linux")]
-mod wire;
+use hamlet_workspace_wire as wire;
 #[cfg(target_os = "linux")]
 mod worker;
 

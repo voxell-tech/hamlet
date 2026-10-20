@@ -12,7 +12,7 @@ use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::wire::{MAX_BODY, Reply};
+use crate::wire::{Code, MAX_BODY, Reply};
 
 pub struct Call {
     pub authorization: String,
@@ -51,7 +51,7 @@ async fn serve(
     let (parts, body) = request.into_parts();
     let reply = if parts.method != "POST" || parts.uri.path() != "/v1"
     {
-        Reply::error("invalid", "Use POST /v1.", false)
+        Reply::error(Code::Invalid, "Use POST /v1.", false)
     } else {
         let header = |name: &str| {
             parts
@@ -85,7 +85,7 @@ async fn serve(
                 }
             }
             _ => Reply::error(
-                "invalid",
+                Code::Invalid,
                 "Request exceeds its size or read-time limit.",
                 false,
             ),

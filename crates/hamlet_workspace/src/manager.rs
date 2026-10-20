@@ -18,7 +18,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use ring::signature::Ed25519KeyPair;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
@@ -30,7 +30,8 @@ use crate::control::{
 };
 use crate::http::{self, Call};
 use crate::wire::{
-    Envelope, MAX_BODY, Message, Reply, valid_id, valid_name,
+    self, Envelope, MAX_BODY, Message, Progress, Reply, State,
+    valid_id, valid_name,
 };
 
 const IDLE: Duration = Duration::from_secs(300);
@@ -351,7 +352,7 @@ struct Workspace {
 
 fn cancelled_before_admission() -> Reply {
     Reply::error(
-        "aborted",
+        wire::Code::Aborted,
         "Workspace operation cancelled before admission. Nothing \
          was run.",
         false,
@@ -372,27 +373,27 @@ impl Refusal {
     fn reply(&self) -> Reply {
         match self {
             Self::Deleted => Reply::error(
-                "not_found",
+                wire::Code::NotFound,
                 "This workspace was deleted by an administrator. \
                  Ask the chief before using it again.",
                 false,
             ),
             Self::Missing => Reply::error(
-                "not_found",
+                wire::Code::NotFound,
                 "The workspace actor is missing and was not \
                  recreated, so its files are not available. Ask the \
                  chief to recover or delete it.",
                 false,
             ),
             Self::Changed => Reply::error(
-                "unavailable",
+                wire::Code::Unavailable,
                 "The workspace actor's identity or template \
                  changed. Ask the chief to inspect its binding \
                  before retrying.",
                 false,
             ),
             Self::Unavailable => Reply::error(
-                "unavailable",
+                wire::Code::Unavailable,
                 "The workspace actor could not be verified or \
                  resumed. Nothing was run; retry later or ask the \
                  chief to inspect it.",
@@ -575,7 +576,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
             self.homes.get(&bearer(&call.authorization)).cloned()
         else {
             let _ = call.reply.send(Reply::error(
-                "permission_denied",
+                wire::Code::PermissionDenied,
                 "Workspace authentication failed. Ask the chief to \
                  check the connection.",
                 false,
@@ -587,7 +588,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
                 Ok(message) if valid_id(message.id()) => message,
                 _ => {
                     let _ = call.reply.send(Reply::error(
-                        "invalid",
+                        wire::Code::Invalid,
                         "Invalid workspace request.",
                         false,
                     ));
@@ -605,7 +606,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
                     || !valid_name(&request.workspace)
                 {
                     let _ = call.reply.send(Reply::error(
-                        "not_supported",
+                        wire::Code::NotSupported,
                         "This workspace service supports protocol 1 \
                          only.",
                         false,
@@ -667,9 +668,9 @@ impl<A: Actors, R: Router> Manager<A, R> {
                         Ok(Record::Operation {
                             reply: Some(_),
                             ..
-                        }) => {
-                            Reply::ok(json!({ "state": "completed" }))
-                        }
+                        }) => Reply::ok(Progress {
+                            state: State::Completed,
+                        }),
                         _ => Reply::uncertain(),
                     }
                 }
@@ -684,13 +685,15 @@ impl<A: Actors, R: Router> Manager<A, R> {
                         )
                         .is_ok()
                         {
-                            Reply::ok(json!({ "state": "cancelled" }))
+                            Reply::ok(Progress {
+                                state: State::Cancelled,
+                            })
                         } else {
                             Reply::uncertain()
                         }
                     } else {
                         Reply::error(
-                            "not_found",
+                            wire::Code::NotFound,
                             "Unknown workspace operation.",
                             false,
                         )
@@ -1053,8 +1056,9 @@ fn settles(purpose: Purpose, reply: &Reply) -> bool {
             !uncertain
                 && !(purpose == Purpose::Status
                     && matches!(
-                        code.as_str(),
-                        "permission_denied" | "invalid"
+                        code,
+                        wire::Code::PermissionDenied
+                            | wire::Code::Invalid
                     ))
         }
         Reply::Ok { value } => !in_progress(value),
@@ -1062,11 +1066,12 @@ fn settles(purpose: Purpose, reply: &Reply) -> bool {
 }
 
 fn in_progress(value: &Value) -> bool {
-    value.as_object().is_some_and(|object| {
-        object.len() == 1
-            && matches!(
-                object.get("state").and_then(Value::as_str),
-                Some("running" | "cancelling")
+    serde_json::from_value::<Progress>(value.clone()).is_ok_and(
+        |progress| {
+            matches!(
+                progress.state,
+                State::Running | State::Cancelling
             )
-    })
+        },
+    )
 }

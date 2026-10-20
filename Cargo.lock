@@ -3473,6 +3473,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "hamlet_workspace_wire",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -3483,6 +3484,7 @@ dependencies = [
  "protoc-bin-vendored",
  "reqwest",
  "ring",
+ "rustix 1.1.5",
  "serde",
  "serde_json",
  "sha2",
@@ -3490,6 +3492,17 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+ "uuid",
+]
+
+[[package]]
+name = "hamlet_workspace_wire"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "sha2",
  "uuid",
 ]
 

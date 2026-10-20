@@ -22,8 +22,10 @@ there.
 
 This page covers packaging, configuration and operation. What agents
 and the chief see is in [`docs/sandbox.md`](../../docs/sandbox.md), and
-the protocol is [`src/wire.rs`](src/wire.rs) with example messages and
-replies in [`fixtures/protocol-v1.json`](fixtures/protocol-v1.json).
+the protocol is the `hamlet_workspace_wire` crate
+([`../hamlet_workspace_wire/src/lib.rs`](../hamlet_workspace_wire/src/lib.rs)),
+which Hamlet's server uses too, with example messages and replies in
+[`fixtures/protocol-v1.json`](../hamlet_workspace_wire/fixtures/protocol-v1.json).
 Deployment requires an operator-provisioned Substrate installation.
 
 ## Build the image
