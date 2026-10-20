@@ -6,6 +6,7 @@ mod entry;
 mod list;
 mod mail;
 mod switch;
+mod switched_off;
 
 use bevy::app::App;
 use bevy::ecs::component::Component;
@@ -24,9 +25,15 @@ pub use self::switch::{
     ContributedBy, Contributions, Disable, Enable, Enabled, Stopped,
     switch_on,
 };
+pub use self::switched_off::SwitchedOff;
 
 pub fn plugin(app: &mut App) {
-    app.add_plugins((switch::plugin, list::plugin, mail::plugin));
+    app.add_plugins((
+        switched_off::plugin,
+        switch::plugin,
+        list::plugin,
+        mail::plugin,
+    ));
 }
 
 /// On a plugin's entity: who it is, from its manifest.
@@ -62,8 +69,9 @@ impl PluginInfo {
 }
 
 /// Adds the plugin `manifest` describes, built into the engine with
-/// its `entry`, and switches it on. A manifest the engine cannot take
-/// is told in the log, and nothing is added.
+/// its `entry`, and switches it on unless the person switched it off.
+/// A manifest the engine cannot take is told in the log, and nothing
+/// is added.
 pub fn add_builtin(
     commands: &mut Commands,
     manifest: Manifest,
@@ -79,10 +87,18 @@ pub fn add_builtin(
         });
         return None;
     }
+    let id = manifest.id.clone();
     let plugin = commands
         .spawn((PluginInfo::of(manifest, true), EntryPoint(entry)))
         .id();
-    commands.trigger(Enable { entity: plugin });
+    commands.queue(move |world: &mut World| {
+        let off = world
+            .get_resource::<SwitchedOff>()
+            .is_some_and(|off| off.contains(&id));
+        if !off {
+            world.trigger(Enable { entity: plugin });
+        }
+    });
     Some(plugin)
 }
 

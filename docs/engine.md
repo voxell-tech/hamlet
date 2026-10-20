@@ -245,7 +245,14 @@ builds the samples) runs both samples' scripts.
 - **The home.** The engine keeps its own home, apart from the app's, so
   running it never touches the app's data. `HAMLET_ENGINE_HOME` names it;
   unset, it is `~/.hamlet_engine`. Both names are constants in
-  `home.rs` and nowhere else. Tests put in a `Home` of their own.
+  `home.rs` and nowhere else. Tests put in a `Home` of their own. It
+  holds `workspaces.ron`, `grants.toml`, `switched_off.toml`, the
+  installed plugins in `plugins/` and the asset store in `assets/`.
+- **Writing a file whole.** `write_whole` writes a file beside its
+  place as `saving_<name>` and moves it over the old one, so a stop in
+  the middle leaves the old file or the new one. The workspaces, the
+  grants, the plugins switched off and the asset store are written
+  with it.
 - **The log.** A `LogLine` message, from a part of the engine or a
   plugin, is passed to the terminal and kept in `Log`, the last
   `[log] keep` lines, for the console.
@@ -347,10 +354,8 @@ person has one or more, and one is shown at a time.
   closed or added, a split dragged) is kept in the shown workspace.
 - **Saved** in `workspaces.ron` in the home, once the workspaces have
   been still for `[workspaces] save_after` seconds, and as the engine
-  closes. It is written to `workspaces_saving.ron` first and moved over
-  the old file, so a save is whole or not at all. RON, since a layout is
-  a tree of enums, which RON writes as it is and TOML only as a table
-  per level.
+  closes, whole or not at all. RON, since a layout is a tree of enums,
+  which RON writes as it is and TOML only as a table per level.
 - **Restored** at start. A new home starts with one workspace, "Main",
   holding the plugin list and the console. A file that cannot be read is
   moved aside to `workspaces_broken.ron` (or `_2`, `_3`, never over an
@@ -424,13 +429,20 @@ person has one or more, and one is shown at a time.
 - **Stopped.** A plugin the engine stopped while it was on carries
   `Stopped` with why; what it added stays until it is switched off.
 - **Built in.** `add_builtin(commands, manifest, entry)` adds a plugin
-  linked into the binary and switches it on. A manifest that `check`
-  refuses is told in the log and not added.
+  linked into the binary and switches it on, unless it is kept off. A
+  manifest that `check` refuses is told in the log and not added.
 - **The plugin list** (`engine/plugins`) is the engine's own panel: each
   plugin, its id and version, whether it is on and how much it adds, or
   why it was stopped, and SWITCH ON or SWITCH OFF; an installed one has
   UNINSTALL too (`Uninstall`). ADD PLUGIN... above them
   triggers `AddPlugin`, for a host to answer.
+- **Kept off.** `SwitchedOff` holds the ids the person switched off on
+  the plugin list, kept in `switched_off.toml` in the home
+  (`plugins = ["hamlet.demo"]`). Only SWITCH OFF and SWITCH ON there
+  change it; the engine stopping a plugin, or a hot reload, does not. At
+  start a plugin on it is left off, built in or installed. Letting an
+  install in, and uninstalling, take its id off. A file that cannot be
+  read is left as it is: the log says so, and no plugin is kept off.
 - **The demo** in `engine/app/src/demo.rs` is built into the binary. It
   adds a panel, Hello; a command, Say hello, in a Demo menu and on
   Primary+Shift+H, which writes to the log; and a workspace to take,
@@ -477,9 +489,9 @@ do. Plugins built in are not asked about.
   fetching from a host are each asked about this way.
 - **The grants file** is `grants.toml` in the home: for each plugin,
   whether it was let in, the version answered for, and each answer. It
-  is written to `grants_saving.toml` and moved over the old file, so it
-  is whole or not at all. A file that cannot be read is left as it is:
-  the log says so, and answers are kept only until the engine closes.
+  is written whole or not at all. A file that cannot be read is left as
+  it is: the log says so, and answers are kept only until the engine
+  closes.
 - **The Permissions page** of Settings shows the answers by plugin or
   by capability, and each can be changed there.
 

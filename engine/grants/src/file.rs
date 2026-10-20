@@ -4,19 +4,15 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use bevy::ecs::resource::Resource;
 use hamlet_engine_api::{Capability, PluginId};
-use hamlet_engine_core::Home;
+use hamlet_engine_core::{Home, write_whole};
 use serde::{Deserialize, Serialize};
 
 /// The file's name in the home.
 pub const FILE: &str = "grants.toml";
-
-/// The name the file goes on to while it is written.
-const SAVING: &str = "grants_saving.toml";
 
 /// The person's answer to an ask.
 #[derive(
@@ -190,22 +186,8 @@ impl Grants {
         };
         let text =
             toml::to_string(&file).map_err(|e| e.to_string())?;
-        write_whole(&self.path, &text).map_err(|e| e.to_string())
+        write_whole(&self.path, text).map_err(|e| e.to_string())
     }
-}
-
-/// Writes `text` beside `path` and moves it over `path`, so a stop in
-/// the middle leaves the old file or the new one.
-fn write_whole(path: &Path, text: &str) -> std::io::Result<()> {
-    let saving = path.with_file_name(SAVING);
-    if let Some(folder) = path.parent() {
-        fs::create_dir_all(folder)?;
-    }
-    let mut file = fs::File::create(&saving)?;
-    file.write_all(text.as_bytes())?;
-    file.sync_all()?;
-    drop(file);
-    fs::rename(&saving, path)
 }
 
 #[cfg(test)]

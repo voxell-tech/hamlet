@@ -6,14 +6,13 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use bevy::ecs::resource::Resource;
 use hamlet_engine_api::{
     Asset, AssetId, AssetInfo, AssetType, Failure, PluginId, TypeName,
 };
-use hamlet_engine_core::Home;
+use hamlet_engine_core::{Home, write_whole};
 use serde::{Deserialize, Serialize};
 
 /// The store's folder in the home.
@@ -226,28 +225,10 @@ impl AssetStore {
         };
         let text = toml::to_string(&index)
             .map_err(|e| Failure::Failed(e.to_string()))?;
-        write_whole(&self.folder.join(INDEX), text.as_bytes())
-            .map_err(unwritten)
+        write_whole(&self.folder.join(INDEX), text).map_err(unwritten)
     }
 }
 
 fn unwritten(why: std::io::Error) -> Failure {
     Failure::Failed(format!("the store cannot be written: {why}"))
-}
-
-/// Writes `bytes` beside `path` and moves them over it, so a stop in
-/// the middle leaves the old file or the new one.
-fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let name = path.file_name().map_or_else(String::new, |name| {
-        name.to_string_lossy().into_owned()
-    });
-    let saving = path.with_file_name(format!("saving_{name}"));
-    if let Some(folder) = path.parent() {
-        fs::create_dir_all(folder)?;
-    }
-    let mut file = fs::File::create(&saving)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
-    fs::rename(&saving, path)
 }

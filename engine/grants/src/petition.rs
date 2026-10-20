@@ -30,7 +30,7 @@ use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{Ask, Capability, PanelId};
 use hamlet_engine_core::{Budgets, LogLine};
-use hamlet_engine_plugins::{Enable, PluginInfo};
+use hamlet_engine_plugins::{Enable, PluginInfo, SwitchedOff};
 use hamlet_engine_shell::dock::PanelIcon;
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
@@ -115,11 +115,12 @@ fn open(mut commands: Commands) {
     ));
 }
 
-/// Switches on each installed plugin the person let in, and asks
-/// about the others.
+/// Switches on each installed plugin the person let in and did not
+/// switch off, and asks about the others.
 fn admit(
     plugins: Query<(Entity, &PluginInfo), Added<PluginInfo>>,
     mut grants: ResMut<Grants>,
+    off: Res<SwitchedOff>,
     mut tree: Option<ResMut<DockTree>>,
     mut log: MessageWriter<LogLine>,
     mut commands: Commands,
@@ -152,7 +153,9 @@ fn admit(
                     keep(&mut grants, info, record, &mut log);
                 }
                 commands.entity(plugin).insert(Admitted);
-                commands.trigger(Enable { entity: plugin });
+                if !off.contains(&info.id) {
+                    commands.trigger(Enable { entity: plugin });
+                }
                 continue;
             }
             Some(record)
@@ -590,6 +593,11 @@ pub fn answer_install(
         ));
     }
     if allowed {
+        let kept =
+            world.resource_mut::<SwitchedOff>().set(&info.id, false);
+        if let Err(why) = kept {
+            world.write_message(LogLine::error("grants", why));
+        }
         world.entity_mut(plugin).insert(Admitted);
         world.trigger(Enable { entity: plugin });
     }

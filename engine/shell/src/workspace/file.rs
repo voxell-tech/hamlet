@@ -9,16 +9,13 @@ use bevy::ecs::message::MessageWriter;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::time::{Real, Time};
-use hamlet_engine_core::{Home, LogLine};
+use hamlet_engine_core::{Home, LogLine, write_whole};
 use ron::ser::PrettyConfig;
 
 use super::{WorkspaceTuning, Workspaces};
 
 /// The file's name in the home.
 pub const FILE: &str = "workspaces.ron";
-
-/// The name a file goes on to while it is written.
-const SAVING: &str = "workspaces_saving.ron";
 
 /// What became of reading the file.
 #[derive(Debug)]
@@ -94,9 +91,7 @@ pub fn write(
         PrettyConfig::default(),
     )
     .map_err(|e| e.to_string())?;
-    let saving = home.path(SAVING);
-    fs::write(&saving, text).map_err(|e| e.to_string())?;
-    fs::rename(&saving, home.path(FILE)).map_err(|e| e.to_string())
+    write_whole(&home.path(FILE), text).map_err(|e| e.to_string())
 }
 
 /// Puts in the workspaces the home holds.

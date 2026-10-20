@@ -15,8 +15,9 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
-use hamlet_engine_api::PanelId;
 use hamlet_engine_api::id::ENGINE;
+use hamlet_engine_api::{PanelId, PluginId};
+use hamlet_engine_core::LogLine;
 use hamlet_engine_shell::dock::{PLUGIN_LIST, PanelIcon};
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
@@ -28,6 +29,7 @@ use crate::PluginInfo;
 use crate::switch::{
     Contributions, Disable, Enable, Enabled, Stopped,
 };
+use crate::switched_off::SwitchedOff;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Rows>()
@@ -42,6 +44,7 @@ struct Rows(Vec<Row>);
 #[derive(Clone, PartialEq)]
 struct Row {
     plugin: Entity,
+    id: PluginId,
     name: String,
     /// Its id and version.
     about: String,
@@ -104,6 +107,7 @@ fn view(_: Entity) -> AnyView {
 /// A plugin: its name, its id, version and state, and its buttons.
 fn row_view(row_of: &Row) -> AnyView {
     let plugin = row_of.plugin;
+    let id = row_of.id.clone();
     let on = row_of.on;
     let (state, tone) = match (&row_of.stopped, on) {
         (Some(why), _) => (format!("Stopped: {why}"), Tone::Critical),
@@ -118,6 +122,11 @@ fn row_view(row_of: &Row) -> AnyView {
         icon_button(ButtonStyle::Plain, Glyph::Power, "SWITCH ON")
     }
     .on_activate(move |world| {
+        // Only the person's own switch is kept for the next start.
+        let kept = world.resource_mut::<SwitchedOff>().set(&id, on);
+        if let Err(why) = kept {
+            world.write_message(LogLine::error("plugins", why));
+        }
         if on {
             world.trigger(Disable { entity: plugin });
         } else {
@@ -196,6 +205,7 @@ fn follow(
         .iter()
         .map(|(plugin, info, on, adds, stopped)| Row {
             plugin,
+            id: info.id.clone(),
             name: info.name.clone(),
             about: format!("{}  {}", info.id, info.version),
             on,

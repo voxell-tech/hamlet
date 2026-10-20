@@ -3749,6 +3749,8 @@ dependencies = [
  "hamlet_engine_api",
  "hamlet_engine_core",
  "hamlet_engine_shell",
+ "serde",
+ "toml",
 ]
 
 [[package]]
