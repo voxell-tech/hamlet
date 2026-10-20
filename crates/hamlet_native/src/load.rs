@@ -8,18 +8,20 @@ use std::path::{Path, PathBuf};
 use bevy::prelude::*;
 use hamlet_base::HomeDir;
 use hamlet_sdk::capability::{
-    AskToInstall, AskToRemove, Asks, Choices, Granted, Installed,
-    Record, Standing, Store, Uninstalled, standing,
+    Appeared, AskToInstall, AskToRemove, Asks, Choices, Granted,
+    Installed, Record, Standing, Store, Subject, Uninstalled,
+    standing,
 };
 use hamlet_sdk::command::Notice;
 use hamlet_sdk::plugin::{
     Declared, Enable, Entry, EntryPoint, Exports, FullAccess,
-    Imports, Manifest, NotLoaded, PluginInfo, Status, plain,
+    Imports, Manifest, NotLoaded, PluginInfo, Status, is_native,
+    plain,
 };
 use hamlet_sdk::reload::Reload;
 
 use crate::guard::{Guard, Settling};
-use crate::install::{Found, scan};
+use crate::install::{Found, Install, manifest_text, read, scan};
 use crate::library::EntryFn;
 use crate::{cache, library, marker};
 
@@ -132,7 +134,12 @@ fn prepare(
     plugins: &Path,
 ) -> Vec<Found> {
     let mut found = Vec::new();
-    for scanned in scan(plugins) {
+    let cap = world
+        .get_resource::<Install>()
+        .cloned()
+        .unwrap_or_default()
+        .manifest_bytes;
+    for scanned in scan(plugins, cap) {
         match scanned {
             Ok(plugin) => found.push(plugin),
             Err(rejected) => {
@@ -236,80 +243,180 @@ pub fn installed(world: &mut World) {
         world.remove_resource::<Opened>().unwrap_or_default();
     let safe = world.get_resource::<SafeMode>().cloned();
     for plugin in found {
-        let id = plugin.manifest.id.clone();
-        let standing =
-            standing_of(world.resource::<Store>(), &plugin);
-        let entity = spawn(world, &plugin);
-        match standing {
-            Standing::Installed { .. } => {
-                world.resource_mut::<Store>().set(
-                    &id,
-                    Record::installed(
-                        &plugin.manifest.version,
-                        &Choices::default(),
-                    )
-                    .hashed(Some(&plugin.hash)),
-                );
-                match &safe {
-                    Some(SafeMode::Stopped(culprits))
-                        if culprits.contains(&id) =>
-                    {
-                        not_loaded(world, entity, STOPPED);
-                        world.trigger(AskToRemove { plugin: id });
-                    }
-                    Some(SafeMode::Stopped(culprits)) => not_loaded(
-                        world,
-                        entity,
-                        &format!(
-                            "Not loaded: the last run stopped \
-                             before `{}` was trusted.",
-                            culprits.join("`, `")
-                        ),
-                    ),
-                    Some(SafeMode::Asked) => {
-                        not_loaded(world, entity, ASKED)
-                    }
-                    Some(SafeMode::Crashed(runs)) => {
-                        not_loaded(world, entity, &crashed(*runs))
-                    }
-                    None => match opened.take(&id) {
-                        Some(outcome) => {
-                            loaded(world, entity, &id, outcome)
-                        }
-                        None => world
-                            .resource_mut::<Late>()
-                            .0
-                            .push(entity),
-                    },
-                }
-            }
-            Standing::Declined => {
-                info!("native plugin {id}: declined, not loaded");
-                world.entity_mut(entity).insert(Uninstalled);
-            }
-            Standing::Unknown => {
-                if world
-                    .resource::<Store>()
-                    .get(&id)
-                    .is_some_and(|record| record.failed)
-                {
-                    not_loaded(world, entity, FAILED);
-                } else {
-                    info!(
-                        "native plugin {id}: not installed, not \
-                         loaded"
-                    );
-                }
-                world.entity_mut(entity).insert(Uninstalled);
-                world.trigger(AskToInstall { plugin: id });
-            }
-        }
+        take_in(world, plugin, &safe, &mut opened);
     }
     if let Some(SafeMode::Crashed(runs)) = safe {
         world.trigger(Notice(crashed(runs)));
     }
     world.flush();
 }
+
+/// Spawns the entity of `plugin`. One the chief installed for the
+/// library that is there gets what its entry declared when the app
+/// was built, or is loaded at the next frame if it was not opened
+/// then. Any other is held, and the chief is asked to install it
+/// unless it was declined as it is.
+fn take_in(
+    world: &mut World,
+    plugin: Found,
+    safe: &Option<SafeMode>,
+    opened: &mut Opened,
+) {
+    let id = plugin.manifest.id.clone();
+    let standing = standing_of(world.resource::<Store>(), &plugin);
+    let entity = spawn(world, &plugin);
+    match standing {
+        Standing::Installed { .. } => {
+            world.resource_mut::<Store>().set(
+                &id,
+                Record::installed(
+                    &plugin.manifest.version,
+                    &Choices::default(),
+                )
+                .hashed(Some(&plugin.hash)),
+            );
+            match safe {
+                Some(SafeMode::Stopped(culprits))
+                    if culprits.contains(&id) =>
+                {
+                    not_loaded(world, entity, STOPPED);
+                    world.trigger(AskToRemove { plugin: id });
+                }
+                Some(SafeMode::Stopped(culprits)) => not_loaded(
+                    world,
+                    entity,
+                    &format!(
+                        "Not loaded: the last run stopped before \
+                         `{}` was trusted.",
+                        culprits.join("`, `")
+                    ),
+                ),
+                Some(SafeMode::Asked) => {
+                    not_loaded(world, entity, ASKED)
+                }
+                Some(SafeMode::Crashed(runs)) => {
+                    not_loaded(world, entity, &crashed(*runs))
+                }
+                None => match opened.take(&id) {
+                    Some(outcome) => {
+                        loaded(world, entity, &id, outcome)
+                    }
+                    None => {
+                        world.resource_mut::<Late>().0.push(entity)
+                    }
+                },
+            }
+        }
+        Standing::Declined => {
+            info!("native plugin {id}: declined, not loaded");
+            world.entity_mut(entity).insert(Uninstalled);
+        }
+        Standing::Unknown => {
+            if world
+                .resource::<Store>()
+                .get(&id)
+                .is_some_and(|record| record.failed)
+            {
+                not_loaded(world, entity, FAILED);
+            } else {
+                info!(
+                    "native plugin {id}: not installed, not loaded"
+                );
+            }
+            world.entity_mut(entity).insert(Uninstalled);
+            world.trigger(AskToInstall { plugin: id });
+        }
+    }
+}
+
+/// Reads the plugin folder that appeared, when it holds a native
+/// plugin, and takes it in as the scan at startup does. A plugin the
+/// chief put there replaces one of its id that is not installed,
+/// whose question is taken back, and the chief is asked about it even
+/// if it was declined; one that is installed takes the new library
+/// when Hamlet starts again.
+pub fn appeared(appeared: On<Appeared>, mut commands: Commands) {
+    let (id, asked) = (appeared.plugin.clone(), appeared.asked);
+    commands
+        .queue(move |world: &mut World| arrive(world, &id, asked));
+}
+
+fn arrive(world: &mut World, id: &str, asked: bool) {
+    let Some(plugins) =
+        world.get_resource::<HomeDir>().map(|h| h.0.plugins())
+    else {
+        return;
+    };
+    if !world.contains_resource::<Store>() {
+        return;
+    }
+    let folder = plugins.join(id);
+    let cap = world
+        .get_resource::<Install>()
+        .cloned()
+        .unwrap_or_default()
+        .manifest_bytes;
+    let Some(text) = manifest_text(&folder, cap) else {
+        return;
+    };
+    if !is_native(&text) {
+        return;
+    }
+    let plugin = match read(&folder, &text) {
+        Ok(plugin) => plugin,
+        Err(rejected) => {
+            warn!("plugins/{}: {}", rejected.folder, rejected.why);
+            return;
+        }
+    };
+    let known = world
+        .query::<(Entity, &PluginInfo, Has<Uninstalled>)>()
+        .iter(world)
+        .find(|(_, info, _)| info.id == id)
+        .map(|(entity, _, uninstalled)| (entity, uninstalled));
+    match known {
+        Some((entity, false)) => {
+            if asked {
+                world.entity_mut(entity).insert(Reload {
+                    note: Some(REPLACED.into()),
+                    rollback: false,
+                });
+            }
+            return;
+        }
+        Some(_) if !asked => return,
+        Some((entity, true)) => {
+            world.entity_mut(entity).despawn();
+            let asking = Subject::Install { plugin: id.into() };
+            let open = world
+                .query::<(Entity, &Subject)>()
+                .iter(world)
+                .filter(|(_, about)| **about == asking)
+                .map(|(petition, _)| petition)
+                .collect::<Vec<_>>();
+            for petition in open {
+                world.entity_mut(petition).despawn();
+            }
+        }
+        None => {}
+    }
+    let declined = matches!(
+        standing_of(world.resource::<Store>(), &plugin),
+        Standing::Declined
+    );
+    let safe = world.get_resource::<SafeMode>().cloned();
+    take_in(world, plugin, &safe, &mut Opened::default());
+    if declined && asked {
+        world.trigger(AskToInstall { plugin: id.into() });
+    }
+    world.flush();
+}
+
+/// What an installed plugin whose folder the chief filled again is
+/// told.
+const REPLACED: &str = "A new version is in its folder. It loads \
+                        when Hamlet starts again, which asks you \
+                        first where its library changed.";
 
 /// What the chief and each plugin are told in a run that opens no
 /// library after `runs` runs in a row did not exit.
@@ -839,6 +946,23 @@ mod tests {
             s,
             Subject::Install { plugin } if plugin == "spark"
         )));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_folder_the_chief_put_there_is_asked_about_again() {
+        let (mut app, root) =
+            home_with_spark("appeared", false, |_, _| {});
+        app.update();
+        app.world_mut().trigger(Appeared {
+            plugin: "spark".into(),
+            asked: true,
+        });
+        app.world_mut().flush();
+        let (uninstalled, ..) = spark(&mut app);
+        assert!(uninstalled);
+        let mut asked = app.world_mut().query::<&Subject>();
+        assert_eq!(asked.iter(app.world()).count(), 1);
         std::fs::remove_dir_all(&root).unwrap();
     }
 

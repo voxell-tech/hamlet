@@ -24,7 +24,8 @@ pub use self::decide::{Decide, Forget};
 pub use self::gate::allowed;
 pub use self::granted::{Choices, Granted, Verdict};
 pub use self::install::{
-    AskToInstall, AskToRemove, Installed, Removed, Uninstalled,
+    Appeared, AskToInstall, AskToRemove, Installed, Removed,
+    Uninstalled,
 };
 pub use self::name::{Capability, NATIVE_ONLY, NEVER, Refusal};
 pub use self::petition::{

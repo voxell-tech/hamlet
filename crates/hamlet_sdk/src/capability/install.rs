@@ -34,6 +34,16 @@ pub struct AskToInstall {
     pub plugin: String,
 }
 
+/// A plugin folder of this id appeared in the install folder.
+/// Whoever holds plugins of its kind reads it, and puts the question
+/// to install it as for a folder found at start. `asked` says the
+/// chief put it there, and is asked whatever was answered before.
+#[derive(Event, Clone, PartialEq, Eq, Debug)]
+pub struct Appeared {
+    pub plugin: String,
+    pub asked: bool,
+}
+
 /// The chief wants to remove the plugin of this id, and is to be
 /// asked what becomes of its data.
 #[derive(Event, Clone, PartialEq, Eq, Debug)]

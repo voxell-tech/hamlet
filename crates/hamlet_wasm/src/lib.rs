@@ -89,6 +89,7 @@ pub fn plugin(app: &mut App) {
     .add_message::<run::Done>()
     .add_message::<run::Said>()
     .add_observer(admit::admit)
+    .add_observer(load::appeared)
     .add_observer(enable::restart)
     .add_observer(event::deliver)
     .add_observer(folder::answered)

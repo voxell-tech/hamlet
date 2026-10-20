@@ -42,6 +42,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(guard::plugin)
         .init_resource::<load::Late>()
         .add_observer(load::admit)
+        .add_observer(load::appeared)
         .add_observer(remove::removed)
         .add_systems(Startup, load::installed.after(open_store))
         .add_systems(

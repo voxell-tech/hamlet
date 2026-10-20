@@ -1,14 +1,38 @@
 //! The install folder of native plugins: `plugins/<id>/` with a
 //! `manifest.toml` of `kind = "native"` and the library it names.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use bevy::prelude::*;
 use hamlet_sdk::plugin::is_native;
 use sha2::{Digest, Sha256};
 
 use crate::manifest::Manifest;
 
 pub const MANIFEST: &str = "manifest.toml";
+
+/// What the host reads of a native plugin's folder.
+#[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Install {
+    /// The bytes of a plugin's `manifest.toml`. A bigger one is not
+    /// read.
+    pub manifest_bytes: u64,
+}
+
+/// The text of the manifest in `folder`, if it is there, is text and
+/// holds at most `cap` bytes.
+pub fn manifest_text(folder: &Path, cap: u64) -> Option<String> {
+    let opened = std::fs::File::open(folder.join(MANIFEST)).ok()?;
+    if opened.metadata().ok()?.len() > cap {
+        return None;
+    }
+    let mut text = String::new();
+    // The file may have grown since its size was read.
+    opened.take(cap + 1).read_to_string(&mut text).ok()?;
+    (text.len() as u64 <= cap).then_some(text)
+}
 
 /// A native plugin whose folder passed the scan. Nothing of the
 /// library has been opened.
@@ -29,8 +53,12 @@ pub struct Rejected {
 }
 
 /// Every folder of the install folder `plugins` that holds a native
-/// plugin, read. A missing install folder holds none.
-pub fn scan(plugins: &Path) -> Vec<Result<Found, Rejected>> {
+/// plugin, read, each manifest of at most `cap` bytes. A missing
+/// install folder holds none.
+pub fn scan(
+    plugins: &Path,
+    cap: u64,
+) -> Vec<Result<Found, Rejected>> {
     let Ok(entries) = std::fs::read_dir(plugins) else {
         return Vec::new();
     };
@@ -43,14 +71,14 @@ pub fn scan(plugins: &Path) -> Vec<Result<Found, Rejected>> {
     folders
         .iter()
         .filter_map(|folder| {
-            let text = std::fs::read_to_string(folder.join(MANIFEST))
-                .ok()?;
+            let text = manifest_text(folder, cap)?;
             is_native(&text).then(|| read(folder, &text))
         })
         .collect()
 }
 
-fn read(folder: &Path, text: &str) -> Result<Found, Rejected> {
+/// Reads the native plugin in `folder`, whose manifest is `text`.
+pub fn read(folder: &Path, text: &str) -> Result<Found, Rejected> {
     let name = folder
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -122,7 +150,8 @@ mod tests {
         put("moved", native("spark"));
         put("other", "id = \"other\"\nkind = \"wasm\"\n".into());
 
-        let found = scan(&root);
+        let cap = Install::default().manifest_bytes;
+        let found = scan(&root, cap);
         assert_eq!(found.len(), 2);
         let moved = found[0].as_ref().unwrap_err();
         assert!(moved.why.contains("not the folder's"), "{moved:?}");
@@ -130,7 +159,7 @@ mod tests {
         let before = spark.hash.clone();
 
         std::fs::write(&spark.library, b"v2").unwrap();
-        let again = scan(&root)
+        let again = scan(&root, cap)
             .into_iter()
             .filter_map(Result::ok)
             .next()

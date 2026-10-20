@@ -1,6 +1,10 @@
-# The guard on the native plugins' libraries. What each value means is
-# written beside its field in crates/hamlet_native/src/guard.rs.
+# The guard on the native plugins' libraries, and what the host reads
+# of their folders. What each value means is written beside its field
+# in crates/hamlet_native/src/guard.rs and install.rs.
 
 [guard]
 clean_frames = 60
 unclean_starts = 2
+
+[install]
+manifest_bytes = 65536

@@ -1,26 +1,27 @@
-//! Scanning the install folder at startup: the plugins `grants.toml`
-//! records as installed are brought up, and the others wait for the
-//! chief.
+//! Scanning the install folder at startup, and reading a plugin
+//! folder that appears in it while the app runs: the plugins
+//! `grants.toml` records as installed are brought up, and the others
+//! wait for the chief.
 
 use bevy::prelude::*;
 use hamlet_base::{HomeDir, Tokio};
 use hamlet_openui::data::{self, DataPanel};
 use hamlet_sdk::agents::AgentList;
 use hamlet_sdk::capability::{
-    AskForMore, AskToInstall, Choices, Granted, Record, Standing,
-    Store, Uninstalled, standing,
+    Appeared, AskForMore, AskToInstall, Choices, Granted, Record,
+    Standing, Store, Subject, Uninstalled, standing,
 };
 use hamlet_sdk::icons::Glyph;
 use hamlet_sdk::papers::Papers;
 use hamlet_sdk::plugin::{
-    self as sdk, Blocked, PluginInfo, Status, needs,
+    self as sdk, Blocked, PluginInfo, Status, needs, present,
 };
 use hamlet_sdk::tree::glyph;
 
 use crate::compile::{Background, Compiler};
 use crate::engine::Host;
 use crate::inbox::Ticks;
-use crate::install::{self, Body, Installed};
+use crate::install::{self, Body, Installed, Rejected, Why};
 use crate::limits::Limits;
 use crate::reload::{Watch, keep};
 use crate::start::{self, Setting, Source};
@@ -73,60 +74,200 @@ pub fn installed(
     }
     let held = unmet(&found);
     for (installed, standing) in found {
-        let id = installed.manifest.id.clone();
-        let version = &installed.manifest.version;
-        match standing {
-            Standing::Installed { choices, fresh } => {
-                store.set(
-                    &id,
-                    Record::installed(version, &choices)
-                        .scoped(&installed.asks),
-                );
-                let because =
-                    held.iter().find(|(held, _)| *held == id);
-                match (&installed.body, &setting, because) {
-                    (Body::Wasm(_), _, Some((_, why))) => {
-                        warn!("plugin {id}: not started, {why}");
-                        keep_off(
-                            installed,
-                            choices,
-                            why,
-                            &limits,
-                            &mut commands,
-                        )
-                    }
-                    (Body::Wasm(_), Some(setting), None) => spawn(
-                        setting,
-                        installed,
-                        choices,
-                        &mut commands,
-                    ),
-                    (Body::Wasm(_), None, None) => {
-                        warn!("plugin {id}: no engine, not loaded")
-                    }
-                    (Body::Data(_), ..) => spawn_data(
-                        installed,
-                        choices,
-                        &limits,
-                        &mut commands,
-                    ),
+        let because = held
+            .iter()
+            .find(|(held, _)| *held == installed.manifest.id)
+            .map(|(_, why)| why.clone());
+        take_in(
+            installed,
+            standing,
+            because,
+            setting.as_ref(),
+            &limits,
+            &mut store,
+            &mut commands,
+        );
+    }
+}
+
+/// Reads the plugin folder that appeared, when it holds a plugin of
+/// WASM or a panel and none of its id is there, and takes it in as
+/// the scan at startup does. A plugin the chief put there replaces
+/// one of its id that is not installed, whose question is taken back,
+/// and the chief is asked about it even if it was declined.
+pub fn appeared(
+    appeared: On<Appeared>,
+    home: Res<HomeDir>,
+    host: Option<Res<Host>>,
+    limits: Res<Limits>,
+    agents: Res<AgentList>,
+    papers: Res<Papers>,
+    tokio: Option<Res<Tokio>>,
+    compiler: Res<Compiler>,
+    store: Option<ResMut<Store>>,
+    plugins: Query<(
+        Entity,
+        &PluginInfo,
+        &Status,
+        Option<&sdk::Manifest>,
+        Has<Uninstalled>,
+    )>,
+    petitions: Query<(Entity, &Subject)>,
+    mut commands: Commands,
+) {
+    let Some(mut store) = store else {
+        return;
+    };
+    let id = appeared.plugin.as_str();
+    let folder = home.0.plugins().join(id);
+    if !install::scanned(&folder, &limits) {
+        return;
+    }
+    let replaced = plugins
+        .iter()
+        .find(|(_, info, ..)| info.id == id)
+        .map(|(plugin, .., uninstalled)| (plugin, uninstalled));
+    if replaced.is_some_and(|(_, uninstalled)| {
+        !uninstalled || !appeared.asked
+    }) {
+        return;
+    }
+    let installed = match install::read(&folder, &limits) {
+        Ok(installed) => installed,
+        Err(rejected) => {
+            warn!("{rejected}");
+            return;
+        }
+    };
+    let replaced = replaced.map(|(plugin, _)| plugin);
+    if let Some(plugin) = replaced {
+        commands.entity(plugin).despawn();
+        let asking = Subject::Install { plugin: id.into() };
+        for (petition, _) in
+            petitions.iter().filter(|(_, about)| **about == asking)
+        {
+            commands.entity(petition).despawn();
+        }
+    }
+    let others = plugins
+        .iter()
+        .filter(|(plugin, ..)| Some(*plugin) != replaced);
+    let mut edges = others
+        .clone()
+        .map(|(_, info, _, manifest, _)| {
+            let needs =
+                manifest.map_or(&[][..], |m| m.needs.as_slice());
+            (info.id.as_str(), needs)
+        })
+        .collect::<Vec<_>>();
+    edges.push((id, installed.manifest.needs.as_slice()));
+    if let Some(path) = needs::cycle_through(id, &edges) {
+        let why = Why::Cycle(path);
+        warn!(
+            "{}",
+            Rejected {
+                folder: id.into(),
+                why
+            }
+        );
+        return;
+    }
+    let standing = standing(
+        store.get(id),
+        &installed.manifest.version,
+        &installed.asks,
+    );
+    let present = present(
+        others.map(|(_, info, status, _, out)| (info, *status, out)),
+    );
+    let because = match installed.body {
+        Body::Wasm(_) => {
+            needs::unmet(&installed.manifest.needs, &present)
+                .map(|why| why.to_string())
+        }
+        Body::Data(_) => None,
+    };
+    let declined = matches!(standing, Standing::Declined);
+    let setting = host.as_deref().map(|host| Setting {
+        host,
+        limits: &limits,
+        agents: &agents,
+        papers: &papers,
+        background: tokio.as_deref().map(|tokio| Background {
+            tokio,
+            compiler: &compiler,
+        }),
+    });
+    take_in(
+        installed,
+        standing,
+        because,
+        setting.as_ref(),
+        &limits,
+        &mut store,
+        &mut commands,
+    );
+    if declined && appeared.asked {
+        commands.trigger(AskToInstall { plugin: id.into() });
+    }
+}
+
+/// Takes in a plugin the chief stands on as `standing`: brings it up
+/// if it is installed, unless a need it lacks holds it back
+/// `because`, and otherwise holds it and asks the chief unless it was
+/// declined as it is.
+fn take_in(
+    installed: Installed,
+    standing: Standing,
+    because: Option<String>,
+    setting: Option<&Setting>,
+    limits: &Limits,
+    store: &mut Store,
+    commands: &mut Commands,
+) {
+    let id = installed.manifest.id.clone();
+    match standing {
+        Standing::Installed { choices, fresh } => {
+            store.set(
+                &id,
+                Record::installed(
+                    &installed.manifest.version,
+                    &choices,
+                )
+                .scoped(&installed.asks),
+            );
+            match (&installed.body, setting, because) {
+                (Body::Wasm(_), _, Some(why)) => {
+                    warn!("plugin {id}: not started, {why}");
+                    keep_off(
+                        installed, choices, &why, limits, commands,
+                    )
                 }
-                if !fresh.is_empty() {
-                    commands.trigger(AskForMore {
-                        plugin: id,
-                        capabilities: fresh,
-                    });
+                (Body::Wasm(_), Some(setting), None) => {
+                    spawn(setting, installed, choices, commands)
+                }
+                (Body::Wasm(_), None, None) => {
+                    warn!("plugin {id}: no engine, not loaded")
+                }
+                (Body::Data(_), ..) => {
+                    spawn_data(installed, choices, limits, commands)
                 }
             }
-            Standing::Declined => {
-                info!("plugin {id}: declined, not loaded");
-                hold(installed, &limits, &mut commands);
+            if !fresh.is_empty() {
+                commands.trigger(AskForMore {
+                    plugin: id,
+                    capabilities: fresh,
+                });
             }
-            Standing::Unknown => {
-                info!("plugin {id}: not installed, not loaded");
-                hold(installed, &limits, &mut commands);
-                commands.trigger(AskToInstall { plugin: id });
-            }
+        }
+        Standing::Declined => {
+            info!("plugin {id}: declined, not loaded");
+            hold(installed, limits, commands);
+        }
+        Standing::Unknown => {
+            info!("plugin {id}: not installed, not loaded");
+            hold(installed, limits, commands);
+            commands.trigger(AskToInstall { plugin: id });
         }
     }
 }

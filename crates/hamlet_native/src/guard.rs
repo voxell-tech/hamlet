@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use hamlet_assets::{File, Tuning, designed, follow};
 use hamlet_base::HomeDir;
 
+use crate::install::Install;
 use crate::marker;
 
 /// Adds the tuning and the system that settles libraries.
@@ -14,6 +15,7 @@ pub fn plugin(app: &mut App) {
         hamlet_assets::TuningPlugin::<NativeTuning>::default(),
     )
     .init_resource::<Guard>()
+    .init_resource::<Install>()
     .init_resource::<Settling>()
     .add_systems(Update, settle.run_if(unsettled))
     .add_systems(
@@ -43,6 +45,7 @@ pub struct Guard {
 #[serde(deny_unknown_fields)]
 pub struct NativeTuning {
     pub guard: Guard,
+    pub install: Install,
 }
 
 impl Tuning for NativeTuning {
@@ -50,10 +53,11 @@ impl Tuning for NativeTuning {
 
     fn apply(&self, was: &Self, world: &mut World) {
         follow(world, &was.guard, &self.guard);
+        follow(world, &was.install, &self.install);
     }
 }
 
-designed!(NativeTuning { Guard => guard });
+designed!(NativeTuning { Guard => guard, Install => install });
 
 /// The libraries whose entry returned and that are not yet trusted,
 /// each with the clean frames still to run.

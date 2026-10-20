@@ -1,4 +1,5 @@
 mod acts;
+mod arrive;
 mod cache;
 mod collections;
 mod contributions;
