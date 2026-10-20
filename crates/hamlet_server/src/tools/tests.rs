@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
-use super::{Outcome, Place, run};
+use super::{Outcome, Place, Session};
 use crate::sandbox::Sandbox;
 
 /// A house of its own in `scratch`, with no folder.
@@ -31,7 +31,9 @@ async fn call(
     let Value::Object(args) = args else {
         panic!("arguments are an object");
     };
-    run(&Sandbox::platform(), place, net, &secrets, tool, &args).await
+    Session::local(place.clone(), net, Sandbox::platform())
+        .run(&secrets, tool, &args)
+        .await
 }
 
 #[tokio::test]

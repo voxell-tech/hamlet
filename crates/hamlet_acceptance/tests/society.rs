@@ -1249,7 +1249,7 @@ async fn a_mayor_review_holds_the_next_step_across_restart() {
         let server = s.home.serve(&script, QUIET).await;
         let mut chief = Client::join(&server).await;
         let recovered = chief
-            .wait_for("recovered review", |w| &w.id == &wait.id)
+            .wait_for("recovered review", |w| w.id == wait.id)
             .await;
         assert_eq!(recovered, wait);
         assert!(!house.join("second.txt").exists());

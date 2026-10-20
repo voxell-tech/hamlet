@@ -522,32 +522,16 @@ async fn run_deed(
     rest: &str,
 ) -> Result<Option<ServerMessage>> {
     let hamlet = said.hamlet();
-    if service.houses.workspace.is_some() {
-        if ["merge", "restore", "undo"].contains(&deed) {
-            crate::society::merging::remote::chief(
-                service,
-                said.client,
-                said.id,
-                hamlet,
-                deed,
-                rest,
-            )?;
-            return Ok(None);
-        }
-        let operation = match deed {
-            "erase" => Some("erase an archived agent's house"),
-            "found" => Some("found a hamlet"),
-            "move-hamlet" => Some("move a hamlet between workspaces"),
-            "remove-hamlet" => Some("remove a hamlet"),
-            "restore-hamlet" => Some("restore a hamlet"),
-            "erase-hamlet" => Some("erase a hamlet"),
-            _ => None,
-        };
-        if let Some(operation) = operation {
-            return Ok(said.refused(Refusal::Invalid(
-                crate::workspace::unavailable(operation),
-            )));
-        }
+    if ["merge", "restore", "undo"].contains(&deed) {
+        crate::society::merging::lane::chief(
+            service,
+            said.client,
+            said.id,
+            hamlet,
+            deed,
+            rest,
+        )?;
+        return Ok(None);
     }
     if let Some(done) =
         crate::society::deed(service, harnesses, hamlet, deed, rest)
@@ -626,22 +610,14 @@ async fn give(
         hamlet: said.hamlet().into(),
     };
     let from = from.map(address);
-    if service.houses.workspace.is_some() {
-        return crate::gifts::remote::skill(
-            service,
-            said.client,
-            said.id,
-            &address(agent),
-            skill,
-            from.as_ref(),
-        );
-    }
-    Ok(Some(reply(
+    crate::gifts::skill(
+        service,
+        said.client,
         said.id,
-        service
-            .gift_skill(&address(agent), skill, from.as_ref())
-            .await?,
-    )))
+        &address(agent),
+        skill,
+        from.as_ref(),
+    )
 }
 
 /// Stops the agent `name`, or every agent.

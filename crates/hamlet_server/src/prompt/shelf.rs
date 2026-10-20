@@ -15,14 +15,14 @@ pub(crate) struct Skill {
     pub folder: String,
 }
 
-/// The house's skills, with commands that start in the house.
-pub(super) fn skills(house: &Path) -> String {
-    let found = if real_dir(house) {
+/// The skills of the house at `house` on this machine, none where it
+/// is not a folder.
+pub(crate) fn house_skills(house: &Path) -> Vec<Skill> {
+    if real_dir(house) {
         shelf(&house.join("skills"))
     } else {
         Vec::new()
-    };
-    skills_text(house, &found)
+    }
 }
 
 pub(super) fn skills_text(house: &Path, found: &[Skill]) -> String {
@@ -53,21 +53,20 @@ pub(super) fn skills_text(house: &Path, found: &[Skill]) -> String {
 
 /// The folders of the house's skills.
 pub(super) fn names(house: &Path) -> Vec<String> {
-    if !real_dir(house) {
-        return Vec::new();
-    }
-    shelf(&house.join("skills"))
+    house_skills(house)
         .into_iter()
         .map(|skill| skill.folder)
         .collect()
 }
 
-/// The library's part: where it is, and each skill with the command
-/// that runs it from there. None while it has no skills.
+/// The library's part where it is on this machine.
 pub(crate) fn library(root: &Path) -> Option<String> {
     library_at(root, root)
 }
 
+/// The library's part: where it is, shown as `shown`, and each skill
+/// with the command that runs it from there. None while it has no
+/// skills.
 pub(super) fn library_at(
     root: &Path,
     shown: &Path,
@@ -108,33 +107,6 @@ pub(super) fn library_at(
 
 fn real_dir(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
-}
-
-pub(crate) async fn remote_skills(
-    remote: &crate::workspace::Remote,
-) -> Vec<Skill> {
-    let Ok(entries) = remote.list("/house/skills").await else {
-        return Vec::new();
-    };
-    let mut found = Vec::new();
-    for entry in entries {
-        if entry.kind != crate::sandbox::FileKind::Directory {
-            continue;
-        }
-        let path = format!("/house/skills/{}/SKILL.md", entry.name);
-        if let Ok(bytes) = remote.read(&path, true).await {
-            found.push(skill(
-                entry.name,
-                &String::from_utf8_lossy(
-                    &bytes[..bytes.len().min(64 * 1024)],
-                ),
-            ));
-        }
-    }
-    found.sort_by(|a, b| {
-        a.folder.encode_utf16().cmp(b.folder.encode_utf16())
-    });
-    found
 }
 
 /// The skills of `dir`, one folder each whose `SKILL.md` is a

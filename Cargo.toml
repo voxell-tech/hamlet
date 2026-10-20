@@ -24,6 +24,7 @@ hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
 hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
+hamlet_workspace_wire = { version = "0.1.0", path = "crates/hamlet_workspace_wire" }
 
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }

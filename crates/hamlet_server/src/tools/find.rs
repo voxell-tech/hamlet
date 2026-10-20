@@ -2,9 +2,9 @@
 
 use serde_json::{Map, Value};
 
-use super::environment::Files;
+use super::environment::Reach;
 use super::walk::{
-    FOUND, Failure, Walk, reached, report, shown, under, wanted,
+    FOUND, Failure, reached, report, shown, under, wanted,
 };
 use super::{Arguments, Outcome};
 use crate::sandbox::FileKind;
@@ -16,7 +16,7 @@ pub(super) const DESCRIPTION: &str =
      Never waits for approval: use it rather than ls or find.";
 
 pub(super) async fn run(
-    env: &Files<'_>,
+    env: &mut impl Reach,
     arguments: &Map<String, Value>,
 ) -> Outcome {
     let args = Arguments::new("find", arguments);
@@ -36,7 +36,7 @@ pub(super) async fn run(
 /// A folder's entries, sorted with `/` after each folder, or the
 /// files under it whose name `name` matches.
 async fn find(
-    env: &Files<'_>,
+    env: &mut impl Reach,
     path: Option<&str>,
     name: Option<&str>,
 ) -> Result<String, Failure> {
@@ -66,14 +66,16 @@ async fn find(
         });
     };
     let mut found = Vec::new();
-    let mut walk = Walk::new(&root);
-    while let Some((at, _)) = walk.next(env).await {
-        if wanted(name, &under(&root, &at)) {
-            found.push(shown(env, &at));
+    let walked = env.walk(&root).await;
+    let mut capped = walked.capped;
+    for file in walked.files {
+        if wanted(name, &under(&root, &file.path)) {
+            found.push(shown(env, &file.path));
         }
         if found.len() > FOUND {
+            capped = false;
             break;
         }
     }
-    Ok(report(&found, walk.capped, "no file by that name"))
+    Ok(report(&found, capped, "no file by that name"))
 }

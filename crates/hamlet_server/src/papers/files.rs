@@ -1,35 +1,23 @@
-//! House trees on the selected backend; local stages and the library
-//! remain server-owned.
+//! A folder of house files on the startup-selected backend, or one
+//! the server owns. Local work runs off the async runtime.
 
 use std::collections::BTreeMap;
 use std::fs::File;
 
 use anyhow::{Result, ensure};
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
-use serde::Deserialize;
-use serde_json::json;
+use hamlet_workspace_wire::{TreeEntry, TreeKind};
 use sha2::{Digest, Sha256};
 
+use super::remote::Dir;
 use super::tree::{self, Entry};
-use crate::sandbox::FileKind;
-use crate::workspace::Remote;
 
 pub(crate) enum Files {
     Local(File),
-    Remote { env: Remote, path: String },
+    Remote(Dir),
 }
 
-#[derive(Deserialize)]
-pub(crate) struct TreeEntry {
-    pub path: String,
-    pub kind: String,
-    pub mode: u32,
-    pub size: u64,
-    pub sha256: Option<String>,
-}
-
-fn valid(path: &str) -> bool {
+/// Whether `path` is relative, with ordinary names only.
+pub(super) fn valid(path: &str) -> bool {
     !path.is_empty()
         && path.split('/').all(|part| {
             !part.is_empty()
@@ -38,8 +26,14 @@ fn valid(path: &str) -> bool {
         })
 }
 
-fn file_error(error: crate::sandbox::FileError) -> anyhow::Error {
-    anyhow::anyhow!("{}", error.message)
+/// Runs `work` on a copy of the descriptor `dir` on a blocking
+/// thread.
+async fn blocking<T: Send + 'static>(
+    dir: &File,
+    work: impl FnOnce(&File) -> Result<T> + Send + 'static,
+) -> Result<T> {
+    let dir = dir.try_clone()?;
+    tokio::task::spawn_blocking(move || work(&dir)).await?
 }
 
 impl Files {
@@ -52,140 +46,120 @@ impl Files {
             valid(name) && !name.contains('/'),
             "invalid tree directory"
         );
+        let name = name.to_owned();
+        match self {
+            Self::Local(root) => blocking(root, move |root| {
+                tree::directory(root, &name, create)
+            })
+            .await
+            .map(Self::Local),
+            Self::Remote(dir) => {
+                dir.directory(&name, create).await.map(Self::Remote)
+            }
+        }
+    }
+
+    /// What `path` names, a link itself rather than what it names,
+    /// or `None` where nothing is.
+    pub async fn kind(&self, path: &str) -> Result<Option<TreeKind>> {
+        ensure!(valid(path), "invalid tree path");
+        let path = path.to_owned();
         match self {
             Self::Local(root) => {
-                tree::directory(root, name, create).map(Self::Local)
-            }
-            Self::Remote { env, path } => {
-                let path = format!("{path}/{name}");
-                env.parents(&path, false)
+                blocking(root, move |root| tree::kind(root, &path))
                     .await
-                    .map_err(file_error)?;
-                if create
-                    && !env.exists(&path).await.map_err(file_error)?
-                {
-                    env.call::<()>(json!({"kind":"mkdir", "path":path,"recursive":false})).await?;
-                }
-                ensure!(
-                    env.info(&path).await.map_err(file_error)?.kind
-                        == FileKind::Directory,
-                    "The house directory is not safe to open."
-                );
-                Ok(Self::Remote {
-                    env: env.clone(),
-                    path,
-                })
             }
+            Self::Remote(dir) => dir.kind(&path).await,
         }
     }
 
-    pub async fn present(&self, name: &str) -> Result<bool> {
-        ensure!(valid(name), "invalid tree path");
-        match self {
-            Self::Local(root) => {
-                match rustix::fs::statat(
-                    root,
-                    name,
-                    rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
-                ) {
-                    Ok(_) => Ok(true),
-                    Err(rustix::io::Errno::NOENT) => Ok(false),
-                    Err(error) => Err(error.into()),
-                }
-            }
-            Self::Remote { env, path } => env
-                .exists(&format!("{path}/{name}"))
-                .await
-                .map_err(file_error),
-        }
-    }
-
-    pub async fn read(
+    /// Every entry of the tree, `.` first, within `cap` bytes and
+    /// `count` entries.
+    pub async fn entries(
         &self,
         cap: u64,
         count: usize,
-    ) -> Result<BTreeMap<String, Entry>> {
-        let Self::Remote { env, path } = self else {
-            let Self::Local(root) = self else {
-                unreachable!()
-            };
-            return tree::read(root, cap, count);
-        };
-        let entries = remote_entries(env, path, cap, count).await?;
-        ensure!(
-            entries.iter().any(|entry| entry.path == "."
-                && entry.kind == "directory"),
-            "The tree is not a directory."
-        );
-        let mut files = BTreeMap::new();
-        for entry in entries {
-            match entry.kind.as_str() {
-                "directory" => {}
-                "file" => {
-                    let bytes = env
-                        .read(&format!("{path}/{}", entry.path), true)
-                        .await
-                        .map_err(file_error)?;
-                    ensure!(
-                        bytes.len() as u64 == entry.size
-                            && entry.sha256.as_deref()
-                                == Some(&format!(
-                                    "{:x}",
-                                    Sha256::digest(&bytes)
-                                )),
-                        "The remote tree changed while it was read. \
-                         Inspect it before retrying."
-                    );
-                    ensure!(
-                        files
-                            .insert(
-                                entry.path,
-                                Entry {
-                                    bytes,
-                                    mode: entry.mode & 0o777
-                                }
-                            )
-                            .is_none(),
-                        "Duplicate remote tree entry."
-                    );
-                }
-                _ => anyhow::bail!(
-                    "Links and special files cannot be copied."
-                ),
+    ) -> Result<Vec<TreeEntry>> {
+        match self {
+            Self::Local(root) => {
+                blocking(root, move |root| {
+                    tree::entries(root, cap, count)
+                })
+                .await
             }
+            Self::Remote(dir) => dir.entries(cap, count).await,
         }
-        Ok(files)
     }
 
+    /// The regular file `path`, at most `cap` bytes.
+    pub async fn read_file(
+        &self,
+        path: &str,
+        cap: u64,
+    ) -> Result<Vec<u8>> {
+        ensure!(valid(path), "invalid tree path");
+        let path = path.to_owned();
+        match self {
+            Self::Local(root) => {
+                blocking(root, move |root| {
+                    tree::read_file(root, &path, cap)
+                })
+                .await
+            }
+            Self::Remote(dir) => dir.read_file(&path, cap).await,
+        }
+    }
+
+    /// Writes a new file with its mode, making missing folders. A
+    /// file already there must hold the same bytes.
     pub async fn put(&self, path: &str, entry: &Entry) -> Result<()> {
         ensure!(valid(path), "invalid tree path");
         match self {
-            Self::Local(root) => tree::put(root, path, entry),
-            Self::Remote { env, path: root } => {
-                ensure!(
-                    entry.bytes.len() <= crate::workspace::MAX_FILE,
-                    "Remote files are limited to 4 MiB per transfer."
-                );
-                let full = format!("{root}/{path}");
-                env.parents(&full, true).await.map_err(file_error)?;
-                match env.read(&full, true).await {
-                    Ok(bytes) => {
-                        ensure!(
-                            bytes == entry.bytes,
-                            "The merge target changed; inspect the \
-                             houses before retrying."
-                        );
-                        return Ok(());
-                    }
-                    Err(error) if error.code == "not_found" => {}
-                    Err(error) => return Err(file_error(error)),
-                }
-                env.call::<()>(json!({"kind":"tree_write", "path":full,"data":STANDARD.encode(&entry.bytes),"mode":entry.mode & 0o777})).await?;
-                Ok(())
+            Self::Local(root) => {
+                let (path, entry) = (path.to_owned(), entry.clone());
+                blocking(root, move |root| {
+                    tree::put(root, &path, &entry)
+                })
+                .await
             }
+            Self::Remote(dir) => dir.put(path, entry).await,
         }
     }
 
+    /// Makes the new folder `path` in an existing one.
+    pub async fn mkdir(&self, path: &str) -> Result<()> {
+        ensure!(valid(path), "invalid tree path");
+        let path = path.to_owned();
+        match self {
+            Self::Local(root) => {
+                blocking(root, move |root| tree::mkdir(root, &path))
+                    .await
+            }
+            Self::Remote(dir) => dir.mkdir(&path).await,
+        }
+    }
+
+    /// Sets the mode of `path`, or of this folder for `.`.
+    pub async fn set_mode(
+        &self,
+        path: &str,
+        mode: u32,
+    ) -> Result<()> {
+        ensure!(path == "." || valid(path), "invalid tree path");
+        let path = path.to_owned();
+        match self {
+            Self::Local(root) => {
+                blocking(root, move |root| {
+                    tree::set_mode(root, &path, mode)
+                })
+                .await
+            }
+            Self::Remote(dir) => dir.set_mode(&path, mode).await,
+        }
+    }
+
+    /// Writes `bytes` over the regular file `path`, or makes it where
+    /// it is missing.
     pub async fn replace(
         &self,
         path: &str,
@@ -193,99 +167,80 @@ impl Files {
     ) -> Result<()> {
         ensure!(valid(path), "invalid tree path");
         match self {
-            Self::Local(root) => tree::replace(root, path, bytes),
-            Self::Remote { env, path: root } => {
-                let full = format!("{root}/{path}");
-                env.parents(&full, false)
-                    .await
-                    .map_err(file_error)?;
-                ensure!(
-                    env.info(&full).await.map_err(file_error)?.kind
-                        == FileKind::File,
-                    "The notes are not a regular file."
-                );
-                ensure!(
-                    bytes.len() <= crate::workspace::MAX_FILE,
-                    "Remote files are limited to 4 MiB per transfer."
-                );
-                env.call::<()>(json!({"kind":"write","path":full,"data":STANDARD.encode(bytes),"append":false})).await?;
-                Ok(())
+            Self::Local(root) => {
+                let (path, bytes) = (path.to_owned(), bytes.to_vec());
+                blocking(root, move |root| {
+                    tree::replace(root, &path, &bytes)
+                })
+                .await
             }
+            Self::Remote(dir) => dir.replace(path, bytes).await,
         }
     }
 
+    /// Removes the file or empty folder `path`, or with `recursive`
+    /// the folder and all in it.
     pub async fn remove(
         &self,
         path: &str,
         recursive: bool,
     ) -> Result<()> {
         ensure!(valid(path), "invalid tree path");
+        let path = path.to_owned();
         match self {
             Self::Local(root) => {
-                if recursive {
-                    tree::erase(root, path)
-                } else {
-                    tree::remove(root, path)
-                }
+                blocking(root, move |root| {
+                    if recursive {
+                        tree::erase_path(root, &path)
+                    } else {
+                        tree::remove(root, &path)
+                    }
+                })
+                .await
             }
-            Self::Remote { env, path: root } => {
-                env.parents(&format!("{root}/{path}"), false)
-                    .await
-                    .map_err(file_error)?;
-                env.call::<()>(json!({"kind":"remove", "path":format!("{root}/{path}"),"recursive":recursive,"force":false})).await?;
-                Ok(())
+            Self::Remote(dir) => dir.remove(&path, recursive).await,
+        }
+    }
+
+    /// The regular files of the tree, refusing links and special
+    /// files, within `cap` bytes and `count` entries.
+    pub async fn read(
+        &self,
+        cap: u64,
+        count: usize,
+    ) -> Result<BTreeMap<String, Entry>> {
+        let mut files = BTreeMap::new();
+        for entry in self.entries(cap, count).await? {
+            match entry.kind {
+                TreeKind::Directory => {}
+                TreeKind::File => {
+                    let bytes =
+                        self.read_file(&entry.path, cap).await?;
+                    ensure!(
+                        same_bytes(&entry, &bytes),
+                        "The tree changed while it was read. \
+                         Inspect it before retrying."
+                    );
+                    files.insert(
+                        entry.path,
+                        Entry {
+                            bytes,
+                            mode: entry.mode & 0o777,
+                        },
+                    );
+                }
+                _ => anyhow::bail!(
+                    "Links and special files cannot be merged."
+                ),
             }
         }
+        Ok(files)
     }
 }
 
-pub(crate) async fn remote_entries(
-    env: &Remote,
-    path: &str,
-    cap: u64,
-    count: usize,
-) -> Result<Vec<TreeEntry>> {
-    env.parents(path, false).await.map_err(file_error)?;
-    let entries = env.call::<Vec<TreeEntry>>(json!({"kind":"tree_list", "path":path,"entries":count,"bytes":cap})).await?;
-    ensure!(
-        entries.len() <= count,
-        "The remote tree has too many entries."
-    );
-    let mut left = cap;
-    let mut names = BTreeMap::new();
-    for entry in &entries {
-        ensure!(
-            (entry.path == "." || valid(&entry.path))
-                && names
-                    .insert(entry.path.as_str(), entry.kind.as_str())
-                    .is_none(),
-            "Invalid remote tree path."
-        );
-        ensure!(
-            ["file", "directory", "link", "special"]
-                .contains(&entry.kind.as_str()),
-            "Invalid remote tree kind."
-        );
-        if entry.kind == "file" {
-            left = left.checked_sub(entry.size).ok_or_else(|| {
-                anyhow::anyhow!("The remote tree is too large.")
-            })?;
-            ensure!(
-                entry.size <= crate::workspace::MAX_FILE as u64,
-                "Remote files are limited to 4 MiB per transfer."
-            );
-        }
-    }
-    ensure!(names.contains_key("."), "Missing remote tree root.");
-    for entry in entries.iter().filter(|entry| entry.path != ".") {
-        let parent = entry
-            .path
-            .rsplit_once('/')
-            .map_or(".", |(parent, _)| parent);
-        ensure!(
-            names.get(parent) == Some(&"directory"),
-            "Invalid remote tree parent."
-        );
-    }
-    Ok(entries)
+/// Whether `bytes` are the file `entry` listed.
+pub(super) fn same_bytes(entry: &TreeEntry, bytes: &[u8]) -> bool {
+    entry.size == bytes.len() as u64
+        && entry.sha256.as_deref()
+            == Some(format!("{:x}", Sha256::digest(bytes)).as_str())
 }

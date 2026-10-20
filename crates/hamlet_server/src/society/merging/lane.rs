@@ -1,4 +1,6 @@
 //! The home-wide merge and split lane, separate from client dispatch.
+//! Every merge and split runs here, its file work in the background
+//! on the houses' backend.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -9,7 +11,7 @@ use tokio::task::JoinSet;
 use super::{Applied, Applying, Plan, Planned, Unplanned, preparing};
 use crate::OperationId;
 use crate::harness::Harnesses;
-use crate::papers::{NOTES, tree};
+use crate::papers::tree;
 use crate::protocol::{Refusal, reply};
 use crate::record::{Actor, AgentRef};
 use crate::service::Service;
@@ -357,11 +359,11 @@ pub(crate) async fn advance(
                     harnesses,
                     request.origin,
                     Err(Refusal::Invalid(
-                        "The previous remote merge or split has \
-                         unknown effects. Its record and recovery \
-                         plan remain. This server cannot resume or \
-                         split an unconfirmed batch; inspect both \
-                         houses and the preserved plan."
+                        "The previous merge or split has unknown \
+                         effects. Its record and recovery plan \
+                         remain. This server cannot resume or split \
+                         an unconfirmed batch; inspect both houses \
+                         and the preserved plan."
                             .into(),
                     )),
                 )
@@ -475,30 +477,22 @@ fn start_apply(
         &format!("{hamlet}:{archive}"),
     )?
     .context("merge plan")?;
-    let number = entry.merge.as_ref().expect("merge").kept.number;
-    let notes = service
-        .houses
-        .remote(hamlet, number, true)?
-        .expect("remote merge");
     let work = Applying::new(service, hamlet, entry, plan.snapshot)?;
     if let Some(id) = origin.call() {
         service.house_work.hold(id.clone());
     }
-    society::keep(
-        service.home.store().connection(),
-        "remote-merge-attempt",
-        &format!("{hamlet}:{archive}"),
-        &true,
-    )?;
+    if !service.houses.confirms() {
+        society::keep(
+            service.home.store().connection(),
+            "remote-merge-attempt",
+            &format!("{hamlet}:{archive}"),
+            &true,
+        )?;
+    }
     service.merges.active.as_mut().expect("merge lane").applying =
         true;
     service.merges.tasks.spawn(async move {
-        let result = work
-            .run(|| {
-                let notes = notes.clone();
-                async move { read_notes(&notes).await }
-            })
-            .await;
+        let result = work.run().await;
         Completed {
             origin,
             result: Finished::Applied {
@@ -509,18 +503,6 @@ fn start_apply(
         }
     });
     Ok(true)
-}
-
-/// The kept agent's notes in its remote house, as they are now.
-async fn read_notes(
-    remote: &crate::workspace::Remote,
-) -> Result<String> {
-    let bytes =
-        remote
-            .read(&format!("/house/{NOTES}"), true)
-            .await
-            .map_err(|error| anyhow::anyhow!("{}", error.message))?;
-    Ok(String::from_utf8(bytes)?)
 }
 
 pub(crate) async fn complete(
@@ -622,15 +604,20 @@ pub(crate) async fn complete(
             let answer = match result {
                 Ok(()) => answer,
                 Err(error) => {
-                    let uncertain = error
-                        .downcast_ref::<crate::workspace::Failure>()
-                        .is_none_or(|failure| failure.uncertain);
-                    society::keep(
-                        service.home.store().connection(),
-                        "remote-merge-attempt",
-                        &key,
-                        &uncertain,
-                    )?;
+                    // Only a backend that cannot confirm its changes
+                    // leaves them unknown, unless it refused.
+                    let uncertain = !service.houses.confirms()
+                        && error
+                            .downcast_ref::<crate::workspace::Failure>()
+                            .is_none_or(|failure| failure.uncertain);
+                    if !service.houses.confirms() {
+                        society::keep(
+                            service.home.store().connection(),
+                            "remote-merge-attempt",
+                            &key,
+                            &uncertain,
+                        )?;
+                    }
                     let status = if uncertain {
                         "has unknown effects"
                     } else {
@@ -645,11 +632,10 @@ pub(crate) async fn complete(
                          restoring the archived agent."
                     };
                     Err(Refusal::Invalid(format!(
-                        "The remote merge or split {status}: \
-                         {error}. The record and recovery plan \
-                         remain. Earlier files may already have \
-                         changed. No automatic retry will be made. \
-                         {recovery}"
+                        "The merge or split {status}: {error}. The \
+                         record and recovery plan remain. Earlier \
+                         files may already have changed. No \
+                         automatic retry will be made. {recovery}"
                     )))
                 }
             };

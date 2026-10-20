@@ -13,14 +13,18 @@ use hamlet_server::{
 use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
+/// `future` run to its end on a runtime of its own, as the server's
+/// house work needs one.
+fn run<F: Future>(future: F) -> F::Output {
+    tokio::runtime::Runtime::new().unwrap().block_on(future)
+}
+
 fn request(service: &mut Service, mut value: Value) -> Value {
     value["id"] = uuid::Uuid::new_v4().to_string().into();
     let message =
         Protocol::new().unwrap().parse(&value.to_string()).unwrap();
     serde_json::to_value(
-        futures::executor::block_on(service.handle(message))
-            .unwrap()
-            .unwrap(),
+        run(service.handle(message)).unwrap().unwrap(),
     )
     .unwrap()
 }
@@ -330,14 +334,12 @@ fn unsupported_owners_refuse_without_changing_the_realm() {
         json!({"type":"login","start":{"provider":"openai","method":"key"}}),
     ] {
         value["id"] = uuid::Uuid::new_v4().to_string().into();
-        let result = futures::executor::block_on(
-            service.handle(
-                Protocol::new()
-                    .unwrap()
-                    .parse(&value.to_string())
-                    .unwrap(),
-            ),
-        )
+        let result = run(service.handle(
+            Protocol::new()
+                .unwrap()
+                .parse(&value.to_string())
+                .unwrap(),
+        ))
         .unwrap()
         .unwrap();
         assert!(

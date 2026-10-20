@@ -6,10 +6,14 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 use anyhow::{Result, ensure};
+use hamlet_workspace_wire::{Code, TreeEntry, TreeKind};
 use rustix::fs::{
     AtFlags, Dir, FileType, Mode, OFlags, mkdirat, openat, statat,
     unlinkat,
 };
+use sha2::{Digest, Sha256};
+
+use crate::workspace::Failure;
 
 #[derive(
     Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize,
@@ -61,19 +65,163 @@ pub(crate) fn read(
     Ok(files)
 }
 
+/// The library's files, without its hidden ones, within `cap` bytes
+/// and `count` entries.
 pub(crate) fn library(
     root: &File,
+    cap: u64,
+    count: usize,
 ) -> Result<BTreeMap<String, Entry>> {
     let mut files = BTreeMap::new();
-    scan(
-        root,
-        "",
-        &mut files,
-        &mut (4 * 1024 * 1024),
-        &mut 1024,
-        true,
-    )?;
+    scan(root, "", &mut files, &mut { cap }, &mut { count }, true)?;
     Ok(files)
+}
+
+/// What `path` names, a link itself rather than what it names, or
+/// `None` where nothing is.
+pub(crate) fn kind(
+    root: &File,
+    path: &str,
+) -> Result<Option<TreeKind>> {
+    let (dir, name) = parent(root, path, false)?;
+    match statat(&dir, name.as_str(), AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(info) => {
+            Ok(Some(match FileType::from_raw_mode(info.st_mode) {
+                FileType::Directory => TreeKind::Directory,
+                FileType::RegularFile => TreeKind::File,
+                FileType::Symlink => TreeKind::Link,
+                _ => TreeKind::Special,
+            }))
+        }
+        Err(rustix::io::Errno::NOENT) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Makes the folder `path`, which must be new.
+pub(crate) fn mkdir(root: &File, path: &str) -> Result<()> {
+    let (dir, name) = parent(root, path, false)?;
+    mkdirat(&dir, name.as_str(), Mode::from_raw_mode(0o700))?;
+    Ok(())
+}
+
+/// Sets the permission bits of the file or folder `path`, or of
+/// `root` itself for `.`.
+pub(crate) fn set_mode(
+    root: &File,
+    path: &str,
+    mode: u32,
+) -> Result<()> {
+    let permissions = std::fs::Permissions::from_mode(mode & 0o777);
+    if path == "." {
+        return Ok(root.set_permissions(permissions)?);
+    }
+    let (dir, name) = parent(root, path, false)?;
+    let info =
+        statat(&dir, name.as_str(), AtFlags::SYMLINK_NOFOLLOW)?;
+    let target = match FileType::from_raw_mode(info.st_mode) {
+        FileType::Directory => directory(&dir, &name, false)?,
+        FileType::RegularFile => File::from(openat(
+            &dir,
+            name.as_str(),
+            OFlags::RDONLY
+                | OFlags::NOFOLLOW
+                | OFlags::NONBLOCK
+                | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?),
+        _ => {
+            anyhow::bail!("Links and special files cannot be copied.")
+        }
+    };
+    target.set_permissions(permissions)?;
+    Ok(())
+}
+
+/// Every entry of the tree, `.` first, with each regular file's
+/// SHA-256, within `cap` bytes and `count` entries. A file with
+/// other names is special.
+pub(crate) fn entries(
+    root: &File,
+    cap: u64,
+    count: usize,
+) -> Result<Vec<TreeEntry>> {
+    let mut entries = vec![TreeEntry {
+        path: ".".into(),
+        kind: TreeKind::Directory,
+        size: 0,
+        mode: root.metadata()?.mode() & 0o777,
+        sha256: None,
+    }];
+    listed(root, "", &mut entries, &mut { cap }, count)?;
+    Ok(entries)
+}
+
+/// The entries under `dir`, each folder's listed while it alone is
+/// open, so a wide tree holds few descriptors.
+fn listed(
+    dir: &File,
+    prefix: &str,
+    entries: &mut Vec<TreeEntry>,
+    left: &mut u64,
+    count: usize,
+) -> Result<()> {
+    for item in Dir::read_from(dir)? {
+        let item = item?;
+        let name = item.file_name().to_str()?.to_owned();
+        if [".", ".."].contains(&name.as_str()) {
+            continue;
+        }
+        if entries.len() >= count {
+            return Err(Failure::refused(
+                Code::TooMany,
+                "The tree has too many entries.",
+            )
+            .into());
+        }
+        let path = format!("{prefix}{name}");
+        let info =
+            statat(dir, name.as_str(), AtFlags::SYMLINK_NOFOLLOW)?;
+        let kind = match FileType::from_raw_mode(info.st_mode) {
+            FileType::Directory => TreeKind::Directory,
+            FileType::RegularFile if info.st_nlink == 1 => {
+                TreeKind::File
+            }
+            FileType::Symlink => TreeKind::Link,
+            _ => TreeKind::Special,
+        };
+        let (size, sha256) = if kind == TreeKind::File {
+            let bytes = read_file(dir, &name, *left)?;
+            *left -= bytes.len() as u64;
+            (
+                bytes.len() as u64,
+                Some(format!("{:x}", Sha256::digest(&bytes))),
+            )
+        } else {
+            (0, None)
+        };
+        // macOS mode_t is u16; Linux mode_t is u32.
+        #[allow(clippy::useless_conversion)]
+        let mode = u32::from(info.st_mode) & 0o777;
+        entries.push(TreeEntry {
+            path: path.clone(),
+            kind,
+            size,
+            mode,
+            sha256,
+        });
+        if kind == TreeKind::Directory {
+            let child = directory(dir, &name, false)?;
+            listed(
+                &child,
+                &format!("{path}/"),
+                entries,
+                left,
+                count,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn read_file(
@@ -98,7 +246,13 @@ pub(crate) fn read_file(
     );
     let mut bytes = Vec::new();
     file.take(cap.saturating_add(1)).read_to_end(&mut bytes)?;
-    ensure!(bytes.len() as u64 <= cap, "The file is too large.");
+    if bytes.len() as u64 > cap {
+        return Err(Failure::refused(
+            Code::TooLarge,
+            "The file is too large.",
+        )
+        .into());
+    }
     Ok(bytes)
 }
 
@@ -336,6 +490,15 @@ pub(crate) fn replace(
     bytes: &[u8],
 ) -> Result<()> {
     let (dir, name) = parent(root, path, false)?;
+    match statat(&dir, name.as_str(), AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(info) => ensure!(
+            FileType::from_raw_mode(info.st_mode)
+                == FileType::RegularFile,
+            "The file to replace is not a regular file."
+        ),
+        Err(rustix::io::Errno::NOENT) => {}
+        Err(error) => return Err(error.into()),
+    }
     let temporary = format!(".incoming-{}", uuid::Uuid::new_v4());
     let mut file = File::from(openat(
         &dir,
@@ -397,6 +560,18 @@ pub(crate) fn publish(
         Err(error) => return Err(error.into()),
     }
     Ok(())
+}
+
+/// Erases the file or folder `path`.
+pub(crate) fn erase_path(root: &File, path: &str) -> Result<()> {
+    let (dir, name) = parent(root, path, false)?;
+    let info =
+        statat(&dir, name.as_str(), AtFlags::SYMLINK_NOFOLLOW)?;
+    if FileType::from_raw_mode(info.st_mode) == FileType::Directory {
+        erase(&dir, &name)
+    } else {
+        Ok(unlinkat(&dir, name.as_str(), AtFlags::empty())?)
+    }
 }
 
 pub(crate) fn erase(root: &File, name: &str) -> Result<()> {

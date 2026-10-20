@@ -42,7 +42,6 @@ const IDENTITY_REFUSAL: &str = "This call's identity does not match \
 const UNPREPARED: &str =
     "The server could not prepare this call, so it did not run.";
 /// What a preview shows of a file it cannot show as text.
-const UNREADABLE: &str = "[a file that could not be read as text]";
 /// The chief's recovery advice for an answer with no text or calls.
 const EMPTY: &str =
     "the model answered with nothing. Send the message again";
@@ -397,7 +396,7 @@ async fn prompt_call(
     Ok(())
 }
 
-/// Reads the file a remote write replaces, for its approval to show.
+/// Reads the file a write replaces, for its approval to show.
 fn preview_call(
     service: &mut Service,
     binding: BindingId,
@@ -408,22 +407,11 @@ fn preview_call(
     let answers = re.clone();
     service.chats.calls.prepare(binding, re, async move {
         let Reading {
-            remote,
+            tools,
             path,
             signature,
         } = reading;
-        let result = async {
-            let full =
-                remote.footing(&path).await.map_err(|e| e.message)?;
-            Ok(match remote.read(&full, false).await {
-                Ok(bytes) => {
-                    Some(String::from_utf8_lossy(&bytes).into_owned())
-                }
-                Err(error) if error.code == "not_found" => None,
-                Err(_) => Some(UNREADABLE.into()),
-            })
-        }
-        .await;
+        let result = tools.preview(&path).await;
         Prepared {
             binding,
             re: answers,
@@ -574,8 +562,7 @@ fn run(
         operation::begin(db, &call.id, request)?;
     }
     let place = decide::places(service, &call.bound.agent)?;
-    let remote = service.remote_tools(&call.bound.agent, net)?;
-    let sandbox = service.chats.sandbox;
+    let tools = service.tools(&call.bound.agent, place, net)?;
     let secrets = service.credentials.secrets();
     let arguments =
         call.arguments.clone().into_iter().collect::<Map<_, _>>();
@@ -585,18 +572,8 @@ fn run(
         call.bound.id,
         re.clone(),
         async move {
-            let mut outcome = if let Some(remote) = &remote {
-                tools::run_remote(
-                    remote, &place, &secrets, &name, &arguments,
-                )
-                .await
-            } else {
-                tools::run(
-                    &sandbox, &place, net, &secrets, &name,
-                    &arguments,
-                )
-                .await
-            };
+            let mut outcome =
+                tools.run(&secrets, &name, &arguments).await;
             if let Some(change) = change {
                 outcome
                     .details

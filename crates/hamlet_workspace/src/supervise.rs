@@ -7,13 +7,16 @@ use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::process::{
+    Child, ChildStderr, ChildStdout, Command, ExitStatus, Stdio,
+};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use serde_json::json;
 
-use crate::wire::{MAX_BODY, MAX_OUTPUT, Operation, Reply};
+use crate::wire::{
+    Code, MAX_BODY, MAX_OUTPUT, Operation, Ran, Reply,
+};
 
 /// Unix socket of the worker's proxy inside a network-granted
 /// operation.
@@ -118,172 +121,263 @@ pub fn run(args: &[String]) -> Result<()> {
     if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0) } != 0 {
         return Err(io::Error::last_os_error().into());
     }
-    let mut line = Vec::new();
     let mut stdin = io::stdin();
+    let line = operation_line(&mut stdin)?;
+    let operation = serde_json::from_slice::<Operation>(&line)?;
+    let mut task = Task::new(&operation)?;
+    let reply = match network && !task.file {
+        true => task.relay(),
+        false => Ok(()),
+    };
+    let reply = match reply {
+        Ok(()) => task.supervise(&line, &mut stdin)?,
+        Err(reply) => {
+            reap()?;
+            reply
+        }
+    };
+    serde_json::to_writer(io::stdout(), &reply)?;
+    Ok(())
+}
+
+/// The operation's JSON, which ends at the first newline.
+fn operation_line(stdin: &mut io::Stdin) -> Result<Vec<u8>> {
+    let mut line = Vec::new();
     loop {
         let mut byte = [0];
         stdin.read_exact(&mut byte)?;
         if byte[0] == b'\n' {
-            break;
+            return Ok(line);
         }
         line.push(byte[0]);
         if line.len() > MAX_BODY {
             bail!("Oversize operation");
         }
     }
-    let operation = serde_json::from_slice::<Operation>(&line)?;
-    let (mut command, timeout, is_file) = match &operation {
-        Operation::Exec {
-            argv,
-            cwd,
-            timeout_ms,
-        } => {
-            if argv.is_empty()
-                || *timeout_ms == 0
-                || *timeout_ms > 120_000
-            {
-                bail!("Invalid command or timeout");
+}
+
+/// The process of one operation: its command, or the file helper.
+struct Task {
+    command: Command,
+    timeout: Duration,
+    file: bool,
+}
+
+impl Task {
+    fn new(operation: &Operation) -> Result<Self> {
+        let mut task = match operation {
+            Operation::Exec(exec) => {
+                if exec.argv.is_empty()
+                    || exec.timeout_ms == 0
+                    || exec.timeout_ms > 120_000
+                {
+                    bail!("Invalid command or timeout");
+                }
+                let mut command = Command::new(&exec.argv[0]);
+                command.args(&exec.argv[1..]).current_dir(&exec.cwd);
+                Self {
+                    command,
+                    timeout: Duration::from_millis(exec.timeout_ms),
+                    file: false,
+                }
             }
-            let mut command = Command::new(&argv[0]);
-            command.args(&argv[1..]).current_dir(cwd);
-            (command, Duration::from_millis(*timeout_ms), false)
+            _ => {
+                let mut command = Command::new("/runner");
+                command.arg("file");
+                Self {
+                    command,
+                    timeout: Duration::from_secs(30),
+                    file: true,
+                }
+            }
+        };
+        task.command
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", "/house")
+            .env("LANG", "C.UTF-8")
+            .stdin(if task.file {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        // SAFETY: these resource limits are scalar kernel calls in
+        // the forked child.
+        unsafe {
+            task.command.pre_exec(|| {
+                for (resource, limit) in [
+                    (libc::RLIMIT_FSIZE, 32 * 1024 * 1024),
+                    (libc::RLIMIT_NOFILE, 128),
+                    (libc::RLIMIT_CPU, 120),
+                ] {
+                    let limits = libc::rlimit {
+                        rlim_cur: limit,
+                        rlim_max: limit,
+                    };
+                    if libc::setrlimit(resource, &limits) != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                }
+                Ok(())
+            });
         }
-        _ => {
-            let mut command = Command::new("/runner");
-            command.arg("file");
-            (command, Duration::from_secs(30), true)
-        }
-    };
-    command
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("HOME", "/house")
-        .env("LANG", "C.UTF-8");
-    if network && !is_file {
-        if let Err(reply) = start_relay() {
-            reap()?;
-            serde_json::to_writer(io::stdout(), &reply)?;
-            return Ok(());
-        }
+        Ok(task)
+    }
+
+    /// Starts the proxy relay and points the command at it.
+    fn relay(&mut self) -> Result<(), Reply> {
+        start_relay()?;
         let proxy = format!("http://127.0.0.1:{PROXY_PORT}");
         for name in
             ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]
         {
-            command.env(name, &proxy);
+            self.command.env(name, &proxy);
         }
+        Ok(())
     }
-    command
-        .stdin(if is_file {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    // SAFETY: these resource limits are scalar kernel calls in the
-    // forked child.
-    unsafe {
-        command.pre_exec(|| {
-            for (resource, limit) in [
-                (libc::RLIMIT_FSIZE, 32 * 1024 * 1024),
-                (libc::RLIMIT_NOFILE, 128),
-                (libc::RLIMIT_CPU, 120),
-            ] {
-                let limits = libc::rlimit {
-                    rlim_cur: limit,
-                    rlim_max: limit,
-                };
-                if libc::setrlimit(resource, &limits) != 0 {
-                    return Err(io::Error::last_os_error());
-                }
+
+    /// Runs the process until it ends, is cancelled through `stdin`
+    /// or times out, then drains every descendant and gives its
+    /// reply.
+    fn supervise(
+        mut self,
+        line: &[u8],
+        stdin: &mut io::Stdin,
+    ) -> Result<Reply> {
+        let mut child = self.command.spawn()?;
+        if self.file {
+            child
+                .stdin
+                .take()
+                .context("Missing file stdin")?
+                .write_all(line)?;
+        }
+        let mut stdout =
+            child.stdout.take().context("Missing stdout")?;
+        let mut stderr =
+            child.stderr.take().context("Missing stderr")?;
+        for fd in [
+            stdin.as_raw_fd(),
+            stdout.as_raw_fd(),
+            stderr.as_raw_fd(),
+        ] {
+            // SAFETY: these descriptors remain owned and open until
+            // the supervisor returns.
+            if unsafe {
+                libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK)
+            } < 0
+            {
+                return Err(io::Error::last_os_error().into());
             }
-            Ok(())
-        });
-    }
-    let mut child = command.spawn()?;
-    if is_file {
-        child
-            .stdin
-            .take()
-            .context("Missing file stdin")?
-            .write_all(&line)?;
-    }
-    let mut stdout = child.stdout.take().context("Missing stdout")?;
-    let mut stderr = child.stderr.take().context("Missing stderr")?;
-    for fd in
-        [stdin.as_raw_fd(), stdout.as_raw_fd(), stderr.as_raw_fd()]
-    {
-        // SAFETY: these descriptors remain owned and open until the
-        // supervisor returns.
-        if unsafe { libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK) }
-            < 0
-        {
-            return Err(io::Error::last_os_error().into());
         }
+        let limit = if self.file { MAX_BODY } else { MAX_OUTPUT };
+        let mut output = Output {
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            limit,
+        };
+        let ending = self.watch(
+            &mut child,
+            &mut output,
+            stdin,
+            &mut stdout,
+            &mut stderr,
+        )?;
+        reap()?;
+        // Every writer is gone now, so this drain reaches end of file
+        // and keeps bytes written after the last drain in the loop.
+        let status = match ending {
+            Ok(status) => status,
+            Err(reply) => return Ok(reply),
+        };
+        output.drain(&mut stdout, &mut stderr)?;
+        Ok(if output.full() {
+            output_limit()
+        } else if !self.file {
+            Reply::ok(Ran {
+                exit_code: status.code().unwrap_or(-1),
+                stdout: String::from_utf8_lossy(&output.stdout)
+                    .into(),
+                stderr: String::from_utf8_lossy(&output.stderr)
+                    .into(),
+            })
+        } else if status.success() {
+            serde_json::from_slice(&output.stdout)
+                .unwrap_or_else(|_| Reply::uncertain())
+        } else {
+            Reply::uncertain()
+        })
     }
-    let started = Instant::now();
-    let mut output = Vec::new();
-    let mut errors = Vec::new();
-    let limit = if is_file { MAX_BODY } else { MAX_OUTPUT };
-    let ending = loop {
-        drain(&mut stdout, &mut output, limit)?;
-        drain(&mut stderr, &mut errors, limit)?;
-        if output.len() + errors.len() > limit {
-            break Err(output_limit());
-        }
-        if let Some(status) = child.try_wait()? {
-            break Ok(status);
-        }
-        let mut cancel = [0];
-        match stdin.read(&mut cancel) {
-            Ok(_) => {
-                break Err(Reply::error(
-                    "aborted",
-                    "Command cancelled. Partial file changes may \
+
+    /// Polls the process until it exits, or ends it as cancelled,
+    /// timed out or over its output limit.
+    fn watch(
+        &self,
+        child: &mut Child,
+        output: &mut Output,
+        stdin: &mut io::Stdin,
+        stdout: &mut ChildStdout,
+        stderr: &mut ChildStderr,
+    ) -> Result<Result<ExitStatus, Reply>> {
+        let started = Instant::now();
+        loop {
+            output.drain(stdout, stderr)?;
+            if output.full() {
+                return Ok(Err(output_limit()));
+            }
+            if let Some(status) = child.try_wait()? {
+                return Ok(Ok(status));
+            }
+            let mut cancel = [0];
+            match stdin.read(&mut cancel) {
+                Ok(_) => {
+                    return Ok(Err(Reply::error(
+                        Code::Aborted,
+                        "Command cancelled. Partial file changes \
+                         may remain; inspect them before repeating \
+                         it.",
+                        false,
+                    )));
+                }
+                Err(error)
+                    if error.kind() == io::ErrorKind::WouldBlock => {}
+                Err(error) => return Err(error.into()),
+            }
+            if started.elapsed() >= self.timeout {
+                return Ok(Err(Reply::error(
+                    Code::Timeout,
+                    "Command timed out. Partial file changes may \
                      remain; inspect them before repeating it.",
                     false,
-                ));
+                )));
             }
-            Err(error)
-                if error.kind() == io::ErrorKind::WouldBlock => {}
-            Err(error) => return Err(error.into()),
+            std::thread::sleep(Duration::from_millis(5));
         }
-        if started.elapsed() >= timeout {
-            break Err(Reply::error(
-                "timeout",
-                "Command timed out. Partial file changes may \
-                 remain; inspect them before repeating it.",
-                false,
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    };
-    reap()?;
-    // Every writer is gone now, so this drain reaches end of file and
-    // keeps bytes written after the last drain in the loop.
-    let reply = match ending {
-        Ok(status) => {
-            drain(&mut stdout, &mut output, limit)?;
-            drain(&mut stderr, &mut errors, limit)?;
-            if output.len() + errors.len() > limit {
-                output_limit()
-            } else if is_file {
-                if status.success() {
-                    serde_json::from_slice(&output)
-                        .unwrap_or_else(|_| Reply::uncertain())
-                } else {
-                    Reply::uncertain()
-                }
-            } else {
-                Reply::ok(
-                    json!({ "exitCode": status.code().unwrap_or(-1), "stdout": String::from_utf8_lossy(&output), "stderr": String::from_utf8_lossy(&errors) }),
-                )
-            }
-        }
-        Err(reply) => reply,
-    };
-    serde_json::to_writer(io::stdout(), &reply)?;
-    Ok(())
+    }
+}
+
+/// What a process printed, up to `limit` bytes together.
+struct Output {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    limit: usize,
+}
+
+impl Output {
+    fn drain(
+        &mut self,
+        stdout: &mut ChildStdout,
+        stderr: &mut ChildStderr,
+    ) -> io::Result<()> {
+        drain(stdout, &mut self.stdout, self.limit)?;
+        drain(stderr, &mut self.stderr, self.limit)
+    }
+
+    fn full(&self) -> bool {
+        self.stdout.len() + self.stderr.len() > self.limit
+    }
 }
 
 /// Starts socat relaying loopback connections to the worker's proxy
@@ -291,7 +385,7 @@ pub fn run(args: &[String]) -> Result<()> {
 fn start_relay() -> Result<(), Reply> {
     let unavailable = || {
         Reply::error(
-            "unavailable",
+            Code::Unavailable,
             "The network proxy did not start, so the command did \
              not run.",
             false,
@@ -363,7 +457,7 @@ fn reap() -> Result<()> {
 
 fn output_limit() -> Reply {
     Reply::error(
-        "output_limit",
+        Code::OutputLimit,
         "Command stopped at its output limit. Inspect its files \
          before repeating it.",
         false,

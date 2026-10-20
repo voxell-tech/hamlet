@@ -11,7 +11,7 @@ use tonic::Status;
 
 use super::*;
 use crate::control::proto::ActorState;
-use crate::wire::{Operation, Request};
+use crate::wire::{InitHouse, Operation, Request};
 
 const ATESPACE: &str = "space";
 const TEMPLATE: &str = "template";
@@ -207,7 +207,7 @@ fn execute(id: &str) -> Message {
             network: false,
             read_only: false,
             library: None,
-            operation: Operation::InitHouse,
+            operation: Operation::InitHouse(InitHouse {}),
         },
     }
 }
@@ -238,7 +238,7 @@ fn name() -> String {
 fn code(reply: &Reply) -> &str {
     match reply {
         Reply::Ok { .. } => "ok",
-        Reply::Error { code, .. } => code,
+        Reply::Error { code, .. } => code.as_str(),
     }
 }
 
@@ -361,7 +361,11 @@ async fn cancellation_before_admission_survives_restart() {
     assert_eq!(code(&cancel.await.expect("cancel")), "ok");
     assert!(
         execution
-            .send(Ok(Reply::error("aborted", "Cancelled", false)))
+            .send(Ok(Reply::error(
+                wire::Code::Aborted,
+                "Cancelled",
+                false
+            )))
             .is_ok()
     );
     harness.settle().await;
@@ -514,7 +518,8 @@ async fn restart_reconciles_by_status_and_never_replays() {
 
     let (_, message, worker) = h.worker().await;
     assert!(matches!(message, Message::Status { .. }));
-    let result = Reply::error("io", "failed", false);
+    let result =
+        Reply::error(wire::Code::Unavailable, "failed", false);
     assert!(worker.send(Ok(result)).is_ok());
     h.settle().await;
     assert!(h.manager.pending.is_empty());
@@ -524,7 +529,7 @@ async fn restart_reconciles_by_status_and_never_replays() {
             id: operation.clone(),
         })
         .await;
-    assert_eq!(code(&answer.await.expect("answer")), "io");
+    assert_eq!(code(&answer.await.expect("answer")), "unavailable");
     let answer = h.send(execute(&operation)).await;
     assert_eq!(code(&answer.await.expect("answer")), "uncertain");
     assert!(h.router.try_recv().is_err());
@@ -548,7 +553,7 @@ async fn untrusted_status_answers_keep_the_operation_unknown() {
     for reply in [
         Reply::uncertain(),
         Reply::error(
-            "permission_denied",
+            wire::Code::PermissionDenied,
             "Invalid workspace signature.",
             false,
         ),
@@ -644,10 +649,16 @@ async fn each_home_has_its_own_actors_and_operations() {
     assert_eq!(home, "other");
     assert_ne!(mine, theirs);
     assert!(
-        worker.send(Ok(Reply::error("io", "failed", false))).is_ok()
+        worker
+            .send(Ok(Reply::error(
+                wire::Code::Unavailable,
+                "failed",
+                false
+            )))
+            .is_ok()
     );
     h.settle().await;
-    assert_eq!(code(&answer.await.expect("answer")), "io");
+    assert_eq!(code(&answer.await.expect("answer")), "unavailable");
     assert_eq!(h.manager.actors.actors.len(), 2);
 
     let answer = h.send(Message::Status { id: operation }).await;

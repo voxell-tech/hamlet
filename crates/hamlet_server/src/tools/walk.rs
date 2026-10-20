@@ -1,11 +1,11 @@
 //! The walk under a folder that `search` and `find` make, and the
 //! words of their refusals.
 
-use super::environment::Files;
+use super::environment::Reach;
 use crate::sandbox::{FileInfo, FileKind, path};
 
 /// Folders a walk does not go into.
-const SKIPPED: [&str; 9] = [
+pub(super) const SKIPPED: [&str; 9] = [
     ".git",
     ".hamlet",
     "target",
@@ -18,7 +18,7 @@ const SKIPPED: [&str; 9] = [
 ];
 
 /// The most files a walk looks at.
-const VISITED: usize = 20_000;
+pub(super) const VISITED: usize = 20_000;
 
 /// The most hits or names a search gives.
 pub(super) const FOUND: usize = 100;
@@ -61,67 +61,10 @@ impl Failure {
     }
 }
 
-/// A bounded depth-first walk, with each folder's files before its
-/// subfolders.
-pub(super) struct Walk {
-    todo: Vec<String>,
-    files: Vec<(String, FileInfo)>,
-    seen: usize,
-    pub capped: bool,
-}
-
-impl Walk {
-    pub fn new(root: &str) -> Self {
-        Self {
-            todo: vec![root.into()],
-            files: Vec::new(),
-            seen: 0,
-            capped: false,
-        }
-    }
-
-    pub async fn next(
-        &mut self,
-        env: &Files<'_>,
-    ) -> Option<(String, FileInfo)> {
-        if self.capped {
-            return None;
-        }
-        loop {
-            if let Some(file) = self.files.pop() {
-                self.seen += 1;
-                if self.seen > VISITED {
-                    self.capped = true;
-                    return None;
-                }
-                return Some(file);
-            }
-            let dir = self.todo.pop()?;
-            let Ok(mut listed) = env.list_dir(&dir).await else {
-                continue;
-            };
-            listed.sort_by(|a, b| a.name.cmp(&b.name));
-            for entry in listed.into_iter().rev() {
-                let at = path::join(&[&dir, &entry.name]);
-                match entry.kind {
-                    FileKind::Directory
-                        if !SKIPPED
-                            .contains(&entry.name.as_str()) =>
-                    {
-                        self.todo.push(at)
-                    }
-                    FileKind::File => self.files.push((at, entry)),
-                    _ => {}
-                }
-            }
-        }
-    }
-}
-
 /// The full path `path` names, from the folder commands run in, and
 /// what is there; it fails when that cannot be read.
 pub(super) async fn reached(
-    env: &Files<'_>,
+    env: &mut impl Reach,
     path: Option<&str>,
 ) -> Result<(String, FileInfo), Failure> {
     let given =
@@ -131,8 +74,9 @@ pub(super) async fn reached(
     } else {
         path::join(&[env.cwd(), given])
     };
+    let seen = shown(env, &full);
     let failed = |reason| Failure::Unreadable {
-        path: shown(env, &full),
+        path: seen.clone(),
         reason,
     };
     let info = env
@@ -154,7 +98,7 @@ pub(super) async fn reached(
 
 /// `path` as a search shows it: under the folder commands run in
 /// where it lies there.
-pub(super) fn shown(env: &Files<'_>, at: &str) -> String {
+pub(super) fn shown(env: &impl Reach, at: &str) -> String {
     let under = path::relative(env.cwd(), at);
     if under.is_empty()
         || under.starts_with("..")

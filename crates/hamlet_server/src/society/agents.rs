@@ -129,23 +129,11 @@ pub(super) async fn create(
         .as_ref()
         .and_then(|r| r.named(&tidy_name(&given.name)))
     {
-        if let Some(remote) = service.houses.remote(
-            &place.hamlet,
-            agent.number,
-            false,
-        )? {
-            service.house_work.initialize(caller.id.clone(), remote);
-        } else if let Err(error) =
-            service.houses.build(&place.hamlet, agent.number)
-        {
-            // The agent is recorded; its house is prepared again at
-            // the next start.
-            eprintln!(
-                "hamlet-server: could not prepare the house of \
-                 agent {} in {}: {error}",
-                agent.number, place.hamlet
-            );
-        }
+        // A house that cannot be made now is made again at the next
+        // start.
+        let initialize =
+            service.houses.initialize(&place.hamlet, agent.number);
+        service.house_work.initialize(caller.id.clone(), initialize);
     }
     Ok(outcome)
 }
@@ -232,10 +220,6 @@ pub(crate) async fn deed(
         return Ok(Some(result));
     }
     Ok(Some(match deed {
-        "merge" => {
-            super::merging::deed(service, harnesses, hamlet, rest)
-                .await?
-        }
         "unshelve" => super::library::unshelve(service, rest)?,
         "road" | "unroad" => road(service, hamlet, deed, rest)?,
         "mayor" => {

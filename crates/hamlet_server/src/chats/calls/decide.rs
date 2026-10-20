@@ -11,9 +11,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::super::records::{self, Place};
-use super::{
-    IDENTITY_REFUSAL, NOBODY, OBJECTING, UNREADABLE, WAITING,
-};
+use super::{IDENTITY_REFUSAL, NOBODY, OBJECTING, WAITING};
 use crate::gate::{self, Asked, Standing, TrustKey, Verdict};
 use crate::harness::{Binding, BindingId};
 use crate::oversight::held::{self, CallState};
@@ -36,15 +34,18 @@ pub(super) enum Decision {
 }
 
 /// The gate's answer to a call.
+// Returned once per call and taken apart at once, so its size costs
+// nothing worth a box.
+#[allow(clippy::large_enum_variant)]
 pub(super) enum Gate {
     Decided(Decision),
-    /// The decision waits for the file a remote write replaces.
+    /// The decision waits for the file a write replaces.
     Preview(Reading),
 }
 
-/// A remote file to read before a write's decision.
+/// A file to read before a write's decision.
 pub(crate) struct Reading {
-    pub remote: crate::workspace::Remote,
+    pub tools: crate::tools::Session,
     pub path: String,
     /// The work document it was read under.
     pub signature: Value,
@@ -164,13 +165,12 @@ pub(super) fn decide(
     if preview.is_none()
         && call.tool == "write"
         && !service.home.store().cancelling(call.bound.id)?
-        && let Some(remote) =
-            service.remote_tools(&call.bound.agent, false)?
         && let Some(path) =
             call.arguments.get("path").and_then(Value::as_str)
     {
+        let place = places(service, &call.bound.agent)?;
         return Ok(Gate::Preview(Reading {
-            remote,
+            tools: service.tools(&call.bound.agent, place, false)?,
             path: path.into(),
             signature: serde_json::to_value(
                 service.work(&call.bound.agent.hamlet)?,
@@ -351,8 +351,8 @@ struct Reach {
     house_edit: bool,
 }
 
-/// The reach of `call` made at `place`; the refusal when a remote
-/// write's preview failed.
+/// The reach of `call` made at `place`; the refusal when a write's
+/// preview failed.
 fn reach(
     service: &mut Service,
     call: &Admitted<'_>,
@@ -370,29 +370,22 @@ fn reach(
         None => gate::call_of(call.tool, &args),
     };
     let at = places(service, &place.agent)?;
-    let remote = service.remote_tools(&place.agent, false)?.is_some();
+    let tools = service.tools(&place.agent, at, false)?;
     if let gate::Call::Edit {
         write: true,
-        path,
         old,
         created,
         ..
     } = &mut classified
     {
-        let previous = if remote {
-            match preview {
-                Some(Ok(before)) => before.clone(),
-                Some(Err(words)) => return Ok(Err(words.clone())),
-                None => {
-                    return Ok(Err("The remote edit preview is \
-                                   not available."
-                        .into()));
-                }
+        let previous = match preview {
+            Some(Ok(before)) => before.clone(),
+            Some(Err(words)) => return Ok(Err(words.clone())),
+            None => {
+                return Ok(Err(
+                    "The edit preview is not available.".into()
+                ));
             }
-        } else {
-            tools::footing(path, &at)
-                .ok()
-                .and_then(|full| before(service, &at, &full))
         };
         if let Some(previous) = previous {
             *old = previous;
@@ -421,48 +414,12 @@ fn reach(
             *write && *created,
         ))?;
     service.credentials.scrub(&mut change);
-    let house_edit = !remote
-        && tools::footing(path, &at).is_ok_and(|full| {
-            crate::sandbox::within(&full, &at.house)
-        });
+    let house_edit = tools.house_edit(path);
     Ok(Ok(Reach {
         call: classified,
         change: Some(change),
         house_edit,
     }))
-}
-
-/// The text of the file at `path` as a write's preview shows it, or
-/// `None` when there is none. It is read as the agent at `at` may,
-/// so the preview shows the chief nothing the agent could not read
-/// itself.
-fn before(
-    service: &Service,
-    at: &tools::Place,
-    path: &std::path::Path,
-) -> Option<String> {
-    let path = crate::sandbox::path::text(path);
-    let Ok(env) =
-        tools::environment(&service.chats.sandbox, at, false)
-    else {
-        return Some(UNREADABLE.into());
-    };
-    match env.read_text(&path) {
-        Ok(text) => Some(service.credentials.scrub_text(&text)),
-        Err(error) if error.code == "not_found" => None,
-        Err(error) => {
-            let size = env
-                .file_info(&path)
-                .map(|info| format!(", {} bytes", info.size))
-                .unwrap_or_default();
-            let reason = if error.code == "invalid" {
-                "is not UTF-8 text"
-            } else {
-                "could not be read as text"
-            };
-            Some(format!("[a file that {reason}{size}]"))
-        }
-    }
 }
 
 /// The grants, limits, mode and session trust in force for `place`.
@@ -597,8 +554,8 @@ mod tests {
         (service, binding, runtime.as_str().to_owned())
     }
 
-    #[test]
-    fn a_write_s_preview_shows_only_what_the_agent_may_read() {
+    #[tokio::test]
+    async fn a_write_s_preview_shows_only_what_the_agent_may_read() {
         let scratch = Scratch::new("calls-preview");
         let (mut service, _, _) = served(&scratch);
         let root = service.home.layout().root().to_owned();
@@ -611,21 +568,22 @@ mod tests {
         let at = places(&mut service, &agent).unwrap();
         std::fs::write(at.house.join("NOTES.md"), "# Notes\n")
             .unwrap();
+        let house = at.house.clone();
+        let tools = service.tools(&agent, at, false).unwrap();
+        let before = async |path: &std::path::Path| {
+            let path = crate::sandbox::path::text(path);
+            tools.preview(&path).await.unwrap()
+        };
 
         assert_eq!(
-            before(&service, &at, &root.join("private.txt"))
-                .as_deref(),
-            Some(UNREADABLE)
+            before(&root.join("private.txt")).await.as_deref(),
+            Some(crate::tools::UNREADABLE)
         );
         assert_eq!(
-            before(&service, &at, &at.house.join("NOTES.md"))
-                .as_deref(),
+            before(&house.join("NOTES.md")).await.as_deref(),
             Some("# Notes\n")
         );
-        assert_eq!(
-            before(&service, &at, &at.house.join("new.md")),
-            None
-        );
+        assert_eq!(before(&house.join("new.md")).await, None);
     }
 
     #[test]

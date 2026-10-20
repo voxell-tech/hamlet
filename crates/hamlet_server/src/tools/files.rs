@@ -4,13 +4,11 @@
 use serde_json::{Map, Value, json};
 use unicode_normalization::UnicodeNormalization;
 
-use super::environment::Files;
+use super::environment::Reach;
 use super::truncate::{
     MAX_BYTES, character_end, format_size, truncate_head,
 };
-use super::{
-    Arguments, Outcome, Place, diagnostic, diff, number_words,
-};
+use super::{Arguments, Outcome, diagnostic, diff, number_words};
 use crate::harness::link::DiagnosticSeverity;
 use crate::sandbox::{FileError, FileKind};
 
@@ -31,7 +29,7 @@ fn outcome(result: Result<Outcome, Thrown>) -> Outcome {
 
 /// The path pi's tools open for `path`: unusual spaces made plain and
 /// a leading `@` dropped.
-fn tool_path(env: &Files<'_>, path: &str) -> String {
+fn tool_path(env: &impl Reach, path: &str) -> String {
     let plain = path
         .chars()
         .map(|c| match c {
@@ -49,8 +47,7 @@ fn tool_path(env: &Files<'_>, path: &str) -> String {
 /// pi's `read`: a text file's lines, at most 2000 or 50KB from
 /// `offset`, with remarks on what was left out.
 pub(super) async fn read(
-    env: &Files<'_>,
-    place: &Place,
+    env: &mut impl Reach,
     arguments: &Map<String, Value>,
 ) -> Outcome {
     let args = Arguments::new("read", arguments);
@@ -68,7 +65,7 @@ pub(super) async fn read(
     };
     outcome(
         async {
-            let path = env.footing(path, place).await?;
+            let path = env.footing(path).await?;
             read_text(env, &path, offset, limit).await
         }
         .await,
@@ -76,7 +73,7 @@ pub(super) async fn read(
 }
 
 async fn read_text(
-    env: &Files<'_>,
+    env: &mut impl Reach,
     path: &str,
     offset: Option<f64>,
     limit: Option<f64>,
@@ -310,7 +307,10 @@ fn animated_png(bytes: &[u8]) -> bool {
 
 /// The policy's check of a file a write or an edit changes, as pi's
 /// queue of changes to one file resolves it.
-async fn queued(env: &Files<'_>, path: &str) -> Result<(), Thrown> {
+async fn queued(
+    env: &mut impl Reach,
+    path: &str,
+) -> Result<(), Thrown> {
     let mut path = path.to_owned();
     loop {
         match env.canonical_path(&path).await {
@@ -330,8 +330,7 @@ async fn queued(env: &Files<'_>, path: &str) -> Result<(), Thrown> {
 
 /// pi's `write`.
 pub(super) async fn write(
-    env: &Files<'_>,
-    place: &Place,
+    env: &mut impl Reach,
     arguments: &Map<String, Value>,
 ) -> Outcome {
     let args = Arguments::new("write", arguments);
@@ -342,7 +341,7 @@ pub(super) async fn write(
         };
     outcome(
         async {
-            let path = env.footing(path, place).await?;
+            let path = env.footing(path).await?;
             let absolute = tool_path(env, &path);
             queued(env, &absolute).await?;
             env.write_file(&absolute, content).await?;
@@ -350,6 +349,33 @@ pub(super) async fn write(
         }
         .await,
     )
+}
+
+/// The text of the file a `write` to `path` would replace, or `None`
+/// where there is none; a file that cannot be read as text is told
+/// of in brackets.
+pub(super) async fn preview(
+    env: &mut impl Reach,
+    path: &str,
+) -> Result<Option<String>, Thrown> {
+    let full = env.footing(path).await?;
+    Ok(match env.read_text(&full).await {
+        Ok(text) => Some(text),
+        Err(error) if error.code == "not_found" => None,
+        Err(error) => {
+            let size = env
+                .file_info(&full)
+                .await
+                .map(|info| format!(", {} bytes", info.size))
+                .unwrap_or_default();
+            let reason = if error.code == "invalid" {
+                "is not UTF-8 text"
+            } else {
+                "could not be read as text"
+            };
+            Some(format!("[a file that {reason}{size}]"))
+        }
+    })
 }
 
 /// One replacement of an edit.
@@ -360,8 +386,7 @@ struct Replace {
 
 /// pi's `edit`.
 pub(super) async fn edit(
-    env: &Files<'_>,
-    place: &Place,
+    env: &mut impl Reach,
     arguments: &Map<String, Value>,
 ) -> Outcome {
     let arguments = repaired(arguments);
@@ -390,7 +415,7 @@ pub(super) async fn edit(
     }
     outcome(
         async {
-            let path = env.footing(path, place).await?;
+            let path = env.footing(path).await?;
             edited(env, &path, &replaces).await
         }
         .await,
@@ -398,7 +423,7 @@ pub(super) async fn edit(
 }
 
 async fn edited(
-    env: &Files<'_>,
+    env: &mut impl Reach,
     path: &str,
     replaces: &[Replace],
 ) -> Result<Outcome, Thrown> {

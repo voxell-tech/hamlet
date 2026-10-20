@@ -38,10 +38,11 @@ fn subject(number: i64, instructions: &[Instruction]) -> Subject<'_> {
     }
 }
 
-fn told(service: &mut Service, subject: &Subject) -> String {
-    let mut sections =
-        futures::executor::block_on(sections(service, subject))
-            .unwrap();
+async fn told(
+    service: &mut Service,
+    subject: &Subject<'_>,
+) -> String {
+    let mut sections = sections(service, subject).await.unwrap();
     sections.push(Section {
         name: "budget".into(),
         text: budget(service, subject).unwrap(),
@@ -77,14 +78,14 @@ fn admit(service: &mut Service, name: &str, purpose: &str) {
     assert!(matches!(result, Reply::Outcome(Outcome::Done(_))));
 }
 
-#[test]
-fn tells_a_fresh_mayor_what_typescript_tells_it() {
+#[tokio::test]
+async fn tells_a_fresh_mayor_what_typescript_tells_it() {
     let dir = Scratch::new("prompt-fresh");
     let mut service =
         Service::new(Home::open(&dir).unwrap(), true).unwrap();
     let root = service.home.layout().root().to_owned();
     stock(&root.join("library"));
-    let prompt = told(&mut service, &subject(0, &[]));
+    let prompt = told(&mut service, &subject(0, &[])).await;
 
     let opening = format!(
         "{}\n\n# Environment\nSandbox: bubblewrap. Network for \
@@ -131,8 +132,8 @@ fn tells_a_fresh_mayor_what_typescript_tells_it() {
     assert!(prompt.ends_with(&hamlet), "{prompt}");
 }
 
-#[test]
-fn tells_the_mayor_its_agents_and_an_agent_its_place() {
+#[tokio::test]
+async fn tells_the_mayor_its_agents_and_an_agent_its_place() {
     let dir = Scratch::new("prompt-place");
     let mut service =
         Service::new(Home::open(&dir).unwrap(), true).unwrap();
@@ -151,7 +152,7 @@ fn tells_the_mayor_its_agents_and_an_agent_its_place() {
                    chief created `smith`: Needed for this work.\n- \
                    A chief created `scout`: Needed for this work.";
 
-    let mayor = told(&mut service, &subject(0, &given));
+    let mayor = told(&mut service, &subject(0, &given)).await;
     assert!(
         mayor.contains(&format!(
             "need.\nAgents:\n- scout: Finds things\n- smith: Builds \
@@ -168,7 +169,7 @@ fn tells_the_mayor_its_agents_and_an_agent_its_place() {
         )),
         "{mayor}"
     );
-    let scout = told(&mut service, &subject(1, &given));
+    let scout = told(&mut service, &subject(1, &given)).await;
     assert!(
         scout.ends_with(&format!(
             "\n\n# Your place\nYou are `scout`, an agent in a \
@@ -188,8 +189,8 @@ fn tells_the_mayor_its_agents_and_an_agent_its_place() {
     );
 }
 
-#[test]
-fn cuts_the_notes_and_lists_the_house_skills() {
+#[tokio::test]
+async fn cuts_the_notes_and_lists_the_house_skills() {
     let dir = Scratch::new("prompt-shelf");
     let mut service =
         Service::new(Home::open(&dir).unwrap(), true).unwrap();
@@ -209,11 +210,8 @@ fn cuts_the_notes_and_lists_the_house_skills() {
     std::fs::write(house.join("NOTES.md"), "\u{1f33b}".repeat(8001))
         .unwrap();
 
-    let sections = futures::executor::block_on(sections(
-        &mut service,
-        &subject(0, &[]),
-    ))
-    .unwrap();
+    let sections =
+        sections(&mut service, &subject(0, &[])).await.unwrap();
     let text = |name| {
         sections
             .iter()
