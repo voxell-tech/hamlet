@@ -26,7 +26,7 @@ pub struct Label {
     pub opacity: Prop<World, f32>,
 }
 
-/// A button lettered with `text`, in the engine's style `style`.
+/// A button showing `text`, in the engine's style `style`.
 #[element(backend = Hamlet, prepare = prepare_button)]
 pub struct Button {
     #[elem(patch = SetText)]

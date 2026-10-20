@@ -38,9 +38,9 @@ pub fn view() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
         let space = &theme.space;
-        let (across, down, gap, fill) = (
-            space.status_across,
-            space.status_down,
+        let (padding_x, padding_y, gap, fill) = (
+            space.status_padding_x,
+            space.status_padding_y,
             space.status_gap,
             *theme.colors.background,
         );
@@ -82,7 +82,10 @@ pub fn view() -> AnyView {
             .within(
                 row(())
                     .align(AlignItems::Center)
-                    .padding(UiRect::axes(px(across), px(down)))
+                    .padding(UiRect::axes(
+                        px(padding_x),
+                        px(padding_y),
+                    ))
                     .fill(fill),
             ),
         )

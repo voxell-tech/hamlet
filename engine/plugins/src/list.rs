@@ -20,7 +20,7 @@ use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_shell::dock::{PLUGIN_LIST, PanelIcon};
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
-    ButtonStyle, buttons, list, marked, note, scroll_area,
+    ButtonStyle, buttons, icon_button, list, note, scroll_area,
 };
 use hamlet_engine_shell::{AnyView, Cx, Panel, panel};
 
@@ -80,7 +80,7 @@ fn open(mut commands: Commands) {
 /// ADD PLUGIN... over the list of plugins.
 fn view(_: Entity) -> AnyView {
     let add =
-        marked(ButtonStyle::Plain, Glyph::Plus, "ADD PLUGIN...")
+        icon_button(ButtonStyle::Plain, Glyph::Plus, "ADD PLUGIN...")
             .on_activate(|world| world.trigger(AddPlugin));
     let rows = keyed(resource::<Rows, _>(Clone::clone), |rows| {
         if rows.0.is_empty() {
@@ -113,9 +113,9 @@ fn row_view(row_of: &Row) -> AnyView {
         (None, false) => ("Off".into(), Tone::Dim),
     };
     let switch = if on {
-        marked(ButtonStyle::Plain, Glyph::Power, "SWITCH OFF")
+        icon_button(ButtonStyle::Plain, Glyph::Power, "SWITCH OFF")
     } else {
-        marked(ButtonStyle::Plain, Glyph::Power, "SWITCH ON")
+        icon_button(ButtonStyle::Plain, Glyph::Power, "SWITCH ON")
     }
     .on_activate(move |world| {
         if on {
@@ -128,11 +128,15 @@ fn row_view(row_of: &Row) -> AnyView {
     let mut actions = vec![switch];
     if !row_of.builtin {
         actions.push(
-            marked(ButtonStyle::Critical, Glyph::Bin, "UNINSTALL")
-                .on_activate(move |world| {
-                    world.trigger(Uninstall { entity: plugin });
-                })
-                .boxed(),
+            icon_button(
+                ButtonStyle::Critical,
+                Glyph::Bin,
+                "UNINSTALL",
+            )
+            .on_activate(move |world| {
+                world.trigger(Uninstall { entity: plugin });
+            })
+            .boxed(),
         );
     }
     let (name, about) = (row_of.name.clone(), row_of.about.clone());

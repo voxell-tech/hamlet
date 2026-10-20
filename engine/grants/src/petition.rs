@@ -34,7 +34,7 @@ use hamlet_engine_plugins::{Enable, PluginInfo};
 use hamlet_engine_shell::dock::PanelIcon;
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
-    ButtonStyle, buttons, caption, card, choices, marked, note,
+    ButtonStyle, buttons, caption, card, choices, icon_button, note,
     scroll_area, section,
 };
 use hamlet_engine_shell::{AnyView, Cx, Panel, dock, panel};
@@ -444,12 +444,16 @@ fn row_view(row_of: &Row) -> AnyView {
                 })
                 .collect::<Vec<_>>();
             let answers = buttons(vec![
-                marked(ButtonStyle::Primary, Glyph::Check, "ALLOW")
-                    .on_activate(move |world| {
-                        answer_install(world, petition, true)
-                    })
-                    .boxed(),
-                marked(
+                icon_button(
+                    ButtonStyle::Primary,
+                    Glyph::Check,
+                    "ALLOW",
+                )
+                .on_activate(move |world| {
+                    answer_install(world, petition, true)
+                })
+                .boxed(),
+                icon_button(
                     ButtonStyle::Critical,
                     Glyph::Cross,
                     "DON'T ALLOW",
@@ -476,11 +480,15 @@ fn row_view(row_of: &Row) -> AnyView {
                             (ButtonStyle::Critical, Glyph::Cross)
                         }
                     };
-                    marked(kind, which, answer.label().to_uppercase())
-                        .on_activate(move |world| {
-                            answer_use(world, petition, answer)
-                        })
-                        .boxed()
+                    icon_button(
+                        kind,
+                        which,
+                        answer.label().to_uppercase(),
+                    )
+                    .on_activate(move |world| {
+                        answer_use(world, petition, answer)
+                    })
+                    .boxed()
                 })
                 .collect::<Vec<_>>();
             (vec![ask_view(ask, frame().boxed())], buttons(answers))

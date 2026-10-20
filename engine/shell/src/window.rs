@@ -24,7 +24,7 @@ use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
 use serde::Deserialize;
 
 use crate::command::{RunCommand, engine_id, spawn_command};
-use crate::style::Shade;
+use crate::style::BottomGradient;
 use crate::theme::{EngineTheme, ThemeChanged};
 use crate::{AnyView, Cx, View, menu, status, switcher};
 
@@ -123,7 +123,7 @@ fn add_quit(mut commands: Commands) {
 fn root() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
-        let (background, seam, line) = (
+        let (background, separator, line) = (
             *theme.colors.background,
             *theme.colors.separator,
             theme.space.divider,
@@ -135,7 +135,7 @@ fn root() -> AnyView {
                     .grow(1.0)
                     .min_height(px(0.0))
                     .gap(0.0),
-                frame().height(px(line)).fill(seam),
+                frame().height(px(line)).fill(separator),
                 status::view(),
                 menu::open_view(),
                 switcher::rename_view(),
@@ -149,7 +149,7 @@ fn root() -> AnyView {
 }
 
 /// The bar across the top, the menus then the workspaces, on a
-/// surface that shades toward its bottom, over a seam.
+/// surface that shades toward its bottom, over a separator.
 fn bar(cx: &Cx) -> impl View {
     let theme = cx.theme();
     let colors = &theme.colors;
@@ -163,7 +163,7 @@ fn bar(cx: &Cx) -> impl View {
         .align(AlignItems::Stretch)
         .padding(UiRect::axes(px(theme.space.bar_padding), px(0.0)))
         .fill(*colors.background)
-        .tagged(Shade),
+        .tagged(BottomGradient),
         frame()
             .height(px(theme.space.divider))
             .fill(*colors.separator),

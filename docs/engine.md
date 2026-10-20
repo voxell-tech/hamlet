@@ -221,7 +221,7 @@ holder: its kind, `#` and its id, and what it shows.
 
 A retained panel is built as the dock builds it when it shows it. Its
 outline is a line for each node, `#` and its key, and a line for each
-text it shows; `click` presses the button lettered with the widget
+text it shows; `click` presses the button whose text is the widget
 named, and `hover` puts the pointer over a watched node by its text.
 
 The test `the_notes_and_board_samples_pass_their_steps` (ignored, as it
@@ -293,13 +293,13 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   `shadow`. fynix's tones and surfaces are read from them.
 - **Styles** (`style.rs`) build every widget from the theme. A button
   has a `ButtonStyle`: `Plain`, `Primary` (the one action a panel is
-  for), `Critical` (what refuses or stops), `Quiet` (lettering only, as
+  for), `Critical` (what refuses or stops), `Quiet` (text only, as
   a way back), `Row` (a row that leads somewhere), `Title` (a menu's
-  title) and `Tab`. `action` and `marked` letter one in the display face,
-  `marked` after an icon. Besides: `field`, `toggle`, `choices`,
+  title) and `Tab`. `action` and `icon_button` show text in the display
+  face, `icon_button` after an icon. Besides: `field`, `toggle`, `choices`,
   `heading`, `section`, `caption`, `note`, `card`, `list`, `link_row`
   and `link_rows`, `page_head`, `divider`, `buttons` (a row that wraps),
-  `scroll_area`, `title_button` and `tab_button`. A `Shade` surface,
+  `scroll_area`, `title_button` and `tab_button`. A `BottomGradient` surface,
   as a panel or the bar, shades toward `background_bottom`.
 - **Glows** are Bevy's `BoxShadow` and `BackgroundGradient` and
   nothing else: no shader of the shell's own. A control glows by what
@@ -307,7 +307,7 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   covered while held, pulsing once its work is done, or shaking if it
   refused. The glow is two shadows, a halo and a brighter core, set a
   little below the control (`drop`); a `Quiet` button glows about its
-  lettering. The primary action and a field being typed in are also
+  text. The primary action and a field being typed in are also
   lit inside, by a gradient from the active colour at the bottom to
   nothing at the top (`inner`). A title or a tab is lit the same way
   (`BottomLight`), under the pointer and while its menu is open or it is

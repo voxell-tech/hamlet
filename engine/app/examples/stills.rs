@@ -37,9 +37,9 @@ use hamlet_engine_plugins::{Entry, EntryPoint, PluginInfo};
 use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::icons::{Glyph, glyph};
 use hamlet_engine_shell::style::{
-    ButtonStyle, Shade, Wraps, card, choices, divider, field, headed,
-    heading, link_row, link_rows, list, marked, note, page_head,
-    section, tab_button, title_button, toggle,
+    BottomGradient, ButtonStyle, Wraps, card, choices, divider,
+    field, heading, icon_button, link_row, link_rows, list, note,
+    page_head, section, tab_button, title_button, toggle, with_icon,
 };
 use hamlet_engine_shell::{
     AnyView, Cx, EngineTheme, dock, panel, tree_view,
@@ -359,7 +359,8 @@ fn states(
     which: Glyph,
     text: &'static str,
 ) -> AnyView {
-    let one = move || marked(kind, which, text).on_activate(|_| {});
+    let one =
+        move || icon_button(kind, which, text).on_activate(|_| {});
     cells(vec![
         cell("AT REST", one().boxed()),
         cell("UNDER THE POINTER", one().tagged(Held::Hover).boxed()),
@@ -402,7 +403,7 @@ fn titles() -> AnyView {
 
 fn tab(which: Glyph, name: &'static str, shown: bool) -> AnyView {
     tab_button(
-        headed(which, label(name).wrap(false).tagged(DisplayText)),
+        with_icon(which, label(name).wrap(false).tagged(DisplayText)),
         shown,
     )
 }
@@ -558,7 +559,7 @@ fn controls() -> AnyView {
             .gap(20.0)
             .fill(fill)
             .overflow(Overflow::clip())
-            .tagged(Shade),
+            .tagged(BottomGradient),
         )
     })
 }

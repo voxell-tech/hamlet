@@ -305,7 +305,7 @@ impl Harness {
     }
 
     /// Presses the button `widget` of the panel `panel`: of a
-    /// retained panel, the button lettered `widget`.
+    /// retained panel, the button whose text is `widget`.
     pub fn click(
         &mut self,
         panel: &str,
@@ -321,8 +321,8 @@ impl Harness {
     }
 
     /// Puts the pointer over the node of the retained panel `panel`
-    /// lettered `text`, or takes it away, as the pointer would for a
-    /// node whose plugin watches it.
+    /// whose text is `text`, or takes it away, as the pointer would
+    /// for a node whose plugin watches it.
     pub fn hover(
         &mut self,
         panel: &str,

@@ -18,7 +18,7 @@ use hamlet_engine_api::{CommandId, PanelId};
 
 use crate::command::{RunCommand, spawn_command};
 use crate::icons::Glyph;
-use crate::style::{ClipInside, Shade};
+use crate::style::{BottomGradient, ClipInside};
 use crate::{AnyView, Cx, EngineTheme, View};
 
 /// The name of the engine's plugin list, which the plugins module
@@ -62,7 +62,7 @@ pub fn panel(view: impl View) -> AnyView {
                 .gap(0.0)
                 .fill(fill)
                 .overflow(Overflow::clip())
-                .tagged(Shade)
+                .tagged(BottomGradient)
                 .tagged(ClipInside),
         )
     })

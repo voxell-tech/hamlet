@@ -21,7 +21,7 @@ pub(crate) fn plugin(app: &mut App) {
             restyle.run_if(resource_changed::<EngineTheme>),
         );
     let theme = app.world().resource::<EngineTheme>().clone();
-    dress(app.world_mut(), theme);
+    apply_theme(app.world_mut(), theme);
 }
 
 /// The theme, as `engine/tuning/theme.toml` has it.
@@ -52,7 +52,7 @@ pub struct Colors {
     pub background_bottom: ThemeColor,
     /// A card in a list, a shade above the background.
     pub surface: ThemeColor,
-    /// A plate set on a panel, such as one under code.
+    /// A background set on a panel, such as one under code.
     pub surface_raised: ThemeColor,
     /// The floor of a field, and a button held down.
     pub surface_sunken: ThemeColor,
@@ -60,7 +60,7 @@ pub struct Colors {
     pub fill: ThemeColor,
     /// A control of the toolkit under the pointer.
     pub hover: ThemeColor,
-    /// A plain button, a plate or a row pressed whole under the
+    /// A plain button, a frame or a row pressed whole under the
     /// pointer.
     pub accent_hover: ThemeColor,
     /// The line between a bar and the dock.
@@ -73,7 +73,7 @@ pub struct Colors {
     pub text: ThemeColor,
     /// Text that stands back.
     pub text_muted: ThemeColor,
-    /// The lettering of what can be pressed.
+    /// The text of what can be pressed.
     pub text_accent: ThemeColor,
     /// The frame of the primary button and of a field typed in, and
     /// a solid accent surface.
@@ -85,7 +85,7 @@ pub struct Colors {
     pub active: ThemeColor,
     /// The core of a glow.
     pub active_strong: ThemeColor,
-    /// The plate of the primary button, and the same lit.
+    /// The background of the primary button, and the same lit.
     pub active_low: ThemeColor,
     pub active_high: ThemeColor,
     /// Words selected, lit behind them.
@@ -99,11 +99,11 @@ pub struct Colors {
     pub critical_strong: ThemeColor,
     /// The frame of a critical button at rest.
     pub critical_muted: ThemeColor,
-    /// The plate of a critical button under the pointer, and at
+    /// The background of a critical button under the pointer, and at
     /// rest.
     pub critical_hover: ThemeColor,
     pub critical_surface: ThemeColor,
-    /// What was added or went well, and the plate under it.
+    /// What was added or went well, and the background under it.
     pub success: ThemeColor,
     pub success_surface: ThemeColor,
     /// The shadow under what floats.
@@ -133,7 +133,7 @@ impl<'de> Deserialize<'de> for ThemeColor {
     }
 }
 
-/// The sizes of the lettering.
+/// The sizes of the text.
 #[derive(Clone, PartialEq, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TextSizes {
@@ -158,9 +158,9 @@ pub struct Spacing {
     /// The height of a row and the least height of a button.
     pub row: f32,
     /// The corner of a control and of a card.
-    pub round: f32,
+    pub radius: f32,
     /// The corner of what floats, as a menu.
-    pub soft: f32,
+    pub menu_radius: f32,
     /// The width of a control's frame and a card's.
     pub border: f32,
     pub divider: f32,
@@ -169,15 +169,15 @@ pub struct Spacing {
     pub divider_grip: f32,
     /// The space at each side of a dock tab's name.
     pub tab_padding: f32,
-    /// The side of an icon beside lettering, the space between, and
-    /// how far it is set above the lettering's middle.
+    /// The side of an icon beside text, the space between, and how
+    /// far it is set above the text's middle.
     pub icon: f32,
     pub icon_gap: f32,
-    pub icon_lift: f32,
-    /// The space at each side of a button's lettering.
+    pub icon_offset: f32,
+    /// The space at each side of a button's text.
     pub button_padding: f32,
     /// The space before the icon of a button that has one, and after
-    /// its lettering.
+    /// its text.
     pub mark_start: f32,
     pub mark_end: f32,
     /// The space inside a panel, around its content.
@@ -185,8 +185,8 @@ pub struct Spacing {
     /// The space between the parts of a panel.
     pub section: f32,
     /// The space inside a card, across and down.
-    pub card_across: f32,
-    pub card_down: f32,
+    pub card_padding_x: f32,
+    pub card_padding_y: f32,
     /// The space down inside a row of a list.
     pub row_padding: f32,
     /// The height of the menu bar, and the space at its ends.
@@ -200,8 +200,8 @@ pub struct Spacing {
     pub menu_gap: f32,
     /// The space across and down inside the status line, between its
     /// parts, the side of its icons and the space after each.
-    pub status_across: f32,
-    pub status_down: f32,
+    pub status_padding_x: f32,
+    pub status_padding_y: f32,
     pub status_gap: f32,
     pub status_icon: f32,
     pub status_icon_gap: f32,
@@ -236,10 +236,10 @@ pub struct Glow {
     pub press_rate: f32,
     pub fade_rate: f32,
     /// The share of its size a button loses while held and gains at
-    /// the top of a pulse, and the depth it sinks while held.
+    /// the top of a pulse, and how far down it moves while held.
     pub press_shrink: f32,
     pub pulse_grow: f32,
-    pub press_sink: f32,
+    pub press_offset: f32,
     /// The reach of a critical button's shake, and its rate.
     pub shake: f32,
     pub shake_rate: f32,
@@ -266,8 +266,8 @@ pub struct Glow {
     pub pulse_reach: f32,
     /// The share of the reach of the glow's core.
     pub core: f32,
-    /// The share of the reach of the glow about lettering with no
-    /// plate.
+    /// The share of the reach of the glow about text with no
+    /// background.
     pub text_reach: f32,
     /// How far below a control its glow sits, as a share of its
     /// reach.
@@ -311,7 +311,7 @@ impl EngineTheme {
 }
 
 /// Puts `theme` in, for the views and the window behind them.
-fn dress(world: &mut World, theme: EngineTheme) {
+fn apply_theme(world: &mut World, theme: EngineTheme) {
     world.insert_resource(ClearColor(*theme.colors.background));
     world.insert_resource(Theme(theme));
 }
@@ -326,7 +326,7 @@ fn restyle(
         return;
     }
     let theme = theme.clone();
-    commands.queue(|world: &mut World| dress(world, theme));
+    commands.queue(|world: &mut World| apply_theme(world, theme));
     changed.write(ThemeChanged);
 }
 
@@ -389,7 +389,7 @@ impl SpacingTokens for EngineTheme {
     }
 
     fn radius(&self) -> f32 {
-        self.space.round
+        self.space.radius
     }
 
     fn divider(&self) -> f32 {
@@ -405,7 +405,7 @@ impl SpacingTokens for EngineTheme {
     }
 
     fn menu_radius(&self) -> f32 {
-        self.space.soft
+        self.space.menu_radius
     }
 }
 

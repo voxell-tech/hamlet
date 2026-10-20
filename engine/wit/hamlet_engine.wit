@@ -110,7 +110,7 @@ interface ui {
         double,
     }
 
-    /// The colour of lettering, by role.
+    /// The colour of text, by role.
     enum tone {
         body,
         dim,
@@ -119,7 +119,7 @@ interface ui {
         critical,
     }
 
-    /// The size of lettering, by role. A title is in the display face.
+    /// The size of text, by role. A title is in the display face.
     enum size {
         small,
         body,

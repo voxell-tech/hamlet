@@ -24,7 +24,8 @@ pub(crate) fn plugin(app: &mut App) {
     app.add_observer(answer).add_systems(
         Update,
         (
-            (arm, animate, shine, bottom_light).chain(),
+            (add_glow_state, animate, apply_glow, bottom_light)
+                .chain(),
             shade,
             wrap,
             clip_inside,
@@ -38,7 +39,7 @@ pub(crate) fn plugin(app: &mut App) {
 /// The kind of a button, which sets its style and its glow.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ButtonStyle {
-    /// An ordinary action: a plate in a frame, lettered in the
+    /// An ordinary action: a background in a frame, its text in the
     /// accent.
     Plain,
     /// The one action a panel is for: lit low at rest, and more
@@ -46,14 +47,14 @@ pub enum ButtonStyle {
     Primary,
     /// What refuses, stops or throws away.
     Critical,
-    /// Lettering with no plate, dim until the pointer is on it, as a
+    /// Text with no background, dim until the pointer is on it, as a
     /// way back.
     Quiet,
-    /// A row of a list that leads somewhere: no plate at rest.
+    /// A row of a list that leads somewhere: no background at rest.
     Row,
-    /// A menu's title: lettering alone, lit from below.
+    /// A menu's title: text alone, lit from below.
     Title,
-    /// A tab: lettering alone, bright on the one shown.
+    /// A tab: text alone, bright on the one shown.
     Tab,
 }
 
@@ -64,8 +65,8 @@ pub enum Glow {
     #[default]
     None,
     Plain,
-    /// About its lettering alone, which has no plate.
-    Words,
+    /// About its text alone, which has no background.
+    Text,
     Primary,
     Critical,
     /// A field, lit while it is typed in.
@@ -93,7 +94,7 @@ impl BottomLight {
 
 /// A surface whose background shades toward its bottom.
 #[derive(Component, Clone, Copy, Debug)]
-pub struct Shade;
+pub struct BottomGradient;
 
 /// Words shown in a field while it is empty.
 #[derive(Component, Clone, Copy, Debug)]
@@ -118,7 +119,7 @@ pub struct GlowMargin;
 /// how far the glow reaches.
 #[derive(Component, Clone, Copy, Default, Debug)]
 pub struct GlowState {
-    heat: f32,
+    hover: f32,
     press: f32,
     pulse: f32,
     shake: f32,
@@ -135,7 +136,7 @@ impl ButtonStyle {
             Self::Plain | Self::Row => Glow::Plain,
             Self::Primary => Glow::Primary,
             Self::Critical => Glow::Critical,
-            Self::Quiet => Glow::Words,
+            Self::Quiet => Glow::Text,
             Self::Title | Self::Tab => Glow::None,
         }
     }
@@ -145,7 +146,7 @@ impl ButtonStyle {
         self,
     ) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
         let rules = match self {
-            Self::Plain => plated()
+            Self::Plain => framed_button_rules()
                 .frame(|f, t| {
                     f.fill(*t.colors.fill)
                         .border_color(*t.colors.border_strong)
@@ -166,7 +167,7 @@ impl ButtonStyle {
                     })
                     .tone(Tone::Dim)
                 }),
-            Self::Primary => plated()
+            Self::Primary => framed_button_rules()
                 .frame(|f, t| {
                     f.fill(*t.colors.active_low)
                         .border_color(*t.colors.accent)
@@ -185,7 +186,7 @@ impl ButtonStyle {
                     })
                     .tone(Tone::Faint)
                 }),
-            Self::Critical => plated()
+            Self::Critical => framed_button_rules()
                 .frame(|f, t| {
                     f.fill(*t.colors.critical_surface)
                         .border_color(*t.colors.critical_muted)
@@ -205,7 +206,7 @@ impl ButtonStyle {
                     })
                     .tone(Tone::Critical)
                 }),
-            Self::Quiet => lettered()
+            Self::Quiet => text_button_rules()
                 .frame(|f, t| {
                     f.fill(Color::NONE)
                         .min_height(px(t.space.row))
@@ -221,14 +222,14 @@ impl ButtonStyle {
                 .pressed(|s| {
                     s.fill(|_| Color::NONE).tone(Tone::Faint)
                 }),
-            Self::Row => lettered()
+            Self::Row => text_button_rules()
                 .frame(|f, t| {
                     f.fill(Color::NONE)
-                        .radius(t.space.round)
+                        .radius(t.space.radius)
                         .justify(JustifyContent::FlexStart)
                         .padding(UiRect::axes(
-                            px(t.space.card_across),
-                            px(t.space.card_down),
+                            px(t.space.card_padding_x),
+                            px(t.space.card_padding_y),
                         ))
                 })
                 .tone(Tone::Faint)
@@ -258,7 +259,7 @@ impl ButtonStyle {
                 })
                 .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
                 .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Dim)),
-            Self::Tab => lettered()
+            Self::Tab => text_button_rules()
                 .frame(|f, t| {
                     f.fill(Color::NONE)
                         .radius(0.0)
@@ -277,18 +278,18 @@ impl ButtonStyle {
     }
 }
 
-/// Lettering of a button: small, bold.
-fn lettered() -> Rules {
+/// The text of a button: small, bold.
+fn text_button_rules() -> Rules {
     style::<EngineTheme>()
         .label(|l, t| l.size(t.text.small).bold(true))
         .icon(|i, t| i.size(t.space.icon))
 }
 
-/// Lettering on a plate in a frame, a row high.
-fn plated() -> Rules {
-    lettered().frame(|f, t| {
+/// Text on a background in a frame, a row high.
+fn framed_button_rules() -> Rules {
+    text_button_rules().frame(|f, t| {
         f.border(t.space.border)
-            .radius(t.space.round)
+            .radius(t.space.radius)
             .min_height(px(t.space.row))
             .padding(UiRect::axes(
                 px(t.space.button_padding),
@@ -302,7 +303,7 @@ pub fn styled<C: View>(kind: ButtonStyle, content: C) -> impl View {
     button(content).rules(kind.rules()).tagged(kind.glow())
 }
 
-/// A button of the style `kind` lettered `text` in the display face.
+/// A button of the style `kind` showing `text` in the display face.
 pub fn action(
     kind: ButtonStyle,
     text: impl Into<Prop<String>>,
@@ -311,46 +312,49 @@ pub fn action(
 }
 
 /// A button of the style `kind` with the icon `which` before its
-/// lettering, `text` in the display face.
-pub fn marked(
+/// text, `text` in the display face.
+pub fn icon_button(
     kind: ButtonStyle,
     which: Glyph,
     text: impl Into<Prop<String>>,
 ) -> impl View {
-    button(headed(which, label(text).wrap(false).tagged(DisplayText)))
-        .rules(
-            style::<EngineTheme>()
-                .frame(|f, t| {
-                    // Less on the icon's side, which has air of its
-                    // own.
-                    f.padding(UiRect::new(
-                        px(t.space.mark_start),
-                        px(t.space.mark_end),
-                        px(0.0),
-                        px(0.0),
-                    ))
-                })
-                .bundle(),
-        )
-        .rules(kind.rules())
-        .tagged(kind.glow())
+    button(with_icon(
+        which,
+        label(text).wrap(false).tagged(DisplayText),
+    ))
+    .rules(
+        style::<EngineTheme>()
+            .frame(|f, t| {
+                // Less on the icon's side, which has air of its
+                // own.
+                f.padding(UiRect::new(
+                    px(t.space.mark_start),
+                    px(t.space.mark_end),
+                    px(0.0),
+                    px(0.0),
+                ))
+            })
+            .bundle(),
+    )
+    .rules(kind.rules())
+    .tagged(kind.glow())
 }
 
 /// The icon `which` before `words`, set a little high to sit on the
 /// middle of the display face's capitals.
-pub fn headed<V: View>(which: Glyph, words: V) -> AnyView {
+pub fn with_icon<V: View>(which: Glyph, words: V) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
-        let (size, gap, lift) = (
+        let (size, gap, offset) = (
             theme.space.icon,
             theme.space.icon_gap,
-            theme.space.icon_lift,
+            theme.space.icon_offset,
         );
         cx.build(
             row((
                 row((glyph(which, size),))
                     .gap(0.0)
-                    .padding(UiRect::bottom(px(lift))),
+                    .padding(UiRect::bottom(px(offset))),
                 words,
             ))
             .gap(gap)
@@ -448,7 +452,7 @@ pub fn field_rules() -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
             f.fill(*t.colors.surface_sunken)
                 .border(t.space.border)
                 .border_color(*t.colors.border)
-                .radius(t.space.round)
+                .radius(t.space.radius)
         })
         .hovered(|s| {
             s.frame(|f, t| {
@@ -530,22 +534,22 @@ where
 {
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
-        let (across, down, border, line, round, fill, gap) = (
-            theme.space.card_across,
-            theme.space.card_down,
+        let (padding_x, padding_y, border, line, radius, fill, gap) = (
+            theme.space.card_padding_x,
+            theme.space.card_padding_y,
             theme.space.border,
             *theme.colors.border,
-            theme.space.round,
+            theme.space.radius,
             *theme.colors.surface,
             theme.space.gap / 2.0,
         );
         cx.build(
             column(content)
                 .gap(gap)
-                .padding(UiRect::axes(px(across), px(down)))
+                .padding(UiRect::axes(px(padding_x), px(padding_y)))
                 .border(border)
                 .border_color(line)
-                .radius(round)
+                .radius(radius)
                 .fill(fill),
         )
     })
@@ -646,7 +650,7 @@ pub fn link_row(
             theme.text.small,
             theme.space.section,
         );
-        let mut lines = vec![headed(
+        let mut lines = vec![with_icon(
             which,
             label(title).bold(true).wrap(false).tagged(DisplayText),
         )];
@@ -700,9 +704,9 @@ pub fn page_head(
         let section = cx.theme().space.section;
         cx.build(
             row((
-                marked(ButtonStyle::Quiet, Glyph::Back, front)
+                icon_button(ButtonStyle::Quiet, Glyph::Back, front)
                     .on_activate(back),
-                headed(
+                with_icon(
                     which,
                     label(name)
                         .bold(true)
@@ -717,7 +721,7 @@ pub fn page_head(
     })
 }
 
-/// One answer of several to pick from, each lettered `labels`, the
+/// One answer of several to pick from, each showing `labels`, the
 /// one at `picked` lit. A press hands the place of its answer to
 /// `pick`.
 pub fn choices<F>(
@@ -751,13 +755,13 @@ where
 }
 
 /// The rules of an answer to pick: bare until the pointer is on it,
-/// and the one picked a lit plate in a frame.
+/// and the one picked a lit background in a frame.
 fn choice_rules(
     picked: bool,
 ) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
-    let base = lettered().frame(|f, t| {
+    let base = text_button_rules().frame(|f, t| {
         f.border(t.space.border)
-            .radius(t.space.round)
+            .radius(t.space.radius)
             .min_height(px(t.space.row))
             .padding(UiRect::axes(px(t.space.gap), px(0.0)))
     });
@@ -802,14 +806,14 @@ fn ease(value: f32, to: f32, rate: f32, dt: f32) -> f32 {
 
 /// The unsteadiness of a glow at `now`, -1 to 1, its own for each
 /// `seed`.
-fn waver(now: f32, seed: f32) -> f32 {
+fn flicker_offset(now: f32, seed: f32) -> f32 {
     0.5 * (now * 5.3 + seed).sin()
         + 0.3 * (now * 8.9 + seed * 1.7).sin()
         + 0.2 * (now * 2.1 + seed * 0.6).sin()
 }
 
 /// Gives every button and field a state under the hand.
-fn arm(
+fn add_glow_state(
     mut commands: Commands,
     buttons: Query<
         Entity,
@@ -876,13 +880,13 @@ fn animate(
         } else {
             hovered
         };
-        let heat =
-            ease(state.heat, f32::from(over), set.hover_rate, dt);
+        let hover =
+            ease(state.hover, f32::from(over), set.hover_rate, dt);
         let press =
             ease(state.press, f32::from(held), set.press_rate, dt);
         let pulse = ease(state.pulse, 0.0, set.fade_rate, dt);
         let shake = ease(state.shake, 0.0, set.fade_rate, dt);
-        let still = heat == state.heat
+        let still = hover == state.hover
             && press == state.press
             && pulse == state.pulse
             && shake == state.shake;
@@ -891,7 +895,7 @@ fn animate(
         let (rest, near, done) = match glow {
             Glow::None => (0.0, 0.0, 0.0),
             Glow::Field => (0.0, set.field, 0.0),
-            Glow::Plain | Glow::Words => {
+            Glow::Plain | Glow::Text => {
                 (0.0, set.plain, set.done_gain * pulse)
             }
             Glow::Primary => (set.primary_rest, set.primary, pulse),
@@ -899,7 +903,7 @@ fn animate(
                 (0.0, set.critical, set.done_gain * shake)
             }
         };
-        let steady = rest + (near - rest) * heat;
+        let steady = rest + (near - rest) * hover;
         if still && steady == 0.0 && state.glow == 0.0 {
             continue;
         }
@@ -911,7 +915,7 @@ fn animate(
         let want = UiTransform {
             translation: Val2::new(
                 px(slide),
-                px(set.press_sink * press),
+                px(set.press_offset * press),
             ),
             scale: Vec2::splat(scale),
             ..UiTransform::IDENTITY
@@ -925,9 +929,9 @@ fn animate(
         let covered = steady * (1.0 - set.press_dim * press);
         let lit = covered + (1.0 - covered) * done;
         let seed = id.index_u32() as f32 * 1.618;
-        let flicker = 1.0 + set.flicker * waver(now, seed);
+        let flicker = 1.0 + set.flicker * flicker_offset(now, seed);
         *state = GlowState {
-            heat,
+            hover,
             press,
             pulse,
             shake,
@@ -938,10 +942,10 @@ fn animate(
 }
 
 /// Draws each control's glow as shadows of its colours just below it,
-/// or below its lettering where it has no plate, and lights the
+/// or below its text where it has no background, and lights the
 /// inside of the primary action and a field being typed in from the
 /// bottom.
-fn shine(
+fn apply_glow(
     theme: Res<EngineTheme>,
     controls: Query<(Entity, &GlowState, &Glow, Option<&Children>)>,
     shadows: Query<&BoxShadow>,
@@ -977,7 +981,7 @@ fn shine(
         }
         let target = match glow {
             Glow::None => continue,
-            Glow::Words => {
+            Glow::Text => {
                 let Some(first) =
                     within.and_then(|within| within.first())
                 else {
@@ -1000,7 +1004,7 @@ fn shine(
             _ => set.spread,
         };
         let reach = match glow {
-            Glow::Words => state.reach * set.text_reach,
+            Glow::Text => state.reach * set.text_reach,
             _ => state.reach,
         };
         let strength = state.glow * thrown;
@@ -1076,10 +1080,11 @@ fn bottom_light(
     }
 }
 
-/// Gives each new [`Shade`] surface its shading toward its bottom.
+/// Gives each new [`BottomGradient`] surface its shading toward its
+/// bottom.
 fn shade(
     theme: Res<EngineTheme>,
-    surfaces: Query<Entity, Added<Shade>>,
+    surfaces: Query<Entity, Added<BottomGradient>>,
     mut commands: Commands,
 ) {
     for surface in &surfaces {

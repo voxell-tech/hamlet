@@ -560,7 +560,7 @@ pub fn glyph(which: Glyph, size: f32) -> Icon {
     icon(which.image(size)).size(size)
 }
 
-/// `which` at the side of an icon beside lettering, in `tone`.
+/// `which` at the side of an icon beside text, in `tone`.
 pub fn mark(which: Glyph, tone: Tone) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let size = cx.theme().space.icon;
