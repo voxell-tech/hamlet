@@ -34,13 +34,16 @@ pub use fynix::{
 };
 
 pub use self::elements::{
-    Button, ButtonProps, Frame, FrameProps, Label, LabelProps,
-    OnClick, Stack, UiExt, button, column, heading, label, row,
+    Button, ButtonProps, Divider, DividerProps, Field, FieldProps,
+    Frame, FrameProps, Icon, IconProps, Label, LabelProps, List,
+    ListProps, OnInput, Scroll, ScrollProps, Stack, Toggle,
+    ToggleProps, UiExt, button, column, divider, field, heading,
+    icon, icon_button, label, list, row, scroll, toggle,
 };
 pub use self::nodes::{Key, States};
 pub use self::world::{World, resource};
 pub use crate::bindings::hamlet::engine::ui::{
-    ButtonStyle, Direction, Size, Space, Tone,
+    ButtonStyle, Direction, Face, Size, Space, Tone,
 };
 
 /// The engine, as a backend of fynix.

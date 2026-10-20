@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use crate::bindings::hamlet::engine::ui::{
-    ButtonStyle, Direction, Kind, Motion, Node, Property, Size,
+    ButtonStyle, Direction, Face, Kind, Motion, Node, Property, Size,
     Space, Tone,
 };
 
@@ -47,7 +47,7 @@ struct Entry {
     /// `None` for a node built outside a panel.
     node: Option<Node>,
     /// The properties sent, one bit each by [`bit`].
-    sent: u8,
+    sent: u16,
     watch: States,
     states: States,
 }
@@ -197,16 +197,20 @@ impl Entry {
 impl Property {
     /// The bit of the property this sets, in the order the WIT names
     /// them.
-    fn bit(&self) -> u8 {
+    fn bit(&self) -> u16 {
         let at = match self {
             Property::Text(_) => 0,
             Property::Tone(_) => 1,
             Property::Size(_) => 2,
             Property::Bold(_) => 3,
-            Property::Opacity(_) => 4,
-            Property::Style(_) => 5,
-            Property::Direction(_) => 6,
-            Property::Space(_) => 7,
+            Property::Face(_) => 4,
+            Property::Opacity(_) => 5,
+            Property::Style(_) => 6,
+            Property::Direction(_) => 7,
+            Property::Space(_) => 8,
+            Property::Placeholder(_) => 9,
+            Property::On(_) => 10,
+            Property::Offset(_) => 11,
         };
         1 << at
     }
@@ -214,16 +218,20 @@ impl Property {
     /// Whether this is what a node starts with.
     fn is_first(&self) -> bool {
         match self {
-            Property::Text(text) => text.is_empty(),
+            Property::Text(text) | Property::Placeholder(text) => {
+                text.is_empty()
+            }
             Property::Tone(tone) => *tone == Tone::Body,
             Property::Size(size) => *size == Size::Body,
-            Property::Bold(bold) => !bold,
+            Property::Bold(on) | Property::On(on) => !on,
+            Property::Face(face) => *face == Face::Body,
             Property::Opacity(opacity) => *opacity == 1.0,
             Property::Style(style) => *style == ButtonStyle::Plain,
             Property::Direction(direction) => {
                 *direction == Direction::Column
             }
             Property::Space(space) => *space == Space::Gap,
+            Property::Offset(offset) => *offset == (0.0, 0.0),
         }
     }
 }

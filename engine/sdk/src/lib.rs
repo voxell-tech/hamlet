@@ -1,25 +1,29 @@
 //! What a plugin for the engine is written with. A plugin is a type
 //! that implements [`Plugin`], exported with [`export!`] and built
-//! for `wasm32-wasip2`:
+//! for `wasm32-wasip2`. Its panels and settings pages are views of
+//! [`ui`], written with fynix:
 //!
 //! ```ignore
 //! #[derive(Default)]
-//! struct Hello {
-//!     count: u32,
-//! }
+//! struct Hello;
+//!
+//! #[derive(Default)]
+//! struct Count(u32);
 //!
 //! impl hamlet_engine_sdk::Plugin for Hello {
 //!     fn declare(&self, entry: &mut Entry) {
 //!         entry.panel("hello", "Hello");
 //!     }
 //!
-//!     fn draw(&self, _: &str, ui: &mut Ui) {
-//!         ui.text("count", format!("{}", self.count))
-//!             .button("add", "Add one");
-//!     }
-//!
-//!     fn event(&mut self, _: WidgetEvent) {
-//!         self.count += 1;
+//!     fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
+//!         world.init_resource::<Count>();
+//!         column((
+//!             label(resource::<Count, _>(|count| count.0.to_string())),
+//!             button("Add one").on_click(|world| {
+//!                 world.resource_mut::<Count>().0 += 1;
+//!             }),
+//!         ))
+//!         .boxed()
 //!     }
 //! }
 //!
@@ -36,24 +40,9 @@
 
 pub mod assets;
 mod entry;
-mod tree;
-#[cfg(feature = "ui")]
 pub mod ui;
 
 /// The bindings of `engine/wit/hamlet_engine.wit`.
-#[cfg(not(feature = "ui"))]
-pub mod bindings {
-    wit_bindgen::generate!({
-        path: "../wit/hamlet_engine.wit",
-        world: "plugin",
-        pub_export_macro: true,
-        export_macro_name: "export_guest",
-    });
-}
-
-/// The bindings of `engine/wit/hamlet_engine.wit`, with retained
-/// panels.
-#[cfg(feature = "ui")]
 pub mod bindings {
     wit_bindgen::generate!({
         path: "../wit/hamlet_engine.wit",
@@ -65,64 +54,53 @@ pub mod bindings {
 
 pub use hamlet_engine_api as api;
 pub use hamlet_engine_api::{
-    Action, Asset, AssetId, AssetInfo, Axis, Failure, FetchReply,
-    FetchRequest, Layout, Message, Method, PanelId, Reply, Ticket,
-    WidgetEvent, WidgetId, decode, encode,
+    AgentsEvent, AgentsReply, AgentsRequest, Asset, AssetId,
+    AssetInfo, Axis, Failure, FetchReply, FetchRequest, Layout,
+    Message, Method, PanelId, Reply, Ticket, decode, encode,
 };
 
 use self::bindings::hamlet::engine::host::{self, Level};
 pub use self::entry::Entry;
-pub use self::tree::Ui;
+pub use self::ui::World;
 
-/// A plugin. One value of it lives as long as the plugin runs.
+/// A plugin. One value of it lives as long as the plugin runs. Each
+/// call is given `world`, the world its views are built in and read
+/// from, and what it changes there is shown once the call ends.
 pub trait Plugin: Default + 'static {
     /// Declares what the plugin adds, each time it is switched on.
     fn declare(&self, entry: &mut Entry);
 
-    /// Draws its panel or settings page `name`.
-    #[cfg(not(feature = "ui"))]
-    fn draw(&self, name: &str, ui: &mut Ui);
-
-    /// Draws its settings page `name`; its panels are retained.
-    #[cfg(feature = "ui")]
-    fn draw(&self, name: &str, ui: &mut Ui) {
-        let _ = (name, ui);
-    }
-
-    /// The view of its panel `name`, built once each time the panel
-    /// is shown, with `world` holding what its signals read.
-    #[cfg(feature = "ui")]
+    /// The view of its panel or settings page `name`, built once each
+    /// time it is shown, with `world` holding what its signals read.
     fn mount(
         &mut self,
         name: &str,
-        world: &mut ui::World,
-    ) -> ui::AnyView;
-
-    /// What the person did on one of its panels. The panel is drawn
-    /// again after it.
-    fn event(&mut self, event: WidgetEvent) {
-        let _ = event;
+        world: &mut World,
+    ) -> ui::AnyView {
+        let _ = (name, world);
+        fynix::ViewExt::boxed(ui::column(()))
     }
 
-    /// Runs its command `name`. Its panels are drawn again after it.
-    fn run(&mut self, name: &str) {
-        let _ = name;
+    /// Runs its command `name`.
+    fn run(&mut self, name: &str, world: &mut World) {
+        let _ = (name, world);
     }
 
     /// Its state, handed to its next version when it is reloaded.
-    fn save(&self) -> Vec<u8> {
+    fn save(&self, world: &World) -> Vec<u8> {
+        let _ = world;
         Vec::new()
     }
 
     /// Takes the state its earlier version saved.
-    fn restore(&mut self, state: &[u8]) {
-        let _ = state;
+    fn restore(&mut self, state: &[u8], world: &mut World) {
+        let _ = (state, world);
     }
 
-    /// A message from the engine. Its panels are drawn again after
-    /// each batch of them.
-    fn receive(&mut self, message: Message) {
-        let _ = message;
+    /// A message from the engine: a reply, an asset held that changed
+    /// or went, or an event.
+    fn receive(&mut self, message: Message, world: &mut World) {
+        let _ = (message, world);
     }
 
     /// Serves a call of its service `service` by the plugin `caller`,
@@ -133,8 +111,9 @@ pub trait Plugin: Default + 'static {
         service: &str,
         caller: &str,
         argument: &[u8],
+        world: &mut World,
     ) -> Result<Vec<u8>, String> {
-        let _ = (caller, argument);
+        let _ = (caller, argument, world);
         Err(format!("there is no service {service}"))
     }
 }
@@ -165,6 +144,12 @@ pub fn fetch(request: &FetchRequest) -> Ticket {
     encode(request).map_or(0, |bytes| host::fetch(&bytes))
 }
 
+/// Asks the agents service `request`, within the agents capabilities
+/// the manifest asks for: [`Reply::Agents`].
+pub fn agents(request: &AgentsRequest) -> Ticket {
+    encode(request).map_or(0, |bytes| host::agents(&bytes))
+}
+
 /// Writes `text` to the engine's log.
 pub fn info(text: &str) {
     host::log(Level::Info, text);
@@ -176,11 +161,6 @@ pub fn warn(text: &str) {
 
 pub fn error(text: &str) {
     host::log(Level::Error, text);
-}
-
-/// Asks for the panel or settings page `name` to be drawn again.
-pub fn redraw(name: &str) {
-    host::redraw(name);
 }
 
 /// Exports the type `$plugin`, which implements [`Plugin`], as the
@@ -205,31 +185,19 @@ macro_rules! export {
                     PLUGIN.with_borrow(|plugin| $crate::glue::declare(plugin))
                 }
 
-                fn draw(name: ::std::string::String) -> ::std::vec::Vec<u8> {
-                    PLUGIN.with_borrow(|plugin| $crate::glue::draw(plugin, &name))
-                }
-
-                fn event(event: ::std::vec::Vec<u8>) {
-                    PLUGIN.with_borrow_mut(|plugin| {
-                        $crate::glue::event(plugin, &event)
-                    })
-                }
-
                 fn run(name: ::std::string::String) {
                     PLUGIN.with_borrow_mut(|plugin| {
-                        <$plugin as $crate::Plugin>::run(plugin, &name)
+                        $crate::glue::run(plugin, &name)
                     })
                 }
 
                 fn save() -> ::std::vec::Vec<u8> {
-                    PLUGIN.with_borrow(|plugin| {
-                        <$plugin as $crate::Plugin>::save(plugin)
-                    })
+                    PLUGIN.with_borrow(|plugin| $crate::glue::save(plugin))
                 }
 
                 fn restore(state: ::std::vec::Vec<u8>) {
                     PLUGIN.with_borrow_mut(|plugin| {
-                        <$plugin as $crate::Plugin>::restore(plugin, &state)
+                        $crate::glue::restore(plugin, &state)
                     })
                 }
 
@@ -248,14 +216,42 @@ macro_rules! export {
                     ::std::string::String,
                 > {
                     PLUGIN.with_borrow_mut(|plugin| {
-                        <$plugin as $crate::Plugin>::serve(
+                        $crate::glue::serve(
                             plugin, &service, &caller, &argument,
                         )
                     })
                 }
             }
 
-            $crate::ui_exports!(Exports, $plugin);
+            impl $crate::bindings::exports::hamlet::engine::ui_guest::Guest
+                for Exports
+            {
+                fn mount(
+                    name: ::std::string::String,
+                    root: $crate::bindings::hamlet::engine::ui::Node,
+                    motions: $crate::bindings::exports::hamlet::engine::ui_guest::Motions,
+                ) -> bool {
+                    PLUGIN.with_borrow_mut(|plugin| {
+                        $crate::ui::glue::mount(plugin, name, root, motions)
+                    })
+                }
+
+                fn unmount(name: ::std::string::String) {
+                    $crate::ui::glue::unmount(&name)
+                }
+
+                fn input(
+                    events: ::std::vec::Vec<
+                        $crate::bindings::exports::hamlet::engine::ui_guest::UiEvent,
+                    >,
+                ) -> bool {
+                    $crate::ui::glue::input(events)
+                }
+
+                fn frame(micros: u32) -> bool {
+                    $crate::ui::glue::frame(micros)
+                }
+            }
 
             $crate::bindings::export_guest!(
                 Exports with_types_in $crate::bindings
@@ -264,94 +260,55 @@ macro_rules! export {
     };
 }
 
-/// The exports of retained panels, for [`export!`].
-#[cfg(feature = "ui")]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! ui_exports {
-    ($exports:ident, $plugin:ty) => {
-        impl $crate::bindings::exports::hamlet::engine::ui_guest::Guest
-            for $exports
-        {
-            fn mount(
-                name: ::std::string::String,
-                root: $crate::bindings::hamlet::engine::ui::Node,
-                motions: $crate::bindings::exports::hamlet::engine::ui_guest::Motions,
-            ) -> bool {
-                PLUGIN.with_borrow_mut(|plugin| {
-                    $crate::ui::glue::mount(plugin, name, root, motions)
-                })
-            }
-
-            fn unmount(name: ::std::string::String) {
-                $crate::ui::glue::unmount(&name)
-            }
-
-            fn input(
-                events: ::std::vec::Vec<
-                    $crate::bindings::exports::hamlet::engine::ui_guest::UiEvent,
-                >,
-            ) -> bool {
-                $crate::ui::glue::input(events)
-            }
-
-            fn frame(micros: u32) -> bool {
-                $crate::ui::glue::frame(micros)
-            }
-        }
-    };
-}
-
-#[cfg(not(feature = "ui"))]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! ui_exports {
-    ($exports:ident, $plugin:ty) => {};
-}
-
 /// What [`export!`] calls: the exports, between the wire format and
-/// a [`Plugin`].
+/// a [`Plugin`], each with the world of its views.
 #[doc(hidden)]
 pub mod glue {
-    use hamlet_engine_api::{Message, WidgetEvent, decode, encode};
-    use serde::Serialize;
+    use hamlet_engine_api::{Message, decode, encode};
 
-    use crate::{Entry, Plugin, Ui};
+    use crate::ui::glue::with_world;
+    use crate::{Entry, Plugin};
 
     pub fn declare<P: Plugin>(plugin: &P) -> Vec<u8> {
         let mut entry = Entry::default();
         plugin.declare(&mut entry);
-        bytes(&entry.finish())
+        encode(&entry.finish()).unwrap_or_else(|why| {
+            crate::error(&why.to_string());
+            Vec::new()
+        })
     }
 
-    pub fn draw<P: Plugin>(plugin: &P, name: &str) -> Vec<u8> {
-        let mut ui = Ui::default();
-        plugin.draw(name, &mut ui);
-        bytes(&ui.finish())
+    pub fn run<P: Plugin>(plugin: &mut P, name: &str) {
+        with_world(|world| plugin.run(name, world));
     }
 
-    pub fn event<P: Plugin>(plugin: &mut P, event: &[u8]) {
-        match decode::<WidgetEvent>(event) {
-            Ok(event) => plugin.event(event),
-            Err(why) => crate::error(&format!("an event: {why}")),
-        }
+    pub fn save<P: Plugin>(plugin: &P) -> Vec<u8> {
+        with_world(|world| plugin.save(world))
+    }
+
+    pub fn restore<P: Plugin>(plugin: &mut P, state: &[u8]) {
+        with_world(|world| plugin.restore(state, world));
     }
 
     pub fn receive<P: Plugin>(plugin: &mut P, messages: &[u8]) {
         match decode::<Vec<Message>>(messages) {
-            Ok(messages) => {
+            Ok(messages) => with_world(|world| {
                 for message in messages {
-                    plugin.receive(message);
+                    plugin.receive(message, world);
                 }
-            }
+            }),
             Err(why) => crate::error(&format!("messages: {why}")),
         }
     }
 
-    fn bytes(value: &impl Serialize) -> Vec<u8> {
-        encode(value).unwrap_or_else(|why| {
-            crate::error(&why.to_string());
-            Vec::new()
+    pub fn serve<P: Plugin>(
+        plugin: &mut P,
+        service: &str,
+        caller: &str,
+        argument: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        with_world(|world| {
+            plugin.serve(service, caller, argument, world)
         })
     }
 }

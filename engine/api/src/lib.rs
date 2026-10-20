@@ -12,7 +12,6 @@ pub mod mail;
 pub mod manifest;
 pub mod net;
 pub mod service;
-pub mod widget;
 pub mod wire;
 
 pub use agents::{AgentsEvent, AgentsReply, AgentsRequest};
@@ -30,10 +29,6 @@ pub use mail::{Failure, Message, Reply, Request, Ticket};
 pub use manifest::{Manifest, ManifestError};
 pub use net::{FetchReply, FetchRequest, Method};
 pub use service::{ServiceExport, ServiceImport, Services};
-pub use widget::{
-    Action, TreeError, TreeLimits, Widget, WidgetEvent, WidgetId,
-    WidgetNode, WidgetTree,
-};
 pub use wire::{WireError, decode, encode};
 
 /// The version of this API. A plugin's manifest names the one it was
