@@ -24,10 +24,55 @@ struct Ballot {
     grounded: bool,
 }
 
+/// What a vote decides.
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum VoteKind {
+    ReplaceMayor,
+    FoundHamlet,
+}
+
+/// Where a vote stands, kept as its word: the state, or else why it
+/// closed.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+enum Standing {
+    Open,
+    Passed,
+    Overturned,
+    Lapsed,
+    /// Closed without passing, for the reason given.
+    Closed(String),
+}
+
+impl From<String> for Standing {
+    fn from(word: String) -> Self {
+        match word.as_str() {
+            "open" => Self::Open,
+            "passed" => Self::Passed,
+            "overturned" => Self::Overturned,
+            "lapsed" => Self::Lapsed,
+            _ => Self::Closed(word),
+        }
+    }
+}
+
+impl From<Standing> for String {
+    fn from(standing: Standing) -> Self {
+        match standing {
+            Standing::Open => "open".into(),
+            Standing::Passed => "passed".into(),
+            Standing::Overturned => "overturned".into(),
+            Standing::Lapsed => "lapsed".into(),
+            Standing::Closed(reason) => reason,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct Vote {
     id: u64,
-    kind: String,
+    kind: VoteKind,
     candidate: u64,
     destination: String,
     founder: String,
@@ -39,7 +84,7 @@ struct Vote {
     voters: Vec<u64>,
     called: i64,
     task: String,
-    standing: String,
+    standing: Standing,
     heard: bool,
     answer: Option<String>,
     ballots: Vec<Ballot>,
@@ -56,7 +101,7 @@ fn save(db: &Connection, hamlet: &str, votes: &[Vote]) -> Result<()> {
     if let Some(r) = record::read(db, hamlet)? {
         let open = votes
             .iter()
-            .filter(|v| v.standing == "open")
+            .filter(|v| v.standing == Standing::Open)
             .map(|v| record::OpenVote {
                 id: v.id,
                 called: v.called,
@@ -70,7 +115,7 @@ fn save(db: &Connection, hamlet: &str, votes: &[Vote]) -> Result<()> {
 
 fn describe(v: &Vote, r: &record::Hamlet) -> String {
     let name = |n| r.name_of(n, NameFallback::Recorded);
-    if v.kind == "replace_mayor" {
+    if v.kind == VoteKind::ReplaceMayor {
         format!(
             "replace the mayor: `{}` would become mayor, and `{}`, \
              the mayor now, would stay as an ordinary agent",
@@ -100,11 +145,14 @@ fn report(v: &Vote, r: &record::Hamlet, limits: &Value) -> String {
         * limits["votes"]["passYes"].as_u64().unwrap_or(2))
     .div_ceil(limits["votes"]["passOf"].as_u64().unwrap_or(3)))
     .max(1);
-    let standing = match v.standing.as_str() {
-        "open" => "Open".into(),
-        "passed" => "Passed".into(),
-        "overturned" => "Passed, then overturned by a chief".into(),
-        _ => format!("Failed ({})", v.standing),
+    let standing = match &v.standing {
+        Standing::Open => "Open".into(),
+        Standing::Passed => "Passed".into(),
+        Standing::Overturned => {
+            "Passed, then overturned by a chief".into()
+        }
+        Standing::Lapsed => "Failed (lapsed)".into(),
+        Standing::Closed(reason) => format!("Failed ({reason})"),
     };
     format!(
         "Vote {}: {}.\nCalled by `{}`: {}{}\n{standing}: {yes} yes \
@@ -154,7 +202,7 @@ pub(crate) fn views(
     r: &record::Hamlet,
 ) -> Result<Vec<Value>> {
     let limits = crate::spend::limits(db, &r.id)?;
-    Ok(read(db, &r.id)?.iter().map(|v| json!({"id":v.id,"by":v.by,"motion":describe(v,r),"open":v.standing=="open","overturnable":v.standing=="passed" || v.standing=="open","report":report(v,r,&limits),"voters":v.voters.iter().map(|n| json!({"agent":{"hamlet":r.id,"number":n},"cast":v.ballots.iter().find(|b|b.voter==*n).map(|b|if b.choice.is_empty(){"none"}else{&b.choice})})).collect::<Vec<_>>()})).collect())
+    Ok(read(db, &r.id)?.iter().map(|v| json!({"id":v.id,"by":v.by,"motion":describe(v,r),"open":v.standing==Standing::Open,"overturnable":matches!(v.standing, Standing::Passed | Standing::Open),"report":report(v,r,&limits),"voters":v.voters.iter().map(|n| json!({"agent":{"hamlet":r.id,"number":n},"cast":v.ballots.iter().find(|b|b.voter==*n).map(|b|if b.choice.is_empty(){"none"}else{&b.choice})})).collect::<Vec<_>>()})).collect())
 }
 
 fn call(
@@ -175,13 +223,15 @@ fn call(
         .unwrap_or(60)
         .saturating_mul(60_000);
     for v in &mut votes {
-        if v.standing == "open"
+        if v.standing == Standing::Open
             && now.saturating_sub(v.called) >= open_ms
         {
-            v.standing = "lapsed".into();
+            v.standing = Standing::Lapsed;
         }
     }
-    if let Some(v) = votes.iter().find(|v| v.standing == "open") {
+    if let Some(v) =
+        votes.iter().find(|v| v.standing == Standing::Open)
+    {
         return Ok(Err(format!(
             "Vote {} is still open: {}",
             v.id,
@@ -203,12 +253,17 @@ fn call(
             voters.len()
         )));
     }
-    let kind = args["kind"].as_str().unwrap_or("replace_mayor");
-    if !["replace_mayor", "found_hamlet"].contains(&kind) {
-        return Ok(Err("Use replace_mayor or found_hamlet.".into()));
-    }
+    let kind = match args["kind"].as_str() {
+        None | Some("replace_mayor") => VoteKind::ReplaceMayor,
+        Some("found_hamlet") => VoteKind::FoundHamlet,
+        Some(_) => {
+            return Ok(Err(
+                "Use replace_mayor or found_hamlet.".into()
+            ));
+        }
+    };
     let mut candidate = 0;
-    if kind == "replace_mayor" {
+    if kind == VoteKind::ReplaceMayor {
         let name = args["candidate"].as_str().unwrap_or_default();
         let Some(agent) = r.named(name) else {
             return Ok(Err("The candidate must be an agent of \
@@ -233,8 +288,10 @@ fn call(
     if let Some(v) = votes.iter().rev().find(|v| {
         v.by == by
             && v.kind == kind
-            && v.standing != "passed"
-            && v.standing != "overturned"
+            && !matches!(
+                v.standing,
+                Standing::Passed | Standing::Overturned
+            )
             && now.saturating_sub(v.called) < retry_ms
     }) {
         return Ok(Err(format!(
@@ -246,7 +303,7 @@ fn call(
     let id = votes.last().map_or(1, |v| v.id + 1);
     votes.push(Vote {
         id,
-        kind: kind.into(),
+        kind,
         candidate,
         destination: args["hamlet"]
             .as_str()
@@ -261,8 +318,9 @@ fn call(
         voters,
         called: now,
         task: format!("vote:{hamlet}:{id}"),
-        standing: "open".into(),
-        heard: kind != "replace_mayor" || caller == Some(r.mayor),
+        standing: Standing::Open,
+        heard: kind != VoteKind::ReplaceMayor
+            || caller == Some(r.mayor),
         answer: None,
         ballots: Vec::new(),
         announced: false,
@@ -324,7 +382,7 @@ pub(super) async fn operation(
         .into_iter()
         .find(|v| v.id == id)
         .expect("called vote");
-    if v.standing == "open" {
+    if v.standing == Standing::Open {
         return Ok(None);
     }
     let r =
@@ -359,7 +417,7 @@ pub(super) fn ballot(
     let mut votes = read(db, hamlet)?;
     let Some(v) = votes
         .iter_mut()
-        .find(|v| v.id == id && v.standing == "open")
+        .find(|v| v.id == id && v.standing == Standing::Open)
     else {
         return Ok(outcome("The vote is closed.", true));
     };
@@ -439,7 +497,9 @@ async fn cancel_closed(
     hamlet: &str,
     votes: &[Vote],
 ) -> Result<()> {
-    for vote in votes.iter().filter(|vote| vote.standing != "open") {
+    for vote in
+        votes.iter().filter(|vote| vote.standing != Standing::Open)
+    {
         let bindings = service
             .home
             .store()
@@ -481,10 +541,9 @@ pub(crate) async fn sweep(
     for hamlet in hamlets {
         let mut votes =
             read(service.home.store().connection(), &hamlet)?;
-        if votes
-            .iter()
-            .all(|vote| vote.standing != "open" && vote.reported)
-        {
+        if votes.iter().all(|vote| {
+            vote.standing != Standing::Open && vote.reported
+        }) {
             cancel_closed(service, harnesses, &hamlet, &votes)
                 .await?;
             continue;
@@ -493,8 +552,9 @@ pub(crate) async fn sweep(
             .lives(&hamlet)
         {
             for vote in &mut votes {
-                if vote.standing == "open" {
-                    vote.standing = "the hamlet closed".into();
+                if vote.standing == Standing::Open {
+                    vote.standing =
+                        Standing::Closed("the hamlet closed".into());
                 }
                 vote.reported = true;
             }
@@ -536,14 +596,14 @@ pub(crate) async fn sweep(
                 .await?;
                 v.announced = true;
             }
-            if v.standing == "open" {
+            if v.standing == Standing::Open {
                 let expired = super::now().saturating_sub(v.called)
                     >= limits["votes"]["openMinutes"]
                         .as_i64()
                         .unwrap_or(60)
                         .saturating_mul(60_000);
                 if expired {
-                    v.standing = "lapsed".into();
+                    v.standing = Standing::Lapsed;
                 } else if !v.heard {
                     let prompt = format!(
                         "{}\nA vote has been called. This is your \
@@ -579,7 +639,7 @@ pub(crate) async fn sweep(
                         v.heard = true;
                     }
                 }
-                if v.heard && v.standing == "open" {
+                if v.heard && v.standing == Standing::Open {
                     for voter in v.voters.clone() {
                         if v.ballots.iter().any(|b| b.voter == voter)
                         {
@@ -702,26 +762,29 @@ pub(crate) async fn sweep(
                         )
                         .max(1);
                         v.standing = if yes >= needed {
-                            "passed"
+                            Standing::Passed
                         } else {
-                            "too few said yes"
-                        }
-                        .into();
+                            Standing::Closed(
+                                "too few said yes".into(),
+                            )
+                        };
                     }
                 }
             }
-            let newly_closed = v.standing != "open"
-                && votes[index].standing == "open";
+            let newly_closed = v.standing != Standing::Open
+                && votes[index].standing == Standing::Open;
             if newly_closed {
                 let tx = service.home.store().transaction()?;
-                if v.standing == "passed" {
-                    if v.kind == "replace_mayor" {
+                if v.standing == Standing::Passed {
+                    if v.kind == VoteKind::ReplaceMayor {
                         let current = record::read(&tx, &hamlet)?
                             .expect("vote's record");
                         if current.mayor != v.mayor {
-                            v.standing = "the mayor changed while \
-                                          the vote was open"
-                                .into();
+                            v.standing = Standing::Closed(
+                                "the mayor changed while the vote \
+                                 was open"
+                                    .into(),
+                            );
                         } else {
                             let op = RecordOperation {
                                 hamlet: hamlet.clone(),
@@ -742,8 +805,10 @@ pub(crate) async fn sweep(
                             if let Outcome::Refused(refusal) =
                                 crate::operation::change(&tx, &op)?
                             {
-                                v.standing = refusal
-                                    .text(record::Audience::Chief);
+                                v.standing =
+                                    Standing::Closed(refusal.text(
+                                        record::Audience::Chief,
+                                    ));
                             }
                         }
                     } else {
@@ -758,10 +823,11 @@ pub(crate) async fn sweep(
                                     .unwrap_or(6)
                                     as usize
                         {
-                            v.standing = "the hamlet cannot be \
-                                          founded under current \
-                                          limits"
-                                .into();
+                            v.standing = Standing::Closed(
+                                "the hamlet cannot be founded under \
+                                 current limits"
+                                    .into(),
+                            );
                         } else {
                             let op = record::FoundRecord {
                                 hamlet: v.destination.clone(),
@@ -778,8 +844,10 @@ pub(crate) async fn sweep(
                                 crate::operation::change(&tx, &op)?;
                             if let Outcome::Refused(refusal) = result
                             {
-                                v.standing = refusal
-                                    .text(record::Audience::Chief);
+                                v.standing =
+                                    Standing::Closed(refusal.text(
+                                        record::Audience::Chief,
+                                    ));
                             } else {
                                 let mut realm =
                                     crate::realm::read(&tx)?;
@@ -804,7 +872,8 @@ pub(crate) async fn sweep(
                 votes[index] = v.clone();
                 save(&tx, &hamlet, &votes)?;
                 tx.commit()?;
-                if v.standing == "passed" && v.kind == "found_hamlet"
+                if v.standing == Standing::Passed
+                    && v.kind == VoteKind::FoundHamlet
                 {
                     if let Some(remote) = service.houses.remote(
                         &v.destination,
@@ -837,7 +906,7 @@ pub(crate) async fn sweep(
                 }
                 changed(service, harnesses).await?;
             }
-            if v.standing != "open" && !v.reported {
+            if v.standing != Standing::Open && !v.reported {
                 announce(
                     service,
                     harnesses,
@@ -935,24 +1004,24 @@ pub(super) async fn deed(
             "There is no vote `{word}`."
         )))));
     };
-    if v.standing == "overturned" {
+    if v.standing == Standing::Overturned {
         return Ok(Some(Err(Refusal::Invalid(format!(
             "Vote {} is already overturned.",
             v.id
         )))));
     }
-    if v.standing != "passed" && v.standing != "open" {
+    if !matches!(v.standing, Standing::Passed | Standing::Open) {
         return Ok(Some(Err(Refusal::Invalid(
             "Only a passed or open vote can be overturned.".into(),
         ))));
     }
     let tx = service.home.store().transaction()?;
     let mut closed = None;
-    let text = if v.standing == "open" {
-        v.standing = "stopped by a chief".into();
+    let text = if v.standing == Standing::Open {
+        v.standing = Standing::Closed("stopped by a chief".into());
         format!("Vote {} is stopped.", v.id)
     } else {
-        let done = if v.kind == "replace_mayor" {
+        let done = if v.kind == VoteKind::ReplaceMayor {
             if r.mayor != v.candidate {
                 return Ok(Some(Err(Refusal::Invalid(
                     "The mayor has changed since that vote.".into(),
@@ -1003,7 +1072,7 @@ pub(super) async fn deed(
                 v.destination
             )
         };
-        v.standing = "overturned".into();
+        v.standing = Standing::Overturned;
         format!("Vote {} is overturned. {done}", v.id)
     };
     save(&tx, hamlet, &votes)?;
@@ -1030,4 +1099,40 @@ pub(super) async fn deed(
     }
     super::reconfigure(service, harnesses).await?;
     Ok(Some(Ok(text)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_vote_keeps_the_words_earlier_homes_stored() {
+        for word in [
+            "open",
+            "passed",
+            "overturned",
+            "lapsed",
+            "too few said yes",
+        ] {
+            let standing =
+                serde_json::from_value::<Standing>(json!(word))
+                    .unwrap();
+            assert_eq!(
+                serde_json::to_value(&standing).unwrap(),
+                word
+            );
+        }
+        assert!(
+            serde_json::from_value::<Standing>(json!(
+                "the hamlet closed"
+            ))
+            .unwrap()
+                == Standing::Closed("the hamlet closed".into())
+        );
+        assert!(
+            serde_json::from_value::<VoteKind>(json!("found_hamlet"))
+                .unwrap()
+                == VoteKind::FoundHamlet
+        );
+    }
 }
