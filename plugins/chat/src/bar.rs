@@ -4,9 +4,9 @@
 use agents_ui::{Focused, Waits, ask, card};
 use hamlet_engine_sdk::api::agents::{AgentsRequest, Need};
 use hamlet_engine_sdk::ui::{
-    AnyView, ButtonStyle, FrameProps, Size, Space, Tone, UiExt,
-    ViewExt, World, button, column, derived, field, icon, keyed,
-    label, resource, row,
+    AnyView, ButtonProps, ButtonStyle, FrameProps, Size, Space, Tone,
+    UiExt, ViewExt, World, column, derived, field, icon, keyed,
+    label, pressable, resource, row,
 };
 
 use crate::reply::{Answers, REPLY_CHARS, replied};
@@ -16,6 +16,9 @@ use crate::timeline::{notice, refresh};
 const NO_COMMANDS: &str = "Commands are not typed here. Use the \
                            menus, or right-click an agent or a \
                            hamlet.";
+
+/// The most lines the field grows to.
+const LINES: u32 = 8;
 
 /// What is typed in the field and not yet sent.
 #[derive(Default)]
@@ -31,10 +34,10 @@ pub fn reply_to(world: &mut World, by: &str, text: &str) {
         Some(Answers::of(by, text, REPLY_CHARS));
 }
 
-/// Sends what is typed to the open conversation. A command is not
-/// sent: the chat says why.
-fn send(world: &mut World) {
-    let typed = world.resource::<Draft>().0.trim().to_string();
+/// Sends `typed` to the open conversation. A command is not sent:
+/// the chat says why.
+fn send(world: &mut World, typed: String) {
+    let typed = typed.trim().to_string();
     if typed.is_empty() {
         return;
     }
@@ -110,11 +113,12 @@ fn preview() -> AnyView {
                 label(format!("Replying to {}", answers.by))
                     .size(Size::Small)
                     .tone(Tone::Dim),
-                button("Do not reply")
+                pressable((icon("cross"),))
                     .style(ButtonStyle::Quiet)
                     .on_click(|world| {
                         world.resource_mut::<Replying>().0 = None
-                    }),
+                    })
+                    .tip("Do not reply"),
             ))
             .space(Space::Gap)
             .boxed(),
@@ -129,15 +133,13 @@ pub fn message_bar() -> AnyView {
     column((
         questions(),
         preview(),
-        row((
-            field(resource::<Draft, _>(|draft| draft.0.clone()))
-                .placeholder("Message")
-                .on_commit(|world, text| {
-                    world.resource_mut::<Draft>().0 = text
-                }),
-            button("SEND").style(ButtonStyle::Primary).on_click(send),
-        ))
-        .space(Space::Half),
+        field(resource::<Draft, _>(|draft| draft.0.clone()))
+            .placeholder("Message")
+            .lines(LINES)
+            .on_commit(|world, text| {
+                world.resource_mut::<Draft>().0 = text
+            })
+            .on_submit(send),
     ))
     .space(Space::Half)
     .boxed()

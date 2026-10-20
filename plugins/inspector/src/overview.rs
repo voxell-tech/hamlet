@@ -8,10 +8,11 @@ use hamlet_engine_sdk::api::agents::{
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
     Tone, UiExt, ViewExt, World, button, column, derived, field,
-    heading, icon, icon_button, keyed, label, list, pressable,
-    resource, row, scroll,
+    heading, icon, icon_button, keyed, label, list, menu_item,
+    pressable, resource, row, scroll,
 };
 
+use crate::hamlet::{HOME, close_down};
 use crate::{select, with};
 
 /// The words typed to search the hamlets.
@@ -107,13 +108,26 @@ fn hamlet_card(hamlet: &RosterHamlet) -> AnyView {
     if hamlet.gone > 0 {
         lines.push(format!("{} gone", hamlet.gone));
     }
-    let id = hamlet.id.clone();
+    let (id, closed) = (hamlet.id.clone(), hamlet.id.clone());
+    // The first hamlet is the home itself and stays.
+    let mut items = Vec::new();
+    if hamlet.id != HOME {
+        items.push(
+            menu_item(
+                format!("Close Down {}...", hamlet.title),
+                move |world| close_down(world, &closed),
+            )
+            .critical(),
+        );
+    }
     pressed_card(
         hamlet.title.to_uppercase(),
         (mark, hamlet.state.clone(), tone),
         lines,
         move |world| select(world, Selected::Hamlet(id.clone())),
     )
+    .menu(items)
+    .boxed()
 }
 
 /// The hamlets the search finds.

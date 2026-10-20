@@ -4,14 +4,15 @@
 
 use agents_ui::{
     CONFIRM, Focused, Heard, ask, confirmation, hear, init,
-    library_empty, library_list, start,
+    library_empty, library_list, show_chat, start,
 };
 use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Papers, Recipient,
 };
 use hamlet_engine_sdk::ui::{
-    AnyView, Face, FrameProps, Size, Space, Tone, ViewExt, World,
-    column, keyed, label, list, resource, scroll,
+    AnyView, Face, FrameProps, Size, Space, Tone, UiExt, ViewExt,
+    World, column, icon_button, keyed, label, list, resource, row,
+    scroll,
 };
 use hamlet_engine_sdk::{Entry, Message, Plugin};
 
@@ -72,6 +73,17 @@ fn own() -> AnyView {
     .boxed()
 }
 
+/// An empty library, with the way to the chat.
+fn empty() -> AnyView {
+    column((
+        library_empty(),
+        row((icon_button("speech", "OPEN CHAT")
+            .on_click(|_| show_chat()),)),
+    ))
+    .space(Space::Half)
+    .boxed()
+}
+
 impl Plugin for Skills {
     fn declare(&self, entry: &mut Entry) {
         entry.panel("skills", "Skills").overlay(CONFIRM);
@@ -105,7 +117,7 @@ impl Plugin for Skills {
                 .bold(true)
                 .face(Face::Display)
                 .tone(Tone::Faint),
-            library_list(library_empty),
+            library_list(empty),
         ))
         .boxed()
     }

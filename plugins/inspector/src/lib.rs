@@ -5,8 +5,10 @@
 
 mod agent;
 mod archive;
+mod bylaws;
 mod gone;
 mod hamlet;
+mod more;
 mod overview;
 
 use agents_ui::{
@@ -106,6 +108,7 @@ fn prepare(world: &mut World) {
     archive::prepare(world);
     overview::prepare(world);
     hamlet::prepare(world);
+    bylaws::prepare(world);
 }
 
 impl Plugin for Inspector {
@@ -154,12 +157,16 @@ impl Plugin for Inspector {
             | Heard::Event(AgentsEvent::Working { working: false, .. }) => {
                 agent::follow(world);
             }
-            Heard::Event(AgentsEvent::Roster(_)) => hamlet::follow(world),
+            Heard::Event(AgentsEvent::Roster(_)) => {
+                hamlet::follow(world);
+                bylaws::follow(world);
+            }
             _ => {}
         }
         agent::heard(world, &told);
         archive::heard(world, &told);
         hamlet::heard(world, &told);
+        bylaws::heard(world, &told);
     }
 }
 

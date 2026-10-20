@@ -6,14 +6,15 @@ use hamlet_engine_sdk::api::agents::{
     AgentsRequest, Entry, Recipient, SessionName,
 };
 use hamlet_engine_sdk::ui::{
-    AnyView, ButtonProps, ButtonStyle, Cx, Face, FrameProps, Hovered,
-    ScopedExt, Size, Space, StateExt, Tone, UiExt, ViewExt, World,
-    button, column, each, icon, keyed, label, pressable, resource,
-    row, scroll,
+    Align, AnyView, ButtonProps, ButtonStyle, Cx, Face, Fill,
+    FrameProps, Hovered, ScopedExt, ScrollProps, Size, Space,
+    StateExt, Tone, UiExt, ViewExt, World, button, column, each,
+    icon, keyed, label, pressable, resource, row, scroll,
 };
 
 use crate::bar::reply_to;
 use crate::reply::{unreplied, words};
+use crate::talk::Talk;
 use crate::timeline::{
     Fold, Kind, Line, Lines, Reach, Row, Unfolded, Who, refresh,
 };
@@ -146,9 +147,13 @@ pub fn header() -> AnyView {
                 label(names(cast)).size(Size::Small).tone(Tone::Dim),
             ))
             .space(Space::None),
-            pressable((icon("speech_plus"), label("New Session")))
+            pressable((icon("speech_plus"),))
                 .style(ButtonStyle::Quiet)
-                .on_click(new_session),
+                .on_click(new_session)
+                .tip(
+                    "Start a new session. This one goes to the \
+                     Archive.",
+                ),
         ))
         .space(Space::Gap)
         .boxed()
@@ -210,10 +215,10 @@ fn said(
     message: &hamlet_engine_sdk::api::agents::SessionMessage,
     to: Option<Recipient>,
 ) -> AnyView {
+    let mine = line.by.kind == Kind::Me;
     let mut inside = Vec::<AnyView>::new();
-    if line.named {
+    if line.named && !mine {
         let mut head = vec![
-            face(&line.by),
             label(line.by.name.clone())
                 .size(Size::Small)
                 .bold(true)
@@ -228,7 +233,7 @@ fn said(
                     .boxed(),
             );
         }
-        if !line.by.tag.is_empty() && line.by.kind != Kind::Me {
+        if !line.by.tag.is_empty() {
             head.push(
                 label(line.by.tag.clone())
                     .size(Size::Small)
@@ -312,7 +317,21 @@ fn said(
         );
     }
     inside.push(row(foot).space(Space::Gap).boxed());
-    column(inside).space(Space::None).boxed()
+    let bubble = column(inside).space(Space::None);
+    // The chief's own at the right on the accent, anyone else's at
+    // the left on a card by its speaker's disc, shown at the end of
+    // its run.
+    if mine {
+        return row((bubble.fill(Fill::Accent),))
+            .align(Align::End)
+            .boxed();
+    }
+    let disc = column((face(&line.by),))
+        .fill(Fill::Disc)
+        .opacity(if line.last { 1.0 } else { 0.0 });
+    row((disc, bubble.fill(Fill::Card)))
+        .space(Space::Half)
+        .boxed()
 }
 
 /// The steps of a turn as one line that opens.
@@ -378,7 +397,24 @@ fn line_view(
 
 /// The chat with whoever the open conversation is with.
 pub fn transcript() -> AnyView {
-    let rows = each(
+    // Another conversation is shown from its end.
+    keyed(resource::<Talk, _>(|talk| talk.open.clone()), |_| {
+        scroll((earlier(), rows()))
+            .stick(true)
+            .on_top(|world| {
+                if world.resource::<Lines>().earlier > 0 {
+                    world.resource_mut::<Reach>().earlier();
+                    refresh(world);
+                }
+            })
+            .boxed()
+    })
+    .boxed()
+}
+
+/// The rows of the chat that are built.
+fn rows() -> AnyView {
+    each(
         resource::<Lines, _>(|lines| {
             let owner = lines
                 .cast
@@ -403,26 +439,25 @@ pub fn transcript() -> AnyView {
             })
         },
     )
-    .within(column(()).space(Space::Gap));
-    let earlier = keyed(
+    .within(column(()).space(Space::Gap))
+    .boxed()
+}
+
+/// What stands over the rows: how many more there are above, or
+/// that nothing was said.
+fn earlier() -> AnyView {
+    keyed(
         resource::<Lines, _>(|lines| (lines.empty, lines.earlier)),
         |(empty, earlier)| match (*empty, *earlier) {
             (true, _) => label(EMPTY).tone(Tone::Dim).boxed(),
             (false, 0) => column(()).boxed(),
-            (false, n) => row((
-                label(format!("{n} earlier lines."))
-                    .size(Size::Small)
-                    .tone(Tone::Dim),
-                button("EARLIER").style(ButtonStyle::Quiet).on_click(
-                    |world| {
-                        world.resource_mut::<Reach>().earlier();
-                        refresh(world);
-                    },
-                ),
+            (false, n) => label(format!(
+                "{n} earlier lines. Scroll up to read them."
             ))
-            .space(Space::Gap)
+            .size(Size::Small)
+            .tone(Tone::Dim)
             .boxed(),
         },
-    );
-    scroll((earlier, rows)).boxed()
+    )
+    .boxed()
 }

@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 
 use crate::bindings::hamlet::engine::ui::{
-    ButtonStyle, Direction, Face, Kind, Motion, Node, Property, Size,
-    Space, Tone,
+    Align, ButtonStyle, Direction, Face, Fill, Kind, Motion, Node,
+    Property, Size, Space, Tone,
 };
 
 /// A node of fynix's: the plugin's name for it, which the engine's
@@ -47,7 +47,7 @@ struct Entry {
     /// `None` for a node built outside a panel.
     node: Option<Node>,
     /// The properties sent, one bit each by [`bit`].
-    sent: u16,
+    sent: u32,
     watch: States,
     states: States,
 }
@@ -161,6 +161,10 @@ impl Nodes {
         }
     }
 
+    pub fn has(&self, key: Key) -> bool {
+        self.entries.contains_key(&key)
+    }
+
     pub fn holds(&self, key: Key, states: States) -> bool {
         self.entries
             .get(&key)
@@ -197,7 +201,7 @@ impl Entry {
 impl Property {
     /// The bit of the property this sets, in the order the WIT names
     /// them.
-    fn bit(&self) -> u16 {
+    fn bit(&self) -> u32 {
         let at = match self {
             Property::Text(_) => 0,
             Property::Tone(_) => 1,
@@ -213,6 +217,13 @@ impl Property {
             Property::Offset(_) => 11,
             Property::Options(_) => 12,
             Property::Selected(_) => 13,
+            Property::Lines(_) => 14,
+            Property::Stick(_) => 15,
+            Property::Tip(_) => 16,
+            Property::Align(_) => 17,
+            Property::Fill(_) => 18,
+            Property::Menu(_) => 19,
+            Property::Folder(_) => 20,
         };
         1 << at
     }
@@ -220,12 +231,15 @@ impl Property {
     /// Whether this is what a node starts with.
     fn is_first(&self) -> bool {
         match self {
-            Property::Text(text) | Property::Placeholder(text) => {
-                text.is_empty()
-            }
+            Property::Text(text)
+            | Property::Placeholder(text)
+            | Property::Tip(text)
+            | Property::Folder(text) => text.is_empty(),
             Property::Tone(tone) => *tone == Tone::Body,
             Property::Size(size) => *size == Size::Body,
-            Property::Bold(on) | Property::On(on) => !on,
+            Property::Bold(on)
+            | Property::On(on)
+            | Property::Stick(on) => !on,
             Property::Face(face) => *face == Face::Body,
             Property::Opacity(opacity) => *opacity == 1.0,
             Property::Style(style) => *style == ButtonStyle::Plain,
@@ -233,9 +247,13 @@ impl Property {
                 *direction == Direction::Column
             }
             Property::Space(space) => *space == Space::Gap,
+            Property::Align(align) => *align == Align::Start,
+            Property::Fill(fill) => *fill == Fill::None,
+            Property::Menu(menu) => menu.items.is_empty(),
             Property::Offset(offset) => *offset == (0.0, 0.0),
             Property::Options(options) => options.is_empty(),
             Property::Selected(at) => *at == 0,
+            Property::Lines(lines) => *lines == 1,
         }
     }
 }

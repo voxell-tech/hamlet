@@ -336,6 +336,7 @@ dependencies = [
 name = "settings"
 version = "0.1.0"
 dependencies = [
+ "agents_ui",
  "hamlet_engine_sdk",
 ]
 

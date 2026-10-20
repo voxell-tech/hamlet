@@ -11,7 +11,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use hamlet_core::agents::{self, LivesIn, Mayor, papers};
+use hamlet_core::agents::{self, LivesIn, Mayor, Settlement, papers};
 use hamlet_core::core::{self, HomeDir, Skills};
 use hamlet_core::session::{
     self, Entry, Item, Reply, Rewind, Rewound, Seat, SessionKey,
@@ -19,7 +19,7 @@ use hamlet_core::session::{
 };
 use hamlet_engine_api::Failure;
 use hamlet_engine_api::agents::{
-    AgentsEvent, Papers, Part, Related, SessionName, Skill,
+    AgentsEvent, Gift, Papers, Part, Related, SessionName, Skill,
 };
 use hamlet_home::Home;
 use hamlet_rules::hamlet::{HOME, MAYOR};
@@ -63,6 +63,9 @@ pub(crate) trait ConversationWorldExt {
     fn open_house(&self) -> Home;
 
     fn papers(&self) -> Papers;
+
+    /// The skills the open conversation's agent could be given.
+    fn gifts(&self) -> Vec<Gift>;
 
     /// The prompt the open conversation's agent is given now.
     fn prompt(&self) -> Result<String, Failure>;
@@ -232,7 +235,25 @@ impl ConversationWorldExt for World {
                     description,
                 })
                 .collect(),
+            gifts: self.gifts(),
         }
+    }
+
+    fn gifts(&self) -> Vec<Gift> {
+        let open = self.resource::<Chief>().session;
+        let offers = self.get::<TalksTo>(open).and_then(|to| {
+            let hamlet = self.get::<LivesIn>(to.0)?.0;
+            let place = self.get::<Settlement>(hamlet)?.record();
+            Some(place.offers(&agents::name_of(self, to.0)))
+        });
+        offers
+            .unwrap_or_default()
+            .into_iter()
+            .map(|offer| Gift {
+                skill: offer.skill,
+                from: offer.from,
+            })
+            .collect()
     }
 
     fn prompt(&self) -> Result<String, Failure> {

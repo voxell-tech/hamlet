@@ -16,7 +16,7 @@ use hamlet_engine_sdk::ui::{
     row, scroll,
 };
 
-use crate::{agent_named, archive, select, with};
+use crate::{agent_named, archive, more, select, with};
 
 /// The characters of a purpose shown.
 const PURPOSE: usize = 96;
@@ -56,9 +56,9 @@ struct Briefing(String);
 /// The models an agent may be given: the home's default and those it
 /// allows.
 #[derive(Default)]
-struct Models {
-    default: String,
-    allowed: Vec<String>,
+pub(crate) struct Models {
+    pub(crate) default: String,
+    pub(crate) allowed: Vec<String>,
 }
 
 pub(crate) fn prepare(world: &mut World) {
@@ -137,7 +137,7 @@ fn allowed(models: &[CatalogueModel]) -> Vec<String> {
 }
 
 /// Shows `tab`, reading again what it shows.
-fn show(world: &mut World, tab: Tab) {
+pub(crate) fn show(world: &mut World, tab: Tab) {
     let shown = world.resource_mut::<Shown>();
     if tab == Tab::Prompt && shown.tab != Tab::Prompt {
         shown.back = shown.tab;
@@ -204,7 +204,7 @@ fn head_of(world: &World) -> Head {
 
 /// The names a dropdown of models offers: the home's default, every
 /// model the home allows, and `now` when it is none of those.
-fn offered(models: &Models, now: &str) -> Vec<String> {
+pub(crate) fn offered(models: &Models, now: &str) -> Vec<String> {
     let mut names = vec![models.default.clone()];
     for name in &models.allowed {
         if !names.contains(name) {
@@ -291,11 +291,18 @@ fn header(head: &Head) -> AnyView {
                         AgentsRequest::Veto(Some(name.clone())),
                     )
                 })
+                .tip("Stops what it is doing now")
                 .boxed(),
         );
     }
+    top.push(more::more());
     parts.push(row(top).space(Space::Gap).boxed());
-    parts.push(label(purpose).tone(Tone::Dim).boxed());
+    let whole = if head.mayor {
+        purpose.clone()
+    } else {
+        head.purpose.clone()
+    };
+    parts.push(label(purpose).tone(Tone::Dim).tip(whole).boxed());
     parts.push(
         label(format!("{}  This chat: {}", head.model, head.usage))
             .size(Size::Small)
@@ -353,12 +360,11 @@ fn notes() -> AnyView {
 
 fn character() -> AnyView {
     column((
-        row((icon_button("pencil", "EDIT").on_click(|world| {
-            ask(world, AgentsRequest::EditCharacter)
-        }),)),
-        label("Opens the file in your editor")
-            .size(Size::Small)
-            .tone(Tone::Dim),
+        row((icon_button("pencil", "EDIT")
+            .on_click(|world| {
+                ask(world, AgentsRequest::EditCharacter)
+            })
+            .tip("Opens the file in your editor"),)),
         scroll((keyed(
             resource::<Papers, _>(|papers| papers.character.clone()),
             |character| {

@@ -122,13 +122,22 @@ impl Kind {
             Property::Size(_)
             | Property::Bold(_)
             | Property::Face(_) => self == Self::Label,
-            Property::Opacity(_) | Property::Offset(_) => true,
-            Property::Style(_) => self == Self::Button,
-            Property::Direction(_) | Property::Space(_) => {
-                self == Self::Frame
+            Property::Opacity(_)
+            | Property::Offset(_)
+            | Property::Tip(_)
+            | Property::Menu(_) => true,
+            Property::Style(_) | Property::Folder(_) => {
+                self == Self::Button
             }
-            Property::Placeholder(_) => self == Self::Field,
+            Property::Direction(_)
+            | Property::Space(_)
+            | Property::Align(_)
+            | Property::Fill(_) => self == Self::Frame,
+            Property::Placeholder(_) | Property::Lines(_) => {
+                self == Self::Field
+            }
             Property::On(_) => self == Self::Toggle,
+            Property::Stick(_) => self == Self::Scroll,
             Property::Options(_) | Property::Selected(_) => {
                 self == Self::Dropdown
             }

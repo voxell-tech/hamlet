@@ -388,6 +388,14 @@ pub enum NodeInput {
     Commit(String),
     /// A dropdown's option picked, by its place.
     Pick(u32),
+    /// What was typed in a field of several lines as Enter sent it.
+    Submit(String),
+    /// A scroll that sticks reached its top.
+    Top,
+    /// An item of a node's menu chosen, by its place.
+    Chose(u32),
+    /// The folder chosen in the dialog a button opened.
+    Chosen(String),
 }
 
 impl Instance {
@@ -485,7 +493,21 @@ impl Instance {
                         left -= text.len();
                         Action::Committed(text)
                     }
+                    NodeInput::Submit(mut text) => {
+                        text.truncate(text.floor_char_boundary(left));
+                        left -= text.len();
+                        Action::Submitted(text)
+                    }
                     NodeInput::Pick(at) => Action::Picked(at),
+                    NodeInput::Top => Action::ReachedTop,
+                    NodeInput::Chose(at) => Action::Chose(at),
+                    NodeInput::Chosen(mut folder) => {
+                        folder.truncate(
+                            folder.floor_char_boundary(left),
+                        );
+                        left -= folder.len();
+                        Action::Chosen(folder)
+                    }
                 },
             })
             .collect::<Vec<_>>();

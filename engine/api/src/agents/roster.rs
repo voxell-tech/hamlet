@@ -89,6 +89,42 @@ pub struct Record {
     pub limits: String,
 }
 
+/// The limits a hamlet's own file holds for it alone: its bylaws.
+#[derive(
+    Clone, PartialEq, Debug, Default, Serialize, Deserialize,
+)]
+pub struct Bylaws {
+    /// The budget starts again every month, else every day.
+    pub monthly: bool,
+    /// What model calls may cost in a period, in dollars; none is no
+    /// cap.
+    pub budget_cost: Option<f64>,
+    /// What one task may cost, in dollars; none is no cap.
+    pub task_cost: Option<f64>,
+    /// Messages between agents one task may send.
+    pub task_messages: u32,
+    /// The price of a road, in dollars.
+    pub road_cost: f64,
+    /// What the mayor may do without asking.
+    pub create_agents: bool,
+    pub remove_agents: bool,
+    pub merge_agents: bool,
+    pub build_roads: bool,
+    /// Days of the mayor's decisions its agents are told of.
+    pub told_days: u64,
+    pub most_agents: u64,
+    /// Roads the mayor may build.
+    pub most_roads: u64,
+    /// The models the mayor may choose, besides the hamlet's own.
+    pub models: Vec<String>,
+    /// The model its agents run when nobody chose one; none is the
+    /// home's default.
+    pub model: Option<String>,
+    /// Why the file cannot be read; the values are then the
+    /// defaults.
+    pub problem: Option<String>,
+}
+
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Vote {
     pub id: u64,

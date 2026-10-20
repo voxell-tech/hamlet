@@ -17,13 +17,13 @@ use hamlet_core::session::{
 };
 use hamlet_core::tools::{Change, change};
 use hamlet_engine_api::agents::{
-    CatalogueModel, ChangeLine, Charter, Endpoint, Entry, Grant,
-    Link, Listed, Listing, Mark, Output, Priced, Provider,
+    Bylaws, CatalogueModel, ChangeLine, Charter, Endpoint, Entry,
+    Grant, Link, Listed, Listing, Mark, Output, Priced, Provider,
     RealmLimits, Session, SessionMessage, SessionName, Settings,
     Status, Trial,
 };
 use hamlet_home::charter;
-use hamlet_home::limits::Limits;
+use hamlet_home::limits::{Limits, Period};
 use hamlet_model::catalogue::{self, Catalogue};
 use hamlet_model::config::providers::PROVIDERS;
 use hamlet_model::config::{self, Config};
@@ -168,6 +168,33 @@ pub(crate) fn limits(home: &Path) -> RealmLimits {
         ballot_minutes: limits.votes.ballot_minutes,
         open_minutes: limits.votes.open_minutes,
         retry_minutes: limits.votes.retry_minutes,
+        problem,
+    }
+}
+
+/// The limits of the hamlet at `root` that are its own, or the
+/// defaults and why its file cannot be read.
+pub(crate) fn bylaws(root: &Path) -> Bylaws {
+    let (limits, problem) = match Limits::load(root) {
+        Ok(limits) => (limits, None),
+        Err(why) => (Limits::default(), Some(format!("{why:#}"))),
+    };
+    let wide = |n: usize| n as u64;
+    Bylaws {
+        monthly: limits.budget.period == Period::Month,
+        budget_cost: limits.budget.cost,
+        task_cost: limits.task.cost,
+        task_messages: limits.task.messages,
+        road_cost: limits.road.cost,
+        create_agents: limits.mayor.create_agents,
+        remove_agents: limits.mayor.remove_agents,
+        merge_agents: limits.mayor.merge_agents,
+        build_roads: limits.mayor.build_roads,
+        told_days: limits.mayor.told_days,
+        most_agents: wide(limits.most_agents),
+        most_roads: wide(limits.most_roads),
+        models: limits.models,
+        model: limits.model,
         problem,
     }
 }

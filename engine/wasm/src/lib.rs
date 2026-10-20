@@ -4,6 +4,7 @@
 
 mod add;
 mod budget;
+mod dialog;
 mod folder;
 mod host;
 mod instance;
@@ -53,6 +54,7 @@ pub fn plugin(app: &mut App) {
         host::plugin,
         folder::plugin,
         add::plugin,
+        dialog::plugin,
         run::plugin,
         panel::plugin,
         retained::plugin,

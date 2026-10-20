@@ -30,16 +30,23 @@ use bevy::ecs::schedule::common_conditions::{
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
 use bevy::math::Vec2;
-use bevy::picking::events::{Pointer, Press, Release};
+use bevy::picking::events::{Click, Pointer, Press, Release};
 use bevy::picking::hover::Hovered as PickingHovered;
+use bevy::picking::pointer::PointerButton;
 use bevy::time::Time;
-use bevy::ui::{AlignItems, FlexDirection, Node, px};
+use bevy::ui::{
+    AlignItems, FlexDirection, JustifyContent, Node, UiRect, percent,
+    px,
+};
 use bevy_fynix::patch::{PatchInk, PatchOpacity};
 use bevy_fynix::tokens::{
     Motion as Movement, MotionTokens, TextTokens, Tone,
 };
 use bevy_fynix::transition::blend_color;
-use bevy_fynix::views::{BehaviorExt, FrameProps, column, label};
+use bevy_fynix::views::{
+    BehaviorExt, ContextMenuExt, FrameProps, TooltipExt, column,
+    label, menu_item, submenu,
+};
 use bevy_fynix::{
     Bevy, Each, Keyed, ReducedMotion, Signal, ViewExt, component,
     each, keyed,
@@ -52,9 +59,11 @@ use hamlet_engine_plugins::{
 };
 use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::icons::{Glyph, glyph};
+use hamlet_engine_shell::message::message_field;
+use hamlet_engine_shell::stick::{ReachedTop, StickToEnd};
 use hamlet_engine_shell::style::{
     ButtonStyle, action, content_button, divider, dropdown, field,
-    icon_row, list_row, raised, scroll_area, toggle,
+    icon_row, list_row, note, raised, scroll_area, toggle,
 };
 use hamlet_engine_shell::{
     AnyView, Cx, EngineTheme, Overlay, OverlayShown, Panel,
@@ -63,6 +72,7 @@ use hamlet_engine_shell::{
 
 use crate::WasmCommandsExt;
 use crate::budget::Spending;
+use crate::dialog::{Asker, ChooseFolder};
 use crate::instance::ui_bindings::hamlet::engine::ui::{
     self as wit, Kind, Property,
 };
@@ -192,13 +202,22 @@ struct Props {
     offset: Vec2,
     options: Vec<String>,
     selected: u32,
+    lines: u32,
+    stick: bool,
+    tip: String,
+    justify: JustifyContent,
+    fill: wit::Fill,
+    menu: Menu,
+    /// The title of the dialog a folder is chosen in, if it opens
+    /// one.
+    folder: String,
     /// The roles its ink, size and gap are filled in from.
     tone: wit::Tone,
     text_size: wit::Size,
     space: wit::Space,
     /// The properties the plugin set, a bit each by
     /// [`Property::bit`].
-    set: u16,
+    set: u32,
     /// Whether its plugin is told when the pointer comes over it or
     /// leaves, and when it is pressed or let go.
     hover: bool,
@@ -230,6 +249,13 @@ impl Props {
             offset: Vec2::ZERO,
             options: Vec::new(),
             selected: 0,
+            lines: 1,
+            stick: false,
+            tip: String::new(),
+            justify: JustifyContent::Default,
+            fill: wit::Fill::None,
+            menu: Menu::default(),
+            folder: String::new(),
             tone: wit::Tone::Body,
             text_size: wit::Size::Body,
             space: wit::Space::Gap,
@@ -239,7 +265,7 @@ impl Props {
         }
     }
 
-    fn has(&self, property: u16) -> bool {
+    fn has(&self, property: u32) -> bool {
         self.set & property != 0
     }
 
@@ -295,6 +321,18 @@ impl Props {
             Property::On(on) => self.on = on,
             Property::Options(options) => self.options = options,
             Property::Selected(at) => self.selected = at,
+            Property::Lines(lines) => self.lines = lines,
+            Property::Stick(stick) => self.stick = stick,
+            Property::Tip(tip) => self.tip = tip,
+            Property::Align(align) => {
+                self.justify = match align {
+                    wit::Align::Start => JustifyContent::Default,
+                    wit::Align::End => JustifyContent::FlexEnd,
+                };
+            }
+            Property::Fill(fill) => self.fill = fill,
+            Property::Menu(menu) => self.menu = menu.into(),
+            Property::Folder(title) => self.folder = title,
             Property::Tone(tone) => self.tone = tone,
             Property::Size(size) => self.text_size = size,
             Property::Space(space) => self.space = space,
@@ -304,16 +342,16 @@ impl Props {
 }
 
 /// The bits of [`Props::set`] its widget is built by.
-const TONE: u16 = 1 << 1;
-const SIZE: u16 = 1 << 2;
-const BOLD: u16 = 1 << 3;
-const OPACITY: u16 = 1 << 5;
-const OFFSET: u16 = 1 << 11;
+const TONE: u32 = 1 << 1;
+const SIZE: u32 = 1 << 2;
+const BOLD: u32 = 1 << 3;
+const OPACITY: u32 = 1 << 5;
+const OFFSET: u32 = 1 << 11;
 
 impl Property {
     /// The bit of the property this sets, in the order the WIT names
     /// them.
-    fn bit(&self) -> u16 {
+    fn bit(&self) -> u32 {
         let at = match self {
             Property::Text(_) => 0,
             Property::Tone(_) => 1,
@@ -329,6 +367,13 @@ impl Property {
             Property::Offset(_) => 11,
             Property::Options(_) => 12,
             Property::Selected(_) => 13,
+            Property::Lines(_) => 14,
+            Property::Stick(_) => 15,
+            Property::Tip(_) => 16,
+            Property::Align(_) => 17,
+            Property::Fill(_) => 18,
+            Property::Menu(_) => 19,
+            Property::Folder(_) => 20,
         };
         1 << at
     }
@@ -345,6 +390,60 @@ struct Child {
     key: u32,
     kind: Kind,
     shape: Shape,
+    around: Around,
+}
+
+/// What a node's widget is given besides what it is built as, of any
+/// kind. A change of it builds the widget again.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+struct Around {
+    /// It has words to show under the pointer.
+    tip: bool,
+    /// The menu it opens, if any.
+    menu: Option<Menu>,
+}
+
+impl Around {
+    fn of(props: &Props) -> Self {
+        Self {
+            tip: !props.tip.is_empty(),
+            menu: (!props.menu.items.is_empty())
+                .then(|| props.menu.clone()),
+        }
+    }
+}
+
+/// A node's menu, as its widget builds it.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+struct Menu {
+    items: Vec<MenuItem>,
+    /// It opens on a click too.
+    click: bool,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct MenuItem {
+    text: String,
+    /// The item it is under, or none if empty.
+    group: String,
+    critical: bool,
+}
+
+impl From<wit::Menu> for Menu {
+    fn from(menu: wit::Menu) -> Self {
+        Self {
+            items: menu
+                .items
+                .into_iter()
+                .map(|item| MenuItem {
+                    text: item.text,
+                    group: item.group,
+                    critical: item.critical,
+                })
+                .collect(),
+            click: menu.click,
+        }
+    }
 }
 
 /// What a node's widget is built as, past what it reads from its
@@ -352,9 +451,12 @@ struct Child {
 #[derive(Clone, PartialEq, Debug)]
 enum Shape {
     Plain,
+    Frame {
+        fill: wit::Fill,
+    },
     Label {
         /// The bits of [`Props::set`] it binds.
-        set: u16,
+        set: u32,
         display: bool,
     },
     Button {
@@ -367,9 +469,13 @@ enum Shape {
     },
     Field {
         placeholder: String,
+        lines: u32,
     },
     Dropdown {
         options: Vec<String>,
+    },
+    Scroll {
+        stick: bool,
     },
 }
 
@@ -392,10 +498,13 @@ impl Shape {
             },
             Kind::Field => Self::Field {
                 placeholder: props.placeholder.clone(),
+                lines: props.lines,
             },
             Kind::Dropdown => Self::Dropdown {
                 options: props.options.clone(),
             },
+            Kind::Scroll => Self::Scroll { stick: props.stick },
+            Kind::Frame => Self::Frame { fill: props.fill },
             _ => Self::Plain,
         }
     }
@@ -583,12 +692,14 @@ fn kids(
     holder: Entity,
     plugin: Entity,
     place: Place,
-) -> Each<EngineTheme, Child, (Entity, Shape)> {
+) -> Each<EngineTheme, Child, (Entity, Shape, Around)> {
     each(
         component::<Kids, _>(holder, |kids| {
             kids.map_or_else(Vec::new, |kids| kids.0.clone())
         }),
-        |child| (child.holder, child.shape.clone()),
+        |child| {
+            (child.holder, child.shape.clone(), child.around.clone())
+        },
         move |child| widget(child, plugin, place, holder),
     )
 }
@@ -603,24 +714,30 @@ fn widget(
 ) -> AnyView {
     let (holder, key) = (child.holder, child.key);
     let built = match (child.kind, &child.shape) {
-        (Kind::Frame, _) => kids(holder, plugin, Place::Frame)
-            .within(
-                column(())
-                    .direction(read(holder, |props| props.direction))
-                    .gap(read(holder, |props| props.gap))
-                    .align(read(holder, |props| props.align)),
-            )
-            .boxed(),
+        (Kind::Frame, &Shape::Frame { fill }) => {
+            frame(holder, plugin, fill)
+        }
         (Kind::Label, &Shape::Label { set, display }) => {
             inked(text(holder, set, display), holder, set & TONE != 0)
         }
         (Kind::Button, &Shape::Button { style, holds }) => {
             let click = move |world: &mut World| {
-                world.write_message(NodeAction {
-                    plugin,
-                    key,
-                    input: NodeInput::Click,
-                });
+                let title = world
+                    .get::<Props>(holder)
+                    .map(|props| props.folder.clone())
+                    .unwrap_or_default();
+                if title.is_empty() {
+                    world.write_message(NodeAction {
+                        plugin,
+                        key,
+                        input: NodeInput::Click,
+                    });
+                } else {
+                    world.trigger(ChooseFolder {
+                        title,
+                        asker: Asker::Node { plugin, key },
+                    });
+                }
             };
             if holds {
                 content_button(
@@ -657,23 +774,45 @@ fn widget(
                 });
             },
         ),
-        (Kind::Field, Shape::Field { placeholder }) => field(
-            read(holder, |props| props.text.clone()),
-            placeholder.clone(),
-            move |world, text| {
-                world.write_message(NodeAction {
-                    plugin,
-                    key,
-                    input: NodeInput::Commit(text),
-                });
-            },
-        ),
+        (Kind::Field, Shape::Field { placeholder, lines }) => {
+            let tell = move |input: fn(String) -> NodeInput| {
+                move |world: &mut World, text: String| {
+                    world.write_message(NodeAction {
+                        plugin,
+                        key,
+                        input: input(text),
+                    });
+                }
+            };
+            let text = read(holder, |props| props.text.clone());
+            if *lines > 1 {
+                message_field(
+                    text,
+                    placeholder.clone(),
+                    *lines,
+                    tell(NodeInput::Submit),
+                    tell(NodeInput::Commit),
+                )
+            } else {
+                field(
+                    text,
+                    placeholder.clone(),
+                    tell(NodeInput::Commit),
+                )
+            }
+        }
         (Kind::List, _) => kids(holder, plugin, Place::List)
             .within(column(()).gap(0.0))
             .boxed(),
-        (Kind::Scroll, _) => kids(holder, plugin, Place::Frame)
-            .within(scroll_area(()))
-            .boxed(),
+        (Kind::Scroll, &Shape::Scroll { stick }) => {
+            let area = kids(holder, plugin, Place::Frame)
+                .within(scroll_area(()));
+            if stick {
+                sticking(area.boxed(), plugin, key)
+            } else {
+                area.boxed()
+            }
+        }
         (Kind::Divider, _) => divider(),
         (Kind::Dropdown, Shape::Dropdown { options }) => dropdown(
             options.clone(),
@@ -688,6 +827,7 @@ fn widget(
         ),
         _ => column(()).boxed(),
     };
+    let built = around(built, holder, plugin, key, &child.around);
     let built = node(built, holder, plugin, key);
     if place != Place::List {
         return built;
@@ -701,7 +841,7 @@ fn widget(
 
 /// A label reading the node of `holder`, its tone, size and boldness
 /// left to the rules it is built under unless `set` has them.
-fn text(holder: Entity, set: u16, display: bool) -> AnyView {
+fn text(holder: Entity, set: u32, display: bool) -> AnyView {
     let mut text = label(read(holder, |props| props.text.clone()));
     if set & SIZE != 0 {
         text = text.size(read(holder, |props| props.size));
@@ -725,6 +865,191 @@ fn icon(name: &str) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let size = cx.theme().space.icon;
         cx.build(glyph(which, size))
+    })
+}
+
+/// The frame of the node of `holder`, a node of `plugin`, drawn on
+/// `fill`, its colours from the theme.
+fn frame(holder: Entity, plugin: Entity, fill: wit::Fill) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let frame = column(())
+            .direction(read(holder, |props| props.direction))
+            .gap(read(holder, |props| props.gap))
+            .align(read(holder, |props| props.align))
+            .justify(read(holder, |props| props.justify));
+        let space = &cx.theme().space;
+        let colors = &cx.theme().colors;
+        let card = UiRect::axes(
+            px(space.card_padding_x),
+            px(space.card_padding_y),
+        );
+        let drawn = match fill {
+            wit::Fill::None => None,
+            wit::Fill::Card => Some((
+                *colors.surface,
+                *colors.border,
+                space.radius,
+                card,
+            )),
+            wit::Fill::Accent => Some((
+                *colors.active_low,
+                *colors.active_high,
+                space.radius,
+                card,
+            )),
+            // As round as anything it holds is tall.
+            wit::Fill::Disc => Some((
+                *colors.surface_raised,
+                *colors.border,
+                space.row,
+                UiRect::all(px(space.gap / 2.0)),
+            )),
+        };
+        let frame = match drawn {
+            None => frame,
+            Some((ground, line, radius, padding)) => frame
+                .fill(ground)
+                .border(space.border)
+                .border_color(line)
+                .radius(radius)
+                .padding(padding)
+                .min_width(px(0.0))
+                .max_width(percent(100.0)),
+        };
+        cx.build(kids(holder, plugin, Place::Frame).within(frame))
+    })
+}
+
+/// `view` with what is around it: the tip of the node of `holder`
+/// under the pointer.
+fn around(
+    view: AnyView,
+    holder: Entity,
+    plugin: Entity,
+    key: u32,
+    around: &Around,
+) -> AnyView {
+    let view = match &around.menu {
+        Some(menu) => menued(view, menu.clone(), plugin, key),
+        None => view,
+    };
+    if !around.tip {
+        return view;
+    }
+    view.tooltip(move || {
+        note(read(holder, |props| props.tip.clone()))
+    })
+    .boxed()
+}
+
+/// `view` opening `menu`, the menu of the node `key` of `plugin`, at
+/// the pointer on a right-click, and on a click when it says so.
+fn menued(
+    view: AnyView,
+    menu: Menu,
+    plugin: Entity,
+    key: u32,
+) -> AnyView {
+    let click = menu.click;
+    let items = menu.items;
+    let opened =
+        view.context_menu(move || menu_rows(&items, plugin, key));
+    AnyView::new(move |cx: &mut Cx| {
+        let node = cx.build(opened);
+        if click {
+            cx.world.entity_mut(node).observe(open_on_click);
+        }
+        node
+    })
+}
+
+/// The rows of a menu of `items`: each item, or a row opening those
+/// of a group beside it, in the order they first come.
+fn menu_rows(
+    items: &[MenuItem],
+    plugin: Entity,
+    key: u32,
+) -> Vec<AnyView> {
+    let row = move |at: usize, item: &MenuItem| {
+        let tone = if item.critical {
+            Tone::Critical
+        } else {
+            Tone::Body
+        };
+        let at = u32::try_from(at).unwrap_or(u32::MAX);
+        menu_item(label(item.text.clone()).tone(tone))
+            .on_activate(move |world| {
+                world.write_message(NodeAction {
+                    plugin,
+                    key,
+                    input: NodeInput::Chose(at),
+                });
+            })
+            .boxed()
+    };
+    let mut rows = Vec::new();
+    let mut groups = Vec::<&str>::new();
+    for (at, item) in items.iter().enumerate() {
+        if item.group.is_empty() {
+            rows.push(row(at, item));
+            continue;
+        }
+        if groups.contains(&item.group.as_str()) {
+            continue;
+        }
+        groups.push(&item.group);
+        let under = items
+            .iter()
+            .enumerate()
+            .filter(|(_, one)| one.group == item.group)
+            .map(|(at, one)| (at, one.clone()))
+            .collect::<Vec<_>>();
+        rows.push(
+            submenu(label(item.group.clone()), move || {
+                under
+                    .iter()
+                    .map(|(at, one)| row(*at, one))
+                    .collect::<Vec<_>>()
+            })
+            .boxed(),
+        );
+    }
+    rows
+}
+
+/// Opens the menu of the node clicked as a right-click would.
+fn open_on_click(click: On<Pointer<Click>>, mut commands: Commands) {
+    if click.button != PointerButton::Primary {
+        return;
+    }
+    commands.trigger(Pointer::new_without_propagate(
+        click.pointer_id,
+        click.pointer_location.clone(),
+        Press {
+            button: PointerButton::Secondary,
+            hit: click.hit.clone(),
+            count: 1,
+        },
+        click.event_target(),
+    ));
+}
+
+/// `area`, a scroll area, keeping to its end, and telling the node
+/// `key` of `plugin` when it reaches its top.
+fn sticking(area: AnyView, plugin: Entity, key: u32) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let node = cx.build(area);
+        cx.world.entity_mut(node).insert(StickToEnd::default()).observe(
+            move |_: On<ReachedTop>,
+                  mut actions: MessageWriter<NodeAction>| {
+                actions.write(NodeAction {
+                    plugin,
+                    key,
+                    input: NodeInput::Top,
+                });
+            },
+        );
+        node
     })
 }
 
@@ -951,6 +1276,7 @@ impl WasmWorldExt for World {
                         key,
                         kind,
                         shape,
+                        around: Around::default(),
                     });
                 }
                 holders.0.insert(
@@ -1092,15 +1418,17 @@ impl WasmWorldExt for World {
         }) else {
             return;
         };
-        let shape = Shape::of(kind, props, holds);
+        let (shape, around) =
+            (Shape::of(kind, props, holds), Around::of(props));
         let Some(mut kids) = self.get_mut::<Kids>(parent) else {
             return;
         };
         if let Some(kid) =
             kids.0.iter_mut().find(|kid| kid.holder == holder)
-            && kid.shape != shape
+            && (kid.shape != shape || kid.around != around)
         {
             kid.shape = shape;
+            kid.around = around;
         }
     }
 
@@ -1152,7 +1480,20 @@ impl WasmWorldExt for World {
                     }
                 }
                 SurfaceChange::Open(name) => {
-                    if let Some(page) = self
+                    // A full id names a panel of any plugin, which
+                    // changes only the dock.
+                    if let Ok(id) = PanelId::try_from(name.as_str()) {
+                        let there = self
+                            .try_query::<&Panel>()
+                            .is_some_and(|mut panels| {
+                                panels
+                                    .iter(self)
+                                    .any(|panel| panel.id == id)
+                            });
+                        if there {
+                            self.open_panel(&id);
+                        }
+                    } else if let Some(page) = self
                         .added_named::<SettingsPage>(
                             plugin,
                             &name,

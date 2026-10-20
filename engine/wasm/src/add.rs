@@ -12,10 +12,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::event::Event;
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
-use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{
-    Commands, NonSendMarker, Query, Res, ResMut,
-};
+use bevy::ecs::system::{Commands, Query, Res};
 use bevy::tasks::futures::check_ready;
 use bevy::tasks::{IoTaskPool, Task};
 use hamlet_engine_api::Manifest;
@@ -25,6 +22,7 @@ use hamlet_engine_plugins::{
 };
 
 use crate::WasmCommandsExt;
+use crate::dialog::{Asker, ChooseFolder};
 use crate::folder::{
     FOLDER, MANIFEST, Package, WASM, copy_capped, open_capped,
     read_manifest,
@@ -32,11 +30,10 @@ use crate::folder::{
 use crate::host::WasmTuning;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Dialog>()
-        .add_observer(ask)
+    app.add_observer(ask)
         .add_observer(add_from)
         .add_observer(uninstall)
-        .add_systems(Update, (open, chosen, added));
+        .add_systems(Update, added);
 }
 
 /// Adds the built plugin in `folder`, as the folder the person chose
@@ -44,13 +41,6 @@ pub(crate) fn plugin(app: &mut App) {
 #[derive(Event, Clone, Debug)]
 pub struct AddFrom {
     pub folder: PathBuf,
-}
-
-/// The dialog a plugin's folder is chosen in: asked for, and open.
-#[derive(Resource, Default)]
-struct Dialog {
-    asked: bool,
-    open: Option<Task<Option<PathBuf>>>,
 }
 
 /// On an entity of its own: a plugin's files being copied in, off the
@@ -66,36 +56,11 @@ pub(crate) struct Checked {
     pub(crate) folder: PathBuf,
 }
 
-fn ask(_: On<AddPlugin>, mut dialog: ResMut<Dialog>) {
-    dialog.asked = true;
-}
-
-/// Opens the dialog when it is asked for and none is open. The marker
-/// keeps this on the main thread, where macOS wants a dialog begun.
-fn open(_main: NonSendMarker, mut dialog: ResMut<Dialog>) {
-    if !std::mem::take(&mut dialog.asked) || dialog.open.is_some() {
-        return;
-    }
-    let chosen = rfd::AsyncFileDialog::new()
-        .set_title("Choose the folder of a built plugin")
-        .pick_folder();
-    dialog.open = Some(IoTaskPool::get().spawn(async move {
-        chosen.await.map(|folder| folder.path().to_path_buf())
-    }));
-}
-
-/// Adds from the folder the dialog gave, if one was chosen.
-fn chosen(mut dialog: ResMut<Dialog>, mut commands: Commands) {
-    let Some(open) = &mut dialog.open else {
-        return;
-    };
-    let Some(folder) = check_ready(open) else {
-        return;
-    };
-    dialog.open = None;
-    if let Some(folder) = folder {
-        commands.trigger(AddFrom { folder });
-    }
+fn ask(_: On<AddPlugin>, mut commands: Commands) {
+    commands.trigger(ChooseFolder {
+        title: "Choose the folder of a built plugin".into(),
+        asker: Asker::Adding,
+    });
 }
 
 /// Checks the folder to add from, and copies it in off the frame.

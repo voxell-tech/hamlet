@@ -1,6 +1,7 @@
 //! The agents and the hamlets with their state in words, told as they
 //! change, and a hamlet's record.
 
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use bevy::app::{App, PostUpdate};
@@ -48,9 +49,21 @@ pub(crate) trait RosterWorldExt {
 
     /// The record of the hamlet `name`.
     fn record(&self, name: &str) -> Result<Record, Failure>;
+
+    /// The folder of the hamlet `name`, where its limits are.
+    fn hamlet_root(&self, name: &str) -> Result<PathBuf, Failure>;
 }
 
 impl RosterWorldExt for World {
+    fn hamlet_root(&self, name: &str) -> Result<PathBuf, Failure> {
+        self.try_query::<&Settlement>()
+            .and_then(|mut all| {
+                all.iter(self).find(|at| at.name == name).cloned()
+            })
+            .map(|place| place.record().root().to_path_buf())
+            .ok_or(Failure::NotFound)
+    }
+
     fn roster(&mut self) -> Roster {
         let closed = closed(&self.resource::<HomeDir>().0.root);
         let mut facts = SystemState::<RosterFacts>::new(self);

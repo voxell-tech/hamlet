@@ -13,6 +13,14 @@ use hamlet_engine_sdk::{
 use crate::change::Changes;
 use crate::confirm::Confirming;
 
+/// The chat's panel, of the plugin `hamlet.chat`.
+const CHAT: &str = "hamlet.chat/chat";
+
+/// Brings the chat to the front.
+pub fn show_chat() {
+    hamlet_engine_sdk::ui::open(CHAT);
+}
+
 /// The requests asked and not yet answered, by their tickets.
 #[derive(Default)]
 pub struct Asked(HashMap<Ticket, AgentsRequest>);
