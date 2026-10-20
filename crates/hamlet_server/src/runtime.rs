@@ -275,10 +275,10 @@ pub async fn serve(options: Options) -> Result<()> {
                             }
                             let request = serde_json::to_value(&message)?;
                             match chats::converse(&mut service, &mut harnesses, id, &message).await {
-                                Ok(None) => {}
-                                Ok(Some(answer)) => {
+                                Ok(chats::Handled::NotMine) => {}
+                                Ok(handled) => {
                                     if (service.merges.busy(id) || service.gifts.working.iter().any(|(owner, _)| *owner == id)) && let Some(client) = clients.get_mut(&id) { client.busy = true; }
-                                    if let Some(answer) = answer && let Some(client) = clients.get_mut(&id) { send(client, &service, answer)?; }
+                                    if let chats::Handled::Reply(answer) = handled && let Some(client) = clients.get_mut(&id) { send(client, &service, *answer)?; }
                                     deliver(&mut service, &mut clients)?;
                                     refresh(&mut service, &mut state, &mut clients)?;
                                     continue;

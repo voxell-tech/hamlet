@@ -106,7 +106,12 @@ impl Fold {
                 return;
             };
             let id = id.clone();
-            let (exit, ms, failure, change) = ending(entry);
+            let Ending {
+                exit,
+                ms,
+                failure,
+                change,
+            } = ending(entry);
             if let Some(item) =
                 self.items.iter_mut().find(|i| i.id == id)
                 && let Some(tool) = item.tool.as_mut()
@@ -412,11 +417,18 @@ fn blocks_of(
     items
 }
 
+/// The end of a tool call, as its result tells it.
+struct Ending {
+    exit: i64,
+    ms: Option<u64>,
+    failure: Option<String>,
+    /// The record change the call made; `Some(None)` when its result
+    /// names one that cannot be read.
+    change: Option<Option<Change>>,
+}
+
 /// The end of a tool call, from its result.
-#[allow(clippy::type_complexity)]
-fn ending(
-    entry: &link::Item,
-) -> (i64, Option<u64>, Option<String>, Option<Option<Change>>) {
+fn ending(entry: &link::Item) -> Ending {
     let error = entry.error == Some(true);
     let details = entry.details.as_ref();
     let code = details
@@ -428,12 +440,12 @@ fn ending(
         .map(|change| {
             serde_json::from_value::<Change>(change.clone()).ok()
         });
-    (
-        code.map_or(i64::from(error), |code| code as i64),
-        entry.ms,
+    Ending {
+        exit: code.map_or(i64::from(error), |code| code as i64),
+        ms: entry.ms,
         failure,
         change,
-    )
+    }
 }
 
 /// The first line of a failed call's text that says something.

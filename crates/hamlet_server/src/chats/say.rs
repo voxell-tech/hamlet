@@ -367,6 +367,29 @@ fn read_command(
     })
 }
 
+/// A chief's line, as `say` hands it to a command's handler.
+struct Said<'a> {
+    client: u64,
+    id: &'a str,
+    to: &'a Address,
+    /// The line, with every secret removed.
+    text: String,
+}
+
+impl Said<'_> {
+    fn hamlet(&self) -> &str {
+        &self.to.hamlet
+    }
+
+    fn notice(&self, text: String) -> Option<ServerMessage> {
+        Some(reply(self.id, Ok(text)))
+    }
+
+    fn refused(&self, refusal: Refusal) -> Option<ServerMessage> {
+        Some(reply(self.id, Err(refusal)))
+    }
+}
+
 /// Handles a chief's line said to `said.to`: the reply, or `None`
 /// when it is given once the line's input ends.
 pub(super) async fn say(
@@ -375,354 +398,482 @@ pub(super) async fn say(
     client: u64,
     said: &Say,
 ) -> Result<Option<ServerMessage>> {
-    let id = said.id.as_str();
-    let hamlet = said.to.hamlet.as_str();
-    if let Err(refusal) = service.access(hamlet, "say")? {
-        return Ok(Some(reply(id, Err(refusal))));
-    }
-    let mut text = Value::String(said.text.clone());
-    service.credentials.scrub(&mut text);
-    let text = text.as_str().unwrap_or_default().to_owned();
-    let command = match read_command(&text) {
-        Some(Err(usage)) => {
-            return Ok(Some(answer(id, usage.kind, usage.text)));
-        }
-        Some(Ok(command)) => Some(command),
-        None => None,
+    let said = Said {
+        client,
+        id: &said.id,
+        to: &said.to,
+        text: service.credentials.scrub_text(&said.text),
     };
-    let notice = |text: String| Ok(Some(reply(id, Ok(text))));
-    match &command {
-        Some(Command::Deed(deed, rest)) => {
-            if service.houses.workspace.is_some() {
-                if ["merge", "restore", "undo"].contains(deed) {
-                    crate::society::merging::remote::chief(
-                        service, client, id, hamlet, deed, rest,
-                    )?;
-                    return Ok(None);
-                }
-                let operation = match *deed {
-                    "erase" => {
-                        Some("erase an archived agent's house")
-                    }
-                    "found" => Some("found a hamlet"),
-                    "move-hamlet" => {
-                        Some("move a hamlet between workspaces")
-                    }
-                    "remove-hamlet" => Some("remove a hamlet"),
-                    "restore-hamlet" => Some("restore a hamlet"),
-                    "erase-hamlet" => Some("erase a hamlet"),
-                    _ => None,
-                };
-                if let Some(operation) = operation {
-                    return Ok(Some(reply(
-                        id,
-                        Err(Refusal::Invalid(
-                            crate::workspace::unavailable(operation),
-                        )),
-                    )));
-                }
-            }
-            if let Some(done) = crate::society::deed(
-                service, harnesses, hamlet, deed, rest,
-            )
-            .await?
-            {
-                return Ok(Some(reply(id, done)));
-            }
-            return match *deed {
-                "agent" | "hamlet" | "chief" => notice(
-                    "Choose that address in your client.".into(),
-                ),
-                "undo" => {
-                    match service.home.store().record(hamlet)? {
-                        Some(record) if record.archive.is_empty() => {
-                            notice(
-                                "Nothing to undo. Only a removal or \
-                                 a merge can be undone (the archive \
-                                 keeps the house); a permission is \
-                                 taken back with /revoke. A command \
-                                 that ran, a file that was changed \
-                                 and what was spent cannot be \
-                                 undone."
-                                    .into(),
-                            )
-                        }
-                        _ => Ok(Some(reply(
-                            id,
-                            Err(Refusal::Unsupported("that command")),
-                        ))),
-                    }
-                }
-                _ => Ok(Some(reply(
-                    id,
-                    Err(Refusal::Unsupported("that command")),
-                ))),
-            };
+    if let Err(refusal) = service.access(said.hamlet(), "say")? {
+        return Ok(said.refused(refusal));
+    }
+    let hamlet = said.hamlet();
+    let command = match read_command(&said.text) {
+        Some(Err(usage)) => {
+            return Ok(Some(answer(said.id, usage.kind, usage.text)));
         }
-        Some(Command::To { agent, text }) => {
-            let target = match living(service, hamlet, agent)? {
-                Ok(target) => target,
-                Err(words) => {
-                    return Ok(Some(answer(
-                        id,
-                        ReplyKind::Error,
-                        words,
-                    )));
-                }
-            };
-            line(service, harnesses, client, id, &target, text)
-                .await?;
+        Some(Ok(command)) => command,
+        None => return plain(service, harnesses, &said).await,
+    };
+    Ok(match command {
+        Command::Deed(deed, rest) => {
+            return run_deed(service, harnesses, &said, deed, &rest)
+                .await;
+        }
+        Command::To { agent, text } => {
+            return to(service, harnesses, &said, &agent, &text)
+                .await;
+        }
+        Command::Budget => said.notice(budget(service, hamlet)?),
+        Command::ResetBudget => {
+            said.notice(service.reset_budget(hamlet)?)
+        }
+        Command::Grants => said.notice(grants(service, hamlet)?),
+        Command::Revoke { agent, permission } => {
+            said.notice(revoke(service, hamlet, &agent, &permission)?)
+        }
+        Command::Folder(path) => {
+            Some(reply(said.id, service.folder(hamlet, &path)?))
+        }
+        Command::Mode(mode) => {
+            said.notice(service.set_mode(hamlet, mode)?)
+        }
+        Command::Give { agent, skill, from } => {
+            return give(
+                service,
+                &said,
+                &agent,
+                &skill,
+                from.as_deref(),
+            )
+            .await;
+        }
+        Command::Stop(name) => {
+            return stop(service, harnesses, &said, name.as_deref())
+                .await;
+        }
+        Command::New => {
+            return conversation(
+                service,
+                harnesses,
+                &said,
+                deeds::Deed::New,
+            )
+            .await;
+        }
+        Command::Resume(Some(n)) => {
+            return conversation(
+                service,
+                harnesses,
+                &said,
+                deeds::Deed::Resume(n),
+            )
+            .await;
+        }
+        Command::Reflect => {
+            return conversation(
+                service,
+                harnesses,
+                &said,
+                deeds::Deed::Reflect,
+            )
+            .await;
+        }
+        Command::Retry => {
+            return conversation(
+                service,
+                harnesses,
+                &said,
+                deeds::Deed::Retry,
+            )
+            .await;
+        }
+        Command::Resume(None) => match addressed(service, &said)? {
+            Ok(agent) => said.notice(sessions(service, &agent)?),
+            Err(refusal) => said.refused(refusal),
+        },
+        Command::Queue => return queue(service, &said),
+        Command::Answer { choice, text } => {
+            return answer_wait(
+                service, harnesses, &said, &choice, &text,
+            )
+            .await;
+        }
+    })
+}
+
+/// The agent `said` is addressed to, or why it is refused.
+fn addressed(
+    service: &mut Service,
+    said: &Said,
+) -> Result<Result<AgentRef, Refusal>> {
+    Ok(service.agent(said.to, "say")?.map(|agent| AgentRef {
+        hamlet: said.hamlet().into(),
+        number: agent.number,
+    }))
+}
+
+/// A server command named by `deed`, with its arguments `rest`.
+async fn run_deed(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    said: &Said<'_>,
+    deed: &str,
+    rest: &str,
+) -> Result<Option<ServerMessage>> {
+    let hamlet = said.hamlet();
+    if service.houses.workspace.is_some() {
+        if ["merge", "restore", "undo"].contains(&deed) {
+            crate::society::merging::remote::chief(
+                service,
+                said.client,
+                said.id,
+                hamlet,
+                deed,
+                rest,
+            )?;
             return Ok(None);
         }
-        Some(Command::Budget) => {
-            let report = service.budget(hamlet)?;
-            let mut lines = vec![
-                report["summary"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned(),
-            ];
-            lines.extend(
-                report["lines"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|v| v.as_str().map(String::from)),
-            );
-            return notice(lines.join("\n"));
-        }
-        Some(Command::ResetBudget) => {
-            return notice(service.reset_budget(hamlet)?);
-        }
-        Some(Command::Grants) => {
-            return notice(grants(service, hamlet)?);
-        }
-        Some(Command::Revoke { agent, permission }) => {
-            return notice(revoke(
-                service, hamlet, agent, permission,
-            )?);
-        }
-        Some(Command::Folder(path)) => {
-            return Ok(Some(reply(
-                id,
-                service.folder(hamlet, path)?,
-            )));
-        }
-        Some(Command::Mode(mode)) => {
-            return notice(service.set_mode(hamlet, *mode)?);
-        }
-        Some(Command::Give { agent, skill, from }) => {
-            let address = |name: &str| Address {
-                agent: name.into(),
-                hamlet: hamlet.into(),
-            };
-            if service.houses.workspace.is_some() {
-                return crate::gifts::remote::skill(
-                    service,
-                    client,
-                    id,
-                    &address(agent),
-                    skill,
-                    from.as_deref().map(address).as_ref(),
-                );
-            }
-            return Ok(Some(reply(
-                id,
-                service
-                    .gift_skill(
-                        &address(agent),
-                        skill,
-                        from.as_deref().map(address).as_ref(),
-                    )
-                    .await?,
-            )));
-        }
-        Some(Command::Stop(None)) => {
-            return Ok(Some(reply(
-                id,
-                deeds::stop(service, harnesses, None).await?,
-            )));
-        }
-        Some(Command::Stop(Some(name))) => {
-            let target = match living(service, hamlet, name)? {
-                Ok(target) => target,
-                Err(words) => {
-                    return Ok(Some(answer(
-                        id,
-                        ReplyKind::Error,
-                        words,
-                    )));
-                }
-            };
-            deeds::stop_agent(service, harnesses, &target).await?;
-            return notice(format!("Stopping {name}."));
-        }
-        _ => {}
-    }
-    let target = match service.agent(&said.to, "say")? {
-        Ok(agent) => Ok(AgentRef {
-            hamlet: hamlet.into(),
-            number: agent.number,
-        }),
-        Err(refusal @ Refusal::NoAgent(_)) => Err(refusal),
-        Err(refusal) => return Ok(Some(reply(id, Err(refusal)))),
-    };
-    if let Ok(agent) = &target {
-        let deed = match &command {
-            Some(Command::New) => Some(deeds::Deed::New),
-            Some(Command::Resume(Some(n))) => {
-                Some(deeds::Deed::Resume(*n))
-            }
-            Some(Command::Reflect) => Some(deeds::Deed::Reflect),
-            Some(Command::Retry) => Some(deeds::Deed::Retry),
-            Some(Command::Resume(None)) => {
-                return notice(sessions(service, agent)?);
-            }
+        let operation = match deed {
+            "erase" => Some("erase an archived agent's house"),
+            "found" => Some("found a hamlet"),
+            "move-hamlet" => Some("move a hamlet between workspaces"),
+            "remove-hamlet" => Some("remove a hamlet"),
+            "restore-hamlet" => Some("restore a hamlet"),
+            "erase-hamlet" => Some("erase a hamlet"),
             _ => None,
         };
-        if let Some(deed) = deed {
-            let later = matches!(
-                deed,
-                deeds::Deed::Reflect | deeds::Deed::Retry
-            );
-            return Ok(
-                match deeds::deed(service, harnesses, agent, deed)
-                    .await?
-                {
-                    Err(words) => {
-                        Some(answer(id, ReplyKind::Notice, words))
-                    }
-                    Ok(done) if later => match done.submitted {
-                        Some((binding, request)) => {
-                            owe(
-                                service, client, id, binding,
-                                &request,
-                            )?;
-                            None
-                        }
-                        None => Some(answer(
-                            id,
-                            ReplyKind::Notice,
-                            String::new(),
-                        )),
-                    },
-                    Ok(deeds::Done {
-                        text,
-                        written: Some((binding, request)),
-                        ..
-                    }) => {
-                        service.chats.deferred.push(Deferred {
-                            client,
-                            id: id.into(),
-                            binding,
-                            request,
-                            text,
-                            kept: true,
-                        });
-                        None
-                    }
-                    Ok(done) => {
-                        Some(answer(id, ReplyKind::Notice, done.text))
-                    }
-                },
-            );
+        if let Some(operation) = operation {
+            return Ok(said.refused(Refusal::Invalid(
+                crate::workspace::unavailable(operation),
+            )));
         }
     }
-    let db = service.home.store().connection();
-    let waits = oversight::open(db)?;
-    let chief = service.chief.clone();
-    let own = match &target {
-        Ok(agent) => {
-            let number = records::current_number(db, agent, &chief)?;
-            oversight::for_chat(&waits, agent, &chief)
-                .find(|wait| {
-                    wait.chat.as_ref().map(|chat| chat.session)
-                        == number
-                })
-                .or_else(|| {
-                    oversight::for_agent(&waits, agent).next()
-                })
-                .cloned()
+    if let Some(done) =
+        crate::society::deed(service, harnesses, hamlet, deed, rest)
+            .await?
+    {
+        return Ok(Some(reply(said.id, done)));
+    }
+    Ok(match deed {
+        "agent" | "hamlet" | "chief" => {
+            said.notice("Choose that address in your client.".into())
         }
-        Err(_) => None,
+        "undo" => match service.home.store().record(hamlet)? {
+            Some(record) if record.archive.is_empty() => said.notice(
+                "Nothing to undo. Only a removal or a merge can be \
+                 undone (the archive keeps the house); a permission \
+                 is taken back with /revoke. A command that ran, a \
+                 file that was changed and what was spent cannot be \
+                 undone."
+                    .into(),
+            ),
+            _ => said.refused(Refusal::Unsupported("that command")),
+        },
+        _ => said.refused(Refusal::Unsupported("that command")),
+    })
+}
+
+/// A line for the living agent `agent` of the hamlet.
+async fn to(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    said: &Said<'_>,
+    agent: &str,
+    text: &str,
+) -> Result<Option<ServerMessage>> {
+    let target = match living(service, said.hamlet(), agent)? {
+        Ok(target) => target,
+        Err(words) => {
+            return Ok(Some(answer(
+                said.id,
+                ReplyKind::Error,
+                words,
+            )));
+        }
     };
-    match &command {
-        Some(Command::Queue) => {
-            let now = super::now();
-            return notice(if waits.is_empty() {
-                "Nothing waits for you.".into()
-            } else {
-                waits
-                    .iter()
-                    .map(|wait| {
-                        format!(
-                            "{} (waited {}s, asked {})",
-                            oversight::strip(wait),
-                            (now - wait.since).max(0) / 1000,
-                            wait.asked
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            });
+    line(service, harnesses, said.client, said.id, &target, text)
+        .await?;
+    Ok(None)
+}
+
+/// The hamlet's spend in lines.
+fn budget(service: &mut Service, hamlet: &str) -> Result<String> {
+    let report = service.budget(hamlet)?;
+    let mut lines = vec![
+        report["summary"].as_str().unwrap_or_default().to_owned(),
+    ];
+    lines.extend(
+        report["lines"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str().map(String::from)),
+    );
+    Ok(lines.join("\n"))
+}
+
+/// Gives the skill `skill` to `agent`, from `from` or the chief.
+async fn give(
+    service: &mut Service,
+    said: &Said<'_>,
+    agent: &str,
+    skill: &str,
+    from: Option<&str>,
+) -> Result<Option<ServerMessage>> {
+    let address = |name: &str| Address {
+        agent: name.into(),
+        hamlet: said.hamlet().into(),
+    };
+    let from = from.map(address);
+    if service.houses.workspace.is_some() {
+        return crate::gifts::remote::skill(
+            service,
+            said.client,
+            said.id,
+            &address(agent),
+            skill,
+            from.as_ref(),
+        );
+    }
+    Ok(Some(reply(
+        said.id,
+        service
+            .gift_skill(&address(agent), skill, from.as_ref())
+            .await?,
+    )))
+}
+
+/// Stops the agent `name`, or every agent.
+async fn stop(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    said: &Said<'_>,
+    name: Option<&str>,
+) -> Result<Option<ServerMessage>> {
+    let Some(name) = name else {
+        return Ok(Some(reply(
+            said.id,
+            deeds::stop(service, harnesses, None).await?,
+        )));
+    };
+    let target = match living(service, said.hamlet(), name)? {
+        Ok(target) => target,
+        Err(words) => {
+            return Ok(Some(answer(
+                said.id,
+                ReplyKind::Error,
+                words,
+            )));
         }
-        Some(Command::Answer { choice, text }) => {
-            let Some(wait) = own.as_ref().or(waits.first()) else {
-                return notice("Nothing waits for you.".into());
-            };
-            let wait = wait.id.clone();
+    };
+    deeds::stop_agent(service, harnesses, &target).await?;
+    Ok(said.notice(format!("Stopping {name}.")))
+}
+
+/// Carries out `deed` on the conversation of the addressed agent.
+async fn conversation(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    said: &Said<'_>,
+    deed: deeds::Deed,
+) -> Result<Option<ServerMessage>> {
+    let agent = match addressed(service, said)? {
+        Ok(agent) => agent,
+        Err(refusal) => return Ok(said.refused(refusal)),
+    };
+    let later =
+        matches!(deed, deeds::Deed::Reflect | deeds::Deed::Retry);
+    Ok(match deeds::deed(service, harnesses, &agent, deed).await? {
+        Err(words) => Some(answer(said.id, ReplyKind::Notice, words)),
+        Ok(done) if later => match done.submitted {
+            Some((binding, request)) => {
+                owe(
+                    service,
+                    said.client,
+                    said.id,
+                    binding,
+                    &request,
+                )?;
+                None
+            }
+            None => Some(answer(
+                said.id,
+                ReplyKind::Notice,
+                String::new(),
+            )),
+        },
+        Ok(deeds::Done {
+            text,
+            written: Some((binding, request)),
+            ..
+        }) => {
+            service.chats.deferred.push(Deferred {
+                client: said.client,
+                id: said.id.into(),
+                binding,
+                request,
+                text,
+                kept: true,
+            });
+            None
+        }
+        Ok(done) => {
+            Some(answer(said.id, ReplyKind::Notice, done.text))
+        }
+    })
+}
+
+/// The addressed agent, or `None` when the hamlet has no such agent;
+/// `Err` when the address is refused for another reason.
+fn present(
+    service: &mut Service,
+    said: &Said,
+) -> Result<Result<Option<AgentRef>, Refusal>> {
+    Ok(match addressed(service, said)? {
+        Ok(agent) => Ok(Some(agent)),
+        Err(Refusal::NoAgent(_)) => Ok(None),
+        Err(refusal) => Err(refusal),
+    })
+}
+
+/// The open wait the chief's line to `agent` answers: one of its
+/// current chat, else any of its own.
+fn own_wait(
+    service: &mut Service,
+    waits: &[oversight::Wait],
+    agent: &AgentRef,
+) -> Result<Option<oversight::Wait>> {
+    let chief = service.chief.clone();
+    let number = records::current_number(
+        service.home.store().connection(),
+        agent,
+        &chief,
+    )?;
+    Ok(oversight::for_chat(waits, agent, &chief)
+        .find(|wait| {
+            wait.chat.as_ref().map(|chat| chat.session) == number
+        })
+        .or_else(|| oversight::for_agent(waits, agent).next())
+        .cloned())
+}
+
+/// What waits for the chief.
+fn queue(
+    service: &mut Service,
+    said: &Said,
+) -> Result<Option<ServerMessage>> {
+    if let Err(refusal) = present(service, said)? {
+        return Ok(said.refused(refusal));
+    }
+    let waits = oversight::open(service.home.store().connection())?;
+    let now = super::now();
+    Ok(said.notice(if waits.is_empty() {
+        "Nothing waits for you.".into()
+    } else {
+        waits
+            .iter()
+            .map(|wait| {
+                format!(
+                    "{} (waited {}s, asked {})",
+                    oversight::strip(wait),
+                    (now - wait.since).max(0) / 1000,
+                    wait.asked
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }))
+}
+
+/// Answers the addressed agent's wait, else the first that waits.
+async fn answer_wait(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    said: &Said<'_>,
+    choice: &Choice,
+    text: &str,
+) -> Result<Option<ServerMessage>> {
+    let agent = match present(service, said)? {
+        Ok(agent) => agent,
+        Err(refusal) => return Ok(said.refused(refusal)),
+    };
+    let waits = oversight::open(service.home.store().connection())?;
+    let own = match &agent {
+        Some(agent) => own_wait(service, &waits, agent)?,
+        None => None,
+    };
+    let Some(wait) = own.as_ref().or(waits.first()) else {
+        return Ok(said.notice("Nothing waits for you.".into()));
+    };
+    let wait = wait.id.clone();
+    let words = match super::calls::answer_words(
+        service, harnesses, &wait, choice, text, None,
+    )
+    .await?
+    {
+        Ok(words) => words,
+        Err(refusal) => refusal.text(),
+    };
+    Ok(Some(answer(said.id, ReplyKind::Notice, words)))
+}
+
+/// A line that is no command: the reply to the agent's question, or
+/// words for it.
+async fn plain(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    said: &Said<'_>,
+) -> Result<Option<ServerMessage>> {
+    let agent = match addressed(service, said)? {
+        Ok(agent) => agent,
+        Err(refusal) => return Ok(said.refused(refusal)),
+    };
+    let waits = oversight::open(service.home.store().connection())?;
+    match own_wait(service, &waits, &agent)? {
+        Some(wait) if wait.kind == WaitKind::Question => {
             let outcome = super::calls::answer_words(
-                service, harnesses, &wait, choice, text, None,
+                service,
+                harnesses,
+                &wait.id,
+                &Choice::Reply,
+                &said.text,
+                None,
             )
             .await?;
-            let words = match outcome {
-                Ok(words) => words,
-                Err(refusal) => refusal.text(),
-            };
-            return Ok(Some(answer(id, ReplyKind::Notice, words)));
+            return Ok(Some(match outcome {
+                Ok(words) => {
+                    answer(said.id, ReplyKind::Notice, words)
+                }
+                Err(refusal) => {
+                    answer(said.id, ReplyKind::Error, refusal.text())
+                }
+            }));
+        }
+        Some(wait)
+            if !said.text.trim_start().starts_with('/')
+                && matches!(
+                    wait.kind,
+                    WaitKind::Approval(_) | WaitKind::Objection
+                ) =>
+        {
+            return Ok(said.notice(format!(
+                "Not sent. {} is waiting for your answer:\n{}",
+                wait.by,
+                oversight::strip(&wait)
+            )));
         }
         _ => {}
     }
-    if command.is_none()
-        && let Some(wait) =
-            own.as_ref().filter(|w| w.kind == WaitKind::Question)
-    {
-        let wait = wait.id.clone();
-        let outcome = super::calls::answer_words(
-            service,
-            harnesses,
-            &wait,
-            &Choice::Reply,
-            &text,
-            None,
-        )
-        .await?;
-        return Ok(Some(match outcome {
-            Ok(words) => answer(id, ReplyKind::Notice, words),
-            Err(refusal) => {
-                answer(id, ReplyKind::Error, refusal.text())
-            }
-        }));
-    }
-    if !text.trim_start().starts_with('/')
-        && let Some(wait) = own.as_ref().filter(|w| {
-            matches!(
-                w.kind,
-                WaitKind::Approval(_) | WaitKind::Objection
-            )
-        })
-    {
-        return notice(format!(
-            "Not sent. {} is waiting for your answer:\n{}",
-            wait.by,
-            oversight::strip(wait)
-        ));
-    }
-    let agent = match target {
-        Ok(agent) => agent,
-        Err(refusal) => return Ok(Some(reply(id, Err(refusal)))),
-    };
-    line(service, harnesses, client, id, &agent, &text).await?;
+    line(
+        service,
+        harnesses,
+        said.client,
+        said.id,
+        &agent,
+        &said.text,
+    )
+    .await?;
     Ok(None)
 }
 

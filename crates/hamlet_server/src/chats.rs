@@ -20,7 +20,6 @@ use anyhow::{Context, Result};
 use hamlet_protocol::v0::{
     ChatRef, ClientMessage, Op, Read, ServerMessage, Turn, UsageView,
 };
-use serde_json::Value;
 
 use self::activity::Activity;
 pub(crate) use self::activity::words;
@@ -140,14 +139,22 @@ impl Chats {
     }
 }
 
-/// Handles a client's request about conversations; `None` when it is
-/// another owner's, or is answered later.
+/// What became of a client's request.
+pub(crate) enum Handled {
+    /// Another owner answers it.
+    NotMine,
+    /// It is answered once its work is done.
+    Later,
+    Reply(Box<ServerMessage>),
+}
+
+/// Handles a client's request about conversations.
 pub(crate) async fn converse(
     service: &mut Service,
     harnesses: &mut Harnesses,
     client: u64,
     message: &ClientMessage,
-) -> Result<Option<Option<ServerMessage>>> {
+) -> Result<Handled> {
     let answer = match message {
         ClientMessage::Say(said) => {
             say::say(service, harnesses, client, said).await?
@@ -220,10 +227,12 @@ pub(crate) async fn converse(
             crate::gifts::request(service, harnesses, client, message)
                 .await?
         }
-        _ => return Ok(None),
+        _ => return Ok(Handled::NotMine),
     };
     refresh_watches(service, harnesses).await?;
-    Ok(Some(answer))
+    Ok(answer.map_or(Handled::Later, |answer| {
+        Handled::Reply(Box::new(answer))
+    }))
 }
 
 /// Takes in what a runtime told.
@@ -322,12 +331,10 @@ fn report(service: &Service, notice: &Notice) {
     if let Notice::Refused { runtime, words }
     | Notice::Fault { runtime, words } = notice
     {
-        let mut words = Value::String(words.clone());
-        service.credentials.scrub(&mut words);
         eprintln!(
             "hamlet-server: {}: {}",
             runtime.as_str(),
-            words.as_str().unwrap_or_default()
+            service.credentials.scrub_text(words)
         );
     }
 }
