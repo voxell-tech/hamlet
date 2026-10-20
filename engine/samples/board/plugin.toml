@@ -1,0 +1,24 @@
+id = "hamlet.board"
+name = "Board"
+version = "0.1.0"
+api = "0.1.0"
+
+[[asks]]
+capability = "assets.read"
+target = "notes.note"
+reason = "Shows the note on the board"
+
+[[asks]]
+capability = "services.call"
+target = "hamlet.notes/words"
+reason = "Counts the words of the note"
+
+[assets]
+uses = [{ name = "notes.note", version = 1 }]
+
+[services]
+imports = [{ service = "hamlet.notes/words", argument = "notes.text", result = "notes.count" }]
+
+[events]
+sends = [{ name = "seen", payload = "board.seen" }]
+hears = [{ event = "hamlet.notes/saved", payload = "notes.saved" }]

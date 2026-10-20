@@ -1,0 +1,14 @@
+id = "hamlet.notes"
+name = "Notes"
+version = "0.1.0"
+api = "0.1.0"
+
+[assets]
+makes = [{ name = "notes.note", version = 1 }]
+
+[services]
+exports = [{ name = "words", argument = "notes.text", result = "notes.count" }]
+
+[events]
+sends = [{ name = "saved", payload = "notes.saved" }]
+hears = [{ event = "hamlet.board/seen", payload = "board.seen" }]

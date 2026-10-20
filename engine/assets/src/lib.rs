@@ -1,6 +1,6 @@
 //! The asset store. An asset is bytes and the name of its type, with
 //! an id, a version, the plugin that owns it and a name; the engine
-//! never looks inside. Plugins reach it through requests, answered on
+//! never reads inside. Plugins reach it through requests, answered on
 //! the next frame.
 
 mod answer;

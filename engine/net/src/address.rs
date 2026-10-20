@@ -1,5 +1,5 @@
 //! Where a fetch may go: an `https` address on a host the plugin
-//! asked for, looked up here and pinned to the public addresses of
+//! asked for, resolved here and pinned to the public addresses of
 //! the answer, so a later lookup cannot send it elsewhere.
 
 use std::net::{IpAddr, SocketAddr};
@@ -93,7 +93,7 @@ pub fn public(address: IpAddr) -> bool {
     }
 }
 
-/// The public addresses `host` is at, looked up within `patience`.
+/// The public addresses `host` is at, resolved within `patience`.
 /// A host that is an address is that one, if it is public.
 pub async fn reach(
     host: &str,

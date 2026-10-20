@@ -33,7 +33,7 @@ Then read the page for the part you are about to touch.
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
 | [`cursors.md`](cursors.md) | The pointer and its modes |
 | [`releases.md`](releases.md) | How a release is built and published for the three platforms |
-| [`engine.md`](engine.md) | The engine in `engine/`: its crates, the shell, workspaces, commands and plugins |
+| [`engine.md`](engine.md) | The engine in `engine/`: its crates, the shell, workspaces, commands, plugins and how to write and test one, permissions, assets, services, events and the network |
 
 ## The rules
 

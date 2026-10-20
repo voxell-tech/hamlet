@@ -1,4 +1,4 @@
-//! Assets: bytes and the name of their type. The engine never looks
+//! Assets: bytes and the name of their type. The engine never reads
 //! inside an asset; the plugin that publishes a type says what its
 //! bytes mean.
 

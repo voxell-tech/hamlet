@@ -1,6 +1,6 @@
 //! The network service. A plugin asks for `net.fetch` on each host it
 //! needs, and the person answers for each. A fetch goes over `https`
-//! to such a host, at the public addresses the engine looked up for
+//! to such a host, at the public addresses the engine resolved for
 //! it, with no redirect followed and its size and time capped, off
 //! the frame.
 

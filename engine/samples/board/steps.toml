@@ -1,0 +1,49 @@
+# The board with the notes plugin: it shows the note by reference,
+# counts its words with the notes plugin's service, and the two tell
+# each other with events. Its asks are answered Ask next time, so the
+# person is asked at the first use of each.
+#
+#   cargo run -p hamlet_engine_harness --bin plugin_check -- engine/samples/board
+
+with = ["../notes"]
+
+[[step]]
+allow = "hamlet.notes"
+
+[[step]]
+admit = { plugin = "hamlet.board", answer = "ask" }
+
+# Reading the note, then counting its words.
+[[step]]
+answer = { plugin = "hamlet.board", answer = "allow" }
+
+[[step]]
+answer = { plugin = "hamlet.board", answer = "allow" }
+
+[[step]]
+expect = { panel = "hamlet.board/board", text = "A first note" }
+
+[[step]]
+expect = { panel = "hamlet.board/board", text = "3 words" }
+
+[[step]]
+expect = { panel = "hamlet.notes/notes", text = "The board saw version 1." }
+
+# Saved with new text, the note changes on the board.
+[[step]]
+write = { panel = "hamlet.notes/notes", widget = "text", text = "One two three four five" }
+
+[[step]]
+click = { panel = "hamlet.notes/notes", widget = "save" }
+
+[[step]]
+expect = { panel = "hamlet.board/board", text = "One two three four five" }
+
+[[step]]
+expect = { panel = "hamlet.board/board", text = "5 words" }
+
+[[step]]
+expect = { panel = "hamlet.notes/notes", text = "The board saw version 2." }
+
+[[step]]
+expect_log = "hamlet.notes saved note 1 at version 2"

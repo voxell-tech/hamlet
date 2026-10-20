@@ -8,6 +8,8 @@ share.
 ```sh
 cargo run -p hamlet_engine
 cargo run -p hamlet_engine --features hot-reload
+HAMLET_ENGINE_HOME=/tmp/scratch cargo run -p hamlet_engine
+cargo run -p hamlet_engine_harness --bin plugin_check -- engine/samples/board
 ```
 
 ## The crates
@@ -20,9 +22,13 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/api` | `hamlet_engine_api` | The names the engine and plugins share. serde only, no Bevy |
 | `engine/core` | `hamlet_engine_core` | The tuning files, the home, the log, the budgets |
 | `engine/shell` | `hamlet_engine_shell` | The window, its theme, the dock and its panels, workspaces, commands, shortcuts, the menu bar and the status line |
-| `engine/plugins` | `hamlet_engine_plugins` | Plugins as entities, what they add, switching them on and off, the plugin list |
+| `engine/plugins` | `hamlet_engine_plugins` | Plugins as entities, what they add, switching them on and off, the plugin list, and the mail between plugins and services |
 | `engine/grants` | `hamlet_engine_grants` | What the person lets plugins do: petitions, the grants file, the Permissions page |
-| `engine/wasm` | `hamlet_engine_wasm` | The host of WASM plugins: wasmtime, a store per plugin, its budgets. The only crate that knows wasmtime |
+| `engine/assets` | `hamlet_engine_assets` | The asset store, the type registry, references and change notification |
+| `engine/bus` | `hamlet_engine_bus` | Services and events between plugins, whatever host runs them |
+| `engine/net` | `hamlet_engine_net` | The network service: fetches to granted hosts at public addresses |
+| `engine/wasm` | `hamlet_engine_wasm` | The host of WASM plugins: wasmtime, a store per plugin, its budgets, and the glue from the WIT to the services. The only crate that knows wasmtime |
+| `engine/harness` | `hamlet_engine_harness` | The engine without a window, for tests, and `plugin_check` |
 | `engine/app` | `hamlet_engine` | The binary, and a demo plugin built into it |
 | `engine/plugin` | `hamlet_plugin` | What a plugin is written with, built for `wasm32-wasip2` |
 
@@ -44,15 +50,32 @@ same types.
   `CommandId`. The owner `engine` is the engine's own and no plugin may
   take it.
 - **The manifest** (`plugin.toml`): id, name, version, the API version it
-  was built against (`API_VERSION`, 0.1.0), and its asks. `check` refuses
-  one built against another API, with an empty or unreadable text, or
-  asking for the same thing twice.
+  was built against (`API_VERSION`, 0.1.0), its asks, and what it shares:
+  `[assets]` the types it `makes` and `uses`, `[services]` the services
+  it `exports` and `imports`, `[events]` the events it `sends` and
+  `hears`. `check` refuses one built against another API, with an empty
+  or unreadable text, asking for the same thing twice, naming a type,
+  service or event twice, or using a type or importing a service it
+  does not ask for.
 - **Capabilities.** An ask names a capability, its target and a reason in
   the plugin's words: `net.fetch` a host, `assets.read` a type name,
   `services.call` another plugin's service. Powers that are never granted
   have no name, so no manifest can ask for them.
-- **Assets.** An `AssetId` the store gives, and a `TypeName` such as
-  `weather.forecast`. The engine never reads inside an asset.
+- **Assets.** An `AssetId` the store gives, a `TypeName` such as
+  `weather.forecast` with a version (`AssetType`), and an `AssetInfo`:
+  id, type, owner, name and version. The engine never reads inside an
+  asset.
+- **Services and events** are named by their plugin and their name,
+  `hamlet.notes/words` for a `ServiceId` and `hamlet.notes/saved` for an
+  `EventId`. A service names the types of its argument and result, an
+  event the type of its payload.
+- **Requests and messages.** A `Request` is what a plugin asks of the
+  engine: an asset made, read, changed, listed, deleted, held or let go,
+  a service called, an event subscribed to or sent, a fetch. It is given
+  a `Ticket`, and its answer comes later as a `Message::Reply` with the
+  ticket: a `Reply`, or a `Failure` (not found, no implementer, refused,
+  mismatch, out of budget, failed). The other messages are `Changed`
+  and `Gone` for an asset held, and `Event`.
 - **The widget tree** a plugin describes a panel with: text, heading,
   icon, button, toggle, field, list, row, column, scroll, divider. It is
   flat, in pre-order, each node with its child count and an id the plugin
@@ -73,19 +96,33 @@ Values that are `list<u8>` are wire-format bytes of the vocabulary's
 types, so the WIT names nothing twice.
 
 - **The host** gives a plugin `log` (a level and a line) and `redraw`
-  (a panel or settings page by name).
+  (a panel or settings page by name), and its requests, each giving a
+  ticket: `create-asset`, `read-asset`, `update-asset`, `delete-asset`,
+  `list-assets`, `hold-asset`, `release-asset`, `call`, `subscribe`,
+  `emit` and `fetch`. A ticket of 0 is a request not taken: one call
+  made more than `[budgets] requests_per_call`.
 - **The guest** exports `declare` (its `Contribution`s), `draw` (the
   `WidgetTree` of a panel or settings page), `event` (a `WidgetEvent`),
-  `run` (a command by name), and `save` and `restore` (its state, as
-  bytes of its own, handed from one version to the next on a reload).
+  `run` (a command by name), `save` and `restore` (its state, as bytes
+  of its own, handed from one version to the next on a reload),
+  `receive` (a batch of `Message`s) and `serve` (a call of one of its
+  services, by the caller's id, with the result or why it failed).
+- **Requests are answered on a later frame.** What a plugin asks in a
+  call is passed to the services as the call ends, and their messages
+  reach it in one `receive` on the next frame it is served. A plugin's
+  stores never meet: the engine copies what passes between them.
 
 ## Writing a plugin
 
 `hamlet_plugin` is the guest crate. A plugin is a type with `Default`
 that implements `Plugin`, exported with `hamlet_plugin::export!`:
 `declare` fills an `Entry` with what it adds, `draw` fills a `Ui` with a
-panel's widgets, and `event`, `run`, `save` and `restore` have defaults
-that do nothing. `info`, `warn`, `error` and `redraw` reach the host.
+panel's widgets, and `event`, `run`, `save`, `restore`, `receive` and
+`serve` have defaults that do nothing. `info`, `warn`, `error` and
+`redraw` reach the host; `assets::create`, `read`, `update`, `delete`,
+`list`, `hold` and `release`, `call`, `subscribe`, `emit` and `fetch`
+make requests, and `encode` and `decode` turn the payloads it shares
+into bytes. Its panels are drawn again after each batch it receives.
 
 - **The `Ui`** adds widgets in order, under a column the engine is given
   with the empty id. Each widget has an id of the plugin's, unique in
@@ -110,14 +147,57 @@ cargo build --release --target wasm32-wasip2
 builds `target/wasm32-wasip2/release/plugin.wasm`, to go beside its
 `plugin.toml`.
 
+`engine/samples/notes` and `engine/samples/board` share. Notes makes
+the type `notes.note` (its bytes are the text) and keeps one note of
+it, edited in a field and saved with Save; it exports the service
+`words`, which counts the words of a text, and sends `saved` with the
+note's id and version. Board uses `notes.note`, holds the note by
+reference and shows each version as it is saved, calls `words` for its
+count, and sends `seen` with the version it shows, which Notes hears
+and shows. Board asks for `assets.read notes.note` and `services.call
+hamlet.notes/words`.
+
+## Testing a plugin
+
+`hamlet_engine_harness` runs the engine without a window, on a home of
+its own made empty first, with fetches never sent. `Harness` installs
+built plugins before the first frame, answers for the person (`allow`,
+`answer_use`), runs frames (`frame`, `frames`, `until`), presses
+widgets (`click`, `write`, `toggle`), runs commands, reads a panel as a
+text outline (`outline`), reads assets, replies to fetches (`reply`),
+and reads the log. What it waits for it waits `[harness] patience`
+frames at most, `pause` milliseconds apart.
+
+A plugin's `steps.toml` is a script for it: `with` lists other built
+plugins it needs, from its folder, and each `[[step]]` does one thing:
+`allow`, `admit` (with an answer for every ask), `answer` (a first
+use), `frames`, `expect` and `lacks` (text in a panel's outline),
+`click`, `write`, `toggle`, `run`, `expect_asset`, `expect_log`, and
+`reply` or `fail` for a fetch. A step that expects waits for it; the
+script stops at the first that fails.
+
+```sh
+cargo run -p hamlet_engine_harness --bin plugin_check -- <folder> [<folder>...] [--steps <file>]
+```
+
+checks the built plugins in the folders (each a `plugin.toml` with its
+`plugin.wasm` or its crate's release build), with the first folder's
+`steps.toml` unless `--steps` names one, and prints each step and, on a
+failure, the log. Without steps it lets each plugin in and prints its
+panels. An outline is a line for each widget, indented under its
+holder: its kind, `#` and its id, and what it shows.
+
+The test `the_notes_and_board_samples_pass_their_steps` (ignored, as it
+builds the samples) runs both samples' scripts.
+
 ## The core
 
 - **Tuning.** `engine/tuning/engine.toml` holds the sizes, timings and
-  budgets, and `theme.toml` the shell's look. Both are built into the
+  budgets, and `theme.toml` the shell's theme. Both are built into the
   binary. A module reads one section of a file as a resource: it
   implements `Tuning` (the file and the section) and adds
   `TuningPlugin<T>`. With the `hot-reload` feature the files in the
-  source tree are looked at every `[tuning] every` seconds, and a saved
+  source tree are checked every `[tuning] every` seconds, and a saved
   change replaces each section that differs. A file that cannot be read
   is told in the log, and the last good values stay.
 - **The home.** The engine keeps its own home, apart from the app's, so
@@ -283,12 +363,15 @@ do. Plugins built in are not asked about.
 - **An update that asks for more** is asked about again, for what it
   asks besides, and stays off until the person answers. One that asks
   for nothing new is let in as before.
-- **First use.** A host that finds a use answered Ask next time
+- **First use.** A service that finds a use answered Ask next time
   (`Grants::verdict` gives `Asking`) sends a `FirstUse`; the person is
   asked, and `Decided` says whether the use may go on. Allow and Don't
   allow are kept; Ask next time lets this use go on and asks again next
   time. `[budgets] petitions_per_minute` of these a plugin may raise in
-  a minute; the rest are refused.
+  a minute; the rest are refused. The asset store, the bus and the
+  network keep the request meanwhile in a `Waiting`, and answer it once
+  the person did: reading another's type, calling a service and
+  fetching from a host are each asked about this way.
 - **The grants file** is `grants.toml` in the home: for each plugin,
   whether it was let in, the version answered for, and each answer. It
   is written to `grants_saving.toml` and moved over the old file, so it
@@ -311,9 +394,9 @@ plugin to are `[budgets]`.
   plain file and not a link, and its size is checked before a byte of
   it is read: `[wasm] manifest_bytes` and `wasm_bytes`. A manifest that
   asks for a power that is never granted is refused, and says which.
-- **Watched.** The plugins folder is looked at every `[wasm] watch`
+- **Watched.** The plugins folder is checked every `[wasm] watch`
   seconds. A folder that appeared is added once its `plugin.wasm` and
-  `plugin.toml` stayed the same from one look to the next, so one still
+  `plugin.toml` stayed the same from one check to the next, so one still
   being copied in is not read, and the person is asked about it; one
   that cannot be is told of once, and again when it changes. A plugin
   whose folder is gone goes with it.
@@ -364,12 +447,20 @@ plugin to are `[budgets]`.
   again after one.
 - **The log.** What a plugin logs goes to the engine's log under its
   id, each line cut at `log_line_bytes`.
+- **Requests and mail.** What a plugin asked in a call is written as
+  an `Asked` for the services once the call ends, `depth` one more than
+  the work it was serving. A `Deliver` for it goes into its inbox, and
+  the messages at the front of its inbox are handed over together in
+  one `receive`, as many as fit in `bytes_per_call`; a reply too large
+  to fit at all is handed over as a failure. A call of one of its
+  services (a `Serve`) goes into its inbox too, and `serve` answers it
+  with a `Served`. Its tickets go on counting across a reload.
 
 ### Hot reload
 
 - **Noticed.** Every `[wasm] watch` seconds each installed plugin's
-  `plugin.wasm` and `plugin.toml` are looked at, and a change is taken
-  once a file stayed the same from one look to the next.
+  `plugin.wasm` and `plugin.toml` are checked, and a change is taken
+  once a file stayed the same from one check to the next.
 - **A new `plugin.wasm`** of a running plugin is compiled off the frame
   and swapped in by one system in the frame's update, never in the
   middle of a call: the running version's `save` gives its state, the
@@ -402,8 +493,13 @@ plugin to are `[budgets]`.
   first, and what is left when the share is spent waits for the next
   frame, when those left go first. One panel is drawn each frame
   whatever the share, so a slow plugin is drawn in time.
-- **Events** wait in a plugin's inbox, a second's worth at most; more
-  are left out, and the log says how many.
+- **The inbox** holds widget events, commands, messages and calls to
+  serve, `events_per_second` at most; more are left out, and the log
+  says how many. A call left out answers its caller out of budget.
+- **A service's call is paid by its caller.** The fuel and time its
+  plugin spent serving it are charged to the caller's
+  `service_fuel_per_second` and `service_time_per_second`, not to its
+  own second; its own counts the call.
 - **The log.** A plugin's lines of each level, info, warn and error,
   are `log_lines_per_second` a second at most; the rest are left out,
   and the log says how many when the second ends.
@@ -422,10 +518,115 @@ plugin to are `[budgets]`.
   `WidgetEvent`, and the plugin's `event` is called with it on the next
   frame.
 - **Drawn again** only when a panel comes, when the plugin asks with
-  `redraw`, or after the plugin was given an event or ran a command;
-  then each of its
+  `redraw`, or after the plugin was given an event, ran a command,
+  received messages or served a call; then each of its
   panels is drawn again, and one whose tree did not change is left as
   it is.
 - **Stopped.** A plugin at fault is stopped: its store goes, it is
   marked `Stopped` with why, the log says so, and its panels show that
   it was stopped and why. Switching it off and on starts it afresh.
+
+## Assets
+
+`hamlet_engine_assets` keeps the asset store and answers what plugins
+ask of it, in `PostUpdate`.
+
+- **The store** is `<home>/assets/`: the bytes of each asset's version
+  in `<id>_<version>.bin`, and `index.toml` with each asset's
+  `AssetInfo` and the next id. Each file is written beside its place
+  (`saving_<name>`) and moved over it, the bytes before the index, so
+  either is whole or not at all; the bytes of the version before are
+  taken away after. An index that cannot be read is left as it is: the
+  log says so, nothing is written until the engine starts with one
+  that can be, and every write fails saying why.
+- **The type registry** (`TypeRegistry`) is each type a plugin there is
+  makes, with its version. A type belongs to the plugin that makes it;
+  one that two make is the one whose id comes first, and the log tells
+  the other.
+- **Who may do what.** A plugin makes assets only of the types it
+  makes, and changes and deletes only its own. It reads, lists and
+  holds its own types, and another's that its manifest uses at the
+  version its maker makes, once the person allowed `assets.read` of
+  that type. A type of another version is a mismatch; one no plugin
+  makes is refused.
+- **Caps** (`[budgets]`): `asset_bytes` for one asset, less than
+  `bytes_per_call` so a read one can be handed over; `assets` it may
+  own, and as many it may hold; `asset_writes_per_second` made,
+  changed or deleted.
+- **References.** A plugin that holds an asset (`Holding` on its
+  entity) is sent `Changed` with the version each time it changes, and
+  `Gone` when it is deleted. What it holds is let go when it is
+  switched off.
+
+## Services
+
+`hamlet_engine_bus` sits between plugins, and knows nothing of how they
+run.
+
+- **Declared.** A plugin exports a service by its name and the names
+  of its argument's and result's types; a caller imports it by its full
+  id with the types it expects, and asks for `services.call` on it.
+- **A call** is checked in this order: the caller imports it, does not
+  call itself, the chain is `[budgets] chain_depth` plugins deep at
+  most, the caller is within its `service_calls_per_second`,
+  `service_fuel_per_second` and `service_time_per_second`, the person
+  allowed it (or is asked first), a running plugin exports it (else no
+  implementer), and both sides name the same types (else a mismatch).
+  The bus then hands the plugin a `Serve` and remembers the call
+  (`Calls`).
+- **Answered.** The result of `serve`, or why it failed, comes back as
+  `Answered` or a failure; a plugin out of its fuel or time for the
+  call leaves the caller out of budget and is stopped, as any plugin
+  at fault is. A call whose plugin stops before it serves it fails.
+- **Asynchronous.** Each plugin has a store of its own, and a host
+  call cannot reach another store while its own is in use, so a call
+  is not made within the caller's call: it goes through the callee's
+  inbox, served on the next frame, and its answer through the caller's
+  on the frame after. The depth a request is made at follows the chain
+  of messages, so calls that call back and forth stop at
+  `chain_depth`.
+
+## Events
+
+- **Declared.** A plugin sends events its manifest names with the type
+  of their payload, and hears another's by its full id, with the type
+  it expects.
+- **Subscribed** by name at run time (`subscribe`), to an event its
+  manifest hears; `Subscriptions` on its entity, let go when it is
+  switched off.
+- **Sent** with `emit`, `[budgets] events_sent_per_second` a second at
+  most and no deeper than `chain_depth`; a refusal is replied to, a
+  sent event is not. Events need no grant: a plugin hears only what it
+  declares, from the plugin that names it.
+- **Delivered** together: the events of a frame go to each subscriber
+  that names the payload's type as the sender does, and reach it in
+  one batch on the next frame.
+
+## The network
+
+`hamlet_engine_net` makes fetches for plugins, off the frame, on a
+runtime of its own.
+
+- **Asked for by host.** A plugin asks for `net.fetch` on each host it
+  needs (`api.example.org`, or `host:port` for a port other than 443),
+  and the person answers for each. A fetch goes only to an `https`
+  address with no user on such a host, once allowed; the first use of
+  one answered Ask next time asks the person.
+- **Public addresses only.** The engine resolves the host, and the
+  fetch is pinned to the public addresses of the answer: loopback,
+  private, link-local, unique-local, shared, multicast, broadcast and
+  unspecified addresses are refused, as is a host that is one of them.
+  No redirect is followed and no proxy is used, so it cannot go
+  elsewhere.
+- **Caps** (`[budgets]`): `fetches_per_minute`, `fetches_waiting` at
+  once, `fetch_bytes` of an answer, `fetch_time` seconds for the whole.
+- **A fetch** is a `Fetch` on a child of its plugin, so it goes with
+  it. With `Offline` in the app, as the harness has it, fetches are
+  never sent and wait for `answer`.
+
+## Where the budgets are
+
+Every cap is a field of `Budgets`, `[budgets]` in
+`engine/tuning/engine.toml`, its meaning beside its field in
+`engine/core/src/budget.rs`. The host's set-up is `[wasm]`, and the
+harness's waiting `[harness]`.

@@ -26,7 +26,7 @@ fn only_public_addresses_are_reached() {
     assert!(public("203.0.113.7".parse().unwrap()));
     assert!(public("2001:db8::7".parse().unwrap()));
 
-    // A name is looked up first, and refused for where it is.
+    // A name is resolved first, and refused for where it is.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

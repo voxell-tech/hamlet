@@ -131,6 +131,10 @@ Paths are under `crates/`.
 | The wizard or the Hearth | `hamlet_realm/src/chief/`; [`chief.md`](chief.md) |
 | What is saved between launches | `hamlet_ui/src/remember.rs`; settings in `hamlet_model/src/config.rs` |
 | The engine, apart from the app | `engine/`; [`engine.md`](engine.md) |
+| A budget of an engine plugin | `engine/tuning/engine.toml`, its fields in `engine/core/src/budget.rs` |
+| What engine plugins share | `engine/assets/` (assets), `engine/bus/` (services and events), `engine/net/` (fetches) |
+| What a plugin and the engine say to each other | `engine/wit/hamlet_engine.wit`, the types in `engine/api/` |
+| Writing or testing an engine plugin | `engine/plugin/`, `engine/samples/`, `engine/harness/` and `plugin_check`; [`engine.md`](engine.md) |
 
 ## Tuning while the app runs
 

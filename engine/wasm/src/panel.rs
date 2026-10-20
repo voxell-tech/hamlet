@@ -89,10 +89,10 @@ pub(crate) enum Work {
 /// What the person did to a widget of the panel or settings page
 /// `surface`.
 #[derive(Message, Clone, Debug)]
-pub(crate) struct Input {
-    pub(crate) surface: Entity,
-    pub(crate) widget: WidgetId,
-    pub(crate) action: Action,
+pub struct Input {
+    pub surface: Entity,
+    pub widget: WidgetId,
+    pub action: Action,
 }
 
 /// The content of a WASM plugin's panel or settings page.

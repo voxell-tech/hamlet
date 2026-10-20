@@ -21,7 +21,7 @@ pub use self::add::AddFrom;
 pub use self::folder::{MANIFEST, Package, WASM};
 pub use self::host::{Host, WasmTuning};
 pub use self::instance::{Caps, Fault, Instance, Spent};
-pub use self::panel::{Drawn, Shows};
+pub use self::panel::{Drawn, Input, Shows};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((

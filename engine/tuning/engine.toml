@@ -3,7 +3,8 @@
 # field, in the module that reads its section: [tuning] in
 # engine/core/src/tuning.rs, [log] in log.rs, [budgets] in budget.rs,
 # [window] in engine/shell/src/window.rs, [workspaces] in workspace.rs,
-# [wasm] in engine/wasm/src/host.rs.
+# [wasm] in engine/wasm/src/host.rs, [harness] in
+# engine/harness/src/lib.rs.
 
 [tuning]
 every = 0.5
@@ -27,7 +28,7 @@ asset_writes_per_second = 20
 service_calls_per_second = 60
 service_fuel_per_second = 200_000_000
 service_time_per_second = 50.0
-chain_depth = 4
+chain_depth = 8
 events_sent_per_second = 30
 fetches_per_minute = 30
 fetches_waiting = 4
@@ -64,3 +65,7 @@ table_elements = 20_000
 wasm_bytes = 33_554_432
 manifest_bytes = 16_384
 watch = 1.0
+
+[harness]
+patience = 1_000
+pause = 1.0
