@@ -4,11 +4,12 @@ use std::collections::{HashMap, HashSet};
 use std::io::{IsTerminal, Write};
 
 use anyhow::{Context, Result, bail};
+use hamlet_protocol::transcript;
 use hamlet_protocol::v0::*;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use uuid::Uuid;
 
-use crate::client::{self, Client, ServerAddress, reply_to};
+use crate::client::{self, Client, ServerAddress};
 
 const COMMANDS: &[(&str, &str, &str)] = &[
     (
@@ -391,8 +392,7 @@ pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
         if matches!(
             message,
             ServerMessage::Reply(_) | ServerMessage::Fault(_)
-        ) && reply_to(&message)
-            .is_some_and(|id| pending.remove(id))
+        ) && message.to().is_some_and(|id| pending.remove(id))
         {
             prompt(&mut screen, interactive && last.is_none())?;
         }
@@ -689,7 +689,7 @@ impl Screen {
                         serde_json::to_string(&t.chat)?,
                         t.number.or(t.chat.past)
                     ),
-                    items,
+                    t.items.clone(),
                 );
                 if !t.working {
                     self.end()?;
@@ -703,74 +703,51 @@ impl Screen {
                 );
                 let mut items =
                     self.views.remove(&key).unwrap_or_default();
+                let id =
+                    |raw: &str| Self::item_id(&t.chat, t.number, raw);
                 for op in &t.ops {
+                    let applied = transcript::apply(
+                        &mut items,
+                        op,
+                        Item::clone,
+                    )
+                    .is_ok();
                     match op {
                         Op::Add { item, replaces } => {
                             let mut item = item.clone();
-                            item.id = Self::item_id(
-                                &t.chat, t.number, &item.id,
-                            );
+                            item.id = id(&item.id);
                             let replaces =
-                                replaces.as_ref().map(|s| {
-                                    Self::item_id(
-                                        &t.chat, t.number, s,
-                                    )
-                                });
-                            if let Some(index) =
-                                replaces.as_ref().and_then(|id| {
-                                    items
-                                        .iter()
-                                        .position(|i| &i.id == id)
-                                })
-                            {
-                                items[index] = item.clone();
-                            } else {
-                                items.push(item.clone());
-                            }
+                                replaces.as_deref().map(id);
                             self.add(&item, replaces.as_deref())?;
                         }
-                        Op::Append { item, text } => {
-                            let id = Self::item_id(
-                                &t.chat, t.number, item,
-                            );
-                            if let Some(item) =
-                                items.iter_mut().find(|i| i.id == id)
-                            {
-                                item.text.push_str(text);
-                                let printed = self
-                                    .streamed
-                                    .get(&id)
-                                    .map(|(n, _)| *n)
-                                    .unwrap_or(0);
-                                self.stream(
-                                    &id,
-                                    item.text
-                                        .get(printed..)
-                                        .unwrap_or_default(),
-                                )?;
-                            }
+                        Op::Append { item, .. } => {
+                            let Some(kept) = items
+                                .iter()
+                                .find(|kept| &kept.id == item)
+                            else {
+                                continue;
+                            };
+                            let id = id(item);
+                            let printed = self
+                                .streamed
+                                .get(&id)
+                                .map(|(n, _)| *n)
+                                .unwrap_or(0);
+                            self.stream(
+                                &id,
+                                kept.text
+                                    .get(printed..)
+                                    .unwrap_or_default(),
+                            )?;
                         }
-                        Op::Close { item, exit, .. } => {
-                            let id = Self::item_id(
-                                &t.chat, t.number, item,
-                            );
-                            if let Some(tool) = items
-                                .iter_mut()
-                                .find(|i| i.id == id)
-                                .and_then(|i| i.tool.as_mut())
-                            {
-                                tool.exit = Some(*exit);
-                                if *exit != 0 {
-                                    self.line(&format!(
-                                        "  [exit {exit}]"
-                                    ))?;
-                                }
-                            }
+                        Op::Close { exit, .. }
+                            if applied && *exit != 0 =>
+                        {
+                            self.line(&format!("  [exit {exit}]"))?;
                         }
                         Op::Status { working: false, .. } => {
                             self.end()?
                         }
-                        Op::Reset {} => items.clear(),
                         _ => {}
                     }
                 }

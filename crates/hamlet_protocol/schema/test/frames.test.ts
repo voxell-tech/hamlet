@@ -1,14 +1,15 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { Compile } from "typebox/compile";
 import { expect, it } from "vitest";
 import {
-    applyOp,
-    type ClientMessage,
+    ClientMessage,
     type Item,
-    parseClient,
-    parseServer,
-    type ServerMessage,
+    type Op,
+    ServerMessage,
 } from "../src/protocol.ts";
+
+const fits = { client: Compile(ClientMessage), server: Compile(ServerMessage) };
 
 const scenarios = [
     "society",
@@ -48,10 +49,11 @@ for (const name of scenarios)
             .map((line): Frame => {
                 const frame = JSON.parse(line);
                 expect(["client", "server"]).toContain(frame.from);
-                const parsed = (
-                    frame.from === "client" ? parseClient : parseServer
-                )(JSON.stringify(frame.message));
-                expect(parsed).toHaveProperty("value", frame.message);
+                expect(
+                    fits[frame.from as "client" | "server"].Check(
+                        frame.message,
+                    ),
+                ).toBe(true);
                 return frame;
             });
         expect(frames[0]).toEqual({
@@ -103,16 +105,49 @@ function agents(messages: ServerMessage[]) {
     );
 }
 
+/** The items a client keeps from these messages. A test's own fold; clients use `hamlet_protocol::transcript::apply`. */
 function live(messages: ServerMessage[]): Item[] {
-    const items: Item[] = [];
-    const status = { working: false, pending: 0 };
+    let items: Item[] = [];
     for (const message of messages) {
         if (message.type === "transcript")
-            items.splice(0, items.length, ...structuredClone(message.items));
-        if (message.type !== "turn") continue;
-        for (const op of message.ops) applyOp(items, status, op);
+            items = structuredClone(message.items);
+        if (message.type === "turn")
+            for (const op of message.ops) items = fold(items, op);
     }
     return items;
+}
+
+function fold(items: Item[], op: Op): Item[] {
+    const kept = (id: string) => {
+        const item = items.find((each) => each.id === id);
+        if (item === undefined) throw new Error(`No item ${id}`);
+        return item;
+    };
+    switch (op.op) {
+        case "add":
+            return [
+                ...items.filter((each) => each.id !== op.replaces),
+                structuredClone(op.item),
+            ];
+        case "append":
+            kept(op.item).text += op.text;
+            return items;
+        case "close": {
+            const { tool } = kept(op.item);
+            if (tool === undefined) throw new Error(`${op.item} is no tool`);
+            Object.assign(tool, {
+                exit: op.exit,
+                ms: op.ms,
+                failure: op.failure,
+                ...(op.change === undefined ? {} : { change: op.change }),
+            });
+            return items;
+        }
+        case "reset":
+            return [];
+        default:
+            return items;
+    }
 }
 
 function checkScenario(name: Scenario, frames: Frame[]) {

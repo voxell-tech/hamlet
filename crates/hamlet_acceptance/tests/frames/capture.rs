@@ -106,19 +106,13 @@ impl Capture {
     pub async fn ask(&mut self, value: Value) -> Value {
         let request = self.send(value).await;
         self.until(|c| {
-            c.messages.iter().any(|m| {
-                hamlet_acceptance::client::answers(m)
-                    == Some(&request)
-            })
+            c.messages.iter().any(|m| m.to() == Some(&request))
         })
         .await;
         serde_json::to_value(
             self.messages
                 .iter()
-                .find(|m| {
-                    hamlet_acceptance::client::answers(m)
-                        == Some(&request)
-                })
+                .find(|m| m.to() == Some(&request))
                 .unwrap(),
         )
         .unwrap()

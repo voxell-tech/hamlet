@@ -216,14 +216,15 @@ houses `done` of `of`, and its outcome as `text`.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
 `chief`, `author`, `rewindable` and `tool`. Its kind is `user`, `assistant`,
-`reasoning`, `tool`, `notice` or `error`. Peer inputs use `author`, not
-`chief`. Item IDs identify an entry and content block (`<entryId>:<block>`);
-use them as opaque cursors. Tool details are `name`, `summary`, nullable
+`reasoning`, `tool`, `notice`, `error` or `answered`, the chief's answers
+to questions. Peer inputs use `author`, not `chief`. Item IDs identify an
+entry and content block (`<entryId>:<block>`); use them as opaque cursors. Tool details are `name`, `summary`, nullable
 `exit`, `ms`, `failure` and `change`. A tool argument summary holds at most
 200 Unicode code points. A `Change` preview holds at most 200 lines, each
 at most 240 characters, plus total and added/removed counts.
 
-`Op` is discriminated by `op`, not `type`. `applyOp` is the shared reducer.
+`Op` is discriminated by `op`, not `type`. Clients apply ops with
+`hamlet_protocol::transcript::apply`.
 
 | `op` | Fields | Meaning |
 |---|---|---|

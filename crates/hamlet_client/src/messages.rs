@@ -196,30 +196,14 @@ pub(crate) fn receive(
     world: &mut World,
     message: &v0::ServerMessage,
 ) {
-    let to = match message {
-        v0::ServerMessage::Reply(reply) => Some(&reply.to),
-        v0::ServerMessage::Read(read) => Some(match read {
-            v0::ReadResult::Prompt { to, .. }
-            | v0::ReadResult::History { to, .. }
-            | v0::ReadResult::Models { to, .. }
-            | v0::ReadResult::Papers { to, .. }
-            | v0::ReadResult::Charter { to, .. } => to,
-        }),
-        v0::ServerMessage::Login(login) => login.to.as_ref(),
-        v0::ServerMessage::Transcript(transcript) => {
-            transcript.to.as_ref()
-        }
-        v0::ServerMessage::Fault(fault) => {
-            if fault.to.is_none() {
-                world.trigger(ServerFault {
-                    text: fault.text.clone(),
-                });
-            }
-            fault.to.as_ref()
-        }
-        _ => None,
-    };
-    let Some(to) = to else {
+    if let v0::ServerMessage::Fault(fault) = message
+        && fault.to.is_none()
+    {
+        world.trigger(ServerFault {
+            text: fault.text.clone(),
+        });
+    }
+    let Some(to) = message.to() else {
         return;
     };
     if matches!(
@@ -258,7 +242,7 @@ pub(crate) fn receive(
         }
     }
     world.trigger(Response {
-        to: to.clone(),
+        to: to.to_owned(),
         message: message.clone(),
     });
 }

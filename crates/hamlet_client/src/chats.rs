@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use bevy_app::{App, PostUpdate};
 use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
-use hamlet_protocol::v0;
+use hamlet_protocol::{transcript, v0};
 
 use crate::messages::{
     JobFinished, Reconnected, Response, SessionOutput,
@@ -411,6 +411,45 @@ pub struct Item {
     pub at: u64,
 }
 
+impl transcript::Kept for Item {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn append(&mut self, text: &str) {
+        match &mut self.entry {
+            Entry::User { text: shown, .. }
+            | Entry::Agent { text: shown, .. }
+            | Entry::Assistant(shown)
+            | Entry::Reasoning(shown)
+            | Entry::Notice(shown)
+            | Entry::Answered(shown)
+            | Entry::Error(shown) => shown.push_str(text),
+            Entry::Tool { .. } => {}
+        }
+    }
+
+    fn close(&mut self, closed: transcript::Closed<'_>) -> bool {
+        let Entry::Tool {
+            exit,
+            ms,
+            failure,
+            change,
+            ..
+        } = &mut self.entry
+        else {
+            return false;
+        };
+        *exit = Some(closed.exit);
+        *ms = closed.ms;
+        *failure = closed.failure.map(str::to_owned);
+        if let Some(closed) = closed.change {
+            *change = closed.cloned();
+        }
+        true
+    }
+}
+
 /// The received items and paging state of a watched chat.
 #[derive(Component, Default, Clone, Debug)]
 pub struct Transcript {
@@ -422,67 +461,17 @@ pub struct Transcript {
 
 impl Transcript {
     fn apply(&mut self, op: &v0::Op, chief: &str) {
+        // An op on an item this window does not hold changes nothing.
+        let _ = transcript::apply(&mut self.items, op, |item| {
+            received_item(item.clone(), chief)
+        });
         match op {
-            v0::Op::Add { item, replaces } => {
-                if let Some(replaces) = replaces {
-                    self.items.retain(|item| &item.id != replaces);
-                }
-                self.items.push(received_item(item.clone(), chief));
-                self.shape += 1;
-            }
-            v0::Op::Append { item, text } => {
-                if let Some(item) = self
-                    .items
-                    .iter_mut()
-                    .find(|shown| &shown.id == item)
-                {
-                    match &mut item.entry {
-                        Entry::User { text: shown, .. }
-                        | Entry::Agent { text: shown, .. }
-                        | Entry::Assistant(shown)
-                        | Entry::Reasoning(shown)
-                        | Entry::Notice(shown)
-                        | Entry::Answered(shown)
-                        | Entry::Error(shown) => shown.push_str(text),
-                        Entry::Tool { .. } => {}
-                    }
-                }
-            }
-            v0::Op::Close {
-                item,
-                exit,
-                ms,
-                failure,
-                change,
-            } => {
-                if let Some(Item {
-                    entry:
-                        Entry::Tool {
-                            exit: shown_exit,
-                            ms: shown_ms,
-                            failure: shown_failure,
-                            change: shown_change,
-                            ..
-                        },
-                    ..
-                }) = self
-                    .items
-                    .iter_mut()
-                    .find(|shown| &shown.id == item)
-                {
-                    *shown_exit = Some(*exit);
-                    *shown_ms = *ms;
-                    *shown_failure = failure.clone();
-                    if let Some(change) = change {
-                        *shown_change = change.clone();
-                    }
-                    self.shape += 1;
-                }
-            }
             v0::Op::Reset {} => {
-                self.items.clear();
                 self.earlier = None;
                 self.shape += 1;
+            }
+            v0::Op::Add { .. } | v0::Op::Close { .. } => {
+                self.shape += 1
             }
             _ => {}
         }

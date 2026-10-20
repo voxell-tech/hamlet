@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
 pub use hamlet_protocol::discovery::ServerAddress;
 use hamlet_protocol::v0::{
-    ClientMessage, Hello, ReadResult, ServerMessage, State, V,
+    ClientMessage, Hello, ServerMessage, State, V,
 };
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -79,7 +79,7 @@ impl Client {
         loop {
             let message = self.next().await?;
             if matches!(message, ServerMessage::Fault(_))
-                || reply_to(&message) == Some(id)
+                || message.to() == Some(id)
             {
                 return Ok(message);
             }
@@ -90,25 +90,5 @@ impl Client {
     pub async fn close(&mut self) -> Result<()> {
         self.0.close(None).await?;
         Ok(())
-    }
-}
-
-/// The request answered by a server message.
-pub fn reply_to(message: &ServerMessage) -> Option<&str> {
-    match message {
-        ServerMessage::Reply(reply) => Some(&reply.to),
-        ServerMessage::Fault(fault) => fault.to.as_deref(),
-        ServerMessage::Transcript(transcript) => {
-            transcript.to.as_deref()
-        }
-        ServerMessage::Login(login) => login.to.as_deref(),
-        ServerMessage::Read(read) => Some(match read {
-            ReadResult::Prompt { to, .. }
-            | ReadResult::History { to, .. }
-            | ReadResult::Models { to, .. }
-            | ReadResult::Papers { to, .. }
-            | ReadResult::Charter { to, .. } => to,
-        }),
-        _ => None,
     }
 }

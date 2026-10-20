@@ -171,7 +171,7 @@ impl Client {
     /// Waits for the message answering the request `id`.
     pub async fn answer(&mut self, id: &str) -> ServerMessage {
         let found = |log: &[ServerMessage]| {
-            log.iter().find(|m| answers(m) == Some(id)).cloned()
+            log.iter().find(|m| m.to() == Some(id)).cloned()
         };
         self.until(&format!("an answer to {id}"), |c| {
             found(&c.log).is_some()
@@ -499,26 +499,6 @@ impl Client {
             })
             .collect::<Vec<_>>()
             .join("\n")
-    }
-}
-
-/// The request a server message answers.
-pub fn answers(message: &ServerMessage) -> Option<&str> {
-    match message {
-        ServerMessage::Reply(reply) => Some(&reply.to),
-        ServerMessage::Fault(fault) => fault.to.as_deref(),
-        ServerMessage::Transcript(t) => t.to.as_deref(),
-        ServerMessage::Login(login) => login.to.as_deref(),
-        ServerMessage::Read(
-            ReadResult::Prompt { to, .. }
-            | ReadResult::History { to, .. }
-            | ReadResult::Models { to, .. }
-            | ReadResult::Papers { to, .. }
-            | ReadResult::Charter { to, .. },
-        ) => Some(to),
-        ServerMessage::State(_)
-        | ServerMessage::Change(_)
-        | ServerMessage::Turn(_) => None,
     }
 }
 
