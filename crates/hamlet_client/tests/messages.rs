@@ -98,38 +98,53 @@ struct Observed {
 #[test]
 fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
  {
-    use hamlet_client::waits::Asks;
-    use hamlet_protocol::asking::Pick;
+    use hamlet_client::waits::{Asks, Refused};
     use serde_json::json;
 
     let mut app = app();
     let world = app.world_mut();
     let mut initial = state();
     let mut question = serde_json::to_value(wait("ask")).unwrap();
-    question["kind"] = json!("question");
-    question["danger"] = json!(null);
     question["answers"] = json!(["reply", "dismiss"]);
-    question["questions"] = json!({"message": "Choose", "questions": [{
+    question["detail"] = json!({"kind": "question", "questions": {"message": "Choose", "questions": [{
         "question": "Which?", "description": "", "options": [
             {"title": "Left", "description": ""}, {"title": "Right", "description": ""}
         ], "text_input": false
-    }]});
+    }]}});
     initial.waits =
         vec![serde_json::from_value(question.clone()).unwrap()];
     receive(world, v0::ServerMessage::State(initial.clone()));
     let entity =
         world.query::<(Entity, &Asks)>().single(world).unwrap().0;
+    // The server, not the window, judges an answer.
     world.trigger(Answered {
         entity,
-        picks: vec![Pick::Words("Left".into())],
-        chief: "untrusted".into(),
+        picks: vec![v0::Pick::Words {
+            text: "Left".into(),
+        }],
     });
     world.flush();
-    assert_eq!(world.resource::<Outbox>().iter().count(), 0);
+    let sent =
+        world.resource_mut::<Outbox>().drain().collect::<Vec<_>>();
+    let [v0::ClientMessage::Answer(refused)] = sent.as_slice() else {
+        panic!("the words are sent")
+    };
+    receive(
+        world,
+        v0::ServerMessage::Reply(v0::Reply {
+            upload: None,
+            to: refused.id.clone(),
+            kind: v0::ReplyKind::Error,
+            text: "question 1 takes no words".into(),
+        }),
+    );
+    assert_eq!(
+        world.get::<Refused>(entity),
+        Some(&Refused("question 1 takes no words".into()))
+    );
     world.trigger(Answered {
         entity,
-        picks: vec![Pick::Offer(1)],
-        chief: "untrusted".into(),
+        picks: vec![v0::Pick::Offer { index: 1 }],
     });
     world.flush();
     let requests =
@@ -144,14 +159,22 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
         answer.picks,
         Some(vec![v0::Pick::Offer { index: 1 }])
     );
-    assert!(
-        !serde_json::to_string(&requests)
-            .unwrap()
-            .contains("untrusted")
+    receive(
+        world,
+        v0::ServerMessage::Reply(v0::Reply {
+            upload: None,
+            to: answer.id.clone(),
+            kind: v0::ReplyKind::Notice,
+            text: "answered".into(),
+        }),
     );
+    assert!(world.get::<Refused>(entity).is_none());
     // An older server's full state must remove stale question
     // controls.
-    question.as_object_mut().unwrap().remove("questions");
+    question["detail"]
+        .as_object_mut()
+        .unwrap()
+        .remove("questions");
     initial.waits = vec![serde_json::from_value(question).unwrap()];
     receive(world, v0::ServerMessage::State(initial.clone()));
     assert!(world.get::<Asks>(entity).is_none());

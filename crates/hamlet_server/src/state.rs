@@ -1,9 +1,7 @@
 //! Protocol views of the record and the chief's settings.
 
 use anyhow::Result;
-use hamlet_protocol::v0::{
-    Changes, ServerMessage, State, Update, Wait,
-};
+use hamlet_protocol::v0::{Changes, ServerMessage, State, Update};
 use serde_json::{Value, json};
 
 use crate::documents::mode_words;
@@ -174,7 +172,7 @@ pub(crate) fn state(
         waits.push(crate::oversight::view(&wait, record, current)?);
     }
     let mut view = json!({"epoch":epoch,"revision":revision,"chief":service.chief,"sandbox":service.chats.sandbox.name(), "houses":service.home.layout().root().join("houses"),
-        "hamlets":hamlets,"agents":agents,"grants":grants,"waits":waits,"providers":service.provider_views()?,"library":crate::society::library::views(service)?,"closed":closed,"starters":crate::gifts::starters(),"deeds":crate::chats::deed_names(),
+        "hamlets":hamlets,"agents":agents,"grants":grants,"waits":waits,"providers":service.provider_views()?,"library":crate::society::library::views(service)?,"closed":closed,"starters":crate::gifts::starters(),"deeds":crate::chats::advertised_deeds(),
         "settings":{"model":settings["model"],"reflectEvery":settings["reflectEvery"],"allowNet":settings["allowNet"],"unset":settings["saved"] != true,"link":settings["link"],
             "endpoints":settings["endpoints"].as_array().into_iter().flatten().map(|e|json!({"name":e["name"],"baseUrl":e["baseUrl"],"key":service.credentials.configured(e["name"].as_str().unwrap_or_default())})).collect::<Vec<_>>(),
             "workspace":{"url":service.credentials.workspace_url(),"running":service.houses.workspace.as_ref().map(|connection| &connection.url)}}});
@@ -250,17 +248,16 @@ pub(crate) fn changed(
         }
     }
     for wait in &after.waits {
-        if before.waits.iter().find(|w| id_of(w) == id_of(wait))
-            != Some(wait)
+        if before.waits.iter().find(|w| w.id == wait.id) != Some(wait)
         {
             changes.push(Update::Wait { wait: wait.clone() });
         }
     }
     for wait in &before.waits {
-        if !after.waits.iter().any(|w| id_of(w) == id_of(wait)) {
+        if !after.waits.iter().any(|w| w.id == wait.id) {
             changes.push(Update::WaitClosed {
-                how: endings(id_of(wait)),
-                id: id_of(wait).into(),
+                how: endings(&wait.id),
+                id: wait.id.clone(),
             });
         }
     }
@@ -298,14 +295,4 @@ pub(crate) fn changed(
             changes,
         })
     })
-}
-
-/// The id of `wait`, whatever its kind.
-pub(crate) fn id_of(wait: &Wait) -> &str {
-    match wait {
-        Wait::Approval { id, .. }
-        | Wait::Fault { id, .. }
-        | Wait::Question { id, .. }
-        | Wait::Objection { id, .. } => id,
-    }
 }

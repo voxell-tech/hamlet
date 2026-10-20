@@ -374,8 +374,10 @@ async fn chooses_a_remote_workspace_in_settings() {
     let mut s = Session::start(Script::new()).await;
     let workspace = s.chief.realm().settings.workspace.unwrap();
     assert_eq!((workspace.url, workspace.running), (None, None));
-    let reply =
-        s.chief.request(|id| ClientMessage::MoveHouses { id }).await;
+    let reply = s
+        .chief
+        .request(|id| ClientMessage::MoveHouses(MoveHouses { id }))
+        .await;
     assert_eq!(
         kind_text(&reply),
         (

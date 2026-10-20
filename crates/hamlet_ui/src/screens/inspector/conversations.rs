@@ -71,7 +71,7 @@ fn exchange(peer: v0::ConversationView) -> AnyView {
             .query::<(Entity, &hamlet_client::realm::Citizen)>()
             .iter(cx.world)
             .find(|(entity, citizen)| {
-                citizen.0 == peer.with.number as u64
+                citizen.0 == peer.with.number
                     && address_of(cx.world, *entity)
                         .is_some_and(|a| a.hamlet == peer.with.hamlet)
             })

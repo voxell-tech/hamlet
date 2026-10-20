@@ -98,9 +98,9 @@ fn save(world: &mut World) {
 /// Asks the server to copy the houses to the saved workspace. The
 /// settings it sends show how far it has come.
 fn move_houses(world: &mut World) {
-    let id = world
-        .resource_mut::<Outbox>()
-        .send(|id| v0::ClientMessage::MoveHouses { id });
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        v0::ClientMessage::MoveHouses(v0::MoveHouses { id })
+    });
     let mut draft = world.resource_mut::<Draft>();
     draft.moving = Some(id);
     draft.refusal.clear();
@@ -535,8 +535,9 @@ mod tests {
         ));
         requests(&mut app);
         press(&mut app, "MOVE HOUSES");
-        let Some(v0::ClientMessage::MoveHouses { id }) =
-            app.world().resource::<Outbox>().iter().next().cloned()
+        let Some(v0::ClientMessage::MoveHouses(v0::MoveHouses {
+            id,
+        })) = app.world().resource::<Outbox>().iter().next().cloned()
         else {
             panic!("no move was sent");
         };

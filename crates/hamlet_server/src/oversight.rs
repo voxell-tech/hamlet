@@ -2,7 +2,7 @@
 //! faults, and questions, each kept until it is answered or lapses.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::asking::Questions;
+use hamlet_protocol::v0::Questions;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
@@ -424,48 +424,42 @@ pub(crate) fn says(danger: Option<&str>) -> &'static str {
     }
 }
 
+/// The line of a wait's text a one-line view quotes: an edit's file,
+/// or an objection's instruction under the name of its giver.
+pub(crate) fn subject(wait: &Wait) -> &str {
+    let mut lines = wait.about.lines();
+    match (wait.kind.as_str(), wait.danger.as_deref()) {
+        ("approval", Some("edit")) => {
+            lines.next().unwrap_or_default()
+        }
+        ("objection", _) => lines.nth(1).unwrap_or(&wait.about),
+        _ => &wait.about,
+    }
+}
+
 /// One line for a wait, quoting at most `most` characters of its
 /// subject.
 pub(crate) fn line(wait: &Wait, most: usize) -> String {
-    let first = |text: &str| {
-        text.split('\n')
-            .next()
-            .map(|line| line.trim_end_matches('\r').to_owned())
-            .unwrap_or_default()
-    };
+    let subject = subject(wait);
     match wait.kind.as_str() {
-        "approval" => {
-            let subject = if wait.danger.as_deref() == Some("edit") {
-                first(&wait.about)
-            } else {
-                wait.about.clone()
-            };
-            format!(
-                "{} {} `{}`",
-                wait.by,
-                says(wait.danger.as_deref()),
-                clip(&subject, most, true, true)
-            )
-        }
-        "objection" => clip(
-            wait.about
-                .split('\n')
-                .nth(1)
-                .map(|l| l.trim_end_matches('\r'))
-                .unwrap_or(&wait.about),
-            most + wait.by.len(),
-            true,
-            true,
+        "approval" => format!(
+            "{} {} `{}`",
+            wait.by,
+            says(wait.danger.as_deref()),
+            clip(subject, most, true, true)
         ),
+        "objection" => {
+            clip(subject, most + wait.by.len(), true, true)
+        }
         "question" => format!(
             "{} asks: {}",
             wait.by,
-            clip(&wait.about, most, true, true)
+            clip(subject, most, true, true)
         ),
         _ => format!(
             "{} failed: {}",
             wait.by,
-            clip(&wait.about, most, true, true)
+            clip(subject, most, true, true)
         ),
     }
 }
@@ -505,32 +499,39 @@ pub(crate) fn view(
         }
         _ => Value::Null,
     };
-    let danger = if wait.kind == "approval" {
-        Value::from(
-            wait.danger
-                .clone()
-                .unwrap_or_else(|| "unconfined".into()),
-        )
-    } else {
-        Value::Null
-    };
-    let mut view = json!({
+    let mut detail = json!({"kind": wait.kind});
+    if wait.kind == "approval" {
+        let danger = wait.danger.as_deref().unwrap_or("unconfined");
+        // An edit or a command is let go for the agent's session,
+        // where the network and no sandbox are granted until revoked.
+        let lasting = match danger {
+            "edit" | "command" => "session",
+            _ => "grant",
+        };
+        detail["danger"] = danger.into();
+        detail["says"] = says(Some(danger)).into();
+        detail["always"] = wait
+            .answers
+            .iter()
+            .any(|answer| answer == "always")
+            .then_some(lasting)
+            .into();
+    }
+    if let Some(questions) = &wait.questions {
+        detail["questions"] = serde_json::to_value(questions)
+            .context("a wait's questions")?;
+    }
+    Ok(json!({
         "id": wait.id,
-        "kind": wait.kind,
-        "danger": danger,
         "by": wait.by,
         "agent": wait.agent.as_ref().map(|a| json!({"hamlet": a.hamlet, "number": a.number})),
-        "says": says(wait.danger.as_deref()),
         "about": wait.about,
+        "subject": subject(wait),
         "change": wait.change,
         "answers": wait.answers,
         "since": wait.since,
         "asked": wait.asked,
         "chat": chat,
-    });
-    if let Some(questions) = &wait.questions {
-        view["questions"] = serde_json::to_value(questions)
-            .context("a wait's questions")?;
-    }
-    Ok(view)
+        "detail": detail,
+    }))
 }

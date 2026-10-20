@@ -71,7 +71,7 @@ fn wait(c: &Capture, field: &str, value: &str) -> Option<Value> {
         .as_array()
         .unwrap()
         .iter()
-        .find(|w| w[field] == value)
+        .find(|w| w["detail"][field] == value)
         .cloned()
 }
 

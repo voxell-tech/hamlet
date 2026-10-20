@@ -42,7 +42,7 @@ use crate::record::AgentRef;
 use crate::{Layout, RuntimeInstance, Store};
 
 /// The link version this server speaks.
-pub const LINK_VERSION: i64 = 1;
+pub const LINK_VERSION: u64 = 1;
 
 /// What a runtime must be able to do to be given Hamlet's work (S24).
 const NEEDED: &[Capability] = &[
@@ -63,7 +63,7 @@ const RESTART_FORGIVEN: Duration = Duration::from_secs(60);
 /// How long a stopping runtime has before it is killed.
 const STOP_GRACE: Duration = Duration::from_secs(5);
 /// Entries asked for at once when catching up on a conversation.
-const SYNC_PAGE: i64 = 200;
+const SYNC_PAGE: u64 = 200;
 
 /// The kind of an entry written for people alone.
 const NOTICE: &str = "hamlet.notice";
@@ -168,7 +168,7 @@ pub enum Notice {
     Live {
         binding: BindingId,
         running: bool,
-        pending: i64,
+        pending: u64,
         partial: Option<Partial>,
     },
     /// A model call of the conversation was allowed.
@@ -789,7 +789,7 @@ impl Harnesses {
         store: &Store,
         binding: BindingId,
         before: Option<String>,
-        limit: i64,
+        limit: u64,
     ) -> Result<()> {
         let bound = self.bound(store, binding)?;
         let (Some(index), Some(conversation)) =

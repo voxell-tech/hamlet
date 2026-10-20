@@ -1,6 +1,5 @@
 //! Structured questions through a real server and its Pi process.
 
-use hamlet_acceptance::realm::wait_id;
 use hamlet_acceptance::*;
 use hamlet_protocol::v0::*;
 use serde_json::json;
@@ -25,12 +24,15 @@ async fn structured_questions_survive_restart_and_only_valid_answers_settle()
     chief.tell(mayor(), "Plant something.").await;
     let wait = chief
         .wait_for("structured questions", |w| {
-            matches!(w, Wait::Question { .. })
+            matches!(w.detail, WaitDetail::Question { .. })
         })
         .await;
-    let Wait::Question {
-        questions: Some(questions),
+    let Wait {
         about,
+        detail:
+            WaitDetail::Question {
+                questions: Some(questions),
+            },
         ..
     } = &wait
     else {
@@ -84,7 +86,7 @@ async fn structured_questions_survive_restart_and_only_valid_answers_settle()
             .request(|id| {
                 ClientMessage::Answer(Answer {
                     id,
-                    wait: wait_id(&wait).into(),
+                    wait: wait.id.clone(),
                     choice: Choice::Reply,
                     text: None,
                     picks: Some(picks),
@@ -95,11 +97,7 @@ async fn structured_questions_survive_restart_and_only_valid_answers_settle()
         assert_eq!(chief.waits(), std::slice::from_ref(&wait));
     }
     let reply = chief
-        .choose(
-            wait_id(&wait),
-            Choice::Reply,
-            Some("b and two acres"),
-        )
+        .choose(&wait.id, Choice::Reply, Some("b and two acres"))
         .await;
     assert_eq!(reply.kind, ReplyKind::Error);
     let picks = vec![
@@ -116,7 +114,7 @@ async fn structured_questions_survive_restart_and_only_valid_answers_settle()
             .request(|id| {
                 ClientMessage::Answer(Answer {
                     id,
-                    wait: wait_id(&wait).into(),
+                    wait: wait.id.clone(),
                     choice,
                     text,
                     picks: Some(picks.clone()),
@@ -130,7 +128,7 @@ async fn structured_questions_survive_restart_and_only_valid_answers_settle()
         .request(|id| {
             ClientMessage::Answer(Answer {
                 id,
-                wait: wait_id(&wait).into(),
+                wait: wait.id.clone(),
                 choice: Choice::Reply,
                 text: None,
                 picks: Some(picks),
@@ -194,13 +192,12 @@ async fn question_limit_counts_calls_not_questions_and_invalid_calls_do_not_spen
     let wait = s
         .chief
         .wait_for("the valid pair", |w| {
-            matches!(w, Wait::Question { .. })
+            matches!(w.detail, WaitDetail::Question { .. })
         })
         .await;
-    let Wait::Question {
+    let WaitDetail::Question {
         questions: Some(questions),
-        ..
-    } = &wait
+    } = &wait.detail
     else {
         panic!("questions")
     };
@@ -210,7 +207,7 @@ async fn question_limit_counts_calls_not_questions_and_invalid_calls_do_not_spen
         .request(|id| {
             ClientMessage::Answer(Answer {
                 id,
-                wait: wait_id(&wait).into(),
+                wait: wait.id.clone(),
                 choice: Choice::Reply,
                 text: None,
                 picks: Some(vec![

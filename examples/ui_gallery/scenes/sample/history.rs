@@ -31,7 +31,7 @@ pub(super) fn setup(world: &mut World, reading: bool) {
             number: i as i64 + 1,
             current: i == 0,
             messages: *messages,
-            tokens: 1800 * *messages,
+            tokens: 1800 * messages.unsigned_abs(),
         })
         .collect::<Vec<_>>();
     let reading = reading.then(|| {

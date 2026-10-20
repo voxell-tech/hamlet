@@ -390,9 +390,9 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = Some(vec![
-            "restore-hamlet".into(),
-            "erase-hamlet".into(),
+        state.deeds = hamlet_testing::realm::deeds(&[
+            "restore-hamlet",
+            "erase-hamlet",
         ]);
         state.closed = Some(vec![v0::ClosedHamlet {
             id: "mill".into(),
@@ -446,9 +446,9 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = Some(vec![
-            "restore-hamlet".into(),
-            "erase-hamlet".into(),
+        state.deeds = hamlet_testing::realm::deeds(&[
+            "restore-hamlet",
+            "erase-hamlet",
         ]);
         state.closed = Some(vec![v0::ClosedHamlet {
             id: "mill".into(),

@@ -6,10 +6,10 @@ use anyhow::{Result, bail};
 use bevy::DefaultPlugins;
 use bevy::app::PluginGroup;
 use bevy_app::{App, AppExit};
-use hamlet_client::{
-    ClientPlugin, Connection, ServerAddress, Tokio, ViewDir,
-};
+use hamlet_client::connection::LocalServer;
+use hamlet_client::{ClientPlugin, Connection, Tokio, ViewDir};
 use hamlet_desktop::DesktopPlugin;
+use hamlet_protocol::discovery::{self, Chosen};
 use hamlet_realm::RealmPlugin;
 use hamlet_ui::{UiPlugin, window_plugin};
 
@@ -27,16 +27,13 @@ env: HAMLET_SERVER and HAMLET_TOKEN select a server;
      HAMLET_VIEW selects the window's layout, size and look folder;
      otherwise the OS's config folder for Hamlet is used.";
 
-fn parse(
-    mut args: impl Iterator<Item = String>,
-) -> Result<Option<()>> {
-    if let Some(arg) = args.next() {
-        match arg.as_str() {
-            "-h" | "--help" => return Ok(None),
-            other => bail!("unknown argument `{other}`\n\n{USAGE}"),
-        }
+/// Whether `args` open the window, rather than ask for its usage.
+fn parse(mut args: impl Iterator<Item = String>) -> Result<bool> {
+    match args.next().as_deref() {
+        None => Ok(true),
+        Some("-h" | "--help") => Ok(false),
+        Some(other) => bail!("unknown argument `{other}`\n\n{USAGE}"),
     }
-    Ok(Some(()))
 }
 
 fn view_dir(
@@ -67,7 +64,7 @@ fn view_dir(
 }
 
 fn main() -> Result<()> {
-    if parse(std::env::args().skip(1))?.is_none() {
+    if !parse(std::env::args().skip(1))? {
         println!("{USAGE}");
         return Ok(());
     }
@@ -95,51 +92,29 @@ fn main() -> Result<()> {
 }
 
 fn client(app: &mut App, vars: impl Fn(&str) -> Option<String>) {
-    let (server, error) = match ServerAddress::find(&vars) {
-        Ok(server) => (Some(server), None),
-        Err(words) => (None, Some(words)),
-    };
-    app.add_plugins(ClientPlugin { server });
-    if let Some(words) = error {
-        if vars("HAMLET_SERVER").is_none()
-            && let Ok(home) = ServerAddress::local_home(vars)
-        {
-            app.insert_resource(
-                hamlet_client::connection::LocalServer(home),
-            );
+    match discovery::choose(vars) {
+        Ok(Chosen::At(server)) => {
+            app.add_plugins(ClientPlugin {
+                server: Some(server),
+            });
         }
-        app.insert_resource(Connection {
-            words,
-            ..Connection::default()
-        });
+        Ok(Chosen::Home(home)) => {
+            app.add_plugins(ClientPlugin { server: None })
+                .insert_resource(LocalServer(home));
+        }
+        Err(words) => {
+            app.add_plugins(ClientPlugin { server: None })
+                .insert_resource(Connection {
+                    words,
+                    ..Connection::default()
+                });
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn parsed(args: &[&str]) -> Result<Option<()>> {
-        parse(args.iter().map(|a| a.to_string()))
-    }
-
-    #[test]
-    fn help_names_the_window_and_its_connection_and_view_settings() {
-        assert_eq!(parsed(&["-h"]).unwrap(), None);
-        assert_eq!(parsed(&["--help"]).unwrap(), None);
-        assert!(
-            USAGE.starts_with("usage: hamlet-app [-h]"),
-            "{USAGE}"
-        );
-        for key in [
-            "HAMLET_SERVER",
-            "HAMLET_TOKEN",
-            "HAMLET_HOME",
-            "HAMLET_VIEW",
-        ] {
-            assert!(USAGE.contains(key), "{USAGE}");
-        }
-    }
 
     fn view(os: &str, vars: &[(&str, &str)]) -> Result<PathBuf> {
         view_dir(os, |key| {
@@ -186,22 +161,5 @@ mod tests {
             let error = view(os, &[]).unwrap_err().to_string();
             assert!(error.contains("HAMLET_VIEW"), "{error}");
         }
-    }
-
-    #[test]
-    fn runtime_flags_are_unknown_and_name_the_server_commands() {
-        for flag in ["--headless", "--repl", "--insecure", "--replay"]
-        {
-            let error = parsed(&[flag]).unwrap_err().to_string();
-            assert!(
-                error.contains(&format!("unknown argument `{flag}`")),
-                "{error}"
-            );
-            assert!(error.contains("hamlet server"), "{error}");
-            assert!(error.contains("hamlet chat"), "{error}");
-        }
-        let unknown = parsed(&["--hedless"]).unwrap_err().to_string();
-        assert!(unknown.contains("`--hedless`"), "{unknown}");
-        assert!(parsed(&[]).unwrap().is_some());
     }
 }

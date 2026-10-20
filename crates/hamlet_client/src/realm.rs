@@ -4,16 +4,13 @@ use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::{SystemParam, SystemState};
 use hamlet_protocol::v0;
+pub use hamlet_protocol::{HOME, MAYOR};
 
 /// The server machine's houses folder, excluded from local chat
 /// links.
 #[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
 pub struct Houses(pub Option<String>);
 
-/// The first hamlet's protocol id.
-pub const HOME: &str = "home";
-/// The address of a hamlet's current mayor.
-pub const MAYOR: &str = "mayor";
 /// The received mode for edits and commands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -138,8 +135,8 @@ impl From<v0::Doing> for Doing {
 pub struct Activity {
     pub doing: Doing,
     pub words: String,
-    pub step: u32,
-    pub failures: u32,
+    pub step: u64,
+    pub failures: u64,
 }
 
 /// The latest streamed words or reasoning of an agent.
@@ -206,7 +203,7 @@ pub struct Providers(pub Vec<v0::ProviderView>);
 #[derive(Resource, Clone, Debug, Default)]
 pub struct Grants(pub Vec<v0::Grant>);
 
-/// The chief's deeds supported by the server.
+/// The names of the chief's deeds supported by the server.
 #[derive(Resource, Clone, Debug, Default)]
 pub struct Deeds(pub Vec<String>);
 
@@ -228,7 +225,7 @@ pub struct Seen {
 
 /// The shipped skills offered as gifts.
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
-pub struct Starters(pub Vec<v0::StateStarters>);
+pub struct Starters(pub Vec<v0::Skill>);
 
 /// The skill folder names in an agent's house.
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
@@ -236,7 +233,7 @@ pub struct HouseSkills(pub Vec<String>);
 
 /// The library shelf, independent of agents' own skills.
 #[derive(Resource, Clone, Debug, Default)]
-pub struct Skills(pub Vec<v0::PapersSkills>);
+pub struct Skills(pub Vec<v0::Skill>);
 
 /// The removed hamlets available to restore or erase.
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
@@ -414,7 +411,7 @@ pub(crate) fn state(world: &mut World, state: v0::State) {
             .library
             .unwrap_or_default()
             .into_iter()
-            .map(|skill| v0::PapersSkills {
+            .map(|skill| v0::Skill {
                 name: skill.name,
                 description: skill.description,
             })
@@ -426,7 +423,14 @@ pub(crate) fn state(world: &mut World, state: v0::State) {
     world.insert_resource(Settings(state.settings));
     world.insert_resource(Providers(state.providers));
     world.insert_resource(Grants(state.grants));
-    world.insert_resource(Deeds(state.deeds.unwrap_or_default()));
+    world.insert_resource(Deeds(
+        state
+            .deeds
+            .unwrap_or_default()
+            .into_iter()
+            .map(|deed| deed.name)
+            .collect(),
+    ));
     world.insert_resource(Starters(
         state.starters.unwrap_or_default(),
     ));
@@ -515,7 +519,7 @@ pub(crate) fn agent(
         .query::<(Entity, &Citizen, &LivesIn)>()
         .iter(world)
         .find(|(_, citizen, lives)| {
-            citizen.0 == reference.number as u64
+            citizen.0 == reference.number
                 && world.get::<Settlement>(lives.0).is_some_and(
                     |hamlet| hamlet.name == reference.hamlet,
                 )
@@ -534,15 +538,15 @@ fn upsert_agent(
     let consulted =
         consulting && world.get::<Consulting>(entity).is_none();
     let mut agent = world.entity_mut(entity);
-    put(&mut agent, Citizen(value.ref_.number as u64));
+    put(&mut agent, Citizen(value.ref_.number));
     put(&mut agent, Name::new(value.name));
     put(&mut agent, Purpose(value.purpose));
     put(&mut agent, HouseSkills(value.skills.unwrap_or_default()));
     put(
         &mut agent,
         Lived {
-            since: value.since as u64,
-            until: value.left.as_ref().map(|left| left.at as u64),
+            since: value.since,
+            until: value.left.as_ref().map(|left| left.at),
         },
     );
     put(&mut agent, LivesIn(hamlet));
@@ -563,8 +567,8 @@ fn upsert_agent(
         Activity {
             doing: value.activity.doing.into(),
             words: value.activity.doing_words,
-            step: value.activity.step as u32,
-            failures: value.activity.failures as u32,
+            step: value.activity.step,
+            failures: value.activity.failures,
         },
     );
     put(
@@ -745,7 +749,7 @@ fn society(world: &mut World, value: v0::Hamlet, news: bool) {
                 v0::RoadLevel::Paved => RoadUse::Paved,
                 v0::RoadLevel::Rail => RoadUse::Rail,
             },
-            messages: value.messages as u32,
+            messages: value.messages,
             last_from: value
                 .last_from
                 .as_ref()
@@ -833,7 +837,7 @@ pub enum RoadUse {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Traffic {
     pub level: RoadUse,
-    pub messages: u32,
+    pub messages: u64,
     pub last_from: Option<Entity>,
 }
 

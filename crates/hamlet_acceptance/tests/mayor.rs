@@ -6,10 +6,17 @@ mod asking;
 
 use std::time::Duration;
 
-use hamlet_acceptance::realm::{wait_id, wait_says};
 use hamlet_acceptance::*;
 use hamlet_protocol::v0::*;
 use serde_json::json;
+
+/// An approval's words after its agent's name.
+fn says(wait: &Wait) -> &str {
+    match &wait.detail {
+        WaitDetail::Approval { says, .. } => says,
+        _ => "",
+    }
+}
 
 fn notice(reply: &Reply) -> (&ReplyKind, &str) {
     (&reply.kind, reply.text.as_str())
@@ -113,7 +120,7 @@ async fn streams_a_turn_whose_ops_equal_the_transcript_read_again() {
     let last = again.items.last().unwrap();
     assert_eq!(
         again.last,
-        Some(Some(TranscriptLast {
+        Some(Some(LastActivity {
             what: "replied".into(),
             at: last.at
         }))
@@ -190,24 +197,21 @@ async fn holds_a_command_and_an_edit_for_approval_in_manual_mode() {
         .chief
         .wait_for("a command approval", |w| {
             matches!(
-                w,
-                Wait::Approval {
+                w.detail,
+                WaitDetail::Approval {
                     danger: WaitDanger::Command,
                     ..
                 }
             )
         })
         .await;
-    let Wait::Approval {
+    let Wait {
         answers,
         asked,
         about,
         agent,
         ..
-    } = &command
-    else {
-        unreachable!()
-    };
+    } = &command;
     assert_eq!(
         answers,
         &[Choice::Allow, Choice::Always, Choice::Deny]
@@ -221,31 +225,31 @@ async fn holds_a_command_and_an_edit_for_approval_in_manual_mode() {
         })
     );
     assert_eq!(about, "printf 'heading\\napproved\\n' > result.txt");
-    assert_eq!(wait_says(&command), "wants to run");
+    assert_eq!(says(&command), "wants to run");
     assert!(!std::path::Path::new(&dir).join("result.txt").exists());
     let reply =
-        s.chief.choose(wait_id(&command), Choice::Allow, None).await;
+        s.chief.choose(&command.id, Choice::Allow, None).await;
     assert_eq!(reply.kind, ReplyKind::Notice);
     let edit = s
         .chief
         .wait_for("an edit approval", |w| {
             matches!(
-                w,
-                Wait::Approval {
+                w.detail,
+                WaitDetail::Approval {
                     danger: WaitDanger::Edit,
                     ..
                 }
             )
         })
         .await;
-    let Wait::Approval {
+    let Wait {
         change: Some(change),
         ..
     } = &edit
     else {
         panic!("an edit approval carries its change: {edit:?}")
     };
-    assert_eq!(wait_says(&edit), "wants to edit");
+    assert_eq!(says(&edit), "wants to edit");
     assert_eq!(
         std::fs::read_to_string(format!("{dir}/result.txt")).unwrap(),
         "heading\napproved\n"
@@ -275,7 +279,7 @@ async fn holds_a_command_and_an_edit_for_approval_in_manual_mode() {
             count: "1 line added, 1 removed".into(),
         }
     );
-    s.chief.choose(wait_id(&edit), Choice::Allow, None).await;
+    s.chief.choose(&edit.id, Choice::Allow, None).await;
     s.chief
         .shows(&mayor_chat, "The approved command finished.")
         .await;
@@ -291,8 +295,8 @@ async fn holds_a_command_and_an_edit_for_approval_in_manual_mode() {
     assert_eq!(
         closed,
         [
-            (wait_id(&command).to_string(), "allow".to_string()),
-            (wait_id(&edit).to_string(), "allow".to_string())
+            (command.id.clone(), "allow".to_string()),
+            (edit.id.clone(), "allow".to_string())
         ]
     );
     let write = s
@@ -329,8 +333,8 @@ async fn refuses_a_denied_command_and_tells_the_model_why() {
     s.chief
         .wait_for("a command approval", |w| {
             matches!(
-                w,
-                Wait::Approval {
+                w.detail,
+                WaitDetail::Approval {
                     danger: WaitDanger::Command,
                     ..
                 }
@@ -375,7 +379,7 @@ async fn keeps_words_from_a_waiting_mayor_and_answers_by_command() {
     s.chief.tell(mayor(), "Run it.").await;
     s.chief
         .wait_for("a command approval", |w| {
-            matches!(w, Wait::Approval { .. })
+            matches!(w.detail, WaitDetail::Approval { .. })
         })
         .await;
     let asked = "[approval] mayor wants to run `echo allowed`\n    \
@@ -432,15 +436,15 @@ async fn gives_and_takes_back_a_standing_network_permission() {
         .chief
         .wait_for("a network approval", |w| {
             matches!(
-                w,
-                Wait::Approval {
+                w.detail,
+                WaitDetail::Approval {
                     danger: WaitDanger::Network,
                     ..
                 }
             )
         })
         .await;
-    assert_eq!(wait_says(&wait), "wants the network for");
+    assert_eq!(says(&wait), "wants the network for");
     let reply = s.chief.say(mayor(), "/always").await;
     assert_eq!(
         reply.text,
@@ -508,11 +512,11 @@ async fn faults_when_the_model_fails_until_dismissed() {
     s.chief.tell(mayor(), "Try the model.").await;
     let wait = s
         .chief
-        .wait_for("a fault", |w| matches!(w, Wait::Fault { .. }))
+        .wait_for("a fault", |w| {
+            matches!(w.detail, WaitDetail::Fault { .. })
+        })
         .await;
-    let Wait::Fault { about, answers, .. } = &wait else {
-        unreachable!()
-    };
+    let Wait { about, answers, .. } = &wait;
     assert!(about.contains("Faux model unavailable"), "{about}");
     assert_eq!(answers, &[Choice::Dismiss]);
     s.chief
@@ -534,7 +538,7 @@ async fn faults_when_the_model_fails_until_dismissed() {
     let page = s.chief.open(&mayor_chat).await;
     assert_eq!(
         page.last.unwrap().unwrap(),
-        TranscriptLast {
+        LastActivity {
             what: "error".into(),
             at: error.at
         }
@@ -543,18 +547,18 @@ async fn faults_when_the_model_fails_until_dismissed() {
     let repeated = s
         .chief
         .wait_for("the repeated fault", |w| {
-            matches!(w, Wait::Fault { asked: 2, .. })
+            w.asked == 2
+                && matches!(w.detail, WaitDetail::Fault { .. })
         })
         .await;
-    assert_eq!(wait_id(&repeated), wait_id(&wait));
-    let reply =
-        s.chief.choose(wait_id(&wait), Choice::Dismiss, None).await;
+    assert_eq!(&repeated.id, &wait.id);
+    let reply = s.chief.choose(&wait.id, Choice::Dismiss, None).await;
     assert_eq!(reply.kind, ReplyKind::Notice);
     s.chief
         .until("the fault closed", |c| c.waits().is_empty())
         .await;
     assert!(s.chief.changes().contains(&Update::WaitClosed {
-        id: wait_id(&wait).into(),
+        id: wait.id.clone(),
         how: "dismiss".into()
     }));
 }
@@ -566,11 +570,11 @@ async fn faults_on_an_empty_answer() {
     s.chief.tell(mayor(), "Say something.").await;
     let wait = s
         .chief
-        .wait_for("a fault", |w| matches!(w, Wait::Fault { .. }))
+        .wait_for("a fault", |w| {
+            matches!(w.detail, WaitDetail::Fault { .. })
+        })
         .await;
-    let Wait::Fault { about, .. } = &wait else {
-        unreachable!()
-    };
+    let Wait { about, .. } = &wait;
     assert_eq!(
         about,
         "the model answered with nothing. Send the message again"
@@ -588,7 +592,9 @@ async fn carries_on_after_a_failure_with_retry() {
     s.chief.open(&mayor_chat).await;
     s.chief.tell(mayor(), "Try the model.").await;
     s.chief
-        .wait_for("a fault", |w| matches!(w, Wait::Fault { .. }))
+        .wait_for("a fault", |w| {
+            matches!(w.detail, WaitDetail::Fault { .. })
+        })
         .await;
     let reply = s
         .chief
@@ -710,7 +716,7 @@ async fn answers_stop_commands_in_words() {
     s.chief.tell(mayor(), "Run it.").await;
     s.chief
         .wait_for("an approval", |w| {
-            matches!(w, Wait::Approval { .. })
+            matches!(w.detail, WaitDetail::Approval { .. })
         })
         .await;
     let reply = s.chief.say(mayor(), "/stop nobody").await;
@@ -1062,7 +1068,7 @@ async fn answers_a_question_the_mayor_asks() {
     let wait = s
         .chief
         .wait_for("a question", |w| {
-            matches!(w, Wait::Question { .. })
+            matches!(w.detail, WaitDetail::Question { .. })
         })
         .await;
     assert_eq!(
@@ -1070,9 +1076,7 @@ async fn answers_a_question_the_mayor_asks() {
         s.chief.waits()[0],
         "one question waits for the chief"
     );
-    let Wait::Question { about, answers, .. } = &wait else {
-        unreachable!()
-    };
+    let Wait { about, answers, .. } = &wait;
     assert_eq!(about, "Which grain?");
     assert!(answers.contains(&Choice::Reply), "{answers:?}");
     let reply = s.chief.say(mayor(), "/reply").await;
@@ -1158,8 +1162,8 @@ async fn keeps_a_wait_and_the_chat_across_a_crash() {
     let wait = chief
         .wait_for("an edit approval", |w| {
             matches!(
-                w,
-                Wait::Approval {
+                w.detail,
+                WaitDetail::Approval {
                     danger: WaitDanger::Edit,
                     ..
                 }
@@ -1183,7 +1187,7 @@ async fn keeps_a_wait_and_the_chat_across_a_crash() {
     let page = chief.open(&mayor_chat).await;
     assert_eq!(page.items[0].text, "Hello.");
     assert_eq!(page.items[1].text, "Before the crash.");
-    chief.choose(wait_id(&wait), Choice::Allow, None).await;
+    chief.choose(&wait.id, Choice::Allow, None).await;
     chief.shows(&mayor_chat, "After restart.").await;
     assert_eq!(
         std::fs::read_to_string(dir.join("b.txt")).unwrap(),
@@ -1467,12 +1471,10 @@ async fn faults_on_thinking_without_an_answer() {
     let wait = s
         .chief
         .wait_for("an empty-answer fault", |w| {
-            matches!(w, Wait::Fault { .. })
+            matches!(w.detail, WaitDetail::Fault { .. })
         })
         .await;
-    let Wait::Fault { about, .. } = wait else {
-        unreachable!()
-    };
+    let Wait { about, .. } = wait;
     assert_eq!(
         about,
         "the model answered with nothing. Send the message again"
@@ -1700,13 +1702,13 @@ async fn keeps_edit_trust_and_network_refusal_across_restart_but_not_resume()
     let dir = manual(&mut s).await;
     s.chief.tell(mayor(), "Work.").await;
     let edit = s.chief.wait_for("edit", |_| true).await;
-    s.chief.choose(wait_id(&edit), Choice::Always, None).await;
+    s.chief.choose(&edit.id, Choice::Always, None).await;
     let net = s
         .chief
         .wait_for("network", |w| {
             matches!(
-                w,
-                Wait::Approval {
+                w.detail,
+                WaitDetail::Approval {
                     danger: WaitDanger::Network,
                     ..
                 }
@@ -1714,14 +1716,14 @@ async fn keeps_edit_trust_and_network_refusal_across_restart_but_not_resume()
         })
         .await;
     s.chief
-        .choose(wait_id(&net), Choice::Deny, Some("no network"))
+        .choose(&net.id, Choice::Deny, Some("no network"))
         .await;
     let command = s
         .chief
         .wait_for("command", |w| {
             matches!(
-                w,
-                Wait::Approval {
+                w.detail,
+                WaitDetail::Approval {
                     danger: WaitDanger::Command,
                     ..
                 }
@@ -1754,7 +1756,7 @@ async fn keeps_edit_trust_and_network_refusal_across_restart_but_not_resume()
     let mut chief = Client::join(&server).await;
     assert_eq!(chief.waits(), std::slice::from_ref(&command));
     chief.open(&chat(mayor())).await;
-    chief.choose(wait_id(&command), Choice::Allow, None).await;
+    chief.choose(&command.id, Choice::Allow, None).await;
     chief.shows(&chat(mayor()), "Finished.").await;
     chief.idle("home", "founder").await;
     assert!(chief.waits().is_empty());
@@ -1778,15 +1780,15 @@ async fn keeps_edit_trust_and_network_refusal_across_restart_but_not_resume()
     let edit = chief
         .wait_for("edit after resume", |w| {
             matches!(
-                w,
-                Wait::Approval {
+                w.detail,
+                WaitDetail::Approval {
                     danger: WaitDanger::Edit,
                     ..
                 }
             )
         })
         .await;
-    chief.choose(wait_id(&edit), Choice::Deny, None).await;
+    chief.choose(&edit.id, Choice::Deny, None).await;
     chief.shows(&chat(mayor()), "Refused.").await;
     assert!(!dir.join("c.txt").exists());
 }
@@ -1825,7 +1827,7 @@ async fn stopping_drops_queued_lines_and_leaves_the_next_line_alone()
         .until("the wait lapsed", |c| c.waits().is_empty())
         .await;
     assert!(s.chief.changes().contains(&Update::WaitClosed {
-        id: wait_id(&wait).into(),
+        id: wait.id.clone(),
         how: "stopped".into()
     }));
     s.chief.say(mayor(), "Next.").await;

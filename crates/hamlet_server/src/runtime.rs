@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
-use hamlet_protocol::v0::{ClientMessage, ServerMessage, State};
+use hamlet_protocol::v0::{
+    ClientMessage, MoveHouses, ServerMessage, State,
+};
 use serde_json::json;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
@@ -22,7 +24,6 @@ use crate::credentials::write_whole;
 use crate::harness::{self, Harnesses, InputStatus, Notice};
 use crate::protocol::{Protocol, fault};
 use crate::service::Service;
-use crate::state::id_of;
 use crate::{Home, chats};
 
 const LARGEST: usize = 1_048_576;
@@ -297,7 +298,7 @@ pub async fn serve(options: Options) -> Result<()> {
                                 flush_models(&mut service, &mut harnesses).await?;
                                 continue;
                             }
-                            if let ClientMessage::MoveHouses { id: request } = &message {
+                            if let ClientMessage::MoveHouses(MoveHouses { id: request }) = &message {
                                 if let Err(error) = service.start_move(id, request)? {
                                     send(client, &service, crate::protocol::reply(request, Err(error)))?;
                                 }
@@ -641,11 +642,11 @@ fn refresh(
     let mut after = service.state(state.epoch, state.revision)?;
     let mut endings = HashMap::new();
     for wait in &state.waits {
-        if !after.waits.iter().any(|w| id_of(w) == id_of(wait)) {
+        if !after.waits.iter().any(|w| w.id == wait.id) {
             let db = service.home.store().connection();
             endings.insert(
-                id_of(wait).to_owned(),
-                crate::oversight::ended(db, id_of(wait))?,
+                wait.id.clone(),
+                crate::oversight::ended(db, &wait.id)?,
             );
         }
     }

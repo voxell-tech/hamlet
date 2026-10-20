@@ -459,7 +459,7 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
             panic!("tool entry");
         };
         assert_eq!(*exit, Some(code));
-        assert_eq!(*time, Some(ms as u64));
+        assert_eq!(*time, Some(ms));
         assert_eq!(why.as_deref(), failure);
         if code == 0 {
             let change = change.as_ref().unwrap();
@@ -505,7 +505,7 @@ fn working_and_last_activity_follow_status_and_finishing_is_not_repeated()
     let idle = turn(vec![v0::Op::Status {
         working: false,
         pending: 0,
-        last: Some(v0::OpStatusLast {
+        last: Some(v0::LastActivity {
             at: 1234,
             what: "Finished the chief's task".into(),
         }),
@@ -548,16 +548,16 @@ fn recorded_chats_keep_last_activity_from_live_status_and_transcripts()
             match &message {
                 v0::ServerMessage::Transcript(page) => {
                     if let Some(last) = &page.last {
-                        expected = last.as_ref().map(|last| {
-                            (last.at as u64, last.what.clone())
-                        });
+                        expected = last
+                            .as_ref()
+                            .map(|last| (last.at, last.what.clone()));
                     }
                 }
                 v0::ServerMessage::Turn(turn) => {
                     for op in &turn.ops {
                         if let v0::Op::Status { last, .. } = op {
                             expected = last.as_ref().map(|last| {
-                                (last.at as u64, last.what.clone())
+                                (last.at, last.what.clone())
                             });
                         }
                     }

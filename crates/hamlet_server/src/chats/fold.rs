@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use hamlet_protocol::v0::{
-    Change, Item, ItemKind, ItemTool, Op, TranscriptLast,
+    Change, Item, ItemKind, ItemTool, LastActivity, Op,
 };
 use serde_json::Value;
 
@@ -26,8 +26,8 @@ pub(crate) const SUMMARY_NOTICE: &str =
 pub(crate) struct Fold {
     pub items: Vec<Item>,
     pub working: bool,
-    pub pending: i64,
-    pub last: Option<TranscriptLast>,
+    pub pending: u64,
+    pub last: Option<LastActivity>,
     /// An answer landed without some of what it showed being kept,
     /// which no op takes away.
     pub stale: bool,
@@ -61,7 +61,7 @@ impl Fold {
     pub fn live(
         &mut self,
         running: bool,
-        pending: i64,
+        pending: u64,
         partial: Option<&link::Partial>,
         secrets: &[String],
     ) {
@@ -72,7 +72,7 @@ impl Fold {
         self.status(running, pending, lasts);
     }
 
-    fn status(&mut self, running: bool, pending: i64, lasts: u64) {
+    fn status(&mut self, running: bool, pending: u64, lasts: u64) {
         if running != self.working
             || pending != self.pending
             || lasts != self.lasts
@@ -82,12 +82,7 @@ impl Fold {
             self.ops.push(Op::Status {
                 working: running,
                 pending,
-                last: self.last.clone().map(|last| {
-                    hamlet_protocol::v0::OpStatusLast {
-                        at: last.at,
-                        what: last.what,
-                    }
-                }),
+                last: self.last.clone(),
             });
         }
     }
@@ -130,8 +125,7 @@ impl Fold {
                 change,
             });
             if entry.tool.as_deref() == Some("ask_chief")
-                && let Some(text) =
-                    hamlet_protocol::asking::said(&entry.text)
+                && let Some(text) = super::asking::said(&entry.text)
             {
                 self.add(
                     Item {
@@ -168,8 +162,7 @@ impl Fold {
                 None
             };
             if let Some(what) = what {
-                self.last =
-                    Some(TranscriptLast { what, at: item.at });
+                self.last = Some(LastActivity { what, at: item.at });
                 self.lasts += 1;
             }
             if item.tool.is_some()
@@ -279,7 +272,7 @@ pub(crate) fn items_of(entry: &link::Item) -> Vec<(usize, Item)> {
             .cloned()
             .unwrap_or(Value::Null)
     };
-    let at = data("at").as_i64().unwrap_or(entry.at);
+    let at = data("at").as_u64().unwrap_or(entry.at);
     match entry.mark.as_ref().map(|mark| mark.kind.as_str()) {
         Some("hamlet.chief") => {
             let text =
@@ -349,7 +342,7 @@ pub(crate) fn items_of(entry: &link::Item) -> Vec<(usize, Item)> {
 /// with.
 fn blocks_of(
     blocks: &[Block],
-    at: i64,
+    at: u64,
     stop: Option<&str>,
     failure: Option<&str>,
     id: impl Fn(usize) -> String,
@@ -428,7 +421,7 @@ fn blocks_of(
 #[allow(clippy::type_complexity)]
 fn ending(
     entry: &link::Item,
-) -> (i64, Option<i64>, Option<String>, Option<Option<Change>>) {
+) -> (i64, Option<u64>, Option<String>, Option<Option<Change>>) {
     let error = entry.error == Some(true);
     let details = entry.details.as_ref();
     let code = details

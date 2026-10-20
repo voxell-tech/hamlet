@@ -1,7 +1,4 @@
 import { type Static, type TProperties, type TSchema, Type } from "typebox";
-import { Compile, type Validator } from "typebox/compile";
-import type { TLocalizedValidationError } from "typebox/error";
-import { err, ok, type Result } from "./result.ts";
 
 /** The most file bytes a chief can give at once (H25). */
 export const MAX_GIFT_BYTES = 32 * 1024 * 1024;
@@ -13,6 +10,11 @@ function object<P extends TProperties>(properties: P) {
 
 function nullable<T extends TSchema>(type: T) {
     return Type.Union([type, Type.Null()]);
+}
+
+/** A whole number from zero up: a count, an index or a time. */
+function count() {
+    return Type.Integer({ minimum: 0 });
 }
 
 /** The id of a client's request: a UUID the client makes. */
@@ -34,7 +36,7 @@ export type Address = Static<typeof Address>;
 /** An agent by its hamlet and number (C9). */
 export const AgentRef = object({
     hamlet: Type.String(),
-    number: Type.Integer(),
+    number: count(),
 });
 export type AgentRef = Static<typeof AgentRef>;
 
@@ -51,7 +53,7 @@ export type ChatRef = Static<typeof ChatRef>;
 export const GivePart = request("give-part", {
     upload: Type.String(),
     path: Type.String(),
-    offset: Type.Integer({ minimum: 0 }),
+    offset: count(),
     data: Type.String(),
 });
 export type GivePart = Static<typeof GivePart>;
@@ -90,9 +92,9 @@ export const Change = object({
         { maxItems: 200 },
     ),
     /** Lines of the whole change, those that stay among them. */
-    total: Type.Integer(),
-    added: Type.Integer(),
-    removed: Type.Integer(),
+    total: count(),
+    added: count(),
+    removed: count(),
     /** The lines added and removed, in words. */
     count: Type.String(),
 });
@@ -264,19 +266,19 @@ export const Offer = object({
 export const Question = object({
     question: Type.String(),
     description: Type.String(),
-    options: Type.Array(Offer, { maxItems: 6 }),
+    options: Type.Array(Offer),
     text_input: Type.Boolean(),
 });
 /** The questions of one ask_chief call. */
 export const Questions = object({
     message: Type.String(),
-    questions: Type.Array(Question, { minItems: 1, maxItems: 10 }),
+    questions: Type.Array(Question, { minItems: 1 }),
 });
 /** One answer, in question order. Option indexes start at zero. */
 export const Pick = Type.Union([
     object({
         kind: Type.Literal("offer"),
-        index: Type.Integer({ minimum: 0, maximum: 5 }),
+        index: count(),
     }),
     object({ kind: Type.Literal("words"), text: Type.String() }),
 ]);
@@ -286,7 +288,7 @@ export const Answer = request("answer", {
     wait: Type.String(),
     choice: Choice,
     text: Type.Optional(Type.String()),
-    picks: Type.Optional(Type.Array(Pick, { minItems: 1, maxItems: 10 })),
+    picks: Type.Optional(Type.Array(Pick, { minItems: 1 })),
 });
 export type Answer = Static<typeof Answer>;
 
@@ -478,7 +480,7 @@ export type Report = Static<typeof Report>;
 export const Road = object({
     a: AgentRef,
     b: AgentRef,
-    messages: Type.Integer(),
+    messages: count(),
     level: Type.Enum(["overgrown", "dirt", "paved", "rail"]),
     lastFrom: nullable(AgentRef),
 });
@@ -509,7 +511,7 @@ export const TownAt = object({ x: Type.Number(), z: Type.Number() });
 export const Left = object({
     how: Type.Enum(["removed", "merged"]),
     into: nullable(AgentRef),
-    at: Type.Integer(),
+    at: count(),
     by: Type.String(),
     reason: Type.String(),
     words: Type.String(),
@@ -522,6 +524,13 @@ export const ConversationView = object({
     count: Type.Integer(),
     last: nullable(Type.Integer()),
 });
+
+/** A skill's name and what it is for. */
+export const Skill = object({
+    name: Type.String(),
+    description: Type.String(),
+});
+export type Skill = Static<typeof Skill>;
 
 /** A skill on the library's shelf (H33). */
 export const LibrarySkill = object({
@@ -582,7 +591,7 @@ export const Agent = object({
     name: Type.String(),
     purpose: Type.String(),
     /** Its arrival in the hamlet, in milliseconds since the epoch. */
-    since: Type.Integer(),
+    since: count(),
     mayor: Type.Boolean(),
     model: Type.String(),
     /** A conversation of the agent runs or holds a queued item. */
@@ -593,9 +602,9 @@ export const Agent = object({
         doing: Doing,
         doingWords: Type.String(),
         /** Model calls and tool calls begun since it took up its work. */
-        step: Type.Integer(),
+        step: count(),
         /** Tool calls since then that ended in an error. */
-        failures: Type.Integer(),
+        failures: count(),
     }),
     saying: object({ text: Type.String(), thought: Type.Boolean() }),
     spent: object({ ...Amount.properties, cost: Type.String() }),
@@ -604,19 +613,6 @@ export const Agent = object({
 });
 export type Agent = Static<typeof Agent>;
 
-/** Something that waits for a chief (H11). */
-const waitFields = {
-    id: Type.String(),
-    by: Type.String(),
-    agent: nullable(AgentRef),
-    says: Type.String(),
-    about: Type.String(),
-    change: nullable(Change),
-    answers: Type.Array(Choice),
-    since: Type.Integer(),
-    asked: Type.Integer(),
-    chat: nullable(ChatRef),
-};
 /** The reason an approval needs a chief's decision. */
 export const WaitDanger = Type.Enum([
     "network",
@@ -626,26 +622,43 @@ export const WaitDanger = Type.Enum([
     "edit",
     "command",
 ]);
-/** An open approval, fault, question or objection awaiting a chief. */
-export const Wait = Type.Union([
+
+/** How long an approval's `always` lets such calls run: the agent's session, or a grant until it is revoked. */
+export const Lasting = Type.Enum(["session", "grant"]);
+
+/** What one kind of wait carries besides the fields every wait has. */
+export const WaitDetail = Type.Union([
     object({
-        ...waitFields,
         kind: Type.Literal("approval"),
         danger: WaitDanger,
+        /** The agent's wish, in the words that follow its name. */
+        says: Type.String(),
+        /** Null when `always` is not offered. */
+        always: nullable(Lasting),
     }),
-    object({ ...waitFields, kind: Type.Literal("fault"), danger: Type.Null() }),
+    object({ kind: Type.Literal("fault") }),
     object({
-        ...waitFields,
         kind: Type.Literal("question"),
-        danger: Type.Null(),
         questions: Type.Optional(Questions),
     }),
-    object({
-        ...waitFields,
-        kind: Type.Literal("objection"),
-        danger: Type.Null(),
-    }),
+    object({ kind: Type.Literal("objection") }),
 ]);
+
+/** An open approval, fault, question or objection awaiting a chief (H11). */
+export const Wait = object({
+    id: Type.String(),
+    by: Type.String(),
+    agent: nullable(AgentRef),
+    about: Type.String(),
+    /** The line of `about` a one-line view quotes. */
+    subject: Type.String(),
+    change: nullable(Change),
+    answers: Type.Array(Choice),
+    since: count(),
+    asked: count(),
+    chat: nullable(ChatRef),
+    detail: WaitDetail,
+});
 export type Wait = Static<typeof Wait>;
 
 /** The home's settings, with no credential in them. */
@@ -697,6 +710,15 @@ export const ProviderView = object({
 });
 export type ProviderView = Static<typeof ProviderView>;
 
+/** A command the chief can type, as the server carries it out (H26). */
+export const Deed = object({
+    name: Type.String(),
+    /** Its arguments, as `/name` takes them; empty when it takes none. */
+    usage: Type.String(),
+    description: Type.String(),
+});
+export type Deed = Static<typeof Deed>;
+
 /** The whole realm's state (S5). */
 export const State = object({
     /** The server machine's houses folder. Local chat links and pictures must not resolve under it. */
@@ -715,12 +737,10 @@ export const State = object({
     grants: Type.Array(Grant),
     settings: SettingsView,
     providers: Type.Array(ProviderView),
-    /** The chief's command names this server carries out (H26). */
-    deeds: Type.Optional(Type.Array(Type.String())),
+    /** The chief's commands this server carries out (H26). */
+    deeds: Type.Optional(Type.Array(Deed)),
     /** Shipped skills a chief can give (H25). */
-    starters: Type.Optional(
-        Type.Array(object({ name: Type.String(), description: Type.String() })),
-    ),
+    starters: Type.Optional(Type.Array(Skill)),
 });
 export type State = Static<typeof State>;
 
@@ -755,16 +775,16 @@ export type Changes = Static<typeof Changes>;
 
 /** Model calls of a conversation and what they spent. */
 export const UsageView = object({
-    calls: Type.Integer(),
+    calls: count(),
     /** Calls whose provider reported no tokens. */
-    unreported: Type.Integer(),
-    input: Type.Integer(),
-    cached: Type.Integer(),
-    output: Type.Integer(),
-    reasoning: Type.Integer(),
-    ms: Type.Integer(),
-    micros: Type.Integer(),
-    lastInput: Type.Integer(),
+    unreported: count(),
+    input: count(),
+    cached: count(),
+    output: count(),
+    reasoning: count(),
+    ms: count(),
+    micros: count(),
+    lastInput: count(),
     summary: Type.String(),
 });
 export type UsageView = Static<typeof UsageView>;
@@ -774,7 +794,7 @@ export const Item = object({
     /** `<entryId>:<block>`. */
     id: Type.String(),
     /** Milliseconds since the epoch. */
-    at: Type.Integer(),
+    at: count(),
     kind: Type.Enum([
         "user",
         "assistant",
@@ -795,7 +815,7 @@ export const Item = object({
             summary: Type.String(),
             /** Null while it runs. */
             exit: nullable(Type.Integer()),
-            ms: nullable(Type.Integer()),
+            ms: nullable(count()),
             failure: nullable(Type.String()),
             change: nullable(Change),
         }),
@@ -804,7 +824,7 @@ export const Item = object({
 export type Item = Static<typeof Item>;
 
 /** A conversation's latest tool call, reply or error, in words for a chief. */
-export const LastActivity = object({ what: Type.String(), at: Type.Integer() });
+export const LastActivity = object({ what: Type.String(), at: count() });
 export type LastActivity = Static<typeof LastActivity>;
 
 /** One step of an open chat's transcript, as it happens. */
@@ -824,7 +844,7 @@ export const Op = Type.Union([
         op: Type.Literal("close"),
         item: Type.String(),
         exit: Type.Integer(),
-        ms: nullable(Type.Integer()),
+        ms: nullable(count()),
         failure: nullable(Type.String()),
         /** The completed write's change, computed before it ran. */
         change: Type.Optional(nullable(Change)),
@@ -832,7 +852,7 @@ export const Op = Type.Union([
     object({
         op: Type.Literal("status"),
         working: Type.Boolean(),
-        pending: Type.Integer(),
+        pending: count(),
         last: nullable(LastActivity),
     }),
     object({ op: Type.Literal("usage"), usage: UsageView }),
@@ -863,7 +883,7 @@ export const Transcript = object({
     earlier: nullable(Type.String()),
     last: Type.Optional(nullable(LastActivity)),
     working: Type.Boolean(),
-    pending: Type.Integer(),
+    pending: count(),
     usage: UsageView,
 });
 export type Transcript = Static<typeof Transcript>;
@@ -909,7 +929,7 @@ export const Past = object({
     began: Type.Integer(),
     modified: Type.Integer(),
     messages: Type.Integer(),
-    tokens: Type.Integer(),
+    tokens: count(),
 });
 export type Past = Static<typeof Past>;
 
@@ -928,9 +948,7 @@ export type Listed = Static<typeof Listed>;
 export const Papers = object({
     notes: Type.String(),
     character: Type.String(),
-    skills: Type.Array(
-        object({ name: Type.String(), description: Type.String() }),
-    ),
+    skills: Type.Array(Skill),
 });
 export type Papers = Static<typeof Papers>;
 
@@ -986,319 +1004,3 @@ export const ServerMessage = Type.Union(Object.values(FROM_SERVER));
 export type ServerMessage = Static<
     (typeof FROM_SERVER)[keyof typeof FROM_SERVER]
 >;
-
-/** Every named shape of protocol v0. */
-const DEFINITIONS: Record<string, TSchema> = {
-    RequestId,
-    Address,
-    AgentRef,
-    ChatRef,
-    VoteLimits,
-    HamletLimits,
-    Road,
-    Voter,
-    VoteView,
-    TownAt,
-    Left,
-    ConversationView,
-    LibrarySkill,
-    ClosedHamlet,
-    Choice,
-    Amount,
-    Change,
-    Period,
-    Limits,
-    Permission,
-    Grant,
-    Link,
-    Price,
-    Endpoint,
-    LoginMethod,
-    Seen,
-    Hello,
-    Say,
-    Give,
-    GivePart,
-    Offer,
-    Question,
-    Questions,
-    Pick,
-    Answer,
-    Stop,
-    Rewind,
-    New,
-    Resume,
-    Retry,
-    Edit,
-    Open,
-    Close,
-    Login,
-    Check,
-    Read,
-    ClientMessage,
-    Report,
-    Hamlet,
-    Doing,
-    Agent,
-    Wait,
-    WaitDanger,
-    SettingsView,
-    ProviderView,
-    State,
-    Update,
-    Changes,
-    UsageView,
-    Item,
-    Op,
-    Turn,
-    Transcript,
-    Reply,
-    LoginStep,
-    LoginProgress,
-    Past,
-    Listed,
-    Papers,
-    ReadResult,
-    Fault,
-    ServerMessage,
-};
-
-/** Protocol v0 as one JSON Schema document, where each named shape is defined once and referred to. */
-export function protocolSchema(): Record<string, unknown> {
-    const names = new Map(
-        Object.entries(DEFINITIONS).map(([name, schema]) => [
-            JSON.stringify(schema),
-            name,
-        ]),
-    );
-    const refer = (node: unknown, own = false): unknown => {
-        if (typeof node !== "object" || node === null) return node;
-        const name = own ? undefined : names.get(JSON.stringify(node));
-        if (name !== undefined) return { $ref: `#/$defs/${name}` };
-        if (Array.isArray(node)) return node.map((item) => refer(item));
-        return Object.fromEntries(
-            Object.entries(node).map(([key, value]) => [key, refer(value)]),
-        );
-    };
-    return {
-        $schema: "https://json-schema.org/draft/2020-12/schema",
-        title: "Hamlet protocol v0",
-        anyOf: [
-            { $ref: "#/$defs/ClientMessage" },
-            { $ref: "#/$defs/ServerMessage" },
-        ],
-        $defs: Object.fromEntries(
-            Object.entries(DEFINITIONS).map(([name, schema]) => [
-                name,
-                refer(schema, true),
-            ]),
-        ),
-    };
-}
-
-/** Rejected protocol input, correlated only when its request id is a UUID. */
-export type Malformed = { kind: "malformed"; text: string; to?: RequestId };
-
-/** One form of a message, with its own validator. */
-type Form = { readonly properties: TProperties; readonly validator: Validator };
-
-/** The forms of each message, by its type. */
-type Forms = ReadonlyMap<string, readonly Form[]>;
-
-function byType(messages: Record<string, TSchema>): Forms {
-    return new Map(
-        Object.entries(messages).map(([type, schema]) => [
-            type,
-            (Type.IsUnion(schema) ? schema.anyOf : [schema]).map((form) => ({
-                properties: Type.IsObject(form) ? form.properties : {},
-                validator: Compile(form),
-            })),
-        ]),
-    );
-}
-
-const clientForms = byType(FROM_CLIENT);
-const serverForms = byType(FROM_SERVER);
-const requestIds = Compile(RequestId);
-const editForms: Forms = new Map(
-    [...clientForms].filter(([type]) => type === "edit"),
-);
-
-/** Checks an editor's parsed value as a complete edit request, without encoding it again. */
-export function checkEdit(value: unknown): Result<Edit, Malformed> {
-    return check(value, editForms);
-}
-
-/** Reads a message a client sent. */
-export function parseClient(text: string): Result<ClientMessage, Malformed> {
-    return parse(text, clientForms);
-}
-
-/** Reads a message the server sent. */
-export function parseServer(text: string): Result<ServerMessage, Malformed> {
-    return parse(text, serverForms);
-}
-
-function parse<M>(text: string, messages: Forms): Result<M, Malformed> {
-    let value: unknown;
-    try {
-        value = JSON.parse(text);
-    } catch {
-        value = undefined;
-    }
-    return check(value, messages);
-}
-
-function check<M>(value: unknown, messages: Forms): Result<M, Malformed> {
-    if (!isRecord(value) || typeof value.type !== "string") {
-        return err({
-            kind: "malformed",
-            text: "A message is a JSON object with a `type`.",
-        });
-    }
-    const { type, id } = value;
-    const to = requestIds.Check(id) ? { to: id } : {};
-    const forms = messages.get(type);
-    if (forms === undefined) {
-        return err({
-            kind: "malformed",
-            text: `There is no \`${type}\` message.`,
-            ...to,
-        });
-    }
-    if (forms.some((form) => form.validator.Check(value))) {
-        // SAFETY: each caller pairs M with its schema's forms; TypeBox has checked the full value, but the map erases its inferred type.
-        // Verified by: protocol.test.ts round trips client and server messages and rejects malformed forms.
-        return ok(value as M);
-    }
-    return err({
-        kind: "malformed",
-        text: `This \`${type}\` message does not fit protocol v0: ${words(value, forms)}.`,
-        ...to,
-    });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** The reason `value` fits none of `forms`, in words, said of the form it was meant to take. */
-function words(value: Record<string, unknown>, forms: readonly Form[]): string {
-    const form = meant(value, forms);
-    const [stray] = strays(value, form);
-    if (stray !== undefined) {
-        const values = new Set(
-            forms.flatMap((other) => fixed(other.properties[stray]) ?? []),
-        );
-        const among = values.size === 1 ? "" : "one of ";
-        return `\`${stray}\` must be ${among}${quoted([...values])}`;
-    }
-    const error = form.validator
-        .Errors(value)
-        .find(
-            (error) => error.keyword !== "anyOf" && error.keyword !== "boolean",
-        );
-    return error === undefined ? "it is not valid" : said(error);
-}
-
-/** The form `value` was meant to take: the one whose fixed fields it matches most, then the one that names most of its fields. */
-function meant(value: Record<string, unknown>, forms: readonly Form[]): Form {
-    const misses = (form: Form): [number, number] => [
-        strays(value, form).length,
-        Object.keys(value).filter((key) => !Object.hasOwn(form.properties, key))
-            .length,
-    ];
-    return forms
-        .map((form) => ({ form, misses: misses(form) }))
-        .reduce((best, next) => {
-            const [unmatched, unnamed] = next.misses;
-            const fewer =
-                unmatched - best.misses[0] || unnamed - best.misses[1];
-            return fewer < 0 ? next : best;
-        }).form;
-}
-
-/** The fields `form` fixes to values that `value` does not hold. */
-function strays(value: Record<string, unknown>, form: Form): string[] {
-    return Object.entries(form.properties)
-        .filter(([key, schema]) => {
-            const values = fixed(schema);
-            return values !== undefined && !values.includes(value[key]);
-        })
-        .map(([key]) => key);
-}
-
-/** The values a field must take, when its schema fixes them. */
-function fixed(schema: unknown): readonly unknown[] | undefined {
-    if (Type.IsLiteral(schema)) return [schema.const];
-    if (Type.IsEnum(schema)) return schema.enum;
-    return undefined;
-}
-
-function said(error: TLocalizedValidationError): string {
-    const at =
-        error.instancePath === ""
-            ? "it"
-            : `\`${error.instancePath.slice(1).replaceAll("/", ".")}\``;
-    switch (error.keyword) {
-        case "required":
-            return `${at} lacks ${quoted(error.params.requiredProperties)}`;
-        case "additionalProperties":
-            return `${at} has no field ${quoted(error.params.additionalProperties)}`;
-        case "format":
-            if (error.params.format === "uuid") return `${at} must be a UUID`;
-    }
-    return `${at} ${error.message}`;
-}
-
-function quoted(values: readonly unknown[]): string {
-    return values.map((value) => `\`${String(value)}\``).join(", ");
-}
-
-/** Applies a turn to a client's items and status; broken item references are protocol defects. */
-export function applyOp(
-    items: Item[],
-    status: { working: boolean; pending: number },
-    op: Op,
-): void {
-    const find = (id: string) => {
-        const item = items.find((each) => each.id === id);
-        if (item === undefined) throw new Error(`No item ${id}`);
-        return item;
-    };
-    switch (op.op) {
-        case "add":
-            if (op.replaces !== undefined) {
-                items.splice(items.indexOf(find(op.replaces)), 1);
-            }
-            items.push(structuredClone(op.item));
-            return;
-        case "append":
-            find(op.item).text += op.text;
-            return;
-        case "close": {
-            const { tool } = find(op.item);
-            if (tool === undefined) throw new Error(`${op.item} is no tool`);
-            Object.assign(tool, {
-                exit: op.exit,
-                ms: op.ms,
-                failure: op.failure,
-                ...(op.change === undefined ? {} : { change: op.change }),
-            });
-            return;
-        }
-        case "status":
-            Object.assign(status, {
-                working: op.working,
-                pending: op.pending,
-            });
-            return;
-        case "reset":
-            items.length = 0;
-            return;
-        case "usage":
-            return;
-    }
-    const unhandled: never = op;
-    throw new Error(`Unclassified turn operation: ${unhandled}`);
-}

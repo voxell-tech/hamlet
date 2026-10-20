@@ -194,7 +194,7 @@ impl Service {
             self.houses.remote(&agent.hamlet, agent.number, false)?;
         if remote.is_some()
             && files.iter().any(|file| {
-                file.size > crate::workspace::MAX_FILE as i64
+                file.size > crate::workspace::MAX_FILE as u64
             })
         {
             return Ok(Err(refused(
@@ -308,8 +308,8 @@ impl Service {
             Err(_) => return Ok(Err(refused(MISMATCH))),
         };
         if bytes.is_empty()
-            || u64::try_from(part.offset).ok() != Some(*offset)
-            || *offset + bytes.len() as u64 > file.size as u64
+            || part.offset != *offset
+            || *offset + bytes.len() as u64 > file.size
             || STANDARD.encode(&bytes) != part.data
         {
             return Ok(Err(refused(MISMATCH)));
@@ -326,7 +326,7 @@ impl Service {
         if upload
             .files
             .iter()
-            .all(|(file, offset)| *offset == file.size as u64)
+            .all(|(file, offset)| *offset == file.size)
         {
             return self.gift_finish(upload, &part.id).await;
         }

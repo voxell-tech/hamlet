@@ -75,7 +75,7 @@ impl Harnesses {
     pub(super) async fn send(
         &mut self,
         index: usize,
-        make: impl FnOnce(i64, String) -> ServerMessage,
+        make: impl FnOnce(u64, String) -> ServerMessage,
     ) -> String {
         let id = self.session.id();
         let message = make(LINK_VERSION, id.clone());
@@ -93,7 +93,7 @@ impl Harnesses {
         &mut self,
         index: usize,
         pending: Pending,
-        make: impl FnOnce(i64, String) -> ServerMessage,
+        make: impl FnOnce(u64, String) -> ServerMessage,
     ) {
         let id = self.send(index, make).await;
         self.session.pending.insert(id, (index, pending));

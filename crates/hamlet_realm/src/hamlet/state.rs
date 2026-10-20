@@ -6,7 +6,8 @@ use bevy::prelude::*;
 use hamlet_client::realm::{
     Activity, Busy, Doing, Faulted, Left, Paper, Voted,
 };
-use hamlet_client::waits::{Kind, Needs, RaisedBy, Waiting};
+use hamlet_client::waits::{Needs, RaisedBy, Waiting};
+use hamlet_protocol::v0;
 
 use super::Housed;
 use crate::Clock;
@@ -32,8 +33,9 @@ fn work(activity: &Activity) -> Work {
             Doing::CustomTool => Task::CustomTool,
             Doing::Await => Task::Await,
         },
-        step: activity.step,
-        failures: activity.failures,
+        step: u32::try_from(activity.step).unwrap_or(u32::MAX),
+        failures: u32::try_from(activity.failures)
+            .unwrap_or(u32::MAX),
     }
 }
 
@@ -90,7 +92,7 @@ pub(super) fn show(
     let arguing = waiting
         .iter()
         .filter(|(waiting, _)| {
-            matches!(waiting.kind, Kind::Objection)
+            matches!(waiting.detail, v0::WaitDetail::Objection {})
         })
         .filter_map(|(_, by)| housed.get(by.0).ok())
         .map(|agent| agent.0)

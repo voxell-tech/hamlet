@@ -2,7 +2,9 @@
 //! an answer to what waits, or words for the agent.
 
 use anyhow::Result;
-use hamlet_protocol::v0::{Address, ReplyKind, Say, ServerMessage};
+use hamlet_protocol::v0::{
+    Address, Deed, ReplyKind, Say, ServerMessage,
+};
 use serde_json::{Value, json};
 
 use super::{Deferred, deeds, records};
@@ -12,57 +14,174 @@ use crate::record::AgentRef;
 use crate::service::{Service, records as hamlets};
 use crate::{gate, oversight};
 
-/// The chief's commands, with their usage (H26).
-const TABLE: &[(&str, &str)] = &[
-    ("new", ""),
-    ("resume", "<number>"),
-    ("retry", ""),
-    ("agent", "<name>"),
-    ("hamlet", "<name>"),
-    ("to", "<agent> <instruction>"),
-    ("stop", "[agent|all]"),
-    ("queue", ""),
-    ("allow", "[reason]"),
-    ("always", "[reason]"),
-    ("deny", "[reason]"),
-    ("go", "[reason]"),
-    ("withdraw", "[reason]"),
-    ("reply", "<text>"),
-    ("dismiss", ""),
-    ("undo", ""),
-    ("grants", ""),
-    ("revoke", "<agent> <network|unconfined>"),
-    ("remove", "<agent> [reason]"),
-    ("merge", "<absorbed> into <kept> [reason]"),
-    ("road", "<agent> <agent> [reason]"),
-    ("unroad", "<agent> <agent> [reason]"),
-    ("give", "<agent> <skill> [from <agent>]"),
-    ("folder", "<folder|none>"),
-    ("mode", "<manual|auto>"),
-    ("reset-budget", ""),
-    ("restore", "<agent> [as <new-name>] [reason]"),
-    ("erase", "<agent>"),
-    ("record", ""),
-    ("budget", ""),
-    ("reflect", ""),
-    ("mayor", "<agent> [reason]"),
-    ("vote", "<agent> [reason]"),
-    ("votes", ""),
-    ("overturn", "<vote> [reason]"),
-    ("hamlets", ""),
-    ("found", "<hamlet> <mayor> <purpose>"),
-    ("remove-hamlet", "<hamlet> [reason]"),
-    ("restore-hamlet", "<hamlet>"),
-    ("unshelve", "<skill> [reason]"),
-    ("erase-hamlet", "<hamlet>"),
-    ("name-hamlet", "<hamlet> <new-name>"),
-    ("move-hamlet", "<hamlet> <x> <z>"),
-    ("chief", ""),
+/// The chief's commands, with their usage and what they do (H26).
+const TABLE: &[(&str, &str, &str)] = &[
+    (
+        "new",
+        "",
+        "Start a new session and keep this one in history",
+    ),
+    (
+        "resume",
+        "<number>",
+        "Go back to a past session, by its number in History",
+    ),
+    (
+        "retry",
+        "",
+        "Carry on a turn that failed or was stopped, from where it \
+         ended",
+    ),
+    ("agent", "<name>", "Talk to that agent, in whichever hamlet"),
+    ("hamlet", "<name>", "Talk to that hamlet's mayor"),
+    ("to", "<agent> <instruction>", "Instruct an agent directly"),
+    ("stop", "[agent|all]", "Stop an agent's work, or everyone's"),
+    ("queue", "", "List what waits for you"),
+    ("allow", "[reason]", "Allow what waits, this once"),
+    ("always", "[reason]", "Allow it, and the like from now on"),
+    ("deny", "[reason]", "Refuse what waits"),
+    (
+        "go",
+        "[reason]",
+        "Carry out an instruction an agent objected to",
+    ),
+    (
+        "withdraw",
+        "[reason]",
+        "Withdraw an instruction an agent objected to",
+    ),
+    ("reply", "<text>", "Answer what waits in words"),
+    ("dismiss", "", "Put away a fault or a lapsed request"),
+    ("undo", "", "Reverse the latest thing that can be reversed"),
+    ("grants", "", "List what agents are allowed for good"),
+    (
+        "revoke",
+        "<agent> <network|unconfined>",
+        "Take back a lasting permission",
+    ),
+    (
+        "remove",
+        "<agent> [reason]",
+        "Remove an agent and archive its house",
+    ),
+    (
+        "merge",
+        "<absorbed> into <kept> [reason]",
+        "Merge one agent into another",
+    ),
+    (
+        "road",
+        "<agent> <agent> [reason]",
+        "Build a road between two agents",
+    ),
+    (
+        "unroad",
+        "<agent> <agent> [reason]",
+        "Take up the road between two agents",
+    ),
+    (
+        "give",
+        "<agent> <skill> [from <agent>]",
+        "Give an agent a starter skill, or another's",
+    ),
+    (
+        "folder",
+        "<folder|none>",
+        "Point this hamlet at a folder to work on, or at none",
+    ),
+    (
+        "mode",
+        "<manual|auto>",
+        "Whether agents ask before they change the folder",
+    ),
+    (
+        "reset-budget",
+        "",
+        "Start this hamlet's budget again from nothing spent",
+    ),
+    (
+        "restore",
+        "<agent> [as <new-name>] [reason]",
+        "Bring back a removed or merged agent",
+    ),
+    (
+        "erase",
+        "<agent>",
+        "Delete a removed agent for good, to free its room on disk",
+    ),
+    (
+        "record",
+        "",
+        "Who was created, removed, merged and restored",
+    ),
+    ("budget", "", "The hamlet's budget and each agent's spend"),
+    (
+        "reflect",
+        "",
+        "Have the agent reflect on this conversation now",
+    ),
+    (
+        "mayor",
+        "<agent> [reason]",
+        "Make an agent of this hamlet its mayor",
+    ),
+    (
+        "vote",
+        "<agent> [reason]",
+        "Ask this hamlet's agents to vote on making that agent \
+         their mayor",
+    ),
+    ("votes", "", "This hamlet's votes, with every ballot"),
+    (
+        "overturn",
+        "<vote> [reason]",
+        "Reverse a vote that passed, or stop an open one",
+    ),
+    ("hamlets", "", "List the hamlets and their mayors"),
+    (
+        "found",
+        "<hamlet> <mayor> <purpose>",
+        "Found a hamlet of your own under a new mayor",
+    ),
+    (
+        "remove-hamlet",
+        "<hamlet> [reason]",
+        "Remove a hamlet and archive its houses",
+    ),
+    ("restore-hamlet", "<hamlet>", "Bring a removed hamlet back"),
+    (
+        "unshelve",
+        "<skill> [reason]",
+        "Take a skill out of the library",
+    ),
+    (
+        "erase-hamlet",
+        "<hamlet>",
+        "Delete a removed hamlet for good",
+    ),
+    (
+        "name-hamlet",
+        "<hamlet> <new-name>",
+        "Call a hamlet something else",
+    ),
+    (
+        "move-hamlet",
+        "<hamlet> <x> <z>",
+        "Set a hamlet's town down somewhere else",
+    ),
+    ("chief", "", "The commands about hamlets and votes"),
 ];
 
-/// The names of the chief's commands the server carries out (H26).
-pub(crate) fn deeds() -> Vec<String> {
-    TABLE.iter().map(|(deed, _)| (*deed).into()).collect()
+/// The chief's commands the server carries out (H26).
+pub(crate) fn deeds() -> Vec<Deed> {
+    TABLE
+        .iter()
+        .map(|(name, usage, description)| Deed {
+            name: (*name).into(),
+            usage: (*usage).into(),
+            description: (*description).into(),
+        })
+        .collect()
 }
 
 /// A parsed typed command.
@@ -116,9 +235,9 @@ fn read_command(
         Some(at) => (&trimmed[..at], js_trim(&trimmed[at..])),
         None => (trimmed, ""),
     };
-    let (deed, args) = TABLE
+    let (deed, args, _) = TABLE
         .iter()
-        .find(|(deed, _)| name.strip_prefix('/') == Some(deed))?;
+        .find(|(deed, ..)| name.strip_prefix('/') == Some(deed))?;
     let usage = || {
         let command = format!("/{deed}");
         Err(Usage {

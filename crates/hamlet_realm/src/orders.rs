@@ -154,8 +154,8 @@ struct GiftFile {
     path: String,
     base: PathBuf,
     file: Option<File>,
-    size: i64,
-    offset: i64,
+    size: u64,
+    offset: u64,
 }
 
 /// A skill gift sent to the receiving agent.
@@ -281,8 +281,7 @@ fn files(
                 )
             })?
             .replace(std::path::MAIN_SEPARATOR, "/");
-        let size = i64::try_from(metadata.len())
-            .map_err(std::io::Error::other)?;
+        let size = metadata.len();
         into.push(GiftFile {
             path: relative,
             base: base.to_path_buf(),
@@ -453,9 +452,7 @@ fn answered(world: &mut World, response: Response) {
         if file.file.is_none() {
             let opened = open_gift(file)?;
             let metadata = opened.metadata()?;
-            if !metadata.is_file()
-                || metadata.len() != file.size as u64
-            {
+            if !metadata.is_file() || metadata.len() != file.size {
                 return Err(std::io::Error::other(
                     "The gift's file changed after it was offered.",
                 ));
@@ -473,7 +470,7 @@ fn answered(world: &mut World, response: Response) {
         return;
     }
     let offset = file.offset;
-    file.offset += bytes.len() as i64;
+    file.offset += bytes.len() as u64;
     if file.offset == file.size {
         file.file = None;
     }
@@ -595,10 +592,10 @@ mod tests {
             .add_message::<SetDown>()
             .add_plugins(plugin);
         let mut state = realm::state();
-        state.deeds = Some(vec![
-            "give".into(),
-            "road".into(),
-            "move-hamlet".into(),
+        state.deeds = hamlet_testing::realm::deeds(&[
+            "give",
+            "road",
+            "move-hamlet",
         ]);
         hamlet_client::receive(
             app.world_mut(),
@@ -810,8 +807,8 @@ mod tests {
      {
         let (mut app, founder) = app();
         let mut state = realm::state();
-        state.deeds = Some(vec!["give".into()]);
-        state.starters = Some(vec![v0::StateStarters {
+        state.deeds = hamlet_testing::realm::deeds(&["give"]);
+        state.starters = Some(vec![v0::Skill {
             name: "research".into(),
             description: "Find sources".into(),
         }]);

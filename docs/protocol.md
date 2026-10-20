@@ -122,7 +122,7 @@ messages. Both forms are part of the protocol.
 
 ### Questions and answers
 
-A question wait may include `questions: Questions`: a `message` and a list
+A question wait's `detail` may include `questions: Questions`: a `message` and a list
 of one to ten questions. Each question has `question`, `description`, up to
 six `options` (`title` and `description`), and `text_input`. A question with
 no options always accepts custom words. The optional payload is kept across
@@ -188,7 +188,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 
 | Type (schema) | Fields | Meaning | Who receives it |
 |---|---|---|---|
-| `state` (`State`) | `epoch`, `revision`, `chief: string`, `sandbox: string`, `hamlets: Hamlet[]`, `agents: Agent[]`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`; optional `houses: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: string[]`, `starters: {name: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
+| `state` (`State`) | `epoch`, `revision`, `chief: string`, `sandbox: string`, `hamlets: Hamlet[]`, `agents: Agent[]`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`; optional `houses: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]`, `starters: {name: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
 | `change` (`Changes`) | `epoch`, `revision`, `changes: Update[]` | Realm updates since the previous revision. | Every client that said hello. |
 | `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `number?: integer`, `items: Item[]`, `earlier: string \| null`, `last?: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `usage: UsageView` | A page, or replacement page after a reset. `number` is the chief conversation's stable number. | Only clients watching that chat; a requested page goes to its requester. |
 | `turn` (`Turn`) | `chat: ChatRef`, `number?: integer`, `ops: Op[]` | Live transcript operations, in order. | Only clients watching that chat. |
@@ -216,14 +216,15 @@ houses `done` of `of`, and its outcome as `text`.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
 `chief`, `author`, `rewindable` and `tool`. Its kind is `user`, `assistant`,
-`reasoning`, `tool`, `notice` or `error`. Peer inputs use `author`, not
-`chief`. Item IDs identify an entry and content block (`<entryId>:<block>`);
-use them as opaque cursors. Tool details are `name`, `summary`, nullable
+`reasoning`, `tool`, `notice`, `error` or `answered`, the chief's answers
+to questions. Peer inputs use `author`, not `chief`. Item IDs identify an
+entry and content block (`<entryId>:<block>`); use them as opaque cursors. Tool details are `name`, `summary`, nullable
 `exit`, `ms`, `failure` and `change`. A tool argument summary holds at most
 200 Unicode code points. A `Change` preview holds at most 200 lines, each
 at most 240 characters, plus total and added/removed counts.
 
-`Op` is discriminated by `op`, not `type`. `applyOp` is the shared reducer.
+`Op` is discriminated by `op`, not `type`. Clients apply ops with
+`hamlet_protocol::transcript::apply`.
 
 | `op` | Fields | Meaning |
 |---|---|---|
@@ -281,9 +282,13 @@ not ordered against a chat's `turn` and `transcript` messages. A reset and
 its replacement transcript are sent together, with no message between them.
 Reflections and retries show as notices, as does a compaction.
 
-An approval wait requires its `danger`; fault, question and objection waits
-carry `danger: null`. A refused `edit` changes nothing and replies with an
-error. `check` replies in words and changes the connection status in
+A `Wait` has the fields every wait has (`id`, `by`, `agent`, `about`,
+`subject`, `change`, `answers`, `since`, `asked`, `chat`) and a `detail`
+discriminated by `kind`: `approval` with its `danger`, the agent's wish as
+`says` and how long `always` lasts (`session`, `grant`, or `null` when it is
+not offered); `fault`; `question` with optional `questions`; or
+`objection`. `subject` is the line of `about` a one-line view quotes. A
+refused `edit` changes nothing and replies with an error. `check` replies in words and changes the connection status in
 settings; a model check waits at most 90 s.
 
 ## The society in state

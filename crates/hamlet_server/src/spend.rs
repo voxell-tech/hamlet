@@ -258,10 +258,11 @@ pub(crate) fn amount(usage: &Usage, price: Option<&Price>) -> Amount {
         }
         None => priced.unwrap_or(0.0).round() as i64,
     };
+    let count = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
     Amount {
-        tokens: reported + estimate,
+        tokens: count(reported + estimate),
         micros,
-        ms: usage.ms.unwrap_or(0),
+        ms: count(usage.ms.unwrap_or(0)),
     }
 }
 

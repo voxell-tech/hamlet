@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use bevy_app::{App, PostUpdate};
 use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
-use hamlet_protocol::v0;
+use hamlet_protocol::{transcript, v0};
 
 use crate::messages::{
     JobFinished, Reconnected, Response, SessionOutput,
@@ -194,9 +194,8 @@ pub fn receive(world: &mut World, message: v0::ServerMessage) {
                     page.working,
                     page.pending,
                     page.last.as_ref().map(|last| {
-                        last.as_ref().map(|last| {
-                            (last.at as u64, last.what.clone())
-                        })
+                        last.as_ref()
+                            .map(|last| (last.at, last.what.clone()))
                     }),
                 );
                 world
@@ -230,10 +229,7 @@ pub fn receive(world: &mut World, message: v0::ServerMessage) {
                                 *working,
                                 *pending,
                                 Some(last.as_ref().map(|last| {
-                                    (
-                                        last.at as u64,
-                                        last.what.clone(),
-                                    )
+                                    (last.at, last.what.clone())
                                 })),
                             );
                         }
@@ -262,14 +258,14 @@ fn status(
     world: &mut World,
     chat: Entity,
     working: bool,
-    pending: i64,
+    pending: u64,
     last: Option<Option<(u64, String)>>,
 ) {
     let mut said = world.get_mut::<Transcript>(chat).unwrap();
     let finished = said.answering && !working;
     said.answering = working;
     let mut status = world.get_mut::<Status>(chat).unwrap();
-    status.pending = pending as usize + usize::from(working);
+    status.pending = pending + u64::from(working);
     if let Some(last) = last {
         status.last = last;
     }
@@ -305,8 +301,8 @@ fn received_item(item: v0::Item, chief: &str) -> Item {
             Entry::Tool {
                 name: tool.name,
                 summary: tool.summary,
-                exit: tool.exit.map(|exit| exit as i32),
-                ms: tool.ms.map(|ms| ms as u64),
+                exit: tool.exit,
+                ms: tool.ms,
                 failure: tool.failure,
                 change: tool.change,
             }
@@ -314,7 +310,7 @@ fn received_item(item: v0::Item, chief: &str) -> Item {
     };
     Item {
         id: item.id,
-        at: item.at as u64,
+        at: item.at,
         entry,
     }
 }
@@ -391,7 +387,7 @@ pub enum Entry {
     Tool {
         name: String,
         summary: String,
-        exit: Option<i32>,
+        exit: Option<i64>,
         ms: Option<u64>,
         failure: Option<String>,
         change: Option<v0::Change>,
@@ -415,6 +411,45 @@ pub struct Item {
     pub at: u64,
 }
 
+impl transcript::Kept for Item {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn append(&mut self, text: &str) {
+        match &mut self.entry {
+            Entry::User { text: shown, .. }
+            | Entry::Agent { text: shown, .. }
+            | Entry::Assistant(shown)
+            | Entry::Reasoning(shown)
+            | Entry::Notice(shown)
+            | Entry::Answered(shown)
+            | Entry::Error(shown) => shown.push_str(text),
+            Entry::Tool { .. } => {}
+        }
+    }
+
+    fn close(&mut self, closed: transcript::Closed<'_>) -> bool {
+        let Entry::Tool {
+            exit,
+            ms,
+            failure,
+            change,
+            ..
+        } = &mut self.entry
+        else {
+            return false;
+        };
+        *exit = Some(closed.exit);
+        *ms = closed.ms;
+        *failure = closed.failure.map(str::to_owned);
+        if let Some(closed) = closed.change {
+            *change = closed.cloned();
+        }
+        true
+    }
+}
+
 /// The received items and paging state of a watched chat.
 #[derive(Component, Default, Clone, Debug)]
 pub struct Transcript {
@@ -426,67 +461,17 @@ pub struct Transcript {
 
 impl Transcript {
     fn apply(&mut self, op: &v0::Op, chief: &str) {
+        // An op on an item this window does not hold changes nothing.
+        let _ = transcript::apply(&mut self.items, op, |item| {
+            received_item(item.clone(), chief)
+        });
         match op {
-            v0::Op::Add { item, replaces } => {
-                if let Some(replaces) = replaces {
-                    self.items.retain(|item| &item.id != replaces);
-                }
-                self.items.push(received_item(item.clone(), chief));
-                self.shape += 1;
-            }
-            v0::Op::Append { item, text } => {
-                if let Some(item) = self
-                    .items
-                    .iter_mut()
-                    .find(|shown| &shown.id == item)
-                {
-                    match &mut item.entry {
-                        Entry::User { text: shown, .. }
-                        | Entry::Agent { text: shown, .. }
-                        | Entry::Assistant(shown)
-                        | Entry::Reasoning(shown)
-                        | Entry::Notice(shown)
-                        | Entry::Answered(shown)
-                        | Entry::Error(shown) => shown.push_str(text),
-                        Entry::Tool { .. } => {}
-                    }
-                }
-            }
-            v0::Op::Close {
-                item,
-                exit,
-                ms,
-                failure,
-                change,
-            } => {
-                if let Some(Item {
-                    entry:
-                        Entry::Tool {
-                            exit: shown_exit,
-                            ms: shown_ms,
-                            failure: shown_failure,
-                            change: shown_change,
-                            ..
-                        },
-                    ..
-                }) = self
-                    .items
-                    .iter_mut()
-                    .find(|shown| &shown.id == item)
-                {
-                    *shown_exit = Some(*exit as i32);
-                    *shown_ms = ms.map(|ms| ms as u64);
-                    *shown_failure = failure.clone();
-                    if let Some(change) = change {
-                        *shown_change = change.clone();
-                    }
-                    self.shape += 1;
-                }
-            }
             v0::Op::Reset {} => {
-                self.items.clear();
                 self.earlier = None;
                 self.shape += 1;
+            }
+            v0::Op::Add { .. } | v0::Op::Close { .. } => {
+                self.shape += 1
             }
             _ => {}
         }
@@ -543,7 +528,7 @@ impl Transcript {
 #[derive(Component, Default, Clone, Debug)]
 pub struct Status {
     /// Messages queued or running.
-    pub pending: usize,
+    pub pending: u64,
     pub last: Option<(u64, String)>,
 }
 
@@ -566,6 +551,6 @@ impl Usage {
 
     /// The input and output tokens reported by the server.
     pub fn tokens(&self) -> u64 {
-        (self.0.input + self.0.output) as u64
+        self.0.input + self.0.output
     }
 }

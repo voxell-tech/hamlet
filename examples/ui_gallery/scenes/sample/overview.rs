@@ -16,17 +16,13 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }
     let mut state = hamlet_testing::realm::state();
     state.chief = "chief".into();
-    state.deeds = Some(
-        [
-            "record",
-            "overturn",
-            "restore-hamlet",
-            "erase-hamlet",
-            "found",
-        ]
-        .map(String::from)
-        .into(),
-    );
+    state.deeds = hamlet_testing::realm::deeds(&[
+        "record",
+        "overturn",
+        "restore-hamlet",
+        "erase-hamlet",
+        "found",
+    ]);
     state.closed = Some(vec![v0::ClosedHamlet {
         id: "press".into(),
         name: "The Old Press".into(),

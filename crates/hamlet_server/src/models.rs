@@ -913,7 +913,7 @@ impl Choices {
             .as_str()
             .map(String::from);
         let size =
-            |key: &str| listed[key].as_i64().filter(|n| *n > 0);
+            |key: &str| listed[key].as_u64().filter(|n| *n > 0);
         let card = &self.cards[&name]["price"];
         let price =
             match (card["input"].as_f64(), card["output"].as_f64()) {

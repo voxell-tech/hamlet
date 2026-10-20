@@ -56,11 +56,12 @@ pub fn agent(hamlet: &str, number: i64, name: &str) -> v0::Agent {
 /// An approval raised by the first hamlet's founder.
 pub fn wait(id: &str) -> v0::Wait {
     serde_json::from_value(json!({
-        "id": id, "kind": "approval", "danger": "command",
-        "agent": {"hamlet": "home", "number": 0}, "by": "founder",
-        "says": "wants to run", "about": "pwd", "change": null,
+        "id": id, "agent": {"hamlet": "home", "number": 0}, "by": "founder",
+        "about": "pwd", "subject": "pwd", "change": null,
         "answers": ["allow", "always", "deny"], "since": 1000, "asked": 1,
-        "chat": {"with": {"hamlet": "home", "agent": "mayor"}}
+        "chat": {"with": {"hamlet": "home", "agent": "mayor"}},
+        "detail": {"kind": "approval", "danger": "command",
+                   "says": "wants to run", "always": "session"}
     })).unwrap()
 }
 
@@ -68,7 +69,7 @@ pub fn wait(id: &str) -> v0::Wait {
 pub fn road(
     a: v0::AgentRef,
     b: v0::AgentRef,
-    messages: i64,
+    messages: u64,
 ) -> v0::Road {
     v0::Road {
         a: a.clone(),
@@ -80,9 +81,23 @@ pub fn road(
 }
 
 /// An agent's stable reference within a hamlet.
-pub fn reference(hamlet: &str, number: i64) -> v0::AgentRef {
+pub fn reference(hamlet: &str, number: u64) -> v0::AgentRef {
     v0::AgentRef {
         hamlet: hamlet.into(),
         number,
     }
+}
+
+/// The advertised deeds named `names`.
+pub fn deeds(names: &[&str]) -> Option<Vec<v0::Deed>> {
+    Some(
+        names
+            .iter()
+            .map(|name| v0::Deed {
+                name: (*name).into(),
+                usage: String::new(),
+                description: String::new(),
+            })
+            .collect(),
+    )
 }

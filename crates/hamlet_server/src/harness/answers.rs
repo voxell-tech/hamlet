@@ -112,6 +112,13 @@ pub(crate) fn charge(
         .map(|p| serde_json::from_str::<Price>(&p))
         .transpose()?;
     let amount = crate::spend::amount(usage, price.as_ref());
+    let [input, output, cache_read, cache_write] = [
+        usage.input,
+        usage.output,
+        usage.cache_read,
+        usage.cache_write,
+    ]
+    .map(|count| i64::try_from(count).unwrap_or(i64::MAX));
     store.connection().execute(
         "INSERT INTO harness_usage (runtime, key, input, output, \
          cache_read, cache_write, micros, at, ms, estimated, \
@@ -121,18 +128,14 @@ pub(crate) fn charge(
         params![
             runtime.as_str(),
             key,
-            usage.input,
-            usage.output,
-            usage.cache_read,
-            usage.cache_write,
+            input,
+            output,
+            cache_read,
+            cache_write,
             amount.micros,
             at,
             amount.ms,
-            amount.tokens
-                - usage.input
-                - usage.output
-                - usage.cache_read
-                - usage.cache_write,
+            amount.tokens - input - output - cache_read - cache_write,
             serde_json::to_string(usage)?
         ],
     )?;

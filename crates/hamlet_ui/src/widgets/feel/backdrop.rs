@@ -187,15 +187,17 @@ mod tests {
         app.world_mut()
             .spawn(Waiting {
                 id: String::new(),
-                kind: hamlet_client::waits::Kind::Question,
                 by: String::new(),
                 about: String::new(),
+                subject: String::new(),
                 since: 0,
-                says: String::new(),
                 change: None,
                 asked: 1,
                 answers: Vec::new(),
                 chat: None,
+                detail: hamlet_protocol::v0::WaitDetail::Question {
+                    questions: None,
+                },
             })
             .id()
     }

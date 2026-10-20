@@ -206,7 +206,7 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
         .until("the wait for b.txt", |c| {
             let waits = c.waits();
             waits.len() == 1
-                && realm::wait_says(&waits[0]) == "wants to edit"
+                && matches!(&waits[0].detail, WaitDetail::Approval { says, .. } if says == "wants to edit")
                 && format!("{waits:?}").contains("b.txt")
         })
         .await;

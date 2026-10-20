@@ -5,12 +5,11 @@ use std::time::Duration;
 use hamlet_acceptance::{
     Home, QUIET, Script, Server, Wire, chat, fold, id, mayor, realm,
 };
+pub use hamlet_protocol::MAYOR;
 use hamlet_protocol::v0::{
     ClientMessage, Item, ServerMessage, State,
 };
 use serde_json::{Value, json};
-
-pub const MAYOR: &str = "mayor";
 
 /// The recorder owns the process and captures both directions in
 /// observed order, using the same checked wire as acceptance tests.
@@ -44,7 +43,7 @@ impl Capture {
             secrets: vec![token.clone()],
         };
         result
-            .send(json!({"type":"hello","v":0.0,"token":token}))
+            .send(json!({"type":"hello","v":0,"token":token}))
             .await;
         result.next().await;
         assert_eq!(result.frames[1]["message"]["type"], "state");
@@ -106,19 +105,13 @@ impl Capture {
     pub async fn ask(&mut self, value: Value) -> Value {
         let request = self.send(value).await;
         self.until(|c| {
-            c.messages.iter().any(|m| {
-                hamlet_acceptance::client::answers(m)
-                    == Some(&request)
-            })
+            c.messages.iter().any(|m| m.to() == Some(&request))
         })
         .await;
         serde_json::to_value(
             self.messages
                 .iter()
-                .find(|m| {
-                    hamlet_acceptance::client::answers(m)
-                        == Some(&request)
-                })
+                .find(|m| m.to() == Some(&request))
                 .unwrap(),
         )
         .unwrap()

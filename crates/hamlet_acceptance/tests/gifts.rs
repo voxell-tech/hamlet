@@ -21,7 +21,7 @@ fn inbox(s: &Session) -> Vec<String> {
     names
 }
 
-async fn manifest(c: &mut Client, files: &[(&str, i64)]) -> Reply {
+async fn manifest(c: &mut Client, files: &[(&str, u64)]) -> Reply {
     let files = files
         .iter()
         .map(|(path, size)| GiveFilesFiles {

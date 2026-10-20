@@ -1,23 +1,19 @@
 import { readFileSync } from "node:fs";
+import { Compile } from "typebox/compile";
 import Schema, { type XSchema } from "typebox/schema";
 import { describe, expect, it } from "vitest";
 import {
     type Agent,
-    applyOp,
-    type ClientMessage,
-    checkEdit,
+    ClientMessage,
     type Hamlet,
     type Item,
     type Limits,
-    type Op,
-    parseClient,
-    parseServer,
-    protocolSchema,
     type Say,
-    type ServerMessage,
+    ServerMessage,
     type UsageView,
     type Wait,
 } from "../src/protocol.ts";
+import { protocolSchema } from "../src/schema.ts";
 
 /** Examples of each message, by its type, covering each of its forms. */
 type Examples<M extends { type: string }> = {
@@ -93,12 +89,10 @@ const agent: Agent = {
 
 const wait: Wait = {
     id: "41",
-    kind: "approval",
-    danger: "edit",
     by: "founder",
     agent: ref,
-    says: "wants to edit",
     about: "src/main.rs",
+    subject: "src/main.rs",
     change: {
         path: "src/main.rs",
         created: false,
@@ -116,6 +110,12 @@ const wait: Wait = {
     since: 1760000000000,
     asked: 1,
     chat,
+    detail: {
+        kind: "approval",
+        danger: "edit",
+        says: "wants to edit",
+        always: "session",
+    },
 };
 
 const usage: UsageView = {
@@ -520,6 +520,10 @@ const exported: XSchema = JSON.parse(
     readFileSync(new URL("../../schema.json", import.meta.url), "utf8"),
 );
 
+/** Whether a value is a client's or the server's message. */
+const client = Compile(ClientMessage);
+const server = Compile(ServerMessage);
+
 describe("protocol v0", () => {
     it("is the JSON Schema kept in the repository", () => {
         expect(exported).toEqual(protocolSchema());
@@ -527,147 +531,26 @@ describe("protocol v0", () => {
 
     it("takes the example of each message, by its definitions and by the exported schema", () => {
         for (const message of Object.values(fromClient).flat()) {
-            expect(parseClient(JSON.stringify(message))).toEqual({
-                ok: true,
-                value: message,
-            });
+            expect(client.Check(message)).toBe(true);
             expect(Schema.Check(exported, message)).toBe(true);
         }
         for (const message of Object.values(fromServer).flat()) {
-            expect(parseServer(JSON.stringify(message))).toEqual({
-                ok: true,
-                value: message,
-            });
+            expect(server.Check(message)).toBe(true);
             expect(Schema.Check(exported, message)).toBe(true);
         }
     });
 
-    it("refuses a message of an unknown type, naming it", () => {
-        const message = { type: "shout", id: ID };
-        expect(parseClient(JSON.stringify(message))).toEqual({
-            ok: false,
-            error: {
-                kind: "malformed",
-                text: "There is no `shout` message.",
-                to: ID,
-            },
-        });
-        expect(parseServer(JSON.stringify({ type: "say" }))).toEqual({
-            ok: false,
-            error: {
-                kind: "malformed",
-                text: "There is no `say` message.",
-            },
-        });
-        expect(Schema.Check(exported, message)).toBe(false);
-    });
-
-    it("refuses a message with a missing field, naming the field", () => {
-        const message = { type: "say", id: ID, to: mayor };
-        expect(parseClient(JSON.stringify(message))).toEqual({
-            ok: false,
-            error: {
-                kind: "malformed",
-                text: "This `say` message does not fit protocol v0: it lacks `text`.",
-                to: ID,
-            },
-        });
-        expect(Schema.Check(exported, message)).toBe(false);
-    });
-
-    it("refuses a message with a field it does not have, naming the field", () => {
-        const message = { ...said, loud: true };
-        expect(parseClient(JSON.stringify(message))).toEqual({
-            ok: false,
-            error: {
-                kind: "malformed",
-                text: "This `say` message does not fit protocol v0: it has no field `loud`.",
-                to: ID,
-            },
-        });
-        expect(Schema.Check(exported, message)).toBe(false);
-    });
-
-    it("refuses a request whose id is not a UUID, and answers no request", () => {
-        const message = { ...said, id: "1" };
-        expect(parseClient(JSON.stringify(message))).toEqual({
-            ok: false,
-            error: {
-                kind: "malformed",
-                text: "This `say` message does not fit protocol v0: `id` must be a UUID.",
-            },
-        });
-        expect(Schema.Check(exported, message)).toBe(false);
-    });
-
-    it("names the field at fault in the form of a message that was meant", () => {
-        const meant: [{ type: string; [field: string]: unknown }, string][] = [
-            [
-                { type: "edit", id: ID, doc: "notes", agent: mayor, text: 7 },
-                "`text` must be string",
-            ],
-            [
-                { type: "edit", id: ID, doc: "notes", text: "# Notes\n" },
-                "it lacks `agent`",
-            ],
-            [
-                {
-                    type: "edit",
-                    id: ID,
-                    doc: "limits",
-                    hamlet: "home",
-                    set: { section: "budget", key: "cost" },
-                },
-                "`set` lacks `value`",
-            ],
-            [
-                {
-                    type: "edit",
-                    id: ID,
-                    doc: "limits",
-                    hamlet: "home",
-                    whole: 12,
-                },
-                "`whole` must be object",
-            ],
-            [
-                { type: "edit", id: ID, doc: "settings", set: { model: 3 } },
-                "`set.model` must be string",
-            ],
-            [
-                {
-                    type: "edit",
-                    id: ID,
-                    doc: "catalogue",
-                    model: "local::qwen3.6:35b-a3b",
-                    set: { allowed: "yes" },
-                },
-                "`set.allowed` must be boolean",
-            ],
-            [{ type: "read", id: ID, what: "papers" }, "it lacks `agent`"],
-            [
-                { type: "login", id: ID, reply: { login: "l1" } },
-                "`reply` lacks `value`",
-            ],
-            [
-                { type: "edit", id: ID, doc: "bylaws", hamlet: "home" },
-                "`doc` must be one of `charter`, `character`, `notes`, `limits`, `settings`, `catalogue`",
-            ],
-            [
-                { type: "read", id: ID, agent: mayor },
-                "`what` must be one of `prompt`, `history`, `models`, `papers`, `charter`",
-            ],
-        ];
-        for (const [message, words] of meant) {
-            expect(parseClient(JSON.stringify(message))).toEqual({
-                ok: false,
-                error: {
-                    kind: "malformed",
-                    text: `This \`${message.type}\` message does not fit protocol v0: ${words}.`,
-                    to: ID,
-                },
-            });
+    it("refuses unknown types, missing and extra fields, and ids that are not UUIDs", () => {
+        for (const message of [
+            { type: "shout", id: ID },
+            { type: "say", id: ID, to: mayor },
+            { ...said, loud: true },
+            { ...said, id: "1" },
+        ]) {
+            expect(client.Check(message)).toBe(false);
+            expect(Schema.Check(exported, message)).toBe(false);
         }
+        expect(server.Check({ type: "say" })).toBe(false);
     });
 
     it("takes a whole limits document as the chief wrote it, for the server to check (H22)", () => {
@@ -686,51 +569,31 @@ describe("protocol v0", () => {
                 hamlet: "home",
                 whole,
             };
-            expect(parseClient(JSON.stringify(message))).toEqual({
-                ok: true,
-                value: message,
-            });
+            expect(client.Check(message)).toBe(true);
             expect(Schema.Check(exported, message)).toBe(true);
-        }
-    });
-
-    it("refuses what is not a message", () => {
-        for (const text of ["{", "[]", '{"id":1}']) {
-            expect(parseClient(text)).toEqual({
-                ok: false,
-                error: {
-                    kind: "malformed",
-                    text: "A message is a JSON object with a `type`.",
-                },
-            });
         }
     });
 });
 
-it("requires a danger for approvals and null for other waits", () => {
-    const wire = (kind: string, danger: unknown) =>
-        JSON.stringify({
-            type: "state",
-            epoch: 1,
-            revision: 0,
-            chief: "chief",
-            sandbox: "test",
-            hamlets: [],
-            agents: [],
-            waits: [{ ...wait, kind, danger }],
-            grants: [],
-            providers: [],
-            settings: fromServer.state[0]?.settings,
-        });
-    expect(parseServer(wire("approval", null))).toHaveProperty(
-        "error.kind",
-        "malformed",
-    );
+it("keeps a danger in an approval's detail and in no other kind's", () => {
+    const wire = (detail: unknown) => ({
+        type: "state",
+        epoch: 1,
+        revision: 0,
+        chief: "chief",
+        sandbox: "test",
+        hamlets: [],
+        agents: [],
+        waits: [{ ...wait, detail }],
+        grants: [],
+        providers: [],
+        settings: fromServer.state[0]?.settings,
+    });
+    const approval = { kind: "approval", says: "wants to run", always: null };
+    expect(server.Check(wire(approval))).toBe(false);
+    expect(server.Check(wire({ ...approval, danger: "command" }))).toBe(true);
     for (const kind of ["fault", "question", "objection"])
-        expect(parseServer(wire(kind, "command"))).toHaveProperty(
-            "error.kind",
-            "malformed",
-        );
+        expect(server.Check(wire({ kind, danger: "command" }))).toBe(false);
 });
 
 const societyAgent = {
@@ -820,21 +683,15 @@ it("takes the society and realm fields in snapshots, changes and watched chats",
         },
     ];
     for (const message of messages) {
-        expect(parseServer(JSON.stringify(message))).toEqual({
-            ok: true,
-            value: message,
-        });
+        expect(server.Check(message)).toBe(true);
         expect(Schema.Check(exported, message)).toBe(true);
     }
     const message = { type: "open", id: ID, chat: { with: mayor, from: ref } };
-    expect(parseClient(JSON.stringify(message))).toEqual({
-        ok: true,
-        value: message,
-    });
+    expect(client.Check(message)).toBe(true);
     expect(Schema.Check(exported, message)).toBe(true);
 });
 
-it("refuses unknown road levels and ballot casts with words", () => {
+it("refuses unknown road levels and ballot casts", () => {
     for (const changed of [
         {
             ...societyHamlet,
@@ -850,106 +707,36 @@ it("refuses unknown road levels and ballot casts with words", () => {
             ],
         },
     ]) {
-        const parsed = parseServer(
-            JSON.stringify({ ...fromServer.state[0], hamlets: [changed] }),
-        );
-        expect(parsed).toHaveProperty(
-            "error.text",
-            expect.stringContaining("does not fit protocol v0"),
-        );
+        expect(
+            server.Check({ ...fromServer.state[0], hamlets: [changed] }),
+        ).toBe(false);
     }
 });
 
-it("checks an edited JSON value directly with the wire edit's diagnostics and correlation", () => {
-    const edit = {
-        type: "edit",
-        id: ID,
-        doc: "settings",
-        set: { reflectEvery: 4 },
-    };
-    expect(checkEdit(edit)).toEqual({ ok: true, value: edit });
-    expect(checkEdit({ ...edit, set: { reflectEvery: "four" } })).toEqual({
-        ok: false,
-        error: {
-            kind: "malformed",
-            to: ID,
-            text: "This `edit` message does not fit protocol v0: `set.reflectEvery` must be integer.",
-        },
-    });
-    expect(
-        checkEdit({ type: "say", id: ID, to: mayor, text: "not an edit" }),
-    ).toEqual({
-        ok: false,
-        error: {
-            kind: "malformed",
-            to: ID,
-            text: "There is no `say` message.",
-        },
-    });
-});
-
-it("accepts typed picks and rejects ambiguous or out-of-bounds pick shapes", () => {
+it("accepts typed picks and rejects ambiguous or negative pick shapes", () => {
     const answer = {
         type: "answer",
         id: ID,
         wait: "question",
         choice: "reply",
     };
+    expect(client.Check({ ...answer, text: "legacy words" })).toBe(true);
     expect(
-        parseClient(JSON.stringify({ ...answer, text: "legacy words" })).ok,
-    ).toBe(true);
-    expect(
-        parseClient(
-            JSON.stringify({
-                ...answer,
-                picks: [
-                    { kind: "offer", index: 1 },
-                    { kind: "words", text: "custom" },
-                ],
-            }),
-        ).ok,
+        client.Check({
+            ...answer,
+            picks: [
+                { kind: "offer", index: 1 },
+                { kind: "words", text: "custom" },
+            ],
+        }),
     ).toBe(true);
     for (const picks of [
         [],
         [{ kind: "offer", index: -1 }],
-        [{ kind: "offer", index: 6 }],
         [{ kind: "offer", index: 0.5 }],
         [{ kind: "offer", index: 1, text: "extra" }],
         [{ kind: "words", text: 9 }],
-        Array.from({ length: 11 }, () => ({ kind: "words", text: "x" })),
     ]) {
-        expect(parseClient(JSON.stringify({ ...answer, picks })).ok).toBe(
-            false,
-        );
+        expect(client.Check({ ...answer, picks })).toBe(false);
     }
-});
-
-it("folds streamed text into a durable replacement without changing its source op", () => {
-    const items: Item[] = [];
-    const status = { working: false, pending: 0 };
-    applyOp(items, status, {
-        op: "add",
-        item: { id: "live:answer", at: 1, kind: "assistant", text: "Hel" },
-    });
-    applyOp(items, status, { op: "append", item: "live:answer", text: "lo" });
-    const durable = {
-        op: "add",
-        replaces: "live:answer",
-        item: { id: "entry:answer", at: 1, kind: "assistant", text: "Hello" },
-    } satisfies Op;
-    applyOp(items, status, durable);
-    applyOp(items, status, {
-        op: "status",
-        working: true,
-        pending: 2,
-        last: null,
-    });
-    expect(items).toEqual([
-        { id: "entry:answer", at: 1, kind: "assistant", text: "Hello" },
-    ]);
-    expect(status).toEqual({ working: true, pending: 2 });
-    applyOp(items, status, { op: "append", item: "entry:answer", text: "." });
-    expect(durable.item.text).toBe("Hello");
-    applyOp(items, status, { op: "reset" });
-    expect(items).toEqual([]);
 });

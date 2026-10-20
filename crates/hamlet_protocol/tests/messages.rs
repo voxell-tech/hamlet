@@ -61,22 +61,22 @@ fn chat() -> ChatRef {
 fn hello_carries_the_version_token_and_optional_seen_state() {
     client(
         ClientMessage::Hello(Hello {
-            v: 0.0,
+            v: V,
             token: "test-token".into(),
             seen: None,
         }),
-        json!({"type": "hello", "v": 0.0, "token": "test-token"}),
+        json!({"type": "hello", "v": 0, "token": "test-token"}),
     );
     client(
         ClientMessage::Hello(Hello {
-            v: 0.0,
+            v: V,
             token: "test-token".into(),
             seen: Some(Seen {
                 epoch: 1,
                 revision: 3,
             }),
         }),
-        json!({"type": "hello", "v": 0.0, "token": "test-token", "seen": {"epoch": 1, "revision": 3}}),
+        json!({"type": "hello", "v": 0, "token": "test-token", "seen": {"epoch": 1, "revision": 3}}),
     );
 }
 
@@ -454,10 +454,11 @@ fn change_wire() -> Value {
 
 fn wait_wire() -> Value {
     json!({
-        "id": "wait-1", "kind": "approval", "danger": "edit", "by": "founder",
-        "agent": {"hamlet": "home", "number": 0}, "says": "founder wants to edit", "about": "NOTES.md",
-        "change": change_wire(), "answers": ["allow", "always", "deny", "go", "withdraw", "reply", "dismiss"],
-        "since": 1700000000000_i64, "asked": 1, "chat": {"with": {"hamlet": "home", "agent": "mayor"}}
+        "id": "wait-1", "by": "founder", "agent": {"hamlet": "home", "number": 0},
+        "about": "NOTES.md", "subject": "NOTES.md", "change": change_wire(),
+        "answers": ["allow", "always", "deny", "go", "withdraw", "reply", "dismiss"],
+        "since": 1700000000000_u64, "asked": 1, "chat": {"with": {"hamlet": "home", "agent": "mayor"}},
+        "detail": {"kind": "approval", "danger": "edit", "says": "wants to edit", "always": "session"}
     })
 }
 
@@ -511,11 +512,7 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
         Some("$3.75 left")
     );
     assert_eq!(
-        match &state.waits[0] {
-            Wait::Approval { change, .. } =>
-                change.as_ref().unwrap().lines[0].mark.clone(),
-            _ => panic!("Expected approval"),
-        },
+        state.waits[0].change.as_ref().unwrap().lines[0].mark,
         ChangeLinesMark::Space
     );
     let updates = [
@@ -587,12 +584,7 @@ fn transcripts_keep_every_item_kind_and_page_status() {
 }
 
 #[test]
-fn replies_and_login_steps_keep_their_request_and_payload() {
-    for kind in ["notice", "error", "rewound"] {
-        server(
-            json!({"type": "reply", "to": ID, "kind": kind, "text": "Words"}),
-        );
-    }
+fn login_steps_keep_their_request_and_payload() {
     for step in [
         json!({"url": "https://example.invalid/login", "instructions": "Open this"}),
         json!({"url": "https://example.invalid/login"}),
@@ -609,26 +601,6 @@ fn replies_and_login_steps_keep_their_request_and_payload() {
     server(
         json!({"type": "login", "login": "login-1", "step": {"done": "Connected"}}),
     );
-}
-
-#[test]
-fn reads_return_each_result_without_a_redundant_type_field() {
-    let results = [
-        json!({"type": "read", "to": ID, "prompt": "The prompt"}),
-        json!({"type": "read", "to": ID, "history": [{
-            "number": 1, "current": false, "title": "Earlier", "by": "chief", "began": 10,
-            "modified": 20, "messages": 2, "tokens": 140
-        }]}),
-        json!({"type": "read", "to": ID, "models": [
-            {"name": "faux/test", "price": {"input": 1.0, "output": 2.0}, "priced": "listed", "context": 100000, "allowed": true, "note": "Test"},
-            {"name": "faux/unknown", "price": null, "priced": "unknown", "context": null, "allowed": false, "note": ""}
-        ]}),
-        json!({"type": "read", "to": ID, "papers": {"notes": "Remember", "character": "Careful", "skills": [{"name": "test", "description": "A skill"}]}}),
-        json!({"type": "read", "to": ID, "charter": {"text": "Be kind", "own": true}}),
-    ];
-    for result in results {
-        server(result);
-    }
 }
 
 #[test]
@@ -651,36 +623,6 @@ fn older_windows_accept_optional_additions_to_messages_and_nested_entities()
     assert!(matches!(serde_json::from_value::<ServerMessage>(json!({
         "type": "read", "to": ID, "charter": {"text": "Be kind", "own": true, "later": 1}, "later": true
     })).unwrap(), ServerMessage::Read(ReadResult::Charter { .. })));
-}
-
-#[test]
-fn file_gifts_round_trip_manifests_and_parts_with_the_upload_receipt()
-{
-    for wire in [
-        json!({"type": "give", "id": ID, "to": {"hamlet": "home", "agent": "mayor"}, "files": [{"path": "folder/a", "size": 2}]}),
-        json!({"type": "give-part", "id": ID, "upload": "upload-1", "path": "folder/a", "offset": 1, "data": "Qg=="}),
-    ] {
-        client(serde_json::from_value(wire.clone()).unwrap(), wire);
-    }
-    server(
-        json!({"type": "reply", "to": ID, "kind": "notice", "text": "Ready for the gift's file parts.", "upload": "upload-1"}),
-    );
-}
-
-#[test]
-fn approval_waits_require_a_danger_and_other_kinds_require_null() {
-    let mut wire = wait_wire();
-    wire["danger"] = Value::Null;
-    assert!(serde_json::from_value::<Wait>(wire.clone()).is_err());
-    for kind in ["fault", "question", "objection"] {
-        wire["kind"] = kind.into();
-        assert!(serde_json::from_value::<Wait>(wire.clone()).is_ok());
-        wire["danger"] = "command".into();
-        assert!(
-            serde_json::from_value::<Wait>(wire.clone()).is_err()
-        );
-        wire["danger"] = Value::Null;
-    }
 }
 
 #[test]

@@ -116,10 +116,7 @@ async fn sends_grants_from_limits_and_from_answers() {
     assert_eq!(reply.kind, ReplyKind::Notice);
     s.chief.tell(mayor(), "Once.").await;
     let wait = s.chief.wait_for("the network wait", |_| true).await;
-    let reply = s
-        .chief
-        .choose(&realm_wait_id(&wait), Choice::Always, None)
-        .await;
+    let reply = s.chief.choose(&wait.id, Choice::Always, None).await;
     assert_eq!(reply.kind, ReplyKind::Notice);
     s.chief.idle("home", "founder").await;
     let grants = s.join().await.realm().grants;
@@ -146,10 +143,6 @@ async fn sends_grants_from_limits_and_from_answers() {
             },
         ]
     );
-}
-
-fn realm_wait_id(wait: &Wait) -> String {
-    hamlet_acceptance::realm::wait_id(wait).to_string()
 }
 
 async fn start_login(
@@ -474,7 +467,7 @@ async fn gives_plain_words_for_http_refusals_and_charges_nothing() {
     s.chief.say(mayor(), "Fail.").await;
     s.chief
         .wait_for("the authentication fault", |w| {
-            matches!(w, Wait::Fault { .. })
+            matches!(w.detail, WaitDetail::Fault { .. })
         })
         .await;
     let spent =
@@ -933,12 +926,10 @@ async fn cutoff(twice: bool, summary: &str) {
         let wait = s
             .chief
             .wait_for("the cut-off fault", |w| {
-                matches!(w, Wait::Fault { .. })
+                matches!(w.detail, WaitDetail::Fault { .. })
             })
             .await;
-        let Wait::Fault { about, .. } = wait else {
-            unreachable!()
-        };
+        let Wait { about, .. } = wait;
         assert_eq!(
             about,
             if summary.is_empty() {
@@ -1002,12 +993,10 @@ async fn reports_a_cutoff_without_history_without_trying_a_summary() {
     let wait = s
         .chief
         .wait_for("a no-room fault", |w| {
-            matches!(w, Wait::Fault { .. })
+            matches!(w.detail, WaitDetail::Fault { .. })
         })
         .await;
-    let Wait::Fault { about, .. } = wait else {
-        unreachable!()
-    };
+    let Wait { about, .. } = wait;
     assert_eq!(
         about,
         "the message is longer than the model can hold"

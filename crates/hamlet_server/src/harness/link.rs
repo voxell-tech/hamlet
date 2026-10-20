@@ -14,7 +14,7 @@ pub struct Admitted {
     pub reason: Option<String>,
     pub status: AdmittedStatus,
     pub submission: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -38,7 +38,7 @@ pub struct Allow {
     pub input: Option<String>,
     pub key: String,
     pub tool: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -48,21 +48,21 @@ pub struct Allowance {
     pub id: String,
     pub re: String,
     pub selection: Selection,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Allowed {
     pub id: String,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Answered {
     pub id: String,
     pub key: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -73,7 +73,7 @@ pub struct Attempt {
     pub model: ModelRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -99,14 +99,14 @@ pub enum Block {
 pub struct Cancel {
     pub conversation: String,
     pub id: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Cancelled {
     pub id: String,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -131,13 +131,13 @@ pub enum Capability {
 pub struct Charged {
     pub id: String,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Close {
     pub id: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -145,7 +145,7 @@ pub struct Configure {
     pub conversation: String,
     pub id: String,
     pub tools: ConfigureTools,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -163,7 +163,7 @@ pub enum ConfigureTools {
 pub struct Configured {
     pub id: String,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -173,7 +173,7 @@ pub struct Create {
     pub id: String,
     pub key: String,
     pub model: ModelRef,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -181,7 +181,7 @@ pub struct Created {
     pub conversation: String,
     pub id: String,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -212,7 +212,7 @@ pub struct CredentialRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lease: Option<String>,
     pub scope: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -239,7 +239,7 @@ pub struct CredentialResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lease: Option<String>,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -277,7 +277,7 @@ pub struct Fork {
     pub conversation: String,
     pub id: String,
     pub key: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -288,8 +288,8 @@ pub struct Hello {
     pub id: String,
     pub runtime: Option<String>,
     pub store: HelloStore,
-    pub v: i64,
-    pub versions: Vec<i64>,
+    pub v: u64,
+    pub versions: Vec<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -308,13 +308,13 @@ pub struct History {
     pub before: Option<String>,
     pub conversation: String,
     pub id: String,
-    pub limit: i64,
-    pub v: i64,
+    pub limit: u64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Item {
-    pub at: i64,
+    pub at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocks: Option<Vec<Block>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -330,7 +330,7 @@ pub struct Item {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mark: Option<Mark>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ms: Option<i64>,
+    pub ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -361,7 +361,7 @@ pub struct Kept {
     pub conversation: String,
     pub id: String,
     pub item: Item,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -371,7 +371,7 @@ pub struct LinkError {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub re: Option<String>,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -380,9 +380,9 @@ pub struct Live {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub partial: Option<Partial>,
-    pub pending: i64,
+    pub pending: u64,
     pub running: bool,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -409,7 +409,7 @@ pub struct Operation {
     pub input: Option<String>,
     pub key: String,
     pub tool: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -418,12 +418,12 @@ pub struct Page {
     pub id: String,
     pub items: Vec<Item>,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Partial {
-    pub at: i64,
+    pub at: u64,
     pub blocks: Vec<Block>,
 }
 
@@ -443,7 +443,7 @@ pub struct Prompt {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<String>,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -453,7 +453,7 @@ pub struct ProviderControl {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     pub scope: String,
-    pub v: i64,
+    pub v: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
 }
@@ -465,7 +465,7 @@ pub struct ProviderEvent {
     pub prompt: Option<String>,
     pub scope: String,
     pub step: std::collections::BTreeMap<String, serde_json::Value>,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -486,7 +486,7 @@ pub struct ProviderRequest {
     pub model: Option<String>,
     pub models: Vec<std::collections::BTreeMap<String, serde_json::Value>>,
     pub provider: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -523,7 +523,7 @@ pub struct ProviderResult {
     pub re: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -538,7 +538,7 @@ pub struct ProviderResultProviders {
 pub struct Refusal {
     pub id: String,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
     pub words: String,
 }
 
@@ -546,7 +546,7 @@ pub struct Refusal {
 pub struct Refused {
     pub id: String,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
     pub words: String,
 }
 
@@ -560,7 +560,7 @@ pub struct Result {
     pub id: String,
     pub re: String,
     pub text: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -613,7 +613,7 @@ pub enum RuntimeMessage {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Scrub {
     pub id: String,
-    pub v: i64,
+    pub v: u64,
     pub value: serde_json::Value,
 }
 
@@ -621,7 +621,7 @@ pub struct Scrub {
 pub struct Scrubbed {
     pub id: String,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
     pub value: serde_json::Value,
 }
 
@@ -636,17 +636,17 @@ pub struct Sections {
     pub id: String,
     pub re: String,
     pub sections: Vec<Section>,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Selection {
     #[serde(rename = "contextWindow")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_window: Option<i64>,
+    pub context_window: Option<u64>,
     #[serde(rename = "maxTokens")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<i64>,
+    pub max_tokens: Option<u64>,
     pub model: ModelRef,
     pub price: Price,
 }
@@ -720,7 +720,7 @@ pub struct Settled {
     pub reason: Option<String>,
     pub request: String,
     pub status: SettledStatus,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -734,7 +734,7 @@ pub enum SettledStatus {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Status {
     pub id: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -742,7 +742,7 @@ pub struct Statuses {
     pub conversations: Vec<StatusesConversations>,
     pub id: String,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -757,7 +757,7 @@ pub struct Stopped {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<Mark>,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
     pub words: String,
 }
 
@@ -770,9 +770,9 @@ pub struct Submit {
     pub mark: Option<Mark>,
     pub request: String,
     pub steer: bool,
-    pub v: i64,
+    pub v: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub window: Option<i64>,
+    pub window: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -795,7 +795,7 @@ pub enum ToolSpecReplay {
 pub struct Tools {
     pub id: String,
     pub tools: Vec<ToolSpec>,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -803,22 +803,22 @@ pub struct Usage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub billed: Option<f64>,
     #[serde(rename = "cacheRead")]
-    pub cache_read: i64,
+    pub cache_read: u64,
     #[serde(rename = "cacheWrite")]
-    pub cache_write: i64,
+    pub cache_write: u64,
     pub cost: f64,
     #[serde(rename = "estimatedTokens")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub estimated_tokens: Option<i64>,
+    pub estimated_tokens: Option<u64>,
     #[serde(rename = "firstTokenMs")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub first_token_ms: Option<i64>,
-    pub input: i64,
+    pub first_token_ms: Option<u64>,
+    pub input: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ms: Option<i64>,
-    pub output: i64,
+    pub ms: Option<u64>,
+    pub output: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reasoning: Option<i64>,
+    pub reasoning: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop: Option<String>,
 }
@@ -828,7 +828,7 @@ pub struct UsageReport {
     pub id: String,
     pub key: String,
     pub usage: Usage,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -839,7 +839,7 @@ pub struct Verdict {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<Mark>,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub words: Option<String>,
 }
@@ -849,7 +849,7 @@ pub struct Waiting {
     pub id: String,
     pub key: String,
     pub re: String,
-    pub v: i64,
+    pub v: u64,
     pub words: String,
 }
 
@@ -858,10 +858,10 @@ pub struct Welcome {
     pub id: String,
     pub re: String,
     pub tools: Vec<ToolSpec>,
-    pub v: i64,
-    pub version: i64,
+    pub v: u64,
+    pub version: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub windows: Option<std::collections::BTreeMap<String, i64>>,
+    pub windows: Option<std::collections::BTreeMap<String, u64>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -872,7 +872,7 @@ pub struct Write {
     pub id: String,
     pub mark: Mark,
     pub request: String,
-    pub v: i64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -889,6 +889,6 @@ pub struct Yield {
     #[serde(rename = "summaryFailure")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary_failure: Option<String>,
-    pub v: i64,
+    pub v: u64,
 }
 

@@ -327,7 +327,7 @@ mod tests {
         let mut app = crate::me::tests::panel_app();
         app.add_plugins(crate::chat::plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = Some(vec!["remove".into()]);
+        state.deeds = hamlet_testing::realm::deeds(&["remove"]);
         state.hamlets.push(hamlet_testing::realm::hamlet("mill"));
         state
             .agents

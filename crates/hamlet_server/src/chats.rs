@@ -3,6 +3,7 @@
 //! them.
 
 mod activity;
+mod asking;
 mod calls;
 mod deeds;
 #[cfg(feature = "harness")]
@@ -28,7 +29,7 @@ pub(crate) use self::calls::{Ran, prepared, ran, specs, stop_tools};
 pub(crate) use self::deeds::stop_agent;
 use self::fold::Fold;
 use self::records::Place;
-pub(crate) use self::say::{admit_line, deeds as deed_names};
+pub(crate) use self::say::{admit_line, deeds as advertised_deeds};
 use crate::harness::link::Mark;
 use crate::harness::{
     BindingId, Harnesses, Input, InputStatus, Notice,
@@ -66,7 +67,7 @@ struct Conversation {
     fold: Fold,
     activity: Activity,
     running: bool,
-    pending: i64,
+    pending: u64,
     /// The runtime's submission id of the running turn's input.
     turn: Option<String>,
     /// The usage last shown to its watchers.

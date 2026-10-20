@@ -237,7 +237,7 @@ impl Service {
             Err(error) => return Ok(Err(error)),
         };
         let found = record.agents.iter().find(|a| {
-            if address.agent == "mayor" {
+            if address.agent == hamlet_protocol::MAYOR {
                 a.number == record.mayor
             } else {
                 a.name == address.agent

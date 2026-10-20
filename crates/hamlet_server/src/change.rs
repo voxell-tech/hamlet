@@ -94,9 +94,9 @@ pub fn change_between(
                 text: clip(text, WIDE, false, false),
             })
             .collect(),
-        total: shown.len() as i64,
-        added: added as i64,
-        removed: removed as i64,
+        total: shown.len() as u64,
+        added: added as u64,
+        removed: removed as u64,
         count: count(created, added, removed),
     }
 }
