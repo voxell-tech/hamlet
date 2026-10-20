@@ -48,6 +48,8 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE gate_call ADD COLUMN digest BLOB;",
     // 10. The normalized questions and allowed answers of a wait.
     "ALTER TABLE wait ADD COLUMN questions TEXT;",
+    // 11. Tool calls wait in the chats' gate alone.
+    "DROP TABLE harness_wait;",
 ];
 
 /// A home's realm database, open in this process alone.

@@ -490,79 +490,90 @@ pub(crate) async fn stop_agent(
     harnesses: &mut Harnesses,
     agent: &AgentRef,
 ) -> Result<()> {
-    let chief = service.chief.clone();
     for binding in records::conversations_of(
         service.home.store().connection(),
         agent,
     )? {
-        if !busy(service, binding)? {
-            continue;
-        }
-        let turn = service
-            .chats
-            .conversations
-            .get(&binding)
-            .and_then(|c| c.turn.clone());
-        let dropped = records::queued_lines(
-            service.home.store().connection(),
-            binding,
-            turn.as_deref(),
-        )?;
-        super::calls::stop_tools(service, binding);
-        harnesses.cancel(service.home.store(), binding).await?;
-        let db = service.home.store().connection();
-        let place =
-            records::kept(db, binding)?.map(|kept| kept.place);
-        let mut woken = oversight::lapse(
-            db,
-            agent,
-            place
-                .as_ref()
-                .and_then(|place| place.chief.as_deref())
-                .unwrap_or(&chief),
-            "stopped",
-            0,
-            None,
-            super::now(),
-        )?;
-        for wait in oversight::open(db)?
-            .iter()
-            .filter(|wait| wait.agent.as_ref() == Some(agent))
-            .filter(|wait| wait.kind != "fault")
-        {
-            if let Some((_, calls)) = oversight::settle(
-                db,
-                &wait.id,
-                "stopped",
-                "",
-                Some(&chief),
-                super::now(),
-            )? {
-                woken.extend(calls);
-            }
-        }
-        for (runtime, key) in woken {
-            harnesses.wake(&runtime, &key).await;
-        }
-        let text = format!(
-            "Stopped: stopped by {chief}{}",
-            if dropped == 0 {
-                String::new()
-            } else {
-                format!(" ({dropped} queued dropped)")
-            }
-        );
-        let made = service
-            .home
-            .store()
-            .binding(binding)?
-            .is_some_and(|bound| bound.conversation.is_some());
-        if made {
-            service.chats.stopping.insert(binding, text);
-        } else {
-            super::write_notice(service, harnesses, binding, &text)
+        if busy(service, binding)? {
+            stop_conversation(service, harnesses, agent, binding)
                 .await?;
         }
+    }
+    Ok(())
+}
+
+/// Stops the turn of the conversation `binding` of `agent`, drops its
+/// queued inputs and ends its waits.
+pub(super) async fn stop_conversation(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    agent: &AgentRef,
+    binding: BindingId,
+) -> Result<()> {
+    let chief = service.chief.clone();
+    let turn = service
+        .chats
+        .conversations
+        .get(&binding)
+        .and_then(|c| c.turn.clone());
+    let dropped = records::queued_lines(
+        service.home.store().connection(),
+        binding,
+        turn.as_deref(),
+    )?;
+    super::calls::stop_tools(service, binding);
+    harnesses.cancel(service.home.store(), binding).await?;
+    let db = service.home.store().connection();
+    let place = records::kept(db, binding)?.map(|kept| kept.place);
+    let mut woken = oversight::lapse(
+        db,
+        agent,
+        place
+            .as_ref()
+            .and_then(|place| place.chief.as_deref())
+            .unwrap_or(&chief),
+        "stopped",
+        0,
+        None,
+        super::now(),
+    )?;
+    for wait in oversight::open(db)?
+        .iter()
+        .filter(|wait| wait.agent.as_ref() == Some(agent))
+        .filter(|wait| wait.kind != "fault")
+    {
+        if let Some((_, calls)) = oversight::settle(
+            db,
+            &wait.id,
+            "stopped",
+            "",
+            Some(&chief),
+            super::now(),
+        )? {
+            woken.extend(calls);
+        }
+    }
+    for (runtime, key) in woken {
+        harnesses.wake(&runtime, &key).await;
+    }
+    let text = format!(
+        "Stopped: stopped by {chief}{}",
+        if dropped == 0 {
+            String::new()
+        } else {
+            format!(" ({dropped} queued dropped)")
+        }
+    );
+    let made = service
+        .home
+        .store()
+        .binding(binding)?
+        .is_some_and(|bound| bound.conversation.is_some());
+    if made {
+        service.chats.stopping.insert(binding, text);
+    } else {
+        super::write_notice(service, harnesses, binding, &text)
+            .await?;
     }
     Ok(())
 }

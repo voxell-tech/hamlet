@@ -566,14 +566,13 @@ impl Store {
     }
 
     /// Begins cancelling `binding`, in one commit: its owed inputs
-    /// are dropped, so no restart submits them, its waits lapse, and
-    /// the cancel is owed to its runtime until it confirms it.
-    /// Returns the keys of the waits that were pending, which the
-    /// runtime holds open.
+    /// are dropped, so no restart submits them, its calls not carried
+    /// out are refused, and the cancel is owed to its runtime until
+    /// it confirms it.
     pub(crate) fn begin_cancel(
         &mut self,
         binding: BindingId,
-    ) -> Result<Vec<String>> {
+    ) -> Result<()> {
         let tx = self.db.transaction()?;
         tx.execute(
             "UPDATE harness_input SET state = 'dropped' WHERE \
@@ -584,25 +583,9 @@ impl Store {
             "UPDATE harness_binding SET cancelling = 1 WHERE id = ?1",
             [binding.0],
         )?;
-        let pending = tx
-            .prepare(
-                "SELECT key FROM harness_wait WHERE binding = ?1 \
-                 AND state = 'pending'",
-            )?
-            .query_map([binding.0], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        // A call of the stopped turn not carried out yet, allowed or
-        // not, runs nothing (H34); a marked result stands.
-        tx.execute(
-            "UPDATE harness_wait SET state = 'refused', words = ?2 \
-             WHERE binding = ?1 AND state IN ('pending', 'allowed') \
-             AND NOT EXISTS (SELECT 1 FROM marker WHERE \
-             marker.runtime = harness_wait.runtime AND marker.key = \
-             harness_wait.key)",
-            params![binding.0, super::answers::STOPPED_WORDS],
-        )?;
-        // So does one the chats' gate allowed, asked for again after
-        // the stop or after a restart.
+        // A call of the stopped turn the gate allowed, asked for
+        // again after the stop or after a restart, runs
+        // nothing (H34); a marked result stands.
         tx.execute(
             "UPDATE gate_call SET block = ?2 WHERE binding = ?1 AND \
              block IS NULL AND NOT EXISTS (SELECT 1 FROM marker \
@@ -611,7 +594,7 @@ impl Store {
             params![binding.0, super::answers::STOPPED_WORDS],
         )?;
         tx.commit()?;
-        Ok(pending)
+        Ok(())
     }
 
     /// Whether a cancel of `binding` is still owed to its runtime.

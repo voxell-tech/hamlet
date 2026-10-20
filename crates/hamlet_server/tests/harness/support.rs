@@ -207,9 +207,9 @@ impl Realm {
             .collect(),
             markers: all("SELECT key, outcome FROM marker WHERE \
                           runtime != 'seed' ORDER BY key"),
-            waits: all(
-                "SELECT key, state FROM harness_wait ORDER BY key"
-            ),
+            waits: all("SELECT g.key, CASE WHEN w.open THEN \
+                        'pending' ELSE w.how END FROM gate_call g \
+                        JOIN wait w ON w.id = g.wait ORDER BY g.key"),
             inputs: all("SELECT request, state FROM harness_input \
                          ORDER BY ordinal"),
             attempts: all("SELECT key FROM harness_attempt").len(),
@@ -219,6 +219,25 @@ impl Realm {
                 .map(|row| row[0].as_u64().unwrap())
                 .sum(),
         }
+    }
+
+    /// Reserves building roads to the chief, so the mayor's road
+    /// calls wait for a chief's answer.
+    pub fn reserve_roads(&self) {
+        let db =
+            Connection::open(self.home.join("realm.sqlite")).unwrap();
+        let mut limits = serde_json::to_value(
+            hamlet_testing::realm::hamlet("home").limits,
+        )
+        .unwrap();
+        limits["mayor"]["buildRoads"] = json!(false);
+        db.execute(
+            "INSERT INTO chief_document (kind, key, value) VALUES \
+             ('limits', 'home', ?1) ON CONFLICT (kind, key) DO \
+             UPDATE SET value = excluded.value",
+            [limits.to_string()],
+        )
+        .unwrap();
     }
 
     /// The store of the runtime `runtime`, read-only, if it was made.
@@ -287,7 +306,8 @@ impl Realm {
     }
 }
 
-/// The realm's records and the server's harness tables at one moment.
+/// The realm's records, the gate's waits and the server's harness
+/// tables at one moment.
 #[derive(Debug)]
 pub struct Look {
     pub roads: Vec<(String, String)>,

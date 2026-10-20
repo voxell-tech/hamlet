@@ -1969,6 +1969,45 @@ mod tests {
     }
 
     #[test]
+    fn a_waiting_identity_asked_with_other_arguments_is_refused() {
+        let scratch = Scratch::new("calls-waiting");
+        let (mut service, binding, _) = served(&scratch);
+        let mut limits = service.limits_of("home").unwrap();
+        limits["mayor"]["buildRoads"] = json!(false);
+        crate::service::save(
+            service.home.store().connection(),
+            "limits",
+            "home",
+            &limits,
+        )
+        .unwrap();
+        let road = |b: &str| {
+            BTreeMap::from([
+                ("a".to_owned(), json!("founder")),
+                ("b".to_owned(), json!(b)),
+                ("reason".to_owned(), json!("trade")),
+            ])
+        };
+        assert!(matches!(
+            decide(
+                &mut service,
+                binding,
+                "k",
+                None,
+                "build_road",
+                &road("ana")
+            )
+            .unwrap(),
+            Decision::Wait
+        ));
+        assert!(matches!(
+            decide(&mut service, binding, "k", None, "build_road", &road("bo"))
+                .unwrap(),
+            Decision::Block(words) if words == IDENTITY_REFUSAL
+        ));
+    }
+
+    #[test]
     fn a_grant_taken_back_before_execution_does_not_authorize_the_call()
      {
         let scratch = Scratch::new("calls-revoked");
@@ -2053,7 +2092,10 @@ mod tests {
         // Reconstruct the version-8 schema on disposable data.
         db.execute_batch(
             "ALTER TABLE wait DROP COLUMN questions; ALTER TABLE \
-             gate_call DROP COLUMN digest; PRAGMA user_version = 8;",
+             gate_call DROP COLUMN digest; CREATE TABLE \
+             harness_wait (runtime TEXT NOT NULL, key TEXT NOT \
+             NULL, PRIMARY KEY (runtime, key)) STRICT, WITHOUT \
+             ROWID; PRAGMA user_version = 8;",
         )
         .unwrap();
         service.home.close().unwrap();
@@ -2081,7 +2123,7 @@ mod tests {
             db.query_row("PRAGMA user_version", [], |row| row
                 .get::<_, i64>(0))
                 .unwrap(),
-            10
+            11
         );
         assert_eq!(
             db.query_row(
@@ -2147,12 +2189,38 @@ mod tests {
             matches!(&refused, Decision::Block(words) if words == crate::harness::answers::STOPPED_WORDS),
             "a call allowed before the stop still runs after it"
         );
+        // So does a call of the stopped turn first heard of after it.
+        assert!(matches!(
+            decide(
+                &mut service,
+                binding,
+                "unasked",
+                Some("input-1"),
+                "bash",
+                &arguments,
+            )
+            .unwrap(),
+            Decision::Block(_)
+        ));
 
         // The refusal stands once the runtime has acknowledged the
-        // cancel, as the result of a call that ran would.
+        // cancel, as the result of a call that ran would, and the
+        // next turn's calls run.
         service.home.store().cancelled(binding).unwrap();
         let still = kept(&mut service, &runtime, "call-1").unwrap();
         assert!(matches!(still, Some(Decision::Block(_))));
+        assert!(matches!(
+            decide(
+                &mut service,
+                binding,
+                "next",
+                Some("input-2"),
+                "bash",
+                &arguments,
+            )
+            .unwrap(),
+            Decision::Run { .. }
+        ));
         let runtime = crate::RuntimeInstance::new(runtime).unwrap();
         assert!(
             matches!(

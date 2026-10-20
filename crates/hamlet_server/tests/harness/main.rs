@@ -1,6 +1,6 @@
 //! The server and real pi harness runtimes as processes: a
-//! conversation end to end, crashes at each commit point, waits
-//! across restarts, admitting inputs once, cancelling and the
+//! conversation end to end, crashes at each commit point, the gate's
+//! waits across restarts, admitting inputs once, cancelling and the
 //! handshake's refusals.
 
 #![cfg(unix)]
@@ -258,12 +258,12 @@ fn wait_across_restart(
     tag: &str,
 ) -> (Realm, Driver, i64, String, String) {
     let realm = Realm::new(tag);
+    realm.reserve_roads();
     let faux = realm.script(
         "faux.json",
         json!({"agents": {"home:0": [road_call(), "completed"]}}),
     );
-    let asks = [("HAMLET_ASK_TOOLS", "build_road")];
-    let mut driver = Driver::start(&realm, &faux, &asks);
+    let mut driver = Driver::start(&realm, &faux, &[]);
     let (binding, runtime) = driver.bind(0);
     driver.submit(
         binding,
@@ -282,7 +282,7 @@ fn wait_across_restart(
         "after.json",
         json!({"agents": {"home:0": ["continued after recovery"]}}),
     );
-    let driver = Driver::start(&realm, &after, &asks);
+    let driver = Driver::start(&realm, &after, &[]);
     // The same wait, under the same identity, and still nothing done.
     let look = realm.look();
     assert!(look.untouched(), "{look:?}");
@@ -297,7 +297,7 @@ fn a_wait_survives_a_restart_and_its_allowing_lays_the_road() {
     let decided = driver.send(json!({
         "do": "decide", "runtime": runtime, "key": key, "allow": true,
     }));
-    assert_eq!(decided["decided"], "Answered");
+    assert!(answered(&decided, "allow"), "{decided}");
     laid_once(
         &realm,
         &mut driver,
@@ -315,7 +315,7 @@ fn a_wait_survives_a_restart_and_its_refusal_lays_nothing() {
     let decided = driver.send(json!({
         "do": "decide", "runtime": runtime, "key": key, "allow": false,
     }));
-    assert_eq!(decided["decided"], "Answered");
+    assert!(answered(&decided, "deny"), "{decided}");
     driver.answer(binding, "continued after recovery");
     let look = realm.look();
     assert!(look.untouched(), "{look:?}");
@@ -324,8 +324,19 @@ fn a_wait_survives_a_restart_and_its_refusal_lays_nothing() {
     assert_eq!(results[0]["isError"], true, "{results:#?}");
     // Refused by the early ask, before the call was kept as begun.
     let text = results[0]["content"][0]["text"].as_str().unwrap();
-    assert!(text.contains("A chief refused this call."), "{text}");
+    assert!(text.contains(REFUSED), "{text}");
     driver.stop();
+}
+
+/// The words of a call a chief refused.
+const REFUSED: &str = "the chief refused it";
+
+/// Whether the driver's reply to a decision says the wait was
+/// answered with `choice`.
+fn answered(decided: &Value, choice: &str) -> bool {
+    decided["decided"].as_str().is_some_and(|words| {
+        words.starts_with(&format!("Answered /{choice}"))
+    })
 }
 
 #[test]
@@ -348,33 +359,31 @@ fn a_permission_taken_back_after_pi_kept_its_intent_is_refused_as_it_runs()
         "Lay the road between ana and bo.",
     );
     assert_eq!(realm.wait_paused("runtime"), "before_operation");
-    // Allowed early, then kept by pi as begun.
-    let look = realm.look();
-    assert_eq!(look.waits.len(), 1, "{look:?}");
-    assert_eq!(look.waits[0][1], "allowed", "{look:?}");
-    let key = look.waits[0][0].as_str().unwrap().to_string();
-    let decided = driver.send(json!({
-        "do": "decide", "runtime": runtime, "key": key, "allow": false,
-    }));
-    assert_eq!(decided["decided"], "Answered");
+    // Allowed early with no wait, then kept by pi as begun; then the
+    // chief reserves roads.
+    assert!(realm.look().waits.is_empty());
+    realm.reserve_roads();
     realm.script(
         "faux.json",
         json!({"agents": {"home:0": ["continued after recovery"]}}),
     );
     let pid = driver.runtime_pid();
     restarted(&mut driver, pid);
+    // pi runs it again without the early ask, and the gate asks the
+    // chief as it runs.
+    let key = driver.until(|n| n["kind"] == "waiting")["key"].clone();
+    let decided = driver.send(json!({
+        "do": "decide", "runtime": runtime, "key": key, "allow": false,
+    }));
+    assert!(answered(&decided, "deny"), "{decided}");
     driver.answer(binding, "continued after recovery");
     let look = realm.look();
     assert!(look.untouched(), "{look:?}");
     let results = realm.kept_tool_results(&runtime);
     assert_eq!(results.len(), 1, "{results:#?}");
     assert_eq!(results[0]["isError"], true, "{results:#?}");
-    // The call's own answer: pi ran it again without the early ask,
-    // and the server refused it as it ran.
-    assert_eq!(
-        results[0]["content"][0]["text"],
-        "A chief refused this call."
-    );
+    let text = results[0]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains(REFUSED), "{text}");
     driver.stop();
 }
 
@@ -559,12 +568,12 @@ fn an_input_cut_off_after_pi_admitted_it_is_admitted_once() {
 #[test]
 fn cancelling_stops_the_turn_lapses_its_wait_and_drops_its_queue() {
     let realm = Realm::new("cancel");
+    realm.reserve_roads();
     let faux = realm.script(
         "faux.json",
         json!({"agents": {"home:0": [road_call(), "never"]}}),
     );
-    let asks = [("HAMLET_ASK_TOOLS", "build_road")];
-    let mut driver = Driver::start(&realm, &faux, &asks);
+    let mut driver = Driver::start(&realm, &faux, &[]);
     let (binding, runtime) = driver.bind(0);
     driver.submit(
         binding,
@@ -580,12 +589,12 @@ fn cancelling_stops_the_turn_lapses_its_wait_and_drops_its_queue() {
     driver.until(|n| n["kind"] == "cancelled");
     let look = realm.look();
     assert!(look.untouched(), "{look:?}");
-    assert_eq!(look.waits, [vec![key.clone(), json!("refused")]]);
+    assert_eq!(look.waits, [vec![key.clone(), json!("stopped")]]);
     // A chief's later yes does not bring the call back.
     let decided = driver.send(json!({
         "do": "decide", "runtime": runtime, "key": key, "allow": true,
     }));
-    assert_eq!(decided["decided"], "Unchanged");
+    assert_eq!(decided["decided"], "Nothing waits for you.");
     // Nothing of the stopped turn or its queue comes back after a
     // restart.
     realm.script(

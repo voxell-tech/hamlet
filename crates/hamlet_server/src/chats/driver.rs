@@ -1,0 +1,100 @@
+//! The chats' gate and deeds as the harness tests' driver reaches
+//! them, without protocol v0.
+
+use anyhow::{Context, Result};
+use rusqlite::{OptionalExtension, params};
+
+use super::records::{self, Place};
+use super::{calls, deeds};
+use crate::RuntimeInstance;
+use crate::harness::{BindingId, Call, Harnesses, Notice, Re};
+use crate::record::AgentRef;
+use crate::service::Service;
+
+impl Service {
+    /// Binds a conversation of the chief with `agent`, whose calls
+    /// the gate rules on as a chat's.
+    pub async fn bind_chat(
+        &mut self,
+        harnesses: &mut Harnesses,
+        agent: &AgentRef,
+    ) -> Result<(BindingId, Vec<Notice>)> {
+        let (binding, notices) =
+            harnesses.bind(self.home.store(), agent, false).await?;
+        let place = Place {
+            agent: agent.clone(),
+            chief: Some(self.chief.clone()),
+            session: 1,
+        };
+        records::keep(
+            self.home.store().connection(),
+            binding,
+            &place,
+            None,
+            0,
+        )?;
+        Ok((binding, notices))
+    }
+
+    /// Answers the tool call `call` of `binding` through the gate.
+    pub async fn answer_call(
+        &mut self,
+        harnesses: &mut Harnesses,
+        binding: BindingId,
+        re: Re,
+        call: Call,
+    ) -> Result<()> {
+        calls::call(self, harnesses, binding, re, call).await
+    }
+
+    /// The open wait that holds the call `key` of `runtime`.
+    pub fn wait_of(
+        &mut self,
+        runtime: &RuntimeInstance,
+        key: &str,
+    ) -> Result<Option<String>> {
+        Ok(self
+            .home
+            .store()
+            .connection()
+            .query_row(
+                "SELECT g.wait FROM gate_call g JOIN wait w ON w.id \
+                 = g.wait WHERE g.runtime = ?1 AND g.key = ?2 AND \
+                 w.open = 1",
+                params![runtime.as_str(), key],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    /// The chief's `choice` on the wait `wait`, in the words a reply
+    /// gives; a refusal in words.
+    pub async fn answer_wait(
+        &mut self,
+        harnesses: &mut Harnesses,
+        wait: &str,
+        choice: &str,
+    ) -> Result<std::result::Result<String, String>> {
+        calls::answer_words(self, harnesses, wait, choice, "", None)
+            .await
+    }
+
+    /// Stops the turn of the conversation `binding`, as a chief's
+    /// stop does.
+    pub async fn stop_chat(
+        &mut self,
+        harnesses: &mut Harnesses,
+        binding: BindingId,
+    ) -> Result<()> {
+        let kept =
+            records::kept(self.home.store().connection(), binding)?
+                .context("a chat's conversation")?;
+        deeds::stop_conversation(
+            self,
+            harnesses,
+            &kept.place.agent,
+            binding,
+        )
+        .await
+    }
+}

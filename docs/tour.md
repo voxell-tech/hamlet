@@ -76,7 +76,8 @@ the public test boundary is protocol v0 or the process command line.
 | `documents.rs`, `settings.rs`, `limits.rs` | Chief edits and reads, stored settings plus process overrides, JSON limit validation |
 | `chats.rs`, `chats/` | Chief and peer watches, durable inputs, follow-up work, reflection, stop, retry, resume and rewind |
 | `chats/calls.rs`, `gate.rs`, `oversight.rs` | Request digest/binding checks, approval rules, waits, standing grants and execution. Marked outcomes survive replay; changed requests are refused |
-| `harness.rs`, `harness/` | Start/watch runtime processes, bind conversations, admit inputs, carry link messages, acknowledge updates and retain owed cancellation |
+| `harness.rs`, `harness/` | Start/watch runtime processes, bind conversations, admit inputs, carry link messages, admit and charge model attempts, acknowledge updates and retain owed cancellation. Tool calls go to the chats' gate |
+| `chats/driver.rs`, `bin/hamlet-harness-driver.rs` | With the `harness` feature: the test driver's reach into the chats' gate, waits and stop, for the real-process suite in `tests/harness` |
 | `tools.rs`, `tools/`, `hand.rs` | Built-in tools, their confined file/shell execution and hand-added manifests |
 | `sandbox.rs`, `sandbox/` | Bubblewrap/Seatbelt policies, subprocess limits and termination |
 | `papers.rs`, `papers/tree.rs` | Descriptor-relative house access, notes, bounded no-follow tree operations and recoverable snapshots |

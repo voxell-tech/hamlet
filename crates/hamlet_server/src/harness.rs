@@ -6,7 +6,7 @@
 //! [`Harnesses::handle`], which answers the runtime and returns what
 //! the host may show.
 
-pub mod answers;
+pub(crate) mod answers;
 mod bindings;
 mod credentials;
 // Generated, so formatted as the generator writes it.
@@ -21,7 +21,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-pub use answers::Decided;
 use anyhow::{Context, Result, bail};
 pub use bindings::{
     Binding, BindingId, DEFAULT_HARNESS, Input, Standing,
@@ -758,26 +757,19 @@ impl Harnesses {
     }
 
     /// Stops the running turn of `binding` and drops its queue:
-    /// inputs not yet admitted are dropped here first, and its
-    /// waits lapse.
+    /// inputs not yet admitted are dropped here first.
     pub async fn cancel(
         &mut self,
         store: &mut Store,
         binding: BindingId,
     ) -> Result<()> {
         let bound = self.bound(store, binding)?;
-        let lapsed = store.begin_cancel(binding)?;
+        store.begin_cancel(binding)?;
         let Some(index) = self.index(&bound.runtime) else {
             return Ok(());
         };
         if self.runtimes[index].phase != Phase::Ready {
             return Ok(());
-        }
-        for key in lapsed {
-            self.send(index, |v, id| {
-                ServerMessage::Answered(link::Answered { id, key, v })
-            })
-            .await;
         }
         // A runtime that is down is told when it is ready again.
         self.runtimes[index].cancelling.remove(&binding);
@@ -806,27 +798,6 @@ impl Harnesses {
             })
             .await;
         self.pending.insert(id, (index, Pending::Cancel(binding)));
-    }
-
-    /// A chief's answer to the wait of the call `key` of `runtime`.
-    pub async fn decide(
-        &mut self,
-        store: &mut Store,
-        runtime: &RuntimeInstance,
-        key: &str,
-        allow: bool,
-    ) -> Result<Decided> {
-        let decided = store.decide(runtime, key, allow)?;
-        if let Some(index) = self.index(runtime)
-            && self.runtimes[index].phase == Phase::Ready
-        {
-            let key = key.to_owned();
-            self.send(index, |v, id| {
-                ServerMessage::Answered(link::Answered { id, key, v })
-            })
-            .await;
-        }
-        Ok(decided)
     }
 
     /// Asks for a page of the transcript of `binding` before the

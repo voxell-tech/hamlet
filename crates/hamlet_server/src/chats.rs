@@ -5,6 +5,8 @@
 mod activity;
 mod calls;
 mod deeds;
+#[cfg(feature = "harness")]
+mod driver;
 mod fold;
 mod follow;
 pub(crate) mod records;

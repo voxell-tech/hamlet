@@ -8,7 +8,7 @@ use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
 use super::link::{ModelRef, Usage};
-use super::{Answer, Binding, Decided, answers, parse, tools};
+use super::{Answer, Binding, answers, parse, tools};
 use crate::record::{
     Actor, Admit, AgentRef, Change, FoundRecord, RecordOperation,
 };
@@ -74,14 +74,6 @@ fn road() -> BTreeMap<String, Value> {
     arguments(json!({"a": "ana", "b": "bo", "reason": "trade"}))
 }
 
-fn never(_: &str) -> bool {
-    false
-}
-
-fn always(_: &str) -> bool {
-    true
-}
-
 fn roads(store: &Store) -> usize {
     store.record("home").unwrap().unwrap().roads.len()
 }
@@ -92,17 +84,17 @@ fn run(
     key: &str,
     arguments: &BTreeMap<String, Value>,
 ) -> Answer {
-    answers::operation(
-        store,
-        binding,
-        key,
-        "build_road",
-        arguments,
-        never,
-        2,
-    )
-    .unwrap()
-    .answer
+    let call = match tools::parse("build_road", arguments) {
+        Ok(call) => call,
+        Err(words) => return Answer::result(words, true),
+    };
+    let id = OperationId {
+        runtime: binding.runtime.clone(),
+        key: key.into(),
+    };
+    let (text, error) =
+        tools::run(store, &id, binding, &call, 2).unwrap();
+    Answer::result(text, error)
 }
 
 fn result(text: &str, error: bool) -> Answer {
@@ -175,14 +167,8 @@ fn an_identity_runs_one_call_and_its_marked_result_stands() {
         run(&mut store, &binding, "k", &road()),
         result(LAID, false)
     );
-    // Taking back a call that ran undoes nothing, and asking again
-    // gives the marked result rather than a refusal or a second
-    // road.
-    let runtime = binding.runtime.clone();
-    assert_eq!(
-        store.decide(&runtime, "k", false).unwrap(),
-        Decided::AlreadyRan
-    );
+    // Asking again gives the marked result rather than a refusal or
+    // a second road.
     assert_eq!(
         run(&mut store, &binding, "k", &road()),
         result(LAID, false)
@@ -197,43 +183,6 @@ fn an_identity_runs_one_call_and_its_marked_result_stands() {
         result(tools::CONFLICT, true)
     );
     assert_eq!(roads(&store), 1);
-}
-
-#[test]
-fn a_waiting_identity_asked_with_other_arguments_is_refused() {
-    let scratch = Scratch::new("harness-waiting");
-    let (mut store, binding) = bound(&scratch, 0);
-    let asked = answers::allow(
-        &mut store,
-        &binding,
-        "k",
-        "build_road",
-        &road(),
-        always,
-    )
-    .unwrap();
-    assert!(asked.new_wait);
-    assert!(matches!(asked.answer, Answer::Waiting(_)));
-    let runtime = binding.runtime.clone();
-    assert_eq!(
-        store.decide(&runtime, "k", true).unwrap(),
-        Decided::Answered
-    );
-    let other = arguments(
-        json!({"a": "ana", "b": "founder", "reason": "trade"}),
-    );
-    let asked = answers::operation(
-        &mut store,
-        &binding,
-        "k",
-        "build_road",
-        &other,
-        always,
-        2,
-    )
-    .unwrap();
-    assert_eq!(asked.answer, Answer::Refusal(tools::CONFLICT.into()));
-    assert_eq!(roads(&store), 0);
 }
 
 #[test]
@@ -579,40 +528,6 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
         crate::models::choice(&store, &scratch, &binding, false)
             .unwrap()["id"],
         "home"
-    );
-}
-
-#[test]
-fn cancelling_refuses_the_turn_s_calls_not_yet_carried_out() {
-    let scratch = Scratch::new("harness-cancel-calls");
-    let (mut store, binding) = bound(&scratch, 0);
-    // Allowed early with no chief to ask, then kept by pi as begun.
-    let asked = answers::allow(
-        &mut store,
-        &binding,
-        "begun",
-        "build_road",
-        &road(),
-        never,
-    )
-    .unwrap();
-    assert_eq!(asked.answer, Answer::Allowed);
-    assert!(store.begin_cancel(binding.id).unwrap().is_empty());
-    // Carried out after the turn was stopped, it lays nothing, and
-    // nor does a call of the stopped turn never asked about early.
-    for key in ["begun", "unasked"] {
-        let answer = run(&mut store, &binding, key, &road());
-        assert!(
-            matches!(answer, Answer::Refusal(_)),
-            "{key}: {answer:?}"
-        );
-    }
-    assert_eq!(roads(&store), 0);
-    // The runtime confirms the cancel; the next turn's calls run.
-    store.cancelled(binding.id).unwrap();
-    assert_eq!(
-        run(&mut store, &binding, "next", &road()),
-        result(LAID, false)
     );
 }
 
