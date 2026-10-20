@@ -10,10 +10,11 @@ mod petition;
 use bevy::app::{App, Startup};
 use bevy::ecs::component::Component;
 use bevy::ecs::message::MessageWriter;
-use bevy::ecs::system::Res;
+use bevy::ecs::observer::On;
+use bevy::ecs::system::{Query, Res, ResMut};
 use hamlet_engine_api::Capability;
 use hamlet_engine_core::{Home, LogLine};
-use hamlet_engine_plugins::PluginInfo;
+use hamlet_engine_plugins::{PluginInfo, Uninstall};
 
 pub use self::file::{Answer, Answered, FILE, Grants, Record};
 pub use self::petition::{
@@ -24,6 +25,7 @@ pub use self::petition::{
 pub fn plugin(app: &mut App) {
     let home = app.world().resource::<Home>().clone();
     app.insert_resource(Grants::open(&home))
+        .add_observer(forget)
         .add_systems(Startup, tell_held)
         .add_plugins((petition::plugin, page::plugin));
 }
@@ -84,6 +86,24 @@ impl Grants {
             (true, Some(Answer::Ask)) => Verdict::Asking,
             _ => Verdict::Refused,
         }
+    }
+}
+
+/// Forgets what the person answered for a plugin being uninstalled.
+fn forget(
+    event: On<Uninstall>,
+    plugins: Query<&PluginInfo>,
+    mut grants: ResMut<Grants>,
+    mut log: MessageWriter<LogLine>,
+) {
+    let Ok(info) = plugins.get(event.entity) else {
+        return;
+    };
+    if let Err(why) = grants.forget(&info.id) {
+        log.write(LogLine::error(
+            "grants",
+            format!("{FILE} cannot be written: {why}"),
+        ));
     }
 }
 

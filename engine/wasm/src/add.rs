@@ -1,0 +1,317 @@
+//! ADD PLUGIN... and uninstalling. The person chooses the folder of
+//! a built plugin in the system's dialog; it is checked, copied into
+//! the plugins folder, and the person is asked about it at once.
+//! Uninstalling a plugin takes its folder away.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use bevy::app::{App, Update};
+use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
+use bevy::ecs::event::Event;
+use bevy::ecs::message::MessageWriter;
+use bevy::ecs::observer::On;
+use bevy::ecs::resource::Resource;
+use bevy::ecs::system::{
+    Commands, NonSendMarker, Query, Res, ResMut,
+};
+use bevy::tasks::futures::check_ready;
+use bevy::tasks::{IoTaskPool, Task};
+use hamlet_engine_api::Manifest;
+use hamlet_engine_core::{Home, LogLine};
+use hamlet_engine_plugins::{AddPlugin, PluginInfo, Uninstall};
+
+use crate::folder::{
+    FOLDER, MANIFEST, Package, WASM, copy_capped, open_capped,
+    read_manifest, spawn_plugin,
+};
+use crate::host::WasmTuning;
+
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Dialog>()
+        .add_observer(ask)
+        .add_observer(add_from)
+        .add_observer(uninstall)
+        .add_systems(Update, (open, chosen, added));
+}
+
+/// Adds the built plugin in `folder`, as the folder the person chose
+/// in the dialog is.
+#[derive(Event, Clone, Debug)]
+pub struct AddFrom {
+    pub folder: PathBuf,
+}
+
+/// The dialog a plugin's folder is chosen in: asked for, and open.
+#[derive(Resource, Default)]
+struct Dialog {
+    asked: bool,
+    open: Option<Task<Option<PathBuf>>>,
+}
+
+/// On an entity of its own: a plugin's files being copied in, off the
+/// frame, into the folder it is to be in.
+#[derive(Component)]
+pub(crate) struct Adding(Task<Result<(Manifest, PathBuf), String>>);
+
+/// A built plugin's folder that may be added.
+#[derive(Debug)]
+pub(crate) struct Checked {
+    pub(crate) manifest: Manifest,
+    /// The folder, made canonical.
+    pub(crate) folder: PathBuf,
+}
+
+fn ask(_: On<AddPlugin>, mut dialog: ResMut<Dialog>) {
+    dialog.asked = true;
+}
+
+/// Opens the dialog when it is asked for and none is open. The marker
+/// keeps this on the main thread, where macOS wants a dialog begun.
+fn open(_main: NonSendMarker, mut dialog: ResMut<Dialog>) {
+    if !std::mem::take(&mut dialog.asked) || dialog.open.is_some() {
+        return;
+    }
+    let chosen = rfd::AsyncFileDialog::new()
+        .set_title("Choose the folder of a built plugin")
+        .pick_folder();
+    dialog.open = Some(IoTaskPool::get().spawn(async move {
+        chosen.await.map(|folder| folder.path().to_path_buf())
+    }));
+}
+
+/// Adds from the folder the dialog gave, if one was chosen.
+fn chosen(mut dialog: ResMut<Dialog>, mut commands: Commands) {
+    let Some(open) = &mut dialog.open else {
+        return;
+    };
+    let Some(folder) = check_ready(open) else {
+        return;
+    };
+    dialog.open = None;
+    if let Some(folder) = folder {
+        commands.trigger(AddFrom { folder });
+    }
+}
+
+/// Checks the folder to add from, and copies it in off the frame.
+fn add_from(
+    event: On<AddFrom>,
+    home: Res<Home>,
+    tuning: Res<WasmTuning>,
+    plugins: Query<(&PluginInfo, Option<&Package>)>,
+    mut log: MessageWriter<LogLine>,
+    mut commands: Commands,
+) {
+    let checked = check(&event.folder, home.root(), &tuning)
+        .and_then(|checked| {
+            let id = &checked.manifest.id;
+            match plugins.iter().find(|(info, _)| info.id == *id) {
+                Some((_, None)) => Err(format!(
+                    "{id} is the id of a plugin built into the \
+                     engine"
+                )),
+                // An update goes where the plugin is.
+                Some((_, Some(package))) => {
+                    Ok((checked, package.folder.clone()))
+                }
+                None => {
+                    let into = home.path(FOLDER).join(id.as_str());
+                    Ok((checked, into))
+                }
+            }
+        });
+    let (checked, into) = match checked {
+        Ok(checked) => checked,
+        Err(why) => {
+            log.write(LogLine::error(
+                "plugins",
+                format!(
+                    "{} cannot be added: {why}",
+                    event.folder.display()
+                ),
+            ));
+            return;
+        }
+    };
+    let plugins = home.path(FOLDER);
+    let tuning = tuning.clone();
+    commands.spawn(Adding(IoTaskPool::get().spawn(async move {
+        place(&checked, &plugins, &into, &tuning)
+            .map(|manifest| (manifest, into))
+    })));
+}
+
+/// Adds each plugin whose files took their place, in place of one
+/// that was there, and asks the person about it.
+fn added(
+    mut adding: Query<(Entity, &mut Adding)>,
+    plugins: Query<(Entity, &PluginInfo)>,
+    mut log: MessageWriter<LogLine>,
+    mut commands: Commands,
+) {
+    for (task, mut placing) in &mut adding {
+        let Some(placed) = check_ready(&mut placing.0) else {
+            continue;
+        };
+        commands.entity(task).despawn();
+        match placed {
+            Ok((manifest, folder)) => {
+                for (plugin, info) in &plugins {
+                    if info.id == manifest.id {
+                        commands.entity(plugin).despawn();
+                    }
+                }
+                log.write(LogLine::info(
+                    "plugins",
+                    format!(
+                        "{} {} is added",
+                        manifest.name, manifest.version
+                    ),
+                ));
+                spawn_plugin(&mut commands, manifest, folder);
+            }
+            Err(why) => {
+                log.write(LogLine::error(
+                    "plugins",
+                    format!("The plugin cannot be added: {why}"),
+                ));
+            }
+        }
+    }
+}
+
+/// Takes an installed plugin away, and its folder.
+fn uninstall(
+    event: On<Uninstall>,
+    plugins: Query<(&PluginInfo, &Package)>,
+    mut log: MessageWriter<LogLine>,
+    mut commands: Commands,
+) {
+    let Ok((info, package)) = plugins.get(event.entity) else {
+        return;
+    };
+    commands.entity(event.entity).despawn();
+    // A link is taken away itself, not what it points at.
+    let line = match fs::remove_dir_all(&package.folder) {
+        Ok(()) => LogLine::info(
+            "plugins",
+            format!("{} is uninstalled", info.name),
+        ),
+        Err(why) => LogLine::error(
+            "plugins",
+            format!(
+                "{} is uninstalled, and {} cannot be taken away: \
+                 {why}",
+                info.name,
+                package.folder.display()
+            ),
+        ),
+    };
+    log.write(line);
+}
+
+/// The folder `chosen`, when it holds a built plugin that may be
+/// added to the home `home`: a `plugin.toml` the engine can take and
+/// a `plugin.wasm`, each a plain file within its size, and the folder
+/// not in the home nor holding it.
+pub(crate) fn check(
+    chosen: &Path,
+    home: &Path,
+    tuning: &WasmTuning,
+) -> Result<Checked, String> {
+    let folder = chosen
+        .canonicalize()
+        .map_err(|_| "the folder cannot be read".to_string())?;
+    if !folder.is_dir() {
+        return Err("what was chosen is not a folder".into());
+    }
+    let home =
+        home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
+    if folder.starts_with(&home) || home.starts_with(&folder) {
+        return Err("the folder is in the engine's home, or holds \
+                    it"
+        .into());
+    }
+    let manifest = read_manifest(&folder, tuning.manifest_bytes)?;
+    if !folder.join(WASM).exists() {
+        return Err(format!(
+            "it has no {WASM}, so it is not a built plugin"
+        ));
+    }
+    open_capped(&folder.join(WASM), tuning.wasm_bytes)?;
+    Ok(Checked { manifest, folder })
+}
+
+/// Copies the plugin `checked` into the folder `into` of the plugins
+/// folder `plugins`: into a folder of its own there first, read again
+/// as the engine reads a plugin, then moved into place. What it holds
+/// is the plugin the person chose, unless that changed meanwhile.
+pub(crate) fn place(
+    checked: &Checked,
+    plugins: &Path,
+    into: &Path,
+    tuning: &WasmTuning,
+) -> Result<Manifest, String> {
+    let id = &checked.manifest.id;
+    let stage = plugins.join(format!(".adding_{id}"));
+    let _ = fs::remove_dir_all(&stage);
+    fs::create_dir_all(&stage).map_err(|e| {
+        format!("the plugins folder cannot be written: {e}")
+    })?;
+    let placed = (|| {
+        copy_capped(
+            &checked.folder.join(MANIFEST),
+            &stage.join(MANIFEST),
+            tuning.manifest_bytes,
+        )?;
+        copy_capped(
+            &checked.folder.join(WASM),
+            &stage.join(WASM),
+            tuning.wasm_bytes,
+        )?;
+        let copied = read_manifest(&stage, tuning.manifest_bytes)?;
+        if copied.id != *id
+            || copied.version != checked.manifest.version
+        {
+            return Err(
+                "the folder changed while it was added".to_string()
+            );
+        }
+        put(&stage, into)?;
+        Ok(copied)
+    })();
+    let _ = fs::remove_dir_all(&stage);
+    placed
+}
+
+/// Moves the folder `stage` to `into`, over the folder there.
+fn put(stage: &Path, into: &Path) -> Result<(), String> {
+    let moved = |e: std::io::Error| {
+        format!("the plugin cannot take its place: {e}")
+    };
+    match fs::symlink_metadata(into) {
+        Err(_) => fs::rename(stage, into).map_err(moved),
+        Ok(meta) if meta.is_dir() => {
+            let name =
+                into.file_name().map_or_else(String::new, |name| {
+                    name.to_string_lossy().into()
+                });
+            let old =
+                into.with_file_name(format!(".removing_{name}"));
+            let _ = fs::remove_dir_all(&old);
+            fs::rename(into, &old).map_err(moved)?;
+            if let Err(e) = fs::rename(stage, into) {
+                let _ = fs::rename(&old, into);
+                return Err(moved(e));
+            }
+            let _ = fs::remove_dir_all(&old);
+            Ok(())
+        }
+        Ok(_) => Err(format!(
+            "{} is not a folder; take it away by hand",
+            into.display()
+        )),
+    }
+}

@@ -284,6 +284,28 @@ impl Instance {
         self.call(caps, |guest, store| guest.call_run(store, name))
     }
 
+    /// The plugin's state, for its next version.
+    pub fn save(
+        &mut self,
+        caps: &Caps,
+    ) -> (Result<Vec<u8>, Fault>, Spent) {
+        self.call(caps, |guest, store| guest.call_save(store))
+    }
+
+    /// Hands the plugin the state its earlier version saved.
+    pub fn restore(
+        &mut self,
+        caps: &Caps,
+        state: &[u8],
+    ) -> (Result<(), Fault>, Spent) {
+        if state.len() > caps.bytes {
+            return (Err(Fault::Bytes), Spent::default());
+        }
+        self.call(caps, |guest, store| {
+            guest.call_restore(store, state)
+        })
+    }
+
     /// Lines the plugin logged since this was last asked.
     pub fn take_logs(&mut self) -> Vec<(LogLevel, String)> {
         std::mem::take(&mut self.store.data_mut().logs)

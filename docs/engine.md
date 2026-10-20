@@ -245,7 +245,9 @@ person has one or more, and one is shown at a time.
   refuses is told in the log and not added.
 - **The plugin list** (`engine/plugins`) is the engine's own panel: each
   plugin, its id and version, whether it is on and how much it adds, or
-  why it was stopped, and a button that switches it.
+  why it was stopped, and a button that switches it; an installed one
+  has an Uninstall button too (`Uninstall`). ADD PLUGIN... above them
+  triggers `AddPlugin`, for a host to answer.
 - **The demo** in `engine/app/src/demo.rs` is built into the binary. It
   adds a panel, Hello; a command, Say hello, in a Demo menu and on
   Primary+Shift+H, which writes to the log; and a workspace to take,
@@ -309,6 +311,27 @@ plugin to are `[budgets]`.
   plain file and not a link, and its size is checked before a byte of
   it is read: `[wasm] manifest_bytes` and `wasm_bytes`. A manifest that
   asks for a power that is never granted is refused, and says which.
+- **Watched.** The plugins folder is looked at every `[wasm] watch`
+  seconds. A folder that appeared is added once its `plugin.wasm` and
+  `plugin.toml` stayed the same from one look to the next, so one still
+  being copied in is not read, and the person is asked about it; one
+  that cannot be is told of once, and again when it changes. A plugin
+  whose folder is gone goes with it.
+- **ADD PLUGIN...** on the Plugins panel asks for a plugin to be added
+  (`AddPlugin`). The host opens the system's dialog on the main thread
+  and waits for it off the frame. The folder chosen, or one given by
+  `AddFrom` as a test does, is checked: a `plugin.toml` the engine can
+  take and a `plugin.wasm`, each a plain file within its size, not a
+  link, and the folder neither in the home nor holding it. A folder of
+  sources is refused; plugins are not built here. The two files are
+  copied off the frame into `<home>/plugins/.adding_<id>`, read again,
+  and the folder is moved into place: `<home>/plugins/<id>`, or the
+  folder of the installed plugin of that id, which it replaces. The
+  person is asked about it at once. An id of a plugin built in is
+  refused.
+- **Uninstall** on the Plugins panel (`Uninstall`) takes an installed
+  plugin away with its folder, and the grants forget what the person
+  answered for it.
 - **Switched on**, only when it is `Admitted`, a plugin's component is
   compiled off the frame, on
   the async compute pool, and kept, so switching it on again needs no
@@ -341,6 +364,28 @@ plugin to are `[budgets]`.
   again after one.
 - **The log.** What a plugin logs goes to the engine's log under its
   id, each line cut at `log_line_bytes`.
+
+### Hot reload
+
+- **Noticed.** Every `[wasm] watch` seconds each installed plugin's
+  `plugin.wasm` and `plugin.toml` are looked at, and a change is taken
+  once a file stayed the same from one look to the next.
+- **A new `plugin.wasm`** of a running plugin is compiled off the frame
+  and swapped in by one system in the frame's update, never in the
+  middle of a call: the running version's `save` gives its state, the
+  new one is instantiated in a store of its own (the pool keeps room
+  for it), given the state by `restore`, and asked what it adds. Its
+  inbox and its second's spending carry over. When it adds the same,
+  its panels are drawn again; when not, what it added is taken away and
+  added anew. The log says it was reloaded.
+- **A build that fails**, or a new version at fault, leaves the old one
+  running, and the log says why; the same file is not tried again until
+  it changes. A running version at fault while it saves is stopped.
+- **A plugin that is not running** forgets its compiled component, so
+  it is compiled anew when it starts.
+- **A new `plugin.toml`** that changes the name, the version or the
+  asks adds the plugin again, as if it had just come: one that asks for
+  more is asked about again. Its state is not kept.
 
 ### Budgets
 

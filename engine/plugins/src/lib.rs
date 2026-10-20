@@ -15,6 +15,7 @@ use hamlet_engine_api::{Ask, Manifest, PluginId};
 use hamlet_engine_core::LogLine;
 
 pub use self::entry::{Entry, EntryPoint};
+pub use self::list::{AddPlugin, Uninstall};
 pub use self::switch::{
     ContributedBy, Contributions, Disable, Enable, Enabled, Stopped,
     switch_on,

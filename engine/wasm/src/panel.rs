@@ -35,6 +35,7 @@ use crate::budget::{Spending, pass_logs, tally};
 use crate::folder::Package;
 use crate::host::WasmTuning;
 use crate::instance::{Caps, Fault, Instance};
+use crate::reload::Reloading;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<Input>()
@@ -316,7 +317,7 @@ pub(crate) fn stop(
 ) {
     commands
         .entity(plugin)
-        .remove::<(Instance, Inbox, Spending)>()
+        .remove::<(Instance, Inbox, Spending, Reloading)>()
         .insert(Stopped(fault.to_string()));
     log.write(LogLine::error(
         info.id.as_str(),

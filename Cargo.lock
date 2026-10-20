@@ -3680,6 +3680,7 @@ dependencies = [
  "hamlet_engine_grants",
  "hamlet_engine_plugins",
  "hamlet_engine_shell",
+ "rfd",
  "serde",
  "toml",
  "wasmtime",

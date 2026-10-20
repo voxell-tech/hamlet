@@ -45,6 +45,9 @@ pub struct WasmTuning {
     pub wasm_bytes: u64,
     /// Bytes of a `plugin.toml`; a larger one is not read.
     pub manifest_bytes: u64,
+    /// Seconds between two looks at the plugins folder, read as the
+    /// engine starts.
+    pub watch: f32,
 }
 
 impl Tuning for WasmTuning {

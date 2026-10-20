@@ -1,8 +1,10 @@
-//! The plugin list: every plugin, whether it is on, and a button to
-//! switch it.
+//! The plugin list: every plugin, whether it is on, a button to
+//! switch it, and for an installed one a button to uninstall it. A
+//! button above asks for a plugin to be added.
 
 use bevy::app::{App, Startup, Update};
 use bevy::ecs::entity::Entity;
+use bevy::ecs::event::{EntityEvent, Event};
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::query::{Changed, Has, Or};
 use bevy::ecs::relationship::RelationshipTarget;
@@ -45,6 +47,19 @@ struct Row {
     adds: usize,
     /// Why the engine stopped it.
     stopped: Option<String>,
+    builtin: bool,
+}
+
+/// Asks for a plugin to be added: a host offers the person a folder
+/// to add one from.
+#[derive(Event, Clone, Copy, Debug)]
+pub struct AddPlugin;
+
+/// Asks for the installed plugin to be taken away, with its files and
+/// what the person answered for it.
+#[derive(EntityEvent, Clone, Copy, Debug)]
+pub struct Uninstall {
+    pub entity: Entity,
 }
 
 fn open(mut commands: Commands) {
@@ -56,14 +71,18 @@ fn open(mut commands: Commands) {
 }
 
 fn view(_: Entity) -> AnyView {
-    panel(keyed(resource::<Rows, _>(Clone::clone), |rows| {
+    let add = button(label("ADD PLUGIN..."))
+        .rules(ghost)
+        .on_activate(|world| world.trigger(AddPlugin));
+    let rows = keyed(resource::<Rows, _>(Clone::clone), |rows| {
         if rows.0.is_empty() {
             return label("No plugins.").tone(Tone::Dim).boxed();
         }
         column(rows.0.iter().map(row_view).collect::<Vec<_>>())
             .gap(12.0)
             .boxed()
-    }))
+    });
+    panel(column((row((add,)), rows)).gap(16.0))
 }
 
 fn row_view(row_of: &Row) -> AnyView {
@@ -74,6 +93,28 @@ fn row_view(row_of: &Row) -> AnyView {
         (None, true) => format!("On, adds {}", row_of.adds),
         (None, false) => "Off".into(),
     };
+    let switch =
+        button(label(if on { "Switch off" } else { "Switch on" }))
+            .rules(ghost)
+            .on_activate(move |world| {
+                if on {
+                    world.trigger(Disable { entity: plugin });
+                } else {
+                    world.trigger(Enable { entity: plugin });
+                }
+            })
+            .boxed();
+    let mut buttons = vec![switch];
+    if !row_of.builtin {
+        buttons.push(
+            button(label("Uninstall"))
+                .rules(ghost)
+                .on_activate(move |world| {
+                    world.trigger(Uninstall { entity: plugin });
+                })
+                .boxed(),
+        );
+    }
     row((
         column((
             label(row_of.name.clone()),
@@ -83,15 +124,7 @@ fn row_view(row_of: &Row) -> AnyView {
         ))
         .gap(2.0)
         .grown(1.0),
-        button(label(if on { "Switch off" } else { "Switch on" }))
-            .rules(ghost)
-            .on_activate(move |world| {
-                if on {
-                    world.trigger(Disable { entity: plugin });
-                } else {
-                    world.trigger(Enable { entity: plugin });
-                }
-            }),
+        row(buttons).gap(4.0),
     ))
     .align(AlignItems::Center)
     .min_height(px(0.0))
@@ -138,6 +171,7 @@ fn follow(
             on,
             adds: adds.map_or(0, |adds| adds.len()),
             stopped: stopped.map(|stopped| stopped.0.clone()),
+            builtin: info.builtin,
         })
         .collect::<Vec<_>>();
     now.sort_by(|a, b| a.name.cmp(&b.name));

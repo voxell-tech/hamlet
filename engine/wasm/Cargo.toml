@@ -16,6 +16,7 @@ hamlet_engine_plugins.workspace = true
 hamlet_engine_grants.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true
+rfd.workspace = true
 serde.workspace = true
 toml.workspace = true
 wasmtime.workspace = true

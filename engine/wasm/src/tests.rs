@@ -13,7 +13,7 @@ use hamlet_engine_api::{
     API_VERSION, Action, CommandId, PluginId, Widget, WidgetId,
 };
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, Home};
+use hamlet_engine_core::{Budgets, Home, Log};
 use hamlet_engine_grants::{
     Grants, Petition, Record, answer_install,
 };
@@ -22,16 +22,19 @@ use hamlet_engine_shell::command;
 use wit_component::{ComponentEncoder, StringEncoding};
 use wit_parser::Resolve;
 
+use crate::add::{check, place};
+use crate::budget::Spending;
 use crate::folder::{FOLDER, MANIFEST, WASM};
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Fault, Instance, link};
 use crate::panel::{Drawn, Input, Shows};
+use crate::reload::reload;
 
 /// The exports every test plugin has, with `declare` and `draw`
 /// doing what they are given. The return area at 0 points at an empty
 /// list, which is no `Contribution`s and a `WidgetTree` of nothing;
 /// the one at 32 at the `Contribution`s of one panel, "p", whose name
-/// is also at 64.
+/// is also at 64. `run` counts, and the count is its state.
 fn module(declare: &str, draw: &str) -> String {
     format!(
         r#"(module
@@ -57,10 +60,17 @@ fn module(declare: &str, draw: &str) -> String {
   (func (export "hamlet:engine/guest@0.1.0#draw") (param i32 i32) (result i32)
     {draw})
   (func (export "hamlet:engine/guest@0.1.0#event") (param i32 i32))
-  (func (export "hamlet:engine/guest@0.1.0#run") (param i32 i32))
+  (global $count (mut i32) (i32.const 0))
+  (func (export "hamlet:engine/guest@0.1.0#run") (param i32 i32)
+    (global.set $count (i32.add (global.get $count) (i32.const 1))))
   (func (export "hamlet:engine/guest@0.1.0#save") (result i32)
-    (i32.const 0))
-  (func (export "hamlet:engine/guest@0.1.0#restore") (param i32 i32)))"#
+    (i32.store (i32.const 128) (global.get $count))
+    (i32.store (i32.const 96) (i32.const 128))
+    (i32.store (i32.const 100) (i32.const 4))
+    (i32.const 96))
+  (func (export "hamlet:engine/guest@0.1.0#restore") (param i32 i32)
+    (if (i32.eq (local.get 1) (i32.const 4))
+      (then (global.set $count (i32.load (local.get 0)))))))"#
     )
 }
 
@@ -224,6 +234,146 @@ fn a_plugin_over_its_budgets_waits_then_is_stopped() {
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+fn a_reloaded_plugin_keeps_its_state() {
+    let budgets = budgets();
+    let tuning = WasmTuning {
+        plugins: 1,
+        ..WasmTuning::designed()
+    };
+    let host = Host::new(&tuning, &budgets).expect("the host starts");
+    let plugin = component(&module("(i32.const 0)", "(i32.const 0)"));
+    let linked = link(&host.0, &plugin).expect("the plugin links");
+    let caps = Caps::of(&budgets, &tuning);
+    let mut old = Instance::new(&host.0, &linked, &caps)
+        .expect("the plugin starts");
+    for _ in 0..3 {
+        assert_eq!(old.run(&caps, "count").0, Ok(()));
+    }
+    let mut spending = Spending::new(Duration::ZERO);
+    let (mut fresh, declared) =
+        reload(&mut old, &host.0, &linked, &caps, &mut spending)
+            .expect("it reloads");
+    assert_eq!(declared, Vec::new());
+    assert_eq!(fresh.save(&caps).0, Ok(3_u32.to_le_bytes().to_vec()));
+}
+
+/// How a folder to add a plugin from is made.
+#[derive(Clone, Copy, Debug)]
+enum Made {
+    Built,
+    /// Its `plugin.wasm` a link to one elsewhere.
+    Linked,
+    /// Its `plugin.wasm` a named pipe.
+    Special,
+    Oversized,
+    InHome,
+    /// The source of a plugin, not built.
+    Source,
+    /// Asking for keys.
+    Never,
+}
+
+#[test]
+fn only_the_folder_of_a_built_plugin_is_added() {
+    let root = home("adding");
+    let outside = home("adding_from");
+    let plugins = root.join(FOLDER);
+    fs::create_dir_all(&plugins).unwrap();
+    let tuning = WasmTuning {
+        wasm_bytes: 64,
+        ..WasmTuning::designed()
+    };
+    let into = plugins.join("test.adding");
+    let mut cases = vec![
+        (Made::Built, ""),
+        (
+            Made::Oversized,
+            "plugin.wasm has 65 bytes, and the most is 64",
+        ),
+        (Made::InHome, "the folder is in the engine's home"),
+        (Made::Source, "it has no plugin.wasm"),
+        (Made::Never, "keys.read, and reading keys is never granted"),
+    ];
+    if cfg!(unix) {
+        cases.push((Made::Linked, "plugin.wasm is a link"));
+        cases
+            .push((Made::Special, "plugin.wasm is not a plain file"));
+    }
+    for (made, refusal) in cases {
+        let folder = match made {
+            Made::InHome => plugins.join("inside"),
+            _ => outside.join(format!("{made:?}")),
+        };
+        fs::create_dir_all(&folder).unwrap();
+        let asks = match made {
+            Made::Never => {
+                "[[asks]]\ncapability = \"keys.read\"\ntarget = \
+                 \"all\"\nreason = \"To sign\"\n"
+            }
+            _ => "",
+        };
+        fs::write(
+            folder.join(MANIFEST),
+            format!(
+                "id = \"test.adding\"\nname = \"Adding\"\nversion = \
+                 \"0.1.0\"\napi = \"{API_VERSION}\"\n{asks}"
+            ),
+        )
+        .unwrap();
+        let wasm = folder.join(WASM);
+        match made {
+            Made::Linked => {
+                fs::write(outside.join("elsewhere.wasm"), [0; 8])
+                    .unwrap();
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(
+                    outside.join("elsewhere.wasm"),
+                    &wasm,
+                )
+                .unwrap();
+            }
+            Made::Special => {
+                let made = Command::new("mkfifo").arg(&wasm).status();
+                assert!(made.unwrap().success());
+            }
+            Made::Oversized => fs::write(&wasm, [0; 65]).unwrap(),
+            Made::Source => {
+                fs::write(folder.join("Cargo.toml"), "").unwrap()
+            }
+            _ => fs::write(&wasm, [0; 64]).unwrap(),
+        }
+        let added =
+            check(&folder, &root, &tuning).and_then(|checked| {
+                place(&checked, &plugins, &into, &tuning)
+            });
+        match added {
+            Ok(manifest) => {
+                assert!(refusal.is_empty(), "{made:?} was added");
+                assert_eq!(manifest.id.as_str(), "test.adding");
+                assert_eq!(
+                    fs::read(into.join(WASM)).unwrap(),
+                    [0; 64]
+                );
+                fs::remove_dir_all(&into).unwrap();
+            }
+            Err(why) => assert!(
+                why.contains(refusal) && !refusal.is_empty(),
+                "{made:?}: {why}"
+            ),
+        }
+        // Nothing is left behind in the plugins folder.
+        let left = fs::read_dir(&plugins)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .filter(|name| name != "inside")
+            .collect::<Vec<_>>();
+        assert!(left.is_empty(), "{made:?} left {left:?}");
+    }
+    let _ = fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&outside);
+}
+
 /// A home of its own for the test `name`, empty.
 fn home(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
@@ -304,6 +454,21 @@ fn the_hello_sample_runs() {
     });
     let count = until(&mut app, |text| text != "Pressed 0 times.");
     assert_eq!(count, "Pressed once.");
+
+    // Built again, it is reloaded with its count.
+    let wasm = root.join(FOLDER).join("plugin").join(WASM);
+    let bytes = fs::read(&wasm).unwrap();
+    fs::write(&wasm, bytes).unwrap();
+    let reloaded = (0..500).any(|_| {
+        app.update();
+        std::thread::sleep(Duration::from_millis(10));
+        app.world()
+            .resource::<Log>()
+            .lines()
+            .any(|(_, line)| line.text.ends_with("is reloaded"))
+    });
+    assert!(reloaded, "it was never reloaded");
+    assert_eq!(until(&mut app, |_| true), "Pressed once.");
 
     // Its command, as a menu or its keys run it.
     let reset = CommandId::try_from("hamlet.hello/reset").unwrap();

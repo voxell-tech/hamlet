@@ -52,3 +52,4 @@ tables = 4
 table_elements = 20_000
 wasm_bytes = 33_554_432
 manifest_bytes = 16_384
+watch = 1.0

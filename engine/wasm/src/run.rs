@@ -29,6 +29,7 @@ use crate::folder::{Package, WASM, read_capped};
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Instance, Linked, link};
 use crate::panel::{Inbox, Work, view};
+use crate::reload::{Declared, Reloading};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(enable)
@@ -42,7 +43,7 @@ pub(crate) struct Starting;
 
 /// On a plugin whose component is being compiled off the frame.
 #[derive(Component)]
-pub(crate) struct Compiling(Task<Result<Linked, String>>);
+pub(crate) struct Compiling(pub(crate) Task<Result<Linked, String>>);
 
 /// On a plugin: its component, compiled and linked.
 #[derive(Component, Clone)]
@@ -80,13 +81,15 @@ fn disable(event: On<Disable>, mut commands: Commands) {
         Spending,
         Starting,
         Compiling,
+        Declared,
+        Reloading,
     )>();
 }
 
 /// What `contributions` declare, as the [`Entry`] a built-in plugin
 /// fills: the plugin draws its panels and settings pages, and runs
 /// its commands.
-fn entry(contributions: Vec<Contribution>) -> Entry {
+pub(crate) fn entry(contributions: Vec<Contribution>) -> Entry {
     let mut entry = Entry::default();
     for contribution in contributions {
         match contribution {
@@ -236,13 +239,14 @@ fn start(
                     &mut commands,
                     plugin,
                     info,
-                    entry(contributions),
+                    entry(contributions.clone()),
                     &budgets,
                 );
                 commands.entity(plugin).insert((
                     instance,
                     Inbox::default(),
                     spending,
+                    Declared(contributions),
                 ));
             }
             Err(fault) => {
