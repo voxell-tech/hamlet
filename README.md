@@ -64,7 +64,8 @@ all three binaries and a `pi/` package with production dependencies; they
 need installed Node but no checkout or npm install. Windows has a separate
 window-only archive for connecting to a remote server, without Node or Pi.
 See [releases](docs/releases.md).
-`make` alone builds without installing, `make uninstall` removes all three
+`make` alone builds without installing, `make all` also builds
+`hamlet-workspace` and `hamlet_protocol_gen`, `make uninstall` removes all three
 binaries, and `make dev` tries the checkout on
 a scratch home without installing:
 

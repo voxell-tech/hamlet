@@ -15,6 +15,7 @@ use tonic::transport::{
 
 #[allow(
     clippy::doc_lazy_continuation,
+    rustdoc::invalid_html_tags,
     reason = "generated from the pinned proto"
 )]
 pub mod proto {

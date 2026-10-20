@@ -33,8 +33,15 @@ Deployment requires an operator-provisioned Substrate installation.
 From the repository root:
 
 ```sh
-docker build -f crates/hamlet_workspace/Dockerfile -t hamlet-workspace:local .
+make workspace-image
 ```
+
+This tags the image `hamlet-workspace:<short commit>` and labels it
+`org.opencontainers.image.revision` with the full commit, so a deployed
+image tells which commit it holds. `WORKSPACE_IMAGE` sets another tag,
+and `DOCKER_FLAGS` passes flags such as `--platform` to `docker build`.
+CI builds the image whenever this crate, the wire crate or the lockfile
+changes, but never pushes it.
 
 The image builds locally. Its runtime smoke check exercises key creation
 and permissions, the packaged tools, worker startup and rejection of an

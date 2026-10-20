@@ -226,7 +226,7 @@ operations! {
         #[serde(default, skip_serializing_if = "is_false")]
         no_follow: bool,
     } -> ();
-    /// The regular files under a folder in [`walk`]'s order, passing
+    /// The regular files under a folder in [`walk()`]'s order, passing
     /// over folders named in `skip`.
     Walk { path: String, skip: Vec<String>, files: u64 } -> Walked;
 }

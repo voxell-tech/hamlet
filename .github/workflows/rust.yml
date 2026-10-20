@@ -114,9 +114,9 @@ jobs:
       - run: npm test --prefix harnesses/pi
       - run: npm run check --prefix crates/hamlet_protocol/schema
       - run: npm test --prefix crates/hamlet_protocol/schema
-      - run: cargo build --locked -p hamlet_cli -p hamlet-server
+      - run: cargo build --locked -p hamlet_cli -p hamlet_server
       # Faux and loopback providers only, including real harness processes.
-      - run: cargo test --workspace --all-targets --features hamlet-server/harness,hamlet_acceptance/acceptance
+      - run: cargo test --workspace --all-targets --features hamlet_server/harness,hamlet_acceptance/acceptance
 
   # Note: cargo test --all-targets disables doc tests, so we have to add this to test docs
   doctest:

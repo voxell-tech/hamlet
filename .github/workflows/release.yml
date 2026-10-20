@@ -67,7 +67,7 @@ jobs:
 
       - name: Build
         if: runner.os != 'Windows'
-        run: cargo build --release --locked -p hamlet_cli -p hamlet-server -p hamlet --bin hamlet --bin hamlet-server --bin hamlet-app --target ${{ matrix.target }}
+        run: make build CARGO_FLAGS="--target ${{ matrix.target }}"
 
       - name: Build the Windows window
         if: runner.os == 'Windows'
