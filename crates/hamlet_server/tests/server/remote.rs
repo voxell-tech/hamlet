@@ -596,9 +596,9 @@ async fn remote_houses_prompt_gifts_and_backend_move_do_not_open_host_houses()
 async fn approval(socket: &mut Socket) -> Value {
     let message = until(socket, |value| {
         value["changes"].as_array().is_some_and(|changes| {
-            changes
-                .iter()
-                .any(|change| change["wait"]["kind"] == "approval")
+            changes.iter().any(|change| {
+                change["wait"]["detail"]["kind"] == "approval"
+            })
         })
     })
     .await;
@@ -607,7 +607,7 @@ async fn approval(socket: &mut Socket) -> Value {
         .unwrap()
         .iter()
         .find_map(|change| {
-            (change["wait"]["kind"] == "approval")
+            (change["wait"]["detail"]["kind"] == "approval")
                 .then(|| change["wait"].clone())
         })
         .unwrap()
@@ -769,7 +769,7 @@ async fn remote_tools_approve_house_writes_forward_grants_and_cancel_exact_reque
     assert_eq!(folder["kind"], "notice", "{folder}");
     send(&mut socket,json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"Work remotely"})).await;
     let wait = approval(&mut socket).await;
-    assert_eq!(wait["danger"], "edit", "{wait}");
+    assert_eq!(wait["detail"]["danger"], "edit", "{wait}");
     assert!(!manager.house(0).join("result.txt").exists());
     send(
         &mut socket,
@@ -777,7 +777,7 @@ async fn remote_tools_approve_house_writes_forward_grants_and_cancel_exact_reque
     )
     .await;
     let wait = approval(&mut socket).await;
-    assert_eq!(wait["danger"], "network", "{wait}");
+    assert_eq!(wait["detail"]["danger"], "network", "{wait}");
     assert_eq!(
         fs::read_to_string(manager.house(0).join("result.txt"))
             .unwrap(),
@@ -1628,7 +1628,7 @@ async fn remote_preview_rechecks_mode_after_wait_and_same_socket_keeps_order()
     assert_eq!(mode["kind"], "notice", "{mode}");
     fs::remove_file(manager.files.join("hold-request")).unwrap();
     let wait = approval(&mut socket).await;
-    assert_eq!(wait["danger"], "edit", "{wait}");
+    assert_eq!(wait["detail"]["danger"], "edit", "{wait}");
     request(
         &mut control,
         json!({"type":"answer","wait":wait["id"],"choice":"deny"}),
