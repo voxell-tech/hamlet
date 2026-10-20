@@ -20,6 +20,7 @@ use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 
 use crate::host::WasmTuning;
+use crate::wasi::{self, Wasi};
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -33,7 +34,7 @@ use self::bindings::hamlet::engine::host::{self, Level};
 use self::bindings::{Plugin, PluginPre};
 
 /// The interface of the host a plugin may import, besides the
-/// system's (`wasi:`), whose calls trap.
+/// system's (`wasi:`).
 const HOST: &str = "hamlet:engine/host@0.1.0";
 
 /// The text wasmtime gives a call that copied more than the
@@ -45,8 +46,9 @@ const TOO_MUCH: &str =
 #[derive(Clone, Copy, Debug)]
 pub struct Caps {
     pub fuel: u64,
-    /// Ticks of the epoch.
+    /// Ticks of the epoch, and the time they stand for.
     pub ticks: u64,
+    pub time: Duration,
     /// Bytes copied in or out.
     pub bytes: usize,
     /// Lines logged, and the bytes of one.
@@ -58,6 +60,8 @@ pub struct Caps {
     pub requests: usize,
     /// Bytes of all the plugin's memories.
     pub memory: usize,
+    /// Resources of the system interface held at once.
+    pub resources: usize,
 }
 
 impl Caps {
@@ -65,12 +69,14 @@ impl Caps {
         Self {
             fuel: budgets.fuel_per_call,
             ticks: tuning.call_ticks(budgets),
+            time: Duration::from_secs_f32(budgets.call_time / 1000.0),
             bytes: budgets.bytes_per_call as usize,
             lines: budgets.log_lines_per_second as usize,
             line_bytes: budgets.log_line_bytes,
             redraws: budgets.contributions,
             requests: budgets.requests_per_call,
             memory: budgets.memory as usize,
+            resources: budgets.wasi_resources,
         }
     }
 }
@@ -177,7 +183,7 @@ pub fn link(engine: &Engine, bytes: &[u8]) -> Result<Linked, String> {
         &mut linker,
         |state| state,
     )
-    .and_then(|()| linker.define_unknown_imports_as_traps(&component))
+    .and_then(|()| wasi::add_to_linker(&mut linker))
     .and_then(|()| linker.instantiate_pre(&component))
     .and_then(PluginPre::new);
     linked.map(Linked).map_err(|e| format!("{e:#}"))
@@ -192,6 +198,7 @@ pub struct State {
     requests: Vec<(Ticket, Request)>,
     /// The ticket the last request was given.
     ticket: Ticket,
+    pub(crate) wasi: Wasi,
 }
 
 impl State {
@@ -263,17 +270,13 @@ impl host::Host for State {
         }
     }
 
-    fn log(&mut self, level: Level, mut text: String) {
-        if self.logs.len() >= self.caps.lines {
-            return;
-        }
-        text.truncate(text.floor_char_boundary(self.caps.line_bytes));
+    fn log(&mut self, level: Level, text: String) {
         let level = match level {
             Level::Info => LogLevel::Info,
             Level::Warn => LogLevel::Warn,
             Level::Error => LogLevel::Error,
         };
-        self.logs.push((level, text));
+        keep(&mut self.logs, &self.caps, level, text);
     }
 
     fn redraw(&mut self, name: String) {
@@ -283,6 +286,20 @@ impl host::Host for State {
             self.redraws.push(name);
         }
     }
+}
+
+/// Keeps the line `text` in `logs`, within `caps`.
+pub(crate) fn keep(
+    logs: &mut Vec<(LogLevel, String)>,
+    caps: &Caps,
+    level: LogLevel,
+    mut text: String,
+) {
+    if logs.len() >= caps.lines {
+        return;
+    }
+    text.truncate(text.floor_char_boundary(caps.line_bytes));
+    logs.push((level, text));
 }
 
 /// On a running plugin: its store and its exports.
@@ -306,13 +323,15 @@ impl Instance {
             redraws: Vec::new(),
             requests: Vec::new(),
             ticket: 0,
+            wasi: Wasi::new(caps),
         };
         let mut store = Store::new(engine, state);
         store.limiter(|state| &mut state.limiter);
         store.epoch_deadline_trap();
         arm(&mut store, caps)?;
-        let plugin =
-            linked.0.instantiate(&mut store).map_err(Fault::of)?;
+        let plugin = linked.0.instantiate(&mut store);
+        take_written(&mut store);
+        let plugin = plugin.map_err(Fault::of)?;
         Ok(Self { store, plugin })
     }
 
@@ -451,6 +470,7 @@ impl Instance {
         let started = Instant::now();
         let done =
             call(self.plugin.hamlet_engine_guest(), &mut self.store);
+        take_written(&mut self.store);
         let spent = Spent {
             time: started.elapsed(),
             fuel: caps
@@ -469,7 +489,15 @@ fn arm(store: &mut Store<State>, caps: &Caps) -> Result<(), Fault> {
     let state = store.data_mut();
     state.caps = *caps;
     state.limiter.memory = caps.memory;
+    state.wasi.arm(caps);
     Ok(())
+}
+
+/// Moves what the plugin in `store` wrote to stdout and stderr into
+/// its log.
+fn take_written(store: &mut Store<State>) {
+    let state = store.data_mut();
+    state.wasi.take_written(&state.caps, &mut state.logs);
 }
 
 fn read<T: serde::de::DeserializeOwned>(

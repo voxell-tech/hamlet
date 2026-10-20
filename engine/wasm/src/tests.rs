@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bevy::app::{App, TaskPoolPlugin};
 use bevy::ecs::entity::Entity;
@@ -13,7 +13,7 @@ use hamlet_engine_api::{
     API_VERSION, Action, CommandId, PluginId, Widget, WidgetId,
 };
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, Home, Log};
+use hamlet_engine_core::{Budgets, Home, Log, LogLevel};
 use hamlet_engine_grants::{
     Grants, Petition, Record, answer_install,
 };
@@ -78,15 +78,59 @@ fn module(declare: &str, draw: &str) -> String {
     )
 }
 
-/// The component of the core module in `text`.
-fn component(text: &str) -> Vec<u8> {
+/// The parts of WASI 0.2 a test plugin uses, and a world of the
+/// plugin's with them.
+const WASI: [&str; 5] = [
+    "package wasi:io@0.2.0;
+    interface error { resource error; }
+    interface poll { resource pollable { block: func(); } }
+    interface streams {
+      use error.{error};
+      variant stream-error { last-operation-failed(error), closed }
+      resource output-stream {
+        blocking-write-and-flush: func(contents: list<u8>) -> \
+     result<_, stream-error>;
+      }
+    }",
+    "package wasi:clocks@0.2.0;
+    interface monotonic-clock {
+      use wasi:io/poll@0.2.0.{pollable};
+      now: func() -> u64;
+      subscribe-duration: func(when: u64) -> pollable;
+    }",
+    "package wasi:random@0.2.0;
+    interface random { get-random-u64: func() -> u64; }",
+    "package wasi:cli@0.2.0;
+    interface stdout {
+      use wasi:io/streams@0.2.0.{output-stream};
+      get-stdout: func() -> output-stream;
+    }",
+    "package test:system;
+    world plugin {
+      include hamlet:engine/plugin@0.1.0;
+      import wasi:cli/stdout@0.2.0;
+      import wasi:clocks/monotonic-clock@0.2.0;
+      import wasi:random/random@0.2.0;
+    }",
+];
+
+/// The component of the core module in `text`, with the imports of
+/// [`WASI`] when `wasi`.
+fn component(text: &str, wasi: bool) -> Vec<u8> {
     let mut resolve = Resolve::default();
-    let package = resolve
+    let mut package = resolve
         .push_str(
             "hamlet_engine.wit",
             include_str!("../../wit/hamlet_engine.wit"),
         )
         .expect("the WIT parses");
+    if wasi {
+        for text in WASI {
+            package = resolve
+                .push_str("wasi.wit", text)
+                .expect("the WIT parses");
+        }
+    }
     let world = resolve
         .select_world(&[package], Some("plugin"))
         .expect("the world is there");
@@ -117,26 +161,29 @@ fn budgets() -> Budgets {
     }
 }
 
-/// The plugin whose `declare` does `declare`, started within
-/// `budgets`, with its caps.
-fn start(declare: &str, budgets: &Budgets) -> (Instance, Caps) {
+/// The plugin `component`, started within `budgets`, with its caps.
+fn start(component: &[u8], budgets: &Budgets) -> (Instance, Caps) {
     let tuning = WasmTuning {
         plugins: 1,
         ..WasmTuning::designed()
     };
     let host = Host::new(&tuning, budgets).expect("the host starts");
-    let linked =
-        link(&host.0, &component(&module(declare, "(i32.const 0)")))
-            .expect("the plugin links");
+    let linked = link(&host.0, component).expect("the plugin links");
     let caps = Caps::of(budgets, &tuning);
     let instance = Instance::new(&host.0, &linked, &caps)
         .expect("the plugin starts");
     (instance, caps)
 }
 
+/// The plugin whose `declare` does `declare`, made into a component.
+fn declaring(declare: &str) -> Vec<u8> {
+    component(&module(declare, "(i32.const 0)"), false)
+}
+
 #[test]
 fn hostile_plugins_are_held_to_their_budgets() {
-    let (mut instance, caps) = start("(i32.const 0)", &budgets());
+    let (mut instance, caps) =
+        start(&declaring("(i32.const 0)"), &budgets());
     assert_eq!(instance.declare(&caps).0, Ok(Vec::new()));
 
     let endless = "(loop $again (br $again)) (i32.const 0)";
@@ -180,13 +227,60 @@ fn hostile_plugins_are_held_to_their_budgets() {
     for (declare, adjust, fault) in cases {
         let mut budgets = budgets();
         adjust(&mut budgets);
-        let (mut instance, caps) = start(declare, &budgets);
+        let (mut instance, caps) =
+            start(&declaring(declare), &budgets);
         assert_eq!(
             instance.declare(&caps).0,
             Err(fault),
             "{declare}"
         );
     }
+}
+
+#[test]
+fn a_plugin_has_the_system_and_its_prints_are_cut() {
+    let imports = r#"(module
+  (import "wasi:clocks/monotonic-clock@0.2.0" "now" (func $now (result i64)))
+  (import "wasi:clocks/monotonic-clock@0.2.0" "subscribe-duration" (func $sleep (param i64) (result i32)))
+  (import "wasi:io/poll@0.2.0" "[method]pollable.block" (func $block (param i32)))
+  (import "wasi:random/random@0.2.0" "get-random-u64" (func $random (result i64)))
+  (import "wasi:cli/stdout@0.2.0" "get-stdout" (func $stdout (result i32)))
+  (import "wasi:io/streams@0.2.0" "[method]output-stream.blocking-write-and-flush" (func $write (param i32 i32 i32 i32)))"#;
+    // Declaring, it reads the clock and a random number, then writes
+    // a line of 2,000 bytes to stdout 200 times.
+    let declare = "(local $out i32) (local $left i32)
+        (drop (call $now))
+        (drop (call $random))
+        (memory.fill (i32.const 1024) (i32.const 97) (i32.const \
+                   1999))
+        (i32.store8 (i32.const 3023) (i32.const 10))
+        (local.set $out (call $stdout))
+        (local.set $left (i32.const 200))
+        (loop $again
+          (call $write (local.get $out) (i32.const 1024)
+            (i32.const 2000) (i32.const 512))
+          (local.set $left (i32.sub (local.get $left) (i32.const 1)))
+          (br_if $again (local.get $left)))
+        (i32.const 0)";
+    // Drawing, it sleeps for a thousand seconds.
+    let draw = "(call $block (call $sleep (i64.const \
+                1000000000000)))
+        (i32.const 0)";
+    let text = module(declare, draw).replacen("(module", imports, 1);
+    let (mut instance, caps) =
+        start(&component(&text, true), &Budgets::designed());
+
+    assert_eq!(instance.declare(&caps).0, Ok(Vec::new()));
+    let logs = instance.take_logs();
+    assert_eq!(logs.len(), caps.lines);
+    assert!(logs.iter().all(|(level, text)| {
+        *level == LogLevel::Info && text.len() == caps.line_bytes
+    }));
+
+    // The sleep ends with the call's time.
+    let started = Instant::now();
+    let _ = instance.draw(&caps, "p");
+    assert!(started.elapsed() < Duration::from_secs(1));
 }
 
 #[test]
@@ -207,7 +301,7 @@ fn a_plugin_over_its_budgets_waits_then_is_stopped() {
             "id = \"test.over\"\nname = \"Over\"\nversion = \
              \"0.1.0\"\napi = \"{API_VERSION}\"\n"
         ),
-        &component(&module("(i32.const 32)", draw)),
+        &component(&module("(i32.const 32)", draw), false),
     );
     let mut app = engine(&root);
     app.insert_resource(Budgets {
@@ -246,7 +340,7 @@ fn a_reloaded_plugin_keeps_its_state() {
         ..WasmTuning::designed()
     };
     let host = Host::new(&tuning, &budgets).expect("the host starts");
-    let plugin = component(&module("(i32.const 0)", "(i32.const 0)"));
+    let plugin = declaring("(i32.const 0)");
     let linked = link(&host.0, &plugin).expect("the plugin links");
     let caps = Caps::of(&budgets, &tuning);
     let mut old = Instance::new(&host.0, &linked, &caps)

@@ -11,6 +11,7 @@ mod mail;
 mod panel;
 mod reload;
 mod run;
+mod wasi;
 
 #[cfg(test)]
 mod tests;

@@ -26,9 +26,13 @@
 //! hamlet_plugin::export!(Hello);
 //! ```
 //!
-//! The standard library's calls to the system, such as the clock,
-//! randomness or printing, stop the plugin: a `HashMap` needs
-//! randomness, so a plugin keeps a `BTreeMap` instead.
+//! The standard library has the clocks and randomness, so `Instant`,
+//! `SystemTime` and `HashMap` work. What it prints goes to the log,
+//! stdout as info and stderr as warnings, within the plugin's log
+//! budgets. A sleep ends with the call's time. Files, the
+//! environment, arguments and the network are not there: stdin is
+//! empty, there are no folders and no sockets; a plugin reaches the
+//! network with [`fetch`].
 
 pub mod assets;
 mod entry;

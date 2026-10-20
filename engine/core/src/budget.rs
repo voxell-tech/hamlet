@@ -34,6 +34,9 @@ pub struct Budgets {
     /// Requests to the engine's services one call may make; past
     /// them a request is not taken.
     pub requests_per_call: usize,
+    /// Resources of the system interface (WASI) it holds at once,
+    /// such as streams and timers; past them one is refused.
+    pub wasi_resources: usize,
     /// Assets made, changed or deleted in one second.
     pub asset_writes_per_second: u32,
     /// Calls of other plugins' services in one second.

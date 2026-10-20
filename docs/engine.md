@@ -128,9 +128,12 @@ into bytes. Its panels are drawn again after each batch it receives.
   with the empty id. Each widget has an id of the plugin's, unique in
   its panel. `list`, `row`, `column` and `scroll` take a closure that
   adds what they hold.
-- **The system.** The standard library's calls to the system, such as
-  the clock, randomness or printing, stop the plugin. A `HashMap` needs
-  randomness, so a plugin keeps a `BTreeMap`.
+- **The system.** A plugin is given WASI 0.2 that grants nothing but
+  the wall and monotonic clocks and randomness, so the standard
+  library's `Instant`, `SystemTime` and `HashMap` work. What it prints
+  goes to its log, stdout as info and stderr as warnings. It has no
+  folders, no environment or arguments, an empty stdin, and no sockets
+  or lookups; the network is `fetch`.
 - **A built plugin** is a folder with its `plugin.toml` and its
   component, `plugin.wasm`.
 
@@ -483,7 +486,17 @@ plugin to are `[budgets]`.
   compile. It is then instantiated in a store of its own and asked what
   it adds. A plugin that imports anything but the host's interface and
   the system's (`wasi:`) is not loaded, and one built against another
-  version of the interface is told so. The system's functions trap.
+  version of the interface is told so.
+- **The system** (`wasi.rs`) is WASI 0.2 from wasmtime, with a context
+  of its own in each store that grants nothing but the clocks and
+  randomness. Its calls are held to the same budgets as the host's: a
+  list it hands over counts towards `bytes_per_call`, random bytes are
+  `bytes_per_call` at most, a wait ends at the call's `call_time`, and
+  it holds `[budgets] wasi_resources` resources at most. Each write to
+  stdout or stderr is kept up to 4,096 bytes, `log_lines_per_second`
+  writes a call; the rest are left out without the plugin knowing.
+  What is kept is cut into lines, each cut at `log_line_bytes`, for
+  the log.
 - **What it adds** comes back from `declare` as `Contribution`s and is
   made into the same `Entry` a built-in plugin fills, so it is added,
   capped and taken away as theirs is: its panels and settings pages are
@@ -507,8 +520,8 @@ plugin to are `[budgets]`.
 - **A fault** is a call over its fuel, its time, its memory or its
   bytes, a trap, or what cannot be read; a plugin cannot be called
   again after one.
-- **The log.** What a plugin logs goes to the engine's log under its
-  id, each line cut at `log_line_bytes`.
+- **The log.** What a plugin logs or prints goes to the engine's log
+  under its id, each line cut at `log_line_bytes`.
 - **Requests and mail.** What a plugin asked in a call is written as
   an `Asked` for the services once the call ends, `depth` one more than
   the work it was serving. A `Deliver` for it goes into its inbox, and
