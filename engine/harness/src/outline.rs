@@ -8,7 +8,12 @@
 //!   button #save "Save"
 //! ```
 
+use bevy::ecs::entity::Entity;
+use bevy::ecs::hierarchy::Children;
+use bevy::ecs::world::World;
+use bevy::ui::widget::Text;
 use hamlet_engine_api::{Widget, WidgetTree};
+use hamlet_engine_wasm::NodeOf;
 
 /// `tree` as an outline.
 pub fn outline(tree: &WidgetTree) -> String {
@@ -58,6 +63,35 @@ pub fn outline(tree: &WidgetTree) -> String {
         while open.last() == Some(&0) {
             open.pop();
         }
+    }
+    lines.join("\n")
+}
+
+/// The retained panel under `root` as an outline: a line for each
+/// node, its key after `#`, and a line for each text it shows.
+pub fn retained_outline(world: &World, root: Entity) -> String {
+    let mut lines = Vec::new();
+    let mut open = vec![(root, 0)];
+    while let Some((entity, depth)) = open.pop() {
+        let mut inner = depth;
+        if let Some(node) = world.get::<NodeOf>(entity) {
+            lines.push(format!(
+                "{}#{}",
+                "  ".repeat(depth),
+                node.key
+            ));
+            inner += 1;
+        }
+        if let Some(text) = world.get::<Text>(entity) {
+            lines.push(format!(
+                "{}{}",
+                "  ".repeat(inner),
+                quoted(text)
+            ));
+        }
+        let children =
+            world.get::<Children>(entity).into_iter().flatten();
+        open.extend(children.rev().map(|&child| (child, inner)));
     }
     lines.join("\n")
 }

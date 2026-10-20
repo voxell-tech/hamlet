@@ -12,3 +12,10 @@ workspace = true
 hamlet_engine_api.workspace = true
 serde.workspace = true
 wit-bindgen.workspace = true
+fynix = { workspace = true, optional = true }
+lenz = { workspace = true, optional = true }
+
+[features]
+# Retained panels written with fynix (`hamlet_plugin::ui`), in place
+# of the widget tree a panel is drawn with.
+ui = ["dep:fynix", "dep:lenz"]

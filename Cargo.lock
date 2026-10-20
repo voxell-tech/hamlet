@@ -3713,6 +3713,7 @@ name = "hamlet_engine_harness"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_fynix",
  "hamlet_engine_api",
  "hamlet_engine_assets",
  "hamlet_engine_bus",
@@ -3822,7 +3823,9 @@ dependencies = [
 name = "hamlet_plugin"
 version = "0.1.0"
 dependencies = [
+ "fynix",
  "hamlet_engine_api",
+ "lenz",
  "serde",
  "wit-bindgen 0.63.0",
 ]

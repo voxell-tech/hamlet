@@ -29,8 +29,9 @@ use crate::folder::{Package, WASM, read_capped};
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Instance, Linked, link};
 use crate::mail::pass_requests;
-use crate::panel::{Inbox, Work, page, view};
+use crate::panel::{Inbox, Moving, Work, page, view};
 use crate::reload::{Declared, Reloading};
+use crate::retained;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(enable)
@@ -84,18 +85,24 @@ fn disable(event: On<Disable>, mut commands: Commands) {
         Compiling,
         Declared,
         Reloading,
+        Moving,
     )>();
 }
 
 /// What `contributions` declare, as the [`Entry`] a built-in plugin
-/// fills: the plugin draws its panels and settings pages, and runs
-/// its commands.
-pub(crate) fn entry(contributions: Vec<Contribution>) -> Entry {
+/// fills: the plugin draws its panels and settings pages, or builds
+/// its panels when they are `retained`, and runs its commands.
+pub(crate) fn entry(
+    contributions: Vec<Contribution>,
+    retained: bool,
+) -> Entry {
     let mut entry = Entry::default();
     for contribution in contributions {
         match contribution {
             Contribution::Panel { name, title } => {
-                entry.panel(&name, &title, view);
+                let content =
+                    if retained { retained::view } else { view };
+                entry.panel(&name, &title, content);
             }
             Contribution::Command { name, label } => {
                 entry.command(&name, &label, run_command);
@@ -242,7 +249,7 @@ fn start(
                     &mut commands,
                     plugin,
                     info,
-                    entry(contributions.clone()),
+                    entry(contributions.clone(), built.0.retained()),
                     &budgets,
                 );
                 commands.entity(plugin).insert((

@@ -10,17 +10,22 @@ mod steps;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bevy::app::{App, TaskPoolPlugin};
+use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::query::{With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
+use bevy::picking::hover::Hovered as PickingHovered;
 use bevy::time::TimePlugin;
+use bevy::ui::widget::Text;
+use bevy::ui_widgets::{Activate, Button as ButtonBehavior};
 use hamlet_engine_api::{
     Action, Asset, AssetId, AssetInfo, CommandId, Failure,
     FetchReply, FetchRequest, PanelId, PluginId, TypeName, WidgetId,
@@ -31,12 +36,18 @@ use hamlet_engine_core::{Home, Log, TuningPlugin};
 use hamlet_engine_grants::{
     Answer, Petition, Question, answer_install, answer_use,
 };
-use hamlet_engine_plugins::{Enabled, PluginInfo, Stopped};
-use hamlet_engine_shell::{Panel, SettingsPage, command};
-use hamlet_engine_wasm::{Drawn, Input, MANIFEST, Shows, WASM};
+use hamlet_engine_plugins::{
+    ContributedBy, Enabled, PluginInfo, Stopped,
+};
+use hamlet_engine_shell::{
+    EngineTheme, Panel, SettingsPage, command,
+};
+use hamlet_engine_wasm::{
+    Drawn, Input, Instance, MANIFEST, NodeOf, Shows, UiRoot, WASM,
+};
 use serde::Deserialize;
 
-pub use self::outline::outline;
+pub use self::outline::{outline, retained_outline};
 pub use self::steps::{Step, Steps};
 
 /// Where cargo puts a plugin crate's release build, in its folder.
@@ -62,6 +73,8 @@ impl Tuning for HarnessTuning {
 pub struct Harness {
     app: App,
     started: bool,
+    /// The retained panels whose content was built.
+    shown: HashSet<Entity>,
 }
 
 impl Harness {
@@ -84,10 +97,12 @@ impl Harness {
                 hamlet_engine_bus::plugin,
                 hamlet_engine_net::plugin,
                 hamlet_engine_wasm::plugin,
+                hamlet_engine_shell::views_plugin,
             ));
         Self {
             app,
             started: false,
+            shown: HashSet::new(),
         }
     }
 
@@ -138,11 +153,20 @@ impl Harness {
 
     /// Runs one frame.
     pub fn frame(&mut self) {
+        self.timed_frame();
+    }
+
+    /// Runs one frame: how long its update took, the pause after it
+    /// left out.
+    pub fn timed_frame(&mut self) -> Duration {
         self.started = true;
+        let started = Instant::now();
         self.app.update();
+        let took = started.elapsed();
         let pause =
             self.app.world().resource::<HarnessTuning>().pause;
         std::thread::sleep(Duration::from_secs_f32(pause / 1000.0));
+        took
     }
 
     pub fn frames(&mut self, count: usize) {
@@ -247,18 +271,97 @@ impl Harness {
     }
 
     /// The panel or settings page `panel` as a text outline, once it
-    /// is drawn.
+    /// is drawn; a retained panel once its plugin built it.
     pub fn outline(&mut self, panel: &str) -> Option<String> {
-        self.tree(panel).map(|(_, tree)| outline(&tree))
+        if let Some((_, tree)) = self.tree(panel) {
+            return Some(outline(&tree));
+        }
+        let root = self.retained(panel)?;
+        Some(retained_outline(self.app.world(), root))
     }
 
-    /// Presses the button `widget` of the panel `panel`.
+    /// The root of the retained panel `panel` (`plugin.id/name`),
+    /// once its plugin has it. Its content is built as the dock
+    /// builds it when it shows it.
+    pub fn retained(&mut self, panel: &str) -> Option<Entity> {
+        let id = PanelId::try_from(panel).ok()?;
+        let world = self.app.world_mut();
+        let (surface, content, root, by) = world
+            .query::<(Entity, &Panel, Option<&UiRoot>, &ContributedBy)>()
+            .iter(world)
+            .find(|(_, found, ..)| found.id == id)
+            .map(|(surface, found, root, by)| {
+                (surface, found.content, root.map(|root| root.0), by.0)
+            })?;
+        if root.is_some() {
+            return root;
+        }
+        let retained =
+            world.get::<Instance>(by).is_some_and(Instance::retained);
+        if retained && self.shown.insert(surface) {
+            bevy_fynix::mount::<EngineTheme>(world, content(surface));
+        }
+        None
+    }
+
+    /// Presses the button `widget` of the panel `panel`: of a
+    /// retained panel, the button lettered `widget`.
     pub fn click(
         &mut self,
         panel: &str,
         widget: &str,
     ) -> Result<(), String> {
+        if self.retained(panel).is_some() {
+            let button =
+                self.lettered::<ButtonBehavior>(panel, widget)?;
+            self.app.world_mut().trigger(Activate { entity: button });
+            return Ok(());
+        }
         self.act(panel, widget, Action::Click)
+    }
+
+    /// Puts the pointer over the node of the retained panel `panel`
+    /// lettered `text`, or takes it away, as the pointer would for a
+    /// node whose plugin watches it.
+    pub fn hover(
+        &mut self,
+        panel: &str,
+        text: &str,
+        on: bool,
+    ) -> Result<(), String> {
+        let node = self.lettered::<NodeOf>(panel, text)?;
+        let mut node = self.app.world_mut().entity_mut(node);
+        if !node.contains::<PickingHovered>() {
+            return Err(format!("{text:?} is not watched for hover"));
+        }
+        node.insert(PickingHovered(on));
+        Ok(())
+    }
+
+    /// The nearest entity with a `C` at or above the text `text` in
+    /// the retained panel `panel`, once there is one.
+    fn lettered<C: Component>(
+        &mut self,
+        panel: &str,
+        text: &str,
+    ) -> Result<Entity, String> {
+        let mut found = None;
+        self.until(|harness| {
+            let Some(root) = harness.retained(panel) else {
+                return false;
+            };
+            let world = harness.app.world_mut();
+            found = world
+                .query::<(Entity, &Text)>()
+                .iter(world)
+                .filter(|(_, shown)| shown.0 == text)
+                .map(|(entity, _)| entity)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .find_map(|entity| holder::<C>(world, entity, root));
+            found.is_some()
+        });
+        found.ok_or_else(|| format!("{panel} never showed {text:?}"))
     }
 
     /// Leaves the text `text` in the field `widget` of `panel`.
@@ -403,4 +506,22 @@ impl Harness {
     pub fn world(&mut self) -> &mut World {
         self.app.world_mut()
     }
+}
+
+/// The nearest entity with a `C` from `entity` up to `root`, if
+/// `entity` is under `root`.
+fn holder<C: Component>(
+    world: &World,
+    entity: Entity,
+    root: Entity,
+) -> Option<Entity> {
+    let mut found = None;
+    let mut at = entity;
+    while at != root {
+        if found.is_none() && world.get::<C>(at).is_some() {
+            found = Some(at);
+        }
+        at = world.get::<ChildOf>(at)?.parent();
+    }
+    found
 }

@@ -20,6 +20,7 @@ use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 
 use crate::host::WasmTuning;
+use crate::nodes::{NodeChange, Nodes, Over};
 use crate::wasi::{self, Wasi};
 
 mod bindings {
@@ -29,13 +30,27 @@ mod bindings {
     });
 }
 
+pub(crate) mod ui_bindings {
+    wasmtime::component::bindgen!({
+        path: "../wit/hamlet_engine.wit",
+        world: "ui-panels",
+        imports: { default: trappable },
+        with: { "hamlet:engine/ui.node": crate::nodes::UiNode },
+    });
+}
+
 use self::bindings::exports::hamlet::engine::guest::Guest;
 use self::bindings::hamlet::engine::host::{self, Level};
 use self::bindings::{Plugin, PluginPre};
+use self::ui_bindings::exports::hamlet::engine::ui_guest::{
+    Action, Motions, UiEvent,
+};
+use self::ui_bindings::{UiPanels, UiPanelsIndices};
 
-/// The interface of the host a plugin may import, besides the
+/// The interfaces of the host a plugin may import, besides the
 /// system's (`wasi:`).
 const HOST: &str = "hamlet:engine/host@0.1.0";
+const UI: &str = "hamlet:engine/ui@0.1.0";
 
 /// The text wasmtime gives a call that copied more than the
 /// hostcall fuel allows. It names the error in its text only.
@@ -62,6 +77,10 @@ pub struct Caps {
     pub memory: usize,
     /// Resources of the system interface held at once.
     pub resources: usize,
+    /// Nodes of retained panels made, set or ordered.
+    pub node_changes: usize,
+    /// Nodes of retained panels held at once.
+    pub nodes: usize,
 }
 
 impl Caps {
@@ -77,6 +96,8 @@ impl Caps {
             requests: budgets.requests_per_call,
             memory: budgets.memory as usize,
             resources: budgets.wasi_resources,
+            node_changes: budgets.node_changes_per_call,
+            nodes: budgets.nodes,
         }
     }
 }
@@ -95,6 +116,10 @@ pub enum Fault {
     Memory,
     /// It handed over more bytes than one call may.
     Bytes,
+    /// It changed more nodes of its panels than one call may.
+    Changes,
+    /// It held more nodes of its panels than it may.
+    Nodes,
     /// It trapped: why.
     Trap(String),
     /// It gave what cannot be read: why.
@@ -123,6 +148,8 @@ impl fmt::Display for Fault {
                     "it handed over more bytes than one call may"
                 )
             }
+            Self::Changes => write!(f, "{}", Over::Changes),
+            Self::Nodes => write!(f, "{}", Over::Nodes),
             Self::Trap(why) => write!(f, "it failed: {why}"),
             Self::Unreadable(why) => {
                 write!(f, "it gave what cannot be read: {why}")
@@ -132,9 +159,14 @@ impl fmt::Display for Fault {
 }
 
 impl Fault {
-    fn of(error: wasmtime::Error) -> Self {
+    pub(crate) fn of(error: wasmtime::Error) -> Self {
         if error.is::<OverMemory>() {
             return Self::Memory;
+        }
+        match error.downcast_ref::<Over>() {
+            Some(Over::Changes) => return Self::Changes,
+            Some(Over::Nodes) => return Self::Nodes,
+            None => {}
         }
         match error.downcast_ref::<Trap>() {
             Some(Trap::OutOfFuel) => Self::Fuel,
@@ -152,12 +184,26 @@ impl Fault {
 pub struct Spent {
     pub time: Duration,
     pub fuel: u64,
+    /// Nodes of its panels made, set or ordered.
+    pub changes: u32,
+    /// Calls on nodes of its panels, of every kind.
+    pub node_calls: u64,
 }
 
 /// A plugin's component, compiled and linked, ready to be
-/// instantiated.
+/// instantiated, and whether its panels are retained.
 #[derive(Clone)]
-pub struct Linked(PluginPre<State>);
+pub struct Linked {
+    plugin: PluginPre<State>,
+    panels: Option<UiPanelsIndices>,
+}
+
+impl Linked {
+    /// Whether its panels are retained: built node by node, and kept.
+    pub fn retained(&self) -> bool {
+        self.panels.is_some()
+    }
+}
 
 /// Compiles and links the component in `bytes`.
 pub fn link(engine: &Engine, bytes: &[u8]) -> Result<Linked, String> {
@@ -165,7 +211,7 @@ pub fn link(engine: &Engine, bytes: &[u8]) -> Result<Linked, String> {
         Compiled::new(engine, bytes).map_err(|e| format!("{e:#}"))?;
     let ty = component.component_type();
     for (name, _) in ty.imports(engine) {
-        if name.starts_with("wasi:") || name == HOST {
+        if name.starts_with("wasi:") || name == HOST || name == UI {
             continue;
         }
         if name.starts_with("hamlet:engine/") {
@@ -179,29 +225,51 @@ pub fn link(engine: &Engine, bytes: &[u8]) -> Result<Linked, String> {
         ));
     }
     let mut linker = Linker::new(engine);
-    let linked = host::add_to_linker::<State, HasSelf<State>>(
+    let pre = host::add_to_linker::<State, HasSelf<State>>(
         &mut linker,
         |state| state,
     )
+    .and_then(|()| {
+        ui_bindings::hamlet::engine::ui::add_to_linker::<
+            State,
+            HasSelf<State>,
+        >(&mut linker, |state| state)
+    })
     .and_then(|()| wasi::add_to_linker(&mut linker))
     .and_then(|()| linker.instantiate_pre(&component))
-    .and_then(PluginPre::new);
-    linked.map(Linked).map_err(|e| format!("{e:#}"))
+    .map_err(|e| format!("{e:#}"))?;
+    let panels = UiPanelsIndices::new(&pre).ok();
+    let plugin = PluginPre::new(pre).map_err(|e| format!("{e:#}"))?;
+    Ok(Linked { plugin, panels })
 }
 
 /// What the host keeps for a plugin while it is called.
 pub struct State {
     limiter: Limiter,
-    caps: Caps,
+    pub(crate) caps: Caps,
     logs: Vec<(LogLevel, String)>,
     redraws: Vec<String>,
     requests: Vec<(Ticket, Request)>,
     /// The ticket the last request was given.
     ticket: Ticket,
     pub(crate) wasi: Wasi,
+    pub(crate) nodes: Nodes,
 }
 
 impl State {
+    pub(crate) fn new(caps: &Caps) -> Self {
+        Self {
+            limiter: Limiter::new(caps.memory),
+            caps: *caps,
+            logs: Vec::new(),
+            redraws: Vec::new(),
+            requests: Vec::new(),
+            ticket: 0,
+            wasi: Wasi::new(caps),
+            nodes: Nodes::default(),
+        }
+    }
+
     /// Takes `request`, within the call's cap: its ticket, or 0.
     fn ask(&mut self, request: Request) -> Ticket {
         if self.requests.len() >= self.caps.requests {
@@ -307,6 +375,15 @@ pub(crate) fn keep(
 pub struct Instance {
     store: Store<State>,
     plugin: Plugin,
+    panels: Option<UiPanels>,
+}
+
+/// What the person did to a node of a retained panel.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum NodeInput {
+    Click,
+    Hover(bool),
+    Press(bool),
 }
 
 impl Instance {
@@ -316,23 +393,108 @@ impl Instance {
         linked: &Linked,
         caps: &Caps,
     ) -> Result<Self, Fault> {
-        let state = State {
-            limiter: Limiter::new(caps.memory),
-            caps: *caps,
-            logs: Vec::new(),
-            redraws: Vec::new(),
-            requests: Vec::new(),
-            ticket: 0,
-            wasi: Wasi::new(caps),
-        };
-        let mut store = Store::new(engine, state);
+        let mut store = Store::new(engine, State::new(caps));
         store.limiter(|state| &mut state.limiter);
         store.epoch_deadline_trap();
         arm(&mut store, caps)?;
-        let plugin = linked.0.instantiate(&mut store);
+        let made = linked
+            .plugin
+            .instance_pre()
+            .instantiate(&mut store)
+            .and_then(|instance| {
+                let plugin = Plugin::new(&mut store, &instance)?;
+                let panels = linked
+                    .panels
+                    .as_ref()
+                    .map(|panels| panels.load(&mut store, &instance))
+                    .transpose()?;
+                Ok((plugin, panels))
+            });
         take_written(&mut store);
-        let plugin = plugin.map_err(Fault::of)?;
-        Ok(Self { store, plugin })
+        let (plugin, panels) = made.map_err(Fault::of)?;
+        Ok(Self {
+            store,
+            plugin,
+            panels,
+        })
+    }
+
+    /// Whether its panels are retained.
+    pub fn retained(&self) -> bool {
+        self.panels.is_some()
+    }
+
+    /// Builds the retained panel `name` under a root the host holds
+    /// as `root`, its movements taking the seconds `motions` gives:
+    /// whether something still moves.
+    pub fn mount(
+        &mut self,
+        caps: &Caps,
+        name: &str,
+        motions: [f32; 2],
+    ) -> (Result<bool, Fault>, Spent, u32) {
+        let root = self.store.data_mut().nodes.root();
+        let number = root.rep();
+        let motions = Motions {
+            interact: motions[0],
+            expand: motions[1],
+        };
+        let (moving, spent) = self.call_ui(caps, |guest, store| {
+            guest.call_mount(store, name, root, motions)
+        });
+        (moving, spent, number)
+    }
+
+    /// Lets go of the retained panel `name`, whose nodes are gone.
+    pub fn unmount(
+        &mut self,
+        caps: &Caps,
+        name: &str,
+    ) -> (Result<bool, Fault>, Spent) {
+        self.call_ui(caps, |guest, store| {
+            guest.call_unmount(store, name).map(|()| false)
+        })
+    }
+
+    /// Hands over what the person did to nodes of its retained
+    /// panels, each by the plugin's key: whether something still
+    /// moves.
+    pub fn input(
+        &mut self,
+        caps: &Caps,
+        inputs: &[(u32, NodeInput)],
+    ) -> (Result<bool, Fault>, Spent) {
+        let events = inputs
+            .iter()
+            .map(|&(key, input)| UiEvent {
+                key,
+                action: match input {
+                    NodeInput::Click => Action::Click,
+                    NodeInput::Hover(on) => Action::Hover(on),
+                    NodeInput::Press(on) => Action::Press(on),
+                },
+            })
+            .collect::<Vec<_>>();
+        self.call_ui(caps, |guest, store| {
+            guest.call_input(store, &events)
+        })
+    }
+
+    /// Moves its retained panels on by `micros`: whether something
+    /// still moves.
+    pub fn frame(
+        &mut self,
+        caps: &Caps,
+        micros: u32,
+    ) -> (Result<bool, Fault>, Spent) {
+        self.call_ui(caps, |guest, store| {
+            guest.call_frame(store, micros)
+        })
+    }
+
+    /// The changes to its nodes since this was last asked.
+    pub fn take_node_changes(&mut self) -> Vec<NodeChange> {
+        std::mem::take(&mut self.store.data_mut().nodes.changes)
     }
 
     /// What the plugin adds.
@@ -464,21 +626,48 @@ impl Instance {
             &mut Store<State>,
         ) -> wasmtime::Result<T>,
     ) -> (Result<T, Fault>, Spent) {
-        if let Err(fault) = arm(&mut self.store, caps) {
-            return (Err(fault), Spent::default());
-        }
-        let started = Instant::now();
-        let done =
-            call(self.plugin.hamlet_engine_guest(), &mut self.store);
-        take_written(&mut self.store);
-        let spent = Spent {
-            time: started.elapsed(),
-            fuel: caps
-                .fuel
-                .saturating_sub(self.store.get_fuel().unwrap_or(0)),
-        };
-        (done.map_err(Fault::of), spent)
+        let guest = self.plugin.hamlet_engine_guest();
+        spend(&mut self.store, caps, |store| call(guest, store))
     }
+
+    /// A call of its retained panels; one that has none answers that
+    /// nothing moves.
+    fn call_ui(
+        &mut self,
+        caps: &Caps,
+        call: impl FnOnce(
+            &self::ui_bindings::exports::hamlet::engine::ui_guest::Guest,
+            &mut Store<State>,
+        ) -> wasmtime::Result<bool>,
+    ) -> (Result<bool, Fault>, Spent) {
+        let Some(panels) = &self.panels else {
+            return (Ok(false), Spent::default());
+        };
+        let guest = panels.hamlet_engine_ui_guest();
+        spend(&mut self.store, caps, |store| call(guest, store))
+    }
+}
+
+/// Makes `call` into `store` within `caps`, and what it spent.
+fn spend<T>(
+    store: &mut Store<State>,
+    caps: &Caps,
+    call: impl FnOnce(&mut Store<State>) -> wasmtime::Result<T>,
+) -> (Result<T, Fault>, Spent) {
+    if let Err(fault) = arm(store, caps) {
+        return (Err(fault), Spent::default());
+    }
+    let started = Instant::now();
+    let done = call(store);
+    take_written(store);
+    let nodes = &store.data().nodes;
+    let spent = Spent {
+        time: started.elapsed(),
+        fuel: caps.fuel.saturating_sub(store.get_fuel().unwrap_or(0)),
+        changes: nodes.spent as u32,
+        node_calls: nodes.calls,
+    };
+    (done.map_err(Fault::of), spent)
 }
 
 /// Sets what the next call into `store` may spend.
@@ -490,6 +679,8 @@ fn arm(store: &mut Store<State>, caps: &Caps) -> Result<(), Fault> {
     state.caps = *caps;
     state.limiter.memory = caps.memory;
     state.wasi.arm(caps);
+    state.nodes.spent = 0;
+    state.nodes.calls = 0;
     Ok(())
 }
 

@@ -23,7 +23,7 @@ use hamlet_engine_api::Contribution;
 use hamlet_engine_core::tuning::Tuning;
 use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::{
-    Asked, Contributions, PluginInfo, switch_on,
+    Asked, ContributedBy, Contributions, PluginInfo, switch_on,
 };
 use wasmtime::Engine;
 
@@ -35,6 +35,7 @@ use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Fault, Instance, Linked};
 use crate::mail::pass_requests;
 use crate::panel::{Drawn, Redraw, stop};
+use crate::retained::{self, UiRoot, Widgets};
 use crate::run::{Built, Compiling, compile, entry};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -171,8 +172,10 @@ fn swap(
         &mut Reloading,
         &Declared,
         Option<&Contributions>,
+        Option<&Widgets>,
     )>,
     surfaces: Query<(), With<Drawn>>,
+    roots: Query<(Entity, &UiRoot, &ContributedBy)>,
     host: Option<Res<Host>>,
     budgets: Res<Budgets>,
     tuning: Res<WasmTuning>,
@@ -192,6 +195,7 @@ fn swap(
         mut reloading,
         declared,
         contributions,
+        widgets,
     ) in &mut plugins
     {
         let Some(built) = check_ready(&mut reloading.0.0) else {
@@ -255,10 +259,19 @@ fn swap(
                         &mut commands,
                         plugin,
                         info,
-                        entry(contributions_now.clone()),
+                        entry(
+                            contributions_now.clone(),
+                            linked.retained(),
+                        ),
                         &budgets,
                     );
                 }
+                retained::remount(
+                    &mut commands,
+                    plugin,
+                    widgets,
+                    &roots,
+                );
                 commands.entity(plugin).insert((
                     fresh,
                     Built(linked),

@@ -77,6 +77,14 @@ pub struct Budgets {
     pub widget_depth: usize,
     /// Bytes of text in one widget.
     pub widget_text: usize,
+    /// Nodes of retained panels made, set or put in order in one
+    /// call; past them the call fails.
+    pub node_changes_per_call: usize,
+    /// The same, in one second.
+    pub node_changes_per_second: u32,
+    /// Nodes of retained panels it holds at once; past them the call
+    /// fails.
+    pub nodes: usize,
 }
 
 impl Tuning for Budgets {

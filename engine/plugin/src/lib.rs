@@ -36,13 +36,28 @@
 
 pub mod assets;
 mod entry;
-mod ui;
+mod tree;
+#[cfg(feature = "ui")]
+pub mod ui;
 
 /// The bindings of `engine/wit/hamlet_engine.wit`.
+#[cfg(not(feature = "ui"))]
 pub mod bindings {
     wit_bindgen::generate!({
         path: "../wit/hamlet_engine.wit",
         world: "plugin",
+        pub_export_macro: true,
+        export_macro_name: "export_guest",
+    });
+}
+
+/// The bindings of `engine/wit/hamlet_engine.wit`, with retained
+/// panels.
+#[cfg(feature = "ui")]
+pub mod bindings {
+    wit_bindgen::generate!({
+        path: "../wit/hamlet_engine.wit",
+        world: "ui-plugin",
         pub_export_macro: true,
         export_macro_name: "export_guest",
     });
@@ -57,7 +72,7 @@ pub use hamlet_engine_api::{
 
 use self::bindings::hamlet::engine::host::{self, Level};
 pub use self::entry::Entry;
-pub use self::ui::Ui;
+pub use self::tree::Ui;
 
 /// A plugin. One value of it lives as long as the plugin runs.
 pub trait Plugin: Default + 'static {
@@ -65,7 +80,23 @@ pub trait Plugin: Default + 'static {
     fn declare(&self, entry: &mut Entry);
 
     /// Draws its panel or settings page `name`.
+    #[cfg(not(feature = "ui"))]
     fn draw(&self, name: &str, ui: &mut Ui);
+
+    /// Draws its settings page `name`; its panels are retained.
+    #[cfg(feature = "ui")]
+    fn draw(&self, name: &str, ui: &mut Ui) {
+        let _ = (name, ui);
+    }
+
+    /// The view of its panel `name`, built once each time the panel
+    /// is shown, with `world` holding what its signals read.
+    #[cfg(feature = "ui")]
+    fn mount(
+        &mut self,
+        name: &str,
+        world: &mut ui::World,
+    ) -> ui::AnyView;
 
     /// What the person did on one of its panels. The panel is drawn
     /// again after it.
@@ -224,11 +255,58 @@ macro_rules! export {
                 }
             }
 
+            $crate::ui_exports!(Exports, $plugin);
+
             $crate::bindings::export_guest!(
                 Exports with_types_in $crate::bindings
             );
         };
     };
+}
+
+/// The exports of retained panels, for [`export!`].
+#[cfg(feature = "ui")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! ui_exports {
+    ($exports:ident, $plugin:ty) => {
+        impl $crate::bindings::exports::hamlet::engine::ui_guest::Guest
+            for $exports
+        {
+            fn mount(
+                name: ::std::string::String,
+                root: $crate::bindings::hamlet::engine::ui::Node,
+                motions: $crate::bindings::exports::hamlet::engine::ui_guest::Motions,
+            ) -> bool {
+                PLUGIN.with_borrow_mut(|plugin| {
+                    $crate::ui::glue::mount(plugin, name, root, motions)
+                })
+            }
+
+            fn unmount(name: ::std::string::String) {
+                $crate::ui::glue::unmount(&name)
+            }
+
+            fn input(
+                events: ::std::vec::Vec<
+                    $crate::bindings::exports::hamlet::engine::ui_guest::UiEvent,
+                >,
+            ) -> bool {
+                $crate::ui::glue::input(events)
+            }
+
+            fn frame(micros: u32) -> bool {
+                $crate::ui::glue::frame(micros)
+            }
+        }
+    };
+}
+
+#[cfg(not(feature = "ui"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! ui_exports {
+    ($exports:ident, $plugin:ty) => {};
 }
 
 /// What [`export!`] calls: the exports, between the wire format and

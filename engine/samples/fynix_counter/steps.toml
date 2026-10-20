@@ -1,0 +1,16 @@
+# The counter's retained panel is built, and a press of Add one
+# changes its count.
+#
+#   cargo run -p hamlet_engine_harness --bin plugin_check -- engine/samples/fynix_counter
+
+[[step]]
+allow = "hamlet.fynix_counter"
+
+[[step]]
+expect = { panel = "hamlet.fynix_counter/counter", text = "Count: 0" }
+
+[[step]]
+click = { panel = "hamlet.fynix_counter/counter", widget = "Add one" }
+
+[[step]]
+expect = { panel = "hamlet.fynix_counter/counter", text = "Count: 1" }

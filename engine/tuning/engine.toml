@@ -45,6 +45,9 @@ petitions_per_minute = 6
 widgets = 2_000
 widget_depth = 24
 widget_text = 4_096
+node_changes_per_call = 4_000
+node_changes_per_second = 20_000
+nodes = 2_000
 
 [window]
 title = "Hamlet"

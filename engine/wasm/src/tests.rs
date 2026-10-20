@@ -19,6 +19,7 @@ use hamlet_engine_grants::{
 };
 use hamlet_engine_plugins::Stopped;
 use hamlet_engine_shell::command;
+use wasmtime::component::Resource;
 use wit_component::{ComponentEncoder, StringEncoding};
 use wit_parser::Resolve;
 
@@ -26,7 +27,10 @@ use crate::add::{check, place};
 use crate::budget::Spending;
 use crate::folder::{FOLDER, MANIFEST, WASM};
 use crate::host::{Host, WasmTuning};
-use crate::instance::{Caps, Fault, Instance, link};
+use crate::instance::ui_bindings::hamlet::engine::ui::{
+    HostNode, Kind, Property,
+};
+use crate::instance::{Caps, Fault, Instance, State, link};
 use crate::panel::{Drawn, Input, Shows};
 use crate::reload::reload;
 
@@ -178,6 +182,34 @@ fn start(component: &[u8], budgets: &Budgets) -> (Instance, Caps) {
 /// The plugin whose `declare` does `declare`, made into a component.
 fn declaring(declare: &str) -> Vec<u8> {
     component(&module(declare, "(i32.const 0)"), false)
+}
+
+#[test]
+fn a_call_past_its_node_changes_fails() {
+    let caps = Caps {
+        node_changes: 2,
+        ..Caps::of(&budgets(), &WasmTuning::designed())
+    };
+    let mut state = State::new(&caps);
+    let root = state.nodes.root();
+    let node = HostNode::new(
+        &mut state,
+        Kind::Label,
+        Resource::new_borrow(root.rep()),
+        1,
+    )
+    .expect("a node within the budget");
+    let mut set = || {
+        HostNode::set(
+            &mut state,
+            Resource::new_borrow(node.rep()),
+            Property::Bold(true),
+            None,
+        )
+    };
+    assert!(set().is_ok());
+    let past = set().expect_err("a change past the budget");
+    assert_eq!(Fault::of(past), Fault::Changes);
 }
 
 #[test]

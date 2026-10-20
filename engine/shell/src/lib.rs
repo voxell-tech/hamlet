@@ -34,8 +34,7 @@ pub type Cx<'a> = bevy_fynix::Cx<'a, Bevy, EngineTheme>;
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((
-        FynixPlugin::<EngineTheme>::default(),
-        theme::plugin,
+        views_plugin,
         style::plugin,
         icons::plugin,
         fonts::plugin,
@@ -48,6 +47,15 @@ pub fn plugin(app: &mut App) {
         command::plugin,
         menu::plugin,
         status::plugin,
+    ));
+}
+
+/// What views are built with, without the window: fynix and the
+/// theme.
+pub fn views_plugin(app: &mut App) {
+    app.add_plugins((
+        FynixPlugin::<EngineTheme>::default(),
+        theme::plugin,
     ));
 }
 

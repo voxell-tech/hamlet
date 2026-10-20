@@ -43,7 +43,10 @@ hamlet_engine_harness = { version = "0.1.0", path = "engine/harness" }
 hamlet_plugin = { version = "0.1.0", path = "engine/plugin" }
 
 # fynix
+fynix = { path = "vendor/fynix/crates/fynix" }
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
+# `#[element]` derives `Lenz`, whose output names this crate.
+lenz = "0.1.0"
 
 # bevy
 bevy_app = { version = "0.19", default-features = false, features = ["std"] }

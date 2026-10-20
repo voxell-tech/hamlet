@@ -87,7 +87,143 @@ interface guest {
     serve: func(service: string, caller: string, argument: list<u8>) -> result<list<u8>, string>;
 }
 
+/// Panels a plugin builds and keeps node by node, as fynix's backend
+/// does: the engine builds its own widgets from them, in its styles.
+interface ui {
+    enum kind {
+        /// A column or a row, by its `direction`.
+        frame,
+        label,
+        button,
+    }
+
+    enum direction {
+        column,
+        row,
+    }
+
+    /// Room between the children of a frame.
+    enum space {
+        none,
+        half,
+        gap,
+        double,
+    }
+
+    /// The colour of lettering, by role.
+    enum tone {
+        body,
+        dim,
+        faint,
+        accent,
+        critical,
+    }
+
+    /// The size of lettering, by role. A title is in the display face.
+    enum size {
+        small,
+        body,
+        heading,
+        title,
+    }
+
+    enum button-style {
+        plain,
+        primary,
+        critical,
+        quiet,
+    }
+
+    /// A movement the engine animates a value over, by its theme.
+    enum motion {
+        interact,
+        expand,
+    }
+
+    /// One property of a node. A node starts with each at its first
+    /// value: empty, `body`, `body`, false, 1.0, `plain`, `column`,
+    /// `gap`.
+    variant property {
+        text(string),
+        tone(tone),
+        size(size),
+        bold(bool),
+        opacity(f32),
+        style(button-style),
+        direction(direction),
+        space(space),
+    }
+
+    /// A node of a panel. Dropping it takes it away, and every node
+    /// under it.
+    resource node {
+        /// A node of `kind`, last under `parent`. `key` is the
+        /// plugin's name for it in the events it is given.
+        constructor(kind: kind, parent: borrow<node>, key: u32);
+
+        /// Sets `value` at once, or over `motion` where it can move.
+        set: func(value: property, motion: option<motion>);
+
+        /// Puts the children in the order `children` lists them all.
+        reorder: func(children: list<borrow<node>>);
+
+        /// Tells the plugin when the pointer comes over the node or
+        /// leaves it, if `hover`, and when a button goes down on it
+        /// or up, if `press`.
+        watch: func(hover: bool, press: bool);
+    }
+}
+
+/// What a plugin with retained panels gives the engine.
+interface ui-guest {
+    use ui.{node};
+
+    variant action {
+        click,
+        hover(bool),
+        press(bool),
+    }
+
+    /// What the person did to the node the plugin named `key`.
+    record ui-event {
+        key: u32,
+        action: action,
+    }
+
+    /// Seconds a movement of the theme takes.
+    record motions {
+        interact: f32,
+        expand: f32,
+    }
+
+    // Each call answers whether something still moves, so the engine
+    // calls `frame` on the next frame.
+
+    /// Builds the panel `name` under `root`.
+    mount: func(name: string, root: node, motions: motions) -> bool;
+
+    /// Lets go of the panel `name`, whose nodes are gone.
+    unmount: func(name: string);
+
+    input: func(events: list<ui-event>) -> bool;
+
+    /// A frame passed, `micros` after the last.
+    frame: func(micros: u32) -> bool;
+}
+
 world plugin {
     import host;
     export guest;
+}
+
+/// The engine's side of retained panels, apart from `plugin`.
+world ui-panels {
+    import ui;
+    export ui-guest;
+}
+
+/// A plugin whose panels are retained.
+world ui-plugin {
+    include plugin;
+    include ui-panels;
 }

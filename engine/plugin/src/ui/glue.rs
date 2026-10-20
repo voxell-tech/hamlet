@@ -1,0 +1,147 @@
+//! What [`export!`](crate::export) calls for retained panels: each
+//! panel's mounted views, kept in step with the world after each
+//! input and frame.
+
+use core::cell::RefCell;
+use core::time::Duration;
+use std::collections::HashMap;
+
+use fynix::{Cx, Mounted, Tick, View};
+
+use super::{Hamlet, Key, States, Theme, World};
+use crate::Plugin;
+use crate::bindings::exports::hamlet::engine::ui_guest::{
+    Action, Motions, UiEvent,
+};
+use crate::bindings::hamlet::engine::ui::Node;
+
+std::thread_local! {
+    static UI: RefCell<Panels> = RefCell::new(Panels::default());
+}
+
+#[derive(Default)]
+struct Panels {
+    world: World,
+    theme: Theme,
+    mounted: HashMap<String, Shown>,
+}
+
+/// A panel built, and its root.
+struct Shown {
+    mounted: Mounted<Hamlet, Theme>,
+    root: Key,
+}
+
+impl Panels {
+    /// Brings every panel up to date, its transitions moved on by
+    /// `delta`: whether it sent the engine anything.
+    fn update(&mut self, delta: Duration) -> bool {
+        let before = self.world.nodes.calls;
+        let tick = Tick {
+            delta,
+            reduced_motion: false,
+        };
+        for shown in self.mounted.values_mut() {
+            forget_gone(&mut self.world, &mut shown.mounted);
+            shown.mounted.run_effects(&mut self.world);
+            shown
+                .mounted
+                .update_structure(&mut self.world, &self.theme);
+            forget_gone(&mut self.world, &mut shown.mounted);
+            shown.mounted.update_elements(
+                &mut self.world,
+                &self.theme,
+                tick,
+            );
+        }
+        self.world.nodes.gone.clear();
+        self.world.nodes.flush();
+        self.world.nodes.calls != before
+    }
+
+    fn unmount(&mut self, name: &str) {
+        if let Some(shown) = self.mounted.remove(name) {
+            self.world.despawn(shown.root);
+        }
+    }
+}
+
+/// Drops the mounts of the nodes despawned since.
+fn forget_gone(
+    world: &mut World,
+    mounted: &mut Mounted<Hamlet, Theme>,
+) {
+    for &key in &world.nodes.gone {
+        mounted.unmount(key);
+    }
+}
+
+pub fn mount<P: Plugin>(
+    plugin: &mut P,
+    name: String,
+    root: Node,
+    motions: Motions,
+) -> bool {
+    UI.with_borrow_mut(|panels| {
+        panels.unmount(&name);
+        panels.theme = Theme {
+            interact: Duration::from_secs_f32(motions.interact),
+            expand: Duration::from_secs_f32(motions.expand),
+        };
+        let root = panels.world.nodes.adopt(root);
+        let view = plugin.mount(&name, &mut panels.world);
+        let mut mounted = Mounted::default();
+        {
+            let mut cx = Cx::new(
+                &mut panels.world,
+                &panels.theme,
+                &mut mounted,
+            );
+            cx.under(root, |cx| view.build(cx));
+        }
+        panels.mounted.insert(name, Shown { mounted, root });
+        panels.update(Duration::ZERO);
+        // A transition may have begun, which moves on in frames.
+        true
+    })
+}
+
+pub fn unmount(name: &str) {
+    UI.with_borrow_mut(|panels| panels.unmount(name));
+}
+
+pub fn input(events: Vec<UiEvent>) -> bool {
+    UI.with_borrow_mut(|panels| {
+        for event in events {
+            let (states, on) = match event.action {
+                Action::Click => {
+                    click(&mut panels.world, event.key);
+                    continue;
+                }
+                Action::Hover(on) => (States::HOVER, on),
+                Action::Press(on) => (States::PRESS, on),
+            };
+            panels.world.nodes.enter(event.key, states, on);
+            for shown in panels.mounted.values_mut() {
+                shown.mounted.mark_dirty(event.key);
+            }
+        }
+        panels.update(Duration::ZERO);
+        true
+    })
+}
+
+pub fn frame(micros: u32) -> bool {
+    UI.with_borrow_mut(|panels| {
+        panels.update(Duration::from_micros(micros.into()))
+    })
+}
+
+/// Runs the click handler of `key`.
+fn click(world: &mut World, key: Key) {
+    let Some(handler) = world.clicks.remove(&key) else {
+        return;
+    };
+    handler(world);
+    world.clicks.entry(key).or_insert(handler);
+}

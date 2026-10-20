@@ -15,8 +15,9 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Changed, Has, With};
 use bevy::ecs::relationship::RelationshipTarget;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Local, Query, Res};
+use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
+use bevy::time::Time;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, label};
 use bevy_fynix::{ViewExt, component, keyed};
@@ -30,15 +31,16 @@ use hamlet_engine_plugins::{
 };
 use hamlet_engine_shell::style::{caption, note};
 use hamlet_engine_shell::{
-    AnyView, Cx, Panel, SettingsPage, panel, tree_view,
+    AnyView, Cx, EngineTheme, Panel, SettingsPage, panel, tree_view,
 };
 
 use crate::budget::{Spending, pass_logs, tally};
 use crate::folder::Package;
 use crate::host::WasmTuning;
-use crate::instance::{Caps, Fault, Instance, Spent};
+use crate::instance::{Caps, Fault, Instance, NodeInput, Spent};
 use crate::mail::{batch, deliver, pass_requests};
 use crate::reload::Reloading;
+use crate::retained::{self, NodeStats};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<Input>()
@@ -85,7 +87,22 @@ pub(crate) enum Work {
     Mail(hamlet_engine_api::Message, u32),
     /// A call of one of its services.
     Serve(Serve),
+    /// Its retained panel `name` to build under `root`.
+    Mount {
+        root: Entity,
+        name: String,
+    },
+    /// Its retained panel of this name, whose nodes are gone.
+    Unmount(String),
+    /// What the person did to the node of its retained panel it named
+    /// with this key.
+    Node(u32, NodeInput),
 }
+
+/// On a plugin whose retained panels still move, given a frame each
+/// frame.
+#[derive(Component)]
+pub(crate) struct Moving;
 
 /// What the person did to a widget of the panel or settings page
 /// `surface`.
@@ -118,23 +135,25 @@ pub(crate) fn page(surface: Entity) -> AnyView {
                 });
             },
         ),
-        Some(Shows::Stopped(why)) => {
-            let why = why.clone();
-            AnyView::new(move |cx: &mut Cx| {
-                let gap = cx.theme().space.gap;
-                cx.build(
-                    column((
-                        caption("STOPPED", Tone::Critical),
-                        label("The plugin was stopped."),
-                        note(why),
-                    ))
-                    .gap(gap),
-                )
-            })
-        }
+        Some(Shows::Stopped(why)) => stopped(why.clone()),
         _ => column(()).boxed(),
     })
     .boxed()
+}
+
+/// That a plugin was stopped, and why.
+pub(crate) fn stopped(why: String) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.gap;
+        cx.build(
+            column((
+                caption("STOPPED", Tone::Critical),
+                label("The plugin was stopped."),
+                note(why),
+            ))
+            .gap(gap),
+        )
+    })
 }
 
 /// Draws a WASM plugin's new panel.
@@ -213,7 +232,7 @@ fn route(
 /// ago goes first, and what is left waits for the next frame, but
 /// one panel is drawn each frame whatever the share. A plugin at
 /// fault is stopped.
-fn serve(
+pub(crate) fn serve(
     mut plugins: Query<(
         Entity,
         &PluginInfo,
@@ -221,10 +240,14 @@ fn serve(
         &mut Inbox,
         &mut Spending,
         Option<&Contributions>,
+        Has<Moving>,
     )>,
-    mut surfaces: Query<(&mut Drawn, Has<Redraw>)>,
+    mut surfaces: Query<(&mut Drawn, Has<Redraw>, Has<Panel>)>,
     budgets: Res<Budgets>,
     tuning: Res<WasmTuning>,
+    theme: Option<Res<EngineTheme>>,
+    time: Res<Time>,
+    mut stats: ResMut<NodeStats>,
     mut frame: Local<u64>,
     mut log: MessageWriter<LogLine>,
     mut asked: MessageWriter<Asked>,
@@ -234,12 +257,16 @@ fn serve(
     *frame += 1;
     let caps = Caps::of(&budgets, &tuning);
     let limits = budgets.tree_limits();
+    let motions = theme.map_or([0.0; 2], |theme| {
+        [theme.motion.interact, theme.motion.expand]
+    });
+    let micros = u32::try_from(time.delta().as_micros()).unwrap_or(0);
     let mut left =
         Duration::from_secs_f32(budgets.frame_share / 1000.0);
     let mut drew = false;
     let mut order = plugins
         .iter()
-        .map(|(plugin, .., spending, _)| (spending.served, plugin))
+        .map(|(plugin, .., spending, _, _)| (spending.served, plugin))
         .collect::<Vec<_>>();
     order.sort();
     for (_, plugin) in order {
@@ -250,6 +277,7 @@ fn serve(
             mut inbox,
             mut spending,
             contributions,
+            was_moving,
         )) = plugins.get_mut(plugin)
         else {
             continue;
@@ -259,8 +287,11 @@ fn serve(
         // After an event or a command, each of its panels is drawn
         // again.
         let mut all = false;
+        let mut moving = was_moving;
+        let mut moved = false;
         while let Some(work) = inbox.0.front() {
-            let event = matches!(work, Work::Event(_));
+            let event =
+                matches!(work, Work::Event(_) | Work::Node(..));
             if left.is_zero() || !spending.may_call(&budgets, event) {
                 break;
             }
@@ -269,6 +300,7 @@ fn serve(
             };
             // A service's caller pays for its call.
             let mut paid = false;
+            let mut retained = None;
             let ((done, spent), depth) = match work {
                 Work::Event(event) => {
                     (instance.event(&caps, &event), 0)
@@ -292,6 +324,49 @@ fn serve(
                     );
                     ((done, spent), call.depth)
                 }
+                Work::Mount { root, name } => {
+                    let (done, spent, number) =
+                        instance.mount(&caps, &name, motions);
+                    retained = Some((done, Some((number, root))));
+                    ((Ok(()), spent), 0)
+                }
+                Work::Unmount(name) => {
+                    let (done, spent) =
+                        instance.unmount(&caps, &name);
+                    retained = Some((done, None));
+                    ((Ok(()), spent), 0)
+                }
+                Work::Node(key, input) => {
+                    let mut inputs = vec![(key, input)];
+                    while let Some(&Work::Node(key, input)) =
+                        inbox.0.front()
+                    {
+                        inbox.0.pop_front();
+                        inputs.push((key, input));
+                    }
+                    let (done, spent) =
+                        instance.input(&caps, &inputs);
+                    retained = Some((done, None));
+                    ((Ok(()), spent), 0)
+                }
+            };
+            let done = match retained {
+                Some((done, root)) => {
+                    let changes = instance.take_node_changes();
+                    retained::apply(
+                        &mut commands,
+                        plugin,
+                        root,
+                        changes,
+                    );
+                    stats.count(&spent);
+                    moved = true;
+                    done.map(|now| moving = now)
+                }
+                None => {
+                    all = true;
+                    done
+                }
             };
             pass_requests(plugin, &mut instance, depth, &mut asked);
             spending.charge(
@@ -299,10 +374,37 @@ fn serve(
                 event,
             );
             left = left.saturating_sub(spent.time);
-            (served, all) = (true, true);
+            served = true;
             if let Err(why) = done {
                 fault = Some(why);
                 break;
+            }
+        }
+        // What moves is moved on once a frame, unless it was just
+        // given an input.
+        if was_moving
+            && !moved
+            && fault.is_none()
+            && !left.is_zero()
+            && spending.may_call(&budgets, false)
+        {
+            let (done, spent) = instance.frame(&caps, micros);
+            let changes = instance.take_node_changes();
+            retained::apply(&mut commands, plugin, None, changes);
+            stats.count(&spent);
+            spending.charge(spent, false);
+            left = left.saturating_sub(spent.time);
+            served = true;
+            match done {
+                Ok(now) => moving = now,
+                Err(why) => fault = Some(why),
+            }
+        }
+        if moving != was_moving {
+            if moving {
+                commands.entity(plugin).insert(Moving);
+            } else {
+                commands.entity(plugin).remove::<Moving>();
             }
         }
         let redraws = instance.take_redraws();
@@ -312,10 +414,17 @@ fn serve(
             if fault.is_some() {
                 break;
             }
-            let Ok((mut drawn, redraw)) = surfaces.get_mut(surface)
+            let Ok((mut drawn, redraw, is_panel)) =
+                surfaces.get_mut(surface)
             else {
                 continue;
             };
+            if is_panel && instance.retained() {
+                if redraw {
+                    commands.entity(surface).remove::<Redraw>();
+                }
+                continue;
+            }
             if !(all || redraw || redraws.contains(&drawn.name)) {
                 continue;
             }
@@ -407,7 +516,7 @@ pub(crate) fn stop(
 ) {
     commands
         .entity(plugin)
-        .remove::<(Instance, Inbox, Spending, Reloading)>()
+        .remove::<(Instance, Inbox, Spending, Reloading, Moving)>()
         .insert(Stopped(fault.to_string()));
     log.write(LogLine::error(
         info.id.as_str(),

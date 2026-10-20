@@ -111,6 +111,16 @@ types, so the WIT names nothing twice.
   call is passed to the services as the call ends, and their messages
   reach it in one `receive` on the next frame it is served. A plugin's
   stores never meet: the engine copies what passes between them.
+- **Retained panels** are the world `ui-plugin`: `plugin` with the
+  interface `ui`, whose resource `node` the plugin makes (a frame, a
+  label or a button, last under its parent, with a key of its own),
+  `set`s a property of (at once, or over a `motion` where it can move),
+  `reorder`s and `watch`es for hover and press, and drops to take it
+  away with what is under it; and the export `ui-guest`: `mount` (a
+  panel to build under a root node the engine gives), `unmount`,
+  `input` (clicks, hovers and presses, by key) and `frame`, each
+  answering whether something still moves. A property is a role (a
+  tone, a size, a button style, a space), filled in from the theme.
 
 ## Writing a plugin
 
@@ -149,6 +159,25 @@ cargo build --release --target wasm32-wasip2
 
 builds `target/wasm32-wasip2/release/plugin.wasm`, to go beside its
 `plugin.toml`.
+
+- **Retained panels** are written with fynix, with the feature `ui`
+  (`hamlet_plugin::ui`). `Hamlet` is fynix's backend: a node is made in
+  the engine when something is first sent for it, in the order nodes
+  were spawned, and a property still at its first value is not sent.
+  The `World` holds the plugin's resources, which `resource` signals
+  read. The elements are `label` (and `heading`), `button` and the
+  frames `column` and `row`; `on_click` runs a handler, `when::<Hovered,
+  _>` and `when::<Pressed, _>` hold rules while the engine says so,
+  `transition` moves values in the plugin each frame and
+  `engine_transition` has the engine move them. `Plugin::mount` gives
+  a panel's view, built once each time the panel is shown.
+
+`engine/samples/fynix_counter` is a retained panel of about fifty
+nodes: a count and a button that adds one, a button that is primary
+under the pointer, and two labels faded one by the plugin and one by
+the engine. `cargo run --release -p hamlet_engine_harness --example
+retained_costs -- <home> engine/samples/fynix_counter` prints what it
+costs the host, frame by frame.
 
 `engine/samples/notes` and `engine/samples/board` share. Notes makes
 the type `notes.note` (its bytes are the text) and keeps one note of
@@ -189,6 +218,11 @@ checks the built plugins in the folders (each a `plugin.toml` with its
 failure, the log. Without steps it lets each plugin in and prints its
 panels. An outline is a line for each widget, indented under its
 holder: its kind, `#` and its id, and what it shows.
+
+A retained panel is built as the dock builds it when it shows it. Its
+outline is a line for each node, `#` and its key, and a line for each
+text it shows; `click` presses the button lettered with the widget
+named, and `hover` puts the pointer over a watched node by its text.
 
 The test `the_notes_and_board_samples_pass_their_steps` (ignored, as it
 builds the samples) runs both samples' scripts.
@@ -281,7 +315,8 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   glow reaches (`GlowMargin`), and a panel cuts at the outer edge of
   its padding, so a glow at the edge shows whole. What floats has
   `drop_shadow`.
-- **Plugin panels** are drawn by `tree_view` with the same styles.
+- **Plugin panels** are drawn by `tree_view` with the same styles, or
+  built from the same styles node by node when they are retained.
 - **Icons** (`icons.rs`) are one family of line drawings made in code
   at start, so there is no file or font to load: a `Glyph` each, drawn
   at 12, 14, 16 and 20 pixels and tinted by a tone. A plugin names one
@@ -601,6 +636,32 @@ plugin to are `[budgets]`.
 - **Stopped.** A plugin at fault is stopped: its store goes, it is
   marked `Stopped` with why, the log says so, and its panels show that
   it was stopped and why. Switching it off and on starts it afresh.
+
+### Retained panels
+
+- **Built node by node** (`retained.rs`). A plugin that exports
+  `ui-guest` has its panels retained: none is drawn from a tree. When
+  the dock shows one, a root is built inside the panel's padding and
+  the plugin is asked to `mount` the panel under it; when the root
+  goes, it is told to `unmount` it. What a call did to its nodes is
+  kept (`nodes.rs`) and made into the shell's own widgets as the call
+  ends: a frame is a `column` or `row`, a label a `label`, a title in
+  the display face, and a button `action` in its `ButtonStyle`, built
+  again when its style changes. Each widget reads its properties from
+  an entity of its own, so a `set` changes one value and only the
+  widget reading it.
+- **Inputs back.** A click, the pointer over a watched node or off it,
+  and a button down on it or up go into the inbox, and are handed over
+  together in one `input`. A plugin that answers that something still
+  moves is given a `frame` each frame until it answers that nothing
+  does. An opacity set over a motion is moved by the engine, over the
+  theme's curve.
+- **Budgets.** Makes, sets, orders and watches are
+  `[budgets] node_changes_per_call` a call, past which the call fails,
+  and `node_changes_per_second` a second, past which the plugin waits.
+  It holds `nodes` nodes at most; a call that makes more fails.
+- **Costs.** `NodeStats` counts the calls into plugins for their
+  retained panels, the calls they made on nodes, and the time of both.
 
 ## Assets
 
