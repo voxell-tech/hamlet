@@ -1,6 +1,6 @@
 # Proposal: the Rust server and its harnesses
 
-Rebuild the server in Rust, as the crate `hamlet-server`, and run agents'
+Rebuild the server in Rust, as the crate `hamlet_server`, and run agents'
 conversations in harnesses apart from it. The decision is
 [ADR 0001](../adr/0001-agents-run-on-a-rust-server-and-harnesses-run-their-conversations.md).
 The concepts and rules stay as [`docs/spec/`](../spec/README.md) states
@@ -47,8 +47,8 @@ Runtime (Node: pi-durable + pi-ai 1.2.0)  -------  harnesses/<instance>/
 ```
 
 The `hamlet` command starts `hamlet-server`, and `hamlet-server` starts
-and watches its runtimes. The crate is `crates/hamlet-server/`, its
-package and binary `hamlet-server`, imported as `hamlet_server`. The pi
+and watches its runtimes. The crate is `crates/hamlet_server/`, its
+package `hamlet_server` and its binary `hamlet-server`. The pi
 harness is a Node package of its own, outside `server/` and not part of
 the Rust build.
 
@@ -121,7 +121,7 @@ instruction does not owe another receipt when the model finishes.
 
 Skill gifts copy a bounded no-follow tree, including empty folders and
 ordinary permission bits, without setuid or setgid. Starters use the
-embedded `hamlet-server/assets/starters/`, whose bytes match the TypeScript assets,
+embedded `hamlet_server/assets/starters/`, whose bytes match the TypeScript assets,
 independently of edits to the shared library. Successful skill gifts keep
 a `SkillGiven` decision with the resolved giver, refresh the client state,
 and cause no conversation turn. Recipient resolution, including a farewell
@@ -672,7 +672,7 @@ It did not show:
 - Two servers at once.
 
 Its ten cases run again against this server and the pi harness, as real
-processes, in `crates/hamlet-server/tests/harness/`, with admitting
+processes, in `crates/hamlet_server/tests/harness/`, with admitting
 inputs across a crash, cancelling, the handshake's refusals and a real
 endpoint beside them.
 

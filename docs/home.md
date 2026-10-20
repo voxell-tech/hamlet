@@ -2,7 +2,7 @@
 
 The Rust server keeps one home, `~/.hamlet` unless `HAMLET_HOME` or
 `hamlet-server --home` selects another. Use a fresh scratch home for
-development. `crates/hamlet-server/src/home.rs` defines `Home` and `Layout`.
+development. `crates/hamlet_server/src/home.rs` defines `Home` and `Layout`.
 
 | Path under the home | Owner and contents |
 |---|---|
@@ -89,7 +89,7 @@ or window does not stop the server.
 
 ## Starter skills
 
-`crates/hamlet-server/assets/starters/` supplies the embedded skills through
+`crates/hamlet_server/assets/starters/` supplies the embedded skills through
 `src/starters.rs`; `assets/charter.md` is the default charter. Library
 initialization installs starters once, preserving later chief changes.
 The chief can also give an agent a starter through the protocol.

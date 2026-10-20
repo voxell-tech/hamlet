@@ -2,7 +2,7 @@
 
 ## The process sandbox
 
-`crates/hamlet-server/src/sandbox.rs` and `sandbox/` own tool confinement:
+`crates/hamlet_server/src/sandbox.rs` and `sandbox/` own tool confinement:
 bubblewrap on Linux, Seatbelt on macOS. Startup probes the sandbox and
 refuses to serve if it cannot run. There is no `--insecure` mode and no
 Windows server sandbox. Linux needs `bwrap` and a kernel/host policy that

@@ -26,7 +26,7 @@
 ## Running safely
 
 The Rust binaries are `hamlet` in `crates/hamlet_cli`, `hamlet-server` in
-`crates/hamlet-server`, and the window `hamlet-app`. Use the Node version
+`crates/hamlet_server`, and the window `hamlet-app`. Use the Node version
 in `harnesses/pi/.nvmrc` and install the harness with
 `npm ci --prefix harnesses/pi`. No global npm command is needed.
 For local work:
@@ -72,7 +72,7 @@ cargo test
 ```
 
 The root commands cover every crate. To work on one, add `-p <crate>`, for
-example `cargo test -p hamlet-server`.
+example `cargo test -p hamlet_server`.
 
 Offline tests use faux models or loopback fixtures. Do not run live-provider
 or remote-infrastructure tests unless the owner explicitly asks.
@@ -94,7 +94,7 @@ contacts a model server or the internet: models are faux, or a loopback
 fake of its own. `make check` runs it; by hand, at the root:
 
 ```sh
-cargo build -p hamlet_cli -p hamlet-server
+cargo build -p hamlet_cli -p hamlet_server
 cargo clippy -p hamlet_acceptance --all-targets --features acceptance
 cargo test -p hamlet_acceptance --features acceptance
 ```
@@ -108,11 +108,11 @@ internet, and must be clean before a commit too. `make check` runs them;
 by hand, at the root:
 
 ```sh
-cargo clippy -p hamlet-server --all-targets --features harness
-cargo test -p hamlet-server --features harness
+cargo clippy -p hamlet_server --all-targets --features harness
+cargo test -p hamlet_server --features harness
 ```
 
-The link's Rust types in `crates/hamlet-server/src/harness/link.rs` are
+The link's Rust types in `crates/hamlet_server/src/harness/link.rs` are
 generated as protocol v0's are: after changing `harnesses/pi/src/link.ts`,
 run `npm run schema` in `harnesses/pi/`, then
 `cargo run -p hamlet_protocol_gen` at the root.
@@ -136,6 +136,6 @@ The client tests replay the faux sessions in `crates/hamlet_protocol/frames/`.
 See `docs/protocol.md` for their recording workflow.
 
 On Linux, tools run under bubblewrap rather than Seatbelt. After changing
-`crates/hamlet-server/src/sandbox/`, run the real sandbox acceptance tests
+`crates/hamlet_server/src/sandbox/`, run the real sandbox acceptance tests
 on Linux with working bubblewrap, git, curl and Python 3. Linux checks do
 not prove macOS Seatbelt behavior. Windows has no server sandbox.

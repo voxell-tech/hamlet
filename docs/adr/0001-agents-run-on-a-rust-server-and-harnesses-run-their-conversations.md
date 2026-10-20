@@ -9,7 +9,7 @@ keep working while the chief's machine is off, and their commands never
 run on it. So agents run on a server, and the window, in Rust and Bevy, is
 a client of it (ADR 0004).
 
-The server is Rust, the crate `hamlet-server`, and keeps everything Hamlet
+The server is Rust, the crate `hamlet_server`, and keeps everything Hamlet
 means: agents, hamlets, the mayor's office, roads, letters, questions,
 votes, tasks and their caps, budgets and spend, what waits for a chief,
 standing permissions, objections, the charter, characters and settings,

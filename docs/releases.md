@@ -47,7 +47,7 @@ must match the target. The release job uses the pinned Node version and
 builds all three binaries before invoking `.github/scripts/package.sh`:
 
 ```sh
-cargo build --release --locked -p hamlet_cli -p hamlet-server -p hamlet \
+cargo build --release --locked -p hamlet_cli -p hamlet_server -p hamlet \
   --bin hamlet --bin hamlet-server --bin hamlet-app \
   --target x86_64-unknown-linux-gnu
 .github/scripts/package.sh x86_64-unknown-linux-gnu v0.1.0

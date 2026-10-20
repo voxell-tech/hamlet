@@ -1,13 +1,9 @@
 [package]
-name = "hamlet-server"
+name = "hamlet_server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "The Rust Hamlet server: a claimed home, its realm database and the markers of operations"
-
-[lib]
-name = "hamlet_server"
-path = "src/lib.rs"
 
 [[bin]]
 name = "hamlet-server"

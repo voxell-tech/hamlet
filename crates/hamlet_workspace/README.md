@@ -389,7 +389,7 @@ From the root, with the Node version in `harnesses/pi/.nvmrc`:
 ```sh
 cargo test -p hamlet_workspace
 npm ci --prefix harnesses/pi
-CARGO_INCREMENTAL=0 cargo test -p hamlet-server --features harness --test server remote::
+CARGO_INCREMENTAL=0 cargo test -p hamlet_server --features harness --test server remote::
 ```
 
 The server checks start the Rust server and Pi with faux model responses.

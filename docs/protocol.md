@@ -43,7 +43,7 @@ The server applies no matching outbound limit to state or transcript pages.
 File gifts have a separate
 **32 MiB** limit and travel in chunks (`Give`, `GivePart`). A server shutdown
 closes clients with **1001**. These rules are in
-[`crates/hamlet-server/src/runtime.rs`](../crates/hamlet-server/src/runtime.rs).
+[`crates/hamlet_server/src/runtime.rs`](../crates/hamlet_server/src/runtime.rs).
 
 ## Shared shapes
 

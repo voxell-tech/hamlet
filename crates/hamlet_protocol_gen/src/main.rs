@@ -11,7 +11,7 @@ const TARGETS: &[(&str, &str)] = &[
     ),
     (
         "harnesses/pi/link.schema.json",
-        "crates/hamlet-server/src/harness/link.rs",
+        "crates/hamlet_server/src/harness/link.rs",
     ),
 ];
 

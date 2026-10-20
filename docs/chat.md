@@ -91,7 +91,7 @@ unopened.
 
 An `edit` or `write` call can show its change in place of the tool row:
 the path, the count of lines added and removed, and the lines themselves
-in red and green. `crates/hamlet-server/src/change.rs` computes the preview and keeps
+in red and green. `crates/hamlet_server/src/change.rs` computes the preview and keeps
 at most 200 lines, each cut at 240 characters. It arrives in the tool's
 `change` field, both live and when the transcript is read back.
 

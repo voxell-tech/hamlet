@@ -27,7 +27,7 @@ and `hamlet-server`, Node from `harnesses/pi/.nvmrc`, and
 `npm ci --prefix harnesses/pi`. `make check` runs them. By hand, at the root:
 
 ```sh
-CARGO_INCREMENTAL=0 cargo build -p hamlet_cli -p hamlet-server
+CARGO_INCREMENTAL=0 cargo build -p hamlet_cli -p hamlet_server
 CARGO_INCREMENTAL=0 cargo test -p hamlet_acceptance --features acceptance
 ```
 
@@ -43,7 +43,7 @@ A relative executable path is resolved against the workspace root. To
 start the Rust server directly rather than through the CLI:
 
 ```sh
-CARGO_INCREMENTAL=0 cargo build -p hamlet-server -p hamlet_cli
+CARGO_INCREMENTAL=0 cargo build -p hamlet_server -p hamlet_cli
 CARGO_INCREMENTAL=0 HAMLET_ACCEPTANCE_SERVER=target/debug/hamlet-server cargo test -p hamlet_acceptance --features acceptance --no-fail-fast
 ```
 
@@ -248,7 +248,7 @@ Rust tests. Additional society/realm scenarios cover usable merge skill
 names, non-UTF-8 note preservation, canceled library resubmissions and
 librarian NOTES, vote-held agreements, assent across office changes, and
 mayor-review recovery. Process-crash controls live separately under
-`crates/hamlet-server/tests/`.
+`crates/hamlet_server/tests/`.
 
 Status:
 - `covered`: a scenario asserts the observable behaviour.
@@ -408,7 +408,7 @@ From the repository root, using the Node version in `harnesses/pi/.nvmrc`:
 ```sh
 npm ci --prefix harnesses/pi
 npm ci --prefix crates/hamlet_protocol/schema
-cargo build -p hamlet-server
+cargo build -p hamlet_server
 HAMLET_ACCEPTANCE_SERVER="$PWD/target/debug/hamlet-server" \
   cargo test -p hamlet_acceptance --features acceptance --test frames -- --ignored
 npm test --prefix crates/hamlet_protocol/schema

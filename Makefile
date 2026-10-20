@@ -33,16 +33,16 @@ $(PI): harnesses/pi/package.json harnesses/pi/package-lock.json
 	$(NPM) ci --prefix harnesses/pi
 
 build: $(FYNIX) $(PI)
-	$(CARGO) build --release --locked -p hamlet_cli -p hamlet-server -p hamlet --bin hamlet --bin hamlet-server --bin hamlet-app
+	$(CARGO) build --release --locked -p hamlet_cli -p hamlet_server -p hamlet --bin hamlet --bin hamlet-server --bin hamlet-app
 
 install: $(FYNIX) $(PI)
 	$(CARGO) install --locked --force --path crates/hamlet_cli
-	$(CARGO) install --locked --force --path crates/hamlet-server --bin hamlet-server
+	$(CARGO) install --locked --force --path crates/hamlet_server --bin hamlet-server
 	$(CARGO) install --locked --force --path . --bin hamlet-app
 
 uninstall:
 	-$(CARGO) uninstall hamlet_cli
-	-$(CARGO) uninstall hamlet-server
+	-$(CARGO) uninstall hamlet_server
 	-$(CARGO) uninstall hamlet
 
 dev: $(FYNIX) $(PI)
@@ -55,8 +55,8 @@ check: $(FYNIX) $(SCHEMA) $(PI)
 	$(CARGO) test
 	$(CARGO) clippy -p hamlet_acceptance --all-targets --features acceptance -- -D warnings
 	$(CARGO) test -p hamlet_acceptance --features acceptance
-	$(CARGO) clippy -p hamlet-server --all-targets --features harness -- -D warnings
-	$(CARGO) test -p hamlet-server --features harness
+	$(CARGO) clippy -p hamlet_server --all-targets --features harness -- -D warnings
+	$(CARGO) test -p hamlet_server --features harness
 	$(NPM) run check --prefix crates/hamlet_protocol/schema
 	$(NPM) test --prefix crates/hamlet_protocol/schema
 	$(NPM) run check --prefix harnesses/pi

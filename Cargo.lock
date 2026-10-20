@@ -3293,36 +3293,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamlet-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "chrono",
- "futures",
- "hamlet_acceptance",
- "hamlet_protocol",
- "hamlet_protocol_gen",
- "hamlet_testing",
- "interprocess",
- "jsonschema",
- "libc",
- "regex",
- "reqwest",
- "ring",
- "rusqlite",
- "rustix 1.1.5",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "tokio-tungstenite",
- "unicode-normalization",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "hamlet_acceptance"
 version = "0.1.0"
 dependencies = [
@@ -3423,6 +3393,36 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
+]
+
+[[package]]
+name = "hamlet_server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "futures",
+ "hamlet_acceptance",
+ "hamlet_protocol",
+ "hamlet_protocol_gen",
+ "hamlet_testing",
+ "interprocess",
+ "jsonschema",
+ "libc",
+ "regex",
+ "reqwest",
+ "ring",
+ "rusqlite",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tokio-tungstenite",
+ "unicode-normalization",
+ "url",
+ "uuid",
 ]
 
 [[package]]

@@ -33,7 +33,7 @@ Rust crates live under `crates/`. The root package `hamlet` supplies
 | Crate or package | Owns |
 |---|---|
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
-| `hamlet-server` | `hamlet-server`: realm, permissions, tools, records, credentials and harness supervision |
+| `hamlet_server` | `hamlet-server`: realm, permissions, tools, records, credentials and harness supervision |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
 | `hamlet_protocol/schema/` | TypeBox source and offline schema checks, a separate Node package |
 | `hamlet_protocol_gen` | Generates Rust types from `crates/hamlet_protocol/schema.json` and `harnesses/pi/link.schema.json` |
@@ -60,7 +60,7 @@ town generator also adds `generator::plugin` and an `Origin` for its seed.
 
 ## The server
 
-Paths below are under `crates/hamlet-server/src/`. Modules use a file and
+Paths below are under `crates/hamlet_server/src/`. Modules use a file and
 same-named directory rather than `mod.rs`. Most domain APIs are internal;
 the public test boundary is protocol v0 or the process command line.
 
@@ -83,7 +83,7 @@ the public test boundary is protocol v0 or the process command line.
 | `workspace.rs`, `papers/files.rs`, `papers/moving.rs` | Authenticated remote execution, local/remote house files and background copies to the next-start backend |
 | `gifts.rs`, `gifts/` | Connection-owned upload staging, manifest limits, confined delivery and skill gifts |
 | `prompt.rs`, `prompt/` | `sections` composes charter, machine, project, character, notes, shelf, hamlet and realm |
-| `starters.rs` | Shipped starter content from `crates/hamlet-server/assets/starters/` |
+| `starters.rs` | Shipped starter content from `crates/hamlet_server/assets/starters/` |
 | `models.rs`, `credentials.rs`, `scrub.rs` | Catalogue and provider requests, atomic credential files, sign-ins and secret removal before publication or harness persistence |
 | `spend.rs` | Budget reservations and usage charges deduplicated by model attempt, plus agent/task/hamlet accounting |
 | `society.rs`, `society/` | Role-specific tool schemas, letters/questions, instructions/objections, votes, library and recoverable merge/departure work |
@@ -121,18 +121,18 @@ ordinary tools.
 
 | Change | Owner |
 |---|---|
-| Typed commands, command replies | `hamlet-server/src/chats/say.rs`, `society.rs`, `realm/deeds.rs`; advertised deeds in `state.rs` |
-| Conversation stop/retry/resume/rewind | `hamlet-server/src/chats/deeds.rs` and `chats/follow.rs` |
-| Transcript rows, paging and peer watches | `hamlet-server/src/chats/fold.rs`, `chats/watch.rs`; `hamlet_client/src/chats.rs` |
-| Questions and their answer cards | `hamlet_protocol/src/asking.rs`, `hamlet-server/src/chats/calls.rs`, `hamlet_ui/src/asking.rs` |
+| Typed commands, command replies | `hamlet_server/src/chats/say.rs`, `society.rs`, `realm/deeds.rs`; advertised deeds in `state.rs` |
+| Conversation stop/retry/resume/rewind | `hamlet_server/src/chats/deeds.rs` and `chats/follow.rs` |
+| Transcript rows, paging and peer watches | `hamlet_server/src/chats/fold.rs`, `chats/watch.rs`; `hamlet_client/src/chats.rs` |
+| Questions and their answer cards | `hamlet_protocol/src/asking.rs`, `hamlet_server/src/chats/calls.rs`, `hamlet_ui/src/asking.rs` |
 | Selecting, quoting and replying to chat text | `hamlet_ui/src/select.rs`, `screens/chat/quote.rs`, `screens/chat/reply.rs` |
-| Agent creation, model choice, departure and merge | `hamlet-server/src/society/agents.rs`, `leaving.rs`, `merging.rs`; rules in `record/` |
-| Letters, questions, votes and library | `hamlet-server/src/society/letters.rs`, `votes.rs`, `library.rs` |
-| Instructions and objections | `hamlet-server/src/society/objections.rs`, `reviews.rs` |
-| Founding and cross-hamlet agreements | `hamlet-server/src/realm/deeds.rs`, `dealings.rs` |
-| A prompt or chief document | `hamlet-server/src/prompt/`, `documents.rs`; default charter in `hamlet-server/assets/charter.md` |
-| A model connection, login or price | `hamlet-server/src/models.rs`, `credentials.rs`; provider implementation in pi |
-| Folder, mode or tool reach | `hamlet-server/src/documents.rs`, `tools.rs`, `sandbox/`; [`sandbox.md`](sandbox.md) |
+| Agent creation, model choice, departure and merge | `hamlet_server/src/society/agents.rs`, `leaving.rs`, `merging.rs`; rules in `record/` |
+| Letters, questions, votes and library | `hamlet_server/src/society/letters.rs`, `votes.rs`, `library.rs` |
+| Instructions and objections | `hamlet_server/src/society/objections.rs`, `reviews.rs` |
+| Founding and cross-hamlet agreements | `hamlet_server/src/realm/deeds.rs`, `dealings.rs` |
+| A prompt or chief document | `hamlet_server/src/prompt/`, `documents.rs`; default charter in `hamlet_server/assets/charter.md` |
+| A model connection, login or price | `hamlet_server/src/models.rs`, `credentials.rs`; provider implementation in pi |
+| Folder, mode or tool reach | `hamlet_server/src/documents.rs`, `tools.rs`, `sandbox/`; [`sandbox.md`](sandbox.md) |
 | CLI process discovery | `hamlet_cli/src/process.rs`; [`cli.md`](cli.md) |
 | Protocol or generated types | `hamlet_protocol/schema/`, then `npm run schema` and `cargo run -p hamlet_protocol_gen`; [`protocol.md`](protocol.md) |
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs` |
