@@ -894,7 +894,7 @@ it("checks an edited JSON value directly with the wire edit's diagnostics and co
     });
 });
 
-it("accepts typed picks and rejects ambiguous or out-of-bounds pick shapes", () => {
+it("accepts typed picks and rejects ambiguous or negative pick shapes", () => {
     const answer = {
         type: "answer",
         id: ID,
@@ -918,11 +918,9 @@ it("accepts typed picks and rejects ambiguous or out-of-bounds pick shapes", () 
     for (const picks of [
         [],
         [{ kind: "offer", index: -1 }],
-        [{ kind: "offer", index: 6 }],
         [{ kind: "offer", index: 0.5 }],
         [{ kind: "offer", index: 1, text: "extra" }],
         [{ kind: "words", text: 9 }],
-        Array.from({ length: 11 }, () => ({ kind: "words", text: "x" })),
     ]) {
         expect(parseClient(JSON.stringify({ ...answer, picks })).ok).toBe(
             false,

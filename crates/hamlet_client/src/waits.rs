@@ -3,13 +3,16 @@
 use std::time::Duration;
 
 use bevy_ecs::prelude::*;
-use hamlet_protocol::asking::Questions;
 use hamlet_protocol::v0;
 pub use v0::Choice;
 
 /// The questions of a received ask_chief call.
 #[derive(Component, Clone, Debug)]
-pub struct Asks(pub Questions);
+pub struct Asks(pub v0::Questions);
+
+/// The server's refusal of the chief's latest answer to a need.
+#[derive(Component, Clone, Debug, PartialEq)]
+pub struct Refused(pub String);
 
 /// A received need and the answers offered by the server.
 #[derive(Component, Clone, Debug)]
@@ -125,7 +128,7 @@ pub(crate) fn upsert(world: &mut World, wait: v0::Wait) -> Entity {
         questions: Some(questions),
     } = &wait.detail
     {
-        entity.insert(Asks(questions.clone().into()));
+        entity.insert(Asks(questions.clone()));
     } else {
         entity.remove::<Asks>();
     }

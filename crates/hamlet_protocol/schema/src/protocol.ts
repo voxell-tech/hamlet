@@ -269,19 +269,19 @@ export const Offer = object({
 export const Question = object({
     question: Type.String(),
     description: Type.String(),
-    options: Type.Array(Offer, { maxItems: 6 }),
+    options: Type.Array(Offer),
     text_input: Type.Boolean(),
 });
 /** The questions of one ask_chief call. */
 export const Questions = object({
     message: Type.String(),
-    questions: Type.Array(Question, { minItems: 1, maxItems: 10 }),
+    questions: Type.Array(Question, { minItems: 1 }),
 });
 /** One answer, in question order. Option indexes start at zero. */
 export const Pick = Type.Union([
     object({
         kind: Type.Literal("offer"),
-        index: Type.Integer({ minimum: 0, maximum: 5 }),
+        index: count(),
     }),
     object({ kind: Type.Literal("words"), text: Type.String() }),
 ]);
@@ -291,7 +291,7 @@ export const Answer = request("answer", {
     wait: Type.String(),
     choice: Choice,
     text: Type.Optional(Type.String()),
-    picks: Type.Optional(Type.Array(Pick, { minItems: 1, maxItems: 10 })),
+    picks: Type.Optional(Type.Array(Pick, { minItems: 1 })),
 });
 export type Answer = Static<typeof Answer>;
 

@@ -2,7 +2,7 @@
 //! faults, and questions, each kept until it is answered or lapses.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::asking::Questions;
+use hamlet_protocol::v0::Questions;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 

@@ -3,6 +3,7 @@
 //! them.
 
 mod activity;
+mod asking;
 mod calls;
 mod deeds;
 mod fold;

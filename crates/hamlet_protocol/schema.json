@@ -221,8 +221,7 @@
                     "items": {
                         "$ref": "#/$defs/Pick"
                     },
-                    "minItems": 1,
-                    "maxItems": 10
+                    "minItems": 1
                 }
             },
             "additionalProperties": false
@@ -2233,8 +2232,7 @@
                         },
                         "index": {
                             "type": "integer",
-                            "minimum": 0,
-                            "maximum": 5
+                            "minimum": 0
                         }
                     },
                     "additionalProperties": false
@@ -2324,8 +2322,7 @@
                     "type": "array",
                     "items": {
                         "$ref": "#/$defs/Offer"
-                    },
-                    "maxItems": 6
+                    }
                 },
                 "text_input": {
                     "type": "boolean"
@@ -2348,8 +2345,7 @@
                     "items": {
                         "$ref": "#/$defs/Question"
                     },
-                    "minItems": 1,
-                    "maxItems": 10
+                    "minItems": 1
                 }
             },
             "additionalProperties": false

@@ -2,7 +2,7 @@
 
 use bevy::ecs::world::World;
 use hamlet_client::waits::Waiting;
-use hamlet_protocol::{asking, v0};
+use hamlet_protocol::v0;
 use serde_json::json;
 
 use crate::scenes::Scene;
@@ -39,32 +39,34 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     wait.change = Some(super::chat::change());
     wait.since = since;
     state.waits.push(wait);
-    let asked = asking::read(
-        &json!({
-            "message": "Before I plan the orchard's winter.",
-            "questions": [
-                {"question": "Which trees come first?",
-                 "description": "The frost reaches the low rows a week early.",
-                 "options": [
-                    {"title": "Pears", "description": "Bruise in the cold"},
-                    {"title": "Apples"},
-                    {"title": "Both", "description": "Takes two more days"}
-                 ]},
-                {"question": "How much may the straw cost?",
-                 "description": "Per bale."}
-            ]
-        })
-        .to_string(),
-    )
-    .expect("gallery questions");
     let mut question = hamlet_testing::realm::wait("questions");
-    question.about = asked.about();
-    question.subject.clone_from(&question.about);
+    question.about = "Before I plan the orchard's winter.\n1. Which \
+                      trees come first?\n2. How much may the straw \
+                      cost?"
+        .into();
+    question.subject = "Before I plan the orchard's winter.".into();
     question.answers = vec![v0::Choice::Reply, v0::Choice::Dismiss];
     question.since = since;
     question.detail = v0::WaitDetail::Question {
         questions: Some(
-            serde_json::from_value(json!(asked)).expect("questions"),
+            serde_json::from_value(json!({
+                "message": "Before I plan the orchard's winter.",
+                "questions": [
+                    {"question": "Which trees come first?",
+                     "description": "The frost reaches the low rows a week early.",
+                     "options": [
+                        {"title": "Pears", "description": "Bruise in the cold"},
+                        {"title": "Apples", "description": ""},
+                        {"title": "Both", "description": "Takes two more days"}
+                     ],
+                     "text_input": false},
+                    {"question": "How much may the straw cost?",
+                     "description": "Per bale.",
+                     "options": [],
+                     "text_input": true}
+                ]
+            }))
+            .expect("gallery questions"),
         ),
     };
     state.waits.push(question);
@@ -80,7 +82,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         card,
         2,
         0,
-        Some(asking::Pick::Offer(0)),
+        Some(v0::Pick::Offer { index: 0 }),
     );
     hamlet_ui::asking::turn(world, card, 2, 0);
 }

@@ -7,14 +7,14 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use hamlet_protocol::asking::{self, Pick};
+use hamlet_protocol::v0::{Pick, Questions};
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use tokio::task::AbortHandle;
 
-use super::follow;
 use super::records::{self, Place};
+use super::{asking, follow};
 use crate::gate::{self, Asked, Standing, TrustKey, Verdict};
 use crate::harness::link::{
     Block, Item, Section, ToolSpec, ToolSpecReplay,
@@ -1299,8 +1299,7 @@ fn ask(
         };
     let mut questions = serde_json::to_value(questions)?;
     service.credentials.scrub(&mut questions);
-    let questions =
-        serde_json::from_value::<asking::Questions>(questions)?;
+    let questions = serde_json::from_value::<Questions>(questions)?;
     let limits = service.limits_of(&place.agent.hamlet)?;
     let most = limits["asking"]["questions"].as_i64().unwrap_or(3);
     let db = service.home.store().connection();
@@ -1342,7 +1341,7 @@ fn ask(
             danger: None,
             by: wait_by(&record, &place.agent),
             agent: Some(place.agent.clone()),
-            about: questions.about(),
+            about: asking::about(&questions),
             change: None,
             questions: Some(questions),
             answers: vec!["reply".into(), "dismiss".into()],
@@ -1555,7 +1554,7 @@ pub(super) async fn answer_words(
     id: &str,
     choice: &str,
     text: &str,
-    picks: Option<&[hamlet_protocol::v0::Pick]>,
+    picks: Option<&[Pick]>,
 ) -> Result<std::result::Result<String, String>> {
     let db = service.home.store().connection();
     let Some(wait) = oversight::find(db, id)? else {
@@ -1591,16 +1590,7 @@ pub(super) async fn answer_words(
                            answers."
                 .into()));
         };
-        let picks = match picks
-            .iter()
-            .cloned()
-            .map(Pick::try_from)
-            .collect::<std::result::Result<Vec<_>, _>>()
-        {
-            Ok(picks) => picks,
-            Err(why) => return Ok(Err(why)),
-        };
-        match questions.answer(&picks) {
+        match asking::answer(questions, picks) {
             Ok(answer) => answer,
             Err(why) => return Ok(Err(why)),
         }
@@ -1609,7 +1599,8 @@ pub(super) async fn answer_words(
             return Ok(Err("Say what to reply.".into()));
         }
         if let Some(questions) = &wait.questions {
-            match questions.answer(&[Pick::Words(text.into())]) {
+            let words = Pick::Words { text: text.into() };
+            match asking::answer(questions, &[words]) {
                 Ok(_) => {
                     format!("{} {}", asking::ANSWERS, text.trim())
                 }

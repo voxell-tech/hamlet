@@ -19,11 +19,15 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, label, row,
     text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource, style};
+use bevy_fynix::{
+    ScopedExt, ViewExt, component, keyed, resource, style,
+};
 use hamlet_client::chats::Chat;
 use hamlet_client::messages::{Answer, Answered};
-use hamlet_client::waits::{Asks, Choice, RaisedBy, Waiting};
-use hamlet_protocol::asking::{Offer, Pick, Questions, letter};
+use hamlet_client::waits::{
+    Asks, Choice, RaisedBy, Refused, Waiting,
+};
+use hamlet_protocol::v0::{Offer, Pick, Questions};
 
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
@@ -128,7 +132,7 @@ pub fn choose(
     let mut answering = world.resource_mut::<Answering>();
     let sheet = answering.sheet(card, count);
     let onward =
-        matches!(pick, Some(Pick::Offer(_))) && at + 1 < count;
+        matches!(pick, Some(Pick::Offer { .. })) && at + 1 < count;
     sheet.picks[at] = pick;
     if onward {
         sheet.at = at + 1;
@@ -147,8 +151,8 @@ fn write(
     let text = text.trim().to_string();
     let was = world.resource::<Answering>().pick(card, at);
     let pick = match (text.is_empty(), was) {
-        (false, _) => Some(Pick::Words(text)),
-        (true, Some(Pick::Offer(offer))) => Some(Pick::Offer(offer)),
+        (false, _) => Some(Pick::Words { text }),
+        (true, Some(offer @ Pick::Offer { .. })) => Some(offer),
         (true, _) => None,
     };
     world.resource_mut::<Answering>().sheet(card, count).picks[at] =
@@ -177,11 +181,9 @@ fn submit(world: &mut World, card: Entity, count: usize) {
     match picks.iter().position(Option::is_none) {
         Some(open) => turn(world, card, count, open),
         None => {
-            let chief = world.resource::<Me>().user.clone();
             world.trigger(Answered {
                 entity: card,
                 picks: picks.into_iter().flatten().collect(),
-                chief,
             });
             world.flush();
         }
@@ -239,16 +241,19 @@ fn options(
         .iter()
         .enumerate()
         .map(|(n, offer)| {
-            let chosen = *pick == Some(Pick::Offer(n));
-            let mark = column((label(letter(n).to_string())
-                .size(12.0)
-                .bold(true)
-                .wrap(false)
-                .tone(if chosen {
-                    Tone::Accent
-                } else {
-                    Tone::Faint
-                }),))
+            let index = n as u64;
+            let chosen = *pick == Some(Pick::Offer { index });
+            let mark = column((label(
+                char::from(b'a' + n as u8).to_string(),
+            )
+            .size(12.0)
+            .bold(true)
+            .wrap(false)
+            .tone(if chosen {
+                Tone::Accent
+            } else {
+                Tone::Faint
+            }),))
             .width(px(12.0))
             .shrink(0.0);
             let tick = match chosen {
@@ -273,7 +278,7 @@ fn options(
                 true => (picked, Mood::Good),
                 false => (option, Mood::Quiet),
             };
-            let then = (!chosen).then_some(Pick::Offer(n));
+            let then = (!chosen).then_some(Pick::Offer { index });
             button(line)
                 .width(percent(100.0))
                 .justify(JustifyContent::FlexStart)
@@ -345,7 +350,7 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
     if one.text_input {
         let typed = resource::<Answering, _>(move |a| {
             match a.pick(card, at) {
-                Some(Pick::Words(words)) => words,
+                Some(Pick::Words { text }) => text,
                 _ => String::new(),
             }
         });
@@ -416,7 +421,20 @@ pub fn card(card: Entity, asked: Questions) -> AnyView {
         move |at| page(card, &asked, *at),
     )
     .within(bare());
-    column((message, pages)).gap(8.0).boxed()
+    // The server checks the answers; its refusal stays until the
+    // next.
+    let refused = keyed(
+        component::<Refused, _>(card, |refused| refused.cloned()),
+        |refused| match refused {
+            Some(Refused(text)) => label(text.clone())
+                .size(12.0)
+                .tone(Tone::Critical)
+                .boxed(),
+            None => frame().boxed(),
+        },
+    )
+    .within(bare());
+    column((message, pages, refused)).gap(8.0).boxed()
 }
 
 /// The card the agent of the open chat waits on, over the field.

@@ -22,8 +22,9 @@ use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::{Answer, Veto};
 use hamlet_client::waits::{Asks, Choice, ChoiceExt, Waiting};
-use hamlet_protocol::asking::Questions;
-use hamlet_protocol::v0::{Change, Lasting, WaitDanger, WaitDetail};
+use hamlet_protocol::v0::{
+    Change, Lasting, Questions, WaitDanger, WaitDetail,
+};
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 
 use crate::dock::{PanelAppExt, lit_panel, show_tab};

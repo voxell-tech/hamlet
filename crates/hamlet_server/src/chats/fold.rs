@@ -125,8 +125,7 @@ impl Fold {
                 change,
             });
             if entry.tool.as_deref() == Some("ask_chief")
-                && let Some(text) =
-                    hamlet_protocol::asking::said(&entry.text)
+                && let Some(text) = super::asking::said(&entry.text)
             {
                 self.add(
                     Item {

@@ -2,13 +2,15 @@
 
 use std::path::Path;
 
-const MANIFESTS: [&str; 6] = [
+const MANIFESTS: [&str; 8] = [
     "Cargo.toml",
+    "crates/hamlet_assets/Cargo.toml",
     "crates/hamlet_client/Cargo.toml",
     "crates/hamlet_protocol/Cargo.toml",
     "crates/hamlet_realm/Cargo.toml",
     "crates/hamlet_ui/Cargo.toml",
     "crates/hamlet_desktop/Cargo.toml",
+    "crates/hamlet_vfx/Cargo.toml",
 ];
 
 const RUNTIME: [&str; 1] = ["hamlet_server"];

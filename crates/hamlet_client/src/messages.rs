@@ -5,18 +5,18 @@ use std::collections::HashMap;
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
-use hamlet_protocol::asking::Pick;
 use hamlet_protocol::v0;
 
 use crate::chats::Chat;
 use crate::outbox::{Outbox, RequestId};
 use crate::realm::address_of;
-use crate::waits::{Asks, Choice, Waiting};
+use crate::waits::{Choice, Refused, Waiting};
 
 /// Observers routing the chief's deeds into protocol requests.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Outbox>()
         .init_resource::<Rewinds>()
+        .init_resource::<Answers>()
         .add_observer(
             |message: On<UserMessage>, mut outbox: ResMut<Outbox>| {
                 let message = message.event();
@@ -30,48 +30,27 @@ pub fn plugin(app: &mut App) {
             },
         )
         .add_observer(
-            |answer: On<Answer>,
-             waits: Query<&Waiting>,
-             mut outbox: ResMut<Outbox>| {
+            |answer: On<Answer>, mut world: DeferredWorld| {
                 let answer = answer.event();
-                if let Ok(wait) = waits.get(answer.wait) {
-                    outbox.send(|id| {
-                        v0::ClientMessage::Answer(v0::Answer {
-                            id,
-                            wait: wait.id.clone(),
-                            choice: answer.choice.clone(),
-                            text: answer.text.clone(),
-                            picks: None,
-                        })
-                    });
-                }
+                send_answer(
+                    &mut world,
+                    answer.wait,
+                    answer.choice.clone(),
+                    answer.text.clone(),
+                    None,
+                );
             },
         )
         .add_observer(
-            |answer: On<Answered>,
-             waits: Query<(&Waiting, &Asks)>,
-             mut outbox: ResMut<Outbox>| {
+            |answer: On<Answered>, mut world: DeferredWorld| {
                 let answer = answer.event();
-                if let Ok((wait, asks)) = waits.get(answer.entity)
-                    && asks.0.answer(&answer.picks).is_ok()
-                {
-                    outbox.send(|id| {
-                        v0::ClientMessage::Answer(v0::Answer {
-                            id,
-                            wait: wait.id.clone(),
-                            choice: Choice::Reply,
-                            text: None,
-                            picks: Some(
-                                answer
-                                    .picks
-                                    .iter()
-                                    .cloned()
-                                    .map(Into::into)
-                                    .collect(),
-                            ),
-                        })
-                    });
-                }
+                send_answer(
+                    &mut world,
+                    answer.entity,
+                    Choice::Reply,
+                    None,
+                    Some(answer.picks.clone()),
+                );
             },
         )
         .add_observer(|veto: On<Veto>, mut world: DeferredWorld| {
@@ -128,8 +107,7 @@ pub struct Answer {
 #[derive(EntityEvent, Clone, Debug)]
 pub struct Answered {
     pub entity: Entity,
-    pub picks: Vec<Pick>,
-    pub chief: String,
+    pub picks: Vec<v0::Pick>,
 }
 
 /// A stop request for one agent, or every agent when absent.
@@ -185,6 +163,35 @@ pub struct Reconnected;
 #[derive(Resource, Default)]
 struct Rewinds(HashMap<RequestId, Entity>);
 
+/// The need each answer in flight answers.
+#[derive(Resource, Default)]
+struct Answers(HashMap<RequestId, Entity>);
+
+/// Sends the chief's answer to `need`, for the server to check.
+fn send_answer(
+    world: &mut DeferredWorld,
+    need: Entity,
+    choice: Choice,
+    text: Option<String>,
+    picks: Option<Vec<v0::Pick>>,
+) {
+    let Some(waiting) =
+        world.get::<Waiting>(need).map(|w| w.id.clone())
+    else {
+        return;
+    };
+    let request = world.resource_mut::<Outbox>().send(|id| {
+        v0::ClientMessage::Answer(v0::Answer {
+            id,
+            wait: waiting,
+            choice,
+            text,
+            picks,
+        })
+    });
+    world.resource_mut::<Answers>().0.insert(request, need);
+}
+
 pub(crate) fn receive(
     world: &mut World,
     message: &v0::ServerMessage,
@@ -228,6 +235,26 @@ pub(crate) fn receive(
                 chat,
                 text: reply.text.clone(),
             });
+        }
+        let refusal = match message {
+            v0::ServerMessage::Reply(reply)
+                if reply.kind == v0::ReplyKind::Error =>
+            {
+                Some(reply.text.clone())
+            }
+            v0::ServerMessage::Fault(fault) => {
+                Some(fault.text.clone())
+            }
+            _ => None,
+        };
+        let need = world.resource_mut::<Answers>().0.remove(to);
+        if let Some(need) = need
+            && let Ok(mut need) = world.get_entity_mut(need)
+        {
+            match refusal {
+                Some(text) => need.insert(Refused(text)),
+                None => need.remove::<Refused>(),
+            };
         }
     }
     world.trigger(Response {
