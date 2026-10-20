@@ -89,36 +89,50 @@ separate: a complete delivered file is not undone by stopping its turn.
 
 Settings chooses a workspace URL and token for the next server start.
 The running server keeps its startup-selected connection; an environment
-override can select it for one run. Remote execution never falls back to
-host files or commands, so hand-added tools are refused there. The server
-skips its local sandbox probe only when a remote workspace is selected.
+override can select it for one run. `Houses` in `papers.rs` chooses the
+backend once, and every house read, house write and tool call goes through
+it. Remote execution never falls back to host files or commands, so
+hand-added tools are refused there, and operations a remote workspace
+cannot do (founding, moving, removing, restoring or erasing a hamlet,
+erasing an archived house, moving a house) are refused as capabilities of
+the backend. The server skips its local sandbox probe only when a remote
+workspace is selected.
 
 `workspace.rs` sends authenticated workspace-v1 requests with the agent,
-project, network and read-only policy. Tools see virtual `/house` and
-`/project` paths. The shared library is sent as a bounded snapshot.
-Transfers are limited to 4 MiB per file. Interrupted requests are cancelled
-by request ID; an uncertain result asks the chief to inspect before retrying,
-and is not automatically replayed.
+project, network and read-only policy; the requests and their replies are
+typed once in `hamlet_workspace_wire`. Tools see virtual `/house` and
+`/project` paths. A tool call reads the shared library once and names it
+by digest; the worker asks for its files only when it does not hold that
+snapshot. The worker refuses a link anywhere in a no-follow path, walks a
+folder for `search` and `find` in one request, and sets folder modes with
+its own operation. Transfers are limited to 4 MiB per file. Interrupted
+requests are cancelled by request ID; an uncertain result asks the chief
+to inspect before retrying, and is not automatically replayed.
 
 Houses can be copied between local and remote backends, preserving regular
 files, modes and empty directories while skipping links. Copying does not
 switch the active backend: restart afterward, and avoid changing files in
-the old backend between copy and restart.
+the old backend between copy and restart. Copies, gifts and house moves
+write a tree the same way on both backends: each path must be free, what
+was written is taken back if a later write fails, and an uncertain write is
+reported rather than undone.
 
-Remote reads and file work run outside the service dispatcher. Requests on
-one connection retain their order; other connections, disconnect cleanup
-and shutdown remain independent of a held remote response. Prompt and
+House work runs outside the service dispatcher on both backends. Requests
+on one connection retain their order; other connections, disconnect
+cleanup and shutdown remain independent of a held response. Prompt and
 permission preparations are checked against current state before use.
-Remote merges and restorations share a home-wide queue and apply their
-completions to the current record.
+Merges and restorations share a home-wide lane and apply their completions
+to the current record.
 
-A remote merge or restoration records its batch before sending mutations.
-If a reply is lost, the server keeps its record, plan and snapshot and does
-not replay the batch on ticks or restart. Earlier files may already have
-changed even when a later request is definitely refused. Unknown effects
-also prevent restoration: inspect the remote houses through the workspace
-manager and the preserved record and plan. There is no safe resume or clear
-command for an unconfirmed batch.
+A merge or restoration records its batch before changing files. Locally
+every change is known to have happened or not, so a batch a crash cut
+short is finished at the next start. A remote one records its attempt
+first: if a reply is lost, the server keeps its record, plan and snapshot
+and does not replay the batch on ticks or restart. Earlier files may
+already have changed even when a later request is definitely refused.
+Unknown effects also prevent restoration: inspect the remote houses
+through the workspace manager and the preserved record and plan. There is
+no safe resume or clear command for an unconfirmed batch.
 
 `hamlet_workspace` supplies the separate Linux manager/worker. Its APIs,
 configuration, restrictions and experimental deployment notes

@@ -265,19 +265,22 @@ memory can still hold the source actor's identity. Houses live at
 `{root}/{home}/operations`. It holds `{root}/lock` while running.
 
 Shared skills. Hamlet owns the library on the server, outside the remote
-houses. Its confined shelf reader supplies the optional `library` array on
-an execute request: relative `path`, base64 `data` and permission `mode` for
-each regular file. Links, special files, more than 1024 entries and more
-than 4 MiB are refused. Only library files are transferred, never the
-server's credentials, private librarian notes or house folders.
-The worker creates a fresh snapshot under `{root}/{home}/.library/{id}`,
-binds it read-only at `/library` and removes it after the operation. Omission
-does not reuse a stale snapshot. Publication and removal affect the next
-operation; a running operation keeps its snapshot. This deliberately copies
-the bounded shelf on each operation rather than maintaining a second
-mutable authority. Failed snapshot reads prevent the operation from being
-sent. Hamlet still owns librarian judgment, starter installation and skill
-publication/removal, including confined staging from remote houses.
+houses. Its confined shelf reader takes a snapshot of the shelf for each
+tool call and names it on an execute request by `library.sha256`, the
+digest of its files. The worker keeps each snapshot it was given under
+`{root}/{home}/.library/{sha256}` and binds it read-only at `/library`.
+When it does not hold the named snapshot it answers `library_missing`, and
+Hamlet sends the request again with `library.files`: relative `path`,
+base64 `data` and permission `mode` for each regular file. Links, special
+files, more than 1024 entries and more than 4 MiB are refused, and files
+whose digest is not the named one are not kept. Only library files are
+transferred, never the server's credentials, private librarian notes or
+house folders. A snapshot unused for 15 minutes is swept. Publication and
+removal change the digest, so they affect the next tool call; a running
+operation keeps its snapshot. Failed snapshot reads prevent the operation
+from being sent. Hamlet still owns librarian judgment, starter installation
+and skill publication/removal, including confined staging from remote
+houses.
 
 [`config/template.example.json`](config/template.example.json) is the
 protobuf JSON body for `CreateActorTemplate`. Replace its image digest,

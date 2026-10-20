@@ -47,6 +47,7 @@ Rust crates live under `crates/`. The root package `hamlet` supplies
 | `hamlet_vfx` | Visual effects |
 | `hamlet_testing` | Offline fixture values and scratch directories |
 | `hamlet_workspace` | Linux remote-workspace manager/worker reached through the server's workspace-v1 client |
+| `hamlet_workspace_wire` | Workspace protocol v1 for both sides: one type per operation with its reply, error codes, limits, the walk order and the shared fixture |
 
 `RealmPlugin` in `hamlet_realm/src/lib.rs` adds the scene modules, then the
 generator, the chief's interactions and the bridge from client entities.
@@ -81,11 +82,13 @@ the public test boundary is protocol v0 or the process command line.
 | `harness/answers.rs`, `harness/credentials.rs` | Admit and charge model attempts with the typed model selection; credential leases for provider work |
 | `harness/process.rs`, `harness/bindings.rs` | The pi launch profile and processes; runtimes, bindings and inputs with their `InputStatus` in `realm.sqlite` |
 | `chats/driver.rs`, `bin/hamlet-harness-driver.rs` | With the `harness` feature: the test driver's reach into the chats' gate, waits and stop, for the real-process suite in `tests/harness` |
-| `tools.rs`, `tools/`, `hand.rs` | Built-in tools, their confined file/shell execution and hand-added manifests |
+| `tools.rs`, `tools/`, `hand.rs` | `tools::Session` runs every tool call on the backend `Houses::tools` chose: built-in tools over `environment::Reach` (this machine under the sandbox, or a remote workspace), and hand-added manifests, which only run here |
 | `sandbox.rs`, `sandbox/` | Bubblewrap/Seatbelt policies, subprocess limits and termination |
-| `papers.rs`, `papers/tree.rs` | Descriptor-relative house access, notes, bounded no-follow tree operations and recoverable snapshots |
-| `workspace.rs`, `papers/files.rs`, `papers/moving.rs` | Authenticated remote execution, local/remote house files and background copies to the next-start backend |
-| `gifts.rs`, `gifts/` | Connection-owned upload staging, manifest limits, confined delivery and skill gifts |
+| `papers.rs` | `Houses` picks the local or remote backend once at startup. Callers get its houses (`house`, `reader`, `tools`), its `Capability` refusals and whether it `confirms` each change; no caller branches on the backend |
+| `papers/files.rs`, `papers/tree.rs`, `papers/remote.rs` | `Files`, one async house tree for both backends: local work runs off the runtime through descriptor-relative no-follow calls, remote work as typed requests |
+| `papers/copy.rs`, `papers/moving.rs` | `Snapshot`: the one verified tree write with claimed-path rollback, used by gifts and house moves; copies to the next-start backend |
+| `workspace.rs` | `Transport` to the manager with typed `Failure` codes; `Session` of one agent's requests under a `Policy`, sending the library by digest, cancelling on drop and naming uncertain outcomes |
+| `gifts.rs`, `gifts/` | Connection-owned upload staging and manifest limits; skill and file gifts resolved, snapshotted, delivered and recorded apart from the service loop |
 | `prompt.rs`, `prompt/` | `sections` composes charter, machine, project, character, notes, shelf, hamlet and realm |
 | `starters.rs` | Shipped starter content from `crates/hamlet_server/assets/starters/` |
 | `models.rs`, `credentials.rs`, `scrub.rs` | Catalogue and provider requests, the model each attempt runs (`Choices`), atomic credential files, sign-ins and secret removal before publication or harness persistence |
@@ -132,7 +135,7 @@ ordinary tools.
 | Transcript rows, paging and peer watches | `hamlet_server/src/chats/fold.rs`, `chats/watch.rs`; `hamlet_client/src/chats.rs` |
 | Questions and their answer cards | `hamlet_protocol/src/asking.rs`, `hamlet_server/src/chats/calls.rs`, `hamlet_ui/src/asking.rs` |
 | Selecting, quoting and replying to chat text | `hamlet_ui/src/select.rs`, `screens/chat/quote.rs`, `screens/chat/reply.rs` |
-| Agent creation, model choice, departure and merge | `hamlet_server/src/society/agents.rs`, `leaving.rs`, `merging.rs`; rules in `record/` |
+| Agent creation, model choice, departure and merge | `hamlet_server/src/society/agents.rs`, `leaving.rs`, `merging.rs`, whose `merging/lane.rs` runs every merge and split; rules in `record/` |
 | Letters, questions, votes and library | `hamlet_server/src/society/letters.rs`, `votes.rs`, `library.rs` |
 | Instructions and objections | `hamlet_server/src/society/objections.rs`, `reviews.rs` |
 | Founding and cross-hamlet agreements | `hamlet_server/src/realm/deeds.rs`, `dealings.rs` |
