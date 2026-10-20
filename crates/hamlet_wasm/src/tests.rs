@@ -171,6 +171,11 @@ fn a_folder_that_is_not_a_plugin_is_turned_down() {
     put("garbled", Some("id = ".into()));
     put("renamed", Some(manifest("other", VERSION)));
     put("old", Some(manifest("old", "0.0.1")));
+    let limits = Limits::default();
+    let long = manifest("long", VERSION)
+        + &"#".repeat(limits.manifest_bytes)
+        + "\n";
+    put("long", Some(long));
     let data = |folder: &str, kind: &str| {
         let dir = plugins.join(folder);
         std::fs::create_dir_all(&dir).unwrap();
@@ -188,7 +193,7 @@ fn a_folder_that_is_not_a_plugin_is_turned_down() {
     data("greeter", "data");
     data("odd", "script");
 
-    let found = install::scan(&plugins);
+    let found = install::scan(&plugins, &limits);
 
     let why = |folder: &str| {
         found
@@ -211,4 +216,8 @@ fn a_folder_that_is_not_a_plugin_is_turned_down() {
     assert!(matches!(why("garbled"), Some(Why::BadManifest(_))));
     assert!(matches!(why("renamed"), Some(Why::WrongFolder { .. })));
     assert!(matches!(why("old"), Some(Why::Interface { .. })));
+    assert!(matches!(
+        why("long"),
+        Some(Why::BadManifest(why)) if why.contains("more than")
+    ));
 }

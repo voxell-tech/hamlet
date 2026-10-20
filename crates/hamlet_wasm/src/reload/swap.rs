@@ -60,6 +60,7 @@ struct Case<'a> {
     /// The commands, menu lines and shortcuts the running version
     /// has.
     offered: Vec<Entity>,
+    limits: &'a Limits,
 }
 
 /// Builds the new version of each plugin whose files changed. It
@@ -125,13 +126,19 @@ pub fn reload(
         let state = state_of(instance, kept_state);
         commands.entity(*plugin).remove::<Waiting>();
         let folder = watch.folder.as_path();
-        let next =
-            next(info, folder, &store, choices, source.is_some());
+        let next = next(
+            info,
+            folder,
+            &store,
+            choices,
+            source.is_some(),
+            &limits,
+        );
         let (installed, kept) = match next {
             Ok(Next::Ask { installed, fresh }) => {
                 let case = case(
                     *plugin, info, folder, *status, choices, held,
-                    state, &panels, &offered,
+                    state, &panels, &offered, &limits,
                 );
                 ask(&case, &installed, fresh, &mut commands);
                 continue;
@@ -140,13 +147,20 @@ pub fn reload(
                 (installed, choices)
             }
             Err(why) => {
-                failed(&mut commands, *plugin, info, folder, why);
+                failed(
+                    &mut commands,
+                    *plugin,
+                    info,
+                    folder,
+                    why,
+                    &limits,
+                );
                 continue;
             }
         };
         let case = case(
             *plugin, info, folder, *status, &kept, held, state,
-            &panels, &offered,
+            &panels, &offered, &limits,
         );
         // Looked at again once its compile is done.
         if let (Body::Wasm(file), Some(background), Some(host)) =
@@ -185,9 +199,14 @@ pub fn reload(
                 );
                 info!("plugin {}: reloaded {version}", info.id);
             }
-            Err(why) => {
-                failed(&mut commands, *plugin, info, folder, why)
-            }
+            Err(why) => failed(
+                &mut commands,
+                *plugin,
+                info,
+                folder,
+                why,
+                &limits,
+            ),
         }
     }
 }
@@ -202,6 +221,7 @@ fn case<'a>(
     state: &'a [u8],
     panels: &'a Query<(Entity, &Panel)>,
     offered: &Query<(), command::Contributed>,
+    limits: &'a Limits,
 ) -> Case<'a> {
     let held_by = || held.into_iter().flat_map(|held| held.iter());
     Case {
@@ -213,6 +233,7 @@ fn case<'a>(
         choices: choices.clone(),
         held: panels.iter_many(held_by()).collect(),
         offered: command::held(held_by(), offered),
+        limits,
     }
 }
 
@@ -223,8 +244,9 @@ fn next(
     store: &Store,
     current: &Choices,
     is_code: bool,
+    limits: &Limits,
 ) -> Result<Next, String> {
-    let installed = install::read(folder)
+    let installed = install::read(folder, limits)
         .map_err(|rejected| rejected.to_string())?;
     if matches!(installed.body, Body::Wasm(_)) != is_code {
         return Err("it changed between code and a panel; restart \
@@ -295,7 +317,7 @@ fn ask(
                  answer."
                     .into(),
             ),
-            rollback: keep::differs(case.folder),
+            rollback: keep::differs(case.folder, case.limits),
         },
     ));
     commands.trigger(AskForMore {
@@ -311,7 +333,10 @@ fn failed(
     info: &PluginInfo,
     folder: &Path,
     why: String,
+    limits: &Limits,
 ) {
     warn!("plugin {}: reload failed: {why}", info.id);
-    commands.entity(plugin).insert(keep::trouble(folder, why));
+    commands
+        .entity(plugin)
+        .insert(keep::trouble(folder, why, limits));
 }

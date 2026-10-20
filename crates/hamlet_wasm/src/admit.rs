@@ -101,7 +101,7 @@ pub fn admit(
                     panel.file.parent().unwrap_or(Path::new(""));
                 commands
                     .entity(plugin)
-                    .insert(keep::remember(folder));
+                    .insert(keep::remember(folder, &limits));
             }
             (None, None, _) => {}
         }

@@ -54,6 +54,12 @@ pub struct Limits {
     /// The bytes of a plugin's `plugin.wasm`. A bigger one is not
     /// compiled.
     pub wasm_bytes: usize,
+    /// The bytes of a plugin's `manifest.toml`. A bigger one is not
+    /// read.
+    pub manifest_bytes: usize,
+    /// The bytes of a data plugin's `panel.ui` the host reads to see
+    /// whether it changed, keep it and add it from a folder.
+    pub panel_bytes: usize,
     /// The bytes the host may copy out of a plugin's memory for one
     /// crossing: the values given to one host function, or returned
     /// by one call of an export. Strings and lists that point at the

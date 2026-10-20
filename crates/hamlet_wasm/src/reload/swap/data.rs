@@ -7,7 +7,7 @@ use hamlet_openui::{Source as Program, data};
 use hamlet_sdk::plugin::{Contributions, Status};
 
 use super::{Case, renew};
-use crate::install::Installed;
+use crate::install::{Installed, PANEL, read_capped};
 use crate::load;
 use crate::reload::keep;
 
@@ -20,8 +20,14 @@ pub(super) fn swap(
     file: &Path,
     commands: &mut Commands,
 ) -> Result<(), String> {
-    let text = std::fs::read_to_string(file)
-        .map_err(|e| format!("{}: {e}", file.display()))?;
+    let cap = case.limits.panel_bytes as u64;
+    let text = read_capped(file, cap)
+        .map_err(|e| format!("{}: {e}", file.display()))?
+        .ok_or_else(|| format!("{PANEL} has more than {cap} bytes"))
+        .and_then(|bytes| {
+            String::from_utf8(bytes)
+                .map_err(|_| format!("{PANEL} is not UTF-8"))
+        })?;
     let panel = load::panel(&installed.manifest, file.to_path_buf());
     renew(commands, case.plugin, installed, case.choices.clone());
     commands.entity(case.plugin).insert(panel.clone());
@@ -49,6 +55,6 @@ pub(super) fn swap(
     }
     commands
         .entity(case.plugin)
-        .insert(keep::remember(case.folder));
+        .insert(keep::remember(case.folder, case.limits));
     Ok(())
 }

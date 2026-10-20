@@ -9,23 +9,40 @@ use hamlet_sdk::reload::{Reload, Rollback};
 
 use super::watch::Digest;
 use super::{Stamp, Watch};
-use crate::install::{FILES, MANIFEST};
+use crate::install::{FILES, MANIFEST, cap, read_capped};
+use crate::limits::Limits;
 
 /// The folder of the copy, in the plugin's folder.
 pub const FOLDER: &str = ".last-good";
 
 /// Copies the files of the version in `folder` that started to its
-/// last good copy. The plugin has nothing to roll back to, and no
-/// note.
-pub fn remember(folder: &Path) -> Reload {
+/// last good copy, each read within its cap. The plugin has nothing
+/// to roll back to, and no note.
+pub fn remember(folder: &Path, limits: &Limits) -> Reload {
     let last = folder.join(FOLDER);
     for file in FILES {
         let to = last.join(file);
-        let Ok(bytes) = std::fs::read(folder.join(file)) else {
-            let _ = std::fs::remove_file(&to);
-            continue;
+        let bytes = match read_capped(
+            &folder.join(file),
+            cap(file, limits),
+        ) {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => {
+                warn!(
+                    "{}: not kept, it is over its cap",
+                    to.display()
+                );
+                let _ = std::fs::remove_file(&to);
+                continue;
+            }
+            Err(_) => {
+                let _ = std::fs::remove_file(&to);
+                continue;
+            }
         };
-        if std::fs::read(&to).is_ok_and(|kept| kept == bytes) {
+        if read_capped(&to, cap(file, limits))
+            .is_ok_and(|kept| kept.as_ref() == Some(&bytes))
+        {
             continue;
         }
         let written = std::fs::create_dir_all(&last)
@@ -39,21 +56,29 @@ pub fn remember(folder: &Path) -> Reload {
 
 /// The note for a version in `folder` that did not start, `why`. The
 /// plugin can roll back where the last good copy is another version.
-pub fn trouble(folder: &Path, why: String) -> Reload {
+pub fn trouble(
+    folder: &Path,
+    why: String,
+    limits: &Limits,
+) -> Reload {
     Reload {
         note: Some(why),
-        rollback: differs(folder),
+        rollback: differs(folder, limits),
     }
 }
 
 /// Whether there is a last good copy in `folder` that is not the
-/// files there.
-pub fn differs(folder: &Path) -> bool {
+/// files there. A file over its cap differs.
+pub fn differs(folder: &Path, limits: &Limits) -> bool {
     let last = folder.join(FOLDER);
+    let read = |path: &Path, file: &str| {
+        read_capped(path, cap(file, limits)).ok()
+    };
     last.join(MANIFEST).is_file()
         && FILES.iter().any(|file| {
-            std::fs::read(folder.join(file)).ok()
-                != std::fs::read(last.join(file)).ok()
+            let here = read(&folder.join(file), file);
+            here.as_ref().is_some_and(Option::is_none)
+                || here != read(&last.join(file), file)
         })
 }
 

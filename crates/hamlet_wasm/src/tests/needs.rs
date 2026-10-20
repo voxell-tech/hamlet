@@ -11,6 +11,7 @@ use super::tree::items;
 use crate::fixture;
 use crate::fixture::home::{self, Plugin, Scratch};
 use crate::install::{self, Why};
+use crate::limits::Limits;
 
 fn plugin(id: &'static str) -> Plugin {
     let wasm = fixture::component(&fixture::drawing(
@@ -97,7 +98,7 @@ fn needs_in_a_circle_or_in_the_wrong_version_are_turned_down_or_held_back()
             plugin("c"),
         ],
     );
-    let found = install::scan(&scratch.plugins());
+    let found = install::scan(&scratch.plugins(), &Limits::default());
     let circles = found
         .iter()
         .filter_map(|found| found.as_ref().err())

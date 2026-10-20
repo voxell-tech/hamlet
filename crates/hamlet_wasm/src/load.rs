@@ -57,7 +57,7 @@ pub fn installed(
     });
     let folder = home.0.plugins();
     let mut found = Vec::new();
-    for scanned in install::scan(&folder) {
+    for scanned in install::scan(&folder, &limits) {
         match scanned {
             Ok(installed) => {
                 let id = &installed.manifest.id;
@@ -91,6 +91,7 @@ pub fn installed(
                             installed,
                             choices,
                             why,
+                            &limits,
                             &mut commands,
                         )
                     }
@@ -103,9 +104,12 @@ pub fn installed(
                     (Body::Wasm(_), None, None) => {
                         warn!("plugin {id}: no engine, not loaded")
                     }
-                    (Body::Data(_), ..) => {
-                        spawn_data(installed, choices, &mut commands)
-                    }
+                    (Body::Data(_), ..) => spawn_data(
+                        installed,
+                        choices,
+                        &limits,
+                        &mut commands,
+                    ),
                 }
                 if !fresh.is_empty() {
                     commands.trigger(AskForMore {
@@ -116,11 +120,11 @@ pub fn installed(
             }
             Standing::Declined => {
                 info!("plugin {id}: declined, not loaded");
-                hold(installed, &mut commands);
+                hold(installed, &limits, &mut commands);
             }
             Standing::Unknown => {
                 info!("plugin {id}: not installed, not loaded");
-                hold(installed, &mut commands);
+                hold(installed, &limits, &mut commands);
                 commands.trigger(AskToInstall { plugin: id });
             }
         }
@@ -154,12 +158,13 @@ fn keep_off(
     installed: Installed,
     choices: Choices,
     why: &str,
+    limits: &Limits,
     commands: &mut Commands,
 ) {
     let Body::Wasm(file) = &installed.body else {
         return;
     };
-    let (plugin, ..) = plugin(&installed, choices, commands);
+    let (plugin, ..) = plugin(&installed, choices, limits, commands);
     commands.entity(plugin).insert((
         Status::Disabled,
         Source(file.clone()),
@@ -171,6 +176,7 @@ fn keep_off(
 fn plugin(
     installed: &Installed,
     choices: Choices,
+    limits: &Limits,
     commands: &mut Commands,
 ) -> (Entity, PluginInfo, Granted) {
     let manifest = sdk::Manifest::from(&installed.manifest);
@@ -184,7 +190,7 @@ fn plugin(
             choices,
             Status::Starting,
             Ticks::of(&installed.manifest),
-            Watch::new(installed.body.folder()),
+            Watch::new(installed.body.folder(), limits),
         ))
         .id();
     (plugin, info, granted)
@@ -192,9 +198,13 @@ fn plugin(
 
 /// Spawns the entity of a plugin that is not installed, with the
 /// place of its files and nothing else of it.
-fn hold(installed: Installed, commands: &mut Commands) {
+fn hold(
+    installed: Installed,
+    limits: &Limits,
+    commands: &mut Commands,
+) {
     let (plugin, ..) =
-        plugin(&installed, Choices::default(), commands);
+        plugin(&installed, Choices::default(), limits, commands);
     commands
         .entity(plugin)
         .insert((Status::Disabled, Uninstalled));
@@ -237,7 +247,7 @@ fn spawn(
         return;
     };
     let (plugin, info, granted) =
-        plugin(&installed, choices, commands);
+        plugin(&installed, choices, setting.limits, commands);
     let source = Source(file.clone());
     commands.entity(plugin).insert(source.clone());
     start::bring_up(
@@ -255,14 +265,16 @@ fn spawn(
 fn spawn_data(
     installed: Installed,
     choices: Choices,
+    limits: &Limits,
     commands: &mut Commands,
 ) {
     let Body::Data(file) = &installed.body else {
         return;
     };
-    let (plugin, info, _) = plugin(&installed, choices, commands);
+    let (plugin, info, _) =
+        plugin(&installed, choices, limits, commands);
     let panel = panel(&installed.manifest, file.clone());
     data::bring_up(plugin, &info.id, &panel, commands);
-    let kept = keep::remember(&installed.body.folder());
+    let kept = keep::remember(&installed.body.folder(), limits);
     commands.entity(plugin).insert((panel, kept));
 }

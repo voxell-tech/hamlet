@@ -8,7 +8,8 @@ use hamlet_sdk::capability::Uninstalled;
 use sha2::{Digest as _, Sha256};
 
 use super::Polling;
-use crate::install::FILES;
+use crate::install::{FILES, cap, read_capped};
+use crate::limits::Limits;
 
 /// The modification time and size of each file of a plugin's folder.
 #[derive(Clone, PartialEq, Eq, Default, Debug)]
@@ -30,17 +31,26 @@ impl Stamp {
 }
 
 /// A hash of the names and contents of the files of a plugin's
-/// folder. The default is that of no folder.
+/// folder. A file over its cap is not read and counts by its size.
+/// The default is that of no folder.
 #[derive(Clone, PartialEq, Eq, Default, Debug)]
 pub struct Digest(Vec<u8>);
 
 impl Digest {
-    pub fn of(folder: &Path) -> Self {
+    pub fn of(folder: &Path, limits: &Limits) -> Self {
         let mut hash = Sha256::new();
         for file in FILES {
             hash.update(file.as_bytes());
-            if let Ok(bytes) = std::fs::read(folder.join(file)) {
-                hash.update(bytes);
+            let path = folder.join(file);
+            match read_capped(&path, cap(file, limits)) {
+                Ok(Some(bytes)) => hash.update(bytes),
+                Ok(None) => {
+                    let size = std::fs::metadata(&path)
+                        .map_or(0, |meta| meta.len());
+                    hash.update(b"over");
+                    hash.update(size.to_le_bytes());
+                }
+                Err(_) => {}
             }
         }
         Self(hash.finalize().to_vec())
@@ -57,9 +67,9 @@ pub struct Watch {
 }
 
 impl Watch {
-    pub fn new(folder: PathBuf) -> Self {
+    pub fn new(folder: PathBuf, limits: &Limits) -> Self {
         let stamp = Stamp::of(&folder);
-        let digest = Digest::of(&folder);
+        let digest = Digest::of(&folder, limits);
         Self {
             folder,
             stamp,
@@ -77,6 +87,7 @@ pub struct Modified(pub Entity);
 /// [`Polling::interval`].
 pub fn poll(
     polling: Res<Polling>,
+    limits: Res<Limits>,
     mut last: Local<Option<Instant>>,
     mut plugins: Query<(Entity, &mut Watch), Without<Uninstalled>>,
     mut modified: MessageWriter<Modified>,
@@ -94,7 +105,7 @@ pub fn poll(
         watch.stamp = stamp;
         // A file saved again with the same contents is not a new
         // version.
-        let digest = Digest::of(&watch.folder);
+        let digest = Digest::of(&watch.folder, &limits);
         if watch.digest != digest {
             watch.digest = digest;
             modified.write(Modified(plugin));

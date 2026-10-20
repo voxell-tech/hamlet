@@ -93,6 +93,6 @@ fn a_cache_that_came_with_the_plugin_is_never_read() {
     std::fs::write(folder.join("manifest.toml"), "id = \"probe\"\n")
         .unwrap();
 
-    let _ = install::read(&folder);
+    let _ = install::read(&folder, &Limits::default());
     assert!(!shipped.exists());
 }

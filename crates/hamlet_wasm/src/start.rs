@@ -135,11 +135,18 @@ pub fn bring_up(
                     Status::Running,
                     Inbox::default(),
                     Dirty::of(shown),
-                    keep::remember(folder),
+                    keep::remember(folder, setting.limits),
                 ))
                 .remove::<(Failure, HeldState)>();
         }
-        Err(fault) => failed(plugin, info, source, &fault, commands),
+        Err(fault) => failed(
+            plugin,
+            info,
+            source,
+            &fault,
+            setting.limits,
+            commands,
+        ),
     }
 }
 
@@ -149,11 +156,14 @@ pub fn failed(
     info: &PluginInfo,
     source: &Source,
     fault: &Fault,
+    limits: &Limits,
     commands: &mut Commands,
 ) {
     let folder = source.0.parent().unwrap_or(Path::new(""));
-    commands
-        .entity(plugin)
-        .insert(keep::trouble(folder, fault.to_string()));
+    commands.entity(plugin).insert(keep::trouble(
+        folder,
+        fault.to_string(),
+        limits,
+    ));
     stop::fail(commands, plugin, &info.id, fault)
 }

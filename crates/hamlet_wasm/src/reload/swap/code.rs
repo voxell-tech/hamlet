@@ -75,7 +75,7 @@ pub(super) fn swap(
             Status::Running,
             Inbox::default(),
             Dirty::of(shown),
-            keep::remember(case.folder),
+            keep::remember(case.folder, case.limits),
         ))
         .remove::<(Failure, HeldState)>();
     Ok(())

@@ -152,9 +152,11 @@ fn compiled(
                 warn!("plugin {}: reload failed: {fault}", info.id);
                 let folder =
                     source.0.parent().unwrap_or(Path::new(""));
-                commands
-                    .entity(plugin)
-                    .insert(keep::trouble(folder, fault.to_string()));
+                commands.entity(plugin).insert(keep::trouble(
+                    folder,
+                    fault.to_string(),
+                    &limits,
+                ));
             }
             (Then::Start, _) if *status != Status::Starting => {}
             (Then::Start, Err(fault)) => start::failed(
@@ -162,6 +164,7 @@ fn compiled(
                 info,
                 source,
                 &fault,
+                &limits,
                 &mut commands,
             ),
             (Then::Start, Ok(())) => start::bring_up(

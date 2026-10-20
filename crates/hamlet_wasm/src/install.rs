@@ -2,6 +2,7 @@
 //! `plugin.wasm`, or its `panel.ui`, in the home.
 
 use std::fmt;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use hamlet_sdk::capability::{Asks, Refusal};
@@ -11,15 +12,59 @@ use crate::cache;
 use crate::db::DB;
 use crate::files::FILES as KEPT;
 use crate::interface::VERSION;
+use crate::limits::Limits;
 use crate::manifest::{Kind, Manifest};
 use crate::storage::DATA;
 
 pub const MANIFEST: &str = "manifest.toml";
-const WASM: &str = "plugin.wasm";
-const PANEL: &str = "panel.ui";
+pub const WASM: &str = "plugin.wasm";
+pub const PANEL: &str = "panel.ui";
 
 /// The files of a plugin's folder that make up a version of it.
 pub const FILES: [&str; 3] = [MANIFEST, WASM, PANEL];
+
+/// The most bytes of `file`, one of [`FILES`], that the host reads.
+pub fn cap(file: &str, limits: &Limits) -> u64 {
+    let bytes = match file {
+        MANIFEST => limits.manifest_bytes,
+        WASM => limits.wasm_bytes,
+        _ => limits.panel_bytes,
+    };
+    bytes as u64
+}
+
+/// The bytes of `file`, or none when it holds more than `cap`, by the
+/// size the file system gives or by what is read.
+pub fn read_capped(
+    file: &Path,
+    cap: u64,
+) -> std::io::Result<Option<Vec<u8>>> {
+    let opened = std::fs::File::open(file)?;
+    if opened.metadata()?.len() > cap {
+        return Ok(None);
+    }
+    let mut bytes = Vec::new();
+    // The file may have grown since its size was read.
+    opened.take(cap + 1).read_to_end(&mut bytes)?;
+    Ok((bytes.len() as u64 <= cap).then_some(bytes))
+}
+
+/// The text of the manifest in `folder`, or why there is none to
+/// read.
+pub fn manifest_text(
+    folder: &Path,
+    limits: &Limits,
+) -> Result<String, Why> {
+    let cap = cap(MANIFEST, limits);
+    match read_capped(&folder.join(MANIFEST), cap) {
+        Err(_) => Err(Why::Missing(MANIFEST)),
+        Ok(None) => Err(Why::BadManifest(format!(
+            "it has more than {cap} bytes"
+        ))),
+        Ok(Some(bytes)) => String::from_utf8(bytes)
+            .map_err(|_| Why::BadManifest("it is not UTF-8".into())),
+    }
+}
 
 /// A plugin whose folder passed the scan.
 #[derive(Debug)]
@@ -109,7 +154,10 @@ impl fmt::Display for Rejected {
 }
 
 /// Reads the plugin in `folder`, a folder of the install folder.
-pub fn read(folder: &Path) -> Result<Installed, Rejected> {
+pub fn read(
+    folder: &Path,
+    limits: &Limits,
+) -> Result<Installed, Rejected> {
     let name = folder
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -119,8 +167,7 @@ pub fn read(folder: &Path) -> Result<Installed, Rejected> {
         why,
     };
     cache::drop_shipped(folder);
-    let text = std::fs::read_to_string(folder.join(MANIFEST))
-        .map_err(|_| rejected(Why::Missing(MANIFEST)))?;
+    let text = manifest_text(folder, limits).map_err(rejected)?;
     let manifest = Manifest::parse(&text).map_err(|e| {
         rejected(Why::BadManifest(e.message().into()))
     })?;
@@ -175,27 +222,37 @@ fn only_data(folder: &Path) -> bool {
 
 /// Whether `folder` holds a native plugin, which `hamlet_native`
 /// loads.
-fn is_native(folder: &Path) -> bool {
-    std::fs::read_to_string(folder.join(MANIFEST))
+fn is_native(folder: &Path, limits: &Limits) -> bool {
+    manifest_text(folder, limits)
         .is_ok_and(|text| hamlet_sdk::plugin::is_native(&text))
+}
+
+/// Whether `folder` of the install folder is one the scan reads: a
+/// folder, not what a plugin removed with its data left, and not a
+/// native plugin.
+pub fn scanned(folder: &Path, limits: &Limits) -> bool {
+    folder.is_dir()
+        && !only_data(folder)
+        && !is_native(folder, limits)
 }
 
 /// Every folder of the install folder `plugins`, read, the plugins
 /// whose needs go in a circle turned down. A missing install folder
 /// holds no plugins.
-pub fn scan(plugins: &Path) -> Vec<Result<Installed, Rejected>> {
+pub fn scan(
+    plugins: &Path,
+    limits: &Limits,
+) -> Vec<Result<Installed, Rejected>> {
     let Ok(entries) = std::fs::read_dir(plugins) else {
         return Vec::new();
     };
     let mut folders = entries
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_dir() && !only_data(path) && !is_native(path)
-        })
+        .filter(|path| scanned(path, limits))
         .collect::<Vec<_>>();
     folders.sort();
-    let found = folders.iter().map(|folder| read(folder));
+    let found = folders.iter().map(|folder| read(folder, limits));
     turn_down_circles(found.collect())
 }
 

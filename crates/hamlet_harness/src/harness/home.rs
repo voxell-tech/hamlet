@@ -84,8 +84,8 @@ pub fn install(
                 .map_err(|e| format!("{}: {e}", from.display()))?;
         }
     }
-    let installed =
-        install::read(&dest).map_err(|r| r.to_string())?;
+    let installed = install::read(&dest, &Limits::default())
+        .map_err(|r| r.to_string())?;
     let choices = installed.asks.capabilities().into_iter().fold(
         Choices::default(),
         |choices, capability| {
