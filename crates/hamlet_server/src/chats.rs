@@ -20,19 +20,16 @@ use anyhow::{Context, Result};
 use hamlet_protocol::v0::{
     ChatRef, ClientMessage, Op, Read, ServerMessage, Turn, UsageView,
 };
-use serde_json::{Value, json};
-use tokio::task::JoinSet;
 
 use self::activity::Activity;
 pub(crate) use self::activity::words;
-pub(crate) use self::calls::{Ran, prepared, ran, specs, stop_tools};
+pub(crate) use self::calls::{Finished, finished, specs, stop_tools};
 pub(crate) use self::deeds::stop_agent;
 use self::fold::Fold;
 use self::records::Place;
 pub(crate) use self::say::{admit_line, deeds as advertised_deeds};
-use crate::harness::link::Mark;
 use crate::harness::{
-    BindingId, Harnesses, Input, InputStatus, Notice,
+    BindingId, Harnesses, Input, InputMark, InputStatus, Notice,
 };
 use crate::protocol::{Refusal, reply};
 use crate::record::AgentRef;
@@ -48,11 +45,8 @@ pub(crate) struct Chats {
     /// Messages for clients, sent once a request or event is
     /// handled.
     pub outbox: Vec<(u64, ServerMessage)>,
-    /// The tool calls running for runtimes.
-    pub tools: JoinSet<Ran>,
-    running: HashMap<(String, String), calls::Running>,
-    pub preparing: JoinSet<calls::PreparedCall>,
-    preparations: HashMap<uuid::Uuid, calls::Preparing>,
+    /// The tool calls and preparations running for runtimes.
+    calls: calls::Tasks,
     /// The notice of a stop, written once its runtime stopped the
     /// turn.
     stopping: HashMap<BindingId, String>,
@@ -72,6 +66,13 @@ struct Conversation {
     turn: Option<String>,
     /// The usage last shown to its watchers.
     usage: Option<UsageView>,
+}
+
+impl Conversation {
+    /// Whether it runs a turn or has inputs waiting in its runtime.
+    fn busy(&self) -> bool {
+        self.running || self.pending > 0
+    }
 }
 
 /// A client's watch of one chat.
@@ -110,10 +111,7 @@ impl Chats {
             watches: Vec::new(),
             deferred: Vec::new(),
             outbox: Vec::new(),
-            tools: JoinSet::new(),
-            running: HashMap::new(),
-            preparing: JoinSet::new(),
-            preparations: HashMap::new(),
+            calls: calls::Tasks::default(),
             stopping: HashMap::new(),
             closing: false,
             sandbox,
@@ -126,23 +124,58 @@ impl Chats {
         self.deferred.retain(|line| line.client != client);
     }
 
+    /// Whether the conversation of `binding` runs a turn or has
+    /// inputs waiting in its runtime.
+    fn busy(&self, binding: BindingId) -> bool {
+        self.conversations
+            .get(&binding)
+            .is_some_and(Conversation::busy)
+    }
+
+    /// Whether the conversation of `binding` has inputs waiting while
+    /// no turn runs.
+    fn queued(&self, binding: BindingId) -> bool {
+        self.conversations
+            .get(&binding)
+            .is_some_and(|c| !c.running && c.pending > 0)
+    }
+
+    /// The submission id of the turn `binding` runs.
+    fn turn(&self, binding: BindingId) -> Option<String> {
+        self.conversations.get(&binding)?.turn.clone()
+    }
+
     /// Stops every tool call that is running.
     pub fn stop_tools(&mut self) {
-        self.tools.abort_all();
-        self.running.clear();
-        self.preparing.abort_all();
-        self.preparations.clear();
+        self.calls.stop_all();
+    }
+
+    /// The next tool call or preparation to end, to answer with
+    /// [`finished`]; pending while none runs.
+    pub async fn next(&mut self) -> Finished {
+        match self.calls.next().await {
+            Some(finished) => finished,
+            None => std::future::pending().await,
+        }
     }
 }
 
-/// Handles a client's request about conversations; `None` when it is
-/// another owner's, or is answered later.
+/// What became of a client's request.
+pub(crate) enum Handled {
+    /// Another owner answers it.
+    NotMine,
+    /// It is answered once its work is done.
+    Later,
+    Reply(Box<ServerMessage>),
+}
+
+/// Handles a client's request about conversations.
 pub(crate) async fn converse(
     service: &mut Service,
     harnesses: &mut Harnesses,
     client: u64,
     message: &ClientMessage,
-) -> Result<Option<Option<ServerMessage>>> {
+) -> Result<Handled> {
     let answer = match message {
         ClientMessage::Say(said) => {
             say::say(service, harnesses, client, said).await?
@@ -196,22 +229,18 @@ pub(crate) async fn converse(
             deeds::stop(service, harnesses, stop.agent.as_ref())
                 .await?,
         )),
-        ClientMessage::Answer(answer) => {
-            let choice = serde_json::to_value(&answer.choice)?;
-            Some(reply(
-                &answer.id,
-                calls::answer_words(
-                    service,
-                    harnesses,
-                    &answer.wait,
-                    choice.as_str().unwrap_or_default(),
-                    answer.text.as_deref().unwrap_or_default(),
-                    answer.picks.as_deref(),
-                )
-                .await?
-                .map_err(Refusal::Invalid),
-            ))
-        }
+        ClientMessage::Answer(answer) => Some(reply(
+            &answer.id,
+            calls::answer_words(
+                service,
+                harnesses,
+                &answer.wait,
+                &answer.choice,
+                answer.text.as_deref().unwrap_or_default(),
+                answer.picks.as_deref(),
+            )
+            .await?,
+        )),
         ClientMessage::Read(Read::History { agent, id }) => {
             Some(watch::history(service, harnesses, agent, id).await?)
         }
@@ -219,10 +248,12 @@ pub(crate) async fn converse(
             crate::gifts::request(service, harnesses, client, message)
                 .await?
         }
-        _ => return Ok(None),
+        _ => return Ok(Handled::NotMine),
     };
     refresh_watches(service, harnesses).await?;
-    Ok(Some(answer))
+    Ok(answer.map_or(Handled::Later, |answer| {
+        Handled::Reply(Box::new(answer))
+    }))
 }
 
 /// Takes in what a runtime told.
@@ -321,12 +352,10 @@ fn report(service: &Service, notice: &Notice) {
     if let Notice::Refused { runtime, words }
     | Notice::Fault { runtime, words } = notice
     {
-        let mut words = Value::String(words.clone());
-        service.credentials.scrub(&mut words);
         eprintln!(
             "hamlet-server: {}: {}",
             runtime.as_str(),
-            words.as_str().unwrap_or_default()
+            service.credentials.scrub_text(words)
         );
     }
 }
@@ -386,8 +415,10 @@ pub(crate) async fn close(
             .conversations
             .get(&binding)
             .is_some_and(|c| c.running);
-        let reflecting = turn_request(service, binding)?
-            .is_some_and(|request| request.starts_with("reflect:"));
+        let reflecting = matches!(
+            turn_mark(service, binding)?,
+            Some(InputMark::Reflection { .. })
+        );
         if !running || reflecting {
             waits.push((binding, request));
         }
@@ -410,7 +441,7 @@ pub(crate) fn work(
         chats
             .conversations
             .get(binding)
-            .is_some_and(|c| c.running || c.pending > 0)
+            .is_some_and(Conversation::busy)
     });
     let active = bindings
         .iter()
@@ -659,20 +690,17 @@ fn usage(
     crate::spend::usage_of(db, &records::lineage(db, binding)?)
 }
 
-/// The request of the input whose turn `binding` runs now.
-fn turn_request(
+/// The mark of the input whose turn `binding` runs now.
+fn turn_mark(
     service: &mut Service,
     binding: BindingId,
-) -> Result<Option<String>> {
-    let Some(turn) = service
+) -> Result<Option<InputMark>> {
+    let turn = service
         .chats
         .conversations
         .get(&binding)
-        .and_then(|c| c.turn.clone())
-    else {
-        return Ok(None);
-    };
-    service.home.store().request_of(binding, &turn)
+        .and_then(|c| c.turn.clone());
+    service.home.store().input_mark(binding, turn.as_deref())
 }
 
 /// The current conversation of `chief`'s chat with `agent`, which its
@@ -758,8 +786,6 @@ pub(crate) async fn tell_chiefs(
     Ok(())
 }
 
-/// Writes a notice into the conversation of `binding`, for people
-/// alone.
 /// Writes the notice `text` into the conversation of `binding`;
 /// gives the write's request.
 async fn write_notice(
@@ -781,7 +807,7 @@ pub(crate) async fn write(
     text: &str,
     boundary: bool,
 ) -> Result<()> {
-    let mark = notice(text);
+    let mark = InputMark::notice(text);
     harnesses
         .submit(
             service.home.store(),
@@ -796,19 +822,6 @@ pub(crate) async fn write(
             },
         )
         .await
-}
-
-/// The mark of a notice: words for people, which the model never
-/// sees (C30).
-pub(crate) fn notice(text: &str) -> Mark {
-    mark("hamlet.notice", json!({"text": text, "at": now()}))
-}
-
-fn mark(kind: &str, data: Value) -> Mark {
-    Mark {
-        kind: kind.into(),
-        data: serde_json::from_value(data).unwrap_or_default(),
-    }
 }
 
 fn now() -> i64 {

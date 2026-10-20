@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::harness::BindingId;
 use crate::harness::link::{Price, Usage};
-use crate::service::{Service, document};
+use crate::service::Service;
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub(crate) struct Amount {
@@ -149,24 +149,25 @@ pub(crate) fn books(
     Ok(result)
 }
 
-pub(crate) fn limits(db: &Connection, hamlet: &str) -> Result<Value> {
-    Ok(document(db, "limits", hamlet)?
-        .unwrap_or(crate::limits::Rules::new()?.defaults()))
-}
-
 pub(crate) fn can_spend(
     db: &Connection,
     hamlet: &str,
     task: Option<&str>,
     at: i64,
 ) -> Result<Option<String>> {
-    let limits = limits(db, hamlet)?;
-    let period = limits["budget"]["period"].as_str().unwrap_or("day");
+    let limits = crate::limits::of(db, hamlet)?;
+    let period = limits.period();
     let books = books(db, hamlet, period, task, at)?;
-    for (kind, spent) in
-        [("budget", books.hamlet), ("task", books.task)]
-    {
-        for (amount, cap, time) in meters(spent, &limits[kind]) {
+    for (kind, spent, cost, minutes) in [
+        (
+            "budget",
+            books.hamlet,
+            limits.budget.cost,
+            limits.budget.minutes,
+        ),
+        ("task", books.task, limits.task.cost, limits.task.minutes),
+    ] {
+        for (amount, cap, time) in meters(spent, cost, minutes) {
             let Some(cap) = cap else {
                 continue;
             };
@@ -202,25 +203,20 @@ pub(crate) fn can_spend(
     Ok(None)
 }
 
+/// What `spent` has of the caps `cost` and `minutes`, in micros and
+/// milliseconds, each with whether it is time.
 fn meters(
     spent: Amount,
-    caps: &Value,
+    cost: Option<f64>,
+    minutes: Option<i64>,
 ) -> [(i64, Option<i64>, bool); 2] {
     [
         (
             spent.micros,
-            caps["cost"]
-                .as_f64()
-                .map(|n| (n * 1_000_000.0).round() as i64),
+            cost.map(|n| (n * 1_000_000.0).round() as i64),
             false,
         ),
-        (
-            spent.ms,
-            caps["minutes"]
-                .as_i64()
-                .map(|n| n.saturating_mul(60_000)),
-            true,
-        ),
+        (spent.ms, minutes.map(|n| n.saturating_mul(60_000)), true),
     ]
 }
 fn show(value: i64, time: bool) -> String {
@@ -278,19 +274,18 @@ impl Service {
         hamlet: &str,
         fallback: Option<&str>,
     ) -> Result<Value> {
-        let limits = self.limits_of(hamlet)?;
-        let mut settings = self.settings()?;
-        if let Some(fallback) = fallback {
-            settings["model"] = fallback.into();
-        }
+        let home = match fallback {
+            Some(fallback) => fallback.to_owned(),
+            None => self.settings()?.model,
+        };
         let record = self
             .home
             .store()
             .record(hamlet)?
             .context("budget hamlet")?;
+        let limits = &record.limits.chief;
         let at = Local::now();
-        let period =
-            limits["budget"]["period"].as_str().unwrap_or("day");
+        let period = limits.period();
         let books = books(
             self.home.store().connection(),
             hamlet,
@@ -300,7 +295,12 @@ impl Service {
         )?;
         // The first of equally near caps, as TypeScript's stable
         // sort keeps it.
-        let nearest = meters(books.hamlet, &limits["budget"])
+        let caps = meters(
+            books.hamlet,
+            limits.budget.cost,
+            limits.budget.minutes,
+        );
+        let nearest = caps
             .into_iter()
             .filter_map(|(spent, cap, time)| {
                 cap.map(|cap| (spent, cap, time))
@@ -337,11 +337,10 @@ impl Service {
                     } else {
                         &a.name
                     },
-                    crate::state::model(
+                    limits.model_of(
                         a,
-                        &limits,
-                        &settings,
-                        a.number == record.mayor
+                        a.number == record.mayor,
+                        &home
                     ),
                     money(
                         books
@@ -373,7 +372,6 @@ impl Service {
         }) * 200.0)
             .floor()
             / 200.0;
-        let caps = meters(books.hamlet, &limits["budget"]);
         Ok(
             json!({"period":period,"periodWords":period_words,"gone":gone,"spent":books.hamlet,"caps":{"micros":caps[0].1,"ms":caps[1].1},"summary":summary,"lines":lines,
             "left":nearest.map(|(spent,cap,_)|(1.0-spent as f64/cap.max(1) as f64).max(0.0)),"remains":nearest.map(|(spent,cap,time)|show((cap-spent).max(0),time))}),

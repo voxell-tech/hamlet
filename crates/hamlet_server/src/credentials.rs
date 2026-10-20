@@ -244,6 +244,16 @@ impl Credentials {
             secrets.iter().map(String::as_str).collect::<Vec<_>>();
         scrub_value(value, &secrets);
     }
+
+    /// `text` with every secret removed.
+    pub(crate) fn scrub_text(&self, text: &str) -> String {
+        let mut value = Value::String(text.into());
+        self.scrub(&mut value);
+        match value {
+            Value::String(text) => text,
+            _ => String::new(),
+        }
+    }
 }
 
 pub(crate) fn pack(

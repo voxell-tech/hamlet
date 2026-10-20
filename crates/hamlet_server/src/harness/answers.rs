@@ -8,7 +8,7 @@ use rusqlite::{OptionalExtension, params};
 use super::bindings::Binding;
 use super::link::{self, ModelRef, Price, ServerMessage, Usage};
 use super::process::Pi;
-use super::{Harnesses, Notice, notice, now};
+use super::{Harnesses, InputMark, Notice, now};
 use crate::credentials::{Credentials, pack};
 use crate::{RuntimeInstance, Store};
 
@@ -182,7 +182,9 @@ impl Harnesses {
         )? {
             // A cap of spend ends the turn as stopped, with its words
             // kept for the chief.
-            let notice = stop.spend.then(|| notice(&stop.words));
+            let notice = stop
+                .spend
+                .then(|| (&InputMark::notice(&stop.words)).into());
             let words = stop.words;
             self.send(index, |v, id| {
                 ServerMessage::Stopped(link::Stopped {

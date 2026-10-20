@@ -275,10 +275,10 @@ pub async fn serve(options: Options) -> Result<()> {
                             }
                             let request = serde_json::to_value(&message)?;
                             match chats::converse(&mut service, &mut harnesses, id, &message).await {
-                                Ok(None) => {}
-                                Ok(Some(answer)) => {
+                                Ok(chats::Handled::NotMine) => {}
+                                Ok(handled) => {
                                     if (service.merges.busy(id) || service.gifts.working.iter().any(|(owner, _)| *owner == id)) && let Some(client) = clients.get_mut(&id) { client.busy = true; }
-                                    if let Some(answer) = answer && let Some(client) = clients.get_mut(&id) { send(client, &service, answer)?; }
+                                    if let chats::Handled::Reply(answer) = handled && let Some(client) = clients.get_mut(&id) { send(client, &service, *answer)?; }
                                     deliver(&mut service, &mut clients)?;
                                     refresh(&mut service, &mut state, &mut clients)?;
                                     continue;
@@ -371,13 +371,8 @@ pub async fn serve(options: Options) -> Result<()> {
                     heard(&mut service, &mut harnesses, &mut clients, notices).await?;
                     refresh(&mut service, &mut state, &mut clients)?;
                 }
-                Some(ran) = service.chats.tools.join_next() => {
-                    if let Ok(ran) = ran { chats::ran(&mut service, &mut harnesses, ran).await?; }
-                    deliver(&mut service, &mut clients)?;
-                    refresh(&mut service, &mut state, &mut clients)?;
-                }
-                Some(prepared) = service.chats.preparing.join_next() => {
-                    if let Ok(prepared) = prepared { chats::prepared(&mut service, &mut harnesses, prepared).await?; }
+                finished = service.chats.next() => {
+                    chats::finished(&mut service, &mut harnesses, finished).await?;
                     deliver(&mut service, &mut clients)?;
                     refresh(&mut service, &mut state, &mut clients)?;
                 }
@@ -612,14 +607,8 @@ async fn run_once(
                 harnesses.handle(service.home.store(), event, &service.credentials).await?;
             heard(service, harnesses, clients, notices).await?;
         }
-        Some(ran) = service.chats.tools.join_next() => {
-            if let Ok(ran) = ran {
-                chats::ran(service, harnesses, ran).await?;
-            }
-            deliver(service, clients)?;
-        }
-        Some(prepared) = service.chats.preparing.join_next() => {
-            if let Ok(prepared) = prepared { chats::prepared(service, harnesses, prepared).await?; }
+        finished = service.chats.next() => {
+            chats::finished(service, harnesses, finished).await?;
             deliver(service, clients)?;
         }
         Some(work) = service.house_work.next() => {

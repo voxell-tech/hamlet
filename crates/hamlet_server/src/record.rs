@@ -433,7 +433,7 @@ impl Hamlet {
             .iter()
             .find(|vote| {
                 (now.saturating_sub(vote.called).max(0) as u64)
-                    < self.limits.vote_open_ms
+                    < self.limits.chief.vote_open_ms()
             })
             .map(|vote| {
                 Refusal::new(

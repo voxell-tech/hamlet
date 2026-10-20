@@ -47,9 +47,7 @@ pub(crate) async fn deed(
     }
     let words = rest.split_whitespace().collect::<Vec<_>>();
     let id = words.first().copied().unwrap_or_default();
-    let limits = service.limits_of("home")?;
-    let cap =
-        limits["hamlets"]["most"].as_u64().unwrap_or(6) as usize;
+    let cap = service.limits_of("home")?.hamlets.most as usize;
     if deed == "found" {
         if words.len() < 3 {
             return bad("Use /found <hamlet> <mayor> <purpose>; \

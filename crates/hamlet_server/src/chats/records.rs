@@ -304,15 +304,19 @@ pub(crate) fn lineage(
     let mut chain = vec![binding];
     let mut at = binding;
     loop {
-        let previous = db
+        let previous = match db
             .query_row(
-                "SELECT coalesce((SELECT previous FROM \
-                 chat_conversation WHERE binding = ?1), (SELECT \
-                 fork_of FROM harness_binding WHERE id = ?1))",
+                "SELECT previous FROM chat_conversation WHERE \
+                 binding = ?1",
                 [at.0],
                 |row| row.get::<_, Option<i64>>(0),
-            )?
-            .map(BindingId);
+            )
+            .optional()?
+            .flatten()
+        {
+            Some(previous) => Some(BindingId(previous)),
+            None => crate::harness::fork_of(db, at)?,
+        };
         match previous {
             Some(previous) if !chain.contains(&previous) => {
                 chain.push(previous);
@@ -403,41 +407,6 @@ fn number_of(agent: &AgentRef) -> Result<i64> {
     i64::try_from(agent.number).context("an agent's number")
 }
 
-/// The chief's lines `binding` holds queued behind its turn, whose
-/// input is `turn`.
-pub(crate) fn queued_lines(
-    db: &Connection,
-    binding: BindingId,
-    turn: Option<&str>,
-) -> Result<i64> {
-    Ok(db.query_row(
-        "SELECT count(*) FROM harness_input WHERE binding = ?1 AND \
-         write = 0 AND request LIKE 'chief:%' AND (state = 'kept' \
-         OR (state = 'admitted' AND status = 'queued' AND \
-         submission IS NOT ?2))",
-        params![binding.0, turn],
-        |row| row.get(0),
-    )?)
-}
-
-/// The mark of the input `request` of `binding`.
-pub(crate) fn mark_of(
-    db: &Connection,
-    binding: BindingId,
-    request: &str,
-) -> Result<Option<crate::harness::link::Mark>> {
-    db.query_row(
-        "SELECT mark FROM harness_input WHERE binding = ?1 AND \
-         request = ?2",
-        params![binding.0, request],
-        |row| row.get::<_, Option<String>>(0),
-    )
-    .optional()?
-    .flatten()
-    .map(|mark| Ok(serde_json::from_str(&mark)?))
-    .transpose()
-}
-
 /// Keeps how the last followed input of `binding` ended.
 pub(crate) fn followed(
     db: &Connection,
@@ -518,21 +487,4 @@ pub(crate) fn keep_budget_words(
         params![binding.0, input, words],
     )?;
     Ok(())
-}
-
-/// Whether the input `request` of `binding` placed an entry.
-pub(crate) fn placed(
-    db: &Connection,
-    binding: BindingId,
-    request: &str,
-) -> Result<bool> {
-    Ok(db
-        .query_row(
-            "SELECT 1 FROM harness_item WHERE binding = ?1 AND \
-             json_extract(item, '$.request') = ?2",
-            params![binding.0, request],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
 }

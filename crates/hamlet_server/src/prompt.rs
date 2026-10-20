@@ -93,7 +93,7 @@ pub(crate) async fn sections(
 pub(crate) struct Prepared {
     pub sections: Vec<Section>,
     house: std::path::PathBuf,
-    work: Value,
+    work: crate::documents::Work,
     remote: Option<crate::workspace::Remote>,
     reader: Option<crate::workspace::Remote>,
 }
@@ -103,7 +103,7 @@ impl Prepared {
         Self {
             sections,
             house: Default::default(),
-            work: Value::Null,
+            work: Default::default(),
             remote: None,
             reader: None,
         }
@@ -364,15 +364,8 @@ pub(crate) fn budget(
             .filter_map(Value::as_str)
             .collect::<Vec<_>>()
             .join("\n");
-        let road =
-            limits["road"]["cost"].as_f64().unwrap_or_default();
-        let models = limits["models"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .collect::<Vec<_>>()
-            .join(", ");
+        let road = limits.road.cost;
+        let models = limits.models.join(", ");
         return Ok(format!(
             "# Budget\nOnly the chief changes this shared \
              budget.\n{lines}\nA road costs {}. Models you may \
@@ -385,11 +378,10 @@ pub(crate) fn budget(
             }
         ));
     }
-    let period = limits["budget"]["period"].as_str().unwrap_or("day");
     let books = books(
         service.home.store().connection(),
         subject.hamlet,
-        period,
+        limits.period(),
         subject.task,
         now(),
     )?;
@@ -420,18 +412,10 @@ fn terms(
     hamlet: &str,
 ) -> Result<brief::Terms> {
     let limits = service.limits_of(hamlet)?;
-    let defaults = service.limits.defaults();
-    let whole = |pointer| {
-        limits
-            .pointer(pointer)
-            .or_else(|| defaults.pointer(pointer))
-            .and_then(Value::as_i64)
-            .unwrap_or_default()
-    };
     Ok(brief::Terms {
-        pass_yes: whole("/votes/passYes"),
-        pass_of: whole("/votes/passOf"),
-        told_days: whole("/mayor/toldDays"),
+        pass_yes: limits.votes.pass_yes,
+        pass_of: limits.votes.pass_of,
+        told_days: limits.mayor.told_days,
         now: now(),
     })
 }
@@ -454,8 +438,7 @@ fn machine(
                    limited to 4 MiB."
             .into());
     }
-    let settings = service.settings()?;
-    let net = if settings["allowNet"] == true {
+    let net = if service.settings()?.allow_net {
         "on"
     } else {
         "off unless a chief allows it; a command that needs it is \
@@ -481,11 +464,11 @@ fn machine(
 }
 
 async fn project(
-    work: &Value,
+    work: &crate::documents::Work,
     house: &Path,
     remote: Option<&crate::workspace::Remote>,
 ) -> Result<Option<String>> {
-    let Some(folder) = work["folder"].as_str() else {
+    let Some(folder) = work.folder.as_deref() else {
         return Ok(None);
     };
     let folder = if remote.is_some() { "/project" } else { folder };
@@ -544,7 +527,7 @@ async fn project(
                 .into(),
         );
     }
-    if work["mode"] == "manual" {
+    if work.mode == crate::documents::Mode::Manual {
         lines.push(
             "- The chief approves each edit and each command before \
              it runs, so each one waits. `read`, `search` and \

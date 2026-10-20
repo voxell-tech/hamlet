@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use hamlet_protocol::v0::Period;
 use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
@@ -249,7 +250,6 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
  {
     use chrono::{Local, TimeZone};
 
-    use crate::service::save;
     use crate::spend;
     let scratch = Scratch::new("spend-caps");
     let (mut store, binding) = bound(&scratch, 0);
@@ -259,11 +259,13 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
         .unwrap()
         .timestamp_millis();
     let mut limits =
-        spend::limits(store.connection(), "home").unwrap();
-    limits["budget"] =
-        json!({"cost":0.001,"minutes":null,"period":"day"});
-    limits["task"]["cost"] = json!(0.0005);
-    save(store.connection(), "limits", "home", &limits).unwrap();
+        crate::limits::of(store.connection(), "home").unwrap();
+    limits.budget.cost = Some(0.001);
+    limits.budget.minutes = None;
+    limits.budget.period = Period::Day;
+    limits.task.cost = Some(0.0005);
+    crate::limits::set(store.connection(), "home", limits.clone())
+        .unwrap();
     let price = price(2.0, 3.0);
     assert!(
         answers::attempt(
@@ -370,8 +372,9 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
             .micros,
         800
     );
-    limits["budget"]["minutes"] = json!(1);
-    save(store.connection(), "limits", "home", &limits).unwrap();
+    limits.budget.minutes = Some(1);
+    crate::limits::set(store.connection(), "home", limits.clone())
+        .unwrap();
     assert!(
         spend::can_spend(store.connection(), "home", None, at)
             .unwrap()
@@ -399,8 +402,8 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
         .unwrap()
         .starts_with("This task")
     );
-    limits["budget"]["period"] = "month".into();
-    save(store.connection(), "limits", "home", &limits).unwrap();
+    limits.budget.period = Period::Month;
+    crate::limits::set(store.connection(), "home", limits).unwrap();
     assert!(
         spend::can_spend(store.connection(), "home", None, tomorrow)
             .unwrap()
@@ -491,19 +494,24 @@ fn billed_zero_beats_prices_and_unreported_success_counts_estimates()
 
 #[test]
 fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
-    use crate::service::save;
     let scratch = Scratch::new("model-choice");
     let (store, binding) = bound(&scratch, 0);
     std::fs::write(scratch.join("models.json"), r#"{"endpoint":[{"provider":"endpoint","id":"pinned","cost":{"input":8,"output":9}}]}"#).unwrap();
-    let mut settings = crate::settings::defaults();
-    settings["model"] = "endpoint::home".into();
-    save(store.connection(), "settings", "home", &settings).unwrap();
+    let settings = crate::settings::Settings {
+        model: "endpoint::home".into(),
+        ..Default::default()
+    };
+    crate::settings::keep(store.connection(), &settings).unwrap();
     let mut limits =
-        crate::spend::limits(store.connection(), "home").unwrap();
-    limits["model"] = "endpoint::hamlet".into();
-    limits["pinned"] = json!({"mayor":"endpoint::pinned"});
-    save(store.connection(), "limits", "home", &limits).unwrap();
-    save(
+        crate::limits::of(store.connection(), "home").unwrap();
+    limits.model = Some("endpoint::hamlet".into());
+    limits.pinned = BTreeMap::from([(
+        hamlet_protocol::MAYOR.to_owned(),
+        "endpoint::pinned".to_owned(),
+    )]);
+    crate::limits::set(store.connection(), "home", limits.clone())
+        .unwrap();
+    crate::service::save(
         store.connection(),
         "catalogue",
         "home",
@@ -522,14 +530,15 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
     store.close().unwrap();
     let store = Store::open(&scratch.join("realm.sqlite")).unwrap();
     assert_eq!(chosen(&store).model.id, "pinned");
-    limits["pinned"] = json!({});
-    save(store.connection(), "limits", "home", &limits).unwrap();
+    limits.pinned.clear();
+    crate::limits::set(store.connection(), "home", limits.clone())
+        .unwrap();
     let hamlet = chosen(&store);
     assert_eq!(hamlet.model.id, "hamlet");
     // Unlisted and unpriced, at the rate of a remote endpoint.
     assert_eq!(hamlet.price, price(1.0, 1.0));
-    limits["model"] = Value::Null;
-    save(store.connection(), "limits", "home", &limits).unwrap();
+    limits.model = None;
+    crate::limits::set(store.connection(), "home", limits).unwrap();
     assert_eq!(chosen(&store).model.id, "home");
 }
 

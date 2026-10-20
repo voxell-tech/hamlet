@@ -9,6 +9,7 @@ use hamlet_protocol::v0::{
 };
 use serde_json::Value;
 
+use crate::harness::InputMark;
 use crate::harness::link::{self, Block};
 use crate::scrub::Scrubber;
 
@@ -105,7 +106,12 @@ impl Fold {
                 return;
             };
             let id = id.clone();
-            let (exit, ms, failure, change) = ending(entry);
+            let Ending {
+                exit,
+                ms,
+                failure,
+                change,
+            } = ending(entry);
             if let Some(item) =
                 self.items.iter_mut().find(|i| i.id == id)
                 && let Some(tool) = item.tool.as_mut()
@@ -264,52 +270,46 @@ pub(crate) fn items_of(entry: &link::Item) -> Vec<(usize, Item)> {
         text,
         tool: None,
     };
-    let data = |key: &str| {
-        entry
-            .mark
-            .as_ref()
-            .and_then(|mark| mark.data.get(key))
-            .cloned()
-            .unwrap_or(Value::Null)
-    };
-    let at = data("at").as_u64().unwrap_or(entry.at);
-    match entry.mark.as_ref().map(|mark| mark.kind.as_str()) {
-        Some("hamlet.chief") => {
-            let text =
-                data("text").as_str().unwrap_or_default().into();
+    let mark = entry.mark.as_ref().and_then(InputMark::of);
+    let at = mark
+        .as_ref()
+        .and_then(|mark| u64::try_from(mark.at()).ok())
+        .unwrap_or(entry.at);
+    match mark {
+        Some(InputMark::Chief { chief, text, .. }) => {
             return vec![(
                 0,
                 Item {
-                    chief: data("chief").as_str().map(String::from),
+                    chief: Some(chief),
                     rewindable: Some(true),
                     ..item(ItemKind::User, text, at)
                 },
             )];
         }
-        Some("hamlet.notice") => {
-            let text =
-                data("text").as_str().unwrap_or_default().into();
+        Some(InputMark::Notice { text, .. }) => {
             return vec![(0, item(ItemKind::Notice, text, at))];
         }
-        Some("hamlet.reflection") => {
+        Some(InputMark::Reflection { .. }) => {
             return vec![(
                 0,
                 item(ItemKind::Notice, "reflection".into(), at),
             )];
         }
-        Some("hamlet.retry") => {
+        Some(InputMark::Retry { .. }) => {
             return vec![(
                 0,
                 item(ItemKind::Notice, entry.text.clone(), at),
             )];
         }
         Some(
-            "hamlet.letter" | "hamlet.question" | "hamlet.reply",
+            InputMark::Letter(mail)
+            | InputMark::Question(mail)
+            | InputMark::Reply(mail),
         ) if entry.kind == link::ItemKind::User => {
             return vec![(
                 0,
                 Item {
-                    author: data("author").as_str().map(String::from),
+                    author: mail.author,
                     ..item(ItemKind::User, entry.text.clone(), at)
                 },
             )];
@@ -417,11 +417,18 @@ fn blocks_of(
     items
 }
 
+/// The end of a tool call, as its result tells it.
+struct Ending {
+    exit: i64,
+    ms: Option<u64>,
+    failure: Option<String>,
+    /// The record change the call made; `Some(None)` when its result
+    /// names one that cannot be read.
+    change: Option<Option<Change>>,
+}
+
 /// The end of a tool call, from its result.
-#[allow(clippy::type_complexity)]
-fn ending(
-    entry: &link::Item,
-) -> (i64, Option<u64>, Option<String>, Option<Option<Change>>) {
+fn ending(entry: &link::Item) -> Ending {
     let error = entry.error == Some(true);
     let details = entry.details.as_ref();
     let code = details
@@ -433,12 +440,12 @@ fn ending(
         .map(|change| {
             serde_json::from_value::<Change>(change.clone()).ok()
         });
-    (
-        code.map_or(i64::from(error), |code| code as i64),
-        entry.ms,
+    Ending {
+        exit: code.map_or(i64::from(error), |code| code as i64),
+        ms: entry.ms,
         failure,
         change,
-    )
+    }
 }
 
 /// The first line of a failed call's text that says something.

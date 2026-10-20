@@ -379,25 +379,6 @@ async fn clean(
     Ok(unchanged)
 }
 
-pub(super) fn active(
-    db: &Connection,
-    runtime: &str,
-    call: &str,
-) -> Result<bool> {
-    let open = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM gate_call g JOIN \
-         harness_binding b ON b.id=g.binding JOIN harness_input i \
-         ON i.binding=g.binding AND i.submission=g.input WHERE \
-         g.runtime=?1 AND g.key=?2 AND b.cancelling=0 AND \
-         i.state!='dropped' AND coalesce(i.status,'queued') NOT IN \
-         ('done','unanswered'))",
-        params![runtime, call],
-        |row| row.get(0),
-    )?;
-    // Society calls are marked with their outcome, never begun.
-    Ok(open && !crate::operation::is_marked(db, runtime, call)?)
-}
-
 pub(super) fn retire(service: &mut Service) -> Result<()> {
     let jobs = service
         .home
@@ -416,7 +397,7 @@ pub(super) fn retire(service: &mut Service) -> Result<()> {
         if job.result.is_none() {
             let (runtime, call) =
                 serde_json::from_str::<(String, String)>(&key)?;
-            if active(
+            if crate::oversight::held::unfinished(
                 service.home.store().connection(),
                 &runtime,
                 &call,
@@ -464,11 +445,13 @@ pub(crate) fn consulting(
     agent: &crate::record::AgentRef,
 ) -> Result<bool> {
     Ok(db.query_row(
-        "SELECT EXISTS (SELECT 1 FROM society_binding s JOIN \
-         harness_binding b ON b.id=s.binding JOIN harness_input i \
-         ON i.binding=b.id WHERE s.errand='librarian' AND \
-         b.hamlet=?1 AND b.number=?2 AND \
-         coalesce(i.status,'queued') NOT IN ('done','unanswered'))",
+        &format!(
+            "SELECT EXISTS (SELECT 1 FROM society_binding s JOIN \
+             harness_binding b ON b.id=s.binding JOIN harness_input \
+             i ON i.binding=b.id WHERE s.errand='librarian' AND \
+             b.hamlet=?1 AND b.number=?2 AND NOT {})",
+            crate::harness::ended("i.status")
+        ),
         params![agent.hamlet, i64::try_from(agent.number)?],
         |row| row.get(0),
     )?)

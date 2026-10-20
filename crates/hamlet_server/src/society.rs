@@ -27,7 +27,9 @@ use crate::harness::link::{
     ConfigureTools, Diagnostic, DiagnosticSeverity, ToolSpec,
     ToolSpecReplay,
 };
-use crate::harness::{Answer, Binding, BindingId, Harnesses};
+use crate::harness::{
+    Answer, Binding, BindingId, Harnesses, InputMark,
+};
 use crate::operation::Request;
 use crate::protocol::Refusal;
 use crate::record::{Actor, AgentRef};
@@ -652,20 +654,11 @@ pub(crate) fn marked_task(
     binding: BindingId,
     input: Option<&str>,
 ) -> Result<Option<String>> {
-    let Some(request) = input
-        .map(|input| store.request_of(binding, input))
-        .transpose()?
-        .flatten()
-    else {
-        return Ok(None);
-    };
-    Ok(records::mark_of(store.connection(), binding, &request)?
-        .and_then(|mark| {
-            mark.data
-                .get("task")
-                .and_then(Value::as_str)
-                .map(String::from)
-        }))
+    Ok(store
+        .input_mark(binding, input)?
+        .as_ref()
+        .and_then(InputMark::task)
+        .map(String::from))
 }
 
 /// The H12 task of the turn whose input `input` of `binding` made a

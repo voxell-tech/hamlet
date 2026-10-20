@@ -155,7 +155,7 @@ impl Work {
             .cloned()
             .collect::<Vec<_>>();
         for id in ids {
-            if !super::library::active(
+            if !crate::oversight::held::unfinished(
                 db,
                 id.runtime.as_str(),
                 &id.key,
@@ -202,7 +202,7 @@ pub(crate) async fn complete(
         }
         Completed::Offered { id, result } => {
             service.house_work.pending.remove(&id);
-            if super::library::active(
+            if crate::oversight::held::unfinished(
                 service.home.store().connection(),
                 id.runtime.as_str(),
                 &id.key,
@@ -213,7 +213,7 @@ pub(crate) async fn complete(
         }
         Completed::Cleaned { id, result } => {
             service.house_work.pending.remove(&id);
-            if super::library::active(
+            if crate::oversight::held::unfinished(
                 service.home.store().connection(),
                 id.runtime.as_str(),
                 &id.key,

@@ -634,10 +634,10 @@ pub(super) async fn operation(
         else {
             return Ok(None);
         };
-        let limit = service.limits_of(&plan.kept.hamlet)?["leaving"]
-            ["mergedNotes"]
-            .as_u64()
-            .unwrap_or(6000) as usize;
+        let limit = service
+            .limits_of(&plan.kept.hamlet)?
+            .leaving
+            .merged_notes as usize;
         if answer.trim().starts_with("# Notes")
             && answer.chars().count() <= limit
             && let Change::Depart {

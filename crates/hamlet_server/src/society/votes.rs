@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use super::{Caller, Deed, errands, outcome};
 use crate::Outcome;
 use crate::harness::Harnesses;
+use crate::limits::Limits;
 use crate::protocol::Refusal;
 use crate::record::{
     self, Actor, AgentRef, Change, NameFallback, RecordOperation,
@@ -150,11 +151,10 @@ fn save(db: &Connection, hamlet: &str, votes: &[Vote]) -> Result<()> {
 }
 
 /// The yes votes `v` needs to pass under `limits`.
-fn needed(v: &Vote, limits: &Value) -> u64 {
-    (v.voters.len() as u64
-        * limits["votes"]["passYes"].as_u64().unwrap_or(2))
-    .div_ceil(limits["votes"]["passOf"].as_u64().unwrap_or(3).max(1))
-    .max(1)
+fn needed(v: &Vote, limits: &Limits) -> u64 {
+    (v.voters.len() as u64 * limits.votes.pass_yes as u64)
+        .div_ceil((limits.votes.pass_of as u64).max(1))
+        .max(1)
 }
 
 fn describe(v: &Vote, r: &record::Hamlet) -> String {
@@ -179,7 +179,7 @@ fn describe(v: &Vote, r: &record::Hamlet) -> String {
     }
 }
 
-fn report(v: &Vote, r: &record::Hamlet, limits: &Value) -> String {
+fn report(v: &Vote, r: &record::Hamlet, limits: &Limits) -> String {
     let yes = v.ballots.iter().filter(|b| b.choice == "yes").count();
     let no = v.ballots.iter().filter(|b| b.choice == "no").count();
     let abstain =
@@ -242,7 +242,7 @@ pub(crate) fn views(
     db: &Connection,
     r: &record::Hamlet,
 ) -> Result<Vec<Value>> {
-    let limits = crate::spend::limits(db, &r.id)?;
+    let limits = crate::limits::of(db, &r.id)?;
     Ok(read(db, &r.id)?.iter().map(|v| json!({"id":v.id,"by":v.by,"motion":describe(v,r),"open":v.standing==Standing::Open,"overturnable":matches!(v.standing, Standing::Passed | Standing::Open),"report":report(v,r,&limits),"voters":v.voters.iter().map(|n| json!({"agent":{"hamlet":r.id,"number":n},"cast":v.ballots.iter().find(|b|b.voter==*n).map(|b|if b.choice.is_empty(){"none"}else{&b.choice})})).collect::<Vec<_>>()})).collect())
 }
 
@@ -298,10 +298,7 @@ fn call(
     let limits = service.limits_of(hamlet)?;
     let mut votes = read(service.home.store().connection(), hamlet)?;
     let now = super::now();
-    let open_ms = limits["votes"]["openMinutes"]
-        .as_i64()
-        .unwrap_or(60)
-        .saturating_mul(60_000);
+    let open_ms = limits.votes.open_minutes.saturating_mul(60_000);
     for v in &mut votes {
         if v.standing == Standing::Open
             && now.saturating_sub(v.called) >= open_ms
@@ -323,8 +320,7 @@ fn call(
         .filter(|a| a.number != r.mayor)
         .map(|a| a.number)
         .collect::<Vec<_>>();
-    let least =
-        limits["votes"]["leastVoters"].as_u64().unwrap_or(3) as usize;
+    let least = limits.votes.least_voters as usize;
     if voters.len() < least {
         return Ok(Err(Uncalled::FewVoters {
             least,
@@ -355,10 +351,7 @@ fn call(
     if reason.is_empty() {
         return Ok(Err(Uncalled::NoReason));
     }
-    let retry_ms = limits["votes"]["retryMinutes"]
-        .as_i64()
-        .unwrap_or(60)
-        .saturating_mul(60_000);
+    let retry_ms = limits.votes.retry_minutes.saturating_mul(60_000);
     if let Some(v) = votes.iter().rev().find(|v| {
         v.by == by
             && v.kind == kind
@@ -575,15 +568,15 @@ async fn cancel_errands(
         .home
         .store()
         .connection()
-        .prepare(
+        .prepare(&format!(
             "SELECT s.binding FROM society_binding s JOIN \
              harness_input i ON i.binding=s.binding WHERE s.errand \
              IN ('hearing','ballot') AND \
              json_extract(s.owner,'$.hamlet')=?1 AND \
              json_extract(s.owner,'$.vote')=?2 AND \
-             i.state!='dropped' AND coalesce(i.status,'queued') NOT \
-             IN ('done','unanswered')",
-        )?
+             i.state!='dropped' AND NOT {}",
+            crate::harness::ended("i.status")
+        ))?
         .query_map(
             rusqlite::params![hamlet, i64::try_from(vote)?],
             |row| Ok(crate::harness::BindingId(row.get(0)?)),
@@ -712,13 +705,10 @@ async fn poll(
     harnesses: &mut Harnesses,
     hamlet: &str,
     r: &record::Hamlet,
-    limits: &Value,
+    limits: &Limits,
     v: &mut Vote,
 ) -> Result<()> {
-    let open_ms = limits["votes"]["openMinutes"]
-        .as_i64()
-        .unwrap_or(60)
-        .saturating_mul(60_000);
+    let open_ms = limits.votes.open_minutes.saturating_mul(60_000);
     if super::now().saturating_sub(v.called) >= open_ms {
         v.standing = Standing::Lapsed;
         return Ok(());
@@ -780,10 +770,10 @@ async fn ask_ballots(
     harnesses: &mut Harnesses,
     hamlet: &str,
     r: &record::Hamlet,
-    limits: &Value,
+    limits: &Limits,
     v: &mut Vote,
 ) -> Result<()> {
-    let sealed = limits["votes"]["sealed"] != false;
+    let sealed = limits.votes.sealed;
     for voter in v.voters.clone() {
         if v.ballots.iter().any(|b| b.voter == voter) {
             continue;
@@ -880,8 +870,8 @@ fn corpus(
 }
 
 /// The standing of `v` once every voter has answered.
-fn count(v: &mut Vote, limits: &Value) {
-    let grounded_only = limits["votes"]["groundedOnly"] == true;
+fn count(v: &mut Vote, limits: &Limits) {
+    let grounded_only = limits.votes.grounded_only;
     let yes = v
         .ballots
         .iter()
@@ -904,7 +894,7 @@ async fn decide(
     harnesses: &mut Harnesses,
     hamlet: &str,
     r: &record::Hamlet,
-    limits: &Value,
+    limits: &Limits,
     votes: &mut [Vote],
     index: usize,
 ) -> Result<bool> {
@@ -977,14 +967,12 @@ fn found(
     tx: &Connection,
     hamlet: &str,
     r: &record::Hamlet,
-    limits: &Value,
+    limits: &Limits,
     v: &Vote,
 ) -> Result<Option<String>> {
     let realm = crate::realm::read(tx)?;
     if realm.hamlets.iter().any(|h| h.id == v.destination)
-        || realm.live().count()
-            >= limits["hamlets"]["most"].as_u64().unwrap_or(6)
-                as usize
+        || realm.live().count() >= limits.hamlets.most as usize
     {
         return Ok(Some(
             "the hamlet cannot be founded under current limits"

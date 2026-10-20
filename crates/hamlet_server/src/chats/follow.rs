@@ -4,10 +4,12 @@
 
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::records;
-use crate::harness::{BindingId, Harnesses, Input, InputStatus};
+use crate::harness::{
+    BindingId, Harnesses, Input, InputMark, InputStatus,
+};
 use crate::oversight::{self, ChatPlace};
 use crate::service::Service;
 
@@ -34,7 +36,7 @@ pub(crate) enum Mode {
 
 /// The answered turns after which an agent reflects; none for 0.
 pub(crate) fn reflect_every(service: &mut Service) -> Result<i64> {
-    Ok(service.settings()?["reflectEvery"].as_i64().unwrap_or(10))
+    Ok(i64::try_from(service.settings()?.reflect_every)?)
 }
 
 /// Acts once on the end of the input `request` of `binding`.
@@ -75,21 +77,13 @@ pub(crate) async fn follow(
         "stopped"
     };
     records::followed(db, binding, last, submission.as_deref())?;
-    let mark = records::mark_of(db, binding, request)?;
-    let kind = mark.as_ref().map(|mark| mark.kind.as_str());
-    let task = mark
-        .as_ref()
-        .and_then(|mark| mark.data.get("task"))
-        .and_then(Value::as_str)
-        .map(String::from);
+    let mark = store.mark_of(binding, request)?;
     let agent = &kept.place.agent;
-    if let Some(line) = request.strip_prefix("chief:") {
-        let task = task
-            .clone()
-            .unwrap_or_else(|| format!("chief:{}:{line}", binding.0));
-        records::instruction_done(db, agent, &task, super::now())?;
+    if let Some(InputMark::Chief { task, .. }) = &mark {
+        records::instruction_done(db, agent, task, super::now())?;
     }
-    let reflection = kind == Some("hamlet.reflection");
+    let reflection =
+        matches!(mark, Some(InputMark::Reflection { .. }));
     if reflection {
         db.execute(
             "DELETE FROM chat_reflection WHERE binding = ?1 AND \
@@ -97,12 +91,12 @@ pub(crate) async fn follow(
             params![binding.0, request],
         )?;
         if let Some(input) = &submission
-            && records::placed(db, binding, request)?
+            && store.placed(binding, request)?
         {
             records::enter(db, binding, input)?;
         }
     } else if status == Some(InputStatus::Done)
-        && matches!(kind, Some("hamlet.chief" | "hamlet.retry"))
+        && mark.as_ref().is_some_and(InputMark::chief_turn)
     {
         records::count_turns(db, binding, Some(1))?;
     }
@@ -132,10 +126,9 @@ pub(crate) async fn follow(
         )
         .await?;
     }
-    let conversation = service.chats.conversations.get(&binding);
-    let queued =
-        conversation.is_some_and(|c| !c.running && c.pending > 0);
-    if queued && let Some(input) = submission {
+    if service.chats.queued(binding)
+        && let Some(input) = submission
+    {
         super::write(
             service,
             harnesses,
@@ -346,10 +339,7 @@ pub(crate) async fn request_reflection(
     };
     let mut submitted = None;
     for (request, task, at) in reservations {
-        let mark = super::mark(
-            "hamlet.reflection",
-            json!({"task": task, "at": at}),
-        );
+        let mark = InputMark::Reflection { task, at };
         harnesses
             .submit(
                 service.home.store(),

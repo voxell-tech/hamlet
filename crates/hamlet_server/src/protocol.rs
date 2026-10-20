@@ -12,12 +12,15 @@ use serde_json::Value;
 pub enum Refusal {
     Invalid(String),
     Unsupported(&'static str),
+    /// No agent, living or gone, has the name.
+    NoAgent(String),
 }
 
 impl Refusal {
     pub fn text(&self) -> String {
         match self {
             Self::Invalid(text) => text.clone(),
+            Self::NoAgent(name) => format!("no agent named `{name}`"),
             Self::Unsupported(part) => {
                 format!("This server does not yet support {part}.")
             }

@@ -6,12 +6,11 @@ use anyhow::Result;
 use hamlet_protocol::v0::{
     Address, ReplyKind, Rewind, ServerMessage,
 };
-use serde_json::json;
 
 use super::follow::{self, Mode};
 use super::records::{self, Place};
 use crate::gate::{self, TrustKey};
-use crate::harness::{BindingId, Harnesses, Input};
+use crate::harness::{BindingId, Harnesses, Input, InputMark};
 use crate::oversight;
 use crate::protocol::{Refusal, reply};
 use crate::record::AgentRef;
@@ -224,12 +223,7 @@ async fn resume(
 /// Whether the conversation of `binding` runs a turn or has inputs
 /// waiting.
 fn busy(service: &mut Service, binding: BindingId) -> Result<bool> {
-    let live = service
-        .chats
-        .conversations
-        .get(&binding)
-        .is_some_and(|c| c.running || c.pending > 0);
-    Ok(live
+    Ok(service.chats.busy(binding)
         || service
             .home
             .store()
@@ -271,10 +265,10 @@ async fn carry_on(
             .into()));
     }
     let request = format!("retry:{}", uuid::Uuid::new_v4());
-    let mark = super::mark(
-        "hamlet.retry",
-        json!({"task": super::new_task(), "at": super::now()}),
-    );
+    let mark = InputMark::Retry {
+        task: super::new_task(),
+        at: super::now(),
+    };
     harnesses
         .submit(
             service.home.store(),
@@ -345,33 +339,29 @@ pub(super) async fn rewind(
         );
     };
     let entry = &items[target];
-    let line = entry.mark.as_ref().filter(|mark| {
-        mark.kind == "hamlet.chief"
-            && mark.data.get("chief").and_then(|c| c.as_str())
-                == Some(chief.as_str())
-    });
-    let Some(line) = line else {
+    let Some(InputMark::Chief {
+        chief: by,
+        text,
+        at,
+        ..
+    }) = entry.mark.as_ref().and_then(InputMark::of)
+    else {
         return refused(
             "That is not a chief's message in this conversation.",
         );
     };
-    let text = line
-        .data
-        .get("text")
-        .and_then(|t| t.as_str())
-        .unwrap_or_default()
-        .to_owned();
-    let since = line
-        .data
-        .get("at")
-        .and_then(|t| t.as_u64())
-        .unwrap_or(entry.at);
+    if by != chief {
+        return refused(
+            "That is not a chief's message in this conversation.",
+        );
+    }
+    let since = at;
     let kept = &items[..target];
     let mut turns = 0;
-    for item in kept {
-        match item.mark.as_ref().map(|mark| mark.kind.as_str()) {
-            Some("hamlet.reflection") => turns = 0,
-            Some("hamlet.chief" | "hamlet.retry") => turns += 1,
+    for mark in kept.iter().filter_map(|item| item.mark.as_ref()) {
+        match InputMark::of(mark) {
+            Some(InputMark::Reflection { .. }) => turns = 0,
+            Some(mark) if mark.chief_turn() => turns += 1,
             _ => {}
         }
     }
@@ -390,13 +380,12 @@ pub(super) async fn rewind(
     };
     let count = conversation.unreflected.min(turns);
     let session = conversation.place.session;
-    let woken = oversight::lapse(
+    let woken = oversight::rewind(
         db,
         &agent,
         &chief,
-        "rewound",
-        i64::try_from(since)?,
-        Some(session),
+        session,
+        since,
         super::now(),
     )?;
     for (runtime, key) in woken {
@@ -490,72 +479,68 @@ pub(crate) async fn stop_agent(
     harnesses: &mut Harnesses,
     agent: &AgentRef,
 ) -> Result<()> {
+    let mut stopped = false;
     for binding in records::conversations_of(
         service.home.store().connection(),
         agent,
     )? {
         if busy(service, binding)? {
-            stop_conversation(service, harnesses, agent, binding)
-                .await?;
+            stop_turn(service, harnesses, binding).await?;
+            stopped = true;
         }
+    }
+    if stopped {
+        end_waits(service, harnesses, agent).await?;
     }
     Ok(())
 }
 
 /// Stops the turn of the conversation `binding` of `agent`, drops its
 /// queued inputs and ends its waits.
+#[cfg(feature = "harness")]
 pub(super) async fn stop_conversation(
     service: &mut Service,
     harnesses: &mut Harnesses,
     agent: &AgentRef,
     binding: BindingId,
 ) -> Result<()> {
-    let chief = service.chief.clone();
-    let turn = service
-        .chats
-        .conversations
-        .get(&binding)
-        .and_then(|c| c.turn.clone());
-    let dropped = records::queued_lines(
+    stop_turn(service, harnesses, binding).await?;
+    end_waits(service, harnesses, agent).await
+}
+
+/// Ends what waits for a stop of `agent` and tells the calls it held.
+async fn end_waits(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    agent: &AgentRef,
+) -> Result<()> {
+    let woken = oversight::stop(
         service.home.store().connection(),
-        binding,
-        turn.as_deref(),
-    )?;
-    super::calls::stop_tools(service, binding);
-    harnesses.cancel(service.home.store(), binding).await?;
-    let db = service.home.store().connection();
-    let place = records::kept(db, binding)?.map(|kept| kept.place);
-    let mut woken = oversight::lapse(
-        db,
         agent,
-        place
-            .as_ref()
-            .and_then(|place| place.chief.as_deref())
-            .unwrap_or(&chief),
-        "stopped",
-        0,
-        None,
+        &service.chief,
         super::now(),
     )?;
-    for wait in oversight::open(db)?
-        .iter()
-        .filter(|wait| wait.agent.as_ref() == Some(agent))
-        .filter(|wait| wait.kind != "fault")
-    {
-        if let Some((_, calls)) = oversight::settle(
-            db,
-            &wait.id,
-            "stopped",
-            "",
-            Some(&chief),
-            super::now(),
-        )? {
-            woken.extend(calls);
-        }
-    }
     for (runtime, key) in woken {
         harnesses.wake(&runtime, &key).await;
     }
+    Ok(())
+}
+
+/// Stops the turn of the conversation `binding` and drops its queued
+/// inputs.
+async fn stop_turn(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    binding: BindingId,
+) -> Result<()> {
+    let chief = service.chief.clone();
+    let turn = service.chats.turn(binding);
+    let dropped = service
+        .home
+        .store()
+        .queued_lines(binding, turn.as_deref())?;
+    super::calls::stop_tools(service, binding);
+    harnesses.cancel(service.home.store(), binding).await?;
     let text = format!(
         "Stopped: stopped by {chief}{}",
         if dropped == 0 {

@@ -5,12 +5,13 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use hamlet_protocol::v0::{
-    Address, Edit, EditLimits, Limits, Read, ServerMessage,
+    Address, Edit, EditLimits, Read, ServerMessage,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::Outcome;
-use crate::limits::record_limits;
+use crate::limits::Limits;
 use crate::papers::{CHARTER, cut};
 use crate::protocol::{Refusal, reply};
 use crate::record::{Actor, Audience, Change, RecordOperation, trim};
@@ -31,11 +32,9 @@ impl Service {
             Ok(agent) => agent,
             Err(error) => return Ok(Err(error)),
         };
-        let mut text = Value::String(text.into());
-        self.credentials.scrub(&mut text);
         Ok(Ok((
             self.houses.files(&agent.hamlet, member.number)?,
-            text.as_str().context("paper text")?.into(),
+            self.credentials.scrub_text(text),
         )))
     }
 
@@ -93,15 +92,13 @@ impl Service {
             Ok(record) => record,
             Err(error) => return Ok(Err(error)),
         };
-        let current = self.limits_of(hamlet)?;
-        let mut value = match self.limits.edit(current.clone(), edit)
-        {
+        let current = record.limits.chief.clone();
+        let mut value = match self.limits.edit(&current, edit) {
             Ok(value) => value,
             Err(error) => return Ok(Err(error)),
         };
         self.credentials.scrub(&mut value);
-        let Ok(limits) =
-            serde_json::from_value::<Limits>(value.clone())
+        let Ok(limits) = serde_json::from_value::<Limits>(value)
         else {
             return Ok(Err(Refusal::Invalid(
                 "A limit is outside protocol v0's supported number \
@@ -123,25 +120,24 @@ impl Service {
                     .into(),
             )));
         }
-        let settings = self.settings()?;
+        let home = self.settings()?.model;
         let runs = record
             .agents
             .iter()
             .filter_map(|agent| {
                 let mayor = agent.number == record.mayor;
-                let before = crate::state::model(
-                    agent, &current, &settings, mayor,
-                );
-                let after = crate::state::model(
-                    agent, &value, &settings, mayor,
-                );
+                let before = current.model_of(agent, mayor, &home);
+                let after = limits.model_of(agent, mayor, &home);
                 (before != after).then_some((agent.number, after))
             })
             .collect();
         let operation = self.operation(
             hamlet,
             Change::SetLimits {
-                limits: record_limits(&limits, &record.limits),
+                limits: crate::record::Limits {
+                    chief: Box::new(limits),
+                    road_budget: record.limits.road_budget.clone(),
+                },
                 runs,
             },
             reason.as_deref().unwrap_or_default(),
@@ -154,7 +150,6 @@ impl Service {
                 error.text(Audience::Chief),
             )));
         }
-        save(&tx, "limits", hamlet, &value)?;
         tx.commit()?;
         Ok(Ok("Saved.".into()))
     }
@@ -169,31 +164,38 @@ impl Service {
             Ok(workspace) => workspace,
             Err(error) => return Ok(Err(error)),
         };
-        let mut fields = serde_json::to_value(&set)?;
-        fields
-            .as_object_mut()
-            .context("settings edit")?
-            .remove("workspace");
-        self.credentials.scrub(&mut fields);
-        if !fields.as_object().context("settings edit")?.is_empty()
-            || workspace.is_none()
-        {
-            let mut settings = document(
-                self.home.store().connection(),
-                "settings",
-                "home",
-            )?
-            .unwrap_or_else(crate::settings::defaults);
-            for (key, value) in
-                fields.as_object().context("settings edit")?
-            {
-                settings[key] = value.clone();
+        let edits = set.model.is_some()
+            || set.reflect_every.is_some()
+            || set.allow_net.is_some()
+            || set.endpoints.is_some();
+        if edits || workspace.is_none() {
+            let db = self.home.store().connection();
+            let mut settings = crate::settings::stored(db)?;
+            if let Some(model) = &set.model {
+                settings.model = self.credentials.scrub_text(model);
             }
-            settings["saved"] = true.into();
-            save(
+            if let Some(every) = set.reflect_every {
+                settings.reflect_every = u64::try_from(every)?;
+            }
+            if let Some(net) = set.allow_net {
+                settings.allow_net = net;
+            }
+            if let Some(endpoints) = &set.endpoints {
+                settings.endpoints = endpoints
+                    .iter()
+                    .map(|endpoint| hamlet_protocol::v0::Endpoint {
+                        name: self
+                            .credentials
+                            .scrub_text(&endpoint.name),
+                        base_url: self
+                            .credentials
+                            .scrub_text(&endpoint.base_url),
+                    })
+                    .collect();
+            }
+            settings.saved = true;
+            crate::settings::keep(
                 self.home.store().connection(),
-                "settings",
-                "home",
                 &settings,
             )?;
         }
@@ -201,13 +203,9 @@ impl Service {
             self.credentials.choose_workspace(workspace)?;
         }
         if let Some(endpoints) = set.endpoints {
-            for old in
-                previous["endpoints"].as_array().into_iter().flatten()
-            {
-                if let Some(name) = old["name"].as_str()
-                    && !endpoints.iter().any(|e| e.name == name)
-                {
-                    self.credentials.save_model(name, None)?;
+            for old in &previous.endpoints {
+                if !endpoints.iter().any(|e| e.name == old.name) {
+                    self.credentials.save_model(&old.name, None)?;
                 }
             }
         }
@@ -224,9 +222,7 @@ impl Service {
             Ok(agent) => agent,
             Err(error) => return Ok(Err(error)),
         };
-        let mut text = Value::String(text.into());
-        self.credentials.scrub(&mut text);
-        let text = text.as_str().context("paper text")?;
+        let text = &self.credentials.scrub_text(text);
         if character {
             let operation = self.operation(
                 &agent.hamlet,
@@ -293,17 +289,26 @@ impl Service {
     pub(crate) fn set_mode(
         &mut self,
         hamlet: &str,
-        mode: &str,
+        mode: Mode,
     ) -> Result<String> {
         let mut work = self.work(hamlet)?;
-        work["mode"] = mode.into();
-        save(self.home.store().connection(), "work", hamlet, &work)?;
-        let suffix = if work["folder"].is_null() {
+        work.mode = mode;
+        self.keep_work(hamlet, &work)?;
+        let suffix = if work.folder.is_none() {
             " It counts once this hamlet works on a folder."
         } else {
             ""
         };
-        Ok(format!("{}{suffix}", mode_words(mode)))
+        Ok(format!("{}{suffix}", mode.words()))
+    }
+
+    fn keep_work(&mut self, hamlet: &str, work: &Work) -> Result<()> {
+        save(
+            self.home.store().connection(),
+            "work",
+            hamlet,
+            &serde_json::to_value(work)?,
+        )
     }
 
     /// Points the hamlet at the folder `tail` names, at none, or
@@ -315,13 +320,11 @@ impl Service {
     ) -> Result<std::result::Result<String, Refusal>> {
         let mut work = self.work(hamlet)?;
         if tail.is_empty() {
-            return Ok(Ok(match work["folder"].as_str() {
+            return Ok(Ok(match &work.folder {
                 Some(folder) => format!(
                     "This hamlet works on `{folder}`. {} `/folder \
                      none` stops that.",
-                    mode_words(
-                        work["mode"].as_str().unwrap_or("manual")
-                    )
+                    work.mode.words()
                 ),
                 None => "This hamlet works on no folder. `/folder \
                          <folder>` points it at one."
@@ -329,7 +332,7 @@ impl Service {
             }));
         }
         let folder = if tail == "none" {
-            Value::Null
+            None
         } else if self.houses.workspace.is_some() {
             if tail != "/project" {
                 return Ok(Err(Refusal::Invalid(
@@ -339,7 +342,7 @@ impl Service {
                         .into(),
                 )));
             }
-            Value::String("/project".into())
+            Some("/project".into())
         } else {
             let expanded = if tail == "~" || tail.starts_with("~/") {
                 PathBuf::from(
@@ -372,22 +375,20 @@ impl Service {
                     root.display()
                 ))));
             }
-            next.to_string_lossy().into_owned().into()
+            Some(next.to_string_lossy().into_owned())
         };
-        let previous = work["folder"].clone();
-        let before = work["before"]
-            .as_array_mut()
-            .context("earlier folders")?;
-        before.retain(|old| *old != folder);
-        if !previous.is_null() && previous != folder {
-            before.insert(0, previous);
+        work.before.retain(|old| Some(old) != folder.as_ref());
+        if let Some(previous) = work.folder.take()
+            && Some(&previous) != folder.as_ref()
+        {
+            work.before.insert(0, previous);
         }
-        work["folder"] = folder.clone();
-        save(self.home.store().connection(), "work", hamlet, &work)?;
-        Ok(Ok(match folder.as_str() {
+        work.folder.clone_from(&folder);
+        self.keep_work(hamlet, &work)?;
+        Ok(Ok(match folder {
             Some(folder) => format!(
                 "This hamlet works on `{folder}` now. {}",
-                mode_words(work["mode"].as_str().unwrap_or("manual"))
+                work.mode.words()
             ),
             None => "This hamlet works on no folder now. Its agents \
                      are back in their own workspaces."
@@ -396,11 +397,48 @@ impl Service {
     }
 }
 
-pub(crate) fn mode_words(mode: &str) -> &'static str {
-    if mode == "auto" {
-        "Agents edit and run commands in the folder without asking."
-    } else {
-        "Agents ask you before each edit and command."
+/// What a hamlet works on, and how its agents ask before they change
+/// it.
+#[derive(
+    Clone, Debug, Default, PartialEq, Serialize, Deserialize,
+)]
+#[serde(default)]
+pub(crate) struct Work {
+    pub folder: Option<String>,
+    pub mode: Mode,
+    /// The folders it worked on before, latest first.
+    pub before: Vec<String>,
+}
+
+impl Work {
+    /// Whether its agents ask before each edit and command.
+    pub fn asks(&self) -> bool {
+        self.folder.is_some() && self.mode == Mode::Manual
+    }
+}
+
+/// Whether agents ask before they change a hamlet's folder.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Mode {
+    #[default]
+    Manual,
+    Auto,
+}
+
+impl Mode {
+    pub fn words(self) -> &'static str {
+        match self {
+            Self::Auto => {
+                "Agents edit and run commands in the folder without \
+                 asking."
+            }
+            Self::Manual => {
+                "Agents ask you before each edit and command."
+            }
+        }
     }
 }
 
@@ -527,17 +565,17 @@ pub(crate) fn prepare_read(
             full,
         });
     }
-    let settings = service.settings()?;
-    let limits = service.limits_of(&address.hamlet)?;
-    let mayor = service
+    let home = service.settings()?.model;
+    let record = service
         .home
         .store()
         .record(&address.hamlet)?
-        .context("the prompt's hamlet")?
-        .mayor
-        == agent.number;
-    let model =
-        crate::state::model(&agent, &limits, &settings, mayor);
+        .context("the prompt's hamlet")?;
+    let model = record.limits.chief.model_of(
+        &agent,
+        record.mayor == agent.number,
+        &home,
+    );
     let instructions = crate::chats::records::instructions(
         service.home.store().connection(),
         &address.hamlet,

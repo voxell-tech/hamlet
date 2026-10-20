@@ -220,9 +220,9 @@ impl Driver {
                 let runtime = RuntimeInstance::new(text("runtime")?)?;
                 let choice =
                     if command["allow"].as_bool().context("allow")? {
-                        "allow"
+                        hamlet_protocol::v0::Choice::Allow
                     } else {
-                        "deny"
+                        hamlet_protocol::v0::Choice::Deny
                     };
                 let decided = match self
                     .service
@@ -233,7 +233,7 @@ impl Driver {
                         .answer_wait(
                             &mut self.harnesses,
                             &wait,
-                            choice,
+                            &choice,
                         )
                         .await?
                         .map_err(anyhow::Error::msg)?,

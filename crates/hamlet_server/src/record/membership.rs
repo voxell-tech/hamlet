@@ -17,16 +17,16 @@ impl Hamlet {
             .iter()
             .filter(|a| a.number != self.mayor)
             .count()
-            >= self.limits.most_agents)
-            .then(|| {
-                Refusal::new(
-                    operation,
-                    &self.id,
-                    Reason::HamletFull {
-                        most: self.limits.most_agents,
-                    },
-                )
-            })
+            >= self.limits.chief.agent_room())
+        .then(|| {
+            Refusal::new(
+                operation,
+                &self.id,
+                Reason::HamletFull {
+                    most: self.limits.chief.agent_room(),
+                },
+            )
+        })
     }
 
     fn ordinary(&self, name: &str) -> Result<Agent, Reason> {
@@ -77,10 +77,9 @@ impl RecordOperation {
             .next
             .checked_add(1)
             .context("agent number exhausted")?;
-        let model = given
-            .model
-            .clone()
-            .filter(|m| !m.is_empty() && r.limits.models.contains(m));
+        let model = given.model.clone().filter(|m| {
+            !m.is_empty() && r.limits.chief.models.contains(m)
+        });
         let purpose = names::trim(&given.purpose).to_string();
         r.agents.push(Agent {
             number,
@@ -139,7 +138,7 @@ impl RecordOperation {
             p.agent == agent.number
                 && p.done.is_none_or(|done| {
                     (self.at.saturating_sub(done).max(0) as u64)
-                        < r.limits.protected_ms
+                        < r.limits.chief.protected_ms()
                 })
         }) {
             return Err(self.refuse(Reason::Protected {
@@ -442,13 +441,13 @@ impl RecordOperation {
                 road.a != End::Office && road.b != End::Office
             })
             .count();
-        let excess = if built > r.limits.most_roads {
+        let excess = if built > r.limits.chief.road_room() {
             format!(
                 " The hamlet now has {built} roads between agents, \
                  more than the {} your limits allow. They all work; \
                  the mayor can build no more until you raise \
                  mostRoads in the limits.",
-                r.limits.most_roads
+                r.limits.chief.road_room()
             )
         } else {
             String::new()

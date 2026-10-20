@@ -9,6 +9,7 @@
 pub(crate) mod answers;
 mod bindings;
 mod credentials;
+mod mark;
 // Generated, so formatted as the generator writes it.
 #[rustfmt::skip]
 pub mod link;
@@ -27,10 +28,14 @@ use anyhow::{Context, Result, bail};
 pub use bindings::{
     Binding, BindingId, DEFAULT_HARNESS, Input, InputStatus, Standing,
 };
+pub(crate) use bindings::{
+    ended, fork_of, input_runs, items, working_on,
+};
 use link::{
     Capability, Diagnostic, HelloStore, Item, Mark, ModelRef,
     Partial, RuntimeMessage, Section, ServerMessage, ToolSpec,
 };
+pub use mark::{InputMark, Mail};
 pub use process::Pi;
 use process::{Launch, Process, Received};
 use serde_json::Value;
@@ -64,9 +69,6 @@ const RESTART_FORGIVEN: Duration = Duration::from_secs(60);
 const STOP_GRACE: Duration = Duration::from_secs(5);
 /// Entries asked for at once when catching up on a conversation.
 const SYNC_PAGE: u64 = 200;
-
-/// The kind of an entry written for people alone.
-const NOTICE: &str = "hamlet.notice";
 
 /// How this server starts runtimes and what it gives them.
 #[derive(Clone, Debug)]
@@ -229,6 +231,18 @@ pub enum Call {
     },
 }
 
+impl Call {
+    /// The runtime's submission id of the input whose turn asks.
+    pub fn input(&self) -> Option<&str> {
+        match self {
+            Self::Allow { input, .. }
+            | Self::Operation { input, .. }
+            | Self::Prompt { input }
+            | Self::Yield { input, .. } => input.as_deref(),
+        }
+    }
+}
+
 /// The message a [`Call`] came in, to answer it by.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Re {
@@ -245,6 +259,19 @@ enum Wake {
     Operation(String),
     /// A chief's ruling on what holds the turns of a conversation.
     Turn(BindingId),
+}
+
+#[cfg(test)]
+impl Re {
+    /// A message no runtime sent.
+    pub(crate) fn test() -> Self {
+        Self {
+            index: 0,
+            generation: 0,
+            id: "test".into(),
+            wake: Wake::Turn(BindingId(0)),
+        }
+    }
 }
 
 impl Wake {
@@ -279,6 +306,19 @@ pub enum Answer {
         notice: Option<Mark>,
         compact: bool,
     },
+}
+
+impl From<crate::tools::Outcome> for Answer {
+    fn from(outcome: crate::tools::Outcome) -> Self {
+        Self::Result {
+            text: outcome.text,
+            error: outcome.error,
+            details: outcome
+                .details
+                .map(|details| details.into_iter().collect()),
+            diagnostics: outcome.diagnostics,
+        }
+    }
 }
 
 impl Answer {
@@ -1354,17 +1394,6 @@ fn schedule(runtime: &mut Runtime) -> Duration {
 async fn sleep_until(at: Option<Instant>) {
     if let Some(at) = at {
         tokio::time::sleep_until(at.into()).await;
-    }
-}
-
-/// A notice for people alone, made now.
-fn notice(text: &str) -> Mark {
-    Mark {
-        data: BTreeMap::from([
-            ("text".into(), Value::from(text)),
-            ("at".into(), Value::from(now())),
-        ]),
-        kind: NOTICE.into(),
     }
 }
 

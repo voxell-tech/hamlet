@@ -50,6 +50,13 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE wait ADD COLUMN questions TEXT;",
     // 11. Tool calls wait in the chats' gate alone.
     "DROP TABLE harness_wait;",
+    // 12. A hamlet's record keeps its chief's limits, and only it.
+    "UPDATE record_hamlet SET document = json_set(document, \
+     '$.limits', json_object('chief', json(coalesce((SELECT value \
+     FROM chief_document WHERE kind = 'limits' AND key = \
+     record_hamlet.id), '{}')), 'road_budget', \
+     json(json_extract(document, '$.limits.road_budget'))));
+     DELETE FROM chief_document WHERE kind = 'limits';",
 ];
 
 /// A home's realm database, open in this process alone.

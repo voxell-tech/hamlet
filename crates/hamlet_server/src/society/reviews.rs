@@ -1,13 +1,16 @@
 //! Mayor reviews beside chief work and task-wide objection rulings.
 
 use anyhow::Result;
+use hamlet_protocol::v0::{Choice, LimitsAskingMayorReview};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::chats::records;
-use crate::harness::{BindingId, Harnesses};
-use crate::oversight::{self, ChatPlace, Raising};
+use crate::harness::{BindingId, Harnesses, InputMark};
+use crate::oversight::{
+    self, ChatPlace, Raising, Ruling, WaitKind, held,
+};
 use crate::record::AgentRef;
 use crate::service::Service;
 
@@ -21,7 +24,7 @@ const DONE: &str = "review-done";
 pub(super) struct Instruction {
     pub binding: i64,
     pub waits: Vec<String>,
-    pub how: Option<String>,
+    pub how: Option<Ruling>,
     text: String,
     notified: bool,
 }
@@ -37,19 +40,6 @@ struct Review {
     prompt: String,
     done: bool,
     wait: Option<String>,
-}
-
-fn active(db: &Connection, task: &str) -> Result<Vec<BindingId>> {
-    Ok(db
-        .prepare(
-            "SELECT DISTINCT i.binding FROM harness_input i JOIN \
-             harness_binding b ON b.id=i.binding WHERE b.errand=0 \
-             AND i.state!='dropped' AND coalesce(i.status,'queued') \
-             IN ('queued','placed') AND \
-             json_extract(i.mark,'$.data.task')=?1",
-        )?
-        .query_map([task], |row| Ok(BindingId(row.get(0)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 pub(crate) fn held(
@@ -68,12 +58,12 @@ pub(crate) fn held(
         "instruction-ruling",
         &task,
     )?;
-    if instruction.how.as_deref() == Some("withdraw") {
+    if instruction.how == Some(Ruling::Withdraw) {
         return Ok(true);
     }
     for wait in instruction.waits {
         if oversight::find(db, &wait)?.is_some_and(|wait| {
-            wait.answers.iter().any(|answer| answer == "withdraw")
+            wait.answers.contains(&Choice::Withdraw)
         }) {
             return Ok(true);
         }
@@ -87,23 +77,14 @@ pub(crate) async fn prepare(
     binding: BindingId,
     input: Option<&str>,
 ) -> Result<()> {
-    let Some(request) = input
-        .map(|input| service.home.store().request_of(binding, input))
-        .transpose()?
-        .flatten()
+    let Some(InputMark::Chief {
+        chief, text, task, ..
+    }) = service.home.store().input_mark(binding, input)?
     else {
         return Ok(());
     };
+    let task = task.as_str();
     let db = service.home.store().connection();
-    let Some(mark) = records::mark_of(db, binding, &request)?
-        .filter(|mark| mark.kind == "hamlet.chief")
-    else {
-        return Ok(());
-    };
-    let Some(task) = mark.data.get("task").and_then(Value::as_str)
-    else {
-        return Ok(());
-    };
     if super::document::<Option<Review>>(db, DUE, task)?.is_some()
         || super::document::<Option<Review>>(db, DONE, task)?
             .is_some()
@@ -118,11 +99,11 @@ pub(crate) async fn prepare(
     if r.mayor == kept.place.agent.number {
         return Ok(());
     }
-    let limits = service.limits_of(&r.id)?;
-    if limits["asking"]["mayorReview"] == "never" {
+    let review = r.limits.chief.asking.mayor_review.clone();
+    if review == LimitsAskingMayorReview::Never {
         return Ok(());
     }
-    if limits["asking"]["mayorReview"] == "remote" {
+    if review == LimitsAskingMayorReview::Remote {
         let settings = service.settings()?;
         let mayor = r
             .agents
@@ -130,16 +111,11 @@ pub(crate) async fn prepare(
             .find(|agent| agent.number == r.mayor)
             .expect("mayor");
         let model =
-            crate::state::model(mayor, &limits, &settings, true);
+            r.limits.chief.model_of(mayor, true, &settings.model);
         let (provider, model) =
             model.split_once("::").unwrap_or_default();
-        let endpoint = settings["endpoints"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|endpoint| endpoint["name"] == provider);
-        let url = endpoint
-            .and_then(|endpoint| endpoint["baseUrl"].as_str())
+        let url = settings
+            .base_url(provider)
             .or_else(|| service.models.base_url(provider, model))
             .and_then(|url| url::Url::parse(url).ok());
         let remote = url
@@ -164,19 +140,11 @@ pub(crate) async fn prepare(
         return Ok(());
     }
     let text = format!(
-        "{} told `{}`: {}",
-        mark.data
-            .get("chief")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
+        "{chief} told `{}`: {text}",
         r.name_of(
             kept.place.agent.number,
             crate::record::NameFallback::Recorded
         ),
-        mark.data
-            .get("text")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
     );
     let review = Review {
         binding: binding.0,
@@ -284,8 +252,11 @@ async fn sweep_review(
             return Ok(());
         };
         review.done = true;
-        let ended = active(service.home.store().connection(), task)?
-            .is_empty();
+        let ended = crate::harness::working_on(
+            service.home.store().connection(),
+            task,
+        )?
+        .is_empty();
         let tx = service.home.store().transaction()?;
         if let Some(reason) = objection(&answer) {
             object(&tx, task, &mut review, reason, ended)?;
@@ -294,17 +265,18 @@ async fn sweep_review(
         tx.commit()?;
     }
     let db = service.home.store().connection();
-    let ended =
-        || Ok::<_, anyhow::Error>(active(db, task)?.is_empty());
+    let ended = || {
+        Ok::<_, anyhow::Error>(
+            crate::harness::working_on(db, task)?.is_empty(),
+        )
+    };
     let settled = match &review.wait {
         None => true,
         Some(wait) if ended()? => {
-            db.execute(
-                "UPDATE wait SET answers='[\"dismiss\"]', \
-                 about=about || char(10) || '(The work ended before \
-                 you answered.)' WHERE id=?1 AND open=1 AND \
-                 answers!='[\"dismiss\"]'",
-                [wait],
+            held::only_dismiss(
+                db,
+                wait,
+                "(The work ended before you answered.)",
             )?;
             true
         }
@@ -349,11 +321,10 @@ fn object(
     if instruction.how.is_some() {
         return Ok(());
     }
-    review.wait = oversight::raise(
+    review.wait = held::raise(
         tx,
         Raising {
-            kind: "objection",
-            danger: None,
+            kind: WaitKind::Objection,
             by: if review.agent.hamlet == "home" {
                 "mayor".into()
             } else {
@@ -372,9 +343,9 @@ fn object(
             change: None,
             questions: None,
             answers: if ended {
-                vec!["dismiss".into()]
+                vec![Choice::Dismiss]
             } else {
-                vec!["go".into(), "withdraw".into()]
+                vec![Choice::Go, Choice::Withdraw]
             },
             chat: Some(ChatPlace {
                 hamlet: review.agent.hamlet.clone(),
@@ -414,27 +385,20 @@ async fn withdraw(
     for (task, value) in withdrawals {
         let mut instruction =
             serde_json::from_str::<Instruction>(&value)?;
-        for binding in
-            active(service.home.store().connection(), &task)?
-        {
+        for binding in crate::harness::working_on(
+            service.home.store().connection(),
+            &task,
+        )? {
             crate::chats::stop_tools(service, binding);
-            let waits = service
-                .home
-                .store()
-                .connection()
-                .prepare(
-                    "SELECT DISTINCT wait FROM gate_call WHERE \
-                     binding=?1 AND wait IS NOT NULL AND how IS NULL",
-                )?
-                .query_map([binding.0], |row| {
-                    row.get::<_, String>(0)
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let waits = held::waits_holding(
+                service.home.store().connection(),
+                binding,
+            )?;
             for wait in waits {
                 if let Some((_, woken)) = oversight::settle(
                     service.home.store().connection(),
                     &wait,
-                    "stopped",
+                    Ruling::Stopped,
                     "The chief withdrew the instruction.",
                     None,
                     super::now(),
@@ -472,7 +436,7 @@ async fn withdraw(
 pub(crate) fn settle(
     db: &Connection,
     wait: &str,
-    how: &str,
+    ruling: Ruling,
     text: &str,
     chief: &str,
 ) -> Result<oversight::Woken> {
@@ -492,17 +456,17 @@ pub(crate) fn settle(
         .optional()?;
     let mut woken = Vec::new();
     if let Some((task, value)) = found
-        && ["go", "withdraw"].contains(&how)
+        && matches!(ruling, Ruling::Go | Ruling::Withdraw)
     {
         let mut instruction =
             serde_json::from_str::<Instruction>(&value)?;
-        instruction.how = Some(how.into());
+        instruction.how = Some(ruling);
         instruction.text = text.into();
         for id in &instruction.waits {
             if let Some((_, calls)) = oversight::settle(
                 db,
                 id,
-                how,
+                ruling,
                 text,
                 Some(chief),
                 super::now(),

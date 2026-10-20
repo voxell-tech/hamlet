@@ -3,38 +3,46 @@
 //! whether a final answer stands (C28). And a chief's answers to what
 //! waits.
 
+mod answer;
+mod ask;
+mod decide;
+mod tasks;
+
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 use anyhow::Result;
-use hamlet_protocol::v0::{Pick, Questions};
-use hamlet_protocol::{HOME, MAYOR};
-use rusqlite::{OptionalExtension, params};
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
-use tokio::task::AbortHandle;
 
-use super::records::{self, Place};
-use super::{asking, follow};
-use crate::gate::{self, Asked, Standing, TrustKey, Verdict};
+pub(super) use self::answer::answer_words;
+use self::decide::{Decision, Gate, Reading, Unadmitted};
+use self::tasks::Prepared;
+pub(crate) use self::tasks::{Finished, Tasks};
+use super::{asking, follow, records};
 use crate::harness::link::{
     Block, Item, Section, ToolSpec, ToolSpecReplay,
 };
 use crate::harness::tools::CONFLICT;
-use crate::harness::{Answer, BindingId, Call, Harnesses, Re};
+use crate::harness::{
+    Answer, Binding, BindingId, Call, Harnesses, InputMark, Re,
+};
 use crate::operation::{self, Marked, Request};
-use crate::oversight::{self, ChatPlace, Raising};
-use crate::record::{AgentRef, Hamlet};
 use crate::service::Service;
-use crate::{OperationId, RuntimeInstance, tools};
+use crate::tools;
 
 /// The words of a call that waits for a chief.
 const WAITING: &str = "This call waits for a chief's answer.";
+/// The words of a call held while the chief considers an objection.
+const OBJECTING: &str = "The chief is considering an objection.";
 /// The words of a call that nobody may approve.
 const NOBODY: &str = "nobody is here to approve it; it did not run";
 const IDENTITY_REFUSAL: &str = "This call's identity does not match \
                                 a verified request, so it did not \
                                 run.";
+/// The words of a call whose preparation failed.
+const UNPREPARED: &str =
+    "The server could not prepare this call, so it did not run.";
+/// What a preview shows of a file it cannot show as text.
+const UNREADABLE: &str = "[a file that could not be read as text]";
 /// The chief's recovery advice for an answer with no text or calls.
 const EMPTY: &str =
     "the model answered with nothing. Send the message again";
@@ -50,123 +58,112 @@ const NO_SUMMARY: &str = "the conversation is longer than the model \
 /// The tools whose call may change the world, run once.
 const UNSAFE: &[&str] = &["bash", "write", "edit"];
 
-/// A tool call that finished running.
-pub(crate) struct Ran {
-    runtime: String,
-    key: String,
-    outcome: tools::Outcome,
-}
-
-/// A tool call running, and the calls of runtimes it answers.
-pub(super) struct Running {
-    res: Vec<Re>,
-    binding: BindingId,
-    abort: AbortHandle,
-}
-
-pub(super) struct Preparing {
-    binding: BindingId,
-    abort: AbortHandle,
-}
-
-pub(crate) struct PreparedCall {
-    id: uuid::Uuid,
-    binding: BindingId,
-    re: Re,
-    call: Call,
-    signature: Value,
-    result: Preparation,
-}
-
-enum Preparation {
+/// What a call's preparation read.
+pub(crate) enum Preparation {
     Prompt(Result<Vec<Section>>),
     Preview(std::result::Result<Option<String>, String>),
 }
 
-pub(crate) async fn prepared(
+/// Answers the calls of a task that ended.
+pub(crate) async fn finished(
     service: &mut Service,
     harnesses: &mut Harnesses,
-    ready: PreparedCall,
+    finished: Finished,
 ) -> Result<()> {
-    if service.chats.preparations.remove(&ready.id).is_none() {
-        return Ok(());
+    match finished {
+        Finished::Ran { id, res, outcome } => {
+            // Kept before any answer, as the call may not run again.
+            operation::settle(
+                service.home.store().connection(),
+                &id,
+                &outcome,
+            )?;
+            for re in res {
+                harnesses.answer(re, outcome.clone().into()).await;
+            }
+        }
+        Finished::Prepared(prepared) => {
+            self::prepared(service, harnesses, prepared).await?;
+        }
+        Finished::Unprepared { re } => {
+            harnesses
+                .answer(re, Answer::Refusal(UNPREPARED.into()))
+                .await;
+        }
     }
-    let input = match &ready.call {
-        Call::Allow { input, .. }
-        | Call::Operation { input, .. }
-        | Call::Prompt { input }
-        | Call::Yield { input, .. } => input.as_deref(),
-    };
-    if service.home.store().cancelling(ready.binding)? {
-        harnesses
-            .answer(
-                ready.re,
-                Answer::Refusal(
-                    crate::harness::answers::STOPPED_WORDS.into(),
-                ),
-            )
-            .await;
-        return Ok(());
-    }
-    if crate::society::reviews::held(service, ready.binding, input)? {
-        harnesses
-            .answer(
-                ready.re,
-                Answer::Waiting(
-                    "The chief is considering an objection.".into(),
-                ),
-            )
-            .await;
-        return Ok(());
-    }
-    match ready.result {
+    Ok(())
+}
+
+/// Answers a prepared call, unless what it read changed meanwhile.
+async fn prepared(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    ready: Prepared,
+) -> Result<()> {
+    let Prepared {
+        binding,
+        re,
+        call,
+        signature,
+        result,
+    } = ready;
+    match result {
         Preparation::Prompt(result) => {
-            if prompt(service, ready.binding, input)?.signature()
-                != ready.signature
+            let input = call.input();
+            if service.home.store().cancelling(binding)? {
+                harnesses
+                    .answer(
+                        re,
+                        Answer::Refusal(
+                            crate::harness::answers::STOPPED_WORDS
+                                .into(),
+                        ),
+                    )
+                    .await;
+                return Ok(());
+            }
+            if objecting(service, binding, input)? {
+                harnesses
+                    .answer(re, Answer::Waiting(OBJECTING.into()))
+                    .await;
+                return Ok(());
+            }
+            if prompt(service, binding, input)?.signature()
+                != signature
             {
-                return call(
-                    service,
-                    harnesses,
-                    ready.binding,
-                    ready.re,
-                    ready.call,
+                return self::call(
+                    service, harnesses, binding, re, call,
                 )
                 .await;
             }
             let mut sections = result?;
             for section in &mut sections {
-                let mut text =
-                    Value::String(std::mem::take(&mut section.text));
-                service.credentials.scrub(&mut text);
                 section.text =
-                    text.as_str().unwrap_or_default().into();
+                    service.credentials.scrub_text(&section.text);
             }
-            harnesses
-                .answer(ready.re, Answer::Sections(sections))
-                .await;
+            harnesses.answer(re, Answer::Sections(sections)).await;
         }
         Preparation::Preview(result) => {
             let Some(bound) =
-                service.home.store().binding(ready.binding)?
+                service.home.store().binding(binding)?
             else {
                 return Ok(());
             };
-            if service.work(&bound.agent.hamlet)? != ready.signature {
-                return call(
-                    service,
-                    harnesses,
-                    ready.binding,
-                    ready.re,
-                    ready.call,
+            if serde_json::to_value(
+                service.work(&bound.agent.hamlet)?,
+            )? != signature
+            {
+                return self::call(
+                    service, harnesses, binding, re, call,
                 )
                 .await;
             }
             call_prepared(
                 service,
                 harnesses,
-                ready.binding,
-                ready.re,
-                ready.call,
+                binding,
+                re,
+                call,
                 Some(result),
             )
             .await?;
@@ -229,17 +226,7 @@ async fn call_prepared(
     call: Call,
     preview: Option<std::result::Result<Option<String>, String>>,
 ) -> Result<()> {
-    let input = match &call {
-        Call::Allow { input, .. }
-        | Call::Operation { input, .. }
-        | Call::Prompt { input }
-        | Call::Yield { input, .. } => input.clone(),
-    };
-    if !matches!(call, Call::Yield { .. })
-        && let Some(bound) = service.home.store().binding(binding)?
-        && !bound.errand
-        && service.merges.held(&bound.agent)
-    {
+    if merging(service, binding, &call)? {
         if matches!(call, Call::Prompt { .. }) {
             harnesses.cancel(service.home.store(), binding).await?;
         }
@@ -256,151 +243,46 @@ async fn call_prepared(
             .await;
         return Ok(());
     }
+    let input = call.input().map(String::from);
     if input.is_some() {
         super::conversation(service, binding)?
             .turn
             .clone_from(&input);
     }
-    if matches!(call, Call::Prompt { .. }) {
-        crate::society::reviews::prepare(
-            service,
-            harnesses,
-            binding,
-            input.as_deref(),
-        )
-        .await?;
-    }
-    let held_step = match &call {
-        Call::Allow { tool, .. } => tool != "object",
-        Call::Prompt { .. } => true,
-        Call::Operation { .. } | Call::Yield { .. } => false,
-    };
-    if held_step
-        && crate::society::reviews::held(
-            service,
-            binding,
-            input.as_deref(),
-        )?
-    {
-        harnesses
-            .answer(
-                re,
-                Answer::Waiting(
-                    "The chief is considering an objection.".into(),
-                ),
-            )
+    let input = input.as_deref();
+    if let Call::Prompt { .. } = call {
+        return prompt_call(service, harnesses, binding, re, call)
             .await;
-        return Ok(());
     }
-    if let Call::Prompt { .. } = &call {
-        let prepared = prompt(service, binding, input.as_deref())?;
-        let signature = prepared.signature();
-        let id = uuid::Uuid::new_v4();
-        let abort = service.chats.preparing.spawn(async move {
-            PreparedCall {
-                id,
-                binding,
-                re,
-                call,
-                signature,
-                result: Preparation::Prompt(prepared.render().await),
-            }
-        });
-        service
-            .chats
-            .preparations
-            .insert(id, Preparing { binding, abort });
-        return Ok(());
-    }
-    if preview.is_none()
-        && let Call::Allow {
-            key,
-            tool,
-            arguments,
-            ..
-        }
-        | Call::Operation {
-            key,
-            tool,
-            arguments,
-            ..
-        } = &call
-        && tool == "write"
-        && let Some(bound) = service.home.store().binding(binding)?
-        && same_request(
-            service,
-            bound.runtime.as_str(),
-            key,
-            binding,
-            input.as_deref(),
-            tool,
-            arguments,
-        )?
-        && kept(service, bound.runtime.as_str(), key)?.is_none()
-        && !service.home.store().cancelling(binding)?
-        && let Some(remote) =
-            service.remote_tools(&bound.agent, false)?
-        && let Some(path) = arguments
-            .get("path")
-            .and_then(Value::as_str)
-            .map(String::from)
-    {
-        let signature = service.work(&bound.agent.hamlet)?;
-        let id = uuid::Uuid::new_v4();
-        let abort = service.chats.preparing.spawn(async move {
-            let result = async {
-                let full = remote
-                    .footing(&path)
-                    .await
-                    .map_err(|e| e.message)?;
-                Ok(match remote.read(&full, false).await {
-                    Ok(bytes) => Some(
-                        String::from_utf8_lossy(&bytes).into_owned(),
-                    ),
-                    Err(error) if error.code == "not_found" => None,
-                    Err(_) => Some(
-                        "[a file that could not be read as text]"
-                            .into(),
-                    ),
-                })
-            }
-            .await;
-            PreparedCall {
-                id,
-                binding,
-                re,
-                call,
-                signature,
-                result: Preparation::Preview(result),
-            }
-        });
-        service
-            .chats
-            .preparations
-            .insert(id, Preparing { binding, abort });
-        return Ok(());
-    }
-    let answer = match call {
+    let answer = match &call {
         Call::Allow {
             key,
             tool,
             arguments,
             ..
         } => {
-            match decide(
+            match decide::allow(
                 service,
                 binding,
-                &key,
-                input.as_deref(),
-                &tool,
-                &arguments,
+                key,
+                input,
+                tool,
+                arguments,
                 preview.as_ref(),
-            )
-            .await?
-            {
-                Decision::Run { .. } => Answer::Allowed,
-                Decision::Block(words) => Answer::Refusal(words),
-                Decision::Wait => Answer::Waiting(WAITING.into()),
+            )? {
+                Gate::Decided(Decision::Run { .. }) => {
+                    Answer::Allowed
+                }
+                Gate::Decided(Decision::Block(words)) => {
+                    Answer::Refusal(words)
+                }
+                Gate::Decided(Decision::Wait(words)) => {
+                    Answer::Waiting(words.into())
+                }
+                Gate::Preview(reading) => {
+                    preview_call(service, binding, re, call, reading);
+                    return Ok(());
+                }
             }
         }
         Call::Operation {
@@ -413,31 +295,28 @@ async fn call_prepared(
                 service,
                 binding,
                 &re,
-                &key,
-                input.as_deref(),
-                &tool,
-                &arguments,
+                key,
+                input,
+                tool,
+                arguments,
                 preview.as_ref(),
-            )
-            .await?
-            {
+            )? {
                 Step::Answer(answer) => answer,
                 Step::Running => return Ok(()),
+                Step::Preview(reading) => {
+                    preview_call(service, binding, re, call, reading);
+                    return Ok(());
+                }
                 Step::Society(bound) => {
                     crate::society::operation(
-                        service,
-                        harnesses,
-                        &bound,
-                        &key,
-                        input.as_deref(),
-                        &tool,
-                        &arguments,
+                        service, harnesses, &bound, key, input, tool,
+                        arguments,
                     )
                     .await?
                 }
             }
         }
-        Call::Prompt { .. } => unreachable!("prompt prepared above"),
+        Call::Prompt { .. } => unreachable!("prompts are prepared"),
         Call::Yield {
             answer,
             history,
@@ -447,10 +326,10 @@ async fn call_prepared(
         } => verdict(
             service,
             binding,
-            input.as_deref(),
-            &answer,
-            history,
-            retried,
+            input,
+            answer,
+            *history,
+            *retried,
             summary_failure.as_deref(),
         )?,
     };
@@ -458,478 +337,101 @@ async fn call_prepared(
     Ok(())
 }
 
-/// What the gate decided of a call.
-enum Decision {
-    Run { net: bool },
-    Block(String),
-    Wait,
-}
-
-/// The gate's decision of the call `key`: the one kept, else one
-/// made now and kept, raising a wait when it asks a chief.
-async fn decide(
+/// Whether the house of `binding`'s agent is being merged or split,
+/// which holds every call of its own work but a final answer.
+fn merging(
     service: &mut Service,
     binding: BindingId,
-    key: &str,
-    input: Option<&str>,
-    tool: &str,
-    arguments: &BTreeMap<String, Value>,
-    preview: Option<&std::result::Result<Option<String>, String>>,
-) -> Result<Decision> {
-    let Some(bound) = service.home.store().binding(binding)? else {
-        return Ok(Decision::Block(NOBODY.into()));
-    };
-    let runtime = bound.runtime.as_str().to_owned();
-    if !same_request(
-        service, &runtime, key, binding, input, tool, arguments,
-    )? {
-        return Ok(Decision::Block(IDENTITY_REFUSAL.into()));
-    }
-    if crate::society::withheld(service, binding, tool)? {
-        return Ok(Decision::Run { net: false });
-    }
-    if let Some(decision) = kept(service, &runtime, key)? {
-        return Ok(decision);
-    }
-    let db = service.home.store().connection();
-    let Some(conversation) = records::kept(db, binding)? else {
-        keep_call(
-            service,
-            &runtime,
-            key,
-            binding,
-            input,
-            Some(false),
-            None,
-            None,
-        )?;
-        return Ok(Decision::Run { net: false });
-    };
-    if service.home.store().cancelling(binding)? {
-        let words = crate::harness::answers::STOPPED_WORDS;
-        keep_call(
-            service,
-            &runtime,
-            key,
-            binding,
-            input,
-            None,
-            Some(words),
-            None,
-        )?;
-        return Ok(Decision::Block(words.into()));
-    }
-    let place = conversation.place;
-    let args = Value::Object(arguments.clone().into_iter().collect());
-    let mut call = gate::call_of(tool, &args);
-    if let Some(manifest) =
-        crate::hand::load(service.home.layout().root())
-            .0
-            .into_iter()
-            .find(|manifest| manifest.spec.name == tool)
-    {
-        call = gate::Call::Hand {
-            name: tool.into(),
-            args: args.clone(),
-            net: manifest.net(),
-        };
-    }
-    let at = places(service, &place.agent)?;
-    let remote = service.remote_tools(&place.agent, false)?;
-    if let gate::Call::Edit {
-        write: true,
-        path,
-        old,
-        created,
-        ..
-    } = &mut call
-    {
-        let previous = if remote.is_some() {
-            match preview {
-                Some(Ok(before)) => before.clone(),
-                Some(Err(words)) => {
-                    return Ok(Decision::Block(words.clone()));
-                }
-                None => {
-                    return Ok(Decision::Block(
-                        "The remote edit preview is not available."
-                            .into(),
-                    ));
-                }
-            }
-        } else {
-            tools::footing(path, &at)
-                .ok()
-                .and_then(|full| before(service, &at, &full))
-        };
-        if let Some(previous) = previous {
-            *old = previous;
-            *created = false;
-        }
-    }
-    let change = match &call {
-        gate::Call::Edit {
-            write,
-            path,
-            old,
-            now,
-            created,
-        } => {
-            let mut change =
-                serde_json::to_value(crate::change::change_between(
-                    path,
-                    old,
-                    now,
-                    *write && *created,
-                ))?;
-            service.credentials.scrub(&mut change);
-            Some(change)
-        }
-        _ => None,
-    };
-    let Some(record) =
-        service.home.store().record(&place.agent.hamlet)?
-    else {
-        return Ok(Decision::Block(NOBODY.into()));
-    };
-    let by = wait_by(&record, &place.agent);
-    let mut standing = standing(service, &place, &record)?;
-    if let gate::Call::Edit { path, .. } = &call
-        && remote.is_none()
-        && let Ok(full) = tools::footing(path, &at)
-        && crate::sandbox::within(&full, &at.house)
-    {
-        standing.house_edit = true;
-    }
-    let limits = service.limits_of(&place.agent.hamlet)?;
-    let db = service.home.store().connection();
-    let asked = Asked::of(db, binding, input)?;
-    let mut about = Value::String(gate::call_text(&call));
-    service.credentials.scrub(&mut about);
-    let about = about.as_str().unwrap_or_default().to_owned();
-    let verdict = gate::rule(
-        &call,
-        &standing,
-        &asked,
-        &by,
-        &about,
-        &limits,
-        record.mayor == place.agent.number,
-    );
-    let change_text = change.as_ref().map(Value::to_string);
-    let danger = match verdict {
-        Verdict::Run { net } => {
-            keep_call(
-                service,
-                &runtime,
-                key,
-                binding,
-                input,
-                Some(net),
-                None,
-                change_text,
-            )?;
-            return Ok(Decision::Run { net });
-        }
-        Verdict::Block(words) => {
-            asked.keep(service.home.store().connection(), binding)?;
-            keep_call(
-                service,
-                &runtime,
-                key,
-                binding,
-                input,
-                None,
-                Some(&words),
-                change_text,
-            )?;
-            return Ok(Decision::Block(words));
-        }
-        Verdict::Ask(danger) => danger,
-    };
-    asked.keep(service.home.store().connection(), binding)?;
-    let reflecting = request_of(service, binding, input)?
-        .is_some_and(|request| request.starts_with("reflect:"));
-    if service.chats.closing && reflecting {
-        keep_call(
-            service,
-            &runtime,
-            key,
-            binding,
-            input,
-            None,
-            Some(NOBODY),
-            change_text,
-        )?;
-        return Ok(Decision::Block(NOBODY.into()));
-    }
-    keep_call(
-        service,
-        &runtime,
-        key,
-        binding,
-        input,
-        None,
-        None,
-        change_text,
-    )?;
-    oversight::raise(
-        service.home.store().connection(),
-        Raising {
-            kind: "approval",
-            danger: Some(danger.into()),
-            by,
-            agent: Some(place.agent.clone()),
-            about,
-            change,
-            questions: None,
-            answers: if danger == "destructive"
-                || danger == "reserved"
-            {
-                vec!["allow".into(), "deny".into()]
-            } else {
-                vec!["allow".into(), "always".into(), "deny".into()]
-            },
-            chat: chat_of(&place),
-            call: Some((bound.runtime.clone(), key.into())),
-        },
-        super::now(),
-    )?;
-    Ok(Decision::Wait)
-}
-
-/// The decision kept for the call `key` of `runtime`.
-fn kept(
-    service: &mut Service,
-    runtime: &str,
-    key: &str,
-) -> Result<Option<Decision>> {
-    let db = service.home.store().connection();
-    let row = db
-        .query_row(
-            "SELECT net, block, wait, how, text FROM gate_call \
-             WHERE runtime = ?1 AND key = ?2",
-            params![runtime, key],
-            |row| {
-                Ok((
-                    row.get::<_, Option<bool>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                ))
-            },
-        )
-        .optional()?;
-    let Some((net, block, wait, how, text)) = row else {
-        return Ok(None);
-    };
-    if operation::is_marked(db, runtime, key)? {
-        return Ok(Some(Decision::Run {
-            net: net.unwrap_or(false),
-        }));
-    }
-    if let Some(block) = block {
-        return Ok(Some(Decision::Block(block)));
-    }
-    if let Some(how) = how {
-        return Ok(Some(match how.as_str() {
-            "allow" | "always" => Decision::Run {
-                net: net.unwrap_or(false),
-            },
-            "deny" => Decision::Block(format!(
-                "the chief refused it: {}",
-                text.filter(|t| !t.is_empty())
-                    .unwrap_or_else(|| "no reason given".into())
-            )),
-            _ => Decision::Block(NOBODY.into()),
-        }));
-    }
-    if wait.is_some() {
-        return Ok(Some(Decision::Wait));
-    }
-    // Automatic allowances depend on the current grants and session
-    // trust. Only a chief's ruling above stands until execution.
-    Ok(None)
-}
-
-/// Reserves an identity before the early allowance or the effect.
-/// A legacy call or orphaned marker has no verifiable request.
-fn same_request(
-    service: &mut Service,
-    runtime: &str,
-    key: &str,
-    binding: BindingId,
-    input: Option<&str>,
-    tool: &str,
-    arguments: &BTreeMap<String, Value>,
+    call: &Call,
 ) -> Result<bool> {
-    let mut canonical = String::new();
-    crate::operation::canonical(
-        &json!([input, tool, arguments]),
-        &mut canonical,
-    );
-    let digest = Sha256::digest(canonical).to_vec();
-    let db = service.home.store().connection();
-    if !operation::is_marked(db, runtime, key)? {
-        db.execute(
-            "INSERT INTO gate_call (runtime, key, binding, digest) \
-             VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
-            params![runtime, key, binding.0, digest],
-        )?;
-    }
-    Ok(db
-        .query_row(
-            "SELECT binding, digest FROM gate_call WHERE runtime = \
-             ?1 AND key = ?2",
-            params![runtime, key],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Option<Vec<u8>>>(1)?,
-                ))
+    Ok(!matches!(call, Call::Yield { .. })
+        && service.home.store().binding(binding)?.is_some_and(
+            |bound| {
+                !bound.errand && service.merges.held(&bound.agent)
             },
-        )
-        .optional()?
-        .is_some_and(|(kept_binding, kept_digest)| {
-            kept_binding == binding.0
-                && kept_digest.as_ref() == Some(&digest)
-        }))
+        ))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn keep_call(
+/// Whether a chief considers an objection to the instruction whose
+/// turn made a call.
+fn objecting(
     service: &mut Service,
-    runtime: &str,
-    key: &str,
     binding: BindingId,
     input: Option<&str>,
-    net: Option<bool>,
-    block: Option<&str>,
-    change: Option<String>,
+) -> Result<bool> {
+    crate::society::reviews::held(service, binding, input)
+}
+
+/// Prepares the prompt of the next model call, after the mayor's
+/// review of a chief's instruction is asked for.
+async fn prompt_call(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    binding: BindingId,
+    re: Re,
+    call: Call,
 ) -> Result<()> {
-    service.home.store().connection().execute(
-        "UPDATE gate_call SET input = ?4, net = ?5, block = ?6, \
-         change = ?7 WHERE runtime = ?1 AND key = ?2 AND binding = \
-         ?3",
-        params![runtime, key, binding.0, input, net, block, change],
-    )?;
+    let input = call.input();
+    crate::society::reviews::prepare(
+        service, harnesses, binding, input,
+    )
+    .await?;
+    if objecting(service, binding, input)? {
+        harnesses
+            .answer(re, Answer::Waiting(OBJECTING.into()))
+            .await;
+        return Ok(());
+    }
+    let prepared = prompt(service, binding, input)?;
+    let signature = prepared.signature();
+    let answers = re.clone();
+    service.chats.calls.prepare(binding, re, async move {
+        Prepared {
+            binding,
+            re: answers,
+            call,
+            signature,
+            result: Preparation::Prompt(prepared.render().await),
+        }
+    });
     Ok(())
 }
 
-/// The text of the file at `path` as a write's preview shows it, or
-/// `None` when there is none. It is read as the agent at `at` may,
-/// so the preview shows the chief nothing the agent could not read
-/// itself.
-fn before(
-    service: &Service,
-    at: &tools::Place,
-    path: &std::path::Path,
-) -> Option<String> {
-    let path = crate::sandbox::path::text(path);
-    let Ok(env) =
-        tools::environment(&service.chats.sandbox, at, false)
-    else {
-        return Some(
-            "[a file that could not be read as text]".into(),
-        );
-    };
-    match env.read_text(&path) {
-        Ok(text) => {
-            let mut text = Value::String(text);
-            service.credentials.scrub(&mut text);
-            text.as_str().map(String::from)
-        }
-        Err(error) if error.code == "not_found" => None,
-        Err(error) => {
-            let size = env
-                .file_info(&path)
-                .map(|info| format!(", {} bytes", info.size))
-                .unwrap_or_default();
-            let reason = if error.code == "invalid" {
-                "is not UTF-8 text"
-            } else {
-                "could not be read as text"
-            };
-            Some(format!("[a file that {reason}{size}]"))
-        }
-    }
-}
-
-/// The grants, limits, mode and session trust in force for `place`.
-fn standing(
+/// Reads the file a remote write replaces, for its approval to show.
+fn preview_call(
     service: &mut Service,
-    place: &Place,
-    record: &Hamlet,
-) -> Result<Standing> {
-    let hamlet = &place.agent.hamlet;
-    let work = service.work(hamlet)?;
-    let limits = service.limits_of(hamlet)?;
-    let allow_net = service.settings()?["allowNet"] == true;
-    let db = service.home.store().connection();
-    let grants = gate::grants(db)?;
-    let by = record.address_of(place.agent.number);
-    let chief = place.chief.clone().unwrap_or_default();
-    let (edit, command) = gate::trusted(
-        db,
-        &TrustKey {
-            agent: &place.agent,
-            chief: &chief,
-            session: place.session,
-        },
-    )?;
-    let manual =
-        !work["folder"].is_null() && work["mode"] == "manual";
-    Ok(Standing {
-        house_edit: false,
-        net: allow_net
-            || gate::holds(
-                &limits,
-                &grants,
-                by,
-                &place.agent,
-                "network",
-            ),
-        asks_edits: manual && !edit,
-        asks_commands: manual && !command,
-    })
-}
-
-/// The name a wait shows for `agent`.
-fn wait_by(record: &Hamlet, agent: &AgentRef) -> String {
-    let name = record.address_of(agent.number);
-    if name == MAYOR && agent.hamlet != HOME {
-        format!("mayor@{}", agent.hamlet)
-    } else {
-        name.into()
-    }
-}
-
-fn chat_of(place: &Place) -> Option<ChatPlace> {
-    place.chief.as_ref().map(|chief| ChatPlace {
-        hamlet: place.agent.hamlet.clone(),
-        number: place.agent.number,
-        chief: chief.clone(),
-        session: place.session,
-    })
-}
-
-/// Where the tools of `agent` work.
-fn places(
-    service: &mut Service,
-    agent: &AgentRef,
-) -> Result<tools::Place> {
-    let root = service.home.layout().root().to_owned();
-    let work = service.work(&agent.hamlet)?;
-    Ok(tools::Place {
-        house: root
-            .join("houses")
-            .join(&agent.hamlet)
-            .join(agent.number.to_string()),
-        folder: work["folder"].as_str().map(PathBuf::from),
-        home: root.clone(),
-        shared: vec![root.join("tools"), root.join("library")],
-    })
+    binding: BindingId,
+    re: Re,
+    call: Call,
+    reading: Reading,
+) {
+    let answers = re.clone();
+    service.chats.calls.prepare(binding, re, async move {
+        let Reading {
+            remote,
+            path,
+            signature,
+        } = reading;
+        let result = async {
+            let full =
+                remote.footing(&path).await.map_err(|e| e.message)?;
+            Ok(match remote.read(&full, false).await {
+                Ok(bytes) => {
+                    Some(String::from_utf8_lossy(&bytes).into_owned())
+                }
+                Err(error) if error.code == "not_found" => None,
+                Err(_) => Some(UNREADABLE.into()),
+            })
+        }
+        .await;
+        Prepared {
+            binding,
+            re: answers,
+            call,
+            signature,
+            result: Preparation::Preview(result),
+        }
+    });
 }
 
 /// What carrying out a call comes to.
@@ -937,14 +439,17 @@ enum Step {
     Answer(Answer),
     /// The call runs, and is answered when it ends.
     Running,
+    /// The call waits for the file it writes to be read.
+    Preview(Reading),
     /// The gate let a society call run, which the society carries
     /// out.
-    Society(crate::harness::Binding),
+    Society(Binding),
 }
 
 /// Carries out the call `key`: its marked result when it ran, else as
 /// the gate decides now.
-async fn operation(
+#[allow(clippy::too_many_arguments)]
+fn operation(
     service: &mut Service,
     binding: BindingId,
     re: &Re,
@@ -954,34 +459,31 @@ async fn operation(
     arguments: &BTreeMap<String, Value>,
     preview: Option<&std::result::Result<Option<String>, String>>,
 ) -> Result<Step> {
-    let Some(bound) = service.home.store().binding(binding)? else {
-        return Ok(Step::Answer(Answer::result(NOBODY, true)));
-    };
-    let runtime = bound.runtime.as_str().to_owned();
-    if !same_request(
-        service, &runtime, key, binding, input, tool, arguments,
+    let call = match decide::admit(
+        service, binding, key, input, tool, arguments,
     )? {
-        return Ok(Step::Answer(Answer::Refusal(
-            IDENTITY_REFUSAL.into(),
-        )));
-    }
-    let id = (runtime.clone(), key.to_owned());
-    if let Some(running) = service.chats.running.get_mut(&id) {
-        running.res.push(re.clone());
+        Ok(call) => call,
+        Err(Unadmitted::Unbound) => {
+            return Ok(Step::Answer(Answer::result(NOBODY, true)));
+        }
+        Err(Unadmitted::Changed) => {
+            return Ok(Step::Answer(Answer::Refusal(
+                IDENTITY_REFUSAL.into(),
+            )));
+        }
+    };
+    if service.chats.calls.join(&call.id, re) {
         return Ok(Step::Running);
     }
-    let marker = OperationId {
-        runtime: bound.runtime.clone(),
-        key: key.into(),
-    };
-    if service.house_work.pending(&marker) {
+    if service.house_work.pending(&call.id) {
         return Ok(Step::Answer(Answer::Waiting(
             "The house work is still running.".into(),
         )));
     }
     let request = Request::tool(tool, arguments)?;
     let db = service.home.store().connection();
-    match operation::marked(db, &marker, &request)? {
+    match operation::marked::<tools::Outcome>(db, &call.id, &request)?
+    {
         Some(Marked::Begun) => {
             return Ok(Step::Answer(Answer::result(
                 format!(
@@ -992,7 +494,7 @@ async fn operation(
             )));
         }
         Some(Marked::Outcome(outcome)) => {
-            return Ok(Step::Answer(result(outcome)));
+            return Ok(Step::Answer(outcome.into()));
         }
         Some(Marked::Conflict) => {
             return Ok(Step::Answer(Answer::Refusal(
@@ -1001,354 +503,115 @@ async fn operation(
         }
         None => {}
     }
-    if tool != "object"
-        && crate::society::reviews::held(service, binding, input)?
-    {
-        return Ok(Step::Answer(Answer::Waiting(
-            "The chief is considering an objection.".into(),
-        )));
+    if tool != "object" && objecting(service, binding, input)? {
+        return Ok(Step::Answer(Answer::Waiting(OBJECTING.into())));
     }
     if crate::society::withheld(service, binding, tool)? {
         let outcome =
-            service.home.store().once(&marker, &request, |_| {
+            service.home.store().once(&call.id, &request, |_| {
                 Ok(crate::society::unavailable(tool))
             })?;
         return Ok(Step::Answer(outcome.map_or_else(
             || Answer::Refusal(CONFLICT.into()),
-            result,
+            |outcome| crate::society::result(&outcome),
         )));
     }
     if tool == "object" {
-        return Ok(Step::Society(bound));
+        return Ok(Step::Society(call.bound));
     }
     if tool == "ask_chief" {
-        return ask(
-            service,
-            binding,
-            &bound.runtime,
-            key,
-            input,
-            arguments,
-        )
-        .map(Step::Answer);
+        return ask::ask(service, &call).map(Step::Answer);
     }
-    let net = match decide(
-        service, binding, key, input, tool, arguments, preview,
-    )
-    .await?
-    {
-        Decision::Run { net } => net,
-        Decision::Block(words) => {
+    let net = match decide::decide(service, &call, preview)? {
+        Gate::Decided(Decision::Run { net }) => net,
+        Gate::Decided(Decision::Block(words)) => {
             return Ok(Step::Answer(Answer::Refusal(words)));
         }
-        Decision::Wait => {
-            return Ok(Step::Answer(Answer::Waiting(WAITING.into())));
+        Gate::Decided(Decision::Wait(words)) => {
+            return Ok(Step::Answer(Answer::Waiting(words.into())));
         }
+        Gate::Preview(reading) => return Ok(Step::Preview(reading)),
     };
-    if tool != "build_road"
-        && crate::society::SocietyTool::named(tool).is_some()
-    {
-        return Ok(Step::Society(bound));
-    }
     if tool == "build_road" {
-        let call = match crate::harness::tools::parse(tool, arguments)
-        {
-            Ok(call) => call,
-            Err(words) => {
-                return Ok(Step::Answer(Answer::result(words, true)));
-            }
-        };
+        let call_of =
+            match crate::harness::tools::parse(tool, arguments) {
+                Ok(call) => call,
+                Err(words) => {
+                    return Ok(Step::Answer(Answer::result(
+                        words, true,
+                    )));
+                }
+            };
         let (text, error) = crate::harness::tools::run(
             service.home.store(),
-            &marker,
-            &bound,
-            &call,
+            &call.id,
+            &call.bound,
+            &call_of,
             super::now(),
         )?;
         return Ok(Step::Answer(Answer::result(text, error)));
     }
-    let change = service
-        .home
-        .store()
-        .connection()
-        .query_row(
-            "SELECT change FROM gate_call WHERE runtime = ?1 AND \
-             key = ?2",
-            params![runtime, key],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .optional()?
-        .flatten();
-    if UNSAFE.contains(&tool)
-        || crate::hand::load(service.home.layout().root())
-            .0
-            .iter()
-            .any(|manifest| manifest.spec.name == tool)
-    {
-        operation::begin(
-            service.home.store().connection(),
-            &marker,
-            &request,
-        )?;
+    if crate::society::SocietyTool::named(tool).is_some() {
+        return Ok(Step::Society(call.bound));
     }
-    let place = places(service, &bound.agent)?;
-    let remote = service.remote_tools(&bound.agent, net)?;
-    let sandbox = service.chats.sandbox;
-    let secrets = service.credentials.secrets();
-    let arguments =
-        arguments.clone().into_iter().collect::<Map<_, _>>();
-    let name = tool.to_owned();
-    let (task_runtime, task_key) = id.clone();
-    let abort = service.chats.tools.spawn(async move {
-        let mut outcome = if let Some(remote) = &remote {
-            tools::run_remote(
-                remote, &place, &secrets, &name, &arguments,
-            )
-            .await
-        } else {
-            tools::run(
-                &sandbox, &place, net, &secrets, &name, &arguments,
-            )
-            .await
-        };
-        if let Some(change) = change
-            .and_then(|c| serde_json::from_str::<Value>(&c).ok())
-        {
-            outcome
-                .details
-                .get_or_insert_with(Map::new)
-                .insert("change".into(), change);
-        }
-        Ran {
-            runtime: task_runtime,
-            key: task_key,
-            outcome,
-        }
-    });
-    service.chats.running.insert(
-        id,
-        Running {
-            res: vec![re.clone()],
-            binding,
-            abort,
-        },
-    );
+    run(service, call, re, &request, net)?;
     Ok(Step::Running)
 }
 
-/// Answers the calls a finished tool call was asked by, keeping its
-/// result when it may not run again.
-pub(crate) async fn ran(
+/// Runs the tool call `call`, after marking it begun when it may not
+/// run again.
+fn run(
     service: &mut Service,
-    harnesses: &mut Harnesses,
-    ran: Ran,
+    call: decide::Admitted<'_>,
+    re: &Re,
+    request: &Request,
+    net: bool,
 ) -> Result<()> {
-    let Some(running) = service
-        .chats
-        .running
-        .remove(&(ran.runtime.clone(), ran.key.clone()))
-    else {
-        return Ok(());
-    };
-    let outcome = json!({
-        "text": ran.outcome.text,
-        "error": ran.outcome.error,
-        "details": ran.outcome.details,
-        "diagnostics": ran.outcome.diagnostics,
-    });
-    operation::settle(
-        service.home.store().connection(),
-        &OperationId {
-            runtime: RuntimeInstance::new(ran.runtime)?,
-            key: ran.key,
-        },
-        &outcome,
-    )?;
-    for re in running.res {
-        harnesses.answer(re, result(outcome.clone())).await;
+    let db = service.home.store().connection();
+    let change = crate::oversight::held::decision(db, &call.id)?
+        .and_then(|kept| kept.change);
+    if UNSAFE.contains(&call.tool) || call.hand.is_some() {
+        operation::begin(db, &call.id, request)?;
     }
+    let place = decide::places(service, &call.bound.agent)?;
+    let remote = service.remote_tools(&call.bound.agent, net)?;
+    let sandbox = service.chats.sandbox;
+    let secrets = service.credentials.secrets();
+    let arguments =
+        call.arguments.clone().into_iter().collect::<Map<_, _>>();
+    let name = call.tool.to_owned();
+    service.chats.calls.run(
+        call.id,
+        call.bound.id,
+        re.clone(),
+        async move {
+            let mut outcome = if let Some(remote) = &remote {
+                tools::run_remote(
+                    remote, &place, &secrets, &name, &arguments,
+                )
+                .await
+            } else {
+                tools::run(
+                    &sandbox, &place, net, &secrets, &name,
+                    &arguments,
+                )
+                .await
+            };
+            if let Some(change) = change {
+                outcome
+                    .details
+                    .get_or_insert_with(Map::new)
+                    .insert("change".into(), change);
+            }
+            outcome
+        },
+    );
     Ok(())
 }
 
 /// Stops the tool calls running for `binding`.
 pub(crate) fn stop_tools(service: &mut Service, binding: BindingId) {
-    service.chats.preparations.retain(|_, preparing| {
-        if preparing.binding == binding {
-            preparing.abort.abort();
-            false
-        } else {
-            true
-        }
-    });
-    service.chats.running.retain(|_, running| {
-        if running.binding == binding {
-            running.abort.abort();
-            false
-        } else {
-            true
-        }
-    });
-}
-
-fn result(outcome: Value) -> Answer {
-    Answer::Result {
-        text: outcome["text"].as_str().unwrap_or_default().into(),
-        error: outcome["error"] == true,
-        details: outcome["details"]
-            .as_object()
-            .map(|details| details.clone().into_iter().collect()),
-        diagnostics: serde_json::from_value(
-            outcome["diagnostics"].clone(),
-        )
-        .unwrap_or_default(),
-    }
-}
-
-/// The agent's question to the chief, which waits for the answer.
-fn ask(
-    service: &mut Service,
-    binding: BindingId,
-    runtime: &crate::RuntimeInstance,
-    key: &str,
-    input: Option<&str>,
-    arguments: &BTreeMap<String, Value>,
-) -> Result<Answer> {
-    if service.home.store().cancelling(binding)? {
-        return Ok(Answer::Refusal(
-            crate::harness::answers::STOPPED_WORDS.into(),
-        ));
-    }
-    let answered = |text: &str| Ok(Answer::result(text, false));
-    let db = service.home.store().connection();
-    let row = db
-        .query_row(
-            "SELECT wait, how, text, block, (SELECT questions IS \
-             NOT NULL FROM wait WHERE id = gate_call.wait) FROM \
-             gate_call WHERE runtime = ?1 AND key = ?2",
-            params![runtime.as_str(), key],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<bool>>(4)?.unwrap_or(false),
-                ))
-            },
-        )
-        .optional()?;
-    if let Some((_, _, _, Some(words), _)) = &row {
-        return Ok(Answer::Refusal(words.clone()));
-    }
-    // A row with no wait is the gate's allowing, before the question.
-    if let Some((Some(_), how, text, _, structured)) = &row {
-        match how.as_deref() {
-            Some("reply") => {
-                if *structured {
-                    return answered(
-                        text.as_deref().unwrap_or_default(),
-                    );
-                }
-                return answered(&format!(
-                    "The chief answers: {}",
-                    text.clone().unwrap_or_default()
-                ));
-            }
-            Some(_) => {
-                return answered(
-                    "The chief did not answer; go on with what you \
-                     know.",
-                );
-            }
-            None => return Ok(Answer::Waiting(WAITING.into())),
-        }
-    }
-    let Some(conversation) = records::kept(db, binding)? else {
-        return answered(
-            "No chief oversees this turn; go on with what you know.",
-        );
-    };
-    let place = conversation.place;
-    let request = request_of(service, binding, input)?;
-    let db = service.home.store().connection();
-    let mark = request
-        .as_deref()
-        .map(|request| records::mark_of(db, binding, request))
-        .transpose()?
-        .flatten();
-    let chief = match mark.as_ref().map(|mark| mark.kind.as_str()) {
-        Some("hamlet.chief") => mark
-            .as_ref()
-            .and_then(|mark| mark.data.get("chief"))
-            .and_then(Value::as_str)
-            .map(String::from),
-        Some("hamlet.retry") => place.chief.clone(),
-        _ => None,
-    };
-    if chief.is_none() {
-        return answered(
-            "No chief oversees this turn; go on with what you know.",
-        );
-    }
-    let questions =
-        match asking::read(&serde_json::to_string(arguments)?) {
-            Ok(questions) => questions,
-            Err(why) => return answered(&why),
-        };
-    let mut questions = serde_json::to_value(questions)?;
-    service.credentials.scrub(&mut questions);
-    let questions = serde_json::from_value::<Questions>(questions)?;
-    let limits = service.limits_of(&place.agent.hamlet)?;
-    let most = limits["asking"]["questions"].as_i64().unwrap_or(3);
-    let db = service.home.store().connection();
-    let mut asked = Asked::of(db, binding, input)?;
-    if asked.questions >= most {
-        let times = if most == 1 {
-            "once".into()
-        } else {
-            format!("{most} times")
-        };
-        return answered(&format!(
-            "You have asked the chief {times} this turn; go on with \
-             what you know."
-        ));
-    }
-    asked.questions += 1;
-    asked.keep(db, binding)?;
-    let Some(record) =
-        service.home.store().record(&place.agent.hamlet)?
-    else {
-        return answered(
-            "No chief oversees this turn; go on with what you know.",
-        );
-    };
-    keep_call(
-        service,
-        runtime.as_str(),
-        key,
-        binding,
-        input,
-        None,
-        None,
-        None,
-    )?;
-    oversight::raise(
-        service.home.store().connection(),
-        Raising {
-            kind: "question",
-            danger: None,
-            by: wait_by(&record, &place.agent),
-            agent: Some(place.agent.clone()),
-            about: asking::about(&questions),
-            change: None,
-            questions: Some(questions),
-            answers: vec!["reply".into(), "dismiss".into()],
-            chat: chat_of(&place),
-            call: Some((runtime.clone(), key.into())),
-        },
-        super::now(),
-    )?;
-    Ok(Answer::Waiting(WAITING.into()))
+    service.chats.calls.stop(binding);
 }
 
 /// The prompt sections of the next model call of `binding`, with the
@@ -1362,17 +625,10 @@ fn prompt(
         return Ok(crate::prompt::Prepared::fixed(Vec::new()));
     };
     if bound.errand {
-        let text = service
-            .home
-            .store()
-            .connection()
-            .query_row(
-                "SELECT instructions FROM society_binding WHERE \
-                 binding=?1",
-                [binding.0],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
+        let text = crate::society::errands::instructions(
+            service.home.store().connection(),
+            binding,
+        )?;
         return Ok(crate::prompt::Prepared::fixed(
             text.map(|text| {
                 vec![Section {
@@ -1384,24 +640,18 @@ fn prompt(
         ));
     }
     let agent = bound.agent.clone();
-    let request = request_of(service, binding, input)?;
-    let db = service.home.store().connection();
-    if let (Some(input), Some(request)) = (input, &request)
-        && request.starts_with("reflect:")
+    let mark = service.home.store().input_mark(binding, input)?;
+    if let (Some(input), Some(InputMark::Reflection { .. })) =
+        (input, &mark)
     {
-        records::enter(db, binding, input)?;
+        records::enter(
+            service.home.store().connection(),
+            binding,
+            input,
+        )?;
     }
-    let task = request
-        .as_deref()
-        .map(|request| records::mark_of(db, binding, request))
-        .transpose()?
-        .flatten()
-        .and_then(|mark| {
-            mark.data
-                .get("task")
-                .and_then(Value::as_str)
-                .map(String::from)
-        });
+    let task =
+        mark.as_ref().and_then(InputMark::task).map(String::from);
     let Some(record) = service.home.store().record(&agent.hamlet)?
     else {
         return Ok(crate::prompt::Prepared::fixed(Vec::new()));
@@ -1414,13 +664,10 @@ fn prompt(
     else {
         return Ok(crate::prompt::Prepared::fixed(Vec::new()));
     };
-    let settings = service.settings()?;
-    let limits = service.limits_of(&agent.hamlet)?;
-    let model = crate::state::model(
+    let model = record.limits.chief.model_of(
         &member,
-        &limits,
-        &settings,
         record.mayor == agent.number,
+        &service.settings()?.model,
     );
     let instructions = records::instructions(
         service.home.store().connection(),
@@ -1493,24 +740,17 @@ fn verdict(
             compact: false,
         });
     }
-    let request = request_of(service, binding, input)?;
-    let db = service.home.store().connection();
-    let mark = request
-        .as_deref()
-        .map(|request| records::mark_of(db, binding, request))
-        .transpose()?
-        .flatten();
-    let reflection = mark
-        .as_ref()
-        .is_some_and(|mark| mark.kind == "hamlet.reflection");
-    let task = mark.as_ref().and_then(|mark| mark.data.get("task"));
+    let mark = service.home.store().input_mark(binding, input)?;
+    let reflection =
+        matches!(mark, Some(InputMark::Reflection { .. }));
+    let tasked = mark.as_ref().and_then(InputMark::task).is_some();
     let cutoff = answer.stop.as_deref() == Some("length")
         && answer
             .usage
             .as_ref()
             .is_some_and(|usage| usage.output < 1024)
         && !reflection
-        && task.is_some_and(|task| !task.is_null());
+        && tasked;
     if cutoff && history && !retried && summary_failure.is_none() {
         return Ok(Answer::Verdict {
             words: None,
@@ -1535,697 +775,43 @@ fn verdict(
         EMPTY.into()
     };
     if let Some(input) = input {
-        follow::fail_answer(db, binding, input, &words)?;
+        follow::fail_answer(
+            service.home.store().connection(),
+            binding,
+            input,
+            &words,
+        )?;
     }
     Ok(Answer::Verdict {
-        notice: Some(super::notice(&words)),
+        notice: Some((&InputMark::notice(&words)).into()),
         words: Some(words),
         compact: false,
     })
 }
 
-/// A chief's answer to the wait `id`, in the words a reply gives; a
-/// refusal in words.
-pub(super) async fn answer_words(
-    service: &mut Service,
-    harnesses: &mut Harnesses,
-    id: &str,
-    choice: &str,
-    text: &str,
-    picks: Option<&[Pick]>,
-) -> Result<std::result::Result<String, String>> {
-    let db = service.home.store().connection();
-    let Some(wait) = oversight::find(db, id)? else {
-        return Ok(Ok("Nothing waits for you.".into()));
-    };
-    let hamlet = wait
-        .agent
-        .as_ref()
-        .map(|agent| agent.hamlet.clone())
-        .or_else(|| {
-            wait.chat.as_ref().map(|chat| chat.hamlet.clone())
-        });
-    if let Some(hamlet) = hamlet
-        && let Err(refusal) =
-            service.access(&hamlet, "answer wait")?
-    {
-        return Ok(Err(refusal.text()));
-    }
-    if !wait.answers.iter().any(|answer| answer == choice) {
-        return Ok(Err(format!(
-            "That cannot be answered that way:\n{}",
-            oversight::strip(&wait)
-        )));
-    }
-    let text = if let Some(picks) = picks {
-        if choice != "reply" || !text.is_empty() {
-            return Ok(Err("Use picks only for a reply, without \
-                           text."
-                .into()));
-        }
-        let Some(questions) = &wait.questions else {
-            return Ok(Err("This wait does not take structured \
-                           answers."
-                .into()));
-        };
-        match asking::answer(questions, picks) {
-            Ok(answer) => answer,
-            Err(why) => return Ok(Err(why)),
-        }
-    } else if choice == "reply" {
-        if text.trim().is_empty() {
-            return Ok(Err("Say what to reply.".into()));
-        }
-        if let Some(questions) = &wait.questions {
-            let words = Pick::Words { text: text.into() };
-            match asking::answer(questions, &[words]) {
-                Ok(_) => {
-                    format!("{} {}", asking::ANSWERS, text.trim())
-                }
-                Err(why) => return Ok(Err(why)),
-            }
-        } else {
-            text.to_owned()
-        }
-    } else {
-        text.to_owned()
-    };
-    let mut words = Value::String(text);
-    service.credentials.scrub(&mut words);
-    let text = words.as_str().unwrap_or_default().trim().to_owned();
-    let chief = service.chief.clone();
-    let now = super::now();
-    let danger = wait.danger.as_deref();
-    if choice == "always"
-        && matches!(danger, Some("network" | "unconfined"))
-        && let Some(agent) = &wait.agent
-    {
-        gate::give(
-            service.home.store().connection(),
-            agent,
-            &wait.by,
-            danger.unwrap_or_default(),
-            &chief,
-            now,
-        )?;
-    }
-    let held = {
-        let db = service.home.store().connection();
-        let mut query = db.prepare(
-            "SELECT runtime, key, binding, input FROM gate_call \
-             WHERE wait = ?1 AND how IS NULL",
-        )?;
-        query
-            .query_map([id], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    BindingId(row.get(2)?),
-                    row.get::<_, Option<String>>(3)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-    };
-    let mut counted = Vec::new();
-    for (runtime, key, binding, input) in held {
-        let db = service.home.store().connection();
-        let Some(conversation) = records::kept(db, binding)? else {
-            continue;
-        };
-        let place = conversation.place;
-        if choice == "allow" || choice == "always" {
-            let Some(record) =
-                service.home.store().record(&place.agent.hamlet)?
-            else {
-                continue;
-            };
-            let standing = standing(service, &place, &record)?;
-            let net = danger == Some("network")
-                || (matches!(danger, Some("edit" | "command"))
-                    && standing.net);
-            let db = service.home.store().connection();
-            db.execute(
-                "UPDATE gate_call SET net = ?3 WHERE runtime = ?1 \
-                 AND key = ?2",
-                params![runtime, key, net],
-            )?;
-            if choice == "always"
-                && let Some(danger @ ("edit" | "command")) = danger
-            {
-                let chief = place.chief.clone().unwrap_or_default();
-                gate::trust(
-                    db,
-                    &TrustKey {
-                        agent: &place.agent,
-                        chief: &chief,
-                        session: place.session,
-                    },
-                    danger,
-                )?;
-            }
-        }
-        if choice == "deny"
-            && let Some(danger) = danger
-            && !counted.contains(&binding)
-        {
-            let db = service.home.store().connection();
-            let mut asked = Asked::of(db, binding, input.as_deref())?;
-            asked.refuse(
-                &wait.by,
-                danger,
-                &wait.about,
-                if text.is_empty() {
-                    "no reason given"
-                } else {
-                    &text
-                },
-            );
-            asked.keep(db, binding)?;
-            counted.push(binding);
-        }
-    }
-    let tx = service.home.store().transaction()?;
-    let Some((settled, mut woken)) =
-        oversight::settle(&tx, id, choice, &text, Some(&chief), now)?
-    else {
-        return Ok(Ok("Nothing waits for you.".into()));
-    };
-    if settled.kind == "objection" {
-        woken.extend(crate::society::reviews::settle(
-            &tx, id, choice, &text, &chief,
-        )?);
-    }
-    tx.commit()?;
-    if settled.kind == "objection" && choice == "withdraw" {
-        crate::fault::point("after_instruction_withdrawal");
-    }
-    crate::society::reviews::sweep(service, harnesses).await?;
-    for (runtime, key) in woken {
-        harnesses.wake(&runtime, &key).await;
-    }
-    if settled.kind == "objection" {
-        harnesses.wake_turns().await;
-    }
-    Ok(Ok(format!(
-        "Answered /{choice}: {}",
-        oversight::line(&settled, 80)
-    )))
-}
-
-/// The request of the input `input` of `binding`.
-fn request_of(
+/// Whether the turn of `input` is a reflection.
+fn reflecting(
     service: &mut Service,
     binding: BindingId,
     input: Option<&str>,
-) -> Result<Option<String>> {
-    Ok(match input {
-        Some(input) => {
-            service.home.store().request_of(binding, input)?
-        }
-        None => None,
-    })
+) -> Result<bool> {
+    Ok(matches!(
+        service.home.store().input_mark(binding, input)?,
+        Some(InputMark::Reflection { .. })
+    ))
 }
 
-#[cfg(test)]
-mod tests {
-    use hamlet_testing::Scratch;
-
-    use super::*;
-    use crate::harness::link::ModelRef;
-
-    fn decide(
-        service: &mut Service,
-        binding: BindingId,
-        key: &str,
-        input: Option<&str>,
-        tool: &str,
-        arguments: &BTreeMap<String, Value>,
-    ) -> Result<Decision> {
-        futures::executor::block_on(super::decide(
-            service, binding, key, input, tool, arguments, None,
-        ))
-    }
-
-    /// A service on a scratch home, with the founder's conversation
-    /// bound to a runtime.
-    fn served(scratch: &Scratch) -> (Service, BindingId, String) {
-        let home = crate::Home::open(&scratch.join("home")).unwrap();
-        let mut service = Service::new(home, true).unwrap();
-        let agent = AgentRef {
-            hamlet: "home".into(),
-            number: 0,
-        };
-        let store = service.home.store();
-        let runtime = store.runtime_for("pi").unwrap();
-        let model = ModelRef {
-            provider: "faux".into(),
-            id: "faux-1".into(),
-            base_url: None,
-        };
-        let binding = store
-            .add_binding(&agent, false, &model, &runtime)
-            .unwrap();
-        let place = Place {
-            agent,
-            chief: Some(service.chief.clone()),
-            session: 1,
-        };
-        records::keep(store.connection(), binding, &place, None, 0)
-            .unwrap();
-        (service, binding, runtime.as_str().to_owned())
-    }
-
-    #[test]
-    fn a_write_s_preview_shows_only_what_the_agent_may_read() {
-        let scratch = Scratch::new("calls-preview");
-        let (mut service, _, _) = served(&scratch);
-        let root = service.home.layout().root().to_owned();
-        std::fs::write(root.join("private.txt"), "the chief's own\n")
-            .unwrap();
-        let agent = AgentRef {
-            hamlet: "home".into(),
-            number: 0,
-        };
-        let at = places(&mut service, &agent).unwrap();
-        std::fs::write(at.house.join("NOTES.md"), "# Notes\n")
-            .unwrap();
-
-        assert_eq!(
-            before(&service, &at, &root.join("private.txt"))
-                .as_deref(),
-            Some("[a file that could not be read as text]")
-        );
-        assert_eq!(
-            before(&service, &at, &at.house.join("NOTES.md"))
-                .as_deref(),
-            Some("# Notes\n")
-        );
-        assert_eq!(
-            before(&service, &at, &at.house.join("new.md")),
-            None
-        );
-    }
-
-    #[test]
-    fn a_gate_identity_cannot_authorize_a_changed_request() {
-        let scratch = Scratch::new("calls-identity");
-        let (mut service, binding, _) = served(&scratch);
-        let arguments = BTreeMap::from([(
-            "command".to_owned(),
-            Value::String("echo harmless".into()),
-        )]);
-        assert!(matches!(
-            decide(
-                &mut service,
-                binding,
-                "same-key",
-                None,
-                "bash",
-                &arguments
-            )
-            .unwrap(),
-            Decision::Run { .. }
-        ));
-        let changed = BTreeMap::from([(
-            "command".to_owned(),
-            Value::String("rm -rf important".into()),
-        )]);
-        assert!(
-            matches!(
-                decide(
-                    &mut service,
-                    binding,
-                    "same-key",
-                    None,
-                    "bash",
-                    &changed
-                )
-                .unwrap(),
-                Decision::Block(_)
-            ),
-            "a different command reused an earlier allowance"
-        );
-        assert!(matches!(
-            decide(
-                &mut service,
-                binding,
-                "same-key",
-                None,
-                "write",
-                &arguments
-            )
-            .unwrap(),
-            Decision::Block(_)
-        ));
-        let bound =
-            service.home.store().binding(binding).unwrap().unwrap();
-        let other = service
-            .home
-            .store()
-            .add_binding(
-                &bound.agent,
-                false,
-                &bound.model,
-                &bound.runtime,
-            )
-            .unwrap();
-        assert!(matches!(
-            decide(
-                &mut service,
-                other,
-                "same-key",
-                None,
-                "bash",
-                &arguments
-            )
-            .unwrap(),
-            Decision::Block(_)
-        ));
-        service.home.close().unwrap();
-        let mut service = Service::new(
-            crate::Home::open(&scratch.join("home")).unwrap(),
-            true,
-        )
-        .unwrap();
-        let marker = OperationId {
-            runtime: bound.runtime.clone(),
-            key: "same-key".into(),
-        };
-        let request = Request::tool("bash", &arguments).unwrap();
-        service
-            .home
-            .store()
-            .once(&marker, &request, |_| {
-                Ok(json!({"text": "done", "error": false}))
-            })
-            .unwrap();
-        service.home.store().begin_cancel(binding).unwrap();
-        assert!(matches!(
-            decide(
-                &mut service,
-                binding,
-                "same-key",
-                None,
-                "bash",
-                &arguments
-            )
-            .unwrap(),
-            Decision::Run { .. }
-        ));
-        assert!(matches!(
-            decide(
-                &mut service,
-                binding,
-                "same-key",
-                Some("different-input"),
-                "bash",
-                &arguments
-            )
-            .unwrap(),
-            Decision::Block(_)
-        ));
-        assert!(matches!(
-            decide(
-                &mut service,
-                binding,
-                "same-key",
-                None,
-                "bash",
-                &changed
-            )
-            .unwrap(),
-            Decision::Block(_)
-        ));
-    }
-
-    #[test]
-    fn a_waiting_identity_asked_with_other_arguments_is_refused() {
-        let scratch = Scratch::new("calls-waiting");
-        let (mut service, binding, _) = served(&scratch);
-        let mut limits = service.limits_of("home").unwrap();
-        limits["mayor"]["buildRoads"] = json!(false);
-        crate::service::save(
-            service.home.store().connection(),
-            "limits",
-            "home",
-            &limits,
-        )
-        .unwrap();
-        let road = |b: &str| {
-            BTreeMap::from([
-                ("a".to_owned(), json!("founder")),
-                ("b".to_owned(), json!(b)),
-                ("reason".to_owned(), json!("trade")),
-            ])
-        };
-        assert!(matches!(
-            decide(
-                &mut service,
-                binding,
-                "k",
-                None,
-                "build_road",
-                &road("ana")
-            )
-            .unwrap(),
-            Decision::Wait
-        ));
-        assert!(matches!(
-            decide(&mut service, binding, "k", None, "build_road", &road("bo"))
-                .unwrap(),
-            Decision::Block(words) if words == IDENTITY_REFUSAL
-        ));
-    }
-
-    #[test]
-    fn a_grant_taken_back_before_execution_does_not_authorize_the_call()
-     {
-        let scratch = Scratch::new("calls-revoked");
-        let (mut service, binding, _) = served(&scratch);
-        let agent = AgentRef {
-            hamlet: "home".into(),
-            number: 0,
-        };
-        gate::give(
-            service.home.store().connection(),
-            &agent,
-            "mayor",
-            "network",
-            "chief",
-            0,
-        )
-        .unwrap();
-        let args = BTreeMap::from([
-            ("command".to_owned(), json!("echo harmless")),
-            ("network".to_owned(), json!(true)),
-        ]);
-        assert!(matches!(
-            decide(&mut service, binding, "k", None, "bash", &args)
-                .unwrap(),
-            Decision::Run { net: true }
-        ));
-        gate::revoke(
-            service.home.store().connection(),
-            &agent,
-            "network",
-            "chief",
-            1,
-        )
-        .unwrap();
-        assert!(
-            matches!(
-                decide(
-                    &mut service,
-                    binding,
-                    "k",
-                    None,
-                    "bash",
-                    &args
-                )
-                .unwrap(),
-                Decision::Wait
-            ),
-            "a revoked grant still allowed an unexecuted call"
-        );
-    }
-
-    #[test]
-    fn upgrading_old_gate_rows_never_invents_a_request_or_replays_an_effect()
-     {
-        let scratch = Scratch::new("calls-upgrade");
-        let (mut service, binding, runtime) = served(&scratch);
-        let args = BTreeMap::from([(
-            "command".to_owned(),
-            json!("echo harmless"),
-        )]);
-        for key in ["allowed", "finished"] {
-            assert!(matches!(
-                decide(
-                    &mut service,
-                    binding,
-                    key,
-                    None,
-                    "bash",
-                    &args
-                )
-                .unwrap(),
-                Decision::Run { .. }
-            ));
-        }
-        let finished = OperationId {
-            runtime: RuntimeInstance::new(&runtime).unwrap(),
-            key: "finished".into(),
-        };
-        let request = Request::tool("bash", &args).unwrap();
-        service
-            .home
-            .store()
-            .once(&finished, &request, |_| {
-                Ok("kept outcome".to_owned())
-            })
-            .unwrap();
-        let db = service.home.store().connection();
-        // Reconstruct the version-8 schema on disposable data.
-        db.execute_batch(
-            "ALTER TABLE wait DROP COLUMN questions; ALTER TABLE \
-             gate_call DROP COLUMN digest; CREATE TABLE \
-             harness_wait (runtime TEXT NOT NULL, key TEXT NOT \
-             NULL, PRIMARY KEY (runtime, key)) STRICT, WITHOUT \
-             ROWID; PRAGMA user_version = 8;",
-        )
-        .unwrap();
-        service.home.close().unwrap();
-        let mut service = Service::new(
-            crate::Home::open(&scratch.join("home")).unwrap(),
-            true,
-        )
-        .unwrap();
-        for key in ["allowed", "finished"] {
-            assert!(matches!(
-                decide(
-                    &mut service,
-                    binding,
-                    key,
-                    None,
-                    "bash",
-                    &args
-                )
-                .unwrap(),
-                Decision::Block(_)
-            ));
-        }
-        let db = service.home.store().connection();
-        assert_eq!(
-            db.query_row("PRAGMA user_version", [], |row| row
-                .get::<_, i64>(0))
-                .unwrap(),
-            11
-        );
-        assert_eq!(
-            operation::marked(db, &finished, &request).unwrap(),
-            Some(Marked::Outcome("kept outcome".to_owned()))
-        );
-        assert!(matches!(
-            decide(&mut service, binding, "new", None, "bash", &args)
-                .unwrap(),
-            Decision::Run { .. }
-        ));
-    }
-
-    #[test]
-    fn a_call_allowed_before_a_stop_runs_nothing_after_it() {
-        let scratch = Scratch::new("calls-stopped");
-        let (mut service, binding, runtime) = served(&scratch);
-        let arguments = BTreeMap::from([(
-            "command".to_owned(),
-            Value::String("echo hi".into()),
-        )]);
-        let allowed = decide(
-            &mut service,
-            binding,
-            "call-1",
-            Some("input-1"),
-            "bash",
-            &arguments,
-        )
-        .unwrap();
-        assert!(matches!(allowed, Decision::Run { .. }));
-
-        let question =
-            BTreeMap::from([("question".into(), json!("Continue?"))]);
-        assert!(matches!(
-            decide(
-                &mut service,
-                binding,
-                "question-1",
-                Some("input-1"),
-                "ask_chief",
-                &question
-            )
-            .unwrap(),
-            Decision::Run { .. }
-        ));
-        service.home.store().begin_cancel(binding).unwrap();
-        let refused = decide(
-            &mut service,
-            binding,
-            "call-1",
-            Some("input-1"),
-            "bash",
-            &arguments,
-        )
-        .unwrap();
-        assert!(
-            matches!(&refused, Decision::Block(words) if words == crate::harness::answers::STOPPED_WORDS),
-            "a call allowed before the stop still runs after it"
-        );
-        // So does a call of the stopped turn first heard of after it.
-        assert!(matches!(
-            decide(
-                &mut service,
-                binding,
-                "unasked",
-                Some("input-1"),
-                "bash",
-                &arguments,
-            )
-            .unwrap(),
-            Decision::Block(_)
-        ));
-
-        // The refusal stands once the runtime has acknowledged the
-        // cancel, as the result of a call that ran would, and the
-        // next turn's calls run.
-        service.home.store().cancelled(binding).unwrap();
-        let still = kept(&mut service, &runtime, "call-1").unwrap();
-        assert!(matches!(still, Some(Decision::Block(_))));
-        assert!(matches!(
-            decide(
-                &mut service,
-                binding,
-                "next",
-                Some("input-2"),
-                "bash",
-                &arguments,
-            )
-            .unwrap(),
-            Decision::Run { .. }
-        ));
-        let runtime = crate::RuntimeInstance::new(runtime).unwrap();
-        assert!(
-            matches!(
-                ask(
-                    &mut service,
-                    binding,
-                    &runtime,
-                    "question-1",
-                    Some("input-1"),
-                    &question
-                )
-                .unwrap(),
-                Answer::Refusal(_)
-            ),
-            "a stopped question bypassed the gate's refusal"
-        );
-    }
+/// Whether a chief oversees the turn of `input` at `place`: a chief's
+/// line, or a retry in a chief's chat.
+fn chief_oversees(
+    service: &mut Service,
+    binding: BindingId,
+    input: Option<&str>,
+    place: &records::Place,
+) -> Result<bool> {
+    Ok(match service.home.store().input_mark(binding, input)? {
+        Some(InputMark::Chief { .. }) => true,
+        Some(InputMark::Retry { .. }) => place.chief.is_some(),
+        _ => false,
+    })
 }

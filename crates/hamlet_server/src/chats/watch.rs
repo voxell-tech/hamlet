@@ -8,8 +8,8 @@ use hamlet_protocol::v0::{
 use serde_json::json;
 
 use super::{Watch, records};
-use crate::harness::{BindingId, Harnesses, link};
-use crate::protocol::{fault, reply};
+use crate::harness::{BindingId, Harnesses, InputMark, link};
+use crate::protocol::{Refusal, fault, reply};
 use crate::service::Service;
 use crate::society::letters::{Kind, peer_of};
 
@@ -32,7 +32,9 @@ pub(super) async fn open(
     let chat = &open.chat;
     let binding = match resolve(service, harnesses, chat).await? {
         Ok(binding) => binding,
-        Err(words) => return Ok(Some(fault(Some(&open.id), words))),
+        Err(refusal) => {
+            return Ok(Some(fault(Some(&open.id), refusal.text())));
+        }
     };
     let watched = service.chats.watches.iter().any(|watch| {
         watch.client == client && key(&watch.chat) == key(chat)
@@ -76,22 +78,23 @@ pub(super) async fn resolve(
     service: &mut Service,
     harnesses: &mut Harnesses,
     chat: &ChatRef,
-) -> Result<std::result::Result<BindingId, String>> {
+) -> Result<std::result::Result<BindingId, Refusal>> {
     if let Err(refusal) =
         service.access(&chat.with.hamlet, "watch chat")?
     {
-        return Ok(Err(refusal.text()));
+        return Ok(Err(refusal));
     }
     if let Some(from) = &chat.from {
         let agent =
             match service.agent(&chat.with, "watch conversations")? {
                 Ok(agent) => agent,
-                Err(refusal) => return Ok(Err(refusal.text())),
+                Err(refusal) => return Ok(Err(refusal)),
             };
         if chat.past.is_some() {
-            return Ok(Err("A peer conversation has no \
-                           chief-session number."
-                .into()));
+            return Ok(Err(Refusal::Invalid(
+                "A peer conversation has no chief-session number."
+                    .into(),
+            )));
         }
         let kind = match chat.kind {
             Some(ChatRefKind::Questions) => Kind::Questions,
@@ -112,12 +115,15 @@ pub(super) async fn resolve(
             &from,
         )?
         .ok_or_else(|| {
-            "There is no conversation with that agent here.".into()
+            Refusal::Invalid(
+                "There is no conversation with that agent here."
+                    .into(),
+            )
         }));
     }
     let agent = match service.agent(&chat.with, "watch chat")? {
         Ok(agent) => agent,
-        Err(refusal) => return Ok(Err(refusal.text())),
+        Err(refusal) => return Ok(Err(refusal)),
     };
     let agent = crate::record::AgentRef {
         hamlet: chat.with.hamlet.clone(),
@@ -137,9 +143,9 @@ pub(super) async fn resolve(
             number,
         )? {
             Some(session) => Ok(session.binding),
-            None => Err(format!(
+            None => Err(Refusal::Invalid(format!(
                 "There is no past session `{number}` here."
-            )),
+            ))),
         },
     )
 }
@@ -223,19 +229,14 @@ pub(super) fn pasts(
     for session in records::sessions(db, agent, &chief)? {
         let items = service.home.store().items(session.binding)?;
         let Some((first, by)) = items.iter().find_map(|item| {
-            let mark = item.mark.as_ref()?;
-            let text = mark.data.get("text")?.as_str()?;
-            (mark.kind == "hamlet.chief" && !text.trim().is_empty())
-                .then(|| {
-                    (
-                        text.to_owned(),
-                        mark.data
-                            .get("chief")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or_default()
-                            .to_owned(),
-                    )
-                })
+            match InputMark::of(item.mark.as_ref()?)? {
+                InputMark::Chief { chief, text, .. }
+                    if !text.trim().is_empty() =>
+                {
+                    Some((text, chief))
+                }
+                _ => None,
+            }
         }) else {
             continue;
         };
@@ -251,14 +252,14 @@ pub(super) fn pasts(
         let messages = items
             .iter()
             .filter(|item| {
-                item.mark
-                    .as_ref()
-                    .is_some_and(|mark| mark.kind == "hamlet.chief")
-                    || (item.kind == link::ItemKind::Assistant
-                        && item.blocks.iter().flatten().any(|block| {
-                            matches!(block, link::Block::Text { text }
+                matches!(
+                    item.mark.as_ref().and_then(InputMark::of),
+                    Some(InputMark::Chief { .. })
+                ) || (item.kind == link::ItemKind::Assistant
+                    && item.blocks.iter().flatten().any(|block| {
+                        matches!(block, link::Block::Text { text }
                                 if !text.trim().is_empty())
-                        }))
+                    }))
             })
             .count();
         let modified = items
