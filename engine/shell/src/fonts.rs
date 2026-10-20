@@ -1,15 +1,11 @@
 //! The typefaces, read from the repository's `assets/fonts/`, where
 //! their licences are.
 
-use bevy::app::{App, Startup, Update};
-use bevy::asset::{AssetId, Assets, Handle};
-use bevy::ecs::component::Component;
-use bevy::ecs::entity::Entity;
-use bevy::ecs::query::{Added, Changed, Or, With};
-use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Commands, Query, Res};
-use bevy::ecs::world::World;
-use bevy::text::{Font, FontSource, LetterSpacing, TextFont};
+use bevy::prelude::*;
+use bevy::text::{FontSize, FontSource, LetterSpacing};
+use bevy_fynix::dock::DockTab;
+
+use crate::theme::EngineTheme;
 
 /// Inter (SIL Open Font License), the face of everything read.
 const INTER: &[u8] = include_bytes!(concat!(
@@ -21,9 +17,6 @@ const CINZEL: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../assets/fonts/CinzelVariable.ttf"
 ));
-
-/// The spacing of the letters of a title.
-const TRACKING: LetterSpacing = LetterSpacing::Px(1.0);
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(Startup, install)
@@ -51,29 +44,45 @@ fn install(world: &mut World) {
     world.insert_resource(Display(display));
 }
 
-/// Sets the display face, tracked, on a [`DisplayText`] label when it
-/// is new or was styled again.
+/// Sets the display face, tracked, on a [`DisplayText`] label and on
+/// the name of a dock tab, when it is new or was styled again.
 fn apply_display(
     display: Option<Res<Display>>,
+    theme: Res<EngineTheme>,
+    tabs: Query<(), With<DockTab>>,
+    parents: Query<&ChildOf>,
     mut labels: Query<
-        (Entity, &mut TextFont, Option<&LetterSpacing>),
         (
-            Or<(Changed<TextFont>, Added<DisplayText>)>,
-            With<DisplayText>,
+            Entity,
+            &mut TextFont,
+            Option<&LetterSpacing>,
+            Has<DisplayText>,
         ),
+        Or<(Changed<TextFont>, Added<DisplayText>)>,
     >,
     mut commands: Commands,
 ) {
     let Some(display) = display else {
         return;
     };
-    for (label, mut font, spacing) in &mut labels {
+    let tracking = LetterSpacing::Px(theme.text.tracking);
+    let tab_size = FontSize::Px(theme.text.small);
+    for (label, mut font, spacing, tagged) in &mut labels {
+        let tab = parents
+            .iter_ancestors(label)
+            .any(|above| tabs.contains(above));
+        if !tagged && !tab {
+            continue;
+        }
         if !matches!(&font.font, FontSource::Handle(h) if *h == display.0)
         {
             font.font = FontSource::Handle(display.0.clone());
         }
-        if spacing != Some(&TRACKING) {
-            commands.entity(label).try_insert(TRACKING);
+        if tab && font.font_size != tab_size {
+            font.font_size = tab_size;
+        }
+        if spacing != Some(&tracking) {
+            commands.entity(label).try_insert(tracking);
         }
     }
 }

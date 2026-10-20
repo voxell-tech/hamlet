@@ -3,16 +3,17 @@
 use bevy::app::{App, Startup};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::system::Commands;
-use bevy::ui::px;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{FrameProps, column, label, row, scroll};
-use bevy_fynix::{ModifierExt, ViewExt, each, resource};
+use bevy_fynix::views::{FrameProps, column, label, row};
+use bevy_fynix::{ModifierExt, each, resource};
 use hamlet_engine_api::PanelId;
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_core::{Log, LogLevel, LogLine};
 
-use crate::AnyView;
-use crate::dock::{Panel, panel};
+use crate::dock::{Panel, PanelIcon, panel};
+use crate::icons::Glyph;
+use crate::style::scroll_area;
+use crate::{AnyView, Cx};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(Startup, open);
@@ -23,11 +24,14 @@ pub(crate) fn id() -> PanelId {
 }
 
 fn open(mut commands: Commands) {
-    commands.spawn(Panel {
-        id: id(),
-        title: "Console".into(),
-        content: view,
-    });
+    commands.spawn((
+        Panel {
+            id: id(),
+            title: "Console".into(),
+            content: view,
+        },
+        PanelIcon(Glyph::Page),
+    ));
 }
 
 fn view(_: Entity) -> AnyView {
@@ -40,20 +44,31 @@ fn view(_: Entity) -> AnyView {
         }),
         |(number, _)| *number,
         |(_, line)| line_view(line),
-    )
-    .within(column(()).gap(2.0));
-    panel(scroll((lines,)).grow(1.0).min_height(px(0.0)))
+    );
+    panel(AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.gap / 2.0;
+        cx.build(scroll_area((lines.within(column(()).gap(gap)),)))
+    }))
 }
 
+/// A line: where it came from, dim, and what it says in the tone of
+/// its level.
 fn line_view(line: &LogLine) -> AnyView {
     let tone = match line.level {
         LogLevel::Info => Tone::Body,
         LogLevel::Warn => Tone::Accent,
         LogLevel::Error => Tone::Critical,
     };
-    row((
-        label(line.source.clone()).tone(Tone::Dim).wrap(false),
-        label(line.text.clone()).tone(tone).grown(1.0),
-    ))
-    .boxed()
+    let (source, text) = (line.source.clone(), line.text.clone());
+    AnyView::new(move |cx: &mut Cx| {
+        let theme = cx.theme();
+        let (size, gap) = (theme.text.small, theme.space.gap);
+        cx.build(
+            row((
+                label(source).size(size).tone(Tone::Dim).wrap(false),
+                label(text).size(size).tone(tone).grown(1.0),
+            ))
+            .gap(gap),
+        )
+    })
 }

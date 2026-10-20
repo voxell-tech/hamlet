@@ -2,7 +2,6 @@
 //! that adds one, and on a tab's right-click, rename and delete.
 
 use bevy::app::{App, Startup, Update};
-use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::hierarchy::Children;
 use bevy::ecs::observer::On;
@@ -17,19 +16,22 @@ use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::math::Rect;
 use bevy::text::EditableText;
 use bevy::ui::{
-    AlignItems, ComputedNode, UiGlobalTransform, UiRect, px,
+    AlignItems, ComputedNode, UiGlobalTransform, UiRect, percent, px,
 };
 use bevy_fynix::shortcut::{Chord, Mods};
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, ContextMenuExt, FrameProps, button, column, label,
-    menu_item, popup, row, text_field,
+    BehaviorExt, ContextMenuExt, FrameProps, column, label,
+    menu_item, popup, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource, style};
+use bevy_fynix::{ViewExt, keyed, resource};
 
 use crate::command::{CTRL, RunCommand, engine_id, spawn_command};
+use crate::fonts::DisplayText;
+use crate::icons::{Glyph, glyph};
+use crate::style::{ButtonStyle, field, section, styled, tab_button};
 use crate::workspace::Workspaces;
-use crate::{AnyView, EngineTheme};
+use crate::{AnyView, Cx};
 
 /// The menu the workspace commands are in.
 const MENU: &str = "Workspace";
@@ -90,15 +92,23 @@ pub fn view() -> AnyView {
             .enumerate()
             .map(|(at, name)| tab(at, name, at == tabs.shown, many))
             .collect::<Vec<_>>();
-        views.push(
-            button(label("+").tone(Tone::Faint))
-                .rules(look(false))
-                .on_activate(|world| {
-                    world.resource_mut::<Workspaces>().add();
-                })
-                .boxed(),
-        );
-        row(views).gap(2.0).align(AlignItems::Center).boxed()
+        AnyView::new(move |cx: &mut Cx| {
+            let space = &cx.theme().space;
+            let (gap, side) = (space.gap, space.icon);
+            views.push(
+                styled(ButtonStyle::Quiet, glyph(Glyph::Plus, side))
+                    .on_activate(|world| {
+                        world.resource_mut::<Workspaces>().add();
+                    })
+                    .boxed(),
+            );
+            cx.build(
+                row(views)
+                    .gap(gap)
+                    .height(percent(100.0))
+                    .align(AlignItems::Stretch),
+            )
+        })
     })
     .boxed()
 }
@@ -112,84 +122,65 @@ pub fn rename_view() -> AnyView {
             let Some((at, anchor, name)) = at.clone() else {
                 return column(()).boxed();
             };
-            popup(
-                anchor,
-                (column((
-                    label("Rename workspace").tone(Tone::Dim),
-                    text_field(name, move |world, name| {
-                        world
-                            .resource_mut::<Workspaces>()
-                            .rename(at, &name);
-                        world.resource_mut::<Renaming>().0 = None;
-                    })
-                    .width(px(220.0))
-                    .tagged(RenameField),
-                ))
-                .padding(UiRect::all(px(8.0))),),
-            )
-            .on_dismiss(|world, _| {
-                world.resource_mut::<Renaming>().0 = None
+            let field =
+                field(name, String::new(), move |world, name| {
+                    world
+                        .resource_mut::<Workspaces>()
+                        .rename(at, &name);
+                    world.resource_mut::<Renaming>().0 = None;
+                })
+                .tagged(RenameField);
+            AnyView::new(move |cx: &mut Cx| {
+                let space = &cx.theme().space;
+                let (gap, width) = (space.gap, space.menu_width);
+                cx.build(
+                    popup(
+                        anchor,
+                        (column((
+                            section("RENAME WORKSPACE"),
+                            field,
+                        ))
+                        .gap(gap)
+                        .min_width(px(width))
+                        .padding(UiRect::all(px(gap))),),
+                    )
+                    .on_dismiss(|world, _| {
+                        world.resource_mut::<Renaming>().0 = None
+                    }),
+                )
             })
-            .boxed()
         },
     )
     .boxed()
 }
 
 fn tab(at: usize, name: &str, shown: bool, many: bool) -> AnyView {
-    button(label(name.to_owned()).wrap(false))
-        .rules(look(shown))
-        .tagged(WorkspaceTab(at))
-        .on_activate(move |world| {
-            world.resource_mut::<Workspaces>().show(at);
-        })
-        .context_menu(move || {
-            let mut items = vec![
-                menu_item(label("Rename"))
-                    .on_activate(move |world| rename(world, at))
+    tab_button(
+        label(name.to_uppercase()).wrap(false).tagged(DisplayText),
+        shown,
+    )
+    .tagged(WorkspaceTab(at))
+    .on_activate(move |world| {
+        world.resource_mut::<Workspaces>().show(at);
+    })
+    .context_menu(move || {
+        let mut items = vec![
+            menu_item(label("Rename"))
+                .on_activate(move |world| rename(world, at))
+                .boxed(),
+        ];
+        if many {
+            items.push(
+                menu_item(label("Delete").tone(Tone::Critical))
+                    .on_activate(move |world| {
+                        world.resource_mut::<Workspaces>().delete(at);
+                    })
                     .boxed(),
-            ];
-            if many {
-                items.push(
-                    menu_item(label("Delete").tone(Tone::Critical))
-                        .on_activate(move |world| {
-                            world
-                                .resource_mut::<Workspaces>()
-                                .delete(at);
-                        })
-                        .boxed(),
-                );
-            }
-            items
-        })
-        .boxed()
-}
-
-/// A tab's look: lit while its workspace is shown, otherwise only
-/// lettering that brightens under the pointer.
-fn look(
-    shown: bool,
-) -> impl FnOnce(&mut bevy_fynix::Cx<'_, bevy_fynix::Bevy, EngineTheme>)
-+ Send
-+ Sync
-+ 'static {
-    let base = style::<EngineTheme>().frame(|frame, theme| {
-        frame
-            .radius(theme.space.round)
-            .padding(UiRect::axes(
-                px(theme.space.tab_padding),
-                px(0.0),
-            ))
-            .height(px(theme.space.row - theme.space.gap / 2.0))
-    });
-    let look = if shown {
-        base.fill(|theme| theme.colors.hairline).tone(Tone::Body)
-    } else {
-        base.fill(|_| Color::NONE).tone(Tone::Faint).hovered(|s| {
-            s.fill(|theme| theme.colors.hover).tone(Tone::Body)
-        })
-    };
-    look.transition(Motion::Interact).bundle()
+            );
+        }
+        items
+    })
+    .boxed()
 }
 
 /// Opens the rename field over the tab of the workspace at `at`.

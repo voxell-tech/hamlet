@@ -1,17 +1,18 @@
-//! The status line at the foot of the window: the workspace shown and
-//! the log's last line.
+//! The status line at the bottom of the window: the workspace shown
+//! and the log's last line, each behind its icon.
 
 use bevy::app::{App, Update};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Res, ResMut};
-use bevy::ui::{AlignItems, UiRect, px};
+use bevy::ui::{AlignItems, Overflow, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, label, row};
-use bevy_fynix::{ModifierExt, ViewExt, keyed, resource};
+use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_engine_core::{Log, LogLevel};
 
+use crate::icons::{Glyph, glyph};
 use crate::workspace::Workspaces;
 use crate::{AnyView, Cx};
 
@@ -32,47 +33,80 @@ struct StatusLine {
     last: Option<(LogLevel, String)>,
 }
 
-/// The status line, for the foot of the window.
+/// The status line, for the bottom of the window.
 pub fn view() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
-        let (height, gap, fill) =
-            (theme.space.status, theme.space.gap, theme.colors.bar);
+        let space = &theme.space;
+        let (across, down, gap, fill) = (
+            space.status_across,
+            space.status_down,
+            space.status_gap,
+            *theme.colors.background,
+        );
         cx.build(
             keyed(
                 resource::<StatusLine, _>(Clone::clone),
-                |status| {
-                    let (tone, text) = match &status.last {
-                        Some((LogLevel::Error, text)) => {
-                            (Tone::Critical, text)
-                        }
+                move |status| {
+                    let (which, tone, text) = match &status.last {
+                        Some((LogLevel::Error, text)) => (
+                            Glyph::Struck,
+                            Tone::Critical,
+                            text.clone(),
+                        ),
                         Some((LogLevel::Warn, text)) => {
-                            (Tone::Accent, text)
+                            (Glyph::Bell, Tone::Accent, text.clone())
                         }
                         Some((LogLevel::Info, text)) => {
-                            (Tone::Dim, text)
+                            (Glyph::Page, Tone::Dim, text.clone())
                         }
-                        None => (Tone::Dim, &String::new()),
+                        None => {
+                            (Glyph::Moon, Tone::Dim, String::new())
+                        }
                     };
                     row((
-                        label(status.workspace.clone())
-                            .tone(Tone::Faint)
-                            .wrap(false),
-                        label(text.clone())
-                            .tone(tone)
-                            .wrap(false)
-                            .grown(1.0),
+                        fact(
+                            Glyph::Folder,
+                            status.workspace.clone(),
+                            Tone::Dim,
+                        ),
+                        fact(which, text, tone),
                     ))
+                    .gap(gap)
+                    .align(AlignItems::Center)
+                    .min_width(px(0.0))
+                    .overflow(Overflow::clip())
                     .boxed()
                 },
             )
             .within(
                 row(())
-                    .height(px(height))
                     .align(AlignItems::Center)
-                    .padding(UiRect::axes(px(gap), px(0.0)))
+                    .padding(UiRect::axes(px(across), px(down)))
                     .fill(fill),
             ),
+        )
+    })
+}
+
+/// An icon and the words it stands before, both in `tone`, the words
+/// on one line however many lines they came in.
+fn fact(which: Glyph, text: String, tone: Tone) -> AnyView {
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    AnyView::new(move |cx: &mut Cx| {
+        let theme = cx.theme();
+        let (side, gap, size) = (
+            theme.space.status_icon,
+            theme.space.status_icon_gap,
+            theme.text.small,
+        );
+        cx.build(
+            row((
+                glyph(which, side).tone(tone),
+                label(text).size(size).tone(tone).wrap(false),
+            ))
+            .gap(gap)
+            .align(AlignItems::Center),
         )
     })
 }

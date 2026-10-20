@@ -1,6 +1,7 @@
 //! The tuning files under `engine/tuning/`, built into the engine.
-//! Each section a module reads is a resource. With `hot-reload` the
-//! files are watched, and a saved change reaches the running engine.
+//! Each section a module reads is a resource. In a debug build, or
+//! with `hot-reload`, the files are watched, and a saved change
+//! reaches the running engine.
 
 use core::marker::PhantomData;
 
@@ -33,7 +34,7 @@ pub const ENGINE: TuningFile = tuning_file!("engine.toml");
 pub const THEME: TuningFile = tuning_file!("theme.toml");
 
 /// Looks at the watched files every [`Watch::every`].
-#[cfg(feature = "hot-reload")]
+#[cfg(any(feature = "hot-reload", debug_assertions))]
 pub(crate) fn plugin(app: &mut App) {
     use bevy::app::PreUpdate;
     use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -48,8 +49,8 @@ pub(crate) fn plugin(app: &mut App) {
     );
 }
 
-/// Puts `T` in as designed, and with `hot-reload` keeps it in step
-/// with its file.
+/// Puts `T` in as designed, and while the files are watched keeps it
+/// in step with its file.
 pub struct TuningPlugin<T>(PhantomData<fn() -> T>);
 
 impl<T> Default for TuningPlugin<T> {
@@ -61,7 +62,7 @@ impl<T> Default for TuningPlugin<T> {
 impl<T: Tuning> Plugin for TuningPlugin<T> {
     fn build(&self, app: &mut App) {
         app.insert_resource(T::designed());
-        #[cfg(feature = "hot-reload")]
+        #[cfg(any(feature = "hot-reload", debug_assertions))]
         {
             use bevy::app::PreUpdate;
             use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -85,7 +86,7 @@ pub struct TuningFile {
     /// Its name under `engine/tuning/`.
     pub name: &'static str,
     pub text: &'static str,
-    /// Where it is in the source tree, watched with `hot-reload`.
+    /// Where it is in the source tree, which is watched.
     pub source: &'static str,
 }
 
@@ -124,7 +125,7 @@ fn pick<T: Tuning>(table: toml::Table) -> Result<T, String> {
     value.try_into::<T>().map_err(|e| e.to_string())
 }
 
-/// How often the files are looked at with `hot-reload`.
+/// How often the watched files are looked at.
 #[derive(Resource, Clone, PartialEq, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Watch {
@@ -137,7 +138,7 @@ impl Tuning for Watch {
     const SECTION: Option<&'static str> = Some("tuning");
 }
 
-#[cfg(feature = "hot-reload")]
+#[cfg(any(feature = "hot-reload", debug_assertions))]
 mod watch {
     use std::fs;
     use std::time::SystemTime;

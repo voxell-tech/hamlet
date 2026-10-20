@@ -19,6 +19,8 @@ pub fn plugin(app: &mut App) {
         log::plugin,
         TuningPlugin::<Budgets>::default(),
     ));
-    #[cfg(feature = "hot-reload")]
+    // A release build is run from anywhere, so where its files were
+    // built from is not watched unless it is asked for.
+    #[cfg(any(feature = "hot-reload", debug_assertions))]
     app.add_plugins(tuning::plugin);
 }

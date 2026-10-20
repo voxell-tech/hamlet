@@ -10,16 +10,19 @@ use bevy::ecs::query::{Changed, Has, Or};
 use bevy::ecs::relationship::RelationshipTarget;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, ResMut};
-use bevy::ui::{AlignItems, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, ghost, label, row,
+    BehaviorExt, FrameProps, column, label, row,
 };
-use bevy_fynix::{ModifierExt, ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_engine_api::PanelId;
 use hamlet_engine_api::id::ENGINE;
-use hamlet_engine_shell::dock::PLUGIN_LIST;
-use hamlet_engine_shell::{AnyView, Panel, panel};
+use hamlet_engine_shell::dock::{PLUGIN_LIST, PanelIcon};
+use hamlet_engine_shell::icons::Glyph;
+use hamlet_engine_shell::style::{
+    ButtonStyle, buttons, list, marked, note, scroll_area,
+};
+use hamlet_engine_shell::{AnyView, Cx, Panel, panel};
 
 use crate::PluginInfo;
 use crate::switch::{
@@ -63,72 +66,95 @@ pub struct Uninstall {
 }
 
 fn open(mut commands: Commands) {
-    commands.spawn(Panel {
-        id: PanelId::new(ENGINE, PLUGIN_LIST).expect("a valid id"),
-        title: "Plugins".into(),
-        content: view,
-    });
+    commands.spawn((
+        Panel {
+            id: PanelId::new(ENGINE, PLUGIN_LIST)
+                .expect("a valid id"),
+            title: "Plugins".into(),
+            content: view,
+        },
+        PanelIcon(Glyph::Chip),
+    ));
 }
 
+/// ADD PLUGIN... over the list of plugins.
 fn view(_: Entity) -> AnyView {
-    let add = button(label("ADD PLUGIN..."))
-        .rules(ghost)
-        .on_activate(|world| world.trigger(AddPlugin));
+    let add =
+        marked(ButtonStyle::Plain, Glyph::Plus, "ADD PLUGIN...")
+            .on_activate(|world| world.trigger(AddPlugin));
     let rows = keyed(resource::<Rows, _>(Clone::clone), |rows| {
         if rows.0.is_empty() {
-            return label("No plugins.").tone(Tone::Dim).boxed();
+            return note("No plugins.");
         }
-        column(rows.0.iter().map(row_view).collect::<Vec<_>>())
-            .gap(12.0)
-            .boxed()
-    });
-    panel(column((row((add,)), rows)).gap(16.0))
+        list(rows.0.iter().map(row_view).collect::<Vec<_>>())
+    })
+    .within(column(()).gap(0.0));
+    panel(AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.section;
+        cx.build(
+            column((
+                buttons(vec![add.boxed()]),
+                scroll_area((rows,)),
+            ))
+            .gap(gap),
+        )
+    }))
 }
 
+/// A plugin: its name, its id, version and state, and its buttons.
 fn row_view(row_of: &Row) -> AnyView {
     let plugin = row_of.plugin;
     let on = row_of.on;
-    let state = match (&row_of.stopped, on) {
-        (Some(why), _) => format!("Stopped: {why}"),
-        (None, true) => format!("On, adds {}", row_of.adds),
-        (None, false) => "Off".into(),
+    let (state, tone) = match (&row_of.stopped, on) {
+        (Some(why), _) => (format!("Stopped: {why}"), Tone::Critical),
+        (None, true) => {
+            (format!("On, adds {}", row_of.adds), Tone::Dim)
+        }
+        (None, false) => ("Off".into(), Tone::Dim),
     };
-    let switch =
-        button(label(if on { "Switch off" } else { "Switch on" }))
-            .rules(ghost)
-            .on_activate(move |world| {
-                if on {
-                    world.trigger(Disable { entity: plugin });
-                } else {
-                    world.trigger(Enable { entity: plugin });
-                }
-            })
-            .boxed();
-    let mut buttons = vec![switch];
+    let switch = if on {
+        marked(ButtonStyle::Plain, Glyph::Power, "SWITCH OFF")
+    } else {
+        marked(ButtonStyle::Plain, Glyph::Power, "SWITCH ON")
+    }
+    .on_activate(move |world| {
+        if on {
+            world.trigger(Disable { entity: plugin });
+        } else {
+            world.trigger(Enable { entity: plugin });
+        }
+    })
+    .boxed();
+    let mut actions = vec![switch];
     if !row_of.builtin {
-        buttons.push(
-            button(label("Uninstall"))
-                .rules(ghost)
+        actions.push(
+            marked(ButtonStyle::Critical, Glyph::Bin, "UNINSTALL")
                 .on_activate(move |world| {
                     world.trigger(Uninstall { entity: plugin });
                 })
                 .boxed(),
         );
     }
-    row((
-        column((
-            label(row_of.name.clone()),
-            label(format!("{}  {state}", row_of.about))
-                .tone(Tone::Dim)
-                .size(12.0),
-        ))
-        .gap(2.0)
-        .grown(1.0),
-        row(buttons).gap(4.0),
-    ))
-    .align(AlignItems::Center)
-    .min_height(px(0.0))
-    .boxed()
+    let (name, about) = (row_of.name.clone(), row_of.about.clone());
+    AnyView::new(move |cx: &mut Cx| {
+        let theme = cx.theme();
+        let (gap, size) = (theme.space.gap, theme.text.small);
+        cx.build(
+            column((
+                label(name).bold(true).wrap(false),
+                row((
+                    label(about)
+                        .size(size)
+                        .tone(Tone::Dim)
+                        .wrap(false),
+                    label(state).size(size).tone(tone),
+                ))
+                .gap(gap),
+                buttons(actions),
+            ))
+            .gap(gap / 2.0),
+        )
+    })
 }
 
 /// Gathers the rows again when a plugin comes, goes, or is switched.

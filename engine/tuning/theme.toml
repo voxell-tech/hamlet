@@ -1,38 +1,116 @@
-# The look of the shell: warm near-black surfaces, brass, and lamplight
-# for what is live. Dark only. Each colour is "#rrggbbaa", and a time is
-# in seconds. What each value means is written beside its field in
+# The shell's theme and styles, by role: warm near-black surfaces, a
+# gold accent, and a warmer light for what is live. Dark only. Each
+# colour is "#rrggbbaa", a size is in logical pixels and a time in
+# seconds. What each value means is written beside its field in
 # engine/shell/src/theme.rs.
 
 [colors]
 background = "#120e0aff"
-bar = "#1b1510ff"
-seam = "#2c231bff"
+background_bottom ="#1f150cff"
+surface = "#1b1510ff"
+surface_raised = "#211a13ff"
+surface_sunken = "#0b0806ff"
 fill = "#2a2018ff"
 hover = "#34291fff"
-hairline = "#45351fff"
-accent = "#c9983fff"
+accent_hover = "#3b2d1eff"
+separator = "#2c231bff"
+border = "#45351fff"
+border_strong = "#7c5d2fff"
 text = "#f2e7d0ff"
-dim = "#ab9f8bff"
-faint = "#d9c391ff"
-lit = "#f2b35aff"
+text_muted ="#ab9f8bff"
+text_accent = "#d9c391ff"
+accent = "#c9983fff"
+accent_soft = "#caa666ff"
+active = "#f2b35aff"
+active_strong = "#ffd58aff"
+active_low = "#3e2810ff"
+active_high = "#7a5220ff"
+selection = "#f2b35a4d"
+info = "#6fd6d2ff"
 critical = "#f47560ff"
+critical_glow = "#d9482fff"
+critical_strong = "#ff9a3cff"
+critical_muted = "#8f4034ff"
+critical_hover = "#5a2219ff"
+critical_surface = "#3a1711ff"
+success = "#a9d18aff"
+success_surface = "#1d2a16ff"
+shadow = "#0503018c"
 
 [text]
 body = 14.0
 small = 12.0
-title = 13.0
+heading = 13.0
+title = 16.0
+caption = 11.0
+tracking = 1.0
 
 [space]
 gap = 8.0
 row = 28.0
 round = 4.0
 soft = 6.0
+border = 1.0
 divider = 1.0
 divider_grip = 8.0
 tab_padding = 12.0
-bar = 34.0
-status = 24.0
+icon = 14.0
+icon_gap = 6.0
+icon_lift = 2.0
+button_padding = 14.0
+mark_start = 10.0
+mark_end = 13.0
 panel = 16.0
+section = 12.0
+card_across = 14.0
+card_down = 10.0
+row_padding = 10.0
+bar = 34.0
+bar_padding = 8.0
+title_padding = 16.0
+menu_width = 190.0
+menu_gap = 10.0
+status_across = 16.0
+status_down = 5.0
+status_gap = 18.0
+status_icon = 12.0
+status_icon_gap = 5.0
+page_width = 640.0
+tab_height = 30.0
+underline = 2.0
+bottom_start = 0.35
+
+[shadow]
+drop = 6.0
+blur = 18.0
+
+[glow]
+hover_rate = 12.0
+press_rate = 30.0
+fade_rate = 4.5
+press_shrink = 0.03
+pulse_grow = 0.02
+press_sink = 1.5
+shake = 3.0
+shake_rate = 34.0
+plain = 0.5
+critical = 0.55
+primary = 0.75
+field = 0.45
+primary_rest = 0.3
+press_dim = 0.75
+done_gain = 0.6
+flicker = 0.06
+spread = 0.35
+spread_muted = 0.5
+reach = 12.0
+pulse_reach = 8.0
+core = 0.4
+text_reach = 0.55
+drop = 0.35
+inner = 0.35
+bottom = 0.26
+bottom_press = 0.2
 
 [motion]
 interact = 0.14

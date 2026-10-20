@@ -111,7 +111,7 @@ mod tests {
             .command("write", "Write", |_, _| {})
             .menu_entry("Notes", "write")
             .shortcut("Primary+Shift+N", "write")
-            .settings_page("looks", "Looks", content)
+            .settings_page("style", "Style", content)
             .workspace("notes", "Notes", Layout::empty());
     }
 

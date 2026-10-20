@@ -1,5 +1,5 @@
 //! Petitions: questions for the person about a plugin, each a child
-//! of the plugin's entity, listed in the Needs you panel. A plugin
+//! of the plugin's entity, listed in the Petitions panel. A plugin
 //! that is installed is asked about once it comes, unless the person
 //! answered for this version already, and a plugin that asks for
 //! more than it was answered for is asked again. A use of a
@@ -21,25 +21,29 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
-use bevy::ui::AlignItems;
 use bevy_fynix::dock::DockTree;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, ghost, label, primary,
-    row, segmented,
+    BehaviorExt, FrameProps, column, frame, label,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{Ask, Capability, PanelId};
 use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::{Enable, PluginInfo};
-use hamlet_engine_shell::{AnyView, Panel, dock, panel};
+use hamlet_engine_shell::dock::PanelIcon;
+use hamlet_engine_shell::icons::Glyph;
+use hamlet_engine_shell::style::{
+    ButtonStyle, buttons, caption, card, choices, marked, note,
+    scroll_area, section,
+};
+use hamlet_engine_shell::{AnyView, Cx, Panel, dock, panel};
 
 use crate::Admitted;
 use crate::file::{Answer, Grants, Record};
 
-/// The name of the Needs you panel.
-pub const NEEDS_YOU: &str = "needs_you";
+/// The name of the Petitions panel.
+pub const PETITIONS: &str = "petitions";
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<FirstUse>()
@@ -87,23 +91,28 @@ pub struct Decided {
     pub allowed: bool,
 }
 
-/// The petitions as the Needs you panel shows them.
+/// The petitions as the Petitions panel shows them.
 #[derive(Resource, Clone, PartialEq, Default)]
 struct Rows(Vec<Row>);
 
 #[derive(Clone, PartialEq)]
 struct Row {
     petition: Entity,
+    /// The line over its card: what it is and from which plugin.
+    caption: String,
     title: String,
     question: Question,
 }
 
 fn open(mut commands: Commands) {
-    commands.spawn(Panel {
-        id: PanelId::new(ENGINE, NEEDS_YOU).expect("a valid id"),
-        title: "Needs you".into(),
-        content: view,
-    });
+    commands.spawn((
+        Panel {
+            id: PanelId::new(ENGINE, PETITIONS).expect("a valid id"),
+            title: "Petitions".into(),
+            content: view,
+        },
+        PanelIcon(Glyph::Bell),
+    ));
 }
 
 /// Switches on each installed plugin the person let in, and asks
@@ -286,7 +295,7 @@ fn first_use(
     }
 }
 
-/// Puts `question` about `plugin` to the person, in the Needs you
+/// Puts `question` about `plugin` to the person, in the Petitions
 /// panel.
 fn raise(
     commands: &mut Commands,
@@ -299,10 +308,10 @@ fn raise(
     commands.spawn((Petition(question), ChildOf(plugin)));
     log.write(LogLine::info(
         "grants",
-        format!("{} needs you: see Needs you", info.name),
+        format!("{} has a petition: see Petitions", info.name),
     ));
     if let (Some(tree), Ok(id)) =
-        (tree, PanelId::new(ENGINE, NEEDS_YOU))
+        (tree, PanelId::new(ENGINE, PETITIONS))
     {
         dock::open(tree, id.as_str());
     }
@@ -339,25 +348,32 @@ fn follow(
         .iter()
         .filter_map(|(petition, Petition(question), parent)| {
             let info = plugins.get(parent.parent()).ok()?;
-            let title = match question {
-                Question::Install { more: false, .. } => {
+            let (caption, title) = match question {
+                Question::Install { more: false, .. } => (
+                    "TO ADD",
                     format!(
                         "{} {} wants to be added.",
                         info.name, info.version
-                    )
-                }
-                Question::Install { more: true, .. } => {
+                    ),
+                ),
+                Question::Install { more: true, .. } => (
+                    "TO UPDATE",
                     format!(
                         "{} {} asks for more.",
                         info.name, info.version
-                    )
-                }
-                Question::Use(_) => {
-                    format!("{} wants to use:", info.name)
-                }
+                    ),
+                ),
+                Question::Use(_) => (
+                    "A FIRST USE",
+                    format!("{} wants to use:", info.name),
+                ),
             };
             Some(Row {
                 petition,
+                caption: format!(
+                    "{caption} FROM {}",
+                    info.name.to_uppercase()
+                ),
                 title,
                 question: question.clone(),
             })
@@ -369,23 +385,38 @@ fn follow(
     }
 }
 
+/// How many petitions wait, over a card for each.
 fn view(_: Entity) -> AnyView {
-    panel(keyed(resource::<Rows, _>(Clone::clone), |rows| {
+    let count =
+        section(resource::<Rows, _>(|rows| match rows.0.len() {
+            0 => "NO PETITIONS".to_owned(),
+            1 => "1 PETITION".to_owned(),
+            n => format!("{n} PETITIONS"),
+        }));
+    let cards = keyed(resource::<Rows, _>(Clone::clone), |rows| {
         if rows.0.is_empty() {
-            return label("Nothing needs you.")
-                .tone(Tone::Dim)
-                .boxed();
+            return note("What a plugin asks of you waits here.");
         }
-        column(rows.0.iter().map(row_view).collect::<Vec<_>>())
-            .gap(20.0)
-            .boxed()
+        let cards = rows.0.iter().map(row_view).collect::<Vec<_>>();
+        AnyView::new(move |cx: &mut Cx| {
+            let gap = cx.theme().space.gap;
+            cx.build(column(cards).gap(gap))
+        })
+    })
+    .within(column(()).gap(0.0));
+    panel(AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.section;
+        cx.build(column((count, scroll_area((cards,)))).gap(gap))
     }))
 }
 
+/// A petition's card: what it is, about which plugin, what it asks
+/// and its answers.
 fn row_view(row_of: &Row) -> AnyView {
     let petition = row_of.petition;
-    let title = label(row_of.title.clone());
-    match &row_of.question {
+    let head = caption(row_of.caption.clone(), Tone::Accent);
+    let title = row_of.title.clone();
+    let (asks, answers) = match &row_of.question {
         Question::Install { asks, chosen, .. } => {
             let asks = asks
                 .iter()
@@ -396,68 +427,87 @@ fn row_view(row_of: &Row) -> AnyView {
                         .iter()
                         .position(|a| a == answer)
                         .unwrap_or(1);
-                    column((
-                        ask_view(ask),
-                        segmented(
-                            Answer::ALL.map(Answer::label),
+                    ask_view(
+                        ask,
+                        choices(
+                            Answer::ALL
+                                .map(|answer| {
+                                    answer.label().to_owned()
+                                })
+                                .to_vec(),
                             picked,
                             move |world, picked| {
                                 choose(world, petition, at, picked)
                             },
                         ),
-                    ))
-                    .gap(4.0)
-                    .boxed()
+                    )
                 })
                 .collect::<Vec<_>>();
-            column((
-                title,
-                column(asks).gap(12.0),
-                row((
-                    button(label("Allow"))
-                        .rules(primary)
-                        .on_activate(move |world| {
-                            answer_install(world, petition, true)
-                        }),
-                    button(label("Don't allow"))
-                        .rules(ghost)
-                        .on_activate(move |world| {
-                            answer_install(world, petition, false)
-                        }),
-                ))
-                .gap(8.0)
-                .align(AlignItems::Center),
-            ))
-            .gap(8.0)
-            .boxed()
+            let answers = buttons(vec![
+                marked(ButtonStyle::Primary, Glyph::Check, "ALLOW")
+                    .on_activate(move |world| {
+                        answer_install(world, petition, true)
+                    })
+                    .boxed(),
+                marked(
+                    ButtonStyle::Critical,
+                    Glyph::Cross,
+                    "DON'T ALLOW",
+                )
+                .on_activate(move |world| {
+                    answer_install(world, petition, false)
+                })
+                .boxed(),
+            ]);
+            (asks, answers)
         }
         Question::Use(ask) => {
             let answers = Answer::ALL
                 .iter()
                 .map(|&answer| {
-                    button(label(answer.label()))
-                        .rules(ghost)
+                    let (kind, which) = match answer {
+                        Answer::Allow => {
+                            (ButtonStyle::Primary, Glyph::Check)
+                        }
+                        Answer::Ask => {
+                            (ButtonStyle::Plain, Glyph::Restore)
+                        }
+                        Answer::Deny => {
+                            (ButtonStyle::Critical, Glyph::Cross)
+                        }
+                    };
+                    marked(kind, which, answer.label().to_uppercase())
                         .on_activate(move |world| {
                             answer_use(world, petition, answer)
                         })
                         .boxed()
                 })
                 .collect::<Vec<_>>();
-            column((title, ask_view(ask), row(answers).gap(8.0)))
-                .gap(8.0)
-                .boxed()
+            (vec![ask_view(ask, frame().boxed())], buttons(answers))
         }
-    }
+    };
+    AnyView::new(move |cx: &mut Cx| {
+        let theme = cx.theme();
+        let (size, gap) = (theme.text.heading, theme.space.gap);
+        cx.build(card((
+            head,
+            label(title).size(size),
+            column(asks).gap(gap),
+            answers,
+        )))
+    })
 }
 
-/// An ask, and its reason in the plugin's words.
-fn ask_view(ask: &Ask) -> AnyView {
-    column((
-        label(format!("{} {}", ask.capability.name(), ask.target)),
-        label(ask.reason.clone()).tone(Tone::Dim),
-    ))
-    .gap(2.0)
-    .boxed()
+/// An ask, its reason in the plugin's words, and `answers` under it.
+fn ask_view(ask: &Ask, answers: AnyView) -> AnyView {
+    let (what, why) = (
+        format!("{} {}", ask.capability.name(), ask.target),
+        ask.reason.clone(),
+    );
+    AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.gap / 2.0;
+        cx.build(column((label(what), note(why), answers)).gap(gap))
+    })
 }
 
 /// Chooses the answer at `picked` for the ask at `at` of an install

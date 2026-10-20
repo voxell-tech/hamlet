@@ -28,8 +28,9 @@ use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::{
     Asked, ContributedBy, Contributions, PluginInfo, Stopped,
 };
+use hamlet_engine_shell::style::{caption, note};
 use hamlet_engine_shell::{
-    AnyView, Panel, SettingsPage, panel, tree_view,
+    AnyView, Cx, Panel, SettingsPage, panel, tree_view,
 };
 
 use crate::budget::{Spending, pass_logs, tally};
@@ -95,12 +96,18 @@ pub struct Input {
     pub action: Action,
 }
 
-/// The content of a WASM plugin's panel or settings page.
+/// The content of a WASM plugin's panel.
 pub(crate) fn view(surface: Entity) -> AnyView {
+    panel(page(surface))
+}
+
+/// The content of a WASM plugin's settings page, or of its panel
+/// inside the panel's padding.
+pub(crate) fn page(surface: Entity) -> AnyView {
     let shows = component::<Drawn, _>(surface, |drawn| {
         drawn.map(|drawn| drawn.shows.clone())
     });
-    panel(keyed(shows, move |shows| match shows {
+    keyed(shows, move |shows| match shows {
         Some(Shows::Tree(tree)) => tree_view(
             tree,
             move |world: &mut World, widget, action| {
@@ -111,14 +118,23 @@ pub(crate) fn view(surface: Entity) -> AnyView {
                 });
             },
         ),
-        Some(Shows::Stopped(why)) => column((
-            label("The plugin was stopped."),
-            label(why.clone()).tone(Tone::Dim),
-        ))
-        .gap(8.0)
-        .boxed(),
+        Some(Shows::Stopped(why)) => {
+            let why = why.clone();
+            AnyView::new(move |cx: &mut Cx| {
+                let gap = cx.theme().space.gap;
+                cx.build(
+                    column((
+                        caption("STOPPED", Tone::Critical),
+                        label("The plugin was stopped."),
+                        note(why),
+                    ))
+                    .gap(gap),
+                )
+            })
+        }
         _ => column(()).boxed(),
-    }))
+    })
+    .boxed()
 }
 
 /// Draws a WASM plugin's new panel.

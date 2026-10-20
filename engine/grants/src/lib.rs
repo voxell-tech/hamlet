@@ -19,7 +19,7 @@ use hamlet_engine_plugins::{PluginInfo, Uninstall};
 
 pub use self::file::{Answer, Answered, FILE, Grants, Record};
 pub use self::petition::{
-    Decided, FirstUse, NEEDS_YOU, Petition, Question, answer_install,
+    Decided, FirstUse, PETITIONS, Petition, Question, answer_install,
     answer_use,
 };
 pub use self::waiting::Waiting;

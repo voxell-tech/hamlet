@@ -23,5 +23,6 @@ bevy_fynix.workspace = true
 
 [features]
 # A saved change to a file under engine/tuning/ reaches the running
-# engine: `cargo run -p hamlet_engine --features hot-reload`.
+# engine. Always so in a debug build; this asks for it in a release
+# build too: `cargo run --release -p hamlet_engine --features hot-reload`.
 hot-reload = ["hamlet_engine_core/hot-reload"]

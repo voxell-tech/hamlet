@@ -7,7 +7,7 @@ share.
 
 ```sh
 cargo run -p hamlet_engine
-cargo run -p hamlet_engine --features hot-reload
+cargo run --release -p hamlet_engine --features hot-reload
 HAMLET_ENGINE_HOME=/tmp/scratch cargo run -p hamlet_engine
 cargo run -p hamlet_engine_harness --bin plugin_check -- engine/samples/board
 ```
@@ -196,10 +196,12 @@ builds the samples) runs both samples' scripts.
   budgets, and `theme.toml` the shell's theme. Both are built into the
   binary. A module reads one section of a file as a resource: it
   implements `Tuning` (the file and the section) and adds
-  `TuningPlugin<T>`. With the `hot-reload` feature the files in the
-  source tree are checked every `[tuning] every` seconds, and a saved
-  change replaces each section that differs. A file that cannot be read
-  is told in the log, and the last good values stay.
+  `TuningPlugin<T>`. In a debug build the files in the source tree are
+  checked every `[tuning] every` seconds, and a saved change replaces
+  each section that differs. A release build is run away from its
+  sources, so it watches them only with the `hot-reload` feature. A
+  file that cannot be read is told in the log, and the last good values
+  stay.
 - **The home.** The engine keeps its own home, apart from the app's, so
   running it never touches the app's data. `HAMLET_ENGINE_HOME` names it;
   unset, it is `~/.hamlet_engine`. Both names are constants in
@@ -212,23 +214,79 @@ builds the samples) runs both samples' scripts.
 
 ## The shell
 
-- **The theme.** `EngineTheme` is `theme.toml`, dark only: the colours by
-  role, the text sizes, the spacing and the timings, and the token
-  traits fynix's views read. A saved theme builds the views again.
 - **The window.** `window_plugin` sets Bevy's window from
   `[window]`. Everything shown is built under one root.
-- **Fonts.** Inter is the default face. A label tagged `DisplayText` is
-  drawn in Cinzel, tracked, for titles.
+- **Fonts.** Inter is the default face. A label tagged `DisplayText`,
+  and the name on a dock tab, is drawn in Cinzel, tracked, for titles.
 - **The dock and panels.** The dock is fynix's: split areas of tabs,
   dragged, split and closed by hand, and a "+" on each tab bar that opens
   any panel there is. A panel is an entity with a `Panel`: its id, its
   title, and a function that builds its content given the entity. While
   the entity is there the dock can show it; when it goes, its tabs go.
-  `panel(view)` gives content the panel's padding and fill.
+  Its tab shows its title in capitals, after its `PanelIcon` if it has
+  one. `panel(view)` gives content the panel's padding and its fill,
+  shaded toward the bottom.
 - **The console** (`engine/console`) lists the log, newest first.
 - **Settings pages** are entities with a `SettingsPage`, as plugins add
   them. The Settings panel (`engine/settings`, opened from the View
-  menu) lists them by title beside the page chosen.
+  menu) shows a link row to each by title; the page gone through is shown
+  under a head whose SETTINGS leads back.
+
+### The theme and styles
+
+The shell looks as the app in `crates/` does: its palette, text sizes,
+buttons, cards, headings, notes, icons and chrome. Dark only.
+
+- **The theme file.** `engine/tuning/theme.toml` holds every value
+  that decides how the shell looks, read as `EngineTheme`: `[colors]`,
+  `[text]` sizes, `[space]`, the `[shadow]` under what floats, `[glow]`
+  and `[motion]`. What each value means is beside its field in
+  `engine/shell/src/theme.rs`. An unknown or missing key is refused, and
+  the last good theme stays. A saved change builds the views again: in a
+  debug build always, in a release build with `hot-reload`, since a
+  release build is run away from its sources.
+- **Colours by role**, never by what they look like: `background` and
+  `background_bottom` it shades to, `surface`, `surface_raised`,
+  `surface_sunken`, `fill`, `hover`, `accent_hover`, `separator`,
+  `border`, `border_strong`, `text`, `text_muted`, `text_accent`,
+  `accent`, `accent_soft`, `active` with `active_strong`, `active_low`
+  and `active_high`, `selection`, `info`, `critical` with
+  `critical_glow`, `critical_strong`, `critical_muted`, `critical_hover`
+  and `critical_surface`, `success` with `success_surface`, and
+  `shadow`. fynix's tones and surfaces are read from them.
+- **Styles** (`style.rs`) build every widget from the theme. A button
+  has a `ButtonStyle`: `Plain`, `Primary` (the one action a panel is
+  for), `Critical` (what refuses or stops), `Quiet` (lettering only, as
+  a way back), `Row` (a row that leads somewhere), `Title` (a menu's
+  title) and `Tab`. `action` and `marked` letter one in the display face,
+  `marked` after an icon. Besides: `field`, `toggle`, `choices`,
+  `heading`, `section`, `caption`, `note`, `card`, `list`, `link_row`
+  and `link_rows`, `page_head`, `divider`, `buttons` (a row that wraps),
+  `scroll_area`, `title_button` and `tab_button`. A `Shade` surface,
+  as a panel or the bar, shades toward `background_bottom`.
+- **Glows** are Bevy's `BoxShadow` and `BackgroundGradient` and
+  nothing else: no shader of the shell's own. A control glows by what
+  it is for (`Glow`): eased toward the pointer, a press or the caret,
+  covered while held, pulsing once its work is done, or shaking if it
+  refused. The glow is two shadows, a halo and a brighter core, set a
+  little below the control (`drop`); a `Quiet` button glows about its
+  lettering. The primary action and a field being typed in are also
+  lit inside, by a gradient from the active colour at the bottom to
+  nothing at the top (`inner`). A title or a tab is lit the same way
+  (`BottomLight`), under the pointer and while its menu is open or it is
+  shown. A scroll area cuts what it holds as far past its edges as a
+  glow reaches (`GlowMargin`), and a panel cuts at the outer edge of
+  its padding, so a glow at the edge shows whole. What floats has
+  `drop_shadow`.
+- **Plugin panels** are drawn by `tree_view` with the same styles.
+- **Icons** (`icons.rs`) are one family of line drawings made in code
+  at start, so there is no file or font to load: a `Glyph` each, drawn
+  at 12, 14, 16 and 20 pixels and tinted by a tone. A plugin names one
+  by `Glyph::name`.
+- **Stills.** `cargo run -p hamlet_engine --example stills -- --out
+  <dir>` draws the widgets in each state, the icons, and the shell with
+  a menu open or Settings shown, into PNGs with no window; `--scene
+  <name>` draws one.
 
 ## Workspaces
 
@@ -259,7 +317,8 @@ person has one or more, and one is shown at a time.
   afresh. If it cannot even be moved, nothing is saved, so the file stays
   as it is.
 - **The switcher** (`switcher.rs`) is a tab per workspace in the bar at
-  the top; a press shows that workspace. "+" adds an empty one, named
+  the top, its name in capitals, the one shown lit and underlined; a
+  press shows that workspace. "+" adds an empty one, named
   "Workspace" and a number, and shows it. A right-click on a tab offers
   Rename, a field under the tab (Enter keeps the name; Escape or a press
   outside leaves it), and Delete, while there is more than one. A name is
@@ -289,13 +348,16 @@ person has one or more, and one is shown at a time.
 - **A menu entry** is an entity with a `MenuEntry`: the title of its
   menu and the id of its command. The bar gathers the entries into
   menus, the engine's own first (Hamlet, Workspace, View) and then the
-  others in the order they came; an entry shows its command's label and
-  first key. An entry whose command is not there is left out.
+  others in the order they came. A menu's title, in capitals, opens it
+  under itself and stays lit while it is open; a press on another title
+  opens that one instead. An entry shows its command's label and first
+  key. An entry whose command is not there is left out.
 - **The engine's own.** Quit (Cmd+Q, Ctrl+Q off macOS) in the Hamlet
   menu, the workspace commands, and for each panel a command in the View
   menu that brings it to the front, or opens it in the first area.
-- **The status line** at the foot of the window shows the workspace
-  shown and the log's last line, an error in red.
+- **The status line** at the bottom of the window shows the workspace
+  shown and the log's last line, each behind an icon, a warning in the
+  accent and an error in red.
 
 ## Plugins
 
@@ -325,8 +387,8 @@ person has one or more, and one is shown at a time.
   refuses is told in the log and not added.
 - **The plugin list** (`engine/plugins`) is the engine's own panel: each
   plugin, its id and version, whether it is on and how much it adds, or
-  why it was stopped, and a button that switches it; an installed one
-  has an Uninstall button too (`Uninstall`). ADD PLUGIN... above them
+  why it was stopped, and SWITCH ON or SWITCH OFF; an installed one has
+  UNINSTALL too (`Uninstall`). ADD PLUGIN... above them
   triggers `AddPlugin`, for a host to answer.
 - **The demo** in `engine/app/src/demo.rs` is built into the binary. It
   adds a panel, Hello; a command, Say hello, in a Demo menu and on
@@ -352,9 +414,9 @@ do. Plugins built in are not asked about.
   asking for one is read: `never_granted` names them by the first word
   of a capability.
 - **Petitions** are questions for the person, each a `Petition` on a
-  child of the plugin's entity, so they go with it. The Needs you panel
-  (`engine/needs_you`) lists them, and is opened in the dock when one
-  comes; the log says so too.
+  child of the plugin's entity, so they go with it. The Petitions panel
+  (`engine/petitions`) says how many wait over a card for each, and is
+  opened in the dock when one comes; the log says so too.
 - **Installing.** A plugin that comes with no answers is asked about:
   its name and version, and each ask with its reason and a choice of
   the three answers, Ask next time to start with. Allow lets it in with
@@ -511,8 +573,9 @@ plugin to are `[budgets]`.
   a `Drawn`: their name within the plugin and what they show. The
   plugin's `draw` gives a `WidgetTree`, checked against the budgets'
   `TreeLimits`, and the shell's `tree_view` draws it with its own
-  widgets. The engine has no set of icons yet: an icon shows its name.
-  A field's placeholder is written above it.
+  widgets. An icon is one of the engine's set by its name (`plus`,
+  `check`, `bell`, ... as `Glyph::name` has them); a name the set does
+  not have is shown as it is.
 - **Events back.** A click, a toggle switched, or a field's text (on
   Enter, or as the field is left) goes into the plugin's inbox as a
   `WidgetEvent`, and the plugin's `event` is called with it on the next

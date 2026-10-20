@@ -29,7 +29,7 @@ use crate::folder::{Package, WASM, read_capped};
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Instance, Linked, link};
 use crate::mail::pass_requests;
-use crate::panel::{Inbox, Work, view};
+use crate::panel::{Inbox, Work, page, view};
 use crate::reload::{Declared, Reloading};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -107,7 +107,7 @@ pub(crate) fn entry(contributions: Vec<Contribution>) -> Entry {
                 entry.shortcut(&keys, &command);
             }
             Contribution::SettingsPage { name, title } => {
-                entry.settings_page(&name, &title, view);
+                entry.settings_page(&name, &title, page);
             }
             Contribution::Workspace {
                 name,

@@ -6,13 +6,13 @@ use bevy::app::{App, Startup};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
-use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{FrameProps, column, label};
+use bevy_fynix::views::{FrameProps, column};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{Layout, Manifest, PanelId, PluginId};
 use hamlet_engine_core::LogLine;
 use hamlet_engine_plugins::Entry;
-use hamlet_engine_shell::{AnyView, panel};
+use hamlet_engine_shell::style::{heading, note};
+use hamlet_engine_shell::{AnyView, Cx, panel};
 
 const ID: &str = "hamlet.demo";
 
@@ -61,16 +61,18 @@ fn greet(world: &mut World, _: Entity) {
 }
 
 fn view(_: Entity) -> AnyView {
-    panel(
-        column((
-            label("Hello"),
-            label(
-                "This panel is the demo plugin's. Switch the plugin \
-                 off in Plugins and it goes, with its menu and its \
-                 key.",
-            )
-            .tone(Tone::Dim),
-        ))
-        .gap(8.0),
-    )
+    panel(AnyView::new(|cx: &mut Cx| {
+        let gap = cx.theme().space.gap;
+        cx.build(
+            column((
+                heading("Hello"),
+                note(
+                    "This panel is the demo plugin's. Switch the \
+                     plugin off in Plugins and it goes, with its \
+                     menu and its key.",
+                ),
+            ))
+            .gap(gap),
+        )
+    }))
 }

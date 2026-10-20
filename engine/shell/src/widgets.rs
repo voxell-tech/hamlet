@@ -1,19 +1,21 @@
 //! A widget tree, as a plugin describes a panel, drawn with the
-//! shell's widgets.
+//! shell's styles.
 
-use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, px};
+use bevy::prelude::*;
 use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, checkbox, column, frame, label,
-    row, scroll, text_field,
+    BehaviorExt, FrameProps, column, label, row,
 };
 use hamlet_engine_api::{
     Action, Widget, WidgetId, WidgetNode, WidgetTree,
 };
 
-use crate::fonts::DisplayText;
+use crate::icons::{Glyph, mark};
+use crate::style::{
+    ButtonStyle, action, divider, field, heading, list, scroll_area,
+    toggle,
+};
 use crate::{AnyView, Cx};
 
 /// `tree` drawn, calling `act` with what the person does to one of
@@ -28,29 +30,17 @@ where
 {
     let nodes = tree.nodes.clone();
     AnyView::new(move |cx: &mut Cx| {
-        let theme = cx.theme();
-        let looks = Looks {
-            gap: theme.space.gap,
-            line: theme.space.divider,
-            hairline: theme.colors.hairline,
-        };
+        let gap = cx.theme().space.gap;
         let mut at = 0;
-        cx.build(node_view(&nodes, &mut at, &looks, &act))
+        cx.build(node_view(&nodes, &mut at, gap, &act))
     })
-}
-
-/// What a tree's widgets take from the theme.
-struct Looks {
-    gap: f32,
-    line: f32,
-    hairline: bevy::color::Color,
 }
 
 /// The node at `at` and those under it, with `at` moved past them.
 fn node_view<F>(
     nodes: &[WidgetNode],
     at: &mut usize,
-    looks: &Looks,
+    gap: f32,
     act: &F,
 ) -> AnyView
 where
@@ -65,63 +55,47 @@ where
     };
     *at += 1;
     let children = (0..node.children)
-        .map(|_| node_view(nodes, at, looks, act))
+        .map(|_| node_view(nodes, at, gap, act))
         .collect::<Vec<_>>();
     let id = node.id.clone();
     let act = act.clone();
     match &node.widget {
         Widget::Text(text) => label(text.clone()).boxed(),
-        Widget::Heading(text) => {
-            label(text.clone()).tagged(DisplayText).boxed()
+        Widget::Heading(text) => heading(text.clone()),
+        Widget::Icon(name) => match Glyph::named(name) {
+            Some(which) => mark(which, Tone::Faint),
+            // A name the set does not have is shown as it is.
+            None => label(name.clone()).tone(Tone::Dim).boxed(),
+        },
+        Widget::Button(text) => {
+            action(ButtonStyle::Plain, text.clone())
+                .on_activate(move |world| {
+                    act(world, id.clone(), Action::Click)
+                })
+                .boxed()
         }
-        // The engine has no set of icons yet: one shows its name.
-        Widget::Icon(name) => {
-            label(name.clone()).tone(Tone::Faint).boxed()
-        }
-        Widget::Button(text) => button(label(text.clone()))
-            .on_activate(move |world| {
-                act(world, id.clone(), Action::Click)
-            })
-            .boxed(),
         Widget::Toggle { label: text, on } => row((
-            checkbox(*on).on_change(move |world, on| {
+            toggle(*on, move |world, on| {
                 act(world, id.clone(), Action::Toggle(on));
             }),
             label(text.clone()),
         ))
-        .gap(looks.gap)
+        .gap(gap)
         .align(AlignItems::Center)
         .boxed(),
-        Widget::Field { value, placeholder } => {
-            let field =
-                text_field(value.clone(), move |world, text| {
-                    act(world, id.clone(), Action::Text(text));
-                });
-            if placeholder.is_empty() {
-                return field.boxed();
-            }
-            // The fields have no placeholder: it is written above.
-            column((
-                label(placeholder.clone()).tone(Tone::Dim),
-                field,
-            ))
-            .gap(looks.gap / 2.0)
-            .boxed()
+        Widget::Field { value, placeholder } => field(
+            value.clone(),
+            placeholder.clone(),
+            move |world, text| {
+                act(world, id.clone(), Action::Text(text));
+            },
+        ),
+        Widget::List => list(children),
+        Widget::Row => {
+            row(children).gap(gap).align(AlignItems::Center).boxed()
         }
-        Widget::List => column(children).gap(looks.gap / 2.0).boxed(),
-        Widget::Row => row(children)
-            .gap(looks.gap)
-            .align(AlignItems::Center)
-            .boxed(),
-        Widget::Column => column(children).gap(looks.gap).boxed(),
-        Widget::Scroll => scroll(children)
-            .gap(looks.gap)
-            .grow(1.0)
-            .min_height(px(0.0))
-            .boxed(),
-        Widget::Divider => frame()
-            .height(px(looks.line))
-            .fill(looks.hairline)
-            .boxed(),
+        Widget::Column => column(children).gap(gap).boxed(),
+        Widget::Scroll => scroll_area(children),
+        Widget::Divider => divider(),
     }
 }

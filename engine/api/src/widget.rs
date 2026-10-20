@@ -1,5 +1,5 @@
 //! The widget tree a plugin describes a panel with, and the engine
-//! draws in its own looks.
+//! draws with its own styles.
 //!
 //! The tree is flat, in pre-order: each node is followed by its
 //! children, each with theirs, and says how many children it has.

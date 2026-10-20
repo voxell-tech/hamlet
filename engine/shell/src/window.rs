@@ -17,11 +17,14 @@ use bevy::window::{
 };
 use bevy_fynix::dock::dock;
 use bevy_fynix::shortcut::{Chord, Mods};
-use bevy_fynix::views::{FrameProps, column, frame, row};
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, column, frame, row,
+};
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
 use serde::Deserialize;
 
 use crate::command::{RunCommand, engine_id, spawn_command};
+use crate::style::Shade;
 use crate::theme::{EngineTheme, ThemeChanged};
 use crate::{AnyView, Cx, View, menu, status, switcher};
 
@@ -121,8 +124,8 @@ fn root() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
         let (background, seam, line) = (
-            theme.colors.background,
-            theme.colors.seam,
+            *theme.colors.background,
+            *theme.colors.separator,
             theme.space.divider,
         );
         cx.build(
@@ -134,6 +137,7 @@ fn root() -> AnyView {
                     .gap(0.0),
                 frame().height(px(line)).fill(seam),
                 status::view(),
+                menu::open_view(),
                 switcher::rename_view(),
             ))
             .width(percent(100.0))
@@ -144,22 +148,25 @@ fn root() -> AnyView {
     })
 }
 
-/// The bar across the top, the menus then the workspaces, over a
-/// seam.
+/// The bar across the top, the menus then the workspaces, on a
+/// surface that shades toward its bottom, over a seam.
 fn bar(cx: &Cx) -> impl View {
     let theme = cx.theme();
     let colors = &theme.colors;
     column((
         row((
             menu::view(),
-            frame().width(px(theme.space.gap * 2.0)),
+            frame().width(px(theme.space.section)),
             switcher::view(),
         ))
         .height(px(theme.space.bar))
-        .align(AlignItems::Center)
-        .padding(UiRect::axes(px(theme.space.gap), px(0.0)))
-        .fill(colors.bar),
-        frame().height(px(theme.space.divider)).fill(colors.seam),
+        .align(AlignItems::Stretch)
+        .padding(UiRect::axes(px(theme.space.bar_padding), px(0.0)))
+        .fill(*colors.background)
+        .tagged(Shade),
+        frame()
+            .height(px(theme.space.divider))
+            .fill(*colors.separator),
     ))
     .gap(0.0)
 }

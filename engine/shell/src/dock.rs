@@ -7,16 +7,18 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::lifecycle::{Add, Remove};
 use bevy::ecs::observer::On;
-use bevy::ecs::system::{Commands, Query, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ui::{Overflow, UiRect, px};
 use bevy_fynix::dock::{
     DockPlugin, DockRegistry, DockTree, DockWindowKind,
 };
-use bevy_fynix::views::{FrameProps, column};
+use bevy_fynix::views::{BehaviorExt, FrameProps, column};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{CommandId, PanelId};
 
 use crate::command::{RunCommand, spawn_command};
+use crate::icons::Glyph;
+use crate::style::{ClipInside, Shade};
 use crate::{AnyView, Cx, EngineTheme, View};
 
 /// The name of the engine's plugin list, which the plugins module
@@ -39,21 +41,29 @@ pub struct Panel {
     pub content: fn(Entity) -> AnyView,
 }
 
-/// A panel's content: `view`, inside the panel's padding, cut where
-/// it overflows.
+/// The icon on a panel's tab, beside its [`Panel`].
+#[derive(Component, Clone, Copy, Debug)]
+#[component(immutable)]
+pub struct PanelIcon(pub Glyph);
+
+/// A panel's content: `view`, inside the panel's padding on a
+/// surface that shades toward its bottom, cut at the padding.
 pub fn panel(view: impl View) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
         let (fill, inset) =
-            (theme.colors.background, theme.space.panel);
+            (*theme.colors.background, theme.space.panel);
         cx.build(
             column((view,))
                 .grow(1.0)
                 .min_width(px(0.0))
                 .min_height(px(0.0))
                 .padding(UiRect::all(px(inset)))
+                .gap(0.0)
                 .fill(fill)
-                .overflow(Overflow::clip()),
+                .overflow(Overflow::clip())
+                .tagged(Shade)
+                .tagged(ClipInside),
         )
     })
 }
@@ -84,21 +94,24 @@ pub fn open(tree: &mut DockTree, id: &str) {
 /// to the View menu.
 fn offer(
     added: On<Add, Panel>,
-    panels: Query<&Panel>,
+    panels: Query<(&Panel, Option<&PanelIcon>)>,
+    theme: Res<EngineTheme>,
     mut registry: ResMut<DockRegistry<EngineTheme>>,
     mut commands: Commands,
 ) {
     let entity = added.entity;
-    let Ok(panel) = panels.get(entity) else {
+    let Ok((panel, icon)) = panels.get(entity) else {
         return;
     };
     let content = panel.content;
-    registry.register(
-        panel.id.as_str(),
-        DockWindowKind::new(panel.title.clone(), move || {
+    let mut kind =
+        DockWindowKind::new(panel.title.to_uppercase(), move || {
             content(entity)
-        }),
-    );
+        });
+    if let Some(PanelIcon(which)) = icon {
+        kind = kind.icon(which.image(theme.space.icon));
+    }
+    registry.register(panel.id.as_str(), kind);
     let id = panel.id.clone();
     // Past the longest name, a panel is opened from a tab bar's "+".
     let Ok(command) = CommandId::new(

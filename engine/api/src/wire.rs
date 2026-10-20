@@ -65,7 +65,7 @@ mod tests {
                     "city",
                     0,
                     Widget::Field {
-                        value: "Lisbon".into(),
+                        value: "Thornwick".into(),
                         placeholder: "City".into(),
                     },
                 ),

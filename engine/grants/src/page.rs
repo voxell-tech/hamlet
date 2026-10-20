@@ -11,13 +11,16 @@ use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{FrameProps, column, label, row, segmented};
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, column, frame, label, row,
+};
 use bevy_fynix::{ModifierExt, ViewExt, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{Capability, PanelId, PluginId};
 use hamlet_engine_core::LogLine;
 use hamlet_engine_plugins::PluginInfo;
-use hamlet_engine_shell::{AnyView, SettingsPage};
+use hamlet_engine_shell::style::{Wraps, choices, note, section};
+use hamlet_engine_shell::{AnyView, Cx, SettingsPage};
 
 use crate::file::{Answer, Grants};
 
@@ -53,8 +56,8 @@ fn add(mut commands: Commands) {
 
 fn view(_: Entity) -> AnyView {
     keyed(resource::<Permissions, _>(Clone::clone), |shown| {
-        let by = segmented(
-            ["By plugin", "By capability"],
+        let by = choices(
+            vec!["By plugin".into(), "By capability".into()],
             usize::from(shown.by_capability),
             |world, picked| {
                 world.resource_mut::<Permissions>().by_capability =
@@ -62,19 +65,43 @@ fn view(_: Entity) -> AnyView {
             },
         );
         let body = if shown.plugins.is_empty() {
-            label("No plugin is installed.").tone(Tone::Dim).boxed()
+            note("No plugin is installed.")
         } else if shown.by_capability {
             by_capability(&shown.plugins)
         } else {
             by_plugin(&shown.plugins)
         };
-        column((by, body)).gap(16.0).boxed()
+        groups(vec![by, body])
     })
     .boxed()
 }
 
+/// `parts` one under another, a part of a panel apart.
+fn groups(parts: Vec<AnyView>) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.panel;
+        cx.build(column(parts).gap(gap))
+    })
+}
+
+/// A group's name over its `answers`, with what is said of it.
+fn group(
+    name: String,
+    said: Option<&str>,
+    answers: Vec<AnyView>,
+) -> AnyView {
+    let said = said.map_or_else(|| frame().boxed(), note);
+    AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.gap / 2.0;
+        cx.build(
+            column((section(name), said, column(answers).gap(gap)))
+                .gap(gap),
+        )
+    })
+}
+
 fn by_plugin(plugins: &[Line]) -> AnyView {
-    let groups = plugins
+    let groups_of = plugins
         .iter()
         .map(|line| {
             let state = match (line.allowed, line.answers.is_empty())
@@ -96,16 +123,10 @@ fn by_plugin(plugins: &[Line]) -> AnyView {
                     )
                 })
                 .collect::<Vec<_>>();
-            column((
-                label(line.name.clone()),
-                label(state).tone(Tone::Dim),
-                column(answers).gap(4.0),
-            ))
-            .gap(4.0)
-            .boxed()
+            group(line.name.to_uppercase(), Some(state), answers)
         })
         .collect::<Vec<_>>();
-    column(groups).gap(16.0).boxed()
+    groups(groups_of)
 }
 
 fn by_capability(plugins: &[Line]) -> AnyView {
@@ -118,11 +139,9 @@ fn by_capability(plugins: &[Line]) -> AnyView {
     capabilities.sort();
     capabilities.dedup();
     if capabilities.is_empty() {
-        return label("No plugin asks for anything.")
-            .tone(Tone::Dim)
-            .boxed();
+        return note("No plugin asks for anything.");
     }
-    let groups = capabilities
+    let groups_of = capabilities
         .into_iter()
         .map(|capability| {
             let answers = plugins
@@ -145,15 +164,10 @@ fn by_capability(plugins: &[Line]) -> AnyView {
                         })
                 })
                 .collect::<Vec<_>>();
-            column((
-                label(capability.name()),
-                column(answers).gap(4.0),
-            ))
-            .gap(4.0)
-            .boxed()
+            group(capability.name().to_uppercase(), None, answers)
         })
         .collect::<Vec<_>>();
-    column(groups).gap(16.0).boxed()
+    groups(groups_of)
 }
 
 /// One answer, under `what`, with the three to choose from.
@@ -167,21 +181,24 @@ fn answer_view(
     let (id, target) = (id.clone(), target.to_owned());
     let picked =
         Answer::ALL.iter().position(|a| *a == answer).unwrap_or(1);
-    row((
-        label(what).tone(Tone::Dim).grown(1.0),
-        segmented(
-            Answer::ALL.map(Answer::label),
-            picked,
-            move |world, picked| {
-                if let Some(&answer) = Answer::ALL.get(picked) {
-                    change(world, &id, capability, &target, answer);
-                }
-            },
-        ),
-    ))
-    .gap(8.0)
-    .align(AlignItems::Center)
-    .boxed()
+    let answers = choices(
+        Answer::ALL.map(|answer| answer.label().to_owned()).to_vec(),
+        picked,
+        move |world, picked| {
+            if let Some(&answer) = Answer::ALL.get(picked) {
+                change(world, &id, capability, &target, answer);
+            }
+        },
+    );
+    AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.gap;
+        cx.build(
+            row((label(what).tone(Tone::Dim).grown(1.0), answers))
+                .gap(gap)
+                .align(AlignItems::Center)
+                .tagged(Wraps),
+        )
+    })
 }
 
 fn change(

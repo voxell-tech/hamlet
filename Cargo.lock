@@ -3725,6 +3725,7 @@ dependencies = [
  "hamlet_engine_core",
  "ron",
  "serde",
+ "toml",
 ]
 
 [[package]]

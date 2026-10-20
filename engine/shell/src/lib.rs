@@ -1,13 +1,15 @@
-//! The engine's window: its theme and looks, and what is built in
+//! The engine's window: its theme and styles, and what is built in
 //! it.
 
 pub mod command;
 mod console;
 pub mod dock;
 pub mod fonts;
+pub mod icons;
 mod menu;
 pub mod settings;
 mod status;
+pub mod style;
 mod switcher;
 pub mod theme;
 pub mod widgets;
@@ -19,6 +21,7 @@ use bevy_fynix::{Bevy, FynixPlugin};
 pub use command::{Command, MenuEntry, RunCommand, Shortcut};
 pub use dock::{Panel, panel};
 pub use settings::SettingsPage;
+pub use style::ButtonStyle;
 pub use theme::EngineTheme;
 pub use widgets::tree_view;
 pub use window::window_plugin;
@@ -33,6 +36,8 @@ pub fn plugin(app: &mut App) {
     app.add_plugins((
         FynixPlugin::<EngineTheme>::default(),
         theme::plugin,
+        style::plugin,
+        icons::plugin,
         fonts::plugin,
         window::plugin,
         dock::plugin,
