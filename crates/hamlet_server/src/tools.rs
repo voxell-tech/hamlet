@@ -98,8 +98,7 @@ pub(crate) fn diagnostic(
     }
 }
 
-/// The tools a model is offered, as the TypeScript server offers
-/// them.
+/// The tools a model is offered.
 pub fn specs() -> Vec<ToolSpec> {
     let spec =
         |name: &str, description: String, parameters, replay| {

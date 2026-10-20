@@ -1,5 +1,5 @@
-//! Node's POSIX `path` functions, since the policy compares paths as
-//! text as the TypeScript server does.
+//! POSIX path functions on text, as Node's `path` has them, since the
+//! policy and pi's tools compare paths as text.
 
 use std::path::Path;
 
