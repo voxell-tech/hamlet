@@ -4,8 +4,23 @@
 //! and is answered with an [`AgentsReply`]. A key goes in and never
 //! comes out: no reply holds one.
 
+mod conversation;
+mod needs;
+mod roster;
+
 use serde::{Deserialize, Serialize};
 
+pub use self::conversation::{
+    Change, ChangeLine, Focus, Mark, Papers, Part, Past, Pasts,
+    Related, Selected, Skill,
+};
+pub use self::needs::{
+    Choice, Danger, Need, NeedKind, Offer, Pick, Question, Questions,
+    Sheet,
+};
+pub use self::roster::{
+    ClosedHamlet, Record, Roster, RosterAgent, RosterHamlet, Vote,
+};
 use crate::capability::Capability;
 
 /// The target of every agents capability: the agents run on this
@@ -125,8 +140,9 @@ pub enum AgentsRequest {
 
     /// The sessions loaded: [`AgentsReply::Sessions`].
     Sessions,
-    /// Opens the chief's session with `Recipient` and makes it the
-    /// one the status tells of: [`AgentsReply::Session`].
+    /// Opens the chief's session with `Recipient`, the open
+    /// conversation of the focus and the one the status tells of,
+    /// and selects its agent: [`AgentsReply::Session`].
     Open(Recipient),
     /// The last `most` messages of a session, after the message
     /// `after`: [`AgentsReply::Messages`].
@@ -134,6 +150,84 @@ pub enum AgentsRequest {
         session: SessionName,
         after: Option<u64>,
         most: u32,
+    },
+
+    /// The window's focus: [`AgentsReply::Focus`].
+    Focus,
+    /// Selects a thing. A living agent selected is talked to, as
+    /// `Open` does.
+    Select(Selected),
+    /// The sessions shown in the chat of the open conversation's
+    /// agent, the open one first: [`AgentsReply::Related`].
+    Related,
+    /// Takes a session back to just before its message `entry`:
+    /// [`AgentsEvent::Rewound`] once it is.
+    Rewind {
+        session: SessionName,
+        entry: u64,
+    },
+    /// Gives a chief's command to the hamlet `hamlet`: in the open
+    /// conversation when it is with that hamlet, to its mayor
+    /// otherwise, with the answers told in the open conversation.
+    Decree {
+        hamlet: String,
+        text: String,
+    },
+    /// What the agent of the open conversation keeps in its house:
+    /// [`AgentsReply::Papers`].
+    Papers,
+    /// The prompt the agent of the open conversation is given now:
+    /// [`AgentsReply::Prompt`].
+    Prompt,
+    /// Gives the agent of the open conversation a character file if
+    /// it has none, and opens it in the system's editor.
+    EditCharacter,
+    /// The library's skills: [`AgentsReply::Skills`].
+    Skills,
+    /// The past sessions of the open conversation's agent with every
+    /// word of `query`: [`AgentsReply::Pasts`].
+    Pasts {
+        query: String,
+    },
+    /// The messages of a past session, by its name:
+    /// [`AgentsReply::Messages`].
+    ReadPast(String),
+    /// Deletes an archived session for good.
+    DeletePast(String),
+    /// The agents and the hamlets: [`AgentsReply::Roster`].
+    Roster,
+    /// A hamlet's record, by its name: [`AgentsReply::Record`].
+    Record(String),
+    /// What waits for the chief: [`AgentsReply::Needs`].
+    Needs,
+    /// Answers something that waits, with a reason or a reply.
+    Answer {
+        need: u64,
+        choice: Choice,
+        text: String,
+    },
+    /// Picks an answer to one question of something that waits, or
+    /// takes it back with none. An option picked shows the next
+    /// question.
+    Pick {
+        need: u64,
+        question: u32,
+        pick: Option<Pick>,
+    },
+    /// Shows the question `to` of something that waits.
+    Turn {
+        need: u64,
+        to: u32,
+    },
+    /// Sends the answers picked for something that waits once each
+    /// question has one, and shows the first without one otherwise.
+    Submit(u64),
+    /// Has a living agent run `model`, `endpoint::model`, from now
+    /// on: the mayor's is pinned, another's is chosen as its mayor
+    /// would.
+    RunModel {
+        agent: String,
+        model: String,
     },
 }
 
@@ -177,6 +271,26 @@ impl AgentsRequest {
             | Self::Sessions
             | Self::Open(_)
             | Self::Messages { .. } => Capability::AgentsRead,
+            Self::Rewind { .. }
+            | Self::Decree { .. }
+            | Self::EditCharacter
+            | Self::DeletePast(_)
+            | Self::Answer { .. }
+            | Self::Pick { .. }
+            | Self::Turn { .. }
+            | Self::Submit(_)
+            | Self::RunModel { .. } => Capability::AgentsChief,
+            Self::Focus
+            | Self::Select(_)
+            | Self::Related
+            | Self::Papers
+            | Self::Prompt
+            | Self::Skills
+            | Self::Pasts { .. }
+            | Self::ReadPast(_)
+            | Self::Roster
+            | Self::Record(_)
+            | Self::Needs => Capability::AgentsRead,
         }
     }
 }
@@ -198,6 +312,15 @@ pub enum AgentsReply {
     Session(Session),
     Messages(Vec<SessionMessage>),
     Event(AgentsEvent),
+    Focus(Focus),
+    Related(Vec<Related>),
+    Papers(Papers),
+    Prompt(String),
+    Skills(Vec<Skill>),
+    Pasts(Pasts),
+    Roster(Roster),
+    Record(Record),
+    Needs(Vec<Need>),
 }
 
 /// A change, sent to each plugin that watches.
@@ -225,6 +348,23 @@ pub enum AgentsEvent {
         session: SessionName,
         working: bool,
     },
+    Focus(Focus),
+    /// Messages of a session that came or changed as it worked.
+    /// `again` when it was read afresh, as after a rewind or a new
+    /// session: what was had of it is gone, to be asked for again.
+    Said {
+        session: SessionName,
+        messages: Vec<SessionMessage>,
+        again: bool,
+    },
+    /// A session was taken back to before the message `text`.
+    Rewound {
+        session: SessionName,
+        text: String,
+    },
+    Skills(Vec<Skill>),
+    Roster(Roster),
+    Needs(Vec<Need>),
 }
 
 /// The settings of the agents, with no key.
@@ -465,6 +605,10 @@ pub struct Session {
     pub usage: String,
     /// The id of its last message.
     pub last: Option<u64>,
+    /// The time the session in it began, in milliseconds since 1970.
+    pub began: u64,
+    /// Whoever it is with has something to answer.
+    pub answering: bool,
 }
 
 /// A message of a session, with its id and its time in milliseconds
@@ -474,6 +618,10 @@ pub struct SessionMessage {
     pub id: u64,
     pub at: u64,
     pub entry: Entry,
+    /// Another agent's own work, done while it was asked.
+    pub another: bool,
+    /// An agent's reply to a letter, said back as a user.
+    pub reply: bool,
 }
 
 /// One thing said or done in a session.
@@ -488,7 +636,11 @@ pub enum Entry {
     Tool {
         name: String,
         summary: String,
+        /// The shell command, or the arguments when it runs none.
+        command: String,
         exit: Option<i32>,
+        /// The change it asks for, when it is an edit.
+        change: Option<Change>,
     },
     Error(String),
     Notice(String),

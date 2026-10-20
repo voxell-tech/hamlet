@@ -6,6 +6,12 @@
 //! sign-ins never leave it.
 
 mod answer;
+mod archive;
+mod conversation;
+mod focus;
+mod model_choice;
+mod needs;
+mod roster;
 mod setup;
 mod views;
 mod watch;
@@ -24,6 +30,7 @@ use hamlet_core::agents::{self, WatchEvery};
 use hamlet_core::core::{CorePlugin, Settings, TestConnection};
 use hamlet_core::oversight::OversightPlugin;
 use hamlet_core::session::{self, SessionKey, SessionPlugin};
+use hamlet_engine_api::agents::{Recipient, Selected};
 use hamlet_engine_core::home::KEYCHAIN_SERVICE;
 use hamlet_engine_core::{Home, LogLine};
 use hamlet_home::limits;
@@ -45,6 +52,12 @@ pub fn plugin(app: &mut App) {
     match start(app) {
         Ok(()) => {
             app.add_plugins((setup::plugin, watch::plugin))
+                .add_plugins((
+                    focus::plugin,
+                    conversation::plugin,
+                    roster::plugin,
+                    needs::plugin,
+                ))
                 .add_systems(Startup, first_test);
         }
         Err(why) => {
@@ -64,12 +77,15 @@ struct AgentsRuntime(
 #[derive(Resource)]
 struct Unavailable(String);
 
-/// The chief who speaks through the engine, and the session the
-/// status tells of.
+/// The chief who speaks through the engine, and the window's focus:
+/// the open session, which the status tells of, who it is with, and
+/// the thing selected.
 #[derive(Resource)]
 pub struct Chief {
     pub name: String,
     pub session: Entity,
+    pub with: Recipient,
+    pub selected: Selected,
 }
 
 /// Opens the agents' home in the engine's, and runs the agent core
@@ -113,7 +129,12 @@ fn start(app: &mut App) -> Result<(), String> {
     if let Some(mayor) = agents::mayor(world) {
         session::gather(world, mayor);
     }
-    app.insert_resource(Chief { name, session });
+    app.insert_resource(Chief {
+        name,
+        session,
+        with: Recipient::Mayor(HOME.into()),
+        selected: Selected::Nothing,
+    });
     Ok(())
 }
 

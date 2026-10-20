@@ -12,7 +12,7 @@ use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, With};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
 use bevy::ecs::system::{Local, Query, Res, ResMut, SystemParam};
 use hamlet_core::agents::{Charter as Limits, Settlement};
 use hamlet_core::catalogue::ModelCatalogue;
@@ -39,8 +39,14 @@ const LOOK: Duration = Duration::from_secs(2);
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Watchers>()
         .add_observer(heard)
-        .add_systems(PostUpdate, send_events.after(take));
+        .configure_sets(PostUpdate, Gather.after(take))
+        .add_systems(PostUpdate, send_events.after(Gather));
 }
+
+/// The systems that keep changes for the watchers, before they are
+/// sent.
+#[derive(SystemSet, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct Gather;
 
 /// The plugins that watch, each by the ticket of its `Watch`, and
 /// the changes not yet sent to them.
@@ -57,10 +63,15 @@ impl Watchers {
         self.watching.push((plugin, ticket));
     }
 
+    /// Some plugin watches.
+    pub(crate) fn watched(&self) -> bool {
+        !self.watching.is_empty()
+    }
+
     /// Keeps `event` to send, joined to the one before when both are
     /// words of one kind of one session, so a reply streamed word by
     /// word goes in one event a frame.
-    fn tell(&mut self, event: AgentsEvent) {
+    pub(crate) fn tell(&mut self, event: AgentsEvent) {
         if let AgentsEvent::Output { session, output } = &event
             && let Some(AgentsEvent::Output {
                 session: before,

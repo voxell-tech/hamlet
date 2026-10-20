@@ -13,9 +13,7 @@ use hamlet_core::core::{
 };
 use hamlet_core::oversight::grants::Grants as Held;
 use hamlet_core::oversight::{Revoke, Veto};
-use hamlet_core::session::{
-    self, SessionKey, Transcript, UserMessage,
-};
+use hamlet_core::session::{SessionKey, Transcript, UserMessage};
 use hamlet_engine_api::agents::{
     AgentsReply, AgentsRequest, LOCAL, Recipient, SignInTo, Stage,
 };
@@ -32,6 +30,12 @@ use hamlet_model::config::Config;
 use hamlet_model::config::providers::{LOCAL as SERVERS, served};
 use hamlet_rules::hamlet::HOME;
 
+use crate::archive::ArchiveWorldExt;
+use crate::conversation::ConversationWorldExt;
+use crate::focus::FocusWorldExt;
+use crate::model_choice::ModelChoiceWorldExt;
+use crate::needs::NeedsWorldExt;
+use crate::roster::RosterWorldExt;
 use crate::setup::{AgentsConfigExt, SetupState};
 use crate::watch::Watchers;
 use crate::{CHANNEL, Chief, Unavailable, views};
@@ -455,27 +459,10 @@ impl AgentsWorldExt for World {
             AgentsRequest::Sessions => {
                 Ok(AgentsReply::Sessions(views::sessions(self)))
             }
-            AgentsRequest::Open(to) => {
-                let key = self.chief_key(&to);
-                let session = session::ensure(self, &key);
-                let agent = match &to {
-                    Recipient::Agent(name) => {
-                        agents::named(self, name)
-                    }
-                    Recipient::Mayor(hamlet) => {
-                        agents::mayor_of(self, hamlet)
-                    }
-                };
-                // Its letters to and from other agents are part of
-                // its session.
-                if let Some(agent) = agent {
-                    session::gather(self, agent);
-                }
-                self.resource_mut::<Chief>().session = session;
-                views::session(self, session)
-                    .map(AgentsReply::Session)
-                    .ok_or(Failure::NotFound)
-            }
+            AgentsRequest::Open(to) => self
+                .open(to)
+                .map(AgentsReply::Session)
+                .ok_or(Failure::NotFound),
             AgentsRequest::Messages {
                 session,
                 after,
@@ -491,6 +478,71 @@ impl AgentsWorldExt for World {
                     });
                 said.map(AgentsReply::Messages)
                     .ok_or(Failure::NotFound)
+            }
+            AgentsRequest::Focus => self
+                .focus()
+                .map(AgentsReply::Focus)
+                .ok_or(Failure::NotFound),
+            AgentsRequest::Select(thing) => {
+                self.select(thing);
+                done
+            }
+            AgentsRequest::Related => {
+                Ok(AgentsReply::Related(self.related()))
+            }
+            AgentsRequest::Rewind { session, entry } => {
+                self.rewind(&session, entry).and(done)
+            }
+            AgentsRequest::Decree { hamlet, text } => {
+                self.decree(&hamlet, text);
+                done
+            }
+            AgentsRequest::Papers => {
+                Ok(AgentsReply::Papers(self.papers()))
+            }
+            AgentsRequest::Prompt => {
+                self.prompt().map(AgentsReply::Prompt)
+            }
+            AgentsRequest::EditCharacter => {
+                self.edit_character().and(done)
+            }
+            AgentsRequest::Skills => {
+                Ok(AgentsReply::Skills(self.skills()))
+            }
+            AgentsRequest::Pasts { query } => {
+                Ok(AgentsReply::Pasts(self.pasts(&query)))
+            }
+            AgentsRequest::ReadPast(name) => {
+                self.read_past(&name).map(AgentsReply::Messages)
+            }
+            AgentsRequest::DeletePast(name) => {
+                self.delete_past(&name).and(done)
+            }
+            AgentsRequest::Roster => {
+                Ok(AgentsReply::Roster(self.roster()))
+            }
+            AgentsRequest::Record(hamlet) => {
+                self.record(&hamlet).map(AgentsReply::Record)
+            }
+            AgentsRequest::Needs => {
+                Ok(AgentsReply::Needs(self.needs()))
+            }
+            AgentsRequest::Answer { need, choice, text } => {
+                self.answer(need, choice, text).and(done)
+            }
+            AgentsRequest::Pick {
+                need,
+                question,
+                pick,
+            } => self.pick(need, question, pick).and(done),
+            AgentsRequest::Turn { need, to } => {
+                self.turn(need, to).and(done)
+            }
+            AgentsRequest::Submit(need) => {
+                self.submit(need).and(done)
+            }
+            AgentsRequest::RunModel { agent, model } => {
+                self.run_model(&agent, &model).and(done)
             }
         }
     }
