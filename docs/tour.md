@@ -136,6 +136,8 @@ Paths are under the crate's folder in the table above.
 | What engine plugins share | `engine/assets/` (assets), `engine/bus/` (services and events), `engine/net/` (fetches) |
 | What plugins may ask of the agents | `engine/api/src/agents.rs`, answered in `engine/agents/src/answer.rs`; [`engine.md`](engine.md#the-agents) |
 | What a plugin is told when the agents change | `engine/agents/src/watch.rs` |
+| Keeping the machine awake, opening an address or a file for a plugin, the address under the pointer, a second launch | `engine/desktop/`; what plugins may ask in `engine/api/src/desktop.rs`; [`engine.md`](engine.md#the-desktop) |
+| Run in Background and the window coming back | `engine/shell/src/window.rs`; the second launch in `engine/desktop/src/launch.rs` |
 | What a plugin and the engine say to each other | `engine/wit/hamlet_engine.wit`, the types in `engine/api/` |
 | Writing or testing an engine plugin | `engine/sdk/`, `engine/samples/`, `engine/harness/` and `plugin_check`; [`engine.md`](engine.md) |
 | A plugin that comes with Hamlet | A crate in `plugins/`, built by `scripts/build_plugins.sh`; where the engine finds them in `engine/core/src/bundle.rs`; [`engine.md`](engine.md#bundled-plugins) |

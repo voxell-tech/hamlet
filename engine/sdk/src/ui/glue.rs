@@ -128,6 +128,9 @@ pub fn input(events: Vec<UiEvent>) -> bool {
                 }
             };
             panels.world.nodes.enter(event.key, states, on);
+            if states == States::HOVER {
+                panels.world.point(event.key, on);
+            }
             for shown in panels.mounted.values_mut() {
                 shown.mounted.mark_dirty(event.key);
             }

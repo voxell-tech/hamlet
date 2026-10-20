@@ -36,7 +36,7 @@ pub use settings::{SettingsFooter, SettingsPage};
 pub use status::StatusItem;
 pub use style::{ButtonStyle, StyleExt};
 pub use theme::EngineTheme;
-pub use window::window_plugin;
+pub use window::{ShowWindow, window_plugin};
 pub use workspace::{DockTreeExt, SuggestedWorkspace};
 
 use crate::menu::{MenuBar, OpenMenu};

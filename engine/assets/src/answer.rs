@@ -29,7 +29,8 @@ const LONGEST_NAME: usize = 256;
 /// What became of a request.
 #[derive(Debug, PartialEq)]
 pub enum Outcome {
-    Done(Result<Reply, Failure>),
+    /// Boxed, as a reply can be far larger than the rest.
+    Done(Box<Result<Reply, Failure>>),
     /// The person is to be asked about reading this type first.
     Asking(TypeName),
 }
@@ -58,9 +59,9 @@ impl Rules<'_> {
             }
             Request::ReadAsset(id) | Request::HoldAsset(id) => {
                 let Some(info) = store.get(*id).cloned() else {
-                    return Some(Outcome::Done(Err(
+                    return Some(Outcome::Done(Box::new(Err(
                         Failure::NotFound,
-                    )));
+                    ))));
                 };
                 let hold = matches!(request, Request::HoldAsset(_));
                 match self.may_read(plugin, &info.kind.name, allowed)
@@ -80,7 +81,8 @@ impl Rules<'_> {
             | Request::Subscribe(_)
             | Request::Emit { .. }
             | Request::Fetch(_)
-            | Request::Agents(_) => return None,
+            | Request::Agents(_)
+            | Request::Desktop(_) => return None,
             Request::UpdateAsset { id, bytes } => self
                 .own(store, plugin, *id)
                 .and_then(|()| self.fits(bytes))
@@ -93,7 +95,11 @@ impl Rules<'_> {
             Request::ListAssets(kind) => {
                 let kind = match type_name(kind) {
                     Ok(kind) => kind,
-                    Err(why) => return Some(Outcome::Done(Err(why))),
+                    Err(why) => {
+                        return Some(Outcome::Done(Box::new(Err(
+                            why,
+                        ))));
+                    }
                 };
                 match self.may_read(plugin, &kind, allowed) {
                     Ok(true) => Ok(Reply::Listed(
@@ -104,7 +110,7 @@ impl Rules<'_> {
                 }
             }
         };
-        Some(Outcome::Done(done))
+        Some(Outcome::Done(Box::new(done)))
     }
 
     fn create(
@@ -329,7 +335,8 @@ pub(crate) fn answer(
             &request.request,
             allowed,
         ) {
-            Some(Outcome::Done(mut reply)) => {
+            Some(Outcome::Done(reply)) => {
+                let mut reply = *reply;
                 let depth = request.depth;
                 match (&request.request, &reply) {
                     (Request::HoldAsset(id), Ok(_))

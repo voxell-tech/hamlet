@@ -1,12 +1,15 @@
 //! Markdown as the engine's labels can set it: headings, paragraphs,
 //! items, quotes, code and rules, one label each. What a label cannot
 //! show inside a line (emphasis, code, a link's address) is left out
-//! and its words kept.
+//! and its words kept. Each `https` link is a button under the text
+//! that opens it.
 
+use hamlet_engine_sdk::api::desktop::WEB;
 use hamlet_engine_sdk::ui::{
-    AnyView, FrameProps, Size, Space, Tone, ViewExt, column, divider,
-    label, row,
+    AnyView, ButtonStyle, FrameProps, Size, Space, Tone, UiExt,
+    ViewExt, button, column, divider, label, row,
 };
+use hamlet_engine_sdk::{DesktopRequest, desktop};
 
 /// One block of a text.
 #[derive(Clone, PartialEq, Debug)]
@@ -53,8 +56,49 @@ pub fn markdown(text: &str, tone: Tone) -> AnyView {
             }
             Block::Rule => divider().boxed(),
         })
+        .chain(links(text).into_iter().map(|(words, address)| {
+            let open = address.clone();
+            button(words)
+                .style(ButtonStyle::Quiet)
+                .on_click(move |_| {
+                    desktop(&DesktopRequest::Open(open.clone()));
+                })
+                .leads_to(address)
+                .boxed()
+        }))
         .collect::<Vec<_>>();
     column(views).space(Space::Half).boxed()
+}
+
+/// The words and address of each `https` link of `text`, pictures
+/// left out.
+fn links(text: &str) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        let picture = rest[..open].ends_with('!');
+        rest = &rest[open + 1..];
+        let Some((words, more)) = rest.split_once("](") else {
+            continue;
+        };
+        let Some((address, after)) = more.split_once(')') else {
+            continue;
+        };
+        if words.contains(['[', '\n']) {
+            continue;
+        }
+        rest = after;
+        // An address may be followed by its title.
+        let address = address.split_whitespace().next().unwrap_or("");
+        let https =
+            address.split_once("://").is_some_and(|(scheme, _)| {
+                scheme.eq_ignore_ascii_case(WEB)
+            });
+        if !picture && https {
+            found.push((inline(words), address.to_owned()));
+        }
+    }
+    found
 }
 
 /// The blocks of `text`.

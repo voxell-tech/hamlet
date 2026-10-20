@@ -36,8 +36,9 @@ pub enum Contribution {
         layout: Layout,
     },
     /// An item of the status line, after those that came before it,
-    /// hidden until the plugin gives it words.
-    StatusItem { name: String },
+    /// hidden until the plugin gives it words. One that grows takes
+    /// the room left on the line, words or none, and clips its words.
+    StatusItem { name: String, grow: bool },
     /// A card over the dock, on a backdrop that takes every press,
     /// shown while the plugin says so. Its view is built as a
     /// panel's is.

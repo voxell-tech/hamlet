@@ -6,6 +6,7 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 
 use fynix::Signal;
+use hamlet_engine_api::DesktopRequest;
 
 use super::Key;
 use super::nodes::Nodes;
@@ -30,6 +31,11 @@ struct Held {
 pub struct World {
     pub(crate) nodes: Nodes,
     pub(crate) handlers: HashMap<Key, Handler>,
+    /// The address each node leads to, told of while the pointer is
+    /// over it.
+    pub(crate) addresses: HashMap<Key, String>,
+    /// The node whose address was told of last.
+    pub(crate) pointed: Option<Key>,
     resources: HashMap<TypeId, Held>,
 }
 
@@ -99,6 +105,24 @@ impl World {
     pub(crate) fn despawn(&mut self, key: Key) {
         for key in self.nodes.despawn(key) {
             self.handlers.remove(&key);
+            self.addresses.remove(&key);
+            if self.pointed == Some(key) {
+                self.point(key, false);
+            }
+        }
+    }
+
+    /// Tells the desktop service of the address of `key` as the
+    /// pointer comes onto it, and that there is none as it leaves.
+    pub(crate) fn point(&mut self, key: Key, on: bool) {
+        if on && let Some(address) = self.addresses.get(&key) {
+            self.pointed = Some(key);
+            crate::desktop(&DesktopRequest::Hover(Some(
+                address.clone(),
+            )));
+        } else if !on && self.pointed == Some(key) {
+            self.pointed = None;
+            crate::desktop(&DesktopRequest::Hover(None));
         }
     }
 

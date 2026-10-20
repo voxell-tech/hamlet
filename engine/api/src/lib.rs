@@ -5,6 +5,7 @@ pub mod agents;
 pub mod asset;
 pub mod capability;
 pub mod contribution;
+pub mod desktop;
 pub mod event;
 pub mod id;
 pub mod layout;
@@ -20,6 +21,7 @@ pub use asset::{
 };
 pub use capability::{Ask, Capability};
 pub use contribution::Contribution;
+pub use desktop::{DesktopEvent, DesktopReply, DesktopRequest};
 pub use event::{EventHeard, EventSent, Events};
 pub use id::{
     CommandId, EventId, IdError, PanelId, PluginId, ServiceId,

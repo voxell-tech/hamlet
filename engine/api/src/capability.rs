@@ -43,6 +43,15 @@ pub enum Capability {
     /// read back.
     #[serde(rename = "agents.keys")]
     AgentsKeys,
+    /// Opening an `https` address, the target
+    /// [`WEB`](crate::desktop::WEB), or a file under one folder, the
+    /// target.
+    #[serde(rename = "desktop.open")]
+    DesktopOpen,
+    /// Changing the desktop's settings, on
+    /// [`LOCAL`](crate::agents::LOCAL).
+    #[serde(rename = "desktop.settings")]
+    DesktopSettings,
 }
 
 impl Capability {
@@ -56,6 +65,8 @@ impl Capability {
             Self::AgentsChief => "agents.chief",
             Self::AgentsSettings => "agents.settings",
             Self::AgentsKeys => "agents.keys",
+            Self::DesktopOpen => "desktop.open",
+            Self::DesktopSettings => "desktop.settings",
         }
     }
 }

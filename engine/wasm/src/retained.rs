@@ -1130,6 +1130,7 @@ impl WasmWorldExt for World {
                         text: item.text,
                         tone: item.tone.into(),
                         tip: item.tip,
+                        grow: shown.grow,
                     };
                     if *shown != now {
                         *shown = now;

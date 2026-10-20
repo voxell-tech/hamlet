@@ -30,7 +30,8 @@ pub(crate) fn plugin(app: &mut App) {
 }
 
 /// An item of the status line: an icon and words in a tone, and words
-/// shown while the pointer rests on it. One with no words is hidden.
+/// shown while the pointer rests on it. One with no words is hidden,
+/// unless it grows.
 #[derive(Component, Clone, PartialEq, Debug)]
 pub struct StatusItem {
     pub id: PanelId,
@@ -38,17 +39,20 @@ pub struct StatusItem {
     pub text: String,
     pub tone: Tone,
     pub tip: String,
+    /// It takes the room left on the line, and clips its words.
+    pub grow: bool,
 }
 
 impl StatusItem {
     /// The item `id`, with nothing to show yet.
-    pub fn new(id: PanelId) -> Self {
+    pub fn new(id: PanelId, grow: bool) -> Self {
         Self {
             id,
             icon: None,
             text: String::new(),
             tone: Tone::Dim,
             tip: String::new(),
+            grow,
         }
     }
 }
@@ -110,6 +114,15 @@ pub fn view() -> AnyView {
                                 shown.text.clone(),
                                 shown.tone,
                             );
+                            let item = if shown.grow {
+                                row((item,))
+                                    .grow(1.0)
+                                    .min_width(px(0.0))
+                                    .overflow(Overflow::clip())
+                                    .boxed()
+                            } else {
+                                item
+                            };
                             if tip.is_empty() {
                                 return item;
                             }
@@ -127,6 +140,7 @@ pub fn view() -> AnyView {
                     ]);
                     row(items)
                         .gap(gap)
+                        .grow(1.0)
                         .align(AlignItems::Center)
                         .min_width(px(0.0))
                         .overflow(Overflow::clip())
@@ -200,7 +214,7 @@ fn follow(
     }
     let mut shown = items
         .iter()
-        .filter(|(item, _)| !item.text.trim().is_empty())
+        .filter(|(item, _)| item.grow || !item.text.trim().is_empty())
         .collect::<Vec<_>>();
     shown.sort_by_key(|(_, order)| order.0);
     let now = StatusLine {
