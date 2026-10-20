@@ -90,8 +90,8 @@ separate: a complete delivered file is not undone by stopping its turn.
 Settings chooses a workspace URL and token for the next server start.
 The running server keeps its startup-selected connection; an environment
 override can select it for one run. Remote execution never falls back to
-host files or commands. The server skips its local sandbox probe only
-when a remote workspace is selected.
+host files or commands, so hand-added tools are refused there. The server
+skips its local sandbox probe only when a remote workspace is selected.
 
 `workspace.rs` sends authenticated workspace-v1 requests with the agent,
 project, network and read-only policy. Tools see virtual `/house` and

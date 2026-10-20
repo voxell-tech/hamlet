@@ -928,6 +928,44 @@ async fn remote_uncertainty_and_host_paths_are_refused_without_fallback_or_retry
 }
 
 #[tokio::test]
+async fn remote_hand_tools_are_refused_without_running_on_the_host() {
+    let manager = Manager::start();
+    let home = Scratch::new("remote-hand");
+    let side = Scratch::new("remote-hand-script");
+    let canary = side.join("ran");
+    let tool = home.join("tools/mark");
+    fs::create_dir_all(&tool).unwrap();
+    fs::write(
+        tool.join("manifest.json"),
+        json!({"name":"mark","exec":["touch", canary],"sandbox":{"fs_rw":[side.to_path_buf()]}})
+            .to_string(),
+    )
+    .unwrap();
+    let script = side.join("faux.json");
+    Script::new()
+        .responses([call("mark", json!({})), words("Hand finished")])
+        .write(&script);
+    let mut server = Server::start_with_script(
+        &home,
+        &[
+            ("HAMLET_WORKSPACE_URL", &manager.url),
+            ("HAMLET_WORKSPACE_TOKEN", TOKEN),
+            ("HAMLET_REFLECT_EVERY", "0"),
+        ],
+        Some(&script),
+    );
+    let (mut socket, _) = server.connect().await;
+    send(&mut socket,json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"Use the hand tool"})).await;
+    let shown = transcript(&mut socket, "mayor", "Hand finished")
+        .await
+        .to_string();
+    assert!(shown.contains("remote workspace"), "{shown}");
+    assert!(!canary.exists());
+    server.signal(libc::SIGTERM);
+    assert_eq!(server.exit().await, 0);
+}
+
+#[tokio::test]
 async fn remote_agents_give_merge_split_and_publish_their_skill() {
     let manager = Manager::start();
     let home = Scratch::new("remote-society");

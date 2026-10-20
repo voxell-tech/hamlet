@@ -337,9 +337,7 @@ pub async fn run(
 
 pub(crate) async fn run_remote(
     remote: &crate::workspace::Remote,
-    sandbox: &Sandbox,
     place: &Place,
-    net: bool,
     secrets: &[String],
     tool: &str,
     arguments: &Map<String, Value>,
@@ -357,17 +355,12 @@ pub(crate) async fn run_remote(
             )
             .await
         }
-        _ => {
-            crate::hand::run(
-                sandbox,
-                &place.home,
-                net,
-                secrets,
-                tool,
-                arguments,
-            )
-            .await
-        }
+        // Hand tools run on the host, which a remote workspace never
+        // falls back to.
+        _ => Outcome::failed(format!(
+            "The tool {tool} was added by hand and does not run in \
+             a remote workspace."
+        )),
     };
     scrub(secrets, &mut outcome);
     outcome

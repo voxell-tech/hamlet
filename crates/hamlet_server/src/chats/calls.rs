@@ -1105,8 +1105,7 @@ async fn operation(
     let abort = service.chats.tools.spawn(async move {
         let mut outcome = if let Some(remote) = &remote {
             tools::run_remote(
-                remote, &sandbox, &place, net, &secrets, &name,
-                &arguments,
+                remote, &place, &secrets, &name, &arguments,
             )
             .await
         } else {
